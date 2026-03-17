@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    font-family: 'Courier New', 'Courier', monospace;
+    background: #0a1e1b;
+    color: #eafaf4;
+    font-size: 12px;
+    overflow: hidden;
+  }
+
+  input,
+  textarea,
+  button,
+  select {
+    font-family: 'Courier New', 'Courier', monospace;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(77, 232, 180, 0.26);
+    border-radius: 2px;
+  }
+}
