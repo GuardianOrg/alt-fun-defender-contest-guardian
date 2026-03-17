@@ -18,12 +18,12 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
 
   return (
     <div>
-      <div className="text-[10px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">step 3</div>
+      <div className="text-[11px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">step 3</div>
       <div className="font-display text-xl font-semibold text-txt tracking-[0.03em] mb-1">
         Seed buy{' '}
         <span className="text-sm font-normal text-txt-3">(optional)</span>
       </div>
-      <div className="text-[12px] text-txt-3 mb-4">
+      <div className="text-[13px] text-txt-3 mb-4">
         Buy tokens before anyone else. Sets the opening price.
       </div>
 
@@ -58,8 +58,8 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
                 setActivePct(opt.pct);
               }}
             >
-              <div className="text-[12px] font-semibold text-txt">{opt.pct}%</div>
-              <div className="text-[10px] text-txt-3 mt-[2px]">${opt.usd.toLocaleString()}</div>
+              <div className="text-[13px] font-semibold text-txt">{opt.pct}%</div>
+              <div className="text-[11px] text-txt-3 mt-[2px]">${opt.usd.toLocaleString()}</div>
             </button>
           ))}
         </div>
@@ -71,7 +71,7 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
             { label: 'curve filled', value: curveStr, cls: '' },
           ].map((s) => (
             <div key={s.label} className="bg-bg-3 rounded-[3px] px-2.5 py-2">
-              <div className="text-[10px] text-txt-3 tracking-[0.04em]">{s.label}</div>
+              <div className="text-[11px] text-txt-3 tracking-[0.04em]">{s.label}</div>
               <div className={cn('text-sm font-semibold text-txt mt-[3px]', s.cls)}>
                 {s.value}
               </div>

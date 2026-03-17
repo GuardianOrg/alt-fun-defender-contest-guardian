@@ -70,17 +70,17 @@ export default function ProgressBar({
 
       {label && (
         <div className="flex items-center gap-1.5 mt-1">
-          <span className="text-[12px] font-semibold text-txt-2">{label}</span>
+          <span className="text-[13px] font-semibold text-txt-2">{label}</span>
         </div>
       )}
 
       {showLegend && (
         <div className="flex gap-4 mt-2">
-          <div className="flex items-center gap-1.5 text-[10px] text-txt-3">
+          <div className="flex items-center gap-1.5 text-[11px] text-txt-3">
             <div className="w-2 h-2 rounded-full bg-mint-dim bar-glow-mint shrink-0" />
             buy pressure{buyUsd && ` · ${buyUsd}`}
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-txt-3">
+          <div className="flex items-center gap-1.5 text-[11px] text-txt-3">
             <div
               className={cn(
                 'w-2 h-2 rounded-full shrink-0',
@@ -94,7 +94,7 @@ export default function ProgressBar({
 
       {tooltip && leveragePercent > 0 && (
         <div
-          className="fixed z-[999] pointer-events-none bg-bg-2 border border-border-2 rounded px-3 py-2 text-[10px] whitespace-nowrap font-mono shadow-panel"
+          className="fixed z-[999] pointer-events-none bg-bg-2 border border-border-2 rounded px-3 py-2 text-[11px] whitespace-nowrap font-mono shadow-panel"
           style={{ left: Math.min(tipPos.x, window.innerWidth - 200), top: tipPos.y }}
         >
           <div className="flex items-center gap-2 mb-1">

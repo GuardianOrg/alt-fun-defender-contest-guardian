@@ -70,7 +70,7 @@ export default function TokenRow({ token }: Props) {
         </div>
         <span
           className={cn(
-            'text-[10px] font-mono truncate',
+            'text-[11px] font-mono truncate',
             isShort ? 'text-red/40' : 'text-mint/40',
           )}
         >
@@ -99,7 +99,7 @@ export default function TokenRow({ token }: Props) {
           isShort={isShort}
           isGraduating={isGraduating}
         />
-        <span className="font-mono text-[10px] text-txt-3 truncate tabular-nums">
+        <span className="font-mono text-[11px] text-txt-3 truncate tabular-nums">
           {isGraduated ? (
             <span className="text-mint/70">100% graduated</span>
           ) : (

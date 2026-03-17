@@ -12,7 +12,7 @@ export default function Sidebar() {
     <div className="w-[200px] shrink-0 border-r border-border flex flex-col bg-bg-1 overflow-y-auto">
       {/* Asset prices */}
       <div className="border-b border-border">
-        <div className="text-[10px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
+        <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
           MARKETS
         </div>
         {assets?.map((a, i) => (
@@ -23,12 +23,12 @@ export default function Sidebar() {
               i < (assets.length - 1) && 'border-b border-border',
             )}
           >
-            <div className="text-[12px] font-semibold text-txt">{a.name}</div>
+            <div className="text-[13px] font-semibold text-txt">{a.name}</div>
             <div className="text-right">
-              <div className="text-[12px] font-medium text-txt tabular-nums">{a.priceUsd}</div>
+              <div className="text-[13px] font-medium text-txt tabular-nums">{a.priceUsd}</div>
               <div
                 className={cn(
-                  'text-[10px] font-semibold tabular-nums',
+                  'text-[11px] font-semibold tabular-nums',
                   a.change24h >= 0 ? 'text-mint' : 'text-red',
                 )}
               >
@@ -43,7 +43,7 @@ export default function Sidebar() {
       {/* Platform stats */}
       {stats && (
         <div className="border-b border-border">
-          <div className="text-[10px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
+          <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
             PLATFORM STATS
           </div>
           {[
@@ -55,7 +55,7 @@ export default function Sidebar() {
           ].map((s) => (
             <div
               key={s.label}
-              className="flex items-center justify-between px-3 py-1.5 border-b border-border text-[12px] last:border-b-0"
+              className="flex items-center justify-between px-3 py-1.5 border-b border-border text-[13px] last:border-b-0"
             >
               <span className="text-txt-3">{s.label}</span>
               <span className={cn('font-medium tabular-nums', s.cls || 'text-txt-2')}>{s.value}</span>
@@ -67,16 +67,16 @@ export default function Sidebar() {
       {/* Pair filters */}
       {filters && (
         <div className="border-b border-border">
-          <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 px-3 py-1.5 font-medium">
+          <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 px-3 py-1.5 font-medium">
             PAIRS
           </div>
           {filters.map((f) => (
             <div key={`${f.asset}-${f.direction}`} className="flex items-center gap-1.5 px-3 py-1 cursor-pointer hover:bg-white/[0.02] transition-colors">
               <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: f.color }} />
-              <span className="text-[12px] text-txt-2">
+              <span className="text-[13px] text-txt-2">
                 {f.asset} {f.direction === 'long' ? 'Long' : 'Short'}
               </span>
-              <span className="text-[10px] text-txt-3 ml-auto tabular-nums">{f.count}</span>
+              <span className="text-[11px] text-txt-3 ml-auto tabular-nums">{f.count}</span>
             </div>
           ))}
         </div>
@@ -90,10 +90,10 @@ export default function Sidebar() {
         >
           <span className="text-lg">⚡</span>
           <span className="flex flex-col gap-0.5">
-            <span className="text-[12px] font-bold text-mint tracking-[0.05em] uppercase">
+            <span className="text-[13px] font-bold text-mint tracking-[0.05em] uppercase">
               create
             </span>
-            <span className="text-[10px] text-txt-3">launch a levered memecoin</span>
+            <span className="text-[11px] text-txt-3">launch a levered memecoin</span>
           </span>
         </button>
       </div>

@@ -24,7 +24,7 @@ export default function DecompPanel({ token }: Props) {
         >
           {formatPercent(token.change24h)}
         </div>
-        <div className="text-[10px] text-txt-3 tracking-[0.06em] uppercase mt-1">
+        <div className="text-[11px] text-txt-3 tracking-[0.06em] uppercase mt-1">
           total 24h
         </div>
       </div>
@@ -37,25 +37,25 @@ export default function DecompPanel({ token }: Props) {
         >
           {formatPercent(token.buyMomentum)}
         </div>
-        <div className="text-[10px] text-txt-3 tracking-[0.06em] uppercase mt-1">
+        <div className="text-[11px] text-txt-3 tracking-[0.06em] uppercase mt-1">
           buy momentum
         </div>
-        <div className="text-[10px] text-txt-3 mt-px">trade activity</div>
+        <div className="text-[11px] text-txt-3 mt-px">trade activity</div>
       </div>
       <div className="px-4 border-r border-border">
         <div className="font-display text-lg font-semibold leading-none text-amber tabular-nums">
           {formatPercent(token.leverageBoost)}
         </div>
-        <div className="text-[10px] text-txt-3 tracking-[0.06em] uppercase mt-1">
+        <div className="text-[11px] text-txt-3 tracking-[0.06em] uppercase mt-1">
           leverage boost
         </div>
-        <div className="text-[10px] text-txt-3 mt-px tabular-nums">
+        <div className="text-[11px] text-txt-3 mt-px tabular-nums">
           {formatPercent(underlyingChg)} × {token.leverage}×
         </div>
       </div>
       <div className="ml-auto">
         <button
-          className="inline-flex items-center gap-1.5 bg-bg-2/60 border border-border rounded-sm px-2.5 py-1.5 cursor-pointer text-[12px] text-txt-3 transition-all hover:border-border-2 hover:text-txt hover:bg-bg-2"
+          className="inline-flex items-center gap-1.5 bg-bg-2/60 border border-border rounded-sm px-2.5 py-1.5 cursor-pointer text-[13px] text-txt-3 transition-all hover:border-border-2 hover:text-txt hover:bg-bg-2"
           onClick={shareDecomp}
         >
           ↗ share this breakdown

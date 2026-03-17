@@ -20,12 +20,12 @@ export default function CommandBar({ tokenCount }: Props) {
 
   return (
     <div className="flex items-center h-[30px] border-b border-border bg-bg-1 px-4 shrink-0">
-      <span className="text-[10px] tracking-[0.1em] uppercase text-txt-3 mr-3">VIEW</span>
+      <span className="text-[11px] tracking-[0.1em] uppercase text-txt-3 mr-3">VIEW</span>
       {TABS.map((tab) => (
         <button
           key={tab.filter}
           className={cn(
-            'relative text-[12px] tracking-[0.04em] text-txt-3 px-3 h-[30px] flex items-center cursor-pointer',
+            'relative text-[13px] tracking-[0.04em] text-txt-3 px-3 h-[30px] flex items-center cursor-pointer',
             'border-0 bg-transparent font-mono transition-all duration-150',
             'hover:text-txt hover:bg-white/[0.03]',
             activeFilter === tab.filter && 'text-txt bg-white/[0.04] font-bold',
@@ -40,7 +40,7 @@ export default function CommandBar({ tokenCount }: Props) {
       ))}
       <div className="ml-auto flex items-center gap-2">
         <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
-        <span className="text-[12px] text-txt-3 tabular-nums">{tokenCount} tokens live</span>
+        <span className="text-[13px] text-txt-3 tabular-nums">{tokenCount} tokens live</span>
       </div>
     </div>
   );

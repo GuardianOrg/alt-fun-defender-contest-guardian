@@ -7,22 +7,22 @@ function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count
   return (
     <div className="flex items-center h-[26px] shrink-0 border-b border-border-2">
       <div
-        className={`text-[12px] font-bold tracking-[0.1em] px-4 h-full flex items-center border-r border-border font-mono ${
+        className={`text-[13px] font-bold tracking-[0.1em] px-4 h-full flex items-center border-r border-border font-mono ${
           isLong ? 'bg-mint/[0.06] text-mint' : 'bg-red/[0.05] text-red'
         }`}
       >
         {isLong ? '▲ LONG' : '▼ SHORT'}
       </div>
-      <div className="text-[10px] text-txt-3 px-3 border-r border-border h-full flex items-center font-mono tabular-nums">
+      <div className="text-[11px] text-txt-3 px-3 border-r border-border h-full flex items-center font-mono tabular-nums">
         {count} tokens
       </div>
-      <div className="text-[10px] text-txt px-2.5 h-full flex items-center cursor-pointer border-r border-border font-bold tracking-[0.06em]">
+      <div className="text-[11px] text-txt px-2.5 h-full flex items-center cursor-pointer border-r border-border font-bold tracking-[0.06em]">
         TRENDING ▾
       </div>
-      <div className="text-[10px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border hover:text-txt tracking-[0.06em]">
+      <div className="text-[11px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border hover:text-txt tracking-[0.06em]">
         NEWEST
       </div>
-      <div className="text-[10px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border hover:text-txt tracking-[0.06em]">
+      <div className="text-[11px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border hover:text-txt tracking-[0.06em]">
         % FILLED
       </div>
     </div>
@@ -35,7 +35,7 @@ function TableHead() {
       {['', 'TOKEN', '24H', 'PROGRESS', 'MCAP'].map((h, i) => (
         <div
           key={h || i}
-          className={`text-[10px] tracking-[0.1em] uppercase text-txt-3 px-2 flex items-center border-r border-border last:border-r-0 font-mono ${
+          className={`text-[11px] tracking-[0.1em] uppercase text-txt-3 px-2 flex items-center border-r border-border last:border-r-0 font-mono ${
             i === 2 || i === 4 ? 'justify-end' : ''
           }`}
         >

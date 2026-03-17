@@ -35,21 +35,21 @@ export default function EarningsPanel() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-2 shrink-0">
           {isConnected ? (
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-mint/15 flex items-center justify-center text-[12px] text-mint font-bold">
+              <div className="w-7 h-7 rounded-full bg-mint/15 flex items-center justify-center text-[13px] text-mint font-bold">
                 {shortAddress?.slice(0, 2)}
               </div>
               <div>
-                <div className="text-[12px] font-bold text-txt">{shortAddress}</div>
-                <div className="text-[10px] text-txt-3">HyperEVM</div>
+                <div className="text-[13px] font-bold text-txt">{shortAddress}</div>
+                <div className="text-[11px] text-txt-3">HyperEVM</div>
               </div>
             </div>
           ) : (
-            <div className="text-[10px] tracking-[0.14em] uppercase text-mint font-semibold">
+            <div className="text-[11px] tracking-[0.14em] uppercase text-mint font-semibold">
               profile
             </div>
           )}
           <button
-            className="text-[10px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-px cursor-pointer hover:text-txt transition-colors"
+            className="text-[11px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-px cursor-pointer hover:text-txt transition-colors"
             onClick={() => setOpen(false)}
           >
             esc
@@ -61,12 +61,12 @@ export default function EarningsPanel() {
             <div className="text-3xl">👤</div>
             <div className="text-center">
               <div className="text-sm font-semibold text-txt mb-1">Connect your wallet</div>
-              <div className="text-[12px] text-txt-3 leading-relaxed">
+              <div className="text-[13px] text-txt-3 leading-relaxed">
                 View your token balances on the curve and claim creator rewards.
               </div>
             </div>
             <button
-              className="font-mono text-[12px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
+              className="font-mono text-[13px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
               onClick={connect}
             >
               Connect Wallet
@@ -80,7 +80,7 @@ export default function EarningsPanel() {
                 <button
                   key={t}
                   className={cn(
-                    'relative h-9 flex items-center justify-center text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
+                    'relative h-9 flex items-center justify-center text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
                     tab === t
                       ? 'text-mint bg-mint/[0.04]'
                       : 'text-txt-3 hover:text-txt hover:bg-white/[0.02]',
@@ -143,12 +143,12 @@ function BalancesTab({
         <div className="text-3xl">📭</div>
         <div className="text-center">
           <div className="text-sm font-semibold text-txt mb-1">No tokens yet</div>
-          <div className="text-[12px] text-txt-3 leading-relaxed">
+          <div className="text-[13px] text-txt-3 leading-relaxed">
             Buy tokens on the bonding curve or launch your own levered memecoin.
           </div>
         </div>
         <button
-          className="font-mono text-[12px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
+          className="font-mono text-[13px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
           onClick={onLaunch}
         >
           ⚡ Launch a token
@@ -160,13 +160,13 @@ function BalancesTab({
   return (
     <>
       <div className="px-4 py-4 border-b border-border">
-        <div className="text-[10px] tracking-[0.12em] uppercase text-txt-3 mb-1">total value</div>
+        <div className="text-[11px] tracking-[0.12em] uppercase text-txt-3 mb-1">total value</div>
         <div className="font-display text-2xl font-bold text-txt leading-none tabular-nums">
           {formatUsd(totalValue)}
         </div>
       </div>
 
-      <div className="flex items-center px-4 py-2 text-[10px] tracking-[0.12em] uppercase text-txt-3 border-b border-border">
+      <div className="flex items-center px-4 py-2 text-[11px] tracking-[0.12em] uppercase text-txt-3 border-b border-border">
         <span className="flex-1">Coins</span>
         <span className="w-[72px] text-right">Value</span>
       </div>
@@ -180,16 +180,16 @@ function BalancesTab({
           >
             <span className="text-xl mr-3">{t.emoji}</span>
             <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-bold text-txt truncate">{t.name}</div>
-              <div className="text-[10px] text-txt-3 tabular-nums">
+              <div className="text-[13px] font-bold text-txt truncate">{t.name}</div>
+              <div className="text-[11px] text-txt-3 tabular-nums">
                 {formatTokenAmount(t.amount)} {t.ticker}
               </div>
             </div>
             <div className="text-right ml-3">
-              <div className="text-[12px] font-semibold text-txt tabular-nums">{formatUsd(t.valueUsd)}</div>
+              <div className="text-[13px] font-semibold text-txt tabular-nums">{formatUsd(t.valueUsd)}</div>
               <div
                 className={cn(
-                  'text-[10px] font-medium tabular-nums',
+                  'text-[11px] font-medium tabular-nums',
                   t.change24h > 0 ? 'text-mint' : t.change24h < 0 ? 'text-red' : 'text-txt-3',
                 )}
               >
@@ -224,13 +224,13 @@ function RewardsTab({
         <div className="text-3xl">⚡</div>
         <div className="text-center">
           <div className="text-sm font-semibold text-txt mb-1">No tokens created yet</div>
-          <div className="text-[12px] text-txt-3 leading-relaxed">
+          <div className="text-[13px] text-txt-3 leading-relaxed">
             Launch a levered memecoin to start earning 0.1% of all trading volume on the
             bonding curve. Fees accrue in USDC and can be claimed anytime.
           </div>
         </div>
         <button
-          className="font-mono text-[12px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
+          className="font-mono text-[13px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
           onClick={onLaunch}
         >
           ⚡ Launch a token
@@ -244,13 +244,13 @@ function RewardsTab({
       <div className="px-4 py-4 border-b border-border">
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
-            <div className="text-[10px] tracking-[0.12em] uppercase text-txt-3 mb-1">claimable</div>
+            <div className="text-[11px] tracking-[0.12em] uppercase text-txt-3 mb-1">claimable</div>
             <div className="font-display text-2xl font-bold text-mint leading-none tabular-nums">
               ${earnings.totalClaimable.toFixed(2)}
             </div>
           </div>
           <div>
-            <div className="text-[10px] tracking-[0.12em] uppercase text-txt-3 mb-1">
+            <div className="text-[11px] tracking-[0.12em] uppercase text-txt-3 mb-1">
               total earned
             </div>
             <div className="font-display text-2xl font-bold text-txt leading-none tabular-nums">
@@ -261,7 +261,7 @@ function RewardsTab({
 
         <button
           className={cn(
-            'w-full py-3 rounded-[3px] border-0 font-mono text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
+            'w-full py-3 rounded-[3px] border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
             earnings.totalClaimable > 0
               ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
               : 'bg-bg-2 text-txt-3 cursor-not-allowed',
@@ -278,20 +278,20 @@ function RewardsTab({
         </button>
 
         {claiming && (
-          <div className="flex items-center justify-center gap-2 text-[10px] text-txt-3 mt-2">
+          <div className="flex items-center justify-center gap-2 text-[11px] text-txt-3 mt-2">
             <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
             Confirm in wallet…
           </div>
         )}
 
-        <div className="flex items-center justify-between text-[10px] text-txt-3 mt-3 pt-2 border-t border-border">
+        <div className="flex items-center justify-between text-[11px] text-txt-3 mt-3 pt-2 border-t border-border">
           <span>previously claimed</span>
           <span className="text-txt-2 tabular-nums">${earnings.totalClaimed.toFixed(2)}</span>
         </div>
       </div>
 
       <div className="px-4 py-3">
-        <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 mb-3">
+        <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mb-3">
           your tokens ({earnings.tokens.length})
         </div>
 
@@ -305,12 +305,12 @@ function RewardsTab({
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">{t.emoji}</span>
                 <div className="flex-1">
-                  <div className="text-[12px] font-bold text-txt">{t.name}</div>
-                  <div className="text-[10px] text-txt-3">{t.ltName}</div>
+                  <div className="text-[13px] font-bold text-txt">{t.name}</div>
+                  <div className="text-[11px] text-txt-3">{t.ltName}</div>
                 </div>
                 <div
                   className={cn(
-                    'text-[10px] tracking-[0.08em] uppercase px-1.5 py-px rounded-sm border',
+                    'text-[11px] tracking-[0.08em] uppercase px-1.5 py-px rounded-sm border',
                     t.status === 'graduating' && 'text-amber border-amber/30',
                     t.status === 'graduated' && 'text-mint border-mint/30',
                     t.status === 'active' && 'text-txt-3 border-border',
@@ -320,17 +320,17 @@ function RewardsTab({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-[12px]">
+              <div className="grid grid-cols-3 gap-2 text-[13px]">
                 <div>
-                  <div className="text-txt-3 text-[10px] uppercase tracking-wider">volume</div>
+                  <div className="text-txt-3 text-[11px] uppercase tracking-wider">volume</div>
                   <div className="text-txt font-medium tabular-nums">{formatUsd(t.totalVolumeUsd)}</div>
                 </div>
                 <div>
-                  <div className="text-txt-3 text-[10px] uppercase tracking-wider">earned</div>
+                  <div className="text-txt-3 text-[11px] uppercase tracking-wider">earned</div>
                   <div className="text-txt font-medium tabular-nums">${t.feesEarnedUsd.toFixed(2)}</div>
                 </div>
                 <div>
-                  <div className="text-txt-3 text-[10px] uppercase tracking-wider">claimable</div>
+                  <div className="text-txt-3 text-[11px] uppercase tracking-wider">claimable</div>
                   <div className="text-mint font-medium tabular-nums">${t.feesClaimableUsd.toFixed(2)}</div>
                 </div>
               </div>
@@ -343,7 +343,7 @@ function RewardsTab({
                       style={{ width: `${t.curveFilled}%` }}
                     />
                   </div>
-                  <div className="text-[10px] text-txt-3 mt-1 tabular-nums">{t.curveFilled}% filled</div>
+                  <div className="text-[11px] text-txt-3 mt-1 tabular-nums">{t.curveFilled}% filled</div>
                 </div>
               )}
             </div>
@@ -352,7 +352,7 @@ function RewardsTab({
       </div>
 
       <div className="px-4 py-3 border-t border-border mt-auto">
-        <div className="text-[10px] text-txt-3 leading-relaxed">
+        <div className="text-[11px] text-txt-3 leading-relaxed">
           <span className="text-mint font-semibold">0.1%</span> of all curve volume goes to token
           creators. Fees accrue in USDC and can be claimed anytime. Earnings stop when a token
           graduates.

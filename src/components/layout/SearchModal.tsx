@@ -43,17 +43,17 @@ function TrendingCard({ token, onClick }: { token: Token; onClick: () => void })
           {token.emoji}
         </div>
         <div>
-          <div className="text-[12px] font-bold text-txt">{token.name}</div>
-          <div className="text-[10px] text-mint/60 mt-px">{token.ltName}</div>
+          <div className="text-[13px] font-bold text-txt">{token.name}</div>
+          <div className="text-[11px] text-mint/60 mt-px">{token.ltName}</div>
         </div>
       </div>
       <Sparkline up={up} />
-      <div className="text-[12px] font-semibold text-txt tabular-nums">
+      <div className="text-[13px] font-semibold text-txt tabular-nums">
         ${token.mcapUsd >= 1_000_000
           ? `${(token.mcapUsd / 1_000_000).toFixed(2)}M`
           : `${(token.mcapUsd / 1_000).toFixed(1)}K`}
       </div>
-      <div className={cn('text-[12px] font-semibold mt-px tabular-nums', up ? 'text-mint' : 'text-red')}>
+      <div className={cn('text-[13px] font-semibold mt-px tabular-nums', up ? 'text-mint' : 'text-red')}>
         {up ? '+' : ''}
         {token.change24h}%
       </div>
@@ -120,7 +120,7 @@ export default function SearchModal() {
             autoComplete="off"
           />
           <span
-            className="text-[10px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-[2px] cursor-pointer hover:text-txt transition-colors"
+            className="text-[11px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-[2px] cursor-pointer hover:text-txt transition-colors"
             onClick={() => setOpen(false)}
           >
             esc
@@ -129,7 +129,7 @@ export default function SearchModal() {
 
         {!filtered ? (
           <div className="p-4 overflow-y-auto flex-1">
-            <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 mb-2.5">
+            <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mb-2.5">
               TRENDING
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
@@ -137,19 +137,19 @@ export default function SearchModal() {
                 <TrendingCard key={t.address} token={t} onClick={() => goToToken(t.address)} />
               ))}
             </div>
-            <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 mt-3.5">
+            <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mt-3.5">
               RECENTLY VIEWED
             </div>
-            <div className="text-[12px] text-txt-3 py-1 pb-2">No recently viewed tokens</div>
+            <div className="text-[13px] text-txt-3 py-1 pb-2">No recently viewed tokens</div>
             <div className="flex gap-4 mt-4 pt-3 border-t border-border">
-              <span className="text-[10px] text-txt-3 flex items-center gap-1.5">
-                <kbd className="font-mono text-[10px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
+              <span className="text-[11px] text-txt-3 flex items-center gap-1.5">
+                <kbd className="font-mono text-[11px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
                   ↵
                 </kbd>
                 select
               </span>
-              <span className="text-[10px] text-txt-3 flex items-center gap-1.5">
-                <kbd className="font-mono text-[10px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
+              <span className="text-[11px] text-txt-3 flex items-center gap-1.5">
+                <kbd className="font-mono text-[11px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
                   esc
                 </kbd>
                 close
@@ -169,20 +169,20 @@ export default function SearchModal() {
                     {t.emoji}
                   </div>
                   <div>
-                    <div className="text-[12px] font-bold text-txt">{t.name}</div>
-                    <div className="text-[10px] text-txt-3">{t.ltName}</div>
+                    <div className="text-[13px] font-bold text-txt">{t.name}</div>
+                    <div className="text-[11px] text-txt-3">{t.ltName}</div>
                   </div>
                   <div className="text-right ml-auto">
                     <div
                       className={cn(
-                        'text-[12px] font-bold tabular-nums',
+                        'text-[13px] font-bold tabular-nums',
                         t.change24h >= 0 ? 'text-mint' : 'text-red',
                       )}
                     >
                       {t.change24h >= 0 ? '+' : ''}
                       {t.change24h}%
                     </div>
-                    <div className="text-[10px] text-txt-3 mt-px tabular-nums">
+                    <div className="text-[11px] text-txt-3 mt-px tabular-nums">
                       ${t.mcapUsd >= 1_000_000
                         ? `${(t.mcapUsd / 1_000_000).toFixed(2)}M`
                         : `${(t.mcapUsd / 1_000).toFixed(1)}K`}
@@ -191,7 +191,7 @@ export default function SearchModal() {
                 </div>
               ))
             ) : (
-              <div className="px-4 py-4 text-[12px] text-txt-3">No tokens found</div>
+              <div className="px-4 py-4 text-[13px] text-txt-3">No tokens found</div>
             )}
           </div>
         )}

@@ -140,7 +140,7 @@ export default function Chart({ token }: Props) {
           <div
             key={iv}
             className={cn(
-              'text-[12px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border transition-colors',
+              'text-[13px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border transition-colors',
               'first:border-l first:border-l-border',
               'hover:text-txt',
               interval === iv && 'text-mint font-semibold',
@@ -151,7 +151,7 @@ export default function Chart({ token }: Props) {
           </div>
         ))}
         <div className="w-px bg-border h-4 mx-2" />
-        <label className="text-[12px] text-txt-3 px-2.5 h-full flex items-center gap-[5px] cursor-pointer hover:text-txt-2">
+        <label className="text-[13px] text-txt-3 px-2.5 h-full flex items-center gap-[5px] cursor-pointer hover:text-txt-2">
           <input
             type="checkbox"
             checked={showOverlay}

@@ -35,11 +35,11 @@ export default function PairSelector({
 
   return (
     <div className="mb-7">
-      <div className="text-[10px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">step 1</div>
+      <div className="text-[11px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">step 1</div>
       <div className="font-display text-xl font-semibold text-txt tracking-[0.03em] mb-1">
         Choose your pair
       </div>
-      <div className="text-[12px] text-txt-3 mb-4">Pick a direction and underlying asset.</div>
+      <div className="text-[13px] text-txt-3 mb-4">Pick a direction and underlying asset.</div>
 
       {/* Direction tabs */}
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -75,12 +75,12 @@ export default function PairSelector({
               />
             </svg>
           </div>
-          <div className="text-[12px] text-txt-3 leading-[1.5] mb-2.5">
+          <div className="text-[13px] text-txt-3 leading-[1.5] mb-2.5">
             token moves up when underlying pumps
           </div>
           <div
             className={cn(
-              'inline-block text-[10px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
+              'inline-block text-[11px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
               isLong ? 'bg-mint/[0.08] text-mint' : 'bg-white/[0.04] text-txt-4',
             )}
           >
@@ -120,12 +120,12 @@ export default function PairSelector({
               />
             </svg>
           </div>
-          <div className="text-[12px] text-txt-3 leading-[1.5] mb-2.5">
+          <div className="text-[13px] text-txt-3 leading-[1.5] mb-2.5">
             token moves up when underlying dumps
           </div>
           <div
             className={cn(
-              'inline-block text-[10px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
+              'inline-block text-[11px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
               !isLong ? 'bg-red/[0.08] text-red' : 'bg-white/[0.04] text-txt-4',
             )}
           >
@@ -135,7 +135,7 @@ export default function PairSelector({
       </div>
 
       {/* Asset grid */}
-      <label className="text-[12px] tracking-[0.06em] uppercase text-txt-3 mb-1.5 block">
+      <label className="text-[13px] tracking-[0.06em] uppercase text-txt-3 mb-1.5 block">
         Underlying asset
       </label>
       <div className="grid grid-cols-3 gap-2">
@@ -157,7 +157,7 @@ export default function PairSelector({
               onClick={() => onAssetChange(a)}
             >
               <div className="text-sm font-bold text-txt">{a}</div>
-              <div className={cn('text-[12px] mt-[2px]', up ? 'text-mint' : 'text-red')}>
+              <div className={cn('text-[13px] mt-[2px]', up ? 'text-mint' : 'text-red')}>
                 {up ? '+' : ''}
                 {data.chg.toFixed(2)}%
               </div>
@@ -167,7 +167,7 @@ export default function PairSelector({
       </div>
 
       {/* Leverage */}
-      <label className="text-[12px] tracking-[0.06em] uppercase text-txt-3 mt-3.5 mb-2 block">
+      <label className="text-[13px] tracking-[0.06em] uppercase text-txt-3 mt-3.5 mb-2 block">
         Leverage
       </label>
       <div className="flex gap-2">
@@ -175,7 +175,7 @@ export default function PairSelector({
           <button
             key={l}
             className={cn(
-              'flex-1 py-2 rounded-[3px] cursor-pointer border font-mono text-[12px] font-semibold text-center transition-all',
+              'flex-1 py-2 rounded-[3px] cursor-pointer border font-mono text-[13px] font-semibold text-center transition-all',
               leverage === l
                 ? isLong
                   ? 'border-mint text-mint bg-mint-bg'
@@ -197,17 +197,17 @@ export default function PairSelector({
         )}
       >
         <div className={cn('w-2 h-2 rounded-full shrink-0', isLong ? 'bg-mint' : 'bg-red')} />
-        <span className="text-[12px] font-semibold text-txt">
+        <span className="text-[13px] font-semibold text-txt">
           {ltName(asset, leverage, direction)}
         </span>
-        <span className="text-[12px] text-txt-3 ml-auto">
+        <span className="text-[13px] text-txt-3 ml-auto">
           {chg >= 0 ? '+' : ''}
           {chg.toFixed(1)}% today
         </span>
       </div>
 
       {/* Hyperliquid badge */}
-      <div className="inline-flex items-center gap-2 text-[12px] font-medium text-txt-2 tracking-[0.04em] mt-3 px-3.5 py-2 border border-border-2 rounded-[3px] bg-mint/[0.04]">
+      <div className="inline-flex items-center gap-2 text-[13px] font-medium text-txt-2 tracking-[0.04em] mt-3 px-3.5 py-2 border border-border-2 rounded-[3px] bg-mint/[0.04]">
         <svg width="18" height="14" viewBox="0 0 36 24" fill="none">
           <path
             d="M14 2 L2 12 L14 22"

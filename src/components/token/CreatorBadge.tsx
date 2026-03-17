@@ -27,35 +27,35 @@ export default function CreatorBadge({ token }: Props) {
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2">
-          <span className="text-[10px] tracking-[0.14em] uppercase text-mint font-semibold border border-mint/30 px-1.5 py-px rounded-sm">
+          <span className="text-[11px] tracking-[0.14em] uppercase text-mint font-semibold border border-mint/30 px-1.5 py-px rounded-sm">
             creator
           </span>
-          <span className="text-[12px] text-mint font-semibold">
+          <span className="text-[13px] text-mint font-semibold">
             {tokenData
               ? `$${tokenData.feesClaimableUsd.toFixed(2)} claimable`
               : 'Your token'}
           </span>
         </div>
-        <span className="text-[12px] text-txt-3">{expanded ? '▴' : '▾'}</span>
+        <span className="text-[13px] text-txt-3">{expanded ? '▴' : '▾'}</span>
       </button>
 
       {expanded && tokenData && (
         <div className="px-3 pb-3 flex flex-col gap-2">
-          <div className="grid grid-cols-3 gap-2 text-[12px]">
+          <div className="grid grid-cols-3 gap-2 text-[13px]">
             <div>
-              <div className="text-txt-3 text-[10px] uppercase tracking-wider">volume</div>
+              <div className="text-txt-3 text-[11px] uppercase tracking-wider">volume</div>
               <div className="text-txt font-semibold">
                 ${tokenData.totalVolumeUsd.toLocaleString()}
               </div>
             </div>
             <div>
-              <div className="text-txt-3 text-[10px] uppercase tracking-wider">earned</div>
+              <div className="text-txt-3 text-[11px] uppercase tracking-wider">earned</div>
               <div className="text-txt font-semibold">
                 ${tokenData.feesEarnedUsd.toFixed(2)}
               </div>
             </div>
             <div>
-              <div className="text-txt-3 text-[10px] uppercase tracking-wider">claimable</div>
+              <div className="text-txt-3 text-[11px] uppercase tracking-wider">claimable</div>
               <div className="text-mint font-semibold">
                 ${tokenData.feesClaimableUsd.toFixed(2)}
               </div>
@@ -64,7 +64,7 @@ export default function CreatorBadge({ token }: Props) {
 
           <button
             className={cn(
-              'w-full py-2 rounded-sm border-0 font-mono text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
+              'w-full py-2 rounded-sm border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
               tokenData.feesClaimableUsd > 0
                 ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
                 : 'bg-bg-2 text-txt-3 cursor-not-allowed',
@@ -80,7 +80,7 @@ export default function CreatorBadge({ token }: Props) {
                 : 'Nothing to claim'}
           </button>
 
-          <div className="text-[10px] text-txt-3 leading-[1.5]">
+          <div className="text-[11px] text-txt-3 leading-[1.5]">
             You earn 0.1% of all volume on this curve. Fees settle in USDC.
           </div>
         </div>

@@ -79,7 +79,7 @@ export default function LivePreview({
 
   return (
     <div className="px-6 py-7 bg-bg-1 overflow-y-auto">
-      <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 mb-4 font-medium">preview</div>
+      <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mb-4 font-medium">preview</div>
 
       {/* Token card */}
       <div className="border border-border-2 rounded-[10px] overflow-hidden bg-bg-2 mb-5">
@@ -95,7 +95,7 @@ export default function LivePreview({
             <div className="font-display text-[17px] font-semibold text-txt tracking-[0.03em]">
               {displayName}
             </div>
-            <div className="text-[12px] text-txt-3 mt-[2px]">
+            <div className="text-[13px] text-txt-3 mt-[2px]">
               <span className={isLong ? 'text-mint' : 'text-red'}>{ltName}</span>
             </div>
           </div>
@@ -106,11 +106,11 @@ export default function LivePreview({
       <div className="border border-border rounded-md overflow-hidden bg-bg-2">
         <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
           <div>
-            <div className="text-[12px] font-semibold text-txt">{asset} / USD</div>
-            <div className="text-[10px] text-txt-3">your token moves {leverage}× this</div>
+            <div className="text-[13px] font-semibold text-txt">{asset} / USD</div>
+            <div className="text-[11px] text-txt-3">your token moves {leverage}× this</div>
           </div>
           <div
-            className={cn('text-[12px] font-semibold tabular-nums', isUp ? 'text-mint' : 'text-red')}
+            className={cn('text-[13px] font-semibold tabular-nums', isUp ? 'text-mint' : 'text-red')}
           >
             {isUp ? '+' : ''}
             {assetChg.toFixed(2)}%
@@ -124,7 +124,7 @@ export default function LivePreview({
       {/* Info box */}
       <div
         className={cn(
-          'border rounded-[3px] px-3 py-2.5 mt-3.5 text-[12px] text-txt-3 leading-[1.6]',
+          'border rounded-[3px] px-3 py-2.5 mt-3.5 text-[13px] text-txt-3 leading-[1.6]',
           isLong ? 'bg-mint-bg border-border' : 'bg-red-bg border-red/20',
         )}
       >

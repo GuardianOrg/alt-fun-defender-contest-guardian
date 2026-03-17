@@ -9,7 +9,7 @@ export default function AssetTape() {
 
   return (
     <div className="h-[32px] overflow-hidden border-b border-border flex items-center bg-bg/80 shrink-0">
-      <div className="text-[10px] tracking-[0.14em] uppercase text-mint bg-mint-bg px-3.5 h-full flex items-center border-r border-border-2 shrink-0 font-medium">
+      <div className="text-[11px] tracking-[0.14em] uppercase text-mint bg-mint-bg px-3.5 h-full flex items-center border-r border-border-2 shrink-0 font-medium">
         MARKETS
       </div>
       <div className="overflow-hidden flex-1">
@@ -17,11 +17,11 @@ export default function AssetTape() {
           {doubled.map((a, i) => (
             <div key={`${a.name}-${i}`} className="contents">
               <div className="inline-flex items-center gap-2">
-                <span className="text-[12px] font-medium text-txt-3 tracking-[0.06em]">{a.name}</span>
-                <span className="text-[12px] font-bold text-txt tabular-nums">{a.priceUsd}</span>
+                <span className="text-[13px] font-medium text-txt-3 tracking-[0.06em]">{a.name}</span>
+                <span className="text-[13px] font-bold text-txt tabular-nums">{a.priceUsd}</span>
                 <span
                   className={cn(
-                    'text-[12px] font-semibold tabular-nums',
+                    'text-[13px] font-semibold tabular-nums',
                     a.change24h >= 0 ? 'text-mint' : 'text-red',
                   )}
                 >

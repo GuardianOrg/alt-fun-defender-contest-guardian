@@ -28,7 +28,7 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
           <span className="text-mint drop-shadow-[0_0_8px_rgba(77,232,180,0.4)]">BOUNCE</span>
           <span className="text-txt font-bold">.FUN</span>
         </div>
-        <div className="text-[10px] text-txt-3 tracking-[0.14em] uppercase">internal preview</div>
+        <div className="text-[11px] text-txt-3 tracking-[0.14em] uppercase">internal preview</div>
 
         <input
           className="w-full bg-bg-2 border border-border rounded-[3px] px-3 py-2.5 font-mono text-sm text-txt placeholder:text-txt-4 outline-none focus:border-border-2 transition-all"
@@ -40,12 +40,12 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
         />
 
         {error && (
-          <div className="text-[12px] text-red">Wrong password</div>
+          <div className="text-[13px] text-red">Wrong password</div>
         )}
 
         <button
           type="submit"
-          className="w-full py-2.5 rounded-[3px] border-0 font-mono text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer bg-mint text-bg shadow-mint-glow hover:bg-mint-hover transition-all"
+          className="w-full py-2.5 rounded-[3px] border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer bg-mint text-bg shadow-mint-glow hover:bg-mint-hover transition-all"
         >
           Enter
         </button>

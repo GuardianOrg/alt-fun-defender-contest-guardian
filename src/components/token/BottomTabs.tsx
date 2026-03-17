@@ -15,7 +15,7 @@ function TradesTab({ token }: { token: Token }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="grid grid-cols-[50px_80px_90px_80px_1fr_60px] px-4 items-center h-6 text-[10px] tracking-[0.1em] uppercase text-txt-3 bg-bg-1 border-b border-border sticky top-0">
+      <div className="grid grid-cols-[50px_80px_90px_80px_1fr_60px] px-4 items-center h-6 text-[11px] tracking-[0.1em] uppercase text-txt-3 bg-bg-1 border-b border-border sticky top-0">
         <div>side</div>
         <div>usdc</div>
         <div>tokens</div>
@@ -26,7 +26,7 @@ function TradesTab({ token }: { token: Token }) {
       {trades.map((t) => (
         <div
           key={t.id}
-          className="grid grid-cols-[50px_80px_90px_80px_1fr_60px] px-4 items-center h-7 border-b border-border text-[12px] cursor-pointer transition-colors hover:bg-white/[0.02]"
+          className="grid grid-cols-[50px_80px_90px_80px_1fr_60px] px-4 items-center h-7 border-b border-border text-[13px] cursor-pointer transition-colors hover:bg-white/[0.02]"
         >
           <div className={t.side === 'BUY' ? 'text-mint font-bold' : 'text-red font-bold'}>
             {t.side}
@@ -61,29 +61,29 @@ function CommentsTab({ comments: initialComments }: { comments: Comment[] }) {
       <div className="flex-1 overflow-y-auto px-3 py-2 flex flex-col gap-1.5">
         {comments.map((c) => (
           <div key={c.id} className="flex gap-2">
-            <div className="w-6 h-6 rounded-full bg-bg-3 border border-border flex items-center justify-center text-[12px] shrink-0">
+            <div className="w-6 h-6 rounded-full bg-bg-3 border border-border flex items-center justify-center text-[13px] shrink-0">
               {c.emoji}
             </div>
             <div>
               <div>
-                <span className="text-[12px] text-mint">{c.address}</span>
-                <span className="text-[10px] text-txt-3 ml-1.5">{c.timeAgo}</span>
+                <span className="text-[13px] text-mint">{c.address}</span>
+                <span className="text-[11px] text-txt-3 ml-1.5">{c.timeAgo}</span>
               </div>
-              <div className="text-[12px] text-txt-2 leading-relaxed mt-px">{c.text}</div>
+              <div className="text-[13px] text-txt-2 leading-relaxed mt-px">{c.text}</div>
             </div>
           </div>
         ))}
       </div>
       <div className="flex gap-1.5 px-3 py-1.5 border-t border-border bg-bg-1">
         <input
-          className="flex-1 bg-bg-2 border border-border rounded-sm px-2.5 py-1.5 font-mono text-[12px] text-txt outline-0 placeholder:text-txt-4 focus:border-border-2 transition-colors"
+          className="flex-1 bg-bg-2 border border-border rounded-sm px-2.5 py-1.5 font-mono text-[13px] text-txt outline-0 placeholder:text-txt-4 focus:border-border-2 transition-colors"
           placeholder="say something…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && postComment()}
         />
         <button
-          className="bg-mint/[0.06] border border-border-2 text-mint font-mono text-[12px] px-3 rounded-sm cursor-pointer transition-all hover:bg-mint/[0.12]"
+          className="bg-mint/[0.06] border border-border-2 text-mint font-mono text-[13px] px-3 rounded-sm cursor-pointer transition-all hover:bg-mint/[0.12]"
           onClick={postComment}
         >
           post
@@ -98,7 +98,7 @@ function HoldersTab({ holders }: { holders: Holder[] }) {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="grid grid-cols-[28px_1fr_90px_70px_80px] px-4 items-center h-6 text-[10px] tracking-[0.1em] uppercase text-txt-3 bg-bg-1 border-b border-border sticky top-0">
+      <div className="grid grid-cols-[28px_1fr_90px_70px_80px] px-4 items-center h-6 text-[11px] tracking-[0.1em] uppercase text-txt-3 bg-bg-1 border-b border-border sticky top-0">
         <div>#</div>
         <div>wallet</div>
         <div>tokens</div>
@@ -108,13 +108,13 @@ function HoldersTab({ holders }: { holders: Holder[] }) {
       {holders.map((h) => (
         <div
           key={h.rank}
-          className="grid grid-cols-[28px_1fr_90px_70px_80px] px-4 items-center h-7 border-b border-border text-[12px]"
+          className="grid grid-cols-[28px_1fr_90px_70px_80px] px-4 items-center h-7 border-b border-border text-[13px]"
         >
           <div className="text-txt-3 tabular-nums">{h.rank}</div>
           <div className="text-mint">
             {h.address}
             {h.isCreator && (
-              <span className="text-[10px] text-amber ml-1.5">creator</span>
+              <span className="text-[11px] text-amber ml-1.5">creator</span>
             )}
           </div>
           <div className="tabular-nums">{h.tokens}</div>
@@ -143,7 +143,7 @@ export default function BottomTabs({ token }: Props) {
           <button
             key={tab}
             className={cn(
-              'relative text-[12px] tracking-[0.06em] uppercase text-txt-3 px-5 h-8 flex items-center cursor-pointer bg-transparent border-0 font-mono transition-all duration-150',
+              'relative text-[13px] tracking-[0.06em] uppercase text-txt-3 px-5 h-8 flex items-center cursor-pointer bg-transparent border-0 font-mono transition-all duration-150',
               'hover:text-txt hover:bg-white/[0.02]',
               activeTab === tab && 'text-mint font-semibold',
             )}

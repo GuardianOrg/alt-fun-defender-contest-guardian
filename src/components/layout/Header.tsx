@@ -44,7 +44,7 @@ export default function Header() {
         <span className="text-txt font-bold">.FUN</span>
       </div>
 
-      <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 border-l border-border pl-3 mr-5">
+      <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 border-l border-border pl-3 mr-5">
         perps × memes
       </div>
 
@@ -57,7 +57,7 @@ export default function Header() {
             <button
               key={tab.label}
               className={cn(
-                'relative font-mono text-[12px] tracking-[0.06em] uppercase px-4 h-full flex items-center cursor-pointer',
+                'relative font-mono text-[13px] tracking-[0.06em] uppercase px-4 h-full flex items-center cursor-pointer',
                 'bg-transparent border-0 transition-all duration-150',
                 'text-txt-3 hover:text-txt hover:bg-white/[0.03]',
                 isActive && 'text-txt bg-white/[0.04]',
@@ -86,8 +86,8 @@ export default function Header() {
           onClick={() => setSearchOpen(true)}
         >
           <span className="text-sm text-txt-3">⌕</span>
-          <span className="text-[12px] text-txt-3 whitespace-nowrap">Search tokens…</span>
-          <span className="text-[10px] text-txt-4 bg-white/[0.05] border border-border rounded-sm px-1 py-px ml-1 font-mono">
+          <span className="text-[13px] text-txt-3 whitespace-nowrap">Search tokens…</span>
+          <span className="text-[11px] text-txt-4 bg-white/[0.05] border border-border rounded-sm px-1 py-px ml-1 font-mono">
             ⌘K
           </span>
         </div>
@@ -95,29 +95,29 @@ export default function Header() {
 
       {/* Right side */}
       <div className="ml-auto flex items-center gap-3">
-        <span className="text-[12px] text-txt-3 tabular-nums">{clock}</span>
+        <span className="text-[13px] text-txt-3 tabular-nums">{clock}</span>
         {isConnected ? (
           <span
-            className="text-[12px] text-mint border border-border-2 px-2.5 py-[3px] rounded-sm cursor-pointer transition-all hover:bg-mint/10 hover:border-mint/40"
+            className="text-[13px] text-mint border border-border-2 px-2.5 py-[3px] rounded-sm cursor-pointer transition-all hover:bg-mint/10 hover:border-mint/40"
             onClick={() => setEarningsOpen(true)}
           >
             {shortAddress}
           </span>
         ) : (
           <button
-            className="text-[12px] text-mint border border-border-2 px-2.5 py-[3px] rounded-sm cursor-pointer hover:bg-mint/10"
+            className="text-[13px] text-mint border border-border-2 px-2.5 py-[3px] rounded-sm cursor-pointer hover:bg-mint/10"
             onClick={connect}
           >
             Connect Wallet
           </button>
         )}
         {isCreate ? (
-          <button className="font-mono text-[12px] font-bold text-mint bg-mint/[0.12] px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-default whitespace-nowrap">
+          <button className="font-mono text-[13px] font-bold text-mint bg-mint/[0.12] px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-default whitespace-nowrap">
             ⚡ creating token
           </button>
         ) : (
           <button
-            className="font-mono text-[12px] font-bold text-bg bg-mint px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-pointer shadow-mint-glow whitespace-nowrap transition-all hover:bg-mint-hover"
+            className="font-mono text-[13px] font-bold text-bg bg-mint px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-pointer shadow-mint-glow whitespace-nowrap transition-all hover:bg-mint-hover"
             onClick={() => navigate('/create')}
           >
             ⚡ launch a levered memecoin
