@@ -20,11 +20,11 @@ export default function HeroSection({ token }: Props) {
   };
 
   return (
-    <div className="flex items-start gap-6 px-[18px] py-3.5 pb-3 border-b border-border bg-bg-1 shrink-0">
+    <div className="flex items-start gap-6 px-5 py-3.5 pb-3 border-b border-border bg-bg-1 shrink-0">
       {/* Left block */}
       <div className="shrink-0">
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-11 h-11 rounded-[10px] bg-bg-2 border border-border-2 flex items-center justify-center text-2xl">
+          <div className="w-11 h-11 rounded-lg bg-bg-2 border border-border-2 flex items-center justify-center text-2xl">
             {token.emoji}
           </div>
           <div>
@@ -32,32 +32,32 @@ export default function HeroSection({ token }: Props) {
               <div className="font-display text-xl font-bold tracking-[0.04em] text-txt leading-none">
                 {token.name}
               </div>
-              <span className="text-[12px] font-semibold px-2 py-[2px] rounded-sm bg-mint-bg text-mint tracking-[0.04em]">
+              <span className="text-[10px] font-semibold px-2 py-[2px] rounded-sm bg-mint/[0.06] text-mint/80 tracking-[0.04em] border border-mint/15">
                 ⚡ {token.ltName}
               </span>
             </div>
-            <div className="flex items-center gap-2 mt-[5px] flex-wrap">
-              <span className="text-[12px] text-txt-3">
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <span className="text-[10px] text-txt-3">
                 by {token.creatorAddress} · {token.createdAt}
               </span>
               <div className="flex gap-1">
                 {['𝕏', 'TG', '🌐'].map((s) => (
                   <span
                     key={s}
-                    className="text-[12px] text-txt-3 cursor-pointer px-[7px] py-[2px] border border-border rounded-sm transition-all hover:text-mint hover:border-border-2"
+                    className="text-[10px] text-txt-3 cursor-pointer px-1.5 py-[2px] border border-border rounded-sm transition-all hover:text-mint hover:border-border-2"
                   >
                     {s}
                   </span>
                 ))}
               </div>
               <div
-                className="flex items-center gap-[5px] bg-bg-2 border border-border rounded-sm px-2 py-[3px] cursor-pointer transition-all hover:border-mint hover:bg-mint-bg"
+                className="flex items-center gap-1.5 bg-bg-2 border border-border rounded-sm px-2 py-[3px] cursor-pointer transition-all hover:border-mint/40 hover:bg-mint/[0.04]"
                 onClick={copyCA}
               >
-                <span className={cn('text-[12px]', copied ? 'text-mint' : 'text-txt-3')}>
+                <span className={cn('text-[10px]', copied ? 'text-mint' : 'text-txt-3')}>
                   {token.address.slice(0, 6)}…{token.address.slice(-4)}
                 </span>
-                <span className={cn('text-[13px]', copied ? 'text-mint' : 'text-txt-3')}>
+                <span className={cn('text-[12px]', copied ? 'text-mint' : 'text-txt-3')}>
                   {copied ? '✓' : '⎘'}
                 </span>
               </div>
@@ -65,13 +65,13 @@ export default function HeroSection({ token }: Props) {
           </div>
         </div>
         <div className="mt-2.5">
-          <div className="text-[11px] tracking-[0.1em] uppercase text-txt-3 mb-[2px]">
+          <div className="text-[10px] tracking-[0.12em] uppercase text-txt-3 mb-0.5">
             Market Cap
           </div>
-          <div className="font-display text-4xl font-bold text-txt leading-none">
+          <div className="font-display text-4xl font-bold text-txt leading-none tabular-nums">
             {formatUsd(token.mcapUsd)}
           </div>
-          <div className="text-[13px] mt-1 font-medium">
+          <div className="text-[12px] mt-1 font-medium">
             <span className={up ? 'text-mint' : 'text-red'}>
               {up ? '+' : ''}${Math.abs(Math.round(changeUsd)).toLocaleString()} ({formatPercent(token.change24h)})
             </span>{' '}
@@ -88,32 +88,29 @@ export default function HeroSection({ token }: Props) {
             ATH {formatUsd(token.athUsd)}
           </Badge>
           <div className="flex-1 flex items-center gap-2">
-            <div className="flex-1 h-[5px] bg-white/[0.07] rounded-[3px] overflow-hidden">
+            <div className="flex-1 h-[5px] bg-white/[0.06] rounded-full overflow-hidden">
               <div
-                className="h-full rounded-[3px]"
-                style={{
-                  width: `${athPct}%`,
-                  background: 'linear-gradient(90deg, #2ab88a, #f0b429)',
-                }}
+                className="h-full rounded-full bg-gradient-to-r from-mint-dim to-amber"
+                style={{ width: `${athPct}%` }}
               />
             </div>
-            <span className="text-[11px] text-txt-3 whitespace-nowrap">{athPct}% of ATH</span>
+            <span className="text-[10px] text-txt-3 whitespace-nowrap tabular-nums">{athPct}% of ATH</span>
           </div>
         </div>
         <div className="flex gap-0">
           <div className="px-4 border-r border-border text-center first:pl-0">
-            <div className="font-display text-base font-semibold leading-none">
+            <div className="font-display text-base font-semibold leading-none tabular-nums">
               {formatUsd(token.volume24h)}
             </div>
-            <div className="text-[11px] text-txt-3 tracking-[0.06em] uppercase mt-[3px]">
+            <div className="text-[10px] text-txt-3 tracking-[0.06em] uppercase mt-1">
               24h vol
             </div>
           </div>
           <div className="px-4 text-center">
-            <div className="font-display text-base font-semibold leading-none">
+            <div className="font-display text-base font-semibold leading-none tabular-nums">
               {token.curveFilled}%
             </div>
-            <div className="text-[11px] text-txt-3 tracking-[0.06em] uppercase mt-[3px]">
+            <div className="text-[10px] text-txt-3 tracking-[0.06em] uppercase mt-1">
               curve filled
             </div>
           </div>

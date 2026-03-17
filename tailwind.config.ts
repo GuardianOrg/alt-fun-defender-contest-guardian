@@ -14,6 +14,7 @@ const config: Config = {
         mint: {
           DEFAULT: '#4de8b4',
           dim: '#2ab88a',
+          hover: '#6ef0c2',
           bg: 'rgba(77,232,180,0.08)',
         },
         red: {
@@ -26,19 +27,26 @@ const config: Config = {
         },
         txt: {
           DEFAULT: '#eafaf4',
-          2: 'rgba(234,250,244,0.60)',
-          3: 'rgba(234,250,244,0.35)',
-          4: 'rgba(234,250,244,0.16)',
+          2: 'rgba(234,250,244,0.55)',
+          3: 'rgba(234,250,244,0.30)',
+          4: 'rgba(234,250,244,0.14)',
         },
         border: {
-          DEFAULT: 'rgba(77,232,180,0.13)',
-          2: 'rgba(77,232,180,0.26)',
+          DEFAULT: 'rgba(77,232,180,0.12)',
+          2: 'rgba(77,232,180,0.24)',
         },
         aqua: '#00ffcc',
       },
       fontFamily: {
         mono: ["'JetBrains Mono'", "'Courier New'", 'Courier', 'monospace'],
         display: ["'Oswald'", 'Impact', "'Arial Narrow'", 'sans-serif'],
+      },
+      boxShadow: {
+        'mint-glow': '0 0 16px rgba(77,232,180,0.25)',
+        'mint-glow-lg': '0 0 24px rgba(77,232,180,0.30)',
+        'red-glow': '0 0 16px rgba(240,80,80,0.25)',
+        'inner-mint': 'inset 0 0 8px rgba(77,232,180,0.15)',
+        'panel': '0 1px 4px rgba(0,0,0,0.3)',
       },
       keyframes: {
         scrolltape: {
@@ -62,8 +70,8 @@ const config: Config = {
           '50%': { filter: 'brightness(1.8)' },
         },
         ltb: {
-          '0%, 100%': { opacity: '0.75', filter: 'brightness(1)' },
-          '50%': { opacity: '1', filter: 'brightness(1.2)' },
+          '0%, 100%': { opacity: '0.7', filter: 'brightness(1)' },
+          '50%': { opacity: '1', filter: 'brightness(1.3)' },
         },
         rowf: {
           '0%, 100%': { backgroundColor: 'rgba(77,232,180,0.04)' },
@@ -78,8 +86,8 @@ const config: Config = {
           '50%': { boxShadow: '0 0 12px rgba(240,180,41,0.4)' },
         },
         gradpulse: {
-          '0%, 100%': { filter: 'brightness(1)' },
-          '50%': { filter: 'brightness(1.7)' },
+          '0%, 100%': { filter: 'brightness(1)', boxShadow: 'none' },
+          '50%': { filter: 'brightness(1.5)', boxShadow: 'inset 0 0 6px rgba(77,232,180,0.25)' },
         },
         modalin: {
           from: { opacity: '0', transform: 'translateY(-8px)' },
@@ -88,6 +96,10 @@ const config: Config = {
         gp2: {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.5' },
+        },
+        shimmer: {
+          '0%': { backgroundPosition: '-200% 0' },
+          '100%': { backgroundPosition: '200% 0' },
         },
       },
       animation: {
@@ -103,6 +115,7 @@ const config: Config = {
         gradpulse: 'gradpulse 1.8s ease-in-out infinite',
         modalin: 'modalin 0.15s ease',
         gp2: 'gp2 2s ease-in-out infinite',
+        shimmer: 'shimmer 2.5s linear infinite',
       },
     },
   },

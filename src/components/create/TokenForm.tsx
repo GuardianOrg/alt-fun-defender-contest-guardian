@@ -30,11 +30,11 @@ export default function TokenForm({
 
   return (
     <div className="mb-7">
-      <div className="text-[11px] tracking-[0.14em] uppercase text-mint mb-1">step 2</div>
+      <div className="text-[10px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">step 2</div>
       <div className="font-display text-xl font-semibold text-txt tracking-[0.03em] mb-1">
         Token details
       </div>
-      <div className="text-[13px] text-txt-3 mb-4">These can&apos;t be changed after launch.</div>
+      <div className="text-[12px] text-txt-3 mb-4">These can&apos;t be changed after launch.</div>
 
       {/* Name + Ticker */}
       <div className="grid grid-cols-2 gap-3 mb-4">
@@ -69,7 +69,7 @@ export default function TokenForm({
       {/* Description */}
       <div className="mb-4">
         <label className="text-[12px] tracking-[0.06em] uppercase text-txt-3 mb-1.5 block">
-          Description <span className="text-txt-4 normal-case tracking-normal text-[11px]">(optional)</span>
+          Description <span className="text-txt-4 normal-case tracking-normal text-[10px]">(optional)</span>
         </label>
         <textarea
           className="w-full h-20 bg-bg-2 border border-border rounded-[3px] px-3 py-[9px] text-[13px] text-txt font-mono outline-0 resize-none transition-colors focus:border-border-2 placeholder:text-txt-4"
@@ -88,7 +88,7 @@ export default function TokenForm({
       >
         <div className="text-xl mb-1.5 opacity-50">🖼</div>
         <div className="text-[12px] text-txt-3">Click or drag to upload</div>
-        <div className="text-[11px] text-txt-4 mt-[2px]">PNG, JPG, GIF · max 5MB</div>
+        <div className="text-[10px] text-txt-4 mt-[2px]">PNG, JPG, GIF · max 5MB</div>
       </div>
       <input
         ref={fileRef}
@@ -100,7 +100,7 @@ export default function TokenForm({
 
       {/* Social links */}
       <div
-        className="flex items-center gap-2 text-[13px] text-txt-2 cursor-pointer px-3 py-2.5 mt-2 border border-border rounded-[3px] bg-bg-2 transition-all hover:border-border-2 hover:text-txt"
+        className="flex items-center gap-2 text-[12px] text-txt-2 cursor-pointer px-3 py-2.5 mt-2 border border-border rounded-[3px] bg-bg-2 transition-all hover:border-border-2 hover:text-txt"
         onClick={() => setSocialOpen(!socialOpen)}
       >
         <span>🔗</span>
@@ -138,7 +138,7 @@ export default function TokenForm({
           </div>
           <div>
             <label className="text-[12px] tracking-[0.06em] uppercase text-txt-3 mb-1.5 block">
-              Website <span className="text-txt-4 normal-case tracking-normal text-[11px]">(optional)</span>
+              Website <span className="text-txt-4 normal-case tracking-normal text-[10px]">(optional)</span>
             </label>
             <input
               type="text"

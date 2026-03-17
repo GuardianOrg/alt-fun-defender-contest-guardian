@@ -117,10 +117,10 @@ export default function TradePanel({ token }: Props) {
   };
 
   return (
-    <div className="w-[300px] shrink-0 flex flex-col bg-bg-1">
+    <div className="w-[300px] shrink-0 flex flex-col bg-bg-1 shadow-panel">
       {/* Graduating banner */}
       {token.status === 'graduating' && (
-        <div className="flex items-center justify-center gap-2 px-2 py-2 bg-mint/[0.07] border-b border-mint/30 text-[12px] font-semibold text-mint tracking-[0.06em] uppercase animate-gp2 shrink-0">
+        <div className="flex items-center justify-center gap-2 px-2 py-2 bg-mint/[0.06] border-b border-mint/20 text-[10px] font-semibold text-mint tracking-[0.08em] uppercase animate-gp2 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-mint" />
           graduating · {token.curveFilled}% filled
           <div className="w-1.5 h-1.5 rounded-full bg-mint" />
@@ -131,34 +131,40 @@ export default function TradePanel({ token }: Props) {
       <div className="grid grid-cols-2 shrink-0">
         <button
           className={cn(
-            'h-10 flex items-center justify-center text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono text-txt-3 border-b-2 border-b-transparent transition-all',
-            mode === 'buy' && 'text-mint bg-mint/[0.08] border-b-mint',
+            'relative h-10 flex items-center justify-center text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
+            mode === 'buy'
+              ? 'text-mint bg-mint/[0.06]'
+              : 'text-txt-3 hover:text-txt hover:bg-white/[0.02]',
           )}
           onClick={() => { setMode('buy'); reset(); }}
         >
           BUY
+          {mode === 'buy' && <span className="absolute bottom-0 inset-x-2 h-[2px] bg-mint rounded-full" />}
         </button>
         <button
           className={cn(
-            'h-10 flex items-center justify-center text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono text-txt-3 border-b-2 border-b-transparent transition-all',
-            mode === 'sell' && 'text-red bg-red/[0.07] border-b-red',
+            'relative h-10 flex items-center justify-center text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
+            mode === 'sell'
+              ? 'text-red bg-red/[0.05]'
+              : 'text-txt-3 hover:text-txt hover:bg-white/[0.02]',
           )}
           onClick={() => { setMode('sell'); reset(); }}
         >
           SELL
+          {mode === 'sell' && <span className="absolute bottom-0 inset-x-2 h-[2px] bg-red rounded-full" />}
         </button>
       </div>
 
       {/* Trade form */}
       <div className="px-3 py-3 flex-1 overflow-y-auto flex flex-col gap-2.5">
         <div>
-          <label className="text-[11px] tracking-[0.1em] uppercase text-txt-3 mb-1 block">
+          <label className="text-[10px] tracking-[0.1em] uppercase text-txt-3 mb-1.5 block">
             amount (USDC)
           </label>
-          <div className="flex items-center bg-bg-2 border border-border rounded-[3px] px-3 py-2 gap-2">
-            <span className="text-[13px] text-txt-3">$</span>
+          <div className="flex items-center bg-bg-2 border border-border rounded-[3px] px-3 py-2 gap-2 transition-all focus-within:border-border-2">
+            <span className="text-[12px] text-txt-3">$</span>
             <input
-              className="flex-1 bg-transparent border-0 outline-0 font-mono text-lg font-semibold text-txt placeholder:text-txt-4"
+              className="flex-1 bg-transparent border-0 outline-0 font-mono text-lg font-semibold text-txt placeholder:text-txt-4 tabular-nums"
               type="number"
               placeholder="0.00"
               value={amount}
@@ -166,7 +172,7 @@ export default function TradePanel({ token }: Props) {
               disabled={isBusy}
             />
             <span
-              className="text-[11px] text-mint cursor-pointer"
+              className="text-[10px] text-mint cursor-pointer font-bold tracking-[0.06em] hover:text-mint-hover transition-colors"
               onClick={() => setAmount('4210')}
             >
               MAX
@@ -174,11 +180,16 @@ export default function TradePanel({ token }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-[5px]">
+        <div className="grid grid-cols-4 gap-1">
           {QUICK_AMOUNTS.map((qa) => (
             <button
               key={qa}
-              className="py-[5px] rounded-sm border border-border bg-bg-2 font-mono text-[12px] text-txt-3 cursor-pointer text-center transition-all hover:border-border-2 hover:text-txt"
+              className={cn(
+                'py-1.5 rounded-sm border font-mono text-[12px] cursor-pointer text-center transition-all',
+                amount === String(qa)
+                  ? 'border-mint/40 text-mint bg-mint/[0.06]'
+                  : 'border-border text-txt-3 bg-transparent hover:border-border-2 hover:text-txt hover:bg-white/[0.02]',
+              )}
               onClick={() => setAmount(String(qa))}
               disabled={isBusy}
             >
@@ -187,35 +198,34 @@ export default function TradePanel({ token }: Props) {
           ))}
         </div>
 
-        {/* Estimate box — fee breakdown differs between buy and sell */}
-        <div className="bg-bg-2 border border-border rounded-[3px] px-3 py-2.5">
+        {/* Estimate box */}
+        <div className="bg-bg-2/60 border border-border rounded-[3px] px-3 py-2.5">
           {estimateRows.map((r) => (
-            <div key={r.label} className="flex justify-between text-[12px] mb-[5px] last:mb-0">
+            <div key={r.label} className="flex justify-between text-[12px] mb-1 last:mb-0">
               <span className="text-txt-3">{r.label}</span>
-              <span className={cn('font-medium', r.hi ? 'text-mint' : 'text-txt-2')}>
+              <span className={cn('font-medium tabular-nums', r.hi ? 'text-txt' : 'text-txt-2')}>
                 {r.value}
               </span>
             </div>
           ))}
         </div>
 
-        {/* Sell-specific: show that LT redemption is handled automatically */}
         {mode === 'sell' && amtNum > 0 && (
-          <div className="text-[11px] text-txt-3 bg-bg-2 border border-border rounded-sm px-2.5 py-2 leading-[1.6]">
+          <div className="text-[10px] text-txt-3 bg-bg-2/40 border border-border rounded-sm px-2.5 py-2 leading-relaxed">
             LT redemption is handled atomically by the router — you receive USDC directly.
           </div>
         )}
 
-        <div className="flex items-center gap-[5px]">
-          <span className="text-[11px] text-txt-3 tracking-[0.06em] mr-[2px]">slippage</span>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-txt-3 tracking-[0.06em] mr-1">slippage</span>
           {SLIPPAGE_OPTIONS.map((sl) => (
             <button
               key={sl}
               className={cn(
-                'py-[3px] px-2 rounded-sm border font-mono text-[12px] cursor-pointer',
+                'py-1 px-2 rounded-sm border font-mono text-[12px] cursor-pointer transition-all',
                 slippage === sl
-                  ? 'border-mint text-mint'
-                  : 'border-border text-txt-3 bg-transparent',
+                  ? 'border-mint/40 text-mint bg-mint/[0.06]'
+                  : 'border-border text-txt-3 bg-transparent hover:border-border-2',
               )}
               onClick={() => setSlippage(sl)}
               disabled={isBusy}
@@ -226,25 +236,25 @@ export default function TradePanel({ token }: Props) {
         </div>
 
         {error && (
-          <div className="text-[12px] text-red bg-red/10 border border-red/20 rounded-sm px-2.5 py-1.5">
+          <div className="text-[12px] text-red bg-red/[0.06] border border-red/20 rounded-sm px-2.5 py-1.5">
             {error}
           </div>
         )}
 
         {step === 'confirmed' && txHash && (
-          <div className="text-[12px] text-mint bg-mint/10 border border-mint/20 rounded-sm px-2.5 py-1.5">
+          <div className="text-[12px] text-mint bg-mint/[0.06] border border-mint/20 rounded-sm px-2.5 py-1.5">
             ✓ Transaction confirmed
           </div>
         )}
 
         <button
           className={cn(
-            'w-full py-3.5 rounded-[3px] border-0 font-mono text-sm font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
+            'w-full py-3 rounded-[3px] border-0 font-mono text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
             step === 'confirmed'
-              ? 'bg-mint/20 text-mint cursor-default'
+              ? 'bg-mint/15 text-mint cursor-default'
               : mode === 'buy'
-                ? 'bg-mint text-bg shadow-[0_0_20px_rgba(77,232,180,0.2)] hover:bg-[#6ef0c2]'
-                : 'bg-red text-white hover:bg-red/90',
+                ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
+                : 'bg-red text-white shadow-red-glow hover:bg-red/90',
             isBusy && 'opacity-70 cursor-wait',
           )}
           onClick={doTrade}
@@ -253,9 +263,8 @@ export default function TradePanel({ token }: Props) {
           {buttonLabel()}
         </button>
 
-        {/* Tx flow indicator */}
         {isBusy && (
-          <div className="flex items-center gap-2 text-[11px] text-txt-3">
+          <div className="flex items-center gap-2 text-[10px] text-txt-3">
             <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
             {step === 'approving'
               ? 'Waiting for USDC approval in wallet…'
@@ -264,16 +273,15 @@ export default function TradePanel({ token }: Props) {
         )}
       </div>
 
-      {/* Creator earnings badge */}
       <CreatorBadge token={token} />
 
       {/* Token info footer */}
-      <div className="border-t border-border px-3 py-3 shrink-0">
+      <div className="border-t border-border px-3 py-2.5 shrink-0">
         {[
           {
             label: 'contract',
             value: (
-              <a className="text-mint no-underline cursor-pointer" onClick={copyCA}>
+              <a className="text-mint no-underline cursor-pointer hover:text-mint-hover transition-colors" onClick={copyCA}>
                 {copied
                   ? '✓ copied'
                   : `${token.address.slice(0, 6)}…${token.address.slice(-4)} ⎘`}
@@ -283,7 +291,7 @@ export default function TradePanel({ token }: Props) {
           { label: 'supply', value: '1,000,000,000' },
           {
             label: 'pair',
-            value: <span className="text-mint">{token.ltName}</span>,
+            value: <span className="text-mint/70">{token.ltName}</span>,
           },
           {
             label: 'status',
@@ -299,7 +307,7 @@ export default function TradePanel({ token }: Props) {
             value: <span className="text-txt-2">USDC (atomic)</span>,
           },
         ].map((r) => (
-          <div key={r.label} className="flex justify-between text-[12px] mb-1.5 last:mb-0">
+          <div key={r.label} className="flex justify-between text-[12px] mb-1 last:mb-0">
             <span className="text-txt-3">{r.label}</span>
             <span className="text-txt-2">{r.value}</span>
           </div>

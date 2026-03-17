@@ -33,77 +33,84 @@ export default function ProgressBar({
       <div
         ref={trackRef}
         className={cn(
-          'w-full rounded-[3px] relative cursor-pointer',
-          size === 'sm' ? 'h-[12px]' : 'h-[14px]',
-          'bg-white/[0.10]',
+          'w-full rounded-full relative cursor-pointer overflow-hidden',
+          size === 'sm' ? 'h-[7px]' : 'h-[10px]',
+          'bg-white/[0.06]',
         )}
         onMouseEnter={() => setTooltip(true)}
         onMouseMove={(e) => setTipPos({ x: e.clientX + 12, y: e.clientY - 60 })}
         onMouseLeave={() => setTooltip(false)}
       >
-        <div className="absolute inset-0 flex rounded-[3px] overflow-hidden">
+        {/* Buy pressure segment */}
+        <div
+          className={cn(
+            'absolute top-0 left-0 h-full rounded-l-full',
+            'bg-mint-dim bar-glow-mint',
+            isGraduating && 'animate-gradpulse',
+          )}
+          style={{ width: `${buyPercent}%` }}
+        />
+        {/* Leverage boost segment */}
+        {leveragePercent > 0 && (
           <div
             className={cn(
-              'h-full bg-mint-dim rounded-l-[3px]',
-              isGraduating && 'animate-gradpulse',
+              'absolute top-0 h-full',
+              isShort
+                ? 'bg-red/70 bar-glow-red'
+                : 'bg-aqua/70 bar-glow-aqua',
+              'leverage-shimmer',
             )}
-            style={{ width: `${buyPercent}%` }}
+            style={{
+              left: `${buyPercent}%`,
+              width: `${leveragePercent}%`,
+            }}
           />
-          {leveragePercent > 0 && (
-            <div
-              className={cn(
-                'h-full animate-ltb',
-                isShort ? 'bg-[#ff6060] opacity-85' : 'bg-aqua opacity-90',
-              )}
-              style={{ width: `${leveragePercent}%` }}
-            />
-          )}
-        </div>
+        )}
       </div>
 
       {label && (
-        <div className="flex items-center gap-1.5 mt-[5px]">
+        <div className="flex items-center gap-1.5 mt-1">
           <span className="text-[12px] font-semibold text-txt-2">{label}</span>
         </div>
       )}
 
       {showLegend && (
-        <div className="flex gap-4 mt-[7px]">
-          <div className="flex items-center gap-[5px] text-[12px] text-txt-3">
-            <div className="w-2 h-2 rounded-sm bg-mint-dim shrink-0" />
+        <div className="flex gap-4 mt-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-txt-3">
+            <div className="w-2 h-2 rounded-full bg-mint-dim bar-glow-mint shrink-0" />
             buy pressure{buyUsd && ` · ${buyUsd}`}
           </div>
-          <div className="flex items-center gap-[5px] text-[12px] text-txt-3">
+          <div className="flex items-center gap-1.5 text-[10px] text-txt-3">
             <div
               className={cn(
-                'w-2 h-2 rounded-sm shrink-0',
-                isShort ? 'bg-[#ff5050]' : 'bg-aqua',
+                'w-2 h-2 rounded-full shrink-0',
+                isShort ? 'bg-red bar-glow-red' : 'bg-aqua bar-glow-aqua',
               )}
             />
-            leverage appreciation{leverageUsd && ` · ${leverageUsd}`}
+            leverage boost{leverageUsd && ` · ${leverageUsd}`}
           </div>
         </div>
       )}
 
       {tooltip && leveragePercent > 0 && (
         <div
-          className="fixed z-[999] pointer-events-none bg-[#1a3830] border border-border-2 rounded px-2.5 py-[7px] text-[11px] whitespace-nowrap font-mono"
+          className="fixed z-[999] pointer-events-none bg-bg-2 border border-border-2 rounded px-3 py-2 text-[10px] whitespace-nowrap font-mono shadow-panel"
           style={{ left: Math.min(tipPos.x, window.innerWidth - 200), top: tipPos.y }}
         >
-          <div className="flex items-center gap-1.5 mb-[3px]">
-            <div className="w-2 h-2 rounded-sm bg-mint-dim shrink-0" />
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-[6px] h-[6px] rounded-full bg-mint-dim shrink-0" />
             <span className="text-txt-3">buy pressure</span>
-            <span className="text-mint font-semibold ml-auto pl-3.5">{buyPercent}%</span>
+            <span className="text-mint font-semibold ml-auto pl-4 tabular-nums">{buyPercent}%</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <div
               className={cn(
-                'w-2 h-2 rounded-sm shrink-0',
-                isShort ? 'bg-[#ff6060]' : 'bg-aqua',
+                'w-[6px] h-[6px] rounded-full shrink-0',
+                isShort ? 'bg-red' : 'bg-aqua',
               )}
             />
             <span className="text-txt-3">leverage boost</span>
-            <span className="text-amber font-semibold ml-auto pl-3.5">{leveragePercent}%</span>
+            <span className="text-amber font-semibold ml-auto pl-4 tabular-nums">{leveragePercent}%</span>
           </div>
         </div>
       )}

@@ -18,7 +18,7 @@ function Sparkline({ up }: { up: boolean }) {
   const col = up ? '#4de8b4' : '#f05050';
   return (
     <svg width="110" height="32" viewBox="0 0 110 32" preserveAspectRatio="none" className="block">
-      <polygon points={`1,32 ${coords} 109,32`} fill={col} opacity="0.1" />
+      <polygon points={`1,32 ${coords} 109,32`} fill={col} opacity="0.08" />
       <polyline
         points={coords}
         fill="none"
@@ -35,25 +35,25 @@ function TrendingCard({ token, onClick }: { token: Token; onClick: () => void })
   const up = token.change24h >= 0;
   return (
     <div
-      className="shrink-0 w-[130px] bg-white/[0.03] border border-border rounded p-2.5 cursor-pointer transition-all hover:border-border-2 hover:bg-mint/[0.05]"
+      className="shrink-0 w-[130px] bg-white/[0.02] border border-border rounded p-2.5 cursor-pointer transition-all hover:border-border-2 hover:bg-white/[0.04]"
       onClick={onClick}
     >
-      <div className="flex items-center gap-[7px] mb-2">
-        <div className="w-[26px] h-[26px] rounded-[5px] bg-white/[0.06] flex items-center justify-center text-sm">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-[26px] h-[26px] rounded-md bg-white/[0.05] flex items-center justify-center text-sm">
           {token.emoji}
         </div>
         <div>
-          <div className="text-[13px] font-bold text-txt">{token.name}</div>
-          <div className="text-[11px] text-mint/70 mt-px">{token.ltName}</div>
+          <div className="text-[12px] font-bold text-txt">{token.name}</div>
+          <div className="text-[10px] text-mint/60 mt-px">{token.ltName}</div>
         </div>
       </div>
       <Sparkline up={up} />
-      <div className="text-[13px] font-semibold text-txt">
+      <div className="text-[12px] font-semibold text-txt tabular-nums">
         ${token.mcapUsd >= 1_000_000
           ? `${(token.mcapUsd / 1_000_000).toFixed(2)}M`
           : `${(token.mcapUsd / 1_000).toFixed(1)}K`}
       </div>
-      <div className={cn('text-[12px] font-semibold mt-px', up ? 'text-mint' : 'text-red')}>
+      <div className={cn('text-[12px] font-semibold mt-px tabular-nums', up ? 'text-mint' : 'text-red')}>
         {up ? '+' : ''}
         {token.change24h}%
       </div>
@@ -108,7 +108,7 @@ export default function SearchModal() {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="w-[580px] max-h-[520px] bg-[#0f2420] border border-border-2 rounded-md overflow-hidden flex flex-col animate-modalin">
+      <div className="w-[580px] max-h-[520px] bg-bg-2 border border-border-2 rounded-md overflow-hidden flex flex-col animate-modalin shadow-panel">
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
           <span className="text-base text-txt-2">⌕</span>
           <input
@@ -120,7 +120,7 @@ export default function SearchModal() {
             autoComplete="off"
           />
           <span
-            className="text-[11px] text-txt-3 bg-white/[0.06] border border-border rounded-sm px-1.5 py-[2px] cursor-pointer"
+            className="text-[10px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-[2px] cursor-pointer hover:text-txt transition-colors"
             onClick={() => setOpen(false)}
           >
             esc
@@ -140,18 +140,18 @@ export default function SearchModal() {
             <div className="text-[10px] tracking-[0.14em] uppercase text-txt-3 mt-3.5">
               RECENTLY VIEWED
             </div>
-            <div className="text-[13px] text-txt-3 py-1 pb-2">No recently viewed tokens</div>
+            <div className="text-[12px] text-txt-3 py-1 pb-2">No recently viewed tokens</div>
             <div className="flex gap-4 mt-4 pt-3 border-t border-border">
-              <span className="text-[12px] text-txt-3 flex items-center gap-[5px]">
-                <kbd className="font-mono text-[11px] bg-white/[0.06] border border-border rounded-sm px-[5px] py-px text-txt-2">
+              <span className="text-[10px] text-txt-3 flex items-center gap-1.5">
+                <kbd className="font-mono text-[10px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
                   ↵
-                </kbd>{' '}
+                </kbd>
                 select
               </span>
-              <span className="text-[12px] text-txt-3 flex items-center gap-[5px]">
-                <kbd className="font-mono text-[11px] bg-white/[0.06] border border-border rounded-sm px-[5px] py-px text-txt-2">
+              <span className="text-[10px] text-txt-3 flex items-center gap-1.5">
+                <kbd className="font-mono text-[10px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
                   esc
-                </kbd>{' '}
+                </kbd>
                 close
               </span>
             </div>
@@ -162,27 +162,27 @@ export default function SearchModal() {
               filtered.map((t) => (
                 <div
                   key={t.address}
-                  className="flex items-center gap-2.5 px-4 py-2 cursor-pointer transition-colors hover:bg-mint/[0.06]"
+                  className="flex items-center gap-2.5 px-4 py-2 cursor-pointer transition-colors hover:bg-white/[0.03]"
                   onClick={() => goToToken(t.address)}
                 >
-                  <div className="w-7 h-7 rounded-[5px] bg-white/[0.06] flex items-center justify-center text-[15px]">
+                  <div className="w-7 h-7 rounded-md bg-white/[0.05] flex items-center justify-center text-[15px]">
                     {t.emoji}
                   </div>
                   <div>
-                    <div className="text-[13px] font-bold text-txt">{t.name}</div>
-                    <div className="text-[12px] text-txt-3">{t.ltName}</div>
+                    <div className="text-[12px] font-bold text-txt">{t.name}</div>
+                    <div className="text-[10px] text-txt-3">{t.ltName}</div>
                   </div>
                   <div className="text-right ml-auto">
                     <div
                       className={cn(
-                        'text-[13px] font-bold',
+                        'text-[12px] font-bold tabular-nums',
                         t.change24h >= 0 ? 'text-mint' : 'text-red',
                       )}
                     >
                       {t.change24h >= 0 ? '+' : ''}
                       {t.change24h}%
                     </div>
-                    <div className="text-[12px] text-txt-3 mt-px">
+                    <div className="text-[10px] text-txt-3 mt-px tabular-nums">
                       ${t.mcapUsd >= 1_000_000
                         ? `${(t.mcapUsd / 1_000_000).toFixed(2)}M`
                         : `${(t.mcapUsd / 1_000).toFixed(1)}K`}
@@ -191,7 +191,7 @@ export default function SearchModal() {
                 </div>
               ))
             ) : (
-              <div className="px-4 py-4 text-[13px] text-txt-3">No tokens found</div>
+              <div className="px-4 py-4 text-[12px] text-txt-3">No tokens found</div>
             )}
           </div>
         )}

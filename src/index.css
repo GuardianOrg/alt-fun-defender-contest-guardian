@@ -15,25 +15,57 @@
   body,
   #root {
     height: 100%;
-    font-family: 'Courier New', 'Courier', monospace;
+    font-family: 'JetBrains Mono', 'Courier New', 'Courier', monospace;
     background: #0a1e1b;
     color: #eafaf4;
     font-size: 12px;
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   input,
   textarea,
   button,
   select {
-    font-family: 'Courier New', 'Courier', monospace;
+    font-family: 'JetBrains Mono', 'Courier New', 'Courier', monospace;
   }
 
   ::-webkit-scrollbar {
     width: 4px;
   }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
   ::-webkit-scrollbar-thumb {
-    background: rgba(77, 232, 180, 0.26);
-    border-radius: 2px;
+    background: rgba(77, 232, 180, 0.2);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(77, 232, 180, 0.35);
+  }
+}
+
+@layer utilities {
+  .bar-glow-mint {
+    box-shadow: inset 0 0 6px rgba(42, 184, 138, 0.3), 0 0 4px rgba(77, 232, 180, 0.15);
+  }
+  .bar-glow-aqua {
+    box-shadow: inset 0 0 6px rgba(0, 255, 204, 0.25), 0 0 4px rgba(0, 255, 204, 0.12);
+  }
+  .bar-glow-red {
+    box-shadow: inset 0 0 6px rgba(240, 80, 80, 0.25), 0 0 4px rgba(240, 80, 80, 0.12);
+  }
+  .leverage-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.08) 40%,
+      rgba(255, 255, 255, 0.12) 50%,
+      rgba(255, 255, 255, 0.08) 60%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2.5s linear infinite;
   }
 }

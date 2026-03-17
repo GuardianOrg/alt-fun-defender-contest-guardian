@@ -35,11 +35,11 @@ export default function PairSelector({
 
   return (
     <div className="mb-7">
-      <div className="text-[11px] tracking-[0.14em] uppercase text-mint mb-1">step 1</div>
+      <div className="text-[10px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">step 1</div>
       <div className="font-display text-xl font-semibold text-txt tracking-[0.03em] mb-1">
         Choose your pair
       </div>
-      <div className="text-[13px] text-txt-3 mb-4">Pick a direction and underlying asset.</div>
+      <div className="text-[12px] text-txt-3 mb-4">Pick a direction and underlying asset.</div>
 
       {/* Direction tabs */}
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -80,8 +80,8 @@ export default function PairSelector({
           </div>
           <div
             className={cn(
-              'inline-block text-[11px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
-              isLong ? 'bg-mint/[0.12] text-mint' : 'bg-white/[0.05] text-txt-4',
+              'inline-block text-[10px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
+              isLong ? 'bg-mint/[0.08] text-mint' : 'bg-white/[0.04] text-txt-4',
             )}
           >
             bullish
@@ -125,8 +125,8 @@ export default function PairSelector({
           </div>
           <div
             className={cn(
-              'inline-block text-[11px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
-              !isLong ? 'bg-red/10 text-red' : 'bg-white/[0.05] text-txt-4',
+              'inline-block text-[10px] tracking-[0.08em] uppercase px-2 py-[2px] rounded-sm',
+              !isLong ? 'bg-red/[0.08] text-red' : 'bg-white/[0.04] text-txt-4',
             )}
           >
             bearish
@@ -175,7 +175,7 @@ export default function PairSelector({
           <button
             key={l}
             className={cn(
-              'flex-1 py-2 rounded-[3px] cursor-pointer border font-mono text-[13px] font-semibold text-center transition-all',
+              'flex-1 py-2 rounded-[3px] cursor-pointer border font-mono text-[12px] font-semibold text-center transition-all',
               leverage === l
                 ? isLong
                   ? 'border-mint text-mint bg-mint-bg'
@@ -197,7 +197,7 @@ export default function PairSelector({
         )}
       >
         <div className={cn('w-2 h-2 rounded-full shrink-0', isLong ? 'bg-mint' : 'bg-red')} />
-        <span className="text-[13px] font-semibold text-txt">
+        <span className="text-[12px] font-semibold text-txt">
           {ltName(asset, leverage, direction)}
         </span>
         <span className="text-[12px] text-txt-3 ml-auto">
@@ -207,7 +207,7 @@ export default function PairSelector({
       </div>
 
       {/* Hyperliquid badge */}
-      <div className="inline-flex items-center gap-2 text-[13px] font-medium text-txt-2 tracking-[0.04em] mt-3 px-3.5 py-2 border border-border-2 rounded-[3px] bg-mint/[0.06]">
+      <div className="inline-flex items-center gap-2 text-[12px] font-medium text-txt-2 tracking-[0.04em] mt-3 px-3.5 py-2 border border-border-2 rounded-[3px] bg-mint/[0.04]">
         <svg width="18" height="14" viewBox="0 0 36 24" fill="none">
           <path
             d="M14 2 L2 12 L14 22"

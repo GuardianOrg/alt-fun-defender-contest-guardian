@@ -66,7 +66,7 @@ export default function CreatorBadge({ token }: Props) {
             className={cn(
               'w-full py-2 rounded-sm border-0 font-mono text-[12px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
               tokenData.feesClaimableUsd > 0
-                ? 'bg-mint text-bg hover:bg-[#6ef0c2]'
+                ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
                 : 'bg-bg-2 text-txt-3 cursor-not-allowed',
               claiming && 'opacity-70 cursor-wait',
             )}
