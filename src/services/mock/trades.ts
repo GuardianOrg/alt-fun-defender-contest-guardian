@@ -2,7 +2,7 @@ import type { Trade, Comment, Holder } from '../types';
 
 const FEED_TOKEN_NAMES = [
   'MOONBOUND',
-  'PEPE2L',
+  'HOUSE',
   'CRASHOUT',
   'WAVEBEAR',
   'HYPERVADER',
@@ -70,7 +70,7 @@ export function generateTokenTrade(): Trade {
     tokensAmount: `${((amt / 0.000188) / 1e6).toFixed(1)}M`,
     walletAddress: wallet,
     timestamp: `${m}:${s}`,
-    tokenAddress: '0x3f4a8b2c9d1e5f7a0000000000000001',
+    tokenAddress: '0x3f4a8b2c9d1e5f7a100000000000babe',
     tokenName: 'MOONBOUND',
   };
 }

@@ -9,6 +9,7 @@ export interface Token {
   name: string;
   ticker: string;
   emoji: string;
+  image?: string;
   description: string;
   direction: Direction;
   underlying: UnderlyingAsset;
@@ -80,7 +81,7 @@ export interface PairFilter {
   color: string;
 }
 
-export type TokenFilter = 'trending' | 'new' | 'lt-movers' | 'graduating' | 'all';
+export type TokenFilter = 'trending' | 'new' | 'lt-movers' | 'graduating' | 'graduated' | 'all';
 
 export interface CreateTokenParams {
   name: string;

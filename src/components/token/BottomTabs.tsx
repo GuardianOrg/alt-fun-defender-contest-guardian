@@ -12,33 +12,61 @@ type Tab = 'trades' | 'comments' | 'holders';
 
 function TradesTab({ token }: { token: Token }) {
   const trades = useTokenTrades(token.address);
+  const ticker = token.name.split(' ')[0];
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="grid grid-cols-[50px_80px_90px_80px_1fr_60px] px-4 items-center h-6 text-[11px] tracking-[0.1em] uppercase text-txt-3 bg-bg-1 border-b border-border sticky top-0">
-        <div>side</div>
-        <div>usdc</div>
-        <div>tokens</div>
-        <div>wallet</div>
-        <div />
-        <div>time</div>
-      </div>
-      {trades.map((t) => (
-        <div
-          key={t.id}
-          className="grid grid-cols-[50px_80px_90px_80px_1fr_60px] px-4 items-center h-7 border-b border-border text-[13px] cursor-pointer transition-colors hover:bg-white/[0.02]"
-        >
-          <div className={t.side === 'BUY' ? 'text-mint font-bold' : 'text-red font-bold'}>
-            {t.side}
-          </div>
-          <div className="tabular-nums">${t.amountUsd.toLocaleString()}</div>
-          <div className="text-txt-2 tabular-nums">{t.tokensAmount}</div>
-          <div className="text-mint">{t.walletAddress}</div>
-          <div />
-          <div className="text-txt-3 tabular-nums">{t.timestamp}</div>
-        </div>
-      ))}
-    </div>
+    <table className="w-full text-[13px]">
+      <thead className="sticky top-0 z-10">
+        <tr className="text-[11px] tracking-[0.08em] uppercase text-txt-4 bg-bg-1 border-b border-border">
+          <th className="text-left font-normal px-4 py-1.5 whitespace-nowrap">Account</th>
+          <th className="text-left font-normal px-2 py-1.5 whitespace-nowrap">Type</th>
+          <th className="text-right font-normal px-2 py-1.5 whitespace-nowrap">USDC</th>
+          <th className="text-right font-normal px-2 py-1.5 whitespace-nowrap">{ticker}</th>
+          <th className="text-right font-normal px-2 py-1.5 whitespace-nowrap">Time</th>
+          <th className="text-right font-normal px-4 py-1.5 whitespace-nowrap">Txn</th>
+        </tr>
+      </thead>
+      <tbody>
+        {trades.map((t) => {
+          const mockTxn = t.id.slice(0, 6);
+          const isBuy = t.side === 'BUY';
+          return (
+            <tr
+              key={t.id}
+              className="border-b border-border cursor-pointer transition-colors hover:bg-white/[0.03]"
+            >
+              <td className="px-4 py-2 whitespace-nowrap">
+                <div className="flex items-center gap-2.5">
+                  <img
+                    src="/avatar.png"
+                    alt=""
+                    className="w-7 h-7 rounded-full shrink-0 object-cover bg-bg-2"
+                  />
+                  <span className="text-txt font-medium">{t.walletAddress}</span>
+                </div>
+              </td>
+              <td className={cn('px-2 py-2 font-semibold whitespace-nowrap', isBuy ? 'text-mint' : 'text-red')}>
+                {isBuy ? 'Buy' : 'Sell'}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums text-txt-2 whitespace-nowrap">
+                ${t.amountUsd.toLocaleString()}
+              </td>
+              <td className={cn('px-2 py-2 text-right tabular-nums font-semibold whitespace-nowrap', isBuy ? 'text-mint' : 'text-red')}>
+                {t.tokensAmount}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums text-txt-3 text-[11px] whitespace-nowrap">
+                {t.timestamp}
+              </td>
+              <td className="px-4 py-2 text-right whitespace-nowrap">
+                <span className="text-txt-4 hover:text-mint text-[11px] font-mono cursor-pointer transition-colors">
+                  {mockTxn}
+                </span>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
@@ -156,7 +184,7 @@ export default function BottomTabs({ token }: Props) {
           </button>
         ))}
       </div>
-      <div className="shrink-0 h-[185px] overflow-hidden">
+      <div className="shrink-0 h-[200px] overflow-y-auto">
         {activeTab === 'trades' && <TradesTab token={token} />}
         {activeTab === 'comments' && <CommentsTab comments={MOCK_COMMENTS} />}
         {activeTab === 'holders' && <HoldersTab holders={MOCK_HOLDERS} />}

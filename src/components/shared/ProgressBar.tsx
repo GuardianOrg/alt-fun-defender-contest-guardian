@@ -28,13 +28,17 @@ export default function ProgressBar({
   const trackRef = useRef<HTMLDivElement>(null);
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
+  const buyPctDisplay = Math.round(buyPercent);
+  const levPctDisplay = Math.round(leveragePercent * 10) / 10;
+
   return (
     <div className="relative w-full">
       <div
         ref={trackRef}
         className={cn(
-          'w-full rounded-full relative cursor-pointer overflow-hidden',
-          size === 'sm' ? 'h-[7px]' : 'h-[10px]',
+          'w-full rounded-full relative cursor-pointer',
+          leveragePercent > 0 ? 'overflow-visible' : 'overflow-hidden',
+          size === 'sm' ? 'h-[8px]' : 'h-[10px]',
           'bg-white/[0.06]',
         )}
         onMouseEnter={() => setTooltip(true)}
@@ -50,15 +54,12 @@ export default function ProgressBar({
           )}
           style={{ width: `${buyPercent}%` }}
         />
-        {/* Leverage boost segment */}
+        {/* Leverage boost segment — white fire glow */}
         {leveragePercent > 0 && (
           <div
             className={cn(
-              'absolute top-0 h-full',
-              isShort
-                ? 'bg-red/70 bar-glow-red'
-                : 'bg-aqua/70 bar-glow-aqua',
-              'leverage-shimmer',
+              'absolute top-0 h-full leverage-fire',
+              isShort ? 'leverage-fire-red' : 'leverage-fire-mint',
             )}
             style={{
               left: `${buyPercent}%`,
@@ -81,12 +82,7 @@ export default function ProgressBar({
             buy pressure{buyUsd && ` · ${buyUsd}`}
           </div>
           <div className="flex items-center gap-1.5 text-[11px] text-txt-3">
-            <div
-              className={cn(
-                'w-2 h-2 rounded-full shrink-0',
-                isShort ? 'bg-red bar-glow-red' : 'bg-aqua bar-glow-aqua',
-              )}
-            />
+            <div className={cn('w-2 h-2 rounded-full shrink-0 leverage-fire-dot', isShort ? 'leverage-fire-dot-red' : 'leverage-fire-dot-mint')} />
             leverage boost{leverageUsd && ` · ${leverageUsd}`}
           </div>
         </div>
@@ -100,7 +96,7 @@ export default function ProgressBar({
           <div className="flex items-center gap-2 mb-1">
             <div className="w-[6px] h-[6px] rounded-full bg-mint-dim shrink-0" />
             <span className="text-txt-3">buy pressure</span>
-            <span className="text-mint font-semibold ml-auto pl-4 tabular-nums">{buyPercent}%</span>
+            <span className="text-mint font-semibold ml-auto pl-4 tabular-nums">{buyPctDisplay}%</span>
           </div>
           <div className="flex items-center gap-2">
             <div
@@ -110,7 +106,7 @@ export default function ProgressBar({
               )}
             />
             <span className="text-txt-3">leverage boost</span>
-            <span className="text-amber font-semibold ml-auto pl-4 tabular-nums">{leveragePercent}%</span>
+            <span className="text-amber font-semibold ml-auto pl-4 tabular-nums">{levPctDisplay}%</span>
           </div>
         </div>
       )}

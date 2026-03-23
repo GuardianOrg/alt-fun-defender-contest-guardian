@@ -29,16 +29,18 @@ export default function RightPanel() {
             return (
               <div
                 key={t.id}
-                className="flex items-start gap-1.5 px-3 py-1.5 border-b border-border text-[13px] cursor-pointer transition-colors hover:bg-white/[0.02]"
+                className="flex items-center gap-2 px-3 py-2 border-b border-border cursor-pointer transition-colors hover:bg-white/[0.02]"
               >
-                <span className="text-txt-3 shrink-0 text-[11px] tabular-nums mt-px">{t.timestamp}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="font-bold text-txt font-mono truncate">{t.tokenName}</div>
-                  <div className="text-txt-3 mt-px text-[11px] truncate">{t.walletAddress}</div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-txt font-mono truncate">{t.tokenName}</span>
+                    <span className="text-[11px] text-txt-4 tabular-nums shrink-0">{t.timestamp}</span>
+                  </div>
+                  <div className="text-txt-4 text-[11px] truncate mt-0.5">{t.walletAddress}</div>
                 </div>
                 <span
                   className={cn(
-                    'shrink-0 font-semibold font-mono tabular-nums',
+                    'shrink-0 font-bold font-mono tabular-nums text-[14px]',
                     isBuy ? 'text-mint' : 'text-red',
                   )}
                 >
@@ -94,7 +96,7 @@ export default function RightPanel() {
           MY POSITIONS
         </div>
         {[
-          { name: 'PEPE2L', pnl: '+$184', cls: 'text-mint' },
+          { name: 'HOUSE', pnl: '+$184', cls: 'text-mint' },
           { name: 'WAVEBEAR', pnl: '+$92', cls: 'text-mint' },
           { name: 'DOOMER', pnl: '-$41', cls: 'text-red' },
         ].map((p) => (

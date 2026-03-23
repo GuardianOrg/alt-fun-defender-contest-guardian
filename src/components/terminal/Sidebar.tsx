@@ -19,16 +19,15 @@ export default function Sidebar() {
           <div
             key={a.name}
             className={cn(
-              'flex items-center justify-between px-3 py-1.5 cursor-pointer transition-colors hover:bg-white/[0.02]',
+              'flex items-center justify-between px-3 py-2.5 cursor-pointer transition-colors hover:bg-white/[0.02]',
               i < (assets.length - 1) && 'border-b border-border',
             )}
           >
-            <div className="text-[13px] font-semibold text-txt">{a.name}</div>
-            <div className="text-right">
-              <div className="text-[13px] font-medium text-txt tabular-nums">{a.priceUsd}</div>
+            <div>
+              <div className="text-[14px] font-bold text-txt">{a.name}</div>
               <div
                 className={cn(
-                  'text-[11px] font-semibold tabular-nums',
+                  'text-[12px] font-semibold tabular-nums mt-0.5',
                   a.change24h >= 0 ? 'text-mint' : 'text-red',
                 )}
               >
@@ -36,33 +35,12 @@ export default function Sidebar() {
                 {a.change24h.toFixed(2)}%
               </div>
             </div>
+            <div className="text-[14px] font-semibold text-txt tabular-nums">{a.priceUsd}</div>
           </div>
         ))}
       </div>
 
-      {/* Platform stats */}
-      {stats && (
-        <div className="border-b border-border">
-          <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
-            PLATFORM STATS
-          </div>
-          {[
-            { label: 'tokens live', value: stats.tokensLive, cls: 'text-mint' },
-            { label: 'graduating', value: stats.graduating, cls: 'text-amber' },
-            { label: '24h volume', value: stats.volume24h, cls: '' },
-            { label: 'graduated today', value: stats.graduatedToday, cls: 'text-mint' },
-            { label: 'total raised', value: stats.totalRaised, cls: '' },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="flex items-center justify-between px-3 py-1.5 border-b border-border text-[13px] last:border-b-0"
-            >
-              <span className="text-txt-3">{s.label}</span>
-              <span className={cn('font-medium tabular-nums', s.cls || 'text-txt-2')}>{s.value}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Platform stats — hidden from UI, data still fetched for later use */}
 
       {/* Pair filters */}
       {filters && (
@@ -93,7 +71,7 @@ export default function Sidebar() {
             <span className="text-[13px] font-bold text-mint tracking-[0.05em] uppercase">
               create
             </span>
-            <span className="text-[11px] text-txt-3">launch a levered memecoin</span>
+            <span className="text-[11px] text-txt-3">launch a levered token</span>
           </span>
         </button>
       </div>

@@ -13,6 +13,7 @@ export function useLongTokens(filter?: TokenFilter) {
   return useQuery({
     queryKey: ['tokens', 'long', filter],
     queryFn: () => tokenService.getLongTokens(filter),
+    refetchInterval: 10_000,
   });
 }
 
@@ -20,5 +21,6 @@ export function useShortTokens(filter?: TokenFilter) {
   return useQuery({
     queryKey: ['tokens', 'short', filter],
     queryFn: () => tokenService.getShortTokens(filter),
+    refetchInterval: 10_000,
   });
 }

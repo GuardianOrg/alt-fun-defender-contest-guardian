@@ -31,11 +31,11 @@ function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count
 
 function TableHead() {
   return (
-    <div className="grid grid-cols-[44px_1fr_68px_1fr_76px] h-[20px] shrink-0 border-b border-border bg-bg-1">
+    <div className="grid grid-cols-[52px_1fr_72px_1fr_80px] h-[22px] shrink-0 border-b border-border bg-bg-1">
       {['', 'TOKEN', '24H', 'PROGRESS', 'MCAP'].map((h, i) => (
         <div
           key={h || i}
-          className={`text-[11px] tracking-[0.1em] uppercase text-txt-3 px-2 flex items-center border-r border-border last:border-r-0 font-mono ${
+          className={`text-[11px] tracking-[0.1em] uppercase text-txt-2 px-2 flex items-center border-r border-border last:border-r-0 font-mono ${
             i === 2 || i === 4 ? 'justify-end' : ''
           }`}
         >

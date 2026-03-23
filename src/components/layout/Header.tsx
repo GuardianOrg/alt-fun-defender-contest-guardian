@@ -7,8 +7,6 @@ import { cn } from '@/utils/format';
 const TABS = [
   { label: 'MARKETS', path: '/' },
   { label: 'PROFILE', action: 'earnings' as const },
-  { label: 'ALERTS', path: '#' },
-  { label: 'DOCS', path: '#' },
 ];
 
 export default function Header() {
@@ -44,8 +42,10 @@ export default function Header() {
         <span className="text-txt font-bold">.FUN</span>
       </div>
 
-      <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 border-l border-border pl-3 mr-5">
-        perps × memes
+      <div className="text-[13px] tracking-[0.12em] uppercase border-l border-border pl-3 mr-5 font-bold">
+        <span className="text-mint drop-shadow-[0_0_6px_rgba(77,232,180,0.3)]">leverage</span>
+        <span className="text-txt-2 mx-1">×</span>
+        <span className="text-txt">memes</span>
       </div>
 
       {/* Nav tabs */}
@@ -120,7 +120,7 @@ export default function Header() {
             className="font-mono text-[13px] font-bold text-bg bg-mint px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-pointer shadow-mint-glow whitespace-nowrap transition-all hover:bg-mint-hover"
             onClick={() => navigate('/create')}
           >
-            ⚡ launch a levered memecoin
+            ⚡ launch a levered token
           </button>
         )}
       </div>

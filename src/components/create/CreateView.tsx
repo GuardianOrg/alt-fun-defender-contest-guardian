@@ -22,7 +22,6 @@ export default function CreateView() {
   const [launchError, setLaunchError] = useState<string | null>(null);
 
   const { isConnected, connect } = useWallet();
-  const ltName = `${asset} ${leverage}× ${direction === 'long' ? 'Long' : 'Short'}`;
   const seedAmt = parseFloat(seedAmount) || 0;
   const isBusy = launchStep === 'approving' || launchStep === 'deploying';
 
@@ -64,91 +63,100 @@ export default function CreateView() {
   };
 
   return (
-    <div className="grid grid-cols-[1fr_360px] flex-1 overflow-hidden">
+    <div className="grid grid-cols-[1fr_380px] flex-1 overflow-hidden">
       {/* Form column */}
-      <div className="px-10 py-8 border-r border-border overflow-y-auto">
-        <div className="mb-7 pb-5 border-b border-border">
-          <div className="text-[11px] tracking-[0.14em] uppercase text-mint mb-1 font-medium">new token</div>
-          <div className="font-display text-xl font-semibold text-txt tracking-[0.03em] mb-1">
-            Create a levered memecoin
+      <div className="overflow-y-auto">
+        {/* Page header */}
+        <div className="px-10 pt-8 pb-6 border-b border-border bg-gradient-to-b from-bg-1 to-bg">
+          <div className="text-[11px] tracking-[0.16em] uppercase text-mint mb-1.5 font-semibold">new token</div>
+          <div className="font-display text-2xl font-bold text-txt tracking-[0.02em] mb-1.5">
+            Create a levered token
           </div>
-          <div className="text-[13px] text-txt-3">
-            Choose a direction, pick your underlying, deploy.
+          <div className="text-[13px] text-txt-3 max-w-[420px]">
+            Choose a direction, pick your underlying, set your leverage, and deploy to the bonding curve in one transaction.
           </div>
         </div>
 
-        <PairSelector
-          direction={direction}
-          asset={asset}
-          leverage={leverage}
-          onDirectionChange={setDirection}
-          onAssetChange={setAsset}
-          onLeverageChange={setLeverage}
-        />
+        {/* Steps */}
+        <div className="px-10 py-8 space-y-8">
+          <PairSelector
+            direction={direction}
+            asset={asset}
+            leverage={leverage}
+            onDirectionChange={setDirection}
+            onAssetChange={setAsset}
+            onLeverageChange={setLeverage}
+          />
 
-        <div className="h-px bg-border my-7" />
+          <div className="h-px bg-gradient-to-r from-border to-transparent" />
 
-        <TokenForm
-          name={name}
-          ticker={ticker}
-          onNameChange={setName}
-          onTickerChange={setTicker}
-          onImageChange={(_, preview) => setImagePreview(preview)}
-        />
+          <TokenForm
+            name={name}
+            ticker={ticker}
+            onNameChange={setName}
+            onTickerChange={setTicker}
+            onImageChange={(_, preview) => setImagePreview(preview)}
+          />
 
-        <div className="h-px bg-border my-7" />
+          <div className="h-px bg-gradient-to-r from-border to-transparent" />
 
-        <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
+          <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
 
-        {launchError && (
-          <div className="text-[13px] text-red bg-red/[0.06] border border-red/20 rounded-sm px-2.5 py-1.5 mt-4">
-            {launchError}
+          {/* CTA area */}
+          <div className="pt-2 pb-4">
+            {launchError && (
+              <div className="text-[13px] text-red bg-red/[0.06] border border-red/20 rounded-lg px-3.5 py-2.5 mb-4 flex items-center gap-2">
+                <span className="text-red/60">⚠</span>
+                {launchError}
+              </div>
+            )}
+
+            {launchStep === 'confirmed' && (
+              <div className="text-[13px] text-mint bg-mint/[0.06] border border-mint/20 rounded-lg px-3.5 py-2.5 mb-4 flex items-center gap-2">
+                <span>✓</span>
+                Token deployed! Curve is live.
+              </div>
+            )}
+
+            <button
+              className={cn(
+                'w-full py-4 rounded-xl cursor-pointer border-0 font-mono text-sm font-bold tracking-[0.08em] uppercase transition-all duration-200',
+                launchStep === 'confirmed'
+                  ? 'bg-mint/15 text-mint cursor-default'
+                  : 'bg-mint text-bg shadow-mint-glow-lg hover:bg-mint-hover hover:shadow-[0_0_32px_rgba(77,232,180,0.35)]',
+                isBusy && 'opacity-70 cursor-wait',
+              )}
+              onClick={handleSubmit}
+              disabled={isBusy || launchStep === 'confirmed'}
+            >
+              {buttonLabel()}
+            </button>
+
+            {isBusy && (
+              <div className="flex items-center justify-center gap-2 text-[11px] text-txt-3 mt-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+                {launchStep === 'approving'
+                  ? 'Approve USDC spend in your wallet…'
+                  : 'Confirm deployment in your wallet…'}
+              </div>
+            )}
+
+            {launchStep === 'idle' && (
+              <div className="text-[13px] text-txt-3 text-center mt-3">
+                {seedAmt > 0
+                  ? `You will approve $${seedAmt.toFixed(2)} USDC, then confirm deployment`
+                  : 'You will be asked to confirm in your wallet'}
+              </div>
+            )}
+
+            {seedAmt > 0 && launchStep === 'idle' && (
+              <div className="text-[11px] text-txt-3 bg-bg-2/40 border border-border rounded-lg px-3.5 py-2.5 mt-3 leading-relaxed text-center">
+                Seed buy of <span className="text-mint font-semibold">${seedAmt.toFixed(2)} USDC</span>{' '}
+                is routed atomically through the TX Router — you receive tokens directly.
+              </div>
+            )}
           </div>
-        )}
-
-        {launchStep === 'confirmed' && (
-          <div className="text-[13px] text-mint bg-mint/[0.06] border border-mint/20 rounded-sm px-2.5 py-1.5 mt-4">
-            ✓ Token deployed! Curve is live.
-          </div>
-        )}
-
-        <button
-          className={cn(
-            'w-full py-3.5 rounded-[3px] cursor-pointer border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase mt-6 transition-all',
-            launchStep === 'confirmed'
-              ? 'bg-mint/15 text-mint cursor-default'
-              : 'bg-mint text-bg shadow-mint-glow-lg hover:bg-mint-hover',
-            isBusy && 'opacity-70 cursor-wait',
-          )}
-          onClick={handleSubmit}
-          disabled={isBusy || launchStep === 'confirmed'}
-        >
-          {buttonLabel()}
-        </button>
-
-        {isBusy && (
-          <div className="flex items-center justify-center gap-2 text-[11px] text-txt-3 mt-2.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
-            {launchStep === 'approving'
-              ? 'Approve USDC spend in your wallet…'
-              : 'Confirm deployment in your wallet…'}
-          </div>
-        )}
-
-        {launchStep === 'idle' && (
-          <div className="text-[13px] text-txt-3 text-center mt-2.5">
-            {seedAmt > 0
-              ? `You will approve $${seedAmt.toFixed(2)} USDC, then confirm deployment`
-              : 'You will be asked to confirm in your wallet'}
-          </div>
-        )}
-
-        {seedAmt > 0 && launchStep === 'idle' && (
-          <div className="text-[11px] text-txt-3 bg-bg-2/40 border border-border rounded-sm px-2.5 py-2 mt-3 leading-relaxed text-center">
-            Seed buy of <span className="text-mint font-semibold">${seedAmt.toFixed(2)} USDC</span>{' '}
-            is routed atomically through the TX Router — you receive tokens directly.
-          </div>
-        )}
+        </div>
       </div>
 
       {/* Preview column */}

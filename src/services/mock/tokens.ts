@@ -2,7 +2,7 @@ import type { Token } from '../types';
 
 export const MOCK_TOKENS: Token[] = [
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000001',
+    address: '0x3f4a8b2c9d1e5f7a100000000000babe',
     name: 'MOONBOUND',
     ticker: 'MOON',
     emoji: '🚀',
@@ -24,11 +24,12 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '4h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000002',
-    name: 'PEPE2L',
-    ticker: 'PEPE2L',
-    emoji: '🐸',
-    description: 'Pepe but leveraged.',
+    address: '0x3f4a8b2c9d1e5f7a200000000000babe',
+    name: 'HOUSE',
+    ticker: 'HOUSE',
+    emoji: '🏠',
+    image: '/tokens/house.png',
+    description: 'Monopoly house but leveraged.',
     direction: 'long',
     underlying: 'HYPE',
     leverage: 2,
@@ -46,7 +47,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '8h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000003',
+    address: '0x3f4a8b2c9d1e5f7a300000000000babe',
     name: 'BTCMAXI',
     ticker: 'MAXI',
     emoji: '🦁',
@@ -68,7 +69,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '12h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000004',
+    address: '0x3f4a8b2c9d1e5f7a400000000000babe',
     name: 'HYPERVADER',
     ticker: 'VADER',
     emoji: '⚡',
@@ -90,7 +91,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '2d ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000005',
+    address: '0x3f4a8b2c9d1e5f7a500000000000babe',
     name: 'WHALEDREAM',
     ticker: 'WHALE',
     emoji: '🐋',
@@ -112,7 +113,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '6h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000006',
+    address: '0x3f4a8b2c9d1e5f7a600000000000babe',
     name: 'HYPERCAT',
     ticker: 'HCAT',
     emoji: '🔥',
@@ -134,7 +135,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '3h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000007',
+    address: '0x3f4a8b2c9d1e5f7a700000000000babe',
     name: 'WAVEBEAR',
     ticker: 'WAVE',
     emoji: '🌊',
@@ -156,7 +157,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '5h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000008',
+    address: '0x3f4a8b2c9d1e5f7a800000000000babe',
     name: 'CRASHOUT',
     ticker: 'CRASH',
     emoji: '💀',
@@ -178,7 +179,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '10h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a0000000000000009',
+    address: '0x3f4a8b2c9d1e5f7a900000000000babe',
     name: 'DOOMER',
     ticker: 'DOOM',
     emoji: '🐻',
@@ -200,7 +201,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '1d ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a000000000000000a',
+    address: '0x3f4a8b2c9d1e5f7aa00000000000babe',
     name: 'NIGHTFALL',
     ticker: 'NIGHT',
     emoji: '🌑',
@@ -222,7 +223,7 @@ export const MOCK_TOKENS: Token[] = [
     createdAt: '14h ago',
   },
   {
-    address: '0x3f4a8b2c9d1e5f7a000000000000000b',
+    address: '0x3f4a8b2c9d1e5f7ab00000000000babe',
     name: 'ALPHADROP',
     ticker: 'ALPHA',
     emoji: '🗻',

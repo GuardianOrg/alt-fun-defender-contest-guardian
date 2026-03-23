@@ -23,7 +23,7 @@ export default function TokenRow({ token }: Props) {
   return (
     <div
       className={cn(
-        'grid grid-cols-[44px_1fr_68px_1fr_76px] h-[54px] cursor-pointer border-b group',
+        'grid grid-cols-[52px_1fr_72px_1fr_80px] h-[58px] cursor-pointer border-b group',
         isGraduating
           ? cn(
               'border-l-[3px]',
@@ -46,16 +46,36 @@ export default function TokenRow({ token }: Props) {
       )}
       onClick={() => navigate(`/token/${token.address}`)}
     >
-      {/* Emoji */}
+      {/* Icon */}
       <div className="flex items-center justify-center border-r border-border">
-        <span className="text-[22px] leading-none">{token.emoji}</span>
+        {token.image ? (
+          <img
+            src={token.image}
+            alt={token.name}
+            className="w-8 h-8 rounded-md object-cover transition-transform duration-200 group-hover:scale-110"
+          />
+        ) : (
+          <span className="text-[28px] leading-none transition-transform duration-200 group-hover:scale-110">
+            {token.emoji}
+          </span>
+        )}
       </div>
 
       {/* Name + LT pair + graduating badge — PRIMARY tier */}
       <div className="flex flex-col justify-center gap-0.5 px-3 border-r border-border overflow-hidden">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-sm font-bold text-txt tracking-[0.04em] uppercase truncate">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[15px] font-bold text-txt tracking-[0.04em] uppercase truncate">
             {token.name}
+          </span>
+          <span
+            className={cn(
+              'text-[12px] font-bold px-1.5 py-0.5 rounded shrink-0 tabular-nums',
+              isShort
+                ? 'text-red bg-red/[0.10]'
+                : 'text-mint bg-mint/[0.10]',
+            )}
+          >
+            {token.leverage}×
           </span>
           {isGraduating && (
             <span
@@ -70,8 +90,8 @@ export default function TokenRow({ token }: Props) {
         </div>
         <span
           className={cn(
-            'text-[11px] font-mono truncate',
-            isShort ? 'text-red/40' : 'text-mint/40',
+            'text-[12px] font-mono truncate',
+            isShort ? 'text-red/60' : 'text-mint/60',
           )}
         >
           {token.ltName.toUpperCase()}
@@ -83,7 +103,7 @@ export default function TokenRow({ token }: Props) {
       <div className="flex items-center justify-end px-3 border-r border-border">
         <span
           className={cn(
-            'font-mono text-sm font-bold tabular-nums',
+            'font-mono text-[15px] font-bold tabular-nums',
             up ? 'text-mint' : 'text-red',
           )}
         >
@@ -91,33 +111,19 @@ export default function TokenRow({ token }: Props) {
         </span>
       </div>
 
-      {/* Progress bar + label — SECONDARY tier */}
-      <div className="flex flex-col justify-center gap-1 px-3 border-r border-border overflow-hidden">
+      {/* Progress bar */}
+      <div className="flex items-center px-3 border-r border-border overflow-hidden">
         <ProgressBar
           buyPercent={buyW}
           leveragePercent={levW}
           isShort={isShort}
           isGraduating={isGraduating}
         />
-        <span className="font-mono text-[11px] text-txt-3 truncate tabular-nums">
-          {isGraduated ? (
-            <span className="text-mint/70">100% graduated</span>
-          ) : (
-            <>
-              {token.curveFilled}%
-              {isLtMover && (
-                <span className="text-amber/80 ml-1">
-                  ⚡ {token.underlying}
-                </span>
-              )}
-            </>
-          )}
-        </span>
       </div>
 
       {/* MCAP — PRIMARY tier */}
       <div className="flex items-center justify-end px-3">
-        <span className="font-mono text-sm font-semibold text-txt tabular-nums">
+        <span className="font-mono text-[15px] font-semibold text-txt tabular-nums">
           {formatUsd(token.mcapUsd)}
         </span>
       </div>

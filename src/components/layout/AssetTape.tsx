@@ -9,8 +9,9 @@ export default function AssetTape() {
 
   return (
     <div className="h-[32px] overflow-hidden border-b border-border flex items-center bg-bg/80 shrink-0">
-      <div className="text-[11px] tracking-[0.14em] uppercase text-mint bg-mint-bg px-3.5 h-full flex items-center border-r border-border-2 shrink-0 font-medium">
-        MARKETS
+      <div className="text-[11px] tracking-[0.14em] uppercase text-mint bg-mint-bg px-3 h-full flex items-center border-r border-border-2 shrink-0 font-medium gap-1.5">
+        <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+        LIVE
       </div>
       <div className="overflow-hidden flex-1">
         <div className="flex items-center animate-scrolltape whitespace-nowrap">

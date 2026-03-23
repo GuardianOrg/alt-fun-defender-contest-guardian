@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, ColorType } from 'lightweight-charts';
-import { cn } from '@/utils/format';
+import { cn, formatPercent } from '@/utils/format';
 import type { Token } from '@/services/types';
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1D'] as const;
@@ -58,6 +58,8 @@ export default function Chart({ token }: Props) {
   const [interval, setInterval] = useState<string>('1m');
   const [showOverlay, setShowOverlay] = useState(false);
 
+  const underlyingChg = token.leverageBoost / token.leverage;
+
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -65,16 +67,16 @@ export default function Chart({ token }: Props) {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
         textColor: 'rgba(234,250,244,0.22)',
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 9,
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: 10,
       },
       grid: {
-        vertLines: { color: 'rgba(77,232,180,0.06)' },
-        horzLines: { color: 'rgba(77,232,180,0.06)' },
+        vertLines: { color: 'rgba(77,232,180,0.05)' },
+        horzLines: { color: 'rgba(77,232,180,0.05)' },
       },
-      crosshair: { vertLine: { color: 'rgba(77,232,180,0.3)' }, horzLine: { color: 'rgba(77,232,180,0.3)' } },
-      rightPriceScale: { borderColor: 'rgba(77,232,180,0.13)' },
-      timeScale: { borderColor: 'rgba(77,232,180,0.13)' },
+      crosshair: { vertLine: { color: 'rgba(77,232,180,0.25)' }, horzLine: { color: 'rgba(77,232,180,0.25)' } },
+      rightPriceScale: { borderColor: 'rgba(77,232,180,0.10)' },
+      timeScale: { borderColor: 'rgba(77,232,180,0.10)' },
     });
 
     chartRef.current = chart;
@@ -135,31 +137,76 @@ export default function Chart({ token }: Props) {
 
   return (
     <>
-      <div className="flex items-center px-3 h-8 border-b border-border bg-bg-1 shrink-0">
-        {INTERVALS.map((iv) => (
+      {/* Toolbar — intervals + decomp stats + overlay */}
+      <div className="flex items-center px-4 h-8 border-b border-border bg-bg-1 shrink-0 gap-1">
+        {/* Interval pills */}
+        <div className="flex items-center bg-bg-2/60 rounded-md p-0.5 gap-px">
+          {INTERVALS.map((iv) => (
+            <button
+              key={iv}
+              className={cn(
+                'px-2 py-0.5 rounded text-[11px] font-mono font-medium cursor-pointer border-0 transition-all duration-150',
+                interval === iv
+                  ? 'bg-mint/[0.12] text-mint'
+                  : 'bg-transparent text-txt-3 hover:text-txt hover:bg-white/[0.04]',
+              )}
+              onClick={() => setInterval(iv)}
+            >
+              {iv}
+            </button>
+          ))}
+        </div>
+
+        <div className="w-px h-4 bg-border mx-1.5" />
+
+        {/* Overlay toggle */}
+        <label className="flex items-center gap-1.5 cursor-pointer group">
           <div
-            key={iv}
             className={cn(
-              'text-[13px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border transition-colors',
-              'first:border-l first:border-l-border',
-              'hover:text-txt',
-              interval === iv && 'text-mint font-semibold',
+              'w-6 h-3.5 rounded-full relative transition-all duration-200',
+              showOverlay ? 'bg-amber/30' : 'bg-white/[0.08]',
             )}
-            onClick={() => setInterval(iv)}
+            onClick={() => setShowOverlay(!showOverlay)}
           >
-            {iv}
+            <div
+              className={cn(
+                'absolute top-[3px] w-2 h-2 rounded-full transition-all duration-200',
+                showOverlay
+                  ? 'left-3 bg-amber'
+                  : 'left-[3px] bg-txt-3',
+              )}
+            />
           </div>
-        ))}
-        <div className="w-px bg-border h-4 mx-2" />
-        <label className="text-[13px] text-txt-3 px-2.5 h-full flex items-center gap-[5px] cursor-pointer hover:text-txt-2">
-          <input
-            type="checkbox"
-            checked={showOverlay}
-            onChange={(e) => setShowOverlay(e.target.checked)}
-            className="accent-mint"
-          />
-          {token.underlying} overlay
+          <span className={cn(
+            'text-[11px] font-mono transition-colors',
+            showOverlay ? 'text-amber' : 'text-txt-4 group-hover:text-txt-3',
+          )}>
+            {token.underlying}
+          </span>
         </label>
+
+        <div className="w-px h-4 bg-border mx-1.5" />
+
+        {/* Decomp stats — inline, secondary */}
+        <div className="flex items-center gap-3 text-[11px] tabular-nums">
+          <span className="text-txt-4">
+            buys{' '}
+            <span className={cn('font-semibold', token.buyMomentum >= 0 ? 'text-mint' : 'text-red')}>
+              {formatPercent(token.buyMomentum)}
+            </span>
+          </span>
+          <span className="text-txt-4">
+            lev{' '}
+            <span className="text-amber font-semibold">{formatPercent(token.leverageBoost)}</span>
+            <span className="text-txt-4 ml-0.5">({formatPercent(underlyingChg)}×{token.leverage})</span>
+          </span>
+        </div>
+
+        {/* Live indicator */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+          <span className="text-[11px] text-txt-4 font-mono">live</span>
+        </div>
       </div>
       <div ref={chartContainerRef} className="flex-1 relative overflow-hidden" />
     </>

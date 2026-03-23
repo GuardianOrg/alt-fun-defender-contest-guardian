@@ -39,8 +39,12 @@ function TrendingCard({ token, onClick }: { token: Token; onClick: () => void })
       onClick={onClick}
     >
       <div className="flex items-center gap-2 mb-2">
-        <div className="w-[26px] h-[26px] rounded-md bg-white/[0.05] flex items-center justify-center text-sm">
-          {token.emoji}
+        <div className="w-[26px] h-[26px] rounded-md bg-white/[0.05] flex items-center justify-center text-sm overflow-hidden">
+          {token.image ? (
+            <img src={token.image} alt={token.name} className="w-full h-full object-cover" />
+          ) : (
+            token.emoji
+          )}
         </div>
         <div>
           <div className="text-[13px] font-bold text-txt">{token.name}</div>

@@ -8,12 +8,23 @@ export interface ITokenService {
   getShortTokens(filter?: TokenFilter): Promise<Token[]>;
 }
 
+function jitter(value: number, pct = 0.05): number {
+  return value * (1 + (Math.random() * 2 - 1) * pct);
+}
+
 const mockTokenService: ITokenService = {
   async getTokens(filter?: TokenFilter) {
-    let tokens = [...MOCK_TOKENS];
+    let tokens = MOCK_TOKENS.map((t) => ({
+      ...t,
+      mcapUsd: jitter(t.mcapUsd),
+      change24h: +(t.change24h + (Math.random() * 4 - 2)).toFixed(1),
+    }));
     switch (filter) {
       case 'graduating':
         tokens = tokens.filter((t) => t.status === 'graduating');
+        break;
+      case 'graduated':
+        tokens = tokens.filter((t) => t.status === 'graduated');
         break;
       case 'new':
         tokens = tokens.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -24,9 +35,14 @@ const mockTokenService: ITokenService = {
           .sort((a, b) => b.leverageBoost - a.leverageBoost);
         break;
       case 'trending':
-      default:
-        tokens = tokens.sort((a, b) => b.change24h - a.change24h);
+      default: {
+        const graduated = tokens.filter((t) => t.status === 'graduated');
+        const active = tokens.filter((t) => t.status !== 'graduated');
+        active.sort((a, b) => b.mcapUsd - a.mcapUsd);
+        const king = graduated.sort((a, b) => b.mcapUsd - a.mcapUsd)[0];
+        tokens = king ? [king, ...active] : active;
         break;
+      }
     }
     return tokens;
   },

@@ -10,7 +10,7 @@ const mockProfileService: IProfileService = {
   async getBalances(_walletAddress) {
     return [
       {
-        address: '0x3f4a8b2c9d1e5f7a0000000000000001',
+        address: '0x3f4a8b2c9d1e5f7a100000000000babe',
         name: 'MOONBOUND',
         ticker: 'MOON',
         emoji: '🚀',
@@ -21,7 +21,7 @@ const mockProfileService: IProfileService = {
         change24h: 24.1,
       },
       {
-        address: '0x3f4a8b2c9d1e5f7a0000000000000002',
+        address: '0x3f4a8b2c9d1e5f7a200000000000babe',
         name: 'HYPERAPE',
         ticker: 'HAPE',
         emoji: '🦍',
@@ -32,7 +32,7 @@ const mockProfileService: IProfileService = {
         change24h: -8.3,
       },
       {
-        address: '0x3f4a8b2c9d1e5f7a0000000000000003',
+        address: '0x3f4a8b2c9d1e5f7a300000000000babe',
         name: 'BEARISH',
         ticker: 'BEAR',
         emoji: '🐻',
@@ -43,7 +43,7 @@ const mockProfileService: IProfileService = {
         change24h: 5.6,
       },
       {
-        address: '0x3f4a8b2c9d1e5f7a0000000000000006',
+        address: '0x3f4a8b2c9d1e5f7a600000000000babe',
         name: 'HYPERCAT',
         ticker: 'HCAT',
         emoji: '🔥',
@@ -63,7 +63,7 @@ const mockProfileService: IProfileService = {
       totalClaimed: 362.2,
       tokens: [
         {
-          address: '0x3f4a8b2c9d1e5f7a0000000000000001',
+          address: '0x3f4a8b2c9d1e5f7a100000000000babe',
           name: 'MOONBOUND',
           emoji: '🚀',
           ltName: 'HYPE 3× Long',
@@ -74,7 +74,7 @@ const mockProfileService: IProfileService = {
           feesClaimableUsd: 620,
         },
         {
-          address: '0x3f4a8b2c9d1e5f7a0000000000000006',
+          address: '0x3f4a8b2c9d1e5f7a600000000000babe',
           name: 'HYPERCAT',
           emoji: '🔥',
           ltName: 'HYPE 3× Long',
@@ -85,7 +85,7 @@ const mockProfileService: IProfileService = {
           feesClaimableUsd: 32,
         },
         {
-          address: '0x3f4a8b2c9d1e5f7a0000000000000004',
+          address: '0x3f4a8b2c9d1e5f7a400000000000babe',
           name: 'HYPERVADER',
           emoji: '⚡',
           ltName: 'HYPE 2× Long',

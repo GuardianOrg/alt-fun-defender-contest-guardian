@@ -35,9 +35,11 @@ export default function EarningsPanel() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-2 shrink-0">
           {isConnected ? (
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-full bg-mint/15 flex items-center justify-center text-[13px] text-mint font-bold">
-                {shortAddress?.slice(0, 2)}
-              </div>
+              <img
+                src="/avatar.png"
+                alt=""
+                className="w-7 h-7 rounded-full object-cover bg-bg-2 shrink-0"
+              />
               <div>
                 <div className="text-[13px] font-bold text-txt">{shortAddress}</div>
                 <div className="text-[11px] text-txt-3">HyperEVM</div>
@@ -144,7 +146,7 @@ function BalancesTab({
         <div className="text-center">
           <div className="text-sm font-semibold text-txt mb-1">No tokens yet</div>
           <div className="text-[13px] text-txt-3 leading-relaxed">
-            Buy tokens on the bonding curve or launch your own levered memecoin.
+            Buy tokens on the bonding curve or launch your own levered token.
           </div>
         </div>
         <button
@@ -225,7 +227,7 @@ function RewardsTab({
         <div className="text-center">
           <div className="text-sm font-semibold text-txt mb-1">No tokens created yet</div>
           <div className="text-[13px] text-txt-3 leading-relaxed">
-            Launch a levered memecoin to start earning 0.1% of all trading volume on the
+            Launch a levered token to start earning 0.1% of all trading volume on the
             bonding curve. Fees accrue in USDC and can be claimed anytime.
           </div>
         </div>
@@ -354,8 +356,7 @@ function RewardsTab({
       <div className="px-4 py-3 border-t border-border mt-auto">
         <div className="text-[11px] text-txt-3 leading-relaxed">
           <span className="text-mint font-semibold">0.1%</span> of all curve volume goes to token
-          creators. Fees accrue in USDC and can be claimed anytime. Earnings stop when a token
-          graduates.
+          creators. Fees accrue in USDC and can be claimed anytime.
         </div>
       </div>
     </>

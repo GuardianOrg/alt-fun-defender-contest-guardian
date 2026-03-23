@@ -50,22 +50,50 @@
   .bar-glow-mint {
     box-shadow: inset 0 0 6px rgba(42, 184, 138, 0.3), 0 0 4px rgba(77, 232, 180, 0.15);
   }
-  .bar-glow-aqua {
-    box-shadow: inset 0 0 6px rgba(0, 255, 204, 0.25), 0 0 4px rgba(0, 255, 204, 0.12);
-  }
-  .bar-glow-red {
-    box-shadow: inset 0 0 6px rgba(240, 80, 80, 0.25), 0 0 4px rgba(240, 80, 80, 0.12);
-  }
-  .leverage-shimmer {
+
+  /* Leverage fire — white-hot glowing bar */
+  .leverage-fire {
     background-image: linear-gradient(
       90deg,
       transparent 0%,
-      rgba(255, 255, 255, 0.08) 40%,
-      rgba(255, 255, 255, 0.12) 50%,
-      rgba(255, 255, 255, 0.08) 60%,
+      rgba(255, 255, 255, 0.15) 30%,
+      rgba(255, 255, 255, 0.35) 50%,
+      rgba(255, 255, 255, 0.15) 70%,
       transparent 100%
     );
     background-size: 200% 100%;
-    animation: shimmer 2.5s linear infinite;
+    animation: fire-sweep 1.8s ease-in-out infinite;
   }
+
+  .leverage-fire-mint {
+    background-color: rgba(160, 255, 230, 0.7);
+    box-shadow:
+      inset 0 0 5px rgba(255, 255, 255, 0.5),
+      0 0 6px rgba(0, 255, 204, 0.4),
+      0 0 12px rgba(0, 255, 204, 0.2);
+  }
+
+  .leverage-fire-red {
+    background-color: rgba(255, 180, 180, 0.7);
+    box-shadow:
+      inset 0 0 5px rgba(255, 255, 255, 0.5),
+      0 0 6px rgba(240, 80, 80, 0.4),
+      0 0 12px rgba(240, 80, 80, 0.2);
+  }
+
+  /* Legend dots */
+  .leverage-fire-dot-mint {
+    background: rgba(0, 255, 204, 0.8);
+    box-shadow: 0 0 4px rgba(0, 255, 204, 0.6), 0 0 8px rgba(255, 255, 255, 0.3);
+  }
+  .leverage-fire-dot-red {
+    background: rgba(240, 80, 80, 0.8);
+    box-shadow: 0 0 4px rgba(240, 80, 80, 0.6), 0 0 8px rgba(255, 255, 255, 0.3);
+  }
+}
+
+@keyframes fire-sweep {
+  0% { background-position: -200% 0; opacity: 0.85; }
+  50% { background-position: 200% 0; opacity: 1; }
+  100% { background-position: -200% 0; opacity: 0.85; }
 }

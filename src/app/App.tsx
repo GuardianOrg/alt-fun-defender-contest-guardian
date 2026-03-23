@@ -4,6 +4,7 @@ import AssetTape from '@/components/layout/AssetTape';
 import SearchModal from '@/components/layout/SearchModal';
 import EarningsPanel from '@/components/layout/EarningsPanel';
 import PasswordGate from '@/components/layout/PasswordGate';
+import LeverageBanner from '@/components/terminal/LeverageBanner';
 import TerminalView from '@/components/terminal/TerminalView';
 import TokenDetailView from '@/components/token/TokenDetailView';
 import CreateView from '@/components/create/CreateView';
@@ -21,6 +22,7 @@ export default function App() {
           isTokenPage && 'animate-ambpulse',
         )}
       >
+        <LeverageBanner />
         <Header />
         <AssetTape />
         <Routes>
