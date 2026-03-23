@@ -1,4 +1,4 @@
-import { FEES } from '@/config/constants';
+import { FEES } from "../config/constants";
 
 /**
  * Trade router service — models the atomic USDC-in/token-out flow.
@@ -11,7 +11,7 @@ import { FEES } from '@/config/constants';
  * All calls route through the Bounce Referral Module for fee attribution.
  */
 
-export type TxStep = 'idle' | 'approving' | 'executing' | 'confirmed' | 'error';
+export type TxStep = "idle" | "approving" | "executing" | "confirmed" | "error";
 
 export interface BuyQuote {
   tokensOut: string;
@@ -33,7 +33,11 @@ export interface SellQuote {
 
 export interface ITradeRouterService {
   getQuoteBuy(curveAddress: string, usdcAmount: number): Promise<BuyQuote>;
-  getQuoteSell(curveAddress: string, tokenAmount: number, tokenPriceUsd: number): Promise<SellQuote>;
+  getQuoteSell(
+    curveAddress: string,
+    tokenAmount: number,
+    tokenPriceUsd: number,
+  ): Promise<SellQuote>;
 }
 
 /**
@@ -49,7 +53,9 @@ const mockTradeRouter: ITradeRouterService = {
     const priceImpact = (usdcAmount / 188_000) * 100;
 
     return {
-      tokensOut: tokensOut.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+      tokensOut: tokensOut.toLocaleString(undefined, {
+        maximumFractionDigits: 0,
+      }),
       curveFee,
       totalFee: curveFee,
       priceImpactPct: parseFloat(priceImpact.toFixed(2)),

@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
-import { cn } from '@/utils/format';
-import styles from './ProgressBar.module.css';
+import { useState, useRef } from "react";
+
+import styles from "./ProgressBar.module.css";
+import { cn } from "../../utils/format";
 
 interface ProgressBarProps {
   buyPercent: number;
@@ -11,7 +12,7 @@ interface ProgressBarProps {
   showLegend?: boolean;
   buyUsd?: string;
   leverageUsd?: string;
-  size?: 'sm' | 'md';
+  size?: "sm" | "md";
 }
 
 export default function ProgressBar({
@@ -23,7 +24,7 @@ export default function ProgressBar({
   showLegend = false,
   buyUsd,
   leverageUsd,
-  size = 'sm',
+  size = "sm",
 }: ProgressBarProps) {
   const [tooltip, setTooltip] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -39,7 +40,7 @@ export default function ProgressBar({
         className={cn(
           styles.track,
           leveragePercent > 0 ? styles.overflowVisible : styles.overflowHidden,
-          size === 'sm' ? styles.trackSm : styles.trackMd,
+          size === "sm" ? styles.trackSm : styles.trackMd,
         )}
         onMouseEnter={() => setTooltip(true)}
         onMouseMove={(e) => setTipPos({ x: e.clientX + 12, y: e.clientY - 60 })}
@@ -48,7 +49,7 @@ export default function ProgressBar({
         <div
           className={cn(
             styles.buySegment,
-            'bar-glow-mint',
+            "bar-glow-mint",
             isGraduating && styles.graduating,
           )}
           style={{ width: `${buyPercent}%` }}
@@ -57,8 +58,8 @@ export default function ProgressBar({
           <div
             className={cn(
               styles.leverageSegment,
-              'leverage-fire',
-              isShort ? 'leverage-fire-red' : 'leverage-fire-mint',
+              "leverage-fire",
+              isShort ? "leverage-fire-red" : "leverage-fire-mint",
             )}
             style={{
               left: `${buyPercent}%`,
@@ -77,11 +78,17 @@ export default function ProgressBar({
       {showLegend && (
         <div className={styles.legend}>
           <div className={styles.legendItem}>
-            <div className={cn(styles.legendDot, 'bar-glow-mint')} />
+            <div className={cn(styles.legendDot, "bar-glow-mint")} />
             buy pressure{buyUsd && ` · ${buyUsd}`}
           </div>
           <div className={styles.legendItem}>
-            <div className={cn(styles.legendDotLeverage, 'leverage-fire-dot', isShort ? 'leverage-fire-dot-red' : 'leverage-fire-dot-mint')} />
+            <div
+              className={cn(
+                styles.legendDotLeverage,
+                "leverage-fire-dot",
+                isShort ? "leverage-fire-dot-red" : "leverage-fire-dot-mint",
+              )}
+            />
             leverage boost{leverageUsd && ` · ${leverageUsd}`}
           </div>
         </div>
@@ -90,7 +97,10 @@ export default function ProgressBar({
       {tooltip && leveragePercent > 0 && (
         <div
           className={styles.tooltip}
-          style={{ left: Math.min(tipPos.x, window.innerWidth - 200), top: tipPos.y }}
+          style={{
+            left: Math.min(tipPos.x, window.innerWidth - 200),
+            top: tipPos.y,
+          }}
         >
           <div className={styles.tooltipRow}>
             <div className={styles.tooltipDotMint} />

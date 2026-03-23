@@ -146,7 +146,10 @@
   padding-top: 2px;
   padding-bottom: 2px;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .escBadge:hover {
@@ -234,7 +237,10 @@
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .resultRow:hover {

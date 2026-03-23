@@ -1,11 +1,12 @@
-import type { Trade, Comment, Holder } from './types';
 import {
   generateFeedTrade,
   generateTokenTrade,
   INITIAL_TOKEN_TRADES,
   MOCK_COMMENTS,
   MOCK_HOLDERS,
-} from './mock/trades';
+} from "./mock/trades";
+
+import type { Trade, Comment, Holder } from "./types";
 
 export interface ITradeService {
   subscribeFeed(cb: (trade: Trade) => void): () => void;

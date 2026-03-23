@@ -38,12 +38,20 @@
 
 .tokenCardLong {
   border-color: rgba(77, 232, 180, 0.2);
-  background: linear-gradient(to bottom right, rgba(77, 232, 180, 0.04), var(--bg-2));
+  background: linear-gradient(
+    to bottom right,
+    rgba(77, 232, 180, 0.04),
+    var(--bg-2)
+  );
 }
 
 .tokenCardShort {
   border-color: rgba(240, 80, 80, 0.2);
-  background: linear-gradient(to bottom right, rgba(240, 80, 80, 0.04), var(--bg-2));
+  background: linear-gradient(
+    to bottom right,
+    rgba(240, 80, 80, 0.04),
+    var(--bg-2)
+  );
 }
 
 .tokenCardHeader {
@@ -227,12 +235,12 @@
 
 .infoBoxLong {
   background: rgba(77, 232, 180, 0.03);
-  border-color: rgba(77, 232, 180, 0.10);
+  border-color: rgba(77, 232, 180, 0.1);
 }
 
 .infoBoxShort {
   background: rgba(240, 80, 80, 0.03);
-  border-color: rgba(240, 80, 80, 0.10);
+  border-color: rgba(240, 80, 80, 0.1);
 }
 
 .infoBold {

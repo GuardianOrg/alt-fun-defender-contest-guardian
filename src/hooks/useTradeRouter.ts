@@ -1,6 +1,13 @@
-import { useState, useCallback } from 'react';
-import { useAccount } from 'wagmi';
-import { tradeRouterService, type TxStep, type BuyQuote, type SellQuote } from '@/services/tradeRouter';
+import { useState, useCallback } from "react";
+
+import { useAccount } from "wagmi";
+
+import {
+  tradeRouterService,
+  type TxStep,
+  type BuyQuote,
+  type SellQuote,
+} from "../services/tradeRouter";
 
 /**
  * Hook for executing trades through the TX Router.
@@ -21,12 +28,15 @@ import { tradeRouterService, type TxStep, type BuyQuote, type SellQuote } from '
  */
 export function useTradeRouter() {
   const { address, isConnected } = useAccount();
-  const [step, setStep] = useState<TxStep>('idle');
+  const [step, setStep] = useState<TxStep>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const getQuoteBuy = useCallback(
-    async (curveAddress: string, usdcAmount: number): Promise<BuyQuote | null> => {
+    async (
+      curveAddress: string,
+      usdcAmount: number,
+    ): Promise<BuyQuote | null> => {
       try {
         return await tradeRouterService.getQuoteBuy(curveAddress, usdcAmount);
       } catch {
@@ -43,7 +53,11 @@ export function useTradeRouter() {
       tokenPriceUsd: number,
     ): Promise<SellQuote | null> => {
       try {
-        return await tradeRouterService.getQuoteSell(curveAddress, tokenAmount, tokenPriceUsd);
+        return await tradeRouterService.getQuoteSell(
+          curveAddress,
+          tokenAmount,
+          tokenPriceUsd,
+        );
       } catch {
         return null;
       }
@@ -60,29 +74,29 @@ export function useTradeRouter() {
    *   3. await writeContract(router, 'buy', [curveAddress, amount, minOut, referralCode])
    */
   const executeBuy = useCallback(
-    async (curveAddress: string, usdcAmount: number, _slippage: number) => {
+    async (_curveAddress: string, _usdcAmount: number, _slippage: number) => {
       if (!isConnected || !address) {
-        setError('Connect wallet first');
+        setError("Connect wallet first");
         return;
       }
 
       try {
         setError(null);
-        setStep('approving');
+        setStep("approving");
 
         // Step 1: USDC approval (mock — production uses writeContract)
         await new Promise((r) => setTimeout(r, 500));
 
-        setStep('executing');
+        setStep("executing");
 
         // Step 2: Router.buy() — atomically mints LT + buys on curve
         await new Promise((r) => setTimeout(r, 1000));
 
-        setTxHash('0x' + Math.random().toString(16).slice(2));
-        setStep('confirmed');
+        setTxHash("0x" + Math.random().toString(16).slice(2));
+        setStep("confirmed");
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Transaction failed');
-        setStep('error');
+        setError(e instanceof Error ? e.message : "Transaction failed");
+        setStep("error");
       }
     },
     [isConnected, address],
@@ -97,34 +111,34 @@ export function useTradeRouter() {
    *   3. await writeContract(router, 'sell', [curveAddress, amount, minOut, referralCode])
    */
   const executeSell = useCallback(
-    async (curveAddress: string, _tokenAmount: number, _slippage: number) => {
+    async (_curveAddress: string, _tokenAmount: number, _slippage: number) => {
       if (!isConnected || !address) {
-        setError('Connect wallet first');
+        setError("Connect wallet first");
         return;
       }
 
       try {
         setError(null);
-        setStep('approving');
+        setStep("approving");
 
         await new Promise((r) => setTimeout(r, 500));
 
-        setStep('executing');
+        setStep("executing");
 
         await new Promise((r) => setTimeout(r, 1000));
 
-        setTxHash('0x' + Math.random().toString(16).slice(2));
-        setStep('confirmed');
+        setTxHash("0x" + Math.random().toString(16).slice(2));
+        setStep("confirmed");
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Transaction failed');
-        setStep('error');
+        setError(e instanceof Error ? e.message : "Transaction failed");
+        setStep("error");
       }
     },
     [isConnected, address],
   );
 
   const reset = useCallback(() => {
-    setStep('idle');
+    setStep("idle");
     setTxHash(null);
     setError(null);
   }, []);

@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
-import type { Trade } from '@/services/types';
-import { tradeService } from '@/services/tradeService';
+import { useState, useEffect, useRef } from "react";
+
+import { tradeService } from "../services/tradeService";
+
+import type { Trade } from "../services/types";
 
 export function useTradeFeed(maxItems = 14) {
   const [trades, setTrades] = useState<Trade[]>([]);

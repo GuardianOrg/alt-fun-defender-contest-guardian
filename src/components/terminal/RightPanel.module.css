@@ -57,7 +57,10 @@
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .tradeRow:hover {

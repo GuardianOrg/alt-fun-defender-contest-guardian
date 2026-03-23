@@ -1,5 +1,5 @@
-import { cn } from '@/utils/format';
-import styles from './StepHeader.module.css';
+import styles from "./StepHeader.module.css";
+import { cn } from "../../utils/format";
 
 interface Props {
   step: number;
@@ -9,7 +9,13 @@ interface Props {
   active?: boolean;
 }
 
-export default function StepHeader({ step, title, subtitle, total = 3, active = true }: Props) {
+export default function StepHeader({
+  step,
+  title,
+  subtitle,
+  total = 3,
+  active = true,
+}: Props) {
   return (
     <div className={styles.wrapper}>
       <div className={styles.indicator}>

@@ -1,5 +1,6 @@
-import type { Token, TokenFilter } from './types';
-import { MOCK_TOKENS } from './mock/tokens';
+import { MOCK_TOKENS } from "./mock/tokens";
+
+import type { Token, TokenFilter } from "./types";
 
 export interface ITokenService {
   getTokens(filter?: TokenFilter): Promise<Token[]>;
@@ -20,24 +21,24 @@ const mockTokenService: ITokenService = {
       change24h: +(t.change24h + (Math.random() * 4 - 2)).toFixed(1),
     }));
     switch (filter) {
-      case 'graduating':
-        tokens = tokens.filter((t) => t.status === 'graduating');
+      case "graduating":
+        tokens = tokens.filter((t) => t.status === "graduating");
         break;
-      case 'graduated':
-        tokens = tokens.filter((t) => t.status === 'graduated');
+      case "graduated":
+        tokens = tokens.filter((t) => t.status === "graduated");
         break;
-      case 'new':
+      case "new":
         tokens = tokens.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         break;
-      case 'lt-movers':
+      case "lt-movers":
         tokens = tokens
           .filter((t) => t.leverageBoost > 0)
           .sort((a, b) => b.leverageBoost - a.leverageBoost);
         break;
-      case 'trending':
+      case "trending":
       default: {
-        const graduated = tokens.filter((t) => t.status === 'graduated');
-        const active = tokens.filter((t) => t.status !== 'graduated');
+        const graduated = tokens.filter((t) => t.status === "graduated");
+        const active = tokens.filter((t) => t.status !== "graduated");
         active.sort((a, b) => b.mcapUsd - a.mcapUsd);
         const king = graduated.sort((a, b) => b.mcapUsd - a.mcapUsd)[0];
         tokens = king ? [king, ...active] : active;
@@ -53,12 +54,12 @@ const mockTokenService: ITokenService = {
 
   async getLongTokens(filter?: TokenFilter) {
     const tokens = await this.getTokens(filter);
-    return tokens.filter((t) => t.direction === 'long');
+    return tokens.filter((t) => t.direction === "long");
   },
 
   async getShortTokens(filter?: TokenFilter) {
     const tokens = await this.getTokens(filter);
-    return tokens.filter((t) => t.direction === 'short');
+    return tokens.filter((t) => t.direction === "short");
   },
 };
 

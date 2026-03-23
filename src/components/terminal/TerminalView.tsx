@@ -1,9 +1,9 @@
-import { useTokens } from '@/hooks/useTokens';
-import Sidebar from './Sidebar';
-import CommandBar from './CommandBar';
-import TokenTable from './TokenTable';
-import RightPanel from './RightPanel';
-import styles from './TerminalView.module.css';
+import CommandBar from "./CommandBar";
+import RightPanel from "./RightPanel";
+import Sidebar from "./Sidebar";
+import styles from "./TerminalView.module.css";
+import TokenTable from "./TokenTable";
+import { useTokens } from "../../hooks/useTokens";
 
 export default function TerminalView() {
   const { data: tokens } = useTokens();

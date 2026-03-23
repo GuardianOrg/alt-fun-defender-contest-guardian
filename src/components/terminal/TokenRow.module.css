@@ -29,7 +29,10 @@
 
 .normalRow {
   background: transparent;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .normalRow:hover {
@@ -119,12 +122,12 @@
 
 .leverageLong {
   color: var(--mint);
-  background: rgba(77, 232, 180, 0.10);
+  background: rgba(77, 232, 180, 0.1);
 }
 
 .leverageShort {
   color: var(--red);
-  background: rgba(240, 80, 80, 0.10);
+  background: rgba(240, 80, 80, 0.1);
 }
 
 .gradBadge {

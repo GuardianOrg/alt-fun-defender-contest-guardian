@@ -1,15 +1,18 @@
-import { useUIStore } from '@/stores/uiStore';
-import type { TokenFilter } from '@/services/types';
-import { cn } from '@/utils/format';
-import styles from './CommandBar.module.css';
+import { useDispatch, useSelector } from "react-redux";
+
+import styles from "./CommandBar.module.css";
+import { selectActiveFilter, setActiveFilter } from "../../state/uiSlice";
+import { cn } from "../../utils/format";
+
+import type { TokenFilter } from "../../services/types";
 
 const TABS: { label: string; filter: TokenFilter }[] = [
-  { label: 'TRENDING', filter: 'trending' },
-  { label: 'NEW', filter: 'new' },
-  { label: '⚡ LT MOVERS', filter: 'lt-movers' },
-  { label: 'GRADUATING', filter: 'graduating' },
-  { label: 'GRADUATED', filter: 'graduated' },
-  { label: 'ALL', filter: 'all' },
+  { label: "TRENDING", filter: "trending" },
+  { label: "NEW", filter: "new" },
+  { label: "\u26A1 LT MOVERS", filter: "lt-movers" },
+  { label: "GRADUATING", filter: "graduating" },
+  { label: "GRADUATED", filter: "graduated" },
+  { label: "ALL", filter: "all" },
 ];
 
 interface Props {
@@ -17,8 +20,8 @@ interface Props {
 }
 
 export default function CommandBar({ tokenCount }: Props) {
-  const activeFilter = useUIStore((s) => s.activeFilter);
-  const setActiveFilter = useUIStore((s) => s.setActiveFilter);
+  const activeFilter = useSelector(selectActiveFilter);
+  const dispatch = useDispatch();
 
   return (
     <div className={styles.bar}>
@@ -30,12 +33,10 @@ export default function CommandBar({ tokenCount }: Props) {
             styles.tab,
             activeFilter === tab.filter && styles.tabActive,
           )}
-          onClick={() => setActiveFilter(tab.filter)}
+          onClick={() => dispatch(setActiveFilter(tab.filter))}
         >
           {tab.label}
-          {activeFilter === tab.filter && (
-            <span className={styles.indicator} />
-          )}
+          {activeFilter === tab.filter && <span className={styles.indicator} />}
         </button>
       ))}
       <div className={styles.liveSection}>

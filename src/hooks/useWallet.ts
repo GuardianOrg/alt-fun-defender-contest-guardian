@@ -1,6 +1,7 @@
-import { useAccount, useConnect, useDisconnect, useBalance } from 'wagmi';
-import { injected } from 'wagmi/connectors';
-import { shortenAddress } from '@/utils/format';
+import { useAccount, useConnect, useDisconnect, useBalance } from "wagmi";
+import { injected } from "wagmi/connectors";
+
+import { shortenAddress } from "../utils/format";
 
 export function useWallet() {
   const { address, isConnected } = useAccount();

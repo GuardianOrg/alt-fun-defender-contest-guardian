@@ -1,40 +1,79 @@
-import { Routes, Route, useLocation } from 'react-router-dom';
-import Header from '@/components/layout/Header';
-import AssetTape from '@/components/layout/AssetTape';
-import SearchModal from '@/components/layout/SearchModal';
-import EarningsPanel from '@/components/layout/EarningsPanel';
-import PasswordGate from '@/components/layout/PasswordGate';
-import LeverageBanner from '@/components/terminal/LeverageBanner';
-import TerminalView from '@/components/terminal/TerminalView';
-import TokenDetailView from '@/components/token/TokenDetailView';
-import CreateView from '@/components/create/CreateView';
-import { cn } from '@/utils/format';
-import styles from './App.module.css';
-import '../styles/global.css';
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Provider as ReduxProvider } from "react-redux";
+import {
+  Outlet,
+  RouterProvider,
+  createBrowserRouter,
+  useLocation,
+} from "react-router";
+import { WagmiProvider } from "wagmi";
 
-export default function App() {
+import styles from "./App.module.css";
+import { CREATE_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
+import CreateView from "../components/create/CreateView";
+import AssetTape from "../components/layout/AssetTape";
+import EarningsPanel from "../components/layout/EarningsPanel";
+import Header from "../components/layout/Header";
+import PasswordGate from "../components/layout/PasswordGate";
+import SearchModal from "../components/layout/SearchModal";
+import LeverageBanner from "../components/terminal/LeverageBanner";
+import TerminalView from "../components/terminal/TerminalView";
+import TokenDetailView from "../components/token/TokenDetailView";
+import { wagmiConfig } from "../config/wagmi";
+import { store } from "../state/store";
+import { cn } from "../utils/format";
+
+import "../styles/global.css";
+
+const Layout = () => {
   const location = useLocation();
-  const isTokenPage = location.pathname.startsWith('/token/');
+  const isTokenPage = location.pathname.startsWith("/token/");
 
   return (
     <PasswordGate>
-      <div
-        className={cn(
-          styles.app,
-          isTokenPage && styles.ambpulse,
-        )}
-      >
+      <div className={cn(styles.app, isTokenPage && styles.ambpulse)}>
         <LeverageBanner />
         <Header />
         <AssetTape />
-        <Routes>
-          <Route path="/" element={<TerminalView />} />
-          <Route path="/token/:address" element={<TokenDetailView />} />
-          <Route path="/create" element={<CreateView />} />
-        </Routes>
+        <Outlet />
         <SearchModal />
         <EarningsPanel />
       </div>
     </PasswordGate>
   );
-}
+};
+
+const router = createBrowserRouter([
+  {
+    path: HOME_ROUTE,
+    element: <Layout />,
+    children: [
+      { index: true, element: <TerminalView /> },
+      { path: TOKEN_ROUTE, element: <TokenDetailView /> },
+      { path: CREATE_ROUTE, element: <CreateView /> },
+    ],
+  },
+]);
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 10_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+const App = () => {
+  return (
+    <ReduxProvider store={store}>
+      <QueryClientProvider client={queryClient}>
+        <WagmiProvider config={wagmiConfig}>
+          <RouterProvider router={router} />
+        </WagmiProvider>
+      </QueryClientProvider>
+    </ReduxProvider>
+  );
+};
+
+export default App;

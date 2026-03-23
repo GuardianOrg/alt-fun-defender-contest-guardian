@@ -1,14 +1,16 @@
-import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useAccount } from 'wagmi';
-import { profileService } from '@/services/creatorService';
+import { useState, useCallback } from "react";
+
+import { useQuery } from "@tanstack/react-query";
+import { useAccount } from "wagmi";
+
+import { profileService } from "../services/creatorService";
 
 export function useCreatorEarnings() {
   const { address } = useAccount();
   const [claiming, setClaiming] = useState(false);
 
   const earningsQuery = useQuery({
-    queryKey: ['creatorEarnings', address],
+    queryKey: ["creatorEarnings", address],
     queryFn: () => profileService.getEarnings(address!),
     enabled: !!address,
   });
@@ -39,7 +41,7 @@ export function useBalances() {
   const { address } = useAccount();
 
   const query = useQuery({
-    queryKey: ['balances', address],
+    queryKey: ["balances", address],
     queryFn: () => profileService.getBalances(address!),
     enabled: !!address,
   });

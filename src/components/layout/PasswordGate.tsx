@@ -1,18 +1,21 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
-import styles from './PasswordGate.module.css';
+import { useState, type FormEvent, type ReactNode } from "react";
 
-const PASS = 'bounce2026';
-const STORAGE_KEY = 'bf_auth';
+import styles from "./PasswordGate.module.css";
+
+const PASS = "bounce2026";
+const STORAGE_KEY = "bf_auth";
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem(STORAGE_KEY) === '1');
-  const [value, setValue] = useState('');
+  const [authed, setAuthed] = useState(
+    () => sessionStorage.getItem(STORAGE_KEY) === "1",
+  );
+  const [value, setValue] = useState("");
   const [error, setError] = useState(false);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (value === PASS) {
-      sessionStorage.setItem(STORAGE_KEY, '1');
+      sessionStorage.setItem(STORAGE_KEY, "1");
       setAuthed(true);
     } else {
       setError(true);
@@ -40,14 +43,9 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
           autoFocus
         />
 
-        {error && (
-          <div className={styles.error}>Wrong password</div>
-        )}
+        {error && <div className={styles.error}>Wrong password</div>}
 
-        <button
-          type="submit"
-          className={styles.submitBtn}
-        >
+        <button type="submit" className={styles.submitBtn}>
           Enter
         </button>
       </form>

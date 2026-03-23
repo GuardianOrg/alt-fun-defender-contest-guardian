@@ -1,17 +1,18 @@
-import { useTradeFeed } from '@/hooks/useTradeFeed';
-import { useTokens } from '@/hooks/useTokens';
-import { cn } from '@/utils/format';
-import styles from './RightPanel.module.css';
+import styles from "./RightPanel.module.css";
+import { useTokens } from "../../hooks/useTokens";
+import { useTradeFeed } from "../../hooks/useTradeFeed";
+import { cn } from "../../utils/format";
 
 export default function RightPanel() {
   const trades = useTradeFeed();
   const { data: tokens } = useTokens();
 
-  const graduating = tokens?.filter((t) => t.status === 'graduating') ?? [];
-  const ltMovers = tokens
-    ?.filter((t) => t.leverageBoost > 0)
-    ?.sort((a, b) => b.leverageBoost - a.leverageBoost)
-    ?.slice(0, 3) ?? [];
+  const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
+  const ltMovers =
+    tokens
+      ?.filter((t) => t.leverageBoost > 0)
+      ?.sort((a, b) => b.leverageBoost - a.leverageBoost)
+      ?.slice(0, 3) ?? [];
 
   return (
     <div className={styles.panel}>
@@ -26,12 +27,9 @@ export default function RightPanel() {
         </div>
         <div>
           {trades.map((t) => {
-            const isBuy = t.side === 'BUY';
+            const isBuy = t.side === "BUY";
             return (
-              <div
-                key={t.id}
-                className={styles.tradeRow}
-              >
+              <div key={t.id} className={styles.tradeRow}>
                 <div className={styles.tradeInfo}>
                   <div className={styles.tradeNameRow}>
                     <span className={styles.tradeName}>{t.tokenName}</span>
@@ -45,7 +43,7 @@ export default function RightPanel() {
                     isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
                   )}
                 >
-                  {isBuy ? '+' : '-'}${t.amountUsd.toLocaleString()}
+                  {isBuy ? "+" : "-"}${t.amountUsd.toLocaleString()}
                 </span>
               </div>
             );
@@ -56,9 +54,7 @@ export default function RightPanel() {
       {/* Graduating soon */}
       {graduating.length > 0 && (
         <div className={styles.section}>
-          <div className={styles.sectionHeader}>
-            GRADUATING SOON
-          </div>
+          <div className={styles.sectionHeader}>GRADUATING SOON</div>
           {graduating.map((t) => (
             <div
               key={t.address}
@@ -66,7 +62,7 @@ export default function RightPanel() {
             >
               <span className={styles.infoName}>{t.name}</span>
               <span className={styles.graduatingValue}>
-                {t.curveFilled}% · {t.direction === 'long' ? 'LONG' : 'SHORT'}
+                {t.curveFilled}% · {t.direction === "long" ? "LONG" : "SHORT"}
               </span>
             </div>
           ))}
@@ -75,9 +71,7 @@ export default function RightPanel() {
 
       {/* Top LT movers */}
       <div className={styles.section}>
-        <div className={styles.sectionHeader}>
-          TOP LT MOVERS
-        </div>
+        <div className={styles.sectionHeader}>TOP LT MOVERS</div>
         {ltMovers.map((t) => (
           <div
             key={t.address}
@@ -85,7 +79,7 @@ export default function RightPanel() {
           >
             <span className={styles.infoName}>{t.name}</span>
             <span className={styles.ltMoverValue}>
-              +{t.change24h}% {t.ltName.split(' ').slice(0, 2).join('')}
+              +{t.change24h}% {t.ltName.split(" ").slice(0, 2).join("")}
             </span>
           </div>
         ))}
@@ -93,20 +87,22 @@ export default function RightPanel() {
 
       {/* My positions */}
       <div>
-        <div className={styles.sectionHeader}>
-          MY POSITIONS
-        </div>
+        <div className={styles.sectionHeader}>MY POSITIONS</div>
         {[
-          { name: 'HOUSE', pnl: '+$184', positive: true },
-          { name: 'WAVEBEAR', pnl: '+$92', positive: true },
-          { name: 'DOOMER', pnl: '-$41', positive: false },
+          { name: "HOUSE", pnl: "+$184", positive: true },
+          { name: "WAVEBEAR", pnl: "+$92", positive: true },
+          { name: "DOOMER", pnl: "-$41", positive: false },
         ].map((p) => (
-          <div
-            key={p.name}
-            className={styles.infoRow}
-          >
+          <div key={p.name} className={styles.infoRow}>
             <span className={styles.infoName}>{p.name}</span>
-            <span className={cn(styles.positionPnl, p.positive ? styles.pnlPositive : styles.pnlNegative)}>{p.pnl}</span>
+            <span
+              className={cn(
+                styles.positionPnl,
+                p.positive ? styles.pnlPositive : styles.pnlNegative,
+              )}
+            >
+              {p.pnl}
+            </span>
           </div>
         ))}
         <div className={styles.netPnlRow}>

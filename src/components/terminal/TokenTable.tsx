@@ -1,11 +1,19 @@
-import { useLongTokens, useShortTokens } from '@/hooks/useTokens';
-import { useUIStore } from '@/stores/uiStore';
-import { cn } from '@/utils/format';
-import TokenRow from './TokenRow';
-import styles from './TokenTable.module.css';
+import { useSelector } from "react-redux";
 
-function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count: number }) {
-  const isLong = direction === 'long';
+import TokenRow from "./TokenRow";
+import styles from "./TokenTable.module.css";
+import { useLongTokens, useShortTokens } from "../../hooks/useTokens";
+import { selectActiveFilter } from "../../state/uiSlice";
+import { cn } from "../../utils/format";
+
+function ColumnHeader({
+  direction,
+  count,
+}: {
+  direction: "long" | "short";
+  count: number;
+}) {
+  const isLong = direction === "long";
   return (
     <div className={styles.columnHeader}>
       <div
@@ -14,20 +22,12 @@ function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count
           isLong ? styles.directionLong : styles.directionShort,
         )}
       >
-        {isLong ? '▲ LONG' : '▼ SHORT'}
+        {isLong ? "\u25B2 LONG" : "\u25BC SHORT"}
       </div>
-      <div className={styles.countCell}>
-        {count} tokens
-      </div>
-      <div className={styles.sortActive}>
-        TRENDING ▾
-      </div>
-      <div className={styles.sortItem}>
-        NEWEST
-      </div>
-      <div className={styles.sortItem}>
-        % FILLED
-      </div>
+      <div className={styles.countCell}>{count} tokens</div>
+      <div className={styles.sortActive}>TRENDING \u25BE</div>
+      <div className={styles.sortItem}>NEWEST</div>
+      <div className={styles.sortItem}>% FILLED</div>
     </div>
   );
 }
@@ -35,7 +35,7 @@ function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count
 function TableHead() {
   return (
     <div className={styles.tableHead}>
-      {['', 'TOKEN', '24H', 'PROGRESS', 'MCAP'].map((h, i) => (
+      {["", "TOKEN", "24H", "PROGRESS", "MCAP"].map((h, i) => (
         <div
           key={h || i}
           className={cn(
@@ -51,7 +51,7 @@ function TableHead() {
 }
 
 export default function TokenTable() {
-  const activeFilter = useUIStore((s) => s.activeFilter);
+  const activeFilter = useSelector(selectActiveFilter);
   const { data: longTokens } = useLongTokens(activeFilter);
   const { data: shortTokens } = useShortTokens(activeFilter);
 
@@ -62,7 +62,9 @@ export default function TokenTable() {
         <ColumnHeader direction="long" count={longTokens?.length ?? 0} />
         <TableHead />
         <div className={styles.scrollArea}>
-          {longTokens?.map((t) => <TokenRow key={t.address} token={t} />)}
+          {longTokens?.map((t) => (
+            <TokenRow key={t.address} token={t} />
+          ))}
         </div>
       </div>
 
@@ -71,7 +73,9 @@ export default function TokenTable() {
         <ColumnHeader direction="short" count={shortTokens?.length ?? 0} />
         <TableHead />
         <div className={styles.scrollArea}>
-          {shortTokens?.map((t) => <TokenRow key={t.address} token={t} />)}
+          {shortTokens?.map((t) => (
+            <TokenRow key={t.address} token={t} />
+          ))}
         </div>
       </div>
     </div>

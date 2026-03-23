@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
-import { cn } from '@/utils/format';
-import { useTradeRouter } from '@/hooks/useTradeRouter';
-import { useWallet } from '@/hooks/useWallet';
-import CreatorBadge from './CreatorBadge';
-import type { Token } from '@/services/types';
-import styles from './TradePanel.module.css';
+import { useState, useEffect, useRef } from "react";
+
+import CreatorBadge from "./CreatorBadge";
+import styles from "./TradePanel.module.css";
+import { useTradeRouter } from "../../hooks/useTradeRouter";
+import { useWallet } from "../../hooks/useWallet";
+import { cn } from "../../utils/format";
+
+import type { Token } from "../../services/types";
+
 
 interface Props {
   token: Token;
@@ -26,8 +29,8 @@ function SettingsPopup({
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
   const presets = [0.5, 1, 2, 5];
@@ -41,24 +44,16 @@ function SettingsPopup({
   };
 
   return (
-    <div
-      ref={ref}
-      className={styles.settingsPopup}
-    >
+    <div ref={ref} className={styles.settingsPopup}>
       <div className={styles.settingsHeader}>
         <span className={styles.settingsTitle}>Settings</span>
-        <button
-          className={styles.settingsCloseBtn}
-          onClick={onClose}
-        >
+        <button className={styles.settingsCloseBtn} onClick={onClose}>
           [Close]
         </button>
       </div>
 
       <div>
-        <div className={styles.slippageLabel}>
-          Max slippage (%)
-        </div>
+        <div className={styles.slippageLabel}>Max slippage (%)</div>
         <div className={styles.slippageInputWrap}>
           <input
             className={styles.slippageInput}
@@ -72,7 +67,8 @@ function SettingsPopup({
           <span className={styles.percentSign}>%</span>
         </div>
         <div className={styles.slippageHint}>
-          Maximum price change you&apos;re willing to accept when placing trades.
+          Maximum price change you&apos;re willing to accept when placing
+          trades.
         </div>
         <div className={styles.presetRow}>
           {presets.map((p) => (
@@ -99,15 +95,16 @@ function SettingsPopup({
 const QUICK_USDC = [100, 500, 1000] as const;
 
 export default function TradePanel({ token }: Props) {
-  const [mode, setMode] = useState<'buy' | 'sell'>('buy');
-  const [amount, setAmount] = useState('');
+  const [mode, setMode] = useState<"buy" | "sell">("buy");
+  const [amount, setAmount] = useState("");
   const [denomUsdc, setDenomUsdc] = useState(true);
   const [slippage, setSlippage] = useState(0.02);
   const [copied, setCopied] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { isConnected, connect } = useWallet();
-  const { step, txHash, error, executeBuy, executeSell, reset } = useTradeRouter();
+  const { step, txHash, error, executeBuy, executeSell, reset } =
+    useTradeRouter();
 
   const amtNum = parseFloat(amount) || 0;
 
@@ -124,7 +121,7 @@ export default function TradePanel({ token }: Props) {
     }
     if (!amtNum) return;
 
-    if (mode === 'buy') {
+    if (mode === "buy") {
       const usdcAmt = denomUsdc ? amtNum : amtNum * 0.000188;
       executeBuy(token.address, usdcAmt, slippage);
     } else {
@@ -134,10 +131,10 @@ export default function TradePanel({ token }: Props) {
   };
 
   useEffect(() => {
-    if (step === 'confirmed') {
+    if (step === "confirmed") {
       const t = setTimeout(() => {
         reset();
-        setAmount('');
+        setAmount("");
       }, 3000);
       return () => clearTimeout(t);
     }
@@ -149,22 +146,22 @@ export default function TradePanel({ token }: Props) {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const isBusy = step === 'approving' || step === 'executing';
+  const isBusy = step === "approving" || step === "executing";
 
   const buttonLabel = () => {
-    if (!isConnected) return 'CONNECT WALLET';
-    if (step === 'approving') return 'APPROVING USDC…';
-    if (step === 'executing') return mode === 'buy' ? 'BUYING…' : 'SELLING…';
-    if (step === 'confirmed') return '✓ CONFIRMED';
-    if (step === 'error') return 'RETRY';
-    return `${mode === 'buy' ? 'BUY' : 'SELL'} ${token.name}`;
+    if (!isConnected) return "CONNECT WALLET";
+    if (step === "approving") return "APPROVING USDC…";
+    if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
+    if (step === "confirmed") return "✓ CONFIRMED";
+    if (step === "error") return "RETRY";
+    return `${mode === "buy" ? "BUY" : "SELL"} ${token.name}`;
   };
 
-  const ticker = token.name.split(' ')[0].toUpperCase();
+  const ticker = token.name.split(" ")[0].toUpperCase();
 
   return (
     <div className={styles.panel}>
-      {token.status === 'graduating' && (
+      {token.status === "graduating" && (
         <div className={styles.graduatingBanner}>
           <div className={styles.bannerDot} />
           graduating · {token.curveFilled}% filled
@@ -177,34 +174,46 @@ export default function TradePanel({ token }: Props) {
           <button
             className={cn(
               styles.modeBtn,
-              mode === 'buy' && styles.modeBtnBuyActive,
+              mode === "buy" && styles.modeBtnBuyActive,
             )}
-            onClick={() => { setMode('buy'); reset(); }}
+            onClick={() => {
+              setMode("buy");
+              reset();
+            }}
           >
             BUY
-            {mode === 'buy' && <span className={styles.modeIndicatorMint} />}
+            {mode === "buy" && <span className={styles.modeIndicatorMint} />}
           </button>
           <button
             className={cn(
               styles.modeBtn,
-              mode === 'sell' && styles.modeBtnSellActive,
+              mode === "sell" && styles.modeBtnSellActive,
             )}
-            onClick={() => { setMode('sell'); reset(); }}
+            onClick={() => {
+              setMode("sell");
+              reset();
+            }}
           >
             SELL
-            {mode === 'sell' && <span className={styles.modeIndicatorRed} />}
+            {mode === "sell" && <span className={styles.modeIndicatorRed} />}
           </button>
         </div>
 
         <div className={styles.gearWrap}>
           <button
-            className={cn(
-              styles.gearBtn,
-              settingsOpen && styles.gearBtnActive,
-            )}
+            className={cn(styles.gearBtn, settingsOpen && styles.gearBtnActive)}
             onClick={() => setSettingsOpen(!settingsOpen)}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <circle cx="12" cy="12" r="3" />
               <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
             </svg>
@@ -223,9 +232,12 @@ export default function TradePanel({ token }: Props) {
       <div className={styles.formBody}>
         <button
           className={styles.denomToggle}
-          onClick={() => { setDenomUsdc(!denomUsdc); setAmount(''); }}
+          onClick={() => {
+            setDenomUsdc(!denomUsdc);
+            setAmount("");
+          }}
         >
-          Switch to {denomUsdc ? ticker : 'USDC'}
+          Switch to {denomUsdc ? ticker : "USDC"}
         </button>
 
         <div className={styles.amountWrap}>
@@ -239,17 +251,25 @@ export default function TradePanel({ token }: Props) {
           />
           <div className={styles.denomTag}>
             <span className={styles.denomLabel}>
-              {denomUsdc ? 'USDC' : ticker}
+              {denomUsdc ? "USDC" : ticker}
             </span>
-            <div className={cn(
-              styles.coinIcon,
-              denomUsdc
-                ? styles.coinUsdc
-                : mode === 'buy' ? styles.coinMint : styles.coinRed,
-            )}>
-              {denomUsdc ? '$' : token.image ? (
+            <div
+              className={cn(
+                styles.coinIcon,
+                denomUsdc
+                  ? styles.coinUsdc
+                  : mode === "buy"
+                    ? styles.coinMint
+                    : styles.coinRed,
+              )}
+            >
+              {denomUsdc ? (
+                "$"
+              ) : token.image ? (
                 <img src={token.image} alt="" className={styles.coinImg} />
-              ) : token.emoji}
+              ) : (
+                token.emoji
+              )}
             </div>
           </div>
         </div>
@@ -257,7 +277,7 @@ export default function TradePanel({ token }: Props) {
         <div className={styles.quickRow}>
           <button
             className={styles.resetBtn}
-            onClick={() => setAmount('')}
+            onClick={() => setAmount("")}
             disabled={isBusy}
           >
             Reset
@@ -269,7 +289,10 @@ export default function TradePanel({ token }: Props) {
                 styles.quickBtn,
                 amount === String(qa) && styles.quickBtnActive,
               )}
-              onClick={() => { setDenomUsdc(true); setAmount(String(qa)); }}
+              onClick={() => {
+                setDenomUsdc(true);
+                setAmount(String(qa));
+              }}
               disabled={isBusy}
             >
               {qa >= 1000 ? `${qa / 1000}K` : qa}
@@ -277,7 +300,10 @@ export default function TradePanel({ token }: Props) {
           ))}
           <button
             className={styles.maxBtn}
-            onClick={() => { setDenomUsdc(true); setAmount('4210'); }}
+            onClick={() => {
+              setDenomUsdc(true);
+              setAmount("4210");
+            }}
             disabled={isBusy}
           >
             Max
@@ -286,20 +312,26 @@ export default function TradePanel({ token }: Props) {
 
         {amtNum > 0 && (
           <div className={styles.estimate}>
-            {mode === 'buy' ? (
+            {mode === "buy" ? (
               <>
-                ≈ you receive{' '}
+                ≈ you receive{" "}
                 <span className={styles.estimateValue}>
-                  {estimateTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </span>{' '}
+                  {estimateTokens.toLocaleString(undefined, {
+                    maximumFractionDigits: 0,
+                  })}
+                </span>{" "}
                 <span className={styles.estimateMint}>{ticker}</span>
               </>
             ) : (
               <>
-                ≈ you receive{' '}
+                ≈ you receive{" "}
                 <span className={styles.estimateValue}>
-                  ${estimateUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>{' '}
+                  $
+                  {estimateUsdc.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </span>{" "}
                 <span className={styles.estimateLabel}>USDC</span>
               </>
             )}
@@ -313,24 +345,22 @@ export default function TradePanel({ token }: Props) {
           </div>
         )}
 
-        {step === 'confirmed' && txHash && (
-          <div className={styles.confirmedBox}>
-            ✓ Transaction confirmed
-          </div>
+        {step === "confirmed" && txHash && (
+          <div className={styles.confirmedBox}>✓ Transaction confirmed</div>
         )}
 
         <button
           className={cn(
             styles.ctaBtn,
-            step === 'confirmed'
+            step === "confirmed"
               ? styles.ctaConfirmed
-              : mode === 'buy'
+              : mode === "buy"
                 ? styles.ctaBuy
                 : styles.ctaSell,
             isBusy && styles.ctaBusy,
           )}
           onClick={doTrade}
-          disabled={isBusy || step === 'confirmed'}
+          disabled={isBusy || step === "confirmed"}
         >
           {buttonLabel()}
         </button>
@@ -338,9 +368,9 @@ export default function TradePanel({ token }: Props) {
         {isBusy && (
           <div className={styles.busyHint}>
             <div className={styles.liveDot} />
-            {step === 'approving'
-              ? 'Waiting for USDC approval in wallet…'
-              : 'Confirm transaction in wallet…'}
+            {step === "approving"
+              ? "Waiting for USDC approval in wallet…"
+              : "Confirm transaction in wallet…"}
           </div>
         )}
       </div>
@@ -349,20 +379,24 @@ export default function TradePanel({ token }: Props) {
 
       <div className={styles.footer}>
         <div className={styles.footerLeft}>
-          <a
-            className={styles.footerCa}
-            onClick={copyCA}
-          >
-            {copied ? '✓ copied' : `${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
+          <a className={styles.footerCa} onClick={copyCA}>
+            {copied
+              ? "✓ copied"
+              : `${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
           </a>
           <span className={styles.footerDot}>·</span>
           <span className={styles.footerLt}>{token.ltName}</span>
         </div>
-        <span className={cn(
-          styles.footerStatus,
-          token.status === 'graduating' ? styles.footerStatusGraduating : styles.footerStatusDefault,
-        )}>
-          {token.status}{token.status === 'graduating' ? ' ⚡' : ''}
+        <span
+          className={cn(
+            styles.footerStatus,
+            token.status === "graduating"
+              ? styles.footerStatusGraduating
+              : styles.footerStatusDefault,
+          )}
+        >
+          {token.status}
+          {token.status === "graduating" ? " ⚡" : ""}
         </span>
       </div>
     </div>

@@ -1,11 +1,12 @@
 export function formatUsd(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  if (value >= 1_000)
+    return `$${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
   return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
 export function formatPercent(value: number): string {
-  const sign = value >= 0 ? '+' : '';
+  const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
 
@@ -20,6 +21,8 @@ export function formatTokenAmount(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
-export function cn(...classes: (string | boolean | undefined | null)[]): string {
-  return classes.filter(Boolean).join(' ');
+export function cn(
+  ...classes: (string | boolean | undefined | null)[]
+): string {
+  return classes.filter(Boolean).join(" ");
 }

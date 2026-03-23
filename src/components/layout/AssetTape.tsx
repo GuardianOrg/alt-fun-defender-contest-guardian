@@ -1,6 +1,6 @@
-import { useAssets } from '@/hooks/useAssets';
-import { cn } from '@/utils/format';
-import styles from './AssetTape.module.css';
+import styles from "./AssetTape.module.css";
+import { useAssets } from "../../hooks/useAssets";
+import { cn } from "../../utils/format";
 
 export default function AssetTape() {
   const { data: assets } = useAssets();
@@ -27,7 +27,7 @@ export default function AssetTape() {
                     a.change24h >= 0 ? styles.changeMint : styles.changeRed,
                   )}
                 >
-                  {a.change24h >= 0 ? '+' : ''}
+                  {a.change24h >= 0 ? "+" : ""}
                   {a.change24h}%
                 </span>
               </div>

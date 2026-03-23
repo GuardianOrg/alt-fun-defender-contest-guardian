@@ -1,8 +1,10 @@
-import { useNavigate } from 'react-router-dom';
-import ProgressBar from '@/components/shared/ProgressBar';
-import { cn, formatUsd, formatPercent } from '@/utils/format';
-import type { Token } from '@/services/types';
-import styles from './TokenRow.module.css';
+import { useNavigate } from "react-router";
+
+import styles from "./TokenRow.module.css";
+import { cn, formatUsd, formatPercent } from "../../utils/format";
+import ProgressBar from "../shared/ProgressBar";
+
+import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
@@ -10,9 +12,9 @@ interface Props {
 
 export default function TokenRow({ token }: Props) {
   const navigate = useNavigate();
-  const isGraduating = token.status === 'graduating';
-  const isGraduated = token.status === 'graduated';
-  const isShort = token.direction === 'short';
+  const isGraduating = token.status === "graduating";
+  const isGraduated = token.status === "graduated";
+  const isShort = token.direction === "short";
   const up = token.change24h >= 0;
   const buyW = Math.min(
     token.curveFilled - (token.leverageBoost > 0 ? token.leverageBoost : 0),
@@ -51,25 +53,21 @@ export default function TokenRow({ token }: Props) {
             className={styles.tokenImage}
           />
         ) : (
-          <span className={styles.tokenEmoji}>
-            {token.emoji}
-          </span>
+          <span className={styles.tokenEmoji}>{token.emoji}</span>
         )}
       </div>
 
       {/* Name + LT pair + graduating badge */}
       <div className={styles.nameCell}>
         <div className={styles.nameRow}>
-          <span className={styles.tokenName}>
-            {token.name}
-          </span>
+          <span className={styles.tokenName}>{token.name}</span>
           <span
             className={cn(
               styles.leverageBadge,
               isShort ? styles.leverageShort : styles.leverageLong,
             )}
           >
-            {token.leverage}×
+            {token.leverage}&times;
           </span>
           {isGraduating && (
             <span
@@ -89,7 +87,7 @@ export default function TokenRow({ token }: Props) {
           )}
         >
           {token.ltName.toUpperCase()}
-          {isGraduated && ' · GRADUATED'}
+          {isGraduated && " \u00B7 GRADUATED"}
         </span>
       </div>
 
@@ -117,9 +115,7 @@ export default function TokenRow({ token }: Props) {
 
       {/* MCAP */}
       <div className={styles.mcapCell}>
-        <span className={styles.mcapValue}>
-          {formatUsd(token.mcapUsd)}
-        </span>
+        <span className={styles.mcapValue}>{formatUsd(token.mcapUsd)}</span>
       </div>
     </div>
   );

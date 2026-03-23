@@ -1,7 +1,8 @@
-import { useState, useRef } from 'react';
-import { cn } from '@/utils/format';
-import StepHeader from './StepHeader';
-import styles from './TokenForm.module.css';
+import { useState, useRef } from "react";
+
+import StepHeader from "./StepHeader";
+import styles from "./TokenForm.module.css";
+import { cn } from "../../utils/format";
 
 interface Props {
   name: string;
@@ -33,13 +34,15 @@ export default function TokenForm({
 
   return (
     <div>
-      <StepHeader step={2} title="Token details" subtitle="These can't be changed after launch." />
+      <StepHeader
+        step={2}
+        title="Token details"
+        subtitle="These can't be changed after launch."
+      />
 
       <div className={styles.fieldGrid}>
         <div>
-          <label className={styles.label}>
-            Token name
-          </label>
+          <label className={styles.label}>Token name</label>
           <input
             type="text"
             className={styles.input}
@@ -50,9 +53,7 @@ export default function TokenForm({
           />
         </div>
         <div>
-          <label className={styles.label}>
-            Ticker
-          </label>
+          <label className={styles.label}>Ticker</label>
           <input
             type="text"
             className={styles.input}
@@ -75,9 +76,7 @@ export default function TokenForm({
         />
       </div>
 
-      <label className={styles.label}>
-        Token image
-      </label>
+      <label className={styles.label}>Token image</label>
       <div
         className={styles.uploadZone}
         onClick={() => fileRef.current?.click()}
@@ -101,9 +100,7 @@ export default function TokenForm({
         <span>🔗</span>
         <span className={styles.socialLinkLabel}>Add social links</span>
         <span className={styles.socialOptional}>(optional)</span>
-        <span
-          className={cn(styles.chevron, socialOpen && styles.chevronOpen)}
-        >
+        <span className={cn(styles.chevron, socialOpen && styles.chevronOpen)}>
           ›
         </span>
       </div>
@@ -111,9 +108,7 @@ export default function TokenForm({
         <div className={styles.socialPanel}>
           <div className={styles.socialFieldGrid}>
             <div>
-              <label className={styles.label}>
-                Twitter / X
-              </label>
+              <label className={styles.label}>Twitter / X</label>
               <input
                 type="text"
                 className={styles.input}
@@ -121,9 +116,7 @@ export default function TokenForm({
               />
             </div>
             <div>
-              <label className={styles.label}>
-                Telegram
-              </label>
+              <label className={styles.label}>Telegram</label>
               <input
                 type="text"
                 className={styles.input}

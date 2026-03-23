@@ -1,30 +1,32 @@
-import { useState } from 'react';
-import PairSelector from './PairSelector';
-import TokenForm from './TokenForm';
-import SeedBuy from './SeedBuy';
-import LivePreview from './LivePreview';
-import { useWallet } from '@/hooks/useWallet';
-import { cn } from '@/utils/format';
-import type { Direction } from '@/services/types';
-import type { UnderlyingAsset, Leverage } from '@/config/constants';
-import styles from './CreateView.module.css';
+import { useState } from "react";
 
-type LaunchStep = 'idle' | 'approving' | 'deploying' | 'confirmed' | 'error';
+import styles from "./CreateView.module.css";
+import LivePreview from "./LivePreview";
+import PairSelector from "./PairSelector";
+import SeedBuy from "./SeedBuy";
+import TokenForm from "./TokenForm";
+import { useWallet } from "../../hooks/useWallet";
+import { cn } from "../../utils/format";
+
+import type { UnderlyingAsset, Leverage } from "../../config/constants";
+import type { Direction } from "../../services/types";
+
+type LaunchStep = "idle" | "approving" | "deploying" | "confirmed" | "error";
 
 export default function CreateView() {
-  const [direction, setDirection] = useState<Direction>('long');
-  const [asset, setAsset] = useState<UnderlyingAsset>('HYPE');
+  const [direction, setDirection] = useState<Direction>("long");
+  const [asset, setAsset] = useState<UnderlyingAsset>("HYPE");
   const [leverage, setLeverage] = useState<Leverage>(2);
-  const [name, setName] = useState('');
-  const [ticker, setTicker] = useState('');
-  const [seedAmount, setSeedAmount] = useState('');
+  const [name, setName] = useState("");
+  const [ticker, setTicker] = useState("");
+  const [seedAmount, setSeedAmount] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [launchStep, setLaunchStep] = useState<LaunchStep>('idle');
+  const [launchStep, setLaunchStep] = useState<LaunchStep>("idle");
   const [launchError, setLaunchError] = useState<string | null>(null);
 
   const { isConnected, connect } = useWallet();
   const seedAmt = parseFloat(seedAmount) || 0;
-  const isBusy = launchStep === 'approving' || launchStep === 'deploying';
+  const isBusy = launchStep === "approving" || launchStep === "deploying";
 
   const handleSubmit = async () => {
     if (!isConnected) {
@@ -32,7 +34,7 @@ export default function CreateView() {
       return;
     }
     if (!name.trim() || !ticker.trim()) {
-      setLaunchError('Please enter a token name and ticker.');
+      setLaunchError("Please enter a token name and ticker.");
       return;
     }
 
@@ -40,27 +42,27 @@ export default function CreateView() {
       setLaunchError(null);
 
       if (seedAmt > 0) {
-        setLaunchStep('approving');
+        setLaunchStep("approving");
         await new Promise((r) => setTimeout(r, 500));
       }
 
-      setLaunchStep('deploying');
+      setLaunchStep("deploying");
       await new Promise((r) => setTimeout(r, 1500));
 
-      setLaunchStep('confirmed');
+      setLaunchStep("confirmed");
     } catch (e) {
-      setLaunchError(e instanceof Error ? e.message : 'Launch failed');
-      setLaunchStep('error');
+      setLaunchError(e instanceof Error ? e.message : "Launch failed");
+      setLaunchStep("error");
     }
   };
 
   const buttonLabel = () => {
-    if (!isConnected) return 'CONNECT WALLET TO LAUNCH';
-    if (launchStep === 'approving') return 'APPROVING USDC…';
-    if (launchStep === 'deploying') return 'DEPLOYING…';
-    if (launchStep === 'confirmed') return '✓ TOKEN LAUNCHED';
-    if (launchStep === 'error') return '⚡ RETRY LAUNCH';
-    return '⚡ LAUNCH TOKEN';
+    if (!isConnected) return "CONNECT WALLET TO LAUNCH";
+    if (launchStep === "approving") return "APPROVING USDC…";
+    if (launchStep === "deploying") return "DEPLOYING…";
+    if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
+    if (launchStep === "error") return "⚡ RETRY LAUNCH";
+    return "⚡ LAUNCH TOKEN";
   };
 
   return (
@@ -68,11 +70,10 @@ export default function CreateView() {
       <div className={styles.formColumn}>
         <div className={styles.pageHeader}>
           <div className={styles.eyebrow}>new token</div>
-          <div className={styles.heading}>
-            Create a levered token
-          </div>
+          <div className={styles.heading}>Create a levered token</div>
           <div className={styles.subheading}>
-            Choose a direction, pick your underlying, set your leverage, and deploy to the bonding curve in one transaction.
+            Choose a direction, pick your underlying, set your leverage, and
+            deploy to the bonding curve in one transaction.
           </div>
         </div>
 
@@ -108,7 +109,7 @@ export default function CreateView() {
               </div>
             )}
 
-            {launchStep === 'confirmed' && (
+            {launchStep === "confirmed" && (
               <div className={styles.successBanner}>
                 <span>✓</span>
                 Token deployed! Curve is live.
@@ -118,13 +119,13 @@ export default function CreateView() {
             <button
               className={cn(
                 styles.launchButton,
-                launchStep === 'confirmed'
+                launchStep === "confirmed"
                   ? styles.launchButtonConfirmed
                   : styles.launchButtonActive,
                 isBusy && styles.launchButtonBusy,
               )}
               onClick={handleSubmit}
-              disabled={isBusy || launchStep === 'confirmed'}
+              disabled={isBusy || launchStep === "confirmed"}
             >
               {buttonLabel()}
             </button>
@@ -132,24 +133,28 @@ export default function CreateView() {
             {isBusy && (
               <div className={styles.busyRow}>
                 <div className={styles.busyDot} />
-                {launchStep === 'approving'
-                  ? 'Approve USDC spend in your wallet…'
-                  : 'Confirm deployment in your wallet…'}
+                {launchStep === "approving"
+                  ? "Approve USDC spend in your wallet…"
+                  : "Confirm deployment in your wallet…"}
               </div>
             )}
 
-            {launchStep === 'idle' && (
+            {launchStep === "idle" && (
               <div className={styles.idleHint}>
                 {seedAmt > 0
                   ? `You will approve $${seedAmt.toFixed(2)} USDC, then confirm deployment`
-                  : 'You will be asked to confirm in your wallet'}
+                  : "You will be asked to confirm in your wallet"}
               </div>
             )}
 
-            {seedAmt > 0 && launchStep === 'idle' && (
+            {seedAmt > 0 && launchStep === "idle" && (
               <div className={styles.seedInfo}>
-                Seed buy of <span className={styles.mintHighlight}>${seedAmt.toFixed(2)} USDC</span>{' '}
-                is routed atomically through the TX Router — you receive tokens directly.
+                Seed buy of{" "}
+                <span className={styles.mintHighlight}>
+                  ${seedAmt.toFixed(2)} USDC
+                </span>{" "}
+                is routed atomically through the TX Router — you receive tokens
+                directly.
               </div>
             )}
           </div>

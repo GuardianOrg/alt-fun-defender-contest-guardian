@@ -1,6 +1,7 @@
-import { cn, formatPercent } from '@/utils/format';
-import type { Token } from '@/services/types';
-import styles from './DecompPanel.module.css';
+import styles from "./DecompPanel.module.css";
+import { cn, formatPercent } from "../../utils/format";
+
+import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
@@ -39,7 +40,9 @@ export default function DecompPanel({ token }: Props) {
           <div
             className={cn(
               styles.cardValue,
-              token.buyMomentum >= 0 ? styles.cardValueMint : styles.cardValueRed,
+              token.buyMomentum >= 0
+                ? styles.cardValueMint
+                : styles.cardValueRed,
             )}
           >
             {formatPercent(token.buyMomentum)}
@@ -57,10 +60,7 @@ export default function DecompPanel({ token }: Props) {
           </div>
         </div>
 
-        <button
-          className={styles.shareBtn}
-          onClick={shareDecomp}
-        >
+        <button className={styles.shareBtn} onClick={shareDecomp}>
           <span className={styles.shareIcon}>↗</span>
           share
         </button>

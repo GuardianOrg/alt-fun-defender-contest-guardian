@@ -34,7 +34,10 @@
   font-family: var(--font-mono);
   color: var(--txt);
   font-variant-numeric: tabular-nums;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .amountInput::placeholder {

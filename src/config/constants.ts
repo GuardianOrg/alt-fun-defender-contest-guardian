@@ -16,7 +16,7 @@ export const FEES = {
  * Set to bytes32(0) for no referral — replace with partner codes in production.
  */
 export const DEFAULT_REFERRAL_CODE =
-  '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
+  "0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`;
 
 export const TOKEN_SUPPLY = 1_000_000_000;
 
@@ -32,7 +32,14 @@ export const SEED_PCT_OPTIONS = [
   { pct: 80, usd: 6906 },
 ] as const;
 
-export const UNDERLYING_ASSETS = ['HYPE', 'ETH', 'BTC', 'SOL', 'ARB', 'OP'] as const;
+export const UNDERLYING_ASSETS = [
+  "HYPE",
+  "ETH",
+  "BTC",
+  "SOL",
+  "ARB",
+  "OP",
+] as const;
 export type UnderlyingAsset = (typeof UNDERLYING_ASSETS)[number];
 
 export const LEVERAGE_OPTIONS = [2, 3] as const;

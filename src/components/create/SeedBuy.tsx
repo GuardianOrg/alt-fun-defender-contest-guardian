@@ -1,8 +1,13 @@
-import { useState } from 'react';
-import { cn } from '@/utils/format';
-import { SEED_PCT_OPTIONS, GRADUATION_THRESHOLD_USD, TOKEN_SUPPLY } from '@/config/constants';
-import StepHeader from './StepHeader';
-import styles from './SeedBuy.module.css';
+import { useState } from "react";
+
+import styles from "./SeedBuy.module.css";
+import StepHeader from "./StepHeader";
+import {
+  SEED_PCT_OPTIONS,
+  GRADUATION_THRESHOLD_USD,
+  TOKEN_SUPPLY,
+} from "../../config/constants";
+import { cn } from "../../utils/format";
 
 interface Props {
   seedAmount: string;
@@ -13,10 +18,13 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
   const [activePct, setActivePct] = useState<number | null>(null);
   const amt = parseFloat(seedAmount) || 0;
 
-  const supplyPct = amt > 0 ? Math.min((amt / GRADUATION_THRESHOLD_USD) * 75, 99) : 0;
-  const tokensReceived = amt > 0 ? `${((TOKEN_SUPPLY * supplyPct) / 100 / 1e6).toFixed(1)}M` : '—';
-  const supplyStr = amt > 0 ? `${supplyPct.toFixed(1)}%` : '—';
-  const curveStr = amt > 0 ? `${((amt / GRADUATION_THRESHOLD_USD) * 100).toFixed(1)}%` : '—';
+  const supplyPct =
+    amt > 0 ? Math.min((amt / GRADUATION_THRESHOLD_USD) * 75, 99) : 0;
+  const tokensReceived =
+    amt > 0 ? `${((TOKEN_SUPPLY * supplyPct) / 100 / 1e6).toFixed(1)}M` : "—";
+  const supplyStr = amt > 0 ? `${supplyPct.toFixed(1)}%` : "—";
+  const curveStr =
+    amt > 0 ? `${((amt / GRADUATION_THRESHOLD_USD) * 100).toFixed(1)}%` : "—";
 
   return (
     <div>
@@ -65,15 +73,13 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
 
         <div className={styles.statsGrid}>
           {[
-            { label: 'tokens received', value: tokensReceived, cls: '' },
-            { label: '% of supply', value: supplyStr, cls: styles.textMint },
-            { label: 'curve filled', value: curveStr, cls: '' },
+            { label: "tokens received", value: tokensReceived, cls: "" },
+            { label: "% of supply", value: supplyStr, cls: styles.textMint },
+            { label: "curve filled", value: curveStr, cls: "" },
           ].map((s) => (
             <div key={s.label} className={styles.statCard}>
               <div className={styles.statLabel}>{s.label}</div>
-              <div className={cn(styles.statValue, s.cls)}>
-                {s.value}
-              </div>
+              <div className={cn(styles.statValue, s.cls)}>{s.value}</div>
             </div>
           ))}
         </div>

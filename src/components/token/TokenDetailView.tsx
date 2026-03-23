@@ -1,14 +1,15 @@
-import { useParams } from 'react-router-dom';
-import { useToken } from '@/hooks/useToken';
-import { MOCK_TOKENS } from '@/services/mock/tokens';
-import HeroSection from './HeroSection';
-import Chart from './Chart';
-import ProgressBar from '@/components/shared/ProgressBar';
-import TradePanel from './TradePanel';
-import BottomTabs from './BottomTabs';
-import { formatUsd } from '@/utils/format';
-import { GRADUATION_THRESHOLD_USD } from '@/config/constants';
-import styles from './TokenDetailView.module.css';
+import { useParams } from "react-router";
+
+import BottomTabs from "./BottomTabs";
+import Chart from "./Chart";
+import HeroSection from "./HeroSection";
+import styles from "./TokenDetailView.module.css";
+import TradePanel from "./TradePanel";
+import { GRADUATION_THRESHOLD_USD } from "../../config/constants";
+import { useToken } from "../../hooks/useToken";
+import { MOCK_TOKENS } from "../../services/mock/tokens";
+import { formatUsd } from "../../utils/format";
+import ProgressBar from "../shared/ProgressBar";
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
@@ -19,7 +20,8 @@ export default function TokenDetailView() {
   const buyW = Math.round(
     displayToken.curveFilled -
       (displayToken.leverageBoost > 0
-        ? (displayToken.leverageBoost / displayToken.change24h) * displayToken.curveFilled
+        ? (displayToken.leverageBoost / displayToken.change24h) *
+          displayToken.curveFilled
         : 0),
   );
   const levW = displayToken.curveFilled - buyW;
@@ -39,18 +41,16 @@ export default function TokenDetailView() {
             <ProgressBar
               buyPercent={buyW}
               leveragePercent={levW}
-              isShort={displayToken.direction === 'short'}
-              isGraduating={displayToken.status === 'graduating'}
+              isShort={displayToken.direction === "short"}
+              isGraduating={displayToken.status === "graduating"}
               size="sm"
             />
           </div>
           <span className={styles.curveThreshold}>
             {formatUsd(GRADUATION_THRESHOLD_USD)}
           </span>
-          {displayToken.status === 'graduating' && (
-            <span className={styles.graduatingBadge}>
-              graduating
-            </span>
+          {displayToken.status === "graduating" && (
+            <span className={styles.graduatingBadge}>graduating</span>
           )}
         </div>
 

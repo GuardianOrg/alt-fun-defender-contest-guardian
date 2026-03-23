@@ -92,7 +92,10 @@
 .overlayText {
   font-size: 11px;
   font-family: var(--font-mono);
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
   color: var(--txt-4);
 }
 

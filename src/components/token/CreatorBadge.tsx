@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { useCreatorEarnings } from '@/hooks/useCreatorEarnings';
-import { useWallet } from '@/hooks/useWallet';
-import { cn } from '@/utils/format';
-import type { Token } from '@/services/types';
-import styles from './CreatorBadge.module.css';
+import { useState } from "react";
+
+import styles from "./CreatorBadge.module.css";
+import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
+import { useWallet } from "../../hooks/useWallet";
+import { cn } from "../../utils/format";
+
+import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
@@ -14,7 +16,8 @@ export default function CreatorBadge({ token }: Props) {
   const { earnings, claiming, claim } = useCreatorEarnings();
   const [expanded, setExpanded] = useState(false);
 
-  const isCreator = !!address && token.creatorAddress.toLowerCase() === address.toLowerCase();
+  const isCreator =
+    !!address && token.creatorAddress.toLowerCase() === address.toLowerCase();
   if (!isCreator) return null;
 
   const tokenData = earnings?.tokens.find(
@@ -23,21 +26,16 @@ export default function CreatorBadge({ token }: Props) {
 
   return (
     <div className={styles.wrapper}>
-      <button
-        className={styles.header}
-        onClick={() => setExpanded(!expanded)}
-      >
+      <button className={styles.header} onClick={() => setExpanded(!expanded)}>
         <div className={styles.headerLeft}>
-          <span className={styles.badge}>
-            creator
-          </span>
+          <span className={styles.badge}>creator</span>
           <span className={styles.claimable}>
             {tokenData
               ? `$${tokenData.feesClaimableUsd.toFixed(2)} claimable`
-              : 'Your token'}
+              : "Your token"}
           </span>
         </div>
-        <span className={styles.chevron}>{expanded ? '▴' : '▾'}</span>
+        <span className={styles.chevron}>{expanded ? "▴" : "▾"}</span>
       </button>
 
       {expanded && tokenData && (
@@ -75,10 +73,10 @@ export default function CreatorBadge({ token }: Props) {
             onClick={() => claim(token.address)}
           >
             {claiming
-              ? 'Claiming…'
+              ? "Claiming…"
               : tokenData.feesClaimableUsd > 0
                 ? `Claim $${tokenData.feesClaimableUsd.toFixed(2)}`
-                : 'Nothing to claim'}
+                : "Nothing to claim"}
           </button>
 
           <div className={styles.hint}>

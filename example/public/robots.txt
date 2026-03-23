@@ -1,7 +1,0 @@
-User-agent: *
-Disallow: /vesting
-Disallow: /stake
-Disallow: /lock
-Disallow: /liquidation-points
-
-Sitemap: https://bounce.tech/sitemap.xml

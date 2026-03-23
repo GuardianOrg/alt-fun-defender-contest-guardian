@@ -1,19 +1,21 @@
-import { useState } from 'react';
-import { useTokenTrades } from '@/hooks/useTradeFeed';
-import { cn } from '@/utils/format';
-import type { Token, Comment, Holder } from '@/services/types';
-import { MOCK_COMMENTS, MOCK_HOLDERS } from '@/services/mock/trades';
-import styles from './BottomTabs.module.css';
+import { useState } from "react";
+
+import styles from "./BottomTabs.module.css";
+import { useTokenTrades } from "../../hooks/useTradeFeed";
+import { MOCK_COMMENTS, MOCK_HOLDERS } from "../../services/mock/trades";
+import { cn } from "../../utils/format";
+
+import type { Token, Comment, Holder } from "../../services/types";
 
 interface Props {
   token: Token;
 }
 
-type Tab = 'trades' | 'comments' | 'holders';
+type Tab = "trades" | "comments" | "holders";
 
 function TradesTab({ token }: { token: Token }) {
   const trades = useTokenTrades(token.address);
-  const ticker = token.name.split(' ')[0];
+  const ticker = token.name.split(" ")[0];
 
   return (
     <table className={styles.tradesTable}>
@@ -30,12 +32,9 @@ function TradesTab({ token }: { token: Token }) {
       <tbody>
         {trades.map((t) => {
           const mockTxn = t.id.slice(0, 6);
-          const isBuy = t.side === 'BUY';
+          const isBuy = t.side === "BUY";
           return (
-            <tr
-              key={t.id}
-              className={styles.tradeRow}
-            >
+            <tr key={t.id} className={styles.tradeRow}>
               <td className={styles.tdLeft}>
                 <div className={styles.walletCell}>
                   <img
@@ -43,25 +42,31 @@ function TradesTab({ token }: { token: Token }) {
                     alt=""
                     className={styles.walletAvatar}
                   />
-                  <span className={styles.walletAddress}>{t.walletAddress}</span>
+                  <span className={styles.walletAddress}>
+                    {t.walletAddress}
+                  </span>
                 </div>
               </td>
-              <td className={cn(styles.tdType, isBuy ? styles.tdTypeBuy : styles.tdTypeSell)}>
-                {isBuy ? 'Buy' : 'Sell'}
+              <td
+                className={cn(
+                  styles.tdType,
+                  isBuy ? styles.tdTypeBuy : styles.tdTypeSell,
+                )}
+              >
+                {isBuy ? "Buy" : "Sell"}
               </td>
-              <td className={styles.tdUsdc}>
-                ${t.amountUsd.toLocaleString()}
-              </td>
-              <td className={cn(styles.tdTokens, isBuy ? styles.tdTokensBuy : styles.tdTokensSell)}>
+              <td className={styles.tdUsdc}>${t.amountUsd.toLocaleString()}</td>
+              <td
+                className={cn(
+                  styles.tdTokens,
+                  isBuy ? styles.tdTokensBuy : styles.tdTokensSell,
+                )}
+              >
                 {t.tokensAmount}
               </td>
-              <td className={styles.tdTime}>
-                {t.timestamp}
-              </td>
+              <td className={styles.tdTime}>{t.timestamp}</td>
               <td className={styles.tdTxn}>
-                <span className={styles.txnLink}>
-                  {mockTxn}
-                </span>
+                <span className={styles.txnLink}>{mockTxn}</span>
               </td>
             </tr>
           );
@@ -73,16 +78,22 @@ function TradesTab({ token }: { token: Token }) {
 
 function CommentsTab({ comments: initialComments }: { comments: Comment[] }) {
   const [comments, setComments] = useState<Comment[]>(initialComments);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
 
   const postComment = () => {
     const txt = input.trim();
     if (!txt) return;
     setComments((prev) => [
-      { id: `new-${Date.now()}`, emoji: '😀', address: '0x4F…3A2C', timeAgo: 'just now', text: txt },
+      {
+        id: `new-${Date.now()}`,
+        emoji: "😀",
+        address: "0x4F…3A2C",
+        timeAgo: "just now",
+        text: txt,
+      },
       ...prev,
     ]);
-    setInput('');
+    setInput("");
   };
 
   return (
@@ -90,9 +101,7 @@ function CommentsTab({ comments: initialComments }: { comments: Comment[] }) {
       <div className={styles.commentsList}>
         {comments.map((c) => (
           <div key={c.id} className={styles.commentRow}>
-            <div className={styles.commentAvatar}>
-              {c.emoji}
-            </div>
+            <div className={styles.commentAvatar}>{c.emoji}</div>
             <div>
               <div>
                 <span className={styles.commentAddress}>{c.address}</span>
@@ -109,12 +118,9 @@ function CommentsTab({ comments: initialComments }: { comments: Comment[] }) {
           placeholder="say something…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && postComment()}
+          onKeyDown={(e) => e.key === "Enter" && postComment()}
         />
-        <button
-          className={styles.commentPostBtn}
-          onClick={postComment}
-        >
+        <button className={styles.commentPostBtn} onClick={postComment}>
           post
         </button>
       </div>
@@ -135,10 +141,7 @@ function HoldersTab({ holders }: { holders: Holder[] }) {
         <div>bar</div>
       </div>
       {holders.map((h) => (
-        <div
-          key={h.rank}
-          className={styles.holderRow}
-        >
+        <div key={h.rank} className={styles.holderRow}>
           <div className={styles.holderRank}>{h.rank}</div>
           <div className={styles.holderAddress}>
             {h.address}
@@ -163,12 +166,12 @@ function HoldersTab({ holders }: { holders: Holder[] }) {
 }
 
 export default function BottomTabs({ token }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>('trades');
+  const [activeTab, setActiveTab] = useState<Tab>("trades");
 
   return (
     <>
       <div className={styles.tabBar}>
-        {(['trades', 'comments', 'holders'] as Tab[]).map((tab) => (
+        {(["trades", "comments", "holders"] as Tab[]).map((tab) => (
           <button
             key={tab}
             className={cn(
@@ -178,16 +181,14 @@ export default function BottomTabs({ token }: Props) {
             onClick={() => setActiveTab(tab)}
           >
             {tab}
-            {activeTab === tab && (
-              <span className={styles.tabIndicator} />
-            )}
+            {activeTab === tab && <span className={styles.tabIndicator} />}
           </button>
         ))}
       </div>
       <div className={styles.tabContent}>
-        {activeTab === 'trades' && <TradesTab token={token} />}
-        {activeTab === 'comments' && <CommentsTab comments={MOCK_COMMENTS} />}
-        {activeTab === 'holders' && <HoldersTab holders={MOCK_HOLDERS} />}
+        {activeTab === "trades" && <TradesTab token={token} />}
+        {activeTab === "comments" && <CommentsTab comments={MOCK_COMMENTS} />}
+        {activeTab === "holders" && <HoldersTab holders={MOCK_HOLDERS} />}
       </div>
     </>
   );

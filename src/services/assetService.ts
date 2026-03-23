@@ -1,5 +1,10 @@
-import type { Asset, PlatformStats, PairFilter } from './types';
-import { MOCK_ASSETS, MOCK_PLATFORM_STATS, MOCK_PAIR_FILTERS } from './mock/assets';
+import {
+  MOCK_ASSETS,
+  MOCK_PLATFORM_STATS,
+  MOCK_PAIR_FILTERS,
+} from "./mock/assets";
+
+import type { Asset, PlatformStats, PairFilter } from "./types";
 
 export interface IAssetService {
   getAssets(): Promise<Asset[]>;

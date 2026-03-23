@@ -19,13 +19,21 @@
 
 .directionCardLongActive {
   border-color: rgba(77, 232, 180, 0.4);
-  background: linear-gradient(to bottom right, rgba(77, 232, 180, 0.08), transparent);
+  background: linear-gradient(
+    to bottom right,
+    rgba(77, 232, 180, 0.08),
+    transparent
+  );
   box-shadow: var(--shadow-inner-mint);
 }
 
 .directionCardShortActive {
   border-color: rgba(240, 80, 80, 0.4);
-  background: linear-gradient(to bottom right, rgba(240, 80, 80, 0.08), transparent);
+  background: linear-gradient(
+    to bottom right,
+    rgba(240, 80, 80, 0.08),
+    transparent
+  );
 }
 
 .directionCardInactive {
@@ -83,7 +91,7 @@
 }
 
 .cardBadgeMintActive {
-  background: rgba(77, 232, 180, 0.10);
+  background: rgba(77, 232, 180, 0.1);
   color: var(--mint);
 }
 

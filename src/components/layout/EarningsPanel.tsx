@@ -1,23 +1,36 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useUIStore } from '@/stores/uiStore';
-import { useCreatorEarnings, useBalances } from '@/hooks/useCreatorEarnings';
-import { useWallet } from '@/hooks/useWallet';
-import { cn, formatUsd, formatPercent, formatTokenAmount } from '@/utils/format';
-import styles from './EarningsPanel.module.css';
+import { useState } from "react";
 
-type Tab = 'balances' | 'rewards';
+import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router";
+
+import styles from "./EarningsPanel.module.css";
+import {
+  useCreatorEarnings,
+  useBalances,
+} from "../../hooks/useCreatorEarnings";
+import { useWallet } from "../../hooks/useWallet";
+import { selectEarningsOpen, setEarningsOpen } from "../../state/uiSlice";
+import {
+  cn,
+  formatUsd,
+  formatPercent,
+  formatTokenAmount,
+} from "../../utils/format";
+
+type Tab = "balances" | "rewards";
 
 export default function EarningsPanel() {
-  const open = useUIStore((s) => s.earningsOpen);
-  const setOpen = useUIStore((s) => s.setEarningsOpen);
+  const open = useSelector(selectEarningsOpen);
+  const dispatch = useDispatch();
   const navigate = useNavigate();
   const { isConnected, shortAddress, connect } = useWallet();
   const { earnings, claiming, claim } = useCreatorEarnings();
   const { tokens: heldTokens, totalValue } = useBalances();
-  const [tab, setTab] = useState<Tab>('balances');
+  const [tab, setTab] = useState<Tab>("balances");
 
   if (!open) return null;
+
+  const setOpen = (v: boolean) => dispatch(setEarningsOpen(v));
 
   const goToToken = (addr: string) => {
     setOpen(false);
@@ -36,42 +49,30 @@ export default function EarningsPanel() {
         <div className={styles.panelHeader}>
           {isConnected ? (
             <div className={styles.avatarWrap}>
-              <img
-                src="/avatar.png"
-                alt=""
-                className={styles.avatar}
-              />
+              <img src="/avatar.png" alt="" className={styles.avatar} />
               <div>
                 <div className={styles.addressText}>{shortAddress}</div>
                 <div className={styles.chainText}>HyperEVM</div>
               </div>
             </div>
           ) : (
-            <div className={styles.profileLabel}>
-              profile
-            </div>
+            <div className={styles.profileLabel}>profile</div>
           )}
-          <button
-            className={styles.escBtn}
-            onClick={() => setOpen(false)}
-          >
+          <button className={styles.escBtn} onClick={() => setOpen(false)}>
             esc
           </button>
         </div>
 
         {!isConnected ? (
           <div className={styles.notConnected}>
-            <div className={styles.emptyIcon}>👤</div>
+            <div className={styles.emptyIcon}>&#x1F464;</div>
             <div className={styles.textCenter}>
               <div className={styles.emptyTitle}>Connect your wallet</div>
               <div className={styles.emptyText}>
                 View your token balances on the curve and claim creator rewards.
               </div>
             </div>
-            <button
-              className={styles.connectBtn}
-              onClick={connect}
-            >
+            <button className={styles.connectBtn} onClick={connect}>
               Connect Wallet
             </button>
           </div>
@@ -79,7 +80,7 @@ export default function EarningsPanel() {
           <>
             {/* Tabs */}
             <div className={styles.tabBar}>
-              {(['balances', 'rewards'] as const).map((t) => (
+              {(["balances", "rewards"] as const).map((t) => (
                 <button
                   key={t}
                   className={cn(
@@ -88,21 +89,21 @@ export default function EarningsPanel() {
                   )}
                   onClick={() => setTab(t)}
                 >
-                  {t === 'balances' ? 'Balances' : 'Creator Rewards'}
+                  {t === "balances" ? "Balances" : "Creator Rewards"}
                   {tab === t && <span className={styles.tabIndicator} />}
                 </button>
               ))}
             </div>
 
             <div className={styles.contentArea}>
-              {tab === 'balances' ? (
+              {tab === "balances" ? (
                 <BalancesTab
                   tokens={heldTokens}
                   totalValue={totalValue}
                   onTokenClick={goToToken}
                   onLaunch={() => {
                     setOpen(false);
-                    navigate('/create');
+                    navigate("/create");
                   }}
                 />
               ) : (
@@ -113,7 +114,7 @@ export default function EarningsPanel() {
                   onTokenClick={goToToken}
                   onLaunch={() => {
                     setOpen(false);
-                    navigate('/create');
+                    navigate("/create");
                   }}
                 />
               )}
@@ -133,7 +134,7 @@ function BalancesTab({
   onTokenClick,
   onLaunch,
 }: {
-  tokens: ReturnType<typeof useBalances>['tokens'];
+  tokens: ReturnType<typeof useBalances>["tokens"];
   totalValue: number;
   onTokenClick: (addr: string) => void;
   onLaunch: () => void;
@@ -141,18 +142,15 @@ function BalancesTab({
   if (tokens.length === 0) {
     return (
       <div className={styles.emptyState}>
-        <div className={styles.emptyIcon}>📭</div>
+        <div className={styles.emptyIcon}>&#x1F4ED;</div>
         <div className={styles.textCenter}>
           <div className={styles.emptyTitle}>No tokens yet</div>
           <div className={styles.emptyText}>
             Buy tokens on the bonding curve or launch your own levered token.
           </div>
         </div>
-        <button
-          className={styles.launchBtn}
-          onClick={onLaunch}
-        >
-          ⚡ Launch a token
+        <button className={styles.launchBtn} onClick={onLaunch}>
+          &#x26A1; Launch a token
         </button>
       </div>
     );
@@ -162,9 +160,7 @@ function BalancesTab({
     <>
       <div className={styles.totalValueWrap}>
         <div className={styles.totalValueLabel}>total value</div>
-        <div className={styles.totalValueAmount}>
-          {formatUsd(totalValue)}
-        </div>
+        <div className={styles.totalValueAmount}>{formatUsd(totalValue)}</div>
       </div>
 
       <div className={styles.listHeader}>
@@ -191,7 +187,11 @@ function BalancesTab({
               <div
                 className={cn(
                   styles.tokenChange,
-                  t.change24h > 0 ? styles.changeMint : t.change24h < 0 ? styles.changeRed : styles.changeTxt3,
+                  t.change24h > 0
+                    ? styles.changeMint
+                    : t.change24h < 0
+                      ? styles.changeRed
+                      : styles.changeTxt3,
                 )}
               >
                 {formatPercent(t.change24h)}
@@ -213,7 +213,7 @@ function RewardsTab({
   onTokenClick,
   onLaunch,
 }: {
-  earnings: ReturnType<typeof useCreatorEarnings>['earnings'];
+  earnings: ReturnType<typeof useCreatorEarnings>["earnings"];
   claiming: boolean;
   claim: (tokenAddress?: string) => void;
   onTokenClick: (addr: string) => void;
@@ -222,19 +222,17 @@ function RewardsTab({
   if (!earnings || earnings.tokens.length === 0) {
     return (
       <div className={styles.emptyState}>
-        <div className={styles.emptyIcon}>⚡</div>
+        <div className={styles.emptyIcon}>&#x26A1;</div>
         <div className={styles.textCenter}>
           <div className={styles.emptyTitle}>No tokens created yet</div>
           <div className={styles.emptyText}>
-            Launch a levered token to start earning 0.1% of all trading volume on the
-            bonding curve. Fees accrue in USDC and can be claimed anytime.
+            Launch a levered token to start earning 0.1% of all trading volume
+            on the bonding curve. Fees accrue in USDC and can be claimed
+            anytime.
           </div>
         </div>
-        <button
-          className={styles.launchBtn}
-          onClick={onLaunch}
-        >
-          ⚡ Launch a token
+        <button className={styles.launchBtn} onClick={onLaunch}>
+          &#x26A1; Launch a token
         </button>
       </div>
     );
@@ -251,9 +249,7 @@ function RewardsTab({
             </div>
           </div>
           <div>
-            <div className={styles.rewardsLabel}>
-              total earned
-            </div>
+            <div className={styles.rewardsLabel}>total earned</div>
             <div className={styles.rewardsTotalEarned}>
               ${earnings.totalEarned.toFixed(2)}
             </div>
@@ -272,22 +268,24 @@ function RewardsTab({
           disabled={earnings.totalClaimable <= 0 || claiming}
         >
           {claiming
-            ? 'Claiming…'
+            ? "Claiming\u2026"
             : earnings.totalClaimable > 0
               ? `Claim $${earnings.totalClaimable.toFixed(2)} USDC`
-              : 'Nothing to claim'}
+              : "Nothing to claim"}
         </button>
 
         {claiming && (
           <div className={styles.claimingIndicator}>
             <div className={styles.claimingDot} />
-            Confirm in wallet…
+            Confirm in wallet&hellip;
           </div>
         )}
 
         <div className={styles.prevClaimed}>
           <span>previously claimed</span>
-          <span className={styles.prevClaimedValue}>${earnings.totalClaimed.toFixed(2)}</span>
+          <span className={styles.prevClaimedValue}>
+            ${earnings.totalClaimed.toFixed(2)}
+          </span>
         </div>
       </div>
 
@@ -312,9 +310,9 @@ function RewardsTab({
                 <div
                   className={cn(
                     styles.statusBadge,
-                    t.status === 'graduating' && styles.statusGraduating,
-                    t.status === 'graduated' && styles.statusGraduated,
-                    t.status === 'active' && styles.statusActive,
+                    t.status === "graduating" && styles.statusGraduating,
+                    t.status === "graduated" && styles.statusGraduated,
+                    t.status === "active" && styles.statusActive,
                   )}
                 >
                   {t.status}
@@ -324,27 +322,35 @@ function RewardsTab({
               <div className={styles.tokenCardGrid}>
                 <div>
                   <div className={styles.tokenCardStatLabel}>volume</div>
-                  <div className={styles.tokenCardStatValue}>{formatUsd(t.totalVolumeUsd)}</div>
+                  <div className={styles.tokenCardStatValue}>
+                    {formatUsd(t.totalVolumeUsd)}
+                  </div>
                 </div>
                 <div>
                   <div className={styles.tokenCardStatLabel}>earned</div>
-                  <div className={styles.tokenCardStatValue}>${t.feesEarnedUsd.toFixed(2)}</div>
+                  <div className={styles.tokenCardStatValue}>
+                    ${t.feesEarnedUsd.toFixed(2)}
+                  </div>
                 </div>
                 <div>
                   <div className={styles.tokenCardStatLabel}>claimable</div>
-                  <div className={styles.tokenCardStatValueMint}>${t.feesClaimableUsd.toFixed(2)}</div>
+                  <div className={styles.tokenCardStatValueMint}>
+                    ${t.feesClaimableUsd.toFixed(2)}
+                  </div>
                 </div>
               </div>
 
-              {t.status !== 'graduated' && (
+              {t.status !== "graduated" && (
                 <div className={styles.curveBar}>
                   <div className={styles.curveTrack}>
                     <div
-                      className={cn(styles.curveFill, 'bar-glow-mint')}
+                      className={cn(styles.curveFill, "bar-glow-mint")}
                       style={{ width: `${t.curveFilled}%` }}
                     />
                   </div>
-                  <div className={styles.curveLabel}>{t.curveFilled}% filled</div>
+                  <div className={styles.curveLabel}>
+                    {t.curveFilled}% filled
+                  </div>
                 </div>
               )}
             </div>
@@ -354,8 +360,9 @@ function RewardsTab({
 
       <div className={styles.footer}>
         <div className={styles.footerText}>
-          <span className={styles.footerHighlight}>0.1%</span> of all curve volume goes to token
-          creators. Fees accrue in USDC and can be claimed anytime.
+          <span className={styles.footerHighlight}>0.1%</span> of all curve
+          volume goes to token creators. Fees accrue in USDC and can be claimed
+          anytime.
         </div>
       </div>
     </>

@@ -49,7 +49,10 @@
 .tradeRow {
   border-bottom: 1px solid var(--border);
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .tradeRow:hover {
@@ -139,7 +142,10 @@
   font-size: 11px;
   font-family: var(--font-mono);
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .txnLink:hover {
@@ -215,7 +221,10 @@
   font-size: 13px;
   color: var(--txt);
   outline: 0;
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .commentInput::placeholder {

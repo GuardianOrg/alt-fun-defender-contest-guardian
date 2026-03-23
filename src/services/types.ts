@@ -1,8 +1,8 @@
-import type { UnderlyingAsset, Leverage } from '@/config/constants';
+import type { UnderlyingAsset, Leverage } from "../config/constants";
 
-export type Direction = 'long' | 'short';
+export type Direction = "long" | "short";
 
-export type TokenStatus = 'active' | 'graduating' | 'graduated';
+export type TokenStatus = "active" | "graduating" | "graduated";
 
 export interface Token {
   address: string;
@@ -35,7 +35,7 @@ export interface Token {
 
 export interface Trade {
   id: string;
-  side: 'BUY' | 'SELL';
+  side: "BUY" | "SELL";
   amountUsd: number;
   tokensAmount: string;
   walletAddress: string;
@@ -81,7 +81,13 @@ export interface PairFilter {
   color: string;
 }
 
-export type TokenFilter = 'trending' | 'new' | 'lt-movers' | 'graduating' | 'graduated' | 'all';
+export type TokenFilter =
+  | "trending"
+  | "new"
+  | "lt-movers"
+  | "graduating"
+  | "graduated"
+  | "all";
 
 export interface CreateTokenParams {
   name: string;
@@ -149,9 +155,9 @@ export interface CreatorEarnings {
  */
 export interface TxContext {
   /** What the user is approving (USDC for buy/create, memecoin for sell) */
-  approvalToken: 'USDC' | 'memecoin';
+  approvalToken: "USDC" | "memecoin";
   /** The spender contract getting the approval (always the Router or Factory) */
-  spender: 'router' | 'factory';
+  spender: "router" | "factory";
   /** Referral code for the Bounce Referral Module */
   referralCode: `0x${string}`;
 }
