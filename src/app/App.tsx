@@ -16,14 +16,13 @@ import EarningsPanel from "../components/layout/EarningsPanel";
 import Header from "../components/layout/Header";
 import PasswordGate from "../components/layout/PasswordGate";
 import SearchModal from "../components/layout/SearchModal";
+import ErrorBoundary from "../components/shared/ErrorBoundary";
 import LeverageBanner from "../components/terminal/LeverageBanner";
 import TerminalView from "../components/terminal/TerminalView";
 import TokenDetailView from "../components/token/TokenDetailView";
 import { wagmiConfig } from "../config/wagmi";
 import { store } from "../state/store";
 import { cn } from "../utils/format";
-
-import "../styles/global.css";
 
 const Layout = () => {
   const location = useLocation();
@@ -66,13 +65,15 @@ const queryClient = new QueryClient({
 
 const App = () => {
   return (
-    <ReduxProvider store={store}>
-      <QueryClientProvider client={queryClient}>
-        <WagmiProvider config={wagmiConfig}>
-          <RouterProvider router={router} />
-        </WagmiProvider>
-      </QueryClientProvider>
-    </ReduxProvider>
+    <ErrorBoundary>
+      <ReduxProvider store={store}>
+        <QueryClientProvider client={queryClient}>
+          <WagmiProvider config={wagmiConfig}>
+            <RouterProvider router={router} />
+          </WagmiProvider>
+        </QueryClientProvider>
+      </ReduxProvider>
+    </ErrorBoundary>
   );
 };
 

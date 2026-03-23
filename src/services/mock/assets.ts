@@ -1,3 +1,5 @@
+import { COLORS } from "../../config/colors";
+
 import type { Asset, PlatformStats, PairFilter } from "../types";
 
 export const MOCK_ASSETS: Asset[] = [
@@ -9,14 +11,14 @@ export const MOCK_ASSETS: Asset[] = [
 
 export const MOCK_ASSET_DATA: Record<
   string,
-  { chg: number; nav2: number; nav3: number }
+  { change24h: number; nav2x: number; nav3x: number }
 > = {
-  HYPE: { chg: 8.2, nav2: 36.84, nav3: 55.26 },
-  ETH: { chg: -3.1, nav2: 4082, nav3: 6123 },
-  BTC: { chg: 1.4, nav2: 164800, nav3: 247200 },
-  SOL: { chg: -5.8, nav2: 244, nav3: 366 },
-  ARB: { chg: -1.2, nav2: 1.64, nav3: 2.46 },
-  OP: { chg: 2.6, nav2: 3.24, nav3: 4.86 },
+  HYPE: { change24h: 8.2, nav2x: 36.84, nav3x: 55.26 },
+  ETH: { change24h: -3.1, nav2x: 4082, nav3x: 6123 },
+  BTC: { change24h: 1.4, nav2x: 164800, nav3x: 247200 },
+  SOL: { change24h: -5.8, nav2x: 244, nav3x: 366 },
+  ARB: { change24h: -1.2, nav2x: 1.64, nav3x: 2.46 },
+  OP: { change24h: 2.6, nav2x: 3.24, nav3x: 4.86 },
 };
 
 export const MOCK_PLATFORM_STATS: PlatformStats = {
@@ -28,8 +30,8 @@ export const MOCK_PLATFORM_STATS: PlatformStats = {
 };
 
 export const MOCK_PAIR_FILTERS: PairFilter[] = [
-  { asset: "HYPE", direction: "long", count: 8, color: "#4de8b4" },
+  { asset: "HYPE", direction: "long", count: 8, color: COLORS.mint },
   { asset: "ETH", direction: "short", count: 4, color: "#6ef0c2" },
   { asset: "SOL", direction: "short", count: 4, color: "#9fe0cb" },
-  { asset: "BTC", direction: "long", count: 4, color: "#f0b429" },
+  { asset: "BTC", direction: "long", count: 4, color: COLORS.amber },
 ];

@@ -105,13 +105,6 @@ export interface CreateTokenParams {
   };
 }
 
-export interface TradeEstimate {
-  tokensReceived: string;
-  priceImpact: string;
-  fee: string;
-  total: string;
-}
-
 export interface HeldToken {
   address: string;
   name: string;
@@ -143,21 +136,3 @@ export interface CreatorEarnings {
   tokens: CreatedToken[];
 }
 
-/**
- * Represents the user-facing transaction flow.
- *
- * All trades settle in USDC — the TX Router handles LT mint/redeem atomically.
- * Users never hold or interact with Leveraged Tokens directly.
- *
- * BUY flow:  approve USDC → Router.buy() → receive memecoin
- * SELL flow: approve memecoin → Router.sell() → receive USDC
- * CREATE:    approve USDC (seed) → Factory.createToken() → receive memecoin + curve deployed
- */
-export interface TxContext {
-  /** What the user is approving (USDC for buy/create, memecoin for sell) */
-  approvalToken: "USDC" | "memecoin";
-  /** The spender contract getting the approval (always the Router or Factory) */
-  spender: "router" | "factory";
-  /** Referral code for the Bounce Referral Module */
-  referralCode: `0x${string}`;
-}

@@ -1,3 +1,6 @@
+import type { Leverage } from "../config/constants";
+import type { Direction } from "../services/types";
+
 export function formatUsd(value: number): string {
   if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
   if (value >= 1_000)
@@ -25,4 +28,20 @@ export function cn(
   ...classes: (string | boolean | undefined | null)[]
 ): string {
   return classes.filter(Boolean).join(" ");
+}
+
+export function getLtDisplayName(
+  asset: string,
+  leverage: Leverage,
+  direction: Direction,
+): string {
+  return `${asset} ${leverage}× ${direction === "long" ? "Long" : "Short"}`;
+}
+
+export function getErrorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : "Transaction failed";
+}
+
+export function copyToClipboard(text: string): Promise<void> {
+  return navigator.clipboard.writeText(text).catch(() => {});
 }

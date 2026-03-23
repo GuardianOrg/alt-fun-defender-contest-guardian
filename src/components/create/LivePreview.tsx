@@ -1,10 +1,15 @@
 import { useEffect, useRef } from "react";
 
 import styles from "./LivePreview.module.css";
+import { COLORS, rgba } from "../../config/colors";
+import {
+  GRADUATION_THRESHOLD_USD,
+  type UnderlyingAsset,
+  type Leverage,
+} from "../../config/constants";
 import { MOCK_ASSET_DATA } from "../../services/mock/assets";
-import { cn } from "../../utils/format";
+import { cn, formatUsd, getLtDisplayName } from "../../utils/format";
 
-import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { Direction } from "../../services/types";
 
 
@@ -27,12 +32,12 @@ export default function LivePreview({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isLong = direction === "long";
-  const ltName = `${asset} ${leverage}× ${isLong ? "Long" : "Short"}`;
+  const ltName = getLtDisplayName(asset, leverage, direction);
   const displayName = ticker
     ? `${(name || "YOUR TOKEN").toUpperCase()} (${ticker.toUpperCase()})`
     : (name || "your token").toUpperCase();
   const data = MOCK_ASSET_DATA[asset];
-  const assetChg = data.chg;
+  const assetChg = data.change24h;
   const isUp = assetChg >= 0;
 
   useEffect(() => {
@@ -44,7 +49,7 @@ export default function LivePreview({
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    const color = isUp ? "#4de8b4" : "#f05050";
+    const color = isUp ? COLORS.mint : COLORS.red;
     const pts = Array.from({ length: 60 }, (_, i) => {
       const noise = (Math.random() - 0.48) * 1.8;
       const trend = (assetChg / 100) * (i / 60) * 0.8;
@@ -62,7 +67,7 @@ export default function LivePreview({
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(
       0,
-      isUp ? "rgba(77,232,180,0.18)" : "rgba(240,80,80,0.14)",
+      isUp ? rgba(COLORS.mint, 0.18) : rgba(COLORS.red, 0.14),
     );
     grad.addColorStop(1, "rgba(0,0,0,0)");
 
@@ -203,7 +208,7 @@ export default function LivePreview({
           {[
             { icon: "1", text: "Token deploys to bonding curve" },
             { icon: "2", text: "Users buy/sell with USDC atomically" },
-            { icon: "3", text: "At $69K MCAP, token graduates to DEX" },
+            { icon: "3", text: `At ${formatUsd(GRADUATION_THRESHOLD_USD)} MCAP, token graduates to DEX` },
           ].map((step) => (
             <div key={step.icon} className={styles.howStep}>
               <div className={styles.howStepIcon}>{step.icon}</div>

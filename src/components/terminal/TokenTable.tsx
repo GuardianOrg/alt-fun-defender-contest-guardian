@@ -2,7 +2,7 @@ import { useSelector } from "react-redux";
 
 import TokenRow from "./TokenRow";
 import styles from "./TokenTable.module.css";
-import { useLongTokens, useShortTokens } from "../../hooks/useTokens";
+import { useTokensByDirection } from "../../hooks/useTokens";
 import { selectActiveFilter } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 
@@ -52,8 +52,8 @@ function TableHead() {
 
 export default function TokenTable() {
   const activeFilter = useSelector(selectActiveFilter);
-  const { data: longTokens } = useLongTokens(activeFilter);
-  const { data: shortTokens } = useShortTokens(activeFilter);
+  const { data: longTokens } = useTokensByDirection("long", activeFilter);
+  const { data: shortTokens } = useTokensByDirection("short", activeFilter);
 
   return (
     <div className={styles.wrapper}>

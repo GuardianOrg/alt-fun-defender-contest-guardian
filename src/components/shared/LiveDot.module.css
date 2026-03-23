@@ -1,0 +1,14 @@
+.liveDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--mint);
+  animation: livep 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.liveDotSmall {
+  composes: liveDot;
+  width: 0.25rem;
+  height: 0.25rem;
+}

@@ -7,57 +7,69 @@ import styles from "./TokenDetailView.module.css";
 import TradePanel from "./TradePanel";
 import { GRADUATION_THRESHOLD_USD } from "../../config/constants";
 import { useToken } from "../../hooks/useToken";
-import { MOCK_TOKENS } from "../../services/mock/tokens";
 import { formatUsd } from "../../utils/format";
 import ProgressBar from "../shared/ProgressBar";
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
-  const { data: token } = useToken(address);
+  const { data: token, isLoading, isError } = useToken(address);
 
-  const displayToken = token ?? MOCK_TOKENS[0];
+  if (isLoading) {
+    return (
+      <div className={styles.wrapper}>
+        <div className={styles.loading}>Loading token...</div>
+      </div>
+    );
+  }
+
+  if (isError || !token) {
+    return (
+      <div className={styles.wrapper}>
+        <div className={styles.loading}>Token not found</div>
+      </div>
+    );
+  }
 
   const buyW = Math.round(
-    displayToken.curveFilled -
-      (displayToken.leverageBoost > 0
-        ? (displayToken.leverageBoost / displayToken.change24h) *
-          displayToken.curveFilled
+    token.curveFilled -
+      (token.leverageBoost > 0
+        ? (token.leverageBoost / token.change24h) * token.curveFilled
         : 0),
   );
-  const levW = displayToken.curveFilled - buyW;
+  const levW = token.curveFilled - buyW;
 
   return (
     <div className={styles.wrapper}>
       <div className={styles.leftPanel}>
-        <HeroSection token={displayToken} />
-        <Chart token={displayToken} />
+        <HeroSection token={token} />
+        <Chart token={token} />
 
         <div className={styles.curveStrip}>
           <span className={styles.curveLabel}>curve</span>
           <span className={styles.curveRaised}>
-            {formatUsd(displayToken.curveRaisedUsd)}
+            {formatUsd(token.curveRaisedUsd)}
           </span>
           <div className={styles.progressWrapper}>
             <ProgressBar
               buyPercent={buyW}
               leveragePercent={levW}
-              isShort={displayToken.direction === "short"}
-              isGraduating={displayToken.status === "graduating"}
+              isShort={token.direction === "short"}
+              isGraduating={token.status === "graduating"}
               size="sm"
             />
           </div>
           <span className={styles.curveThreshold}>
             {formatUsd(GRADUATION_THRESHOLD_USD)}
           </span>
-          {displayToken.status === "graduating" && (
+          {token.status === "graduating" && (
             <span className={styles.graduatingBadge}>graduating</span>
           )}
         </div>
 
-        <BottomTabs token={displayToken} />
+        <BottomTabs token={token} />
       </div>
 
-      <TradePanel token={displayToken} />
+      <TradePanel token={token} />
     </div>
   );
 }

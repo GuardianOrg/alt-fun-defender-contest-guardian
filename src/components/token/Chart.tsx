@@ -8,6 +8,7 @@ import {
 } from "lightweight-charts";
 
 import styles from "./Chart.module.css";
+import { COLORS, rgba } from "../../config/colors";
 import { cn, formatPercent } from "../../utils/format";
 
 import type { Token } from "../../services/types";
@@ -17,7 +18,6 @@ import type {
   CandlestickData,
   LineData,
 } from "lightweight-charts";
-
 
 const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1D"] as const;
 
@@ -96,26 +96,26 @@ export default function Chart({ token }: Props) {
         fontSize: 10,
       },
       grid: {
-        vertLines: { color: "rgba(77,232,180,0.05)" },
-        horzLines: { color: "rgba(77,232,180,0.05)" },
+        vertLines: { color: rgba(COLORS.mint, 0.05) },
+        horzLines: { color: rgba(COLORS.mint, 0.05) },
       },
       crosshair: {
-        vertLine: { color: "rgba(77,232,180,0.25)" },
-        horzLine: { color: "rgba(77,232,180,0.25)" },
+        vertLine: { color: rgba(COLORS.mint, 0.25) },
+        horzLine: { color: rgba(COLORS.mint, 0.25) },
       },
-      rightPriceScale: { borderColor: "rgba(77,232,180,0.10)" },
-      timeScale: { borderColor: "rgba(77,232,180,0.10)" },
+      rightPriceScale: { borderColor: rgba(COLORS.mint, 0.1) },
+      timeScale: { borderColor: rgba(COLORS.mint, 0.1) },
     });
 
     chartRef.current = chart;
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#4de8b4",
-      downColor: "#f05050",
-      borderUpColor: "#4de8b4",
-      borderDownColor: "#f05050",
-      wickUpColor: "#4de8b4",
-      wickDownColor: "#f05050",
+      upColor: COLORS.mint,
+      downColor: COLORS.red,
+      borderUpColor: COLORS.mint,
+      borderDownColor: COLORS.red,
+      wickUpColor: COLORS.mint,
+      wickDownColor: COLORS.red,
     });
     candleSeriesRef.current = candleSeries;
 
@@ -181,7 +181,7 @@ export default function Chart({ token }: Props) {
                   ? 48
                   : 30;
       const lineSeries = chart.addSeries(LineSeries, {
-        color: "rgba(240,180,41,0.5)",
+        color: rgba(COLORS.amber, 0.5),
         lineWidth: 1,
         priceScaleId: "overlay",
       });

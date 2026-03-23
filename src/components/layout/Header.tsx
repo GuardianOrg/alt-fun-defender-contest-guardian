@@ -4,6 +4,7 @@ import { useDispatch } from "react-redux";
 import { useNavigate, useLocation } from "react-router";
 
 import styles from "./Header.module.css";
+import { CREATE_PATH } from "../../app/routes";
 import { useWallet } from "../../hooks/useWallet";
 import { setSearchOpen, setEarningsOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
@@ -32,7 +33,7 @@ export default function Header() {
     return () => clearInterval(id);
   }, []);
 
-  const isCreate = location.pathname === "/create";
+  const isCreate = location.pathname === CREATE_PATH;
 
   return (
     <header className={styles.header}>
@@ -81,7 +82,7 @@ export default function Header() {
         >
           <span className={styles.searchIcon}>&#x2315;</span>
           <span className={styles.searchText}>Search tokens&hellip;</span>
-          <span className={styles.searchKbd}>&amp;#x2318;K</span>
+          <span className={styles.searchKbd}>⌘K</span>
         </div>
       )}
 
@@ -106,7 +107,7 @@ export default function Header() {
         ) : (
           <button
             className={styles.launchBtn}
-            onClick={() => navigate("/create")}
+            onClick={() => navigate(CREATE_PATH)}
           >
             &#x26A1; launch a levered token
           </button>

@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAccount } from "wagmi";
 
-import { profileService } from "../services/creatorService";
+import { creatorService } from "../services/creatorService";
 
 export function useCreatorEarnings() {
   const { address } = useAccount();
@@ -11,7 +11,10 @@ export function useCreatorEarnings() {
 
   const earningsQuery = useQuery({
     queryKey: ["creatorEarnings", address],
-    queryFn: () => profileService.getEarnings(address!),
+    queryFn: () => {
+      if (!address) throw new Error("Address required");
+      return creatorService.getEarnings(address);
+    },
     enabled: !!address,
   });
 
@@ -20,7 +23,7 @@ export function useCreatorEarnings() {
       if (!address) return;
       setClaiming(true);
       try {
-        await profileService.claimEarnings(address, tokenAddress);
+        await creatorService.claimEarnings(address, tokenAddress);
         earningsQuery.refetch();
       } finally {
         setClaiming(false);
@@ -32,6 +35,8 @@ export function useCreatorEarnings() {
   return {
     earnings: earningsQuery.data,
     isLoading: earningsQuery.isLoading,
+    isError: earningsQuery.isError,
+    error: earningsQuery.error,
     claiming,
     claim,
   };
@@ -42,7 +47,10 @@ export function useBalances() {
 
   const query = useQuery({
     queryKey: ["balances", address],
-    queryFn: () => profileService.getBalances(address!),
+    queryFn: () => {
+      if (!address) throw new Error("Address required");
+      return creatorService.getBalances(address);
+    },
     enabled: !!address,
   });
 

@@ -1,118 +1,39 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 
 import CreatorBadge from "./CreatorBadge";
+import SettingsPopup from "./SettingsPopup";
 import styles from "./TradePanel.module.css";
+import { FEES, MOCK_TOKEN_PRICE, QUICK_AMOUNTS } from "../../config/constants";
+import { useCopyState } from "../../hooks/useCopyState";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { cn } from "../../utils/format";
 
 import type { Token } from "../../services/types";
 
-
 interface Props {
   token: Token;
 }
-
-function SettingsPopup({
-  slippage,
-  onSlippageChange,
-  onClose,
-}: {
-  slippage: number;
-  onSlippageChange: (v: number) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [custom, setCustom] = useState(String(slippage * 100));
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [onClose]);
-
-  const presets = [0.5, 1, 2, 5];
-
-  const applyCustom = (val: string) => {
-    setCustom(val);
-    const n = parseFloat(val);
-    if (!isNaN(n) && n > 0 && n <= 50) {
-      onSlippageChange(n / 100);
-    }
-  };
-
-  return (
-    <div ref={ref} className={styles.settingsPopup}>
-      <div className={styles.settingsHeader}>
-        <span className={styles.settingsTitle}>Settings</span>
-        <button className={styles.settingsCloseBtn} onClick={onClose}>
-          [Close]
-        </button>
-      </div>
-
-      <div>
-        <div className={styles.slippageLabel}>Max slippage (%)</div>
-        <div className={styles.slippageInputWrap}>
-          <input
-            className={styles.slippageInput}
-            type="number"
-            value={custom}
-            onChange={(e) => applyCustom(e.target.value)}
-            min="0.1"
-            max="50"
-            step="0.1"
-          />
-          <span className={styles.percentSign}>%</span>
-        </div>
-        <div className={styles.slippageHint}>
-          Maximum price change you&apos;re willing to accept when placing
-          trades.
-        </div>
-        <div className={styles.presetRow}>
-          {presets.map((p) => (
-            <button
-              key={p}
-              className={cn(
-                styles.presetBtn,
-                slippage === p / 100 && styles.presetBtnActive,
-              )}
-              onClick={() => {
-                onSlippageChange(p / 100);
-                setCustom(String(p));
-              }}
-            >
-              {p}%
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const QUICK_USDC = [100, 500, 1000] as const;
 
 export default function TradePanel({ token }: Props) {
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [denomUsdc, setDenomUsdc] = useState(true);
   const [slippage, setSlippage] = useState(0.02);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy: copyCA } = useCopyState();
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { isConnected, connect } = useWallet();
-  const { step, txHash, error, executeBuy, executeSell, reset } =
-    useTradeRouter();
+  const { step, txHash, error, executeTrade, reset } = useTradeRouter();
 
   const amtNum = parseFloat(amount) || 0;
 
-  const mockPrice = 0.000188;
+  const mockPrice = MOCK_TOKEN_PRICE;
+  const sellFeeMultiplier = 1 - FEES.curveSell - FEES.ltRedemption * 2;
   const usdcIn = denomUsdc ? amtNum : amtNum * mockPrice;
   const estimateTokens = usdcIn / mockPrice;
   const tokensIn = denomUsdc ? amtNum / mockPrice : amtNum;
-  const estimateUsdc = tokensIn * mockPrice * 0.985;
+  const estimateUsdc = tokensIn * mockPrice * sellFeeMultiplier;
 
   const doTrade = () => {
     if (!isConnected) {
@@ -121,13 +42,11 @@ export default function TradePanel({ token }: Props) {
     }
     if (!amtNum) return;
 
-    if (mode === "buy") {
-      const usdcAmt = denomUsdc ? amtNum : amtNum * 0.000188;
-      executeBuy(token.address, usdcAmt, slippage);
-    } else {
-      const tokenAmount = denomUsdc ? amtNum / 0.000188 : amtNum;
-      executeSell(token.address, tokenAmount, slippage);
-    }
+    const tradeAmount =
+      mode === "buy"
+        ? denomUsdc ? amtNum : amtNum * mockPrice
+        : denomUsdc ? amtNum / mockPrice : amtNum;
+    executeTrade(token.address, tradeAmount, slippage);
   };
 
   useEffect(() => {
@@ -140,12 +59,6 @@ export default function TradePanel({ token }: Props) {
     }
   }, [step, reset]);
 
-  const copyCA = () => {
-    navigator.clipboard.writeText(token.address).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const isBusy = step === "approving" || step === "executing";
 
   const buttonLabel = () => {
@@ -157,7 +70,7 @@ export default function TradePanel({ token }: Props) {
     return `${mode === "buy" ? "BUY" : "SELL"} ${token.name}`;
   };
 
-  const ticker = token.name.split(" ")[0].toUpperCase();
+  const ticker = token.ticker;
 
   return (
     <div className={styles.panel}>
@@ -282,7 +195,7 @@ export default function TradePanel({ token }: Props) {
           >
             Reset
           </button>
-          {QUICK_USDC.map((qa) => (
+          {QUICK_AMOUNTS.map((qa) => (
             <button
               key={qa}
               className={cn(
@@ -379,7 +292,7 @@ export default function TradePanel({ token }: Props) {
 
       <div className={styles.footer}>
         <div className={styles.footerLeft}>
-          <a className={styles.footerCa} onClick={copyCA}>
+          <a className={styles.footerCa} onClick={() => copyCA(token.address)}>
             {copied
               ? "✓ copied"
               : `${token.address.slice(0, 6)}…${token.address.slice(-4)}`}

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 import styles from "./BottomTabs.module.css";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
-import { MOCK_COMMENTS, MOCK_HOLDERS } from "../../services/mock/trades";
+import { tradeService } from "../../services/tradeService";
 import { cn } from "../../utils/format";
 
 import type { Token, Comment, Holder } from "../../services/types";
@@ -15,7 +15,7 @@ type Tab = "trades" | "comments" | "holders";
 
 function TradesTab({ token }: { token: Token }) {
   const trades = useTokenTrades(token.address);
-  const ticker = token.name.split(" ")[0];
+  const ticker = token.ticker;
 
   return (
     <table className={styles.tradesTable}>
@@ -167,6 +167,13 @@ function HoldersTab({ holders }: { holders: Holder[] }) {
 
 export default function BottomTabs({ token }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("trades");
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [holders, setHolders] = useState<Holder[]>([]);
+
+  useEffect(() => {
+    tradeService.getComments(token.address).then(setComments);
+    tradeService.getHolders(token.address).then(setHolders);
+  }, [token.address]);
 
   return (
     <>
@@ -187,8 +194,8 @@ export default function BottomTabs({ token }: Props) {
       </div>
       <div className={styles.tabContent}>
         {activeTab === "trades" && <TradesTab token={token} />}
-        {activeTab === "comments" && <CommentsTab comments={MOCK_COMMENTS} />}
-        {activeTab === "holders" && <HoldersTab holders={MOCK_HOLDERS} />}
+        {activeTab === "comments" && <CommentsTab comments={comments} />}
+        {activeTab === "holders" && <HoldersTab holders={holders} />}
       </div>
     </>
   );

@@ -1,8 +1,7 @@
-import { createSlice } from "@reduxjs/toolkit";
+import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
-import type { RootState } from "./store";
+import type { RootState } from "./types";
 import type { TokenFilter } from "../services/types";
-import type { PayloadAction } from "@reduxjs/toolkit";
 
 interface UiState {
   searchOpen: boolean;

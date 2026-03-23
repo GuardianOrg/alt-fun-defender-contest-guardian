@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { tokenService } from "../services/tokenService";
 
-import type { TokenFilter } from "../services/types";
+import type { Direction, TokenFilter } from "../services/types";
 
 export function useTokens(filter?: TokenFilter) {
   return useQuery({
@@ -11,18 +11,13 @@ export function useTokens(filter?: TokenFilter) {
   });
 }
 
-export function useLongTokens(filter?: TokenFilter) {
+export function useTokensByDirection(
+  direction: Direction,
+  filter?: TokenFilter,
+) {
   return useQuery({
-    queryKey: ["tokens", "long", filter],
-    queryFn: () => tokenService.getLongTokens(filter),
-    refetchInterval: 10_000,
-  });
-}
-
-export function useShortTokens(filter?: TokenFilter) {
-  return useQuery({
-    queryKey: ["tokens", "short", filter],
-    queryFn: () => tokenService.getShortTokens(filter),
+    queryKey: ["tokens", direction, filter],
+    queryFn: () => tokenService.getTokensByDirection(direction, filter),
     refetchInterval: 10_000,
   });
 }

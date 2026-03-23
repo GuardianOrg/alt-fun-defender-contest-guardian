@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
+import { tokenPath } from "../../app/routes";
 import { cn, formatUsd, formatPercent } from "../../utils/format";
 import ProgressBar from "../shared/ProgressBar";
 
@@ -42,7 +43,7 @@ export default function TokenRow({ token }: Props) {
                   : styles.borderMint,
             ),
       )}
-      onClick={() => navigate(`/token/${token.address}`)}
+      onClick={() => navigate(tokenPath(token.address))}
     >
       {/* Icon */}
       <div className={styles.iconCell}>

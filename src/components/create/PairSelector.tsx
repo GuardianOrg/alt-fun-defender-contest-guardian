@@ -1,12 +1,12 @@
 import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
+import { COLORS, rgba } from "../../config/colors";
 import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
 import { MOCK_ASSET_DATA } from "../../services/mock/assets";
-import { cn } from "../../utils/format";
+import { cn, getLtDisplayName } from "../../utils/format";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { Direction } from "../../services/types";
-
 
 interface Props {
   direction: Direction;
@@ -17,13 +17,9 @@ interface Props {
   onLeverageChange: (l: Leverage) => void;
 }
 
-function ltName(asset: UnderlyingAsset, lev: Leverage, dir: Direction) {
-  return `${asset} ${lev}× ${dir === "long" ? "Long" : "Short"}`;
-}
-
 function ltChg(asset: UnderlyingAsset, lev: Leverage, dir: Direction) {
   const data = MOCK_ASSET_DATA[asset];
-  return dir === "long" ? data.chg * lev : -data.chg * lev;
+  return dir === "long" ? data.change24h * lev : -data.change24h * lev;
 }
 
 export default function PairSelector({
@@ -67,7 +63,7 @@ export default function PairSelector({
             <svg width="52" height="28" viewBox="0 0 52 28" fill="none">
               <polyline
                 points="0,24 10,20 20,14 30,10 40,5 52,2"
-                stroke={isLong ? "#4de8b4" : "rgba(234,250,244,0.15)"}
+                stroke={isLong ? COLORS.mint : rgba(COLORS.text, 0.15)}
                 strokeWidth="1.8"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -75,7 +71,7 @@ export default function PairSelector({
               <polygon
                 points="0,28 0,24 10,20 20,14 30,10 40,5 52,2 52,28"
                 fill={
-                  isLong ? "rgba(77,232,180,0.12)" : "rgba(234,250,244,0.03)"
+                  isLong ? rgba(COLORS.mint, 0.12) : rgba(COLORS.text, 0.03)
                 }
               />
             </svg>
@@ -114,7 +110,7 @@ export default function PairSelector({
             <svg width="52" height="28" viewBox="0 0 52 28" fill="none">
               <polyline
                 points="0,4 10,7 20,12 30,17 40,22 52,26"
-                stroke={!isLong ? "#f05050" : "rgba(234,250,244,0.15)"}
+                stroke={!isLong ? COLORS.red : rgba(COLORS.text, 0.15)}
                 strokeWidth="1.8"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -122,7 +118,7 @@ export default function PairSelector({
               <polygon
                 points="0,0 0,4 10,7 20,12 30,17 40,22 52,26 52,0"
                 fill={
-                  !isLong ? "rgba(240,80,80,0.10)" : "rgba(234,250,244,0.03)"
+                  !isLong ? rgba(COLORS.red, 0.1) : rgba(COLORS.text, 0.03)
                 }
               />
             </svg>
@@ -145,7 +141,7 @@ export default function PairSelector({
       <div className={styles.assetGrid}>
         {UNDERLYING_ASSETS.map((a) => {
           const data = MOCK_ASSET_DATA[a];
-          const up = data.chg >= 0;
+          const up = data.change24h >= 0;
           const selected = a === asset;
           return (
             <button
@@ -168,7 +164,7 @@ export default function PairSelector({
                 )}
               >
                 {up ? "+" : ""}
-                {data.chg.toFixed(2)}%
+                {data.change24h.toFixed(2)}%
               </div>
             </button>
           );
@@ -208,7 +204,7 @@ export default function PairSelector({
           )}
         />
         <span className={styles.summaryName}>
-          {ltName(asset, leverage, direction)}
+          {getLtDisplayName(asset, leverage, direction)}
         </span>
         <span className={styles.summaryChg}>
           {chg >= 0 ? "+" : ""}
@@ -220,14 +216,14 @@ export default function PairSelector({
         <svg width="16" height="12" viewBox="0 0 36 24" fill="none">
           <path
             d="M14 2 L2 12 L14 22"
-            stroke="#4de8b4"
+            stroke={COLORS.mint}
             strokeWidth="3.5"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
           <path
             d="M22 2 L34 12 L22 22"
-            stroke="#4de8b4"
+            stroke={COLORS.mint}
             strokeWidth="3.5"
             strokeLinecap="round"
             strokeLinejoin="round"

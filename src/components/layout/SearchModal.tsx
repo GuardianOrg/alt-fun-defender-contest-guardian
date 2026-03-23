@@ -1,28 +1,33 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
 
 import styles from "./SearchModal.module.css";
+import { tokenPath } from "../../app/routes";
+import { COLORS } from "../../config/colors";
 import { useTokens } from "../../hooks/useTokens";
 import { selectSearchOpen, setSearchOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
+import ModalOverlay from "../shared/ModalOverlay";
 
 import type { Token } from "../../services/types";
 
 function Sparkline({ up }: { up: boolean }) {
-  const pts = Array.from({ length: 12 }, (_, i) => {
-    const n = (Math.random() - 0.5) * 10;
-    const tr = up ? i * 2.2 : -i * 2;
-    return tr + n;
-  });
-  const mn = Math.min(...pts);
-  const mx = Math.max(...pts);
-  const norm = pts.map((p) => ((p - mn) / (mx - mn || 1)) * 26 + 3);
-  const coords = norm
-    .map((y, i) => `${(i / (norm.length - 1)) * 108 + 1},${32 - y}`)
-    .join(" ");
-  const col = up ? "#4de8b4" : "#f05050";
+  const coords = useMemo(() => {
+    const pts = Array.from({ length: 12 }, (_, i) => {
+      const n = (Math.random() - 0.5) * 10;
+      const tr = up ? i * 2.2 : -i * 2;
+      return tr + n;
+    });
+    const mn = Math.min(...pts);
+    const mx = Math.max(...pts);
+    const norm = pts.map((p) => ((p - mn) / (mx - mn || 1)) * 26 + 3);
+    return norm
+      .map((y, i) => `${(i / (norm.length - 1)) * 108 + 1},${32 - y}`)
+      .join(" ");
+  }, [up]);
+  const col = up ? COLORS.mint : COLORS.red;
   return (
     <svg
       width="110"
@@ -128,16 +133,11 @@ export default function SearchModal() {
 
   const goToToken = (address: string) => {
     dispatch(setSearchOpen(false));
-    navigate(`/token/${address}`);
+    navigate(tokenPath(address));
   };
 
   return (
-    <div
-      className={styles.overlay}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) dispatch(setSearchOpen(false));
-      }}
-    >
+    <ModalOverlay onClose={() => dispatch(setSearchOpen(false))}>
       <div className={styles.modal}>
         <div className={styles.searchBar}>
           <span className={styles.searchIcon}>&#x2315;</span>
@@ -221,6 +221,6 @@ export default function SearchModal() {
           </div>
         )}
       </div>
-    </div>
+    </ModalOverlay>
   );
 }

@@ -1,12 +1,11 @@
 import { MOCK_TOKENS } from "./mock/tokens";
 
-import type { Token, TokenFilter } from "./types";
+import type { Direction, Token, TokenFilter } from "./types";
 
 export interface ITokenService {
   getTokens(filter?: TokenFilter): Promise<Token[]>;
   getToken(address: string): Promise<Token | undefined>;
-  getLongTokens(filter?: TokenFilter): Promise<Token[]>;
-  getShortTokens(filter?: TokenFilter): Promise<Token[]>;
+  getTokensByDirection(direction: Direction, filter?: TokenFilter): Promise<Token[]>;
 }
 
 function jitter(value: number, pct = 0.05): number {
@@ -35,6 +34,8 @@ const mockTokenService: ITokenService = {
           .filter((t) => t.leverageBoost > 0)
           .sort((a, b) => b.leverageBoost - a.leverageBoost);
         break;
+      case "all":
+        break;
       case "trending":
       default: {
         const graduated = tokens.filter((t) => t.status === "graduated");
@@ -52,14 +53,9 @@ const mockTokenService: ITokenService = {
     return MOCK_TOKENS.find((t) => t.address === address);
   },
 
-  async getLongTokens(filter?: TokenFilter) {
+  async getTokensByDirection(direction: Direction, filter?: TokenFilter) {
     const tokens = await this.getTokens(filter);
-    return tokens.filter((t) => t.direction === "long");
-  },
-
-  async getShortTokens(filter?: TokenFilter) {
-    const tokens = await this.getTokens(filter);
-    return tokens.filter((t) => t.direction === "short");
+    return tokens.filter((t) => t.direction === direction);
   },
 };
 

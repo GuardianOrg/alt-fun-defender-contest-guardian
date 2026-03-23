@@ -1,12 +1,12 @@
 import type { CreatorEarnings, HeldToken } from "./types";
 
-export interface IProfileService {
+export interface ICreatorService {
   getBalances(walletAddress: string): Promise<HeldToken[]>;
   getEarnings(walletAddress: string): Promise<CreatorEarnings | null>;
   claimEarnings(walletAddress: string, tokenAddress?: string): Promise<string>;
 }
 
-const mockProfileService: IProfileService = {
+const mockCreatorService: ICreatorService = {
   async getBalances(_walletAddress) {
     return [
       {
@@ -105,4 +105,4 @@ const mockProfileService: IProfileService = {
   },
 };
 
-export const profileService: IProfileService = mockProfileService;
+export const creatorService: ICreatorService = mockCreatorService;

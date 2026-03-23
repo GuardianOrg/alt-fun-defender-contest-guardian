@@ -1,7 +1,6 @@
-import { useState } from "react";
-
 import styles from "./HeroSection.module.css";
-import { cn, formatUsd, formatPercent } from "../../utils/format";
+import { useCopyState } from "../../hooks/useCopyState";
+import { cn, formatUsd, formatPercent, copyToClipboard } from "../../utils/format";
 
 import type { Token } from "../../services/types";
 
@@ -10,18 +9,12 @@ interface Props {
 }
 
 export default function HeroSection({ token }: Props) {
-  const [copied, setCopied] = useState(false);
+  const { copied, copy: copyCA } = useCopyState();
   const up = token.change24h >= 0;
-
-  const copyCA = () => {
-    navigator.clipboard.writeText(token.address).catch(() => {});
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const shareToken = () => {
     const text = `${token.emoji} ${token.name} · ${formatPercent(token.change24h)} today\n${token.ltName} — leveraged tokens\n\nbounce.fun`;
-    navigator.clipboard.writeText(text).catch(() => {});
+    copyToClipboard(text);
   };
 
   return (
@@ -52,7 +45,7 @@ export default function HeroSection({ token }: Props) {
               </span>
             ))}
           </div>
-          <div className={styles.caBlock} onClick={copyCA}>
+          <div className={styles.caBlock} onClick={() => copyCA(token.address)}>
             <span
               className={cn(
                 styles.caText,

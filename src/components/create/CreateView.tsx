@@ -6,12 +6,11 @@ import PairSelector from "./PairSelector";
 import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
 import { useWallet } from "../../hooks/useWallet";
-import { cn } from "../../utils/format";
+import { cn, getErrorMessage } from "../../utils/format";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
+import type { LaunchStep } from "../../services/tradeRouter";
 import type { Direction } from "../../services/types";
-
-type LaunchStep = "idle" | "approving" | "deploying" | "confirmed" | "error";
 
 export default function CreateView() {
   const [direction, setDirection] = useState<Direction>("long");
@@ -51,7 +50,7 @@ export default function CreateView() {
 
       setLaunchStep("confirmed");
     } catch (e) {
-      setLaunchError(e instanceof Error ? e.message : "Launch failed");
+      setLaunchError(getErrorMessage(e));
       setLaunchStep("error");
     }
   };

@@ -1,4 +1,4 @@
-import { FEES } from "../config/constants";
+import { FEES, MOCK_TOKEN_PRICE } from "../config/constants";
 
 /**
  * Trade router service — models the atomic USDC-in/token-out flow.
@@ -11,7 +11,9 @@ import { FEES } from "../config/constants";
  * All calls route through the Bounce Referral Module for fee attribution.
  */
 
-export type TxStep = "idle" | "approving" | "executing" | "confirmed" | "error";
+export type TransactionStep = "idle" | "approving" | "confirmed" | "error";
+export type TxStep = TransactionStep | "executing";
+export type LaunchStep = TransactionStep | "deploying";
 
 export interface BuyQuote {
   tokensOut: string;
@@ -48,9 +50,9 @@ const mockTradeRouter: ITradeRouterService = {
   async getQuoteBuy(_curveAddress, usdcAmount) {
     const curveFee = usdcAmount * FEES.curveBuy;
     const netUsdc = usdcAmount - curveFee;
-    const pricePerToken = 0.000188;
-    const tokensOut = netUsdc / pricePerToken;
-    const priceImpact = (usdcAmount / 188_000) * 100;
+    const tokensOut = netUsdc / MOCK_TOKEN_PRICE;
+    const mockMcap = MOCK_TOKEN_PRICE * 1e9;
+    const priceImpact = (usdcAmount / mockMcap) * 100;
 
     return {
       tokensOut: tokensOut.toLocaleString(undefined, {
@@ -70,7 +72,8 @@ const mockTradeRouter: ITradeRouterService = {
     const ltRedemptionFee = grossUsdc * FEES.ltRedemption * 2;
     const totalFee = curveFee + ltRedemptionFee;
     const netUsdc = grossUsdc - totalFee;
-    const priceImpact = (grossUsdc / 188_000) * 100;
+    const mockMcap = MOCK_TOKEN_PRICE * 1e9;
+    const priceImpact = (grossUsdc / mockMcap) * 100;
 
     return {
       usdcOut: netUsdc,

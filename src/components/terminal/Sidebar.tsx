@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
+import { CREATE_PATH } from "../../app/routes";
 import {
   useAssets,
   usePlatformStats,
@@ -66,7 +67,7 @@ export default function Sidebar() {
       <div className={styles.ctaSection}>
         <button
           className={styles.ctaButton}
-          onClick={() => navigate("/create")}
+          onClick={() => navigate(CREATE_PATH)}
         >
           <span className={styles.ctaEmoji}>&#x26A1;</span>
           <span className={styles.ctaText}>

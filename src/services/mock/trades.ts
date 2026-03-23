@@ -1,3 +1,5 @@
+import { MOCK_TOKEN_PRICE } from "../../config/constants";
+
 import type { Trade, Comment, Holder } from "../types";
 
 const FEED_TOKEN_NAMES = [
@@ -32,48 +34,39 @@ function randomHex(): string {
   return Math.random().toString(16).slice(2, 4);
 }
 
-export function generateFeedTrade(): Trade {
-  const token =
-    FEED_TOKEN_NAMES[Math.floor(Math.random() * FEED_TOKEN_NAMES.length)];
+function generateTrade(source: "feed" | "token"): Trade {
+  const isFeed = source === "feed";
+  const token = isFeed
+    ? FEED_TOKEN_NAMES[Math.floor(Math.random() * FEED_TOKEN_NAMES.length)]
+    : "MOONBOUND";
   const side: "BUY" | "SELL" = Math.random() > 0.28 ? "BUY" : "SELL";
   const amt = Math.floor(Math.random() * 60 + 1) * 50;
-  const wallet = `0x${randomHex()}…${randomHex()}`;
-  const m = String(Math.floor(feedSeconds / 60)).padStart(2, "0");
-  const s = String(feedSeconds % 60).padStart(2, "0");
-  feedSeconds += Math.floor(Math.random() * 4 + 1);
+  const wallet = isFeed ? `0x${randomHex()}…${randomHex()}` : randomWallet();
+  const seconds = isFeed ? feedSeconds : tokenTradeSeconds;
+  const m = String(Math.floor(seconds / 60)).padStart(2, "0");
+  const s = String(seconds % 60).padStart(2, "0");
+  if (isFeed) feedSeconds += Math.floor(Math.random() * 4 + 1);
+  else tokenTradeSeconds += Math.floor(Math.random() * 4 + 1);
   tradeIdCounter++;
 
   return {
-    id: `feed-${tradeIdCounter}`,
+    id: `${source}-${tradeIdCounter}`,
     side,
     amountUsd: amt,
-    tokensAmount: `${(amt / 0.000188 / 1e6).toFixed(1)}M`,
+    tokensAmount: `${(amt / MOCK_TOKEN_PRICE / 1e6).toFixed(1)}M`,
     walletAddress: wallet,
     timestamp: `${m}:${s}`,
-    tokenAddress: "",
+    tokenAddress: isFeed ? "" : "0x3f4a8b2c9d1e5f7a100000000000babe",
     tokenName: token,
   };
 }
 
-export function generateTokenTrade(): Trade {
-  const side: "BUY" | "SELL" = Math.random() > 0.28 ? "BUY" : "SELL";
-  const amt = Math.floor(Math.random() * 60 + 1) * 50;
-  const wallet = randomWallet();
-  const m = String(Math.floor(tokenTradeSeconds / 60)).padStart(2, "0");
-  const s = String(tokenTradeSeconds % 60).padStart(2, "0");
-  tokenTradeSeconds += Math.floor(Math.random() * 4 + 1);
-  tradeIdCounter++;
+export function generateFeedTrade(): Trade {
+  return generateTrade("feed");
+}
 
-  return {
-    id: `token-${tradeIdCounter}`,
-    side,
-    amountUsd: amt,
-    tokensAmount: `${(amt / 0.000188 / 1e6).toFixed(1)}M`,
-    walletAddress: wallet,
-    timestamp: `${m}:${s}`,
-    tokenAddress: "0x3f4a8b2c9d1e5f7a100000000000babe",
-    tokenName: "MOONBOUND",
-  };
+export function generateTokenTrade(): Trade {
+  return generateTrade("token");
 }
 
 export const INITIAL_TOKEN_TRADES: Trade[] = [

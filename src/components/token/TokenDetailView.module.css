@@ -4,6 +4,15 @@
   overflow: hidden;
 }
 
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--txt-3);
+  font-size: 14px;
+}
+
 .leftPanel {
   flex: 1;
   display: flex;
