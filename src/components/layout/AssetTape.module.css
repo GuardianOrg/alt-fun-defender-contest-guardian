@@ -1,0 +1,94 @@
+.tape {
+  height: 32px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  background: rgba(10, 30, 27, 0.8);
+  flex-shrink: 0;
+}
+
+.liveTag {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mint);
+  background: var(--mint-bg);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border-2);
+  flex-shrink: 0;
+  font-weight: 500;
+  gap: 0.375rem;
+}
+
+.liveDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--mint);
+  animation: livep 2s ease-in-out infinite;
+}
+
+.scrollWrap {
+  overflow: hidden;
+  flex: 1;
+}
+
+.scrollTrack {
+  display: flex;
+  align-items: center;
+  animation: scrolltape 18s linear infinite;
+  white-space: nowrap;
+}
+
+.assetGroup {
+  display: contents;
+}
+
+.assetItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.assetName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--txt-3);
+  letter-spacing: 0.06em;
+}
+
+.assetPrice {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+}
+
+.assetChange {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.changeMint {
+  color: var(--mint);
+}
+
+.changeRed {
+  color: var(--red);
+}
+
+.separator {
+  display: inline-block;
+  width: 1px;
+  height: 0.75rem;
+  background: var(--border);
+  margin-left: 1.25rem;
+  margin-right: 1.25rem;
+  vertical-align: middle;
+}

@@ -1,0 +1,175 @@
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  overflow-y: auto;
+}
+
+.section {
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionHeader {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mint);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  background: var(--mint-bg);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.assetRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.assetRow:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.assetRowBorder {
+  border-bottom: 1px solid var(--border);
+}
+
+.assetName {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--txt);
+}
+
+.assetChange {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0.125rem;
+}
+
+.assetChangeUp {
+  color: var(--mint);
+}
+
+.assetChangeDown {
+  color: var(--red);
+}
+
+.assetPrice {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+}
+
+.pairsHeader {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  font-weight: 500;
+}
+
+.pairRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.pairRow:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pairDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.pairName {
+  font-size: 13px;
+  color: var(--txt-2);
+}
+
+.pairCount {
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.ctaSection {
+  padding: 0.75rem;
+  margin-top: auto;
+}
+
+.ctaButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: rgba(77, 232, 180, 0.05);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: var(--font-mono);
+  text-align: left;
+}
+
+.ctaButton:hover {
+  background: rgba(77, 232, 180, 0.10);
+  border-color: rgba(77, 232, 180, 0.4);
+  box-shadow: var(--shadow-inner-mint);
+}
+
+.ctaEmoji {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+.ctaText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.ctaTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--mint);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ctaSub {
+  font-size: 11px;
+  color: var(--txt-3);
+}

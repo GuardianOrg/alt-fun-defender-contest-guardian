@@ -1,0 +1,242 @@
+.header {
+  display: flex;
+  align-items: center;
+  height: 44px;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border-2);
+  padding-left: 1rem;
+  padding-right: 1rem;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.logo {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-right: 1.25rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.logoMint {
+  color: var(--mint);
+  filter: drop-shadow(0 0 8px rgba(77, 232, 180, 0.4));
+}
+
+.logoTxt {
+  color: var(--txt);
+  font-weight: 700;
+}
+
+.tagline {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-left: 1px solid var(--border);
+  padding-left: 0.75rem;
+  margin-right: 1.25rem;
+  font-weight: 700;
+}
+
+.taglineMint {
+  color: var(--mint);
+  filter: drop-shadow(0 0 6px rgba(77, 232, 180, 0.3));
+}
+
+.taglineSep {
+  color: var(--txt-2);
+  margin-left: 0.25rem;
+  margin-right: 0.25rem;
+}
+
+.taglineTxt {
+  color: var(--txt);
+}
+
+.nav {
+  display: flex;
+  height: 100%;
+}
+
+.navButton {
+  position: relative;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  transition: all 0.15s ease;
+  color: var(--txt-3);
+}
+
+.navButton:hover {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.navButtonActive {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.activeIndicator {
+  position: absolute;
+  bottom: 0;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 2px;
+  background: var(--mint);
+  border-radius: 9999px;
+}
+
+.searchTrigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  cursor: pointer;
+  height: 1.75rem;
+  margin-left: 1rem;
+  transition: all 0.15s ease;
+}
+
+.searchTrigger:hover {
+  border-color: var(--border-2);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.searchIcon {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--txt-3);
+}
+
+.searchText {
+  font-size: 13px;
+  color: var(--txt-3);
+  white-space: nowrap;
+}
+
+.searchKbd {
+  font-size: 11px;
+  color: var(--txt-4);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 0.125rem;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  margin-left: 0.25rem;
+  font-family: var(--font-mono);
+}
+
+.rightSide {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.clock {
+  font-size: 13px;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.walletAddress {
+  font-size: 13px;
+  color: var(--mint);
+  border: 1px solid var(--border-2);
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border-radius: 0.125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.walletAddress:hover {
+  background: rgba(77, 232, 180, 0.1);
+  border-color: rgba(77, 232, 180, 0.4);
+}
+
+.connectButton {
+  font-size: 13px;
+  color: var(--mint);
+  border: 1px solid var(--border-2);
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border-radius: 0.125rem;
+  cursor: pointer;
+}
+
+.connectButton:hover {
+  background: rgba(77, 232, 180, 0.1);
+}
+
+.creatingBtn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--mint);
+  background: rgba(77, 232, 180, 0.12);
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-radius: 0.125rem;
+  border: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.launchBtn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--mint);
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-radius: 0.125rem;
+  border: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow-mint-glow);
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.launchBtn:hover {
+  background: var(--mint-hover);
+}

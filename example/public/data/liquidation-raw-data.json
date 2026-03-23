@@ -1,0 +1,398 @@
+{
+  "0x0ea7449b02e874bB16175ee9E5Eb29F602C6d432": {
+    "liquidations": 10000,
+    "points": 1000,
+    "rank": 3
+  },
+  "0xAfD8f29AcD09a423868a41A0a2621Fa1eF1FF475": {
+    "liquidations": 198560,
+    "points": 19856
+  },
+  "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC": {
+    "liquidations": 123000,
+    "points": 321
+  },
+  "0xaDF6c30eDcf0665c2a43aC23317acaBB8FE3cABF": {
+    "liquidations": 1234567,
+    "points": 12345,
+    "rank": 1
+  },
+
+  "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266": {
+    "liquidations": 40000,
+    "points": 4000,
+    "rank": 2
+  },
+  "0x70997970C51812dc3A010C7d01b50e0d17dc79C8": {
+    "liquidations": 4010,
+    "points": 401,
+    "rank": 4
+  },
+  "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65": {
+    "liquidations": 6520,
+    "points": 652,
+    "rank": 5
+  },
+
+  "0xAbC1234567890abcdef1234567890abcdef123456": {
+    "liquidations": 154233,
+    "points": 32000
+  },
+  "0xBEEfC0ffee1234567890abcdef1234567890abcdef": {
+    "liquidations": 120000,
+    "points": 29500
+  },
+  "0x000000000000000000000000000000000000dEaD": {
+    "liquidations": 87500,
+    "points": 25000
+  },
+  "0xF00dBabeCafe1234567890abcdef1234567890abcd": {
+    "liquidations": 65400,
+    "points": 21000
+  },
+  "0xDEaFBeefCafe1234567890abcdef1234567890abce": {
+    "liquidations": 54000,
+    "points": 18500
+  },
+  "0xC0ffeeF00d1234567890abcdef1234567890abcdee": {
+    "liquidations": 48000,
+    "points": 17200
+  },
+  "0xBadC0deF00d1234567890abcdef1234567890abcd0": {
+    "liquidations": 45500,
+    "points": 16500
+  },
+  "0xDeadBeefCafe1234567890abcdef1234567890abc1": {
+    "liquidations": 43000,
+    "points": 15800
+  },
+  "0xCafEBabe1234567890abcdef1234567890abcdef12": {
+    "liquidations": 40500,
+    "points": 15000
+  },
+  "0xFEEDBabeC0de1234567890abcdef1234567890abc2": {
+    "liquidations": 37500,
+    "points": 14250
+  },
+  "0xB0baFett1234567890abcdef1234567890abcdef13": {
+    "liquidations": 35000,
+    "points": 13700
+  },
+  "0xBada55Cafe1234567890abcdef1234567890abc3e": {
+    "liquidations": 33000,
+    "points": 12900
+  },
+  "0xFadedF00d1234567890abcdef1234567890abc444": {
+    "liquidations": 31500,
+    "points": 12450
+  },
+  "0xBEEF1234567890abcdef1234567890abcdefabcde": {
+    "liquidations": 30000,
+    "points": 11800
+  },
+  "0xACEDCafe1234567890abcdef1234567890abc5555": {
+    "liquidations": 28500,
+    "points": 11300
+  },
+  "0xFAceFEED1234567890abcdef1234567890abcdef66": {
+    "liquidations": 26000,
+    "points": 10800
+  },
+  "0xB0ldC0de1234567890abcdef1234567890abcdef77": {
+    "liquidations": 24000,
+    "points": 10200
+  },
+  "0xDEEDCafe1234567890abcdef1234567890abc8888": {
+    "liquidations": 22000,
+    "points": 9800
+  },
+  "0xFAB1234567890abcdef1234567890abcdef999999": {
+    "liquidations": 20000,
+    "points": 9400
+  },
+  "0xF00F1234567890abcdef1234567890abcdefAAAAAA": {
+    "liquidations": 18000,
+    "points": 9000
+  },
+
+  "0xCAFE1234567890abcdef1234567890abcdef1111": {
+    "liquidations": 17800,
+    "points": 8900
+  },
+  "0xDEAD1234567890abcdef1234567890abcdef2222": {
+    "liquidations": 17500,
+    "points": 8800
+  },
+  "0xBEEF1234567890abcdef1234567890abcdef3333": {
+    "liquidations": 17250,
+    "points": 8700
+  },
+  "0xF00D1234567890abcdef1234567890abcdef4444": {
+    "liquidations": 17000,
+    "points": 8600
+  },
+  "0xFACE1234567890abcdef1234567890abcdef5555": {
+    "liquidations": 16750,
+    "points": 8500
+  },
+  "0xC0DE1234567890abcdef1234567890abcdef7777": {
+    "liquidations": 16250,
+    "points": 8300
+  },
+  "0xFEE11234567890abcdef1234567890abcdef8888": {
+    "liquidations": 16000,
+    "points": 8200
+  },
+  "0xDECA1234567890abcdef1234567890abcdef9999": {
+    "liquidations": 15750,
+    "points": 8100
+  },
+  "0xFEED1234567890abcdef1234567890abcdefAAAA": {
+    "liquidations": 15500,
+    "points": 8000
+  },
+  "0xB0BA1234567890abcdef1234567890abcdefBBBB": {
+    "liquidations": 15250,
+    "points": 7900
+  },
+  "0xF00B1234567890abcdef1234567890abcdefCCCC": {
+    "liquidations": 15000,
+    "points": 7800
+  },
+  "0xDEADBE1234567890abcdef1234567890abcdefDDD": {
+    "liquidations": 14750,
+    "points": 7700
+  },
+  "0xBABECA1234567890abcdef1234567890abcdefEEE": {
+    "liquidations": 14500,
+    "points": 7600
+  },
+  "0xFEEDCA1234567890abcdef1234567890abcdefFFF": {
+    "liquidations": 14250,
+    "points": 7500
+  },
+  "0xC0FFEE1234567890abcdef1234567890abcdef000": {
+    "liquidations": 14000,
+    "points": 7400
+  },
+  "0xBADCA1234567890abcdef1234567890abcdef111": {
+    "liquidations": 13750,
+    "points": 7300
+  },
+  "0xDEADFA1234567890abcdef1234567890abcdef222": {
+    "liquidations": 13500,
+    "points": 7200
+  },
+  "0xCAFEB1234567890abcdef1234567890abcdef333": {
+    "liquidations": 13250,
+    "points": 7100
+  },
+  "0xFEEDF1234567890abcdef1234567890abcdef444": {
+    "liquidations": 13000,
+    "points": 7000
+  },
+  "0xB0BABA1234567890abcdef1234567890abcdef555": {
+    "liquidations": 12750,
+    "points": 6900
+  },
+  "0xF00DB1234567890abcdef1234567890abcdef666": {
+    "liquidations": 12500,
+    "points": 6800
+  },
+  "0xDEADCA1234567890abcdef1234567890abcdef777": {
+    "liquidations": 12250,
+    "points": 6700
+  },
+  "0xBABEFA1234567890abcdef1234567890abcdef888": {
+    "liquidations": 12000,
+    "points": 6600
+  },
+  "0xFEEDFA1234567890abcdef1234567890abcdef999": {
+    "liquidations": 11750,
+    "points": 6500
+  },
+  "0xC0FFAB1234567890abcdef1234567890abcdefAAA": {
+    "liquidations": 11500,
+    "points": 6400
+  },
+  "0xBADFA1234567890abcdef1234567890abcdefBBB": {
+    "liquidations": 11250,
+    "points": 6300
+  },
+  "0xDEADBB1234567890abcdef1234567890abcdefCCC": {
+    "liquidations": 11000,
+    "points": 6200
+  },
+  "0xCAFED1234567890abcdef1234567890abcdefDDD": {
+    "liquidations": 10750,
+    "points": 6100
+  },
+  "0xFEEEB1234567890abcdef1234567890abcdefEEE": {
+    "liquidations": 10500,
+    "points": 6000
+  },
+  "0xB0BEB1234567890abcdef1234567890abcdefFFF": {
+    "liquidations": 10250,
+    "points": 5900
+  },
+  "0xF00EB1234567890abcdef1234567890abcdef000": {
+    "liquidations": 10000,
+    "points": 5800
+  },
+  "0xDEADB1234567890abcdef1234567890abcdef111": {
+    "liquidations": 9750,
+    "points": 5700
+  },
+  "0xBABEB1234567890abcdef1234567890abcdef222": {
+    "liquidations": 9500,
+    "points": 5600
+  },
+  "0xFEEDB1234567890abcdef1234567890abcdef333": {
+    "liquidations": 9250,
+    "points": 5500
+  },
+  "0xC0FFB1234567890abcdef1234567890abcdef444": {
+    "liquidations": 9000,
+    "points": 5400
+  },
+  "0xBADBB1234567890abcdef1234567890abcdef555": {
+    "liquidations": 8750,
+    "points": 5300
+  },
+  "0xDEADC1234567890abcdef1234567890abcdef666": {
+    "liquidations": 8500,
+    "points": 5200
+  },
+  "0xCAFEB1234567890abcdef1234567890abcdef777": {
+    "liquidations": 8250,
+    "points": 5100
+  },
+  "0xFEEE1234567890abcdef1234567890abcdef888": {
+    "liquidations": 8000,
+    "points": 5000
+  },
+  "0xB0BE1234567890abcdef1234567890abcdef999": {
+    "liquidations": 7750,
+    "points": 4900
+  },
+  "0xF00E1234567890abcdef1234567890abcdefAAA": {
+    "liquidations": 7500,
+    "points": 4800
+  },
+  "0xDEAD1234567890abcdef1234567890abcdefBBB": {
+    "liquidations": 7250,
+    "points": 4700
+  },
+  "0xBABE1234567890abcdef1234567890abcdefCCC": {
+    "liquidations": 7000,
+    "points": 4600
+  },
+  "0xFEED1234567890abcdef1234567890abcdefDDD": {
+    "liquidations": 6750,
+    "points": 4500
+  },
+  "0xC0FF1234567890abcdef1234567890abcdefEEE": {
+    "liquidations": 6500,
+    "points": 4400
+  },
+  "0xBAD1234567890abcdef1234567890abcdefFFF": {
+    "liquidations": 6250,
+    "points": 4300
+  },
+  "0xDEAD1234567890abcdef1234567890abcdef000": {
+    "liquidations": 6000,
+    "points": 4200
+  },
+  "0xCAFE1234567890abcdef1234567890abcdef111": {
+    "liquidations": 5750,
+    "points": 4100
+  },
+  "0xFEE1234567890abcdef1234567890abcdef222": {
+    "liquidations": 5500,
+    "points": 4000
+  },
+  "0xB0B1234567890abcdef1234567890abcdef333": {
+    "liquidations": 5250,
+    "points": 3900
+  },
+  "0xF001234567890abcdef1234567890abcdef444": {
+    "liquidations": 5000,
+    "points": 3800
+  },
+  "0xDE1234567890abcdef1234567890abcdef555": {
+    "liquidations": 4750,
+    "points": 3700
+  },
+  "0xBA1234567890abcdef1234567890abcdef666": {
+    "liquidations": 4500,
+    "points": 3600
+  },
+  "0xFE1234567890abcdef1234567890abcdef777": {
+    "liquidations": 4250,
+    "points": 3500
+  },
+  "0xC01234567890abcdef1234567890abcdef888": {
+    "liquidations": 4000,
+    "points": 3400
+  },
+  "0xBADE1234567890abcdef1234567890abcdef999": {
+    "liquidations": 3750,
+    "points": 3300
+  },
+  "0xDEAD1234567890abcdef1234567890abcdefAAA": {
+    "liquidations": 3500,
+    "points": 3200
+  },
+  "0xCAF1234567890abcdef1234567890abcdefBBB": {
+    "liquidations": 3250,
+    "points": 3100
+  },
+  "0xFEE1234567890abcdef1234567890abcdefCCC": {
+    "liquidations": 3000,
+    "points": 3000
+  },
+  "0xB0B1234567890abcdef1234567890abcdefDDD": {
+    "liquidations": 2750,
+    "points": 2900
+  },
+  "0xF001234567890abcdef1234567890abcdefEEE": {
+    "liquidations": 2500,
+    "points": 2800
+  },
+  "0xDE1234567890abcdef1234567890abcdefFFF": {
+    "liquidations": 2250,
+    "points": 2700
+  },
+  "0xBA1234567890abcdef1234567890abcdef000": {
+    "liquidations": 2000,
+    "points": 2600
+  },
+  "0xFE1234567890abcdef1234567890abcdef111": {
+    "liquidations": 1750,
+    "points": 2500
+  },
+  "0xC01234567890abcdef1234567890abcdef222": {
+    "liquidations": 1500,
+    "points": 2400
+  },
+  "0xBADE1234567890abcdef1234567890abcdef333": {
+    "liquidations": 1250,
+    "points": 2300
+  },
+  "0xDEAD1234567890abcdef1234567890abcdef444": {
+    "liquidations": 1000,
+    "points": 2200
+  },
+  "0xCAF1234567890abcdef1234567890abcdef555": {
+    "liquidations": 750,
+    "points": 2100
+  },
+  "0xFEE1234567890abcdef1234567890abcdef666": {
+    "liquidations": 500,
+    "points": 2000
+  },
+  "0xAfD8f29AcD09a423868a41A0a2621Fa1eF1FF475": {
+    "liquidations": 250,
+    "points": 1900
+  }
+}

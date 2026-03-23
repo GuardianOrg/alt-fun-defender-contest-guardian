@@ -1,0 +1,191 @@
+.panel {
+  width: 220px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  overflow-y: auto;
+}
+
+.section {
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionHeader {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mint);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  background: var(--mint-bg);
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.sectionHeaderLive {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.liveIndicator {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--txt-3);
+}
+
+.liveDot {
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background: var(--mint);
+  animation: livep 2s ease-in-out infinite;
+}
+
+.tradeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.tradeRow:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tradeInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.tradeNameRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.tradeName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tradeTime {
+  font-size: 11px;
+  color: var(--txt-4);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.tradeWallet {
+  color: var(--txt-4);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 0.125rem;
+}
+
+.tradeAmount {
+  flex-shrink: 0;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+.tradeAmountBuy {
+  color: var(--mint);
+}
+
+.tradeAmountSell {
+  color: var(--red);
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.infoRowNoBorderLast:last-child {
+  border-bottom: 0;
+}
+
+.infoName {
+  color: var(--txt-2);
+  font-family: var(--font-mono);
+}
+
+.graduatingValue {
+  font-weight: 500;
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ltMoverValue {
+  font-weight: 500;
+  color: var(--mint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.positionPnl {
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.pnlPositive {
+  color: var(--mint);
+}
+
+.pnlNegative {
+  color: var(--red);
+}
+
+.netPnlRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+  border-top: 1px solid var(--border-2);
+  font-size: 13px;
+}
+
+.netPnlLabel {
+  color: var(--txt-3);
+  font-family: var(--font-mono);
+}
+
+.netPnlValue {
+  font-weight: 600;
+  color: var(--mint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}

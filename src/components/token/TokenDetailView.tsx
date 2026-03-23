@@ -8,6 +8,7 @@ import TradePanel from './TradePanel';
 import BottomTabs from './BottomTabs';
 import { formatUsd } from '@/utils/format';
 import { GRADUATION_THRESHOLD_USD } from '@/config/constants';
+import styles from './TokenDetailView.module.css';
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
@@ -24,18 +25,17 @@ export default function TokenDetailView() {
   const levW = displayToken.curveFilled - buyW;
 
   return (
-    <div className="flex-1 flex overflow-hidden">
-      <div className="flex-1 flex flex-col overflow-hidden border-r border-border">
+    <div className={styles.wrapper}>
+      <div className={styles.leftPanel}>
         <HeroSection token={displayToken} />
         <Chart token={displayToken} />
 
-        {/* Compact bonding curve strip */}
-        <div className="shrink-0 flex items-center gap-3 px-4 h-9 border-t border-border bg-bg-1">
-          <span className="text-[11px] tracking-[0.06em] uppercase text-txt-4 shrink-0">curve</span>
-          <span className="text-[13px] text-txt-2 font-medium tabular-nums shrink-0">
+        <div className={styles.curveStrip}>
+          <span className={styles.curveLabel}>curve</span>
+          <span className={styles.curveRaised}>
             {formatUsd(displayToken.curveRaisedUsd)}
           </span>
-          <div className="flex-1">
+          <div className={styles.progressWrapper}>
             <ProgressBar
               buyPercent={buyW}
               leveragePercent={levW}
@@ -44,11 +44,11 @@ export default function TokenDetailView() {
               size="sm"
             />
           </div>
-          <span className="text-[13px] text-txt-3 tabular-nums shrink-0">
+          <span className={styles.curveThreshold}>
             {formatUsd(GRADUATION_THRESHOLD_USD)}
           </span>
           {displayToken.status === 'graduating' && (
-            <span className="text-[11px] text-amber font-semibold tracking-[0.04em] animate-badgep shrink-0">
+            <span className={styles.graduatingBadge}>
               graduating
             </span>
           )}

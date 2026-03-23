@@ -1,0 +1,10 @@
+.statsCard {
+  flex: 0 0 26.8rem;
+  padding: 1.2rem 0;
+}
+
+@media (min-width: 1240px) {
+  .statsCard {
+    max-width: 26.8rem;
+  }
+}

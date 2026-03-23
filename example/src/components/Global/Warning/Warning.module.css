@@ -1,0 +1,28 @@
+.warning {
+  width: 100%;
+  border-radius: 0.8rem;
+  background-color: var(--warning-bg);
+  color: var(--warning-300-or-white);
+  padding: 0.8rem;
+  text-align: center;
+
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 0.8rem;
+
+  p {
+    margin: 0;
+  }
+
+  * {
+    color: var(--warning-300-or-white);
+    font-size: 1.2rem;
+  }
+
+  span {
+    cursor: pointer;
+    text-decoration: underline;
+  }
+}

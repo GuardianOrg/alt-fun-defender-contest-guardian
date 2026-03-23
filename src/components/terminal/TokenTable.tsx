@@ -1,28 +1,31 @@
 import { useLongTokens, useShortTokens } from '@/hooks/useTokens';
 import { useUIStore } from '@/stores/uiStore';
+import { cn } from '@/utils/format';
 import TokenRow from './TokenRow';
+import styles from './TokenTable.module.css';
 
 function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count: number }) {
   const isLong = direction === 'long';
   return (
-    <div className="flex items-center h-[26px] shrink-0 border-b border-border-2">
+    <div className={styles.columnHeader}>
       <div
-        className={`text-[13px] font-bold tracking-[0.1em] px-4 h-full flex items-center border-r border-border font-mono ${
-          isLong ? 'bg-mint/[0.06] text-mint' : 'bg-red/[0.05] text-red'
-        }`}
+        className={cn(
+          styles.directionBadge,
+          isLong ? styles.directionLong : styles.directionShort,
+        )}
       >
         {isLong ? '▲ LONG' : '▼ SHORT'}
       </div>
-      <div className="text-[11px] text-txt-3 px-3 border-r border-border h-full flex items-center font-mono tabular-nums">
+      <div className={styles.countCell}>
         {count} tokens
       </div>
-      <div className="text-[11px] text-txt px-2.5 h-full flex items-center cursor-pointer border-r border-border font-bold tracking-[0.06em]">
+      <div className={styles.sortActive}>
         TRENDING ▾
       </div>
-      <div className="text-[11px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border hover:text-txt tracking-[0.06em]">
+      <div className={styles.sortItem}>
         NEWEST
       </div>
-      <div className="text-[11px] text-txt-3 px-2.5 h-full flex items-center cursor-pointer border-r border-border hover:text-txt tracking-[0.06em]">
+      <div className={styles.sortItem}>
         % FILLED
       </div>
     </div>
@@ -31,13 +34,14 @@ function ColumnHeader({ direction, count }: { direction: 'long' | 'short'; count
 
 function TableHead() {
   return (
-    <div className="grid grid-cols-[52px_1fr_72px_1fr_80px] h-[22px] shrink-0 border-b border-border bg-bg-1">
+    <div className={styles.tableHead}>
       {['', 'TOKEN', '24H', 'PROGRESS', 'MCAP'].map((h, i) => (
         <div
           key={h || i}
-          className={`text-[11px] tracking-[0.1em] uppercase text-txt-2 px-2 flex items-center border-r border-border last:border-r-0 font-mono ${
-            i === 2 || i === 4 ? 'justify-end' : ''
-          }`}
+          className={cn(
+            styles.headCell,
+            (i === 2 || i === 4) && styles.headCellRight,
+          )}
         >
           {h}
         </div>
@@ -52,21 +56,21 @@ export default function TokenTable() {
   const { data: shortTokens } = useShortTokens(activeFilter);
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div className={styles.wrapper}>
       {/* LONG column */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className={styles.column}>
         <ColumnHeader direction="long" count={longTokens?.length ?? 0} />
         <TableHead />
-        <div className="flex-1 overflow-y-auto">
+        <div className={styles.scrollArea}>
           {longTokens?.map((t) => <TokenRow key={t.address} token={t} />)}
         </div>
       </div>
 
       {/* SHORT column */}
-      <div className="flex-1 flex flex-col overflow-hidden border-l border-border-2">
+      <div className={styles.columnShort}>
         <ColumnHeader direction="short" count={shortTokens?.length ?? 0} />
         <TableHead />
-        <div className="flex-1 overflow-y-auto">
+        <div className={styles.scrollArea}>
           {shortTokens?.map((t) => <TokenRow key={t.address} token={t} />)}
         </div>
       </div>

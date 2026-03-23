@@ -1,0 +1,68 @@
+.position {
+  background-color: var(--bg-focus);
+  padding: 1.6rem;
+  border-radius: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.statRow {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--grey-200-or-secondary-300);
+  span {
+    font-size: 1.2rem;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.token {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 1.2rem;
+}
+
+.redeem {
+  text-align: right;
+}
+
+.chartContainer {
+  height: 6rem;
+}
+
+.chartContainer canvas {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.bottomRow {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  span {
+    color: var(--grey-400);
+  }
+  button {
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+}
+
+.upnlLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}

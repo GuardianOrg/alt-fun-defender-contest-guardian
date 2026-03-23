@@ -1,0 +1,60 @@
+.wrapper {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.leftPanel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+}
+
+.curveStrip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1rem;
+  height: 2.25rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.curveLabel {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--txt-4);
+  flex-shrink: 0;
+}
+
+.curveRaised {
+  font-size: 13px;
+  color: var(--txt-2);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.progressWrapper {
+  flex: 1;
+}
+
+.curveThreshold {
+  font-size: 13px;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.graduatingBadge {
+  font-size: 11px;
+  color: var(--amber);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  animation: badgep 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}

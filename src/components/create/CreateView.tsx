@@ -7,6 +7,7 @@ import { useWallet } from '@/hooks/useWallet';
 import { cn } from '@/utils/format';
 import type { Direction } from '@/services/types';
 import type { UnderlyingAsset, Leverage } from '@/config/constants';
+import styles from './CreateView.module.css';
 
 type LaunchStep = 'idle' | 'approving' | 'deploying' | 'confirmed' | 'error';
 
@@ -63,22 +64,19 @@ export default function CreateView() {
   };
 
   return (
-    <div className="grid grid-cols-[1fr_380px] flex-1 overflow-hidden">
-      {/* Form column */}
-      <div className="overflow-y-auto">
-        {/* Page header */}
-        <div className="px-10 pt-8 pb-6 border-b border-border bg-gradient-to-b from-bg-1 to-bg">
-          <div className="text-[11px] tracking-[0.16em] uppercase text-mint mb-1.5 font-semibold">new token</div>
-          <div className="font-display text-2xl font-bold text-txt tracking-[0.02em] mb-1.5">
+    <div className={styles.layout}>
+      <div className={styles.formColumn}>
+        <div className={styles.pageHeader}>
+          <div className={styles.eyebrow}>new token</div>
+          <div className={styles.heading}>
             Create a levered token
           </div>
-          <div className="text-[13px] text-txt-3 max-w-[420px]">
+          <div className={styles.subheading}>
             Choose a direction, pick your underlying, set your leverage, and deploy to the bonding curve in one transaction.
           </div>
         </div>
 
-        {/* Steps */}
-        <div className="px-10 py-8 space-y-8">
+        <div className={styles.steps}>
           <PairSelector
             direction={direction}
             asset={asset}
@@ -88,7 +86,7 @@ export default function CreateView() {
             onLeverageChange={setLeverage}
           />
 
-          <div className="h-px bg-gradient-to-r from-border to-transparent" />
+          <div className={styles.divider} />
 
           <TokenForm
             name={name}
@@ -98,21 +96,20 @@ export default function CreateView() {
             onImageChange={(_, preview) => setImagePreview(preview)}
           />
 
-          <div className="h-px bg-gradient-to-r from-border to-transparent" />
+          <div className={styles.divider} />
 
           <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
 
-          {/* CTA area */}
-          <div className="pt-2 pb-4">
+          <div className={styles.ctaArea}>
             {launchError && (
-              <div className="text-[13px] text-red bg-red/[0.06] border border-red/20 rounded-lg px-3.5 py-2.5 mb-4 flex items-center gap-2">
-                <span className="text-red/60">⚠</span>
+              <div className={styles.errorBanner}>
+                <span className={styles.errorIcon}>⚠</span>
                 {launchError}
               </div>
             )}
 
             {launchStep === 'confirmed' && (
-              <div className="text-[13px] text-mint bg-mint/[0.06] border border-mint/20 rounded-lg px-3.5 py-2.5 mb-4 flex items-center gap-2">
+              <div className={styles.successBanner}>
                 <span>✓</span>
                 Token deployed! Curve is live.
               </div>
@@ -120,11 +117,11 @@ export default function CreateView() {
 
             <button
               className={cn(
-                'w-full py-4 rounded-xl cursor-pointer border-0 font-mono text-sm font-bold tracking-[0.08em] uppercase transition-all duration-200',
+                styles.launchButton,
                 launchStep === 'confirmed'
-                  ? 'bg-mint/15 text-mint cursor-default'
-                  : 'bg-mint text-bg shadow-mint-glow-lg hover:bg-mint-hover hover:shadow-[0_0_32px_rgba(77,232,180,0.35)]',
-                isBusy && 'opacity-70 cursor-wait',
+                  ? styles.launchButtonConfirmed
+                  : styles.launchButtonActive,
+                isBusy && styles.launchButtonBusy,
               )}
               onClick={handleSubmit}
               disabled={isBusy || launchStep === 'confirmed'}
@@ -133,8 +130,8 @@ export default function CreateView() {
             </button>
 
             {isBusy && (
-              <div className="flex items-center justify-center gap-2 text-[11px] text-txt-3 mt-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+              <div className={styles.busyRow}>
+                <div className={styles.busyDot} />
                 {launchStep === 'approving'
                   ? 'Approve USDC spend in your wallet…'
                   : 'Confirm deployment in your wallet…'}
@@ -142,7 +139,7 @@ export default function CreateView() {
             )}
 
             {launchStep === 'idle' && (
-              <div className="text-[13px] text-txt-3 text-center mt-3">
+              <div className={styles.idleHint}>
                 {seedAmt > 0
                   ? `You will approve $${seedAmt.toFixed(2)} USDC, then confirm deployment`
                   : 'You will be asked to confirm in your wallet'}
@@ -150,8 +147,8 @@ export default function CreateView() {
             )}
 
             {seedAmt > 0 && launchStep === 'idle' && (
-              <div className="text-[11px] text-txt-3 bg-bg-2/40 border border-border rounded-lg px-3.5 py-2.5 mt-3 leading-relaxed text-center">
-                Seed buy of <span className="text-mint font-semibold">${seedAmt.toFixed(2)} USDC</span>{' '}
+              <div className={styles.seedInfo}>
+                Seed buy of <span className={styles.mintHighlight}>${seedAmt.toFixed(2)} USDC</span>{' '}
                 is routed atomically through the TX Router — you receive tokens directly.
               </div>
             )}
@@ -159,7 +156,6 @@ export default function CreateView() {
         </div>
       </div>
 
-      {/* Preview column */}
       <LivePreview
         name={name}
         ticker={ticker}

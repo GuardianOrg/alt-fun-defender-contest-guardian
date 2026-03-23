@@ -1,0 +1,743 @@
+[
+  { "id": 1, "symbol": "SOL", "created_at": "2026-02-12 15:20:43.085339" },
+  { "id": 2, "symbol": "MYRO", "created_at": "2026-02-12 15:20:43.085339" },
+  { "id": 3, "symbol": "TRUMP", "created_at": "2026-02-12 15:20:43.085339" },
+  { "id": 4, "symbol": "ETH", "created_at": "2026-02-12 15:20:43.085339" },
+  { "id": 5, "symbol": "POPCAT", "created_at": "2026-02-12 15:20:43.085339" },
+  { "id": 6, "symbol": "HYPE", "created_at": "2026-02-12 15:20:43.085339" },
+  { "id": 7, "symbol": "PUMP", "created_at": "2026-02-12 15:31:39.020804" },
+  { "id": 9, "symbol": "FARTCOIN", "created_at": "2026-02-12 15:31:39.020804" },
+  { "id": 10, "symbol": "PURR", "created_at": "2026-02-12 15:51:37.187682" },
+  { "id": 11, "symbol": "kPEPE", "created_at": "2026-02-12 15:51:38.177463" },
+  { "id": 12, "symbol": "SUI", "created_at": "2026-02-12 15:51:39.617799" },
+  { "id": 13, "symbol": "RLB", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 14, "symbol": "BNB", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 15, "symbol": "DOGE", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 16, "symbol": "FTM", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 17, "symbol": "FTT", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 18, "symbol": "BTC", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 19, "symbol": "ZETA", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 20, "symbol": "YZY", "created_at": "2026-02-12 15:51:41.778025" },
+  { "id": 21, "symbol": "XRP", "created_at": "2026-02-12 15:51:45.426014" },
+  { "id": 22, "symbol": "AAVE", "created_at": "2026-02-12 15:51:45.415305" },
+  { "id": 23, "symbol": "SNX", "created_at": "2026-02-12 15:51:47.782785" },
+  { "id": 24, "symbol": "MEW", "created_at": "2026-02-12 15:51:47.782785" },
+  { "id": 25, "symbol": "ENA", "created_at": "2026-02-12 15:51:47.899316" },
+  { "id": 26, "symbol": "MORPHO", "created_at": "2026-02-12 15:51:47.899316" },
+  { "id": 27, "symbol": "BRETT", "created_at": "2026-02-12 15:51:48.285218" },
+  { "id": 28, "symbol": "AVAX", "created_at": "2026-02-12 15:51:48.285218" },
+  { "id": 29, "symbol": "JTO", "created_at": "2026-02-12 15:52:06.422594" },
+  { "id": 30, "symbol": "MON", "created_at": "2026-02-12 15:52:06.858782" },
+  { "id": 31, "symbol": "MEGA", "created_at": "2026-02-12 15:52:06.858782" },
+  {
+    "id": 32,
+    "symbol": "xyz:NVDA",
+    "created_at": "2026-02-12 15:52:06.858782"
+  },
+  { "id": 33, "symbol": "ASTER", "created_at": "2026-02-12 15:52:07.357908" },
+  { "id": 34, "symbol": "EIGEN", "created_at": "2026-02-12 15:52:07.397116" },
+  { "id": 35, "symbol": "XPL", "created_at": "2026-02-12 15:52:09.038532" },
+  { "id": 36, "symbol": "ENS", "created_at": "2026-02-12 15:52:12.968902" },
+  { "id": 37, "symbol": "BERA", "created_at": "2026-02-12 15:52:12.968902" },
+  { "id": 38, "symbol": "INIT", "created_at": "2026-02-12 15:52:12.968902" },
+  { "id": 39, "symbol": "LINK", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 40, "symbol": "TON", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 41, "symbol": "NEAR", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 42, "symbol": "kBONK", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 43, "symbol": "SUPER", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 44, "symbol": "AR", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 45, "symbol": "ETHFI", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 46, "symbol": "MNT", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 47, "symbol": "ADA", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 48, "symbol": "ZEC", "created_at": "2026-02-12 15:52:19.879643" },
+  { "id": 49, "symbol": "RNDR", "created_at": "2026-02-12 15:54:05.303171" },
+  { "id": 50, "symbol": "AI16Z", "created_at": "2026-02-12 15:54:06.773517" },
+  { "id": 51, "symbol": "USUAL", "created_at": "2026-02-12 15:54:06.773517" },
+  { "id": 52, "symbol": "OM", "created_at": "2026-02-12 15:54:06.773517" },
+  { "id": 53, "symbol": "TRB", "created_at": "2026-02-12 15:54:07.393544" },
+  { "id": 54, "symbol": "VIRTUAL", "created_at": "2026-02-12 15:54:07.393544" },
+  { "id": 55, "symbol": "LTC", "created_at": "2026-02-12 15:54:07.393544" },
+  { "id": 56, "symbol": "CRV", "created_at": "2026-02-12 15:54:12.846633" },
+  { "id": 57, "symbol": "IO", "created_at": "2026-02-12 15:54:12.846633" },
+  { "id": 58, "symbol": "MELANIA", "created_at": "2026-02-12 15:55:01.873471" },
+  { "id": 59, "symbol": "STRK", "created_at": "2026-02-12 15:55:02.775272" },
+  { "id": 60, "symbol": "TNSR", "created_at": "2026-02-12 15:55:02.775272" },
+  { "id": 61, "symbol": "JUP", "created_at": "2026-02-12 15:55:03.187262" },
+  { "id": 62, "symbol": "PENDLE", "created_at": "2026-02-12 15:55:03.800831" },
+  { "id": 63, "symbol": "FET", "created_at": "2026-02-12 15:55:03.800831" },
+  { "id": 64, "symbol": "WIF", "created_at": "2026-02-12 15:55:03.938113" },
+  { "id": 65, "symbol": "ARB", "created_at": "2026-02-12 15:55:03.938113" },
+  { "id": 66, "symbol": "XAI", "created_at": "2026-02-12 15:56:05.451454" },
+  {
+    "id": 67,
+    "symbol": "xyz:TSLA",
+    "created_at": "2026-02-12 15:56:06.992102"
+  },
+  { "id": 68, "symbol": "SAGA", "created_at": "2026-02-12 15:56:07.4229" },
+  { "id": 69, "symbol": "MOODENG", "created_at": "2026-02-12 15:56:07.4229" },
+  { "id": 70, "symbol": "LAYER", "created_at": "2026-02-12 15:56:24.455952" },
+  {
+    "id": 71,
+    "symbol": "xyz:SILVER",
+    "created_at": "2026-02-12 15:56:28.808843"
+  },
+  { "id": 72, "symbol": "TAO", "created_at": "2026-02-12 15:57:02.279981" },
+  {
+    "id": 73,
+    "symbol": "hyna:HYPE",
+    "created_at": "2026-02-12 15:57:02.894225"
+  },
+  { "id": 74, "symbol": "ANIME", "created_at": "2026-02-12 15:57:03.244432" },
+  { "id": 75, "symbol": "JELLY", "created_at": "2026-02-12 15:57:03.244432" },
+  { "id": 76, "symbol": "W", "created_at": "2026-02-12 15:57:03.584125" },
+  { "id": 77, "symbol": "ZK", "created_at": "2026-02-12 15:57:03.584125" },
+  {
+    "id": 78,
+    "symbol": "xyz:XYZ100",
+    "created_at": "2026-02-12 15:57:04.84242"
+  },
+  {
+    "id": 79,
+    "symbol": "xyz:COPPER",
+    "created_at": "2026-02-12 15:57:04.84242"
+  },
+  { "id": 80, "symbol": "xyz:GOLD", "created_at": "2026-02-12 15:57:04.84242" },
+  { "id": 81, "symbol": "xyz:MU", "created_at": "2026-02-12 15:57:04.84242" },
+  { "id": 82, "symbol": "ZRO", "created_at": "2026-02-12 15:57:06.744399" },
+  { "id": 83, "symbol": "LDO", "created_at": "2026-02-12 15:57:08.243775" },
+  { "id": 84, "symbol": "PYTH", "created_at": "2026-02-12 15:57:14.659641" },
+  { "id": 85, "symbol": "TIA", "created_at": "2026-02-12 15:58:02.705658" },
+  { "id": 86, "symbol": "NIL", "created_at": "2026-02-12 15:58:02.705658" },
+  { "id": 87, "symbol": "SEI", "created_at": "2026-02-12 15:58:11.214321" },
+  { "id": 88, "symbol": "RUNE", "created_at": "2026-02-12 15:58:11.214321" },
+  { "id": 89, "symbol": "HBAR", "created_at": "2026-02-12 15:58:11.214321" },
+  {
+    "id": 90,
+    "symbol": "CHILLGUY",
+    "created_at": "2026-02-12 15:58:11.214321"
+  },
+  {
+    "id": 91,
+    "symbol": "GRIFFAIN",
+    "created_at": "2026-02-12 15:58:11.214321"
+  },
+  { "id": 92, "symbol": "TST", "created_at": "2026-02-12 15:58:11.214321" },
+  { "id": 93, "symbol": "OP", "created_at": "2026-02-12 15:59:03.45785" },
+  { "id": 94, "symbol": "WLD", "created_at": "2026-02-12 15:59:03.45785" },
+  { "id": 95, "symbol": "IMX", "created_at": "2026-02-12 15:59:03.45785" },
+  { "id": 96, "symbol": "MANTA", "created_at": "2026-02-12 15:59:03.45785" },
+  { "id": 97, "symbol": "STX", "created_at": "2026-02-12 15:59:03.779589" },
+  { "id": 98, "symbol": "APT", "created_at": "2026-02-12 15:59:03.908891" },
+  { "id": 99, "symbol": "UNI", "created_at": "2026-02-12 15:59:05.870526" },
+  { "id": 100, "symbol": "SYRUP", "created_at": "2026-02-12 15:59:05.870526" },
+  { "id": 101, "symbol": "CFX", "created_at": "2026-02-12 15:59:22.221876" },
+  { "id": 102, "symbol": "CAKE", "created_at": "2026-02-12 16:00:01.561578" },
+  { "id": 103, "symbol": "LIT", "created_at": "2026-02-12 16:00:01.561578" },
+  {
+    "id": 104,
+    "symbol": "xyz:META",
+    "created_at": "2026-02-12 16:00:01.561578"
+  },
+  { "id": 105, "symbol": "KAITO", "created_at": "2026-02-12 16:00:04.33351" },
+  { "id": 106, "symbol": "PENGU", "created_at": "2026-02-12 16:00:04.484915" },
+  {
+    "id": 107,
+    "symbol": "LAUNCHCOIN",
+    "created_at": "2026-02-12 16:00:04.747595"
+  },
+  { "id": 108, "symbol": "VINE", "created_at": "2026-02-12 16:00:04.747595" },
+  { "id": 109, "symbol": "WLFI", "created_at": "2026-02-12 16:00:05.002987" },
+  { "id": 110, "symbol": "GRASS", "created_at": "2026-02-12 16:00:05.695939" },
+  { "id": 111, "symbol": "ALGO", "created_at": "2026-02-12 16:00:06.040902" },
+  { "id": 112, "symbol": "ZORA", "created_at": "2026-02-12 16:00:06.546318" },
+  { "id": 113, "symbol": "ONDO", "created_at": "2026-02-12 16:00:06.710018" },
+  { "id": 114, "symbol": "ATOM", "created_at": "2026-02-12 16:01:01.545396" },
+  { "id": 115, "symbol": "kSHIB", "created_at": "2026-02-12 16:01:02.659919" },
+  { "id": 116, "symbol": "ME", "created_at": "2026-02-12 16:01:02.772104" },
+  { "id": 117, "symbol": "UMA", "created_at": "2026-02-12 16:01:03.068178" },
+  { "id": 118, "symbol": "VVV", "created_at": "2026-02-12 16:01:03.091075" },
+  { "id": 119, "symbol": "BOME", "created_at": "2026-02-12 16:01:04.559222" },
+  { "id": 120, "symbol": "DOOD", "created_at": "2026-02-12 16:01:04.627916" },
+  { "id": 121, "symbol": "TURBO", "created_at": "2026-02-12 16:01:04.559222" },
+  { "id": 122, "symbol": "kNEIRO", "created_at": "2026-02-12 16:01:04.559222" },
+  { "id": 123, "symbol": "GOAT", "created_at": "2026-02-12 16:01:04.559222" },
+  { "id": 124, "symbol": "RENDER", "created_at": "2026-02-12 16:01:04.832652" },
+  {
+    "id": 125,
+    "symbol": "ZEREBRO",
+    "created_at": "2026-02-12 16:01:04.559222"
+  },
+  { "id": 126, "symbol": "SPX", "created_at": "2026-02-12 16:01:04.559222" },
+  {
+    "id": 127,
+    "symbol": "BIGTIME",
+    "created_at": "2026-02-12 16:01:05.215506"
+  },
+  { "id": 128, "symbol": "kFLOKI", "created_at": "2026-02-12 16:01:05.215506" },
+  { "id": 129, "symbol": "YGG", "created_at": "2026-02-12 16:01:05.215506" },
+  { "id": 130, "symbol": "POLYX", "created_at": "2026-02-12 16:01:05.215506" },
+  { "id": 131, "symbol": "NOT", "created_at": "2026-02-12 16:01:05.215506" },
+  { "id": 132, "symbol": "LINEA", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 133, "symbol": "IP", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 134, "symbol": "S", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 135, "symbol": "TRX", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 136, "symbol": "POL", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 137, "symbol": "RESOLV", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 138, "symbol": "XMR", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 139, "symbol": "DOT", "created_at": "2026-02-12 16:02:04.560643" },
+  { "id": 140, "symbol": "AVNT", "created_at": "2026-02-12 16:02:06.407879" },
+  {
+    "id": 141,
+    "symbol": "flx:SILVER",
+    "created_at": "2026-02-12 16:03:01.721679"
+  },
+  { "id": 142, "symbol": "HEMI", "created_at": "2026-02-12 16:04:03.765244" },
+  { "id": 143, "symbol": "BLAST", "created_at": "2026-02-12 16:04:05.021204" },
+  { "id": 144, "symbol": "PNUT", "created_at": "2026-02-12 16:04:05.021204" },
+  { "id": 145, "symbol": "OGN", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 146, "symbol": "CYBER", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 147, "symbol": "MAVIA", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 148, "symbol": "REZ", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 149, "symbol": "FXS", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 150, "symbol": "BNT", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 151, "symbol": "BLZ", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 152, "symbol": "DYDX", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 153, "symbol": "GMX", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 154, "symbol": "ACE", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 155, "symbol": "BADGER", "created_at": "2026-02-12 16:05:03.232511" },
+  { "id": 156, "symbol": "SKY", "created_at": "2026-02-12 16:05:04.103127" },
+  { "id": 157, "symbol": "AIXBT", "created_at": "2026-02-12 16:05:05.970436" },
+  { "id": 158, "symbol": "BIO", "created_at": "2026-02-12 16:06:03.14202" },
+  { "id": 159, "symbol": "INJ", "created_at": "2026-02-12 16:06:04.366199" },
+  { "id": 160, "symbol": "DASH", "created_at": "2026-02-12 16:06:04.366199" },
+  {
+    "id": 161,
+    "symbol": "hyna:SUI",
+    "created_at": "2026-02-12 16:06:06.583712"
+  },
+  {
+    "id": 162,
+    "symbol": "hyna:XPL",
+    "created_at": "2026-02-12 16:06:06.583712"
+  },
+  {
+    "id": 163,
+    "symbol": "hyna:PUMP",
+    "created_at": "2026-02-12 16:06:06.583712"
+  },
+  { "id": 164, "symbol": "BCH", "created_at": "2026-02-12 16:07:04.755048" },
+  {
+    "id": 165,
+    "symbol": "xyz:MSTR",
+    "created_at": "2026-02-12 16:07:05.362957"
+  },
+  { "id": 166, "symbol": "MKR", "created_at": "2026-02-12 16:07:05.779239" },
+  { "id": 167, "symbol": "PAXG", "created_at": "2026-02-12 16:07:05.779239" },
+  { "id": 168, "symbol": "PEOPLE", "created_at": "2026-02-12 16:08:02.625121" },
+  { "id": 169, "symbol": "ETC", "created_at": "2026-02-12 16:08:02.625121" },
+  { "id": 170, "symbol": "GALA", "created_at": "2026-02-12 16:08:04.301621" },
+  { "id": 171, "symbol": "MEME", "created_at": "2026-02-12 16:08:05.311535" },
+  { "id": 172, "symbol": "MATIC", "created_at": "2026-02-12 16:08:05.367007" },
+  { "id": 173, "symbol": "APE", "created_at": "2026-02-12 16:09:04.09551" },
+  { "id": 174, "symbol": "FIL", "created_at": "2026-02-12 16:09:05.484606" },
+  { "id": 175, "symbol": "BLUR", "created_at": "2026-02-12 16:09:07.378539" },
+  { "id": 176, "symbol": "DYM", "created_at": "2026-02-12 16:11:02.447613" },
+  { "id": 177, "symbol": "MET", "created_at": "2026-02-12 16:11:05.233943" },
+  { "id": 178, "symbol": "ORDI", "created_at": "2026-02-12 16:11:06.161838" },
+  { "id": 179, "symbol": "HPOS", "created_at": "2026-02-12 16:12:02.16012" },
+  { "id": 180, "symbol": "FOGO", "created_at": "2026-02-12 16:13:03.896274" },
+  { "id": 181, "symbol": "SCR", "created_at": "2026-02-12 16:13:21.094937" },
+  {
+    "id": 182,
+    "symbol": "xyz:PLTR",
+    "created_at": "2026-02-12 16:13:21.094937"
+  },
+  { "id": 183, "symbol": "MOVE", "created_at": "2026-02-12 16:14:03.264069" },
+  { "id": 184, "symbol": "kDOGS", "created_at": "2026-02-12 16:14:04.461263" },
+  { "id": 185, "symbol": "RSR", "created_at": "2026-02-12 16:16:00.94483" },
+  {
+    "id": 186,
+    "symbol": "xyz:GOOGL",
+    "created_at": "2026-02-12 16:16:02.021628"
+  },
+  { "id": 187, "symbol": "CELO", "created_at": "2026-02-12 16:17:01.634248" },
+  { "id": 188, "symbol": "ALT", "created_at": "2026-02-12 16:18:05.698722" },
+  {
+    "id": 189,
+    "symbol": "xyz:COIN",
+    "created_at": "2026-02-12 16:18:05.698722"
+  },
+  { "id": 190, "symbol": "PROMPT", "created_at": "2026-02-12 16:19:02.702677" },
+  { "id": 191, "symbol": "BABY", "created_at": "2026-02-12 16:19:02.702677" },
+  { "id": 192, "symbol": "APEX", "created_at": "2026-02-12 16:19:02.702677" },
+  { "id": 193, "symbol": "2Z", "created_at": "2026-02-12 16:19:02.702677" },
+  { "id": 194, "symbol": "ZEN", "created_at": "2026-02-12 16:19:02.702677" },
+  { "id": 195, "symbol": "ICP", "created_at": "2026-02-12 16:19:02.702677" },
+  { "id": 196, "symbol": "GMT", "created_at": "2026-02-12 16:20:06.649436" },
+  { "id": 197, "symbol": "kLUNC", "created_at": "2026-02-12 16:21:03.793913" },
+  { "id": 198, "symbol": "HYPER", "created_at": "2026-02-12 16:21:04.622743" },
+  {
+    "id": 199,
+    "symbol": "km:US500",
+    "created_at": "2026-02-12 16:21:04.622743"
+  },
+  {
+    "id": 200,
+    "symbol": "cash:USA500",
+    "created_at": "2026-02-12 16:21:04.622743"
+  },
+  { "id": 201, "symbol": "FRIEND", "created_at": "2026-02-12 16:22:20.634351" },
+  {
+    "id": 202,
+    "symbol": "hyna:BTC",
+    "created_at": "2026-02-12 16:23:04.424757"
+  },
+  { "id": 203, "symbol": "SUSHI", "created_at": "2026-02-12 16:24:02.779767" },
+  { "id": 204, "symbol": "IOTA", "created_at": "2026-02-12 16:24:05.78036" },
+  { "id": 205, "symbol": "XLM", "created_at": "2026-02-12 16:24:05.78036" },
+  {
+    "id": 206,
+    "symbol": "km:SILVER",
+    "created_at": "2026-02-12 16:27:05.471365"
+  },
+  { "id": 207, "symbol": "MINA", "created_at": "2026-02-12 16:27:05.776567" },
+  { "id": 208, "symbol": "NEO", "created_at": "2026-02-12 16:27:05.776567" },
+  { "id": 209, "symbol": "SKR", "created_at": "2026-02-12 16:27:06.149191" },
+  { "id": 210, "symbol": "BANANA", "created_at": "2026-02-12 16:28:03.122418" },
+  {
+    "id": 211,
+    "symbol": "flx:XMR",
+    "created_at": "2026-02-12 16:31:04.439374"
+  },
+  { "id": 212, "symbol": "SOPH", "created_at": "2026-02-12 16:32:02.644002" },
+  { "id": 213, "symbol": "SAND", "created_at": "2026-02-12 16:34:03.390322" },
+  { "id": 214, "symbol": "CC", "created_at": "2026-02-12 16:34:03.610161" },
+  {
+    "id": 215,
+    "symbol": "NEIROETH",
+    "created_at": "2026-02-12 16:36:02.818341"
+  },
+  { "id": 216, "symbol": "STABLE", "created_at": "2026-02-12 16:36:03.651719" },
+  { "id": 217, "symbol": "KAS", "created_at": "2026-02-12 16:37:05.54283" },
+  { "id": 218, "symbol": "RDNT", "created_at": "2026-02-12 16:43:05.921313" },
+  { "id": 219, "symbol": "BSV", "created_at": "2026-02-12 16:44:03.886231" },
+  { "id": 220, "symbol": "MERL", "created_at": "2026-02-12 16:44:05.205717" },
+  { "id": 221, "symbol": "CANTO", "created_at": "2026-02-12 16:46:03.416896" },
+  {
+    "id": 222,
+    "symbol": "xyz:HOOD",
+    "created_at": "2026-02-12 16:46:03.416896"
+  },
+  { "id": 223, "symbol": "COMP", "created_at": "2026-02-12 16:49:01.775683" },
+  { "id": 224, "symbol": "HMSTR", "created_at": "2026-02-12 16:50:03.298201" },
+  { "id": 225, "symbol": "GAS", "created_at": "2026-02-12 16:52:02.835341" },
+  {
+    "id": 226,
+    "symbol": "hyna:LIGHTER",
+    "created_at": "2026-02-12 16:56:03.660597"
+  },
+  { "id": 227, "symbol": "WCT", "created_at": "2026-02-12 16:57:05.141574" },
+  { "id": 228, "symbol": "ARK", "created_at": "2026-02-12 16:58:04.116201" },
+  {
+    "id": 229,
+    "symbol": "hyna:ETH",
+    "created_at": "2026-02-12 17:01:04.840495"
+  },
+  { "id": 230, "symbol": "STG", "created_at": "2026-02-12 17:03:05.753739" },
+  { "id": 231, "symbol": "MAV", "created_at": "2026-02-12 17:05:04.605763" },
+  { "id": 232, "symbol": "STBL", "created_at": "2026-02-12 17:13:06.622685" },
+  { "id": 233, "symbol": "OMNI", "created_at": "2026-02-12 17:14:06.151442" },
+  { "id": 234, "symbol": "CATI", "created_at": "2026-02-12 17:19:02.205381" },
+  { "id": 235, "symbol": "AI", "created_at": "2026-02-12 17:19:03.471125" },
+  { "id": 236, "symbol": "0G", "created_at": "2026-02-12 17:20:05.56829" },
+  { "id": 237, "symbol": "REQ", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 238, "symbol": "ORBS", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 239, "symbol": "PIXEL", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 240, "symbol": "NFTI", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 241, "symbol": "ILV", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 242, "symbol": "OX", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 243, "symbol": "SHIA", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 244, "symbol": "UNIBOT", "created_at": "2026-02-12 17:21:06.598777" },
+  { "id": 245, "symbol": "NXPC", "created_at": "2026-02-12 17:21:06.598777" },
+  {
+    "id": 246,
+    "symbol": "xyz:ORCL",
+    "created_at": "2026-02-12 17:33:04.654759"
+  },
+  {
+    "id": 247,
+    "symbol": "xyz:SNDK",
+    "created_at": "2026-02-12 17:33:04.654759"
+  },
+  {
+    "id": 248,
+    "symbol": "flx:TSLA",
+    "created_at": "2026-02-12 17:37:03.228563"
+  },
+  {
+    "id": 249,
+    "symbol": "xyz:INTC",
+    "created_at": "2026-02-12 17:50:05.031284"
+  },
+  {
+    "id": 250,
+    "symbol": "xyz:CRCL",
+    "created_at": "2026-02-12 17:56:01.86712"
+  },
+  {
+    "id": 251,
+    "symbol": "xyz:AMZN",
+    "created_at": "2026-02-12 17:57:02.662162"
+  },
+  {
+    "id": 252,
+    "symbol": "xyz:PLATINUM",
+    "created_at": "2026-02-12 17:57:02.723964"
+  },
+  { "id": 253, "symbol": "USTC", "created_at": "2026-02-12 18:00:20.126446" },
+  {
+    "id": 254,
+    "symbol": "hyna:ZEC",
+    "created_at": "2026-02-12 18:02:05.056754"
+  },
+  {
+    "id": 255,
+    "symbol": "vntl:OPENAI",
+    "created_at": "2026-02-12 18:07:05.963053"
+  },
+  {
+    "id": 256,
+    "symbol": "xyz:AMD",
+    "created_at": "2026-02-12 18:14:04.473634"
+  },
+  {
+    "id": 257,
+    "symbol": "xyz:EUR",
+    "created_at": "2026-02-12 18:20:03.963273"
+  },
+  {
+    "id": 258,
+    "symbol": "km:GOLD",
+    "created_at": "2026-02-12 18:20:03.963273"
+  },
+  {
+    "id": 259,
+    "symbol": "flx:PALLADIUM",
+    "created_at": "2026-02-12 18:20:03.963273"
+  },
+  { "id": 260, "symbol": "AXS", "created_at": "2026-02-12 18:25:15.528928" },
+  {
+    "id": 261,
+    "symbol": "PANDORA",
+    "created_at": "2026-02-12 18:30:05.081402"
+  },
+  {
+    "id": 262,
+    "symbol": "vntl:SEMIS",
+    "created_at": "2026-02-12 18:30:05.919856"
+  },
+  {
+    "id": 263,
+    "symbol": "xyz:NATGAS",
+    "created_at": "2026-02-12 18:31:04.45845"
+  },
+  { "id": 264, "symbol": "LISTA", "created_at": "2026-02-12 18:36:06.049283" },
+  { "id": 265, "symbol": "AERO", "created_at": "2026-02-12 18:37:03.466402" },
+  { "id": 266, "symbol": "PROVE", "created_at": "2026-02-12 18:38:04.900131" },
+  {
+    "id": 267,
+    "symbol": "vntl:SPACEX",
+    "created_at": "2026-02-12 18:42:02.347746"
+  },
+  {
+    "id": 268,
+    "symbol": "vntl:ANTHROPIC",
+    "created_at": "2026-02-12 18:42:02.347746"
+  },
+  { "id": 269, "symbol": "LOOM", "created_at": "2026-02-12 19:05:06.213841" },
+  { "id": 270, "symbol": "NTRN", "created_at": "2026-02-12 19:14:04.407331" },
+  {
+    "id": 271,
+    "symbol": "xyz:MSFT",
+    "created_at": "2026-02-12 19:16:05.952323"
+  },
+  {
+    "id": 272,
+    "symbol": "hyna:SOL",
+    "created_at": "2026-02-12 19:31:05.018444"
+  },
+  {
+    "id": 273,
+    "symbol": "xyz:NFLX",
+    "created_at": "2026-02-12 20:04:03.067425"
+  },
+  {
+    "id": 274,
+    "symbol": "km:TSLA",
+    "created_at": "2026-02-12 20:09:04.653936"
+  },
+  { "id": 275, "symbol": "xyz:CL", "created_at": "2026-02-12 20:38:10.108009" },
+  {
+    "id": 276,
+    "symbol": "hyna:BNB",
+    "created_at": "2026-02-12 20:42:05.387306"
+  },
+  {
+    "id": 277,
+    "symbol": "xyz:URNM",
+    "created_at": "2026-02-12 20:48:03.781367"
+  },
+  { "id": 278, "symbol": "flx:OIL", "created_at": "2026-02-12 20:53:02.95449" },
+  { "id": 279, "symbol": "xyz:JPY", "created_at": "2026-02-12 21:48:02.09161" },
+  {
+    "id": 280,
+    "symbol": "hyna:ENA",
+    "created_at": "2026-02-12 21:53:05.618071"
+  },
+  {
+    "id": 281,
+    "symbol": "hyna:XRP",
+    "created_at": "2026-02-13 00:09:04.604893"
+  },
+  { "id": 282, "symbol": "km:AAPL", "created_at": "2026-02-13 00:33:04.69336" },
+  {
+    "id": 283,
+    "symbol": "flx:COIN",
+    "created_at": "2026-02-13 00:40:06.129829"
+  },
+  {
+    "id": 284,
+    "symbol": "vntl:MAG7",
+    "created_at": "2026-02-13 02:32:03.639184"
+  },
+  {
+    "id": 285,
+    "symbol": "hyna:IP",
+    "created_at": "2026-02-13 03:54:04.167214"
+  },
+  {
+    "id": 286,
+    "symbol": "hyna:BCH",
+    "created_at": "2026-02-13 03:54:04.167214"
+  },
+  {
+    "id": 287,
+    "symbol": "hyna:ADA",
+    "created_at": "2026-02-13 03:54:04.167214"
+  },
+  {
+    "id": 288,
+    "symbol": "hyna:DOGE",
+    "created_at": "2026-02-13 03:54:04.167214"
+  },
+  {
+    "id": 289,
+    "symbol": "hyna:LINK",
+    "created_at": "2026-02-13 03:54:04.167214"
+  },
+  {
+    "id": 290,
+    "symbol": "hyna:LTC",
+    "created_at": "2026-02-13 03:54:04.167214"
+  },
+  {
+    "id": 291,
+    "symbol": "xyz:AAPL",
+    "created_at": "2026-02-13 05:17:27.834529"
+  },
+  {
+    "id": 292,
+    "symbol": "xyz:USAR",
+    "created_at": "2026-02-13 05:59:05.467232"
+  },
+  {
+    "id": 293,
+    "symbol": "flx:COPPER",
+    "created_at": "2026-02-13 06:14:01.822363"
+  },
+  {
+    "id": 294,
+    "symbol": "xyz:TSM",
+    "created_at": "2026-02-13 06:23:05.905482"
+  },
+  {
+    "id": 295,
+    "symbol": "flx:GOLD",
+    "created_at": "2026-02-13 06:33:03.856073"
+  },
+  {
+    "id": 296,
+    "symbol": "km:SMALL2000",
+    "created_at": "2026-02-13 07:32:05.59439"
+  },
+  {
+    "id": 297,
+    "symbol": "vntl:INFOTECH",
+    "created_at": "2026-02-13 07:41:05.942542"
+  },
+  {
+    "id": 298,
+    "symbol": "xyz:BABA",
+    "created_at": "2026-02-13 08:00:02.526581"
+  },
+  {
+    "id": 299,
+    "symbol": "xyz:RIVN",
+    "created_at": "2026-02-13 08:20:03.497048"
+  },
+  {
+    "id": 300,
+    "symbol": "flx:CRCL",
+    "created_at": "2026-02-13 08:50:04.588982"
+  },
+  {
+    "id": 301,
+    "symbol": "hyna:FARTCOIN",
+    "created_at": "2026-02-13 08:54:03.740536"
+  },
+  {
+    "id": 302,
+    "symbol": "flx:PLATINUM",
+    "created_at": "2026-02-13 08:58:03.142492"
+  },
+  {
+    "id": 303,
+    "symbol": "cash:TSLA",
+    "created_at": "2026-02-13 09:17:05.70916"
+  },
+  { "id": 304, "symbol": "@142", "created_at": "2026-02-13 10:00:03.838057" },
+  {
+    "id": 305,
+    "symbol": "xyz:CRWV",
+    "created_at": "2026-02-13 10:15:04.292625"
+  },
+  {
+    "id": 306,
+    "symbol": "vntl:ROBOT",
+    "created_at": "2026-02-13 10:42:04.198981"
+  },
+  {
+    "id": 307,
+    "symbol": "cash:INTC",
+    "created_at": "2026-02-13 11:05:05.034771"
+  },
+  {
+    "id": 308,
+    "symbol": "cash:HOOD",
+    "created_at": "2026-02-13 11:05:05.034771"
+  },
+  {
+    "id": 309,
+    "symbol": "cash:GOOGL",
+    "created_at": "2026-02-13 11:05:05.034771"
+  },
+  {
+    "id": 310,
+    "symbol": "cash:AMZN",
+    "created_at": "2026-02-13 11:05:05.034771"
+  },
+  {
+    "id": 311,
+    "symbol": "cash:SILVER",
+    "created_at": "2026-02-13 11:05:05.034771"
+  },
+  {
+    "id": 312,
+    "symbol": "km:USOIL",
+    "created_at": "2026-02-13 12:19:07.891624"
+  },
+  { "id": 313, "symbol": "@107", "created_at": "2026-02-13 12:19:07.891624" },
+  {
+    "id": 314,
+    "symbol": "vntl:NUCLEAR",
+    "created_at": "2026-02-13 12:19:09.11755"
+  },
+  { "id": 315, "symbol": "AZTEC", "created_at": "2026-02-13 13:06:03.689737" },
+  {
+    "id": 316,
+    "symbol": "km:USTECH",
+    "created_at": "2026-02-13 13:27:05.602427"
+  },
+  {
+    "id": 317,
+    "symbol": "cash:NVDA",
+    "created_at": "2026-02-13 13:36:04.903563"
+  },
+  {
+    "id": 318,
+    "symbol": "vntl:DEFENSE",
+    "created_at": "2026-02-13 14:10:05.283014"
+  },
+  {
+    "id": 319,
+    "symbol": "hyna:XMR",
+    "created_at": "2026-02-13 21:16:06.707019"
+  },
+  {
+    "id": 320,
+    "symbol": "km:BABA",
+    "created_at": "2026-02-13 22:05:02.709554"
+  },
+  {
+    "id": 321,
+    "symbol": "cash:META",
+    "created_at": "2026-02-13 23:02:03.906079"
+  },
+  {
+    "id": 322,
+    "symbol": "flx:NVDA",
+    "created_at": "2026-02-13 23:39:04.271219"
+  },
+  {
+    "id": 323,
+    "symbol": "vntl:ENERGY",
+    "created_at": "2026-02-14 05:24:07.040105"
+  },
+  {
+    "id": 324,
+    "symbol": "cash:GOLD",
+    "created_at": "2026-02-14 16:18:02.009741"
+  },
+  {
+    "id": 325,
+    "symbol": "vntl:BIOTECH",
+    "created_at": "2026-02-14 17:20:04.995028"
+  },
+  {
+    "id": 326,
+    "symbol": "km:NVDA",
+    "created_at": "2026-02-15 03:46:01.792306"
+  },
+  {
+    "id": 327,
+    "symbol": "km:GOOGL",
+    "created_at": "2026-02-15 10:23:04.068763"
+  },
+  {
+    "id": 328,
+    "symbol": "hyna:1000PEPE",
+    "created_at": "2026-02-15 19:51:04.681127"
+  },
+  {
+    "id": 329,
+    "symbol": "xyz:SKHX",
+    "created_at": "2026-02-20 12:09:10.600838"
+  },
+  {
+    "id": 330,
+    "symbol": "cash:MSFT",
+    "created_at": "2026-02-21 01:19:09.187078"
+  },
+  { "id": 331, "symbol": "STRAX", "created_at": "2026-02-23 05:35:26.916663" },
+  {
+    "id": 332,
+    "symbol": "xyz:SMSN",
+    "created_at": "2026-02-24 15:03:42.799318"
+  },
+  { "id": 333, "symbol": "km:MU", "created_at": "2026-02-24 20:10:30.034501" },
+  {
+    "id": 334,
+    "symbol": "xyz:HYUNDAI",
+    "created_at": "2026-02-25 08:09:27.119849"
+  }
+]

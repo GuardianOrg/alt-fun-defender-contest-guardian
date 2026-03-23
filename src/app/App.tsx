@@ -9,6 +9,8 @@ import TerminalView from '@/components/terminal/TerminalView';
 import TokenDetailView from '@/components/token/TokenDetailView';
 import CreateView from '@/components/create/CreateView';
 import { cn } from '@/utils/format';
+import styles from './App.module.css';
+import '../styles/global.css';
 
 export default function App() {
   const location = useLocation();
@@ -18,8 +20,8 @@ export default function App() {
     <PasswordGate>
       <div
         className={cn(
-          'h-full flex flex-col',
-          isTokenPage && 'animate-ambpulse',
+          styles.app,
+          isTokenPage && styles.ambpulse,
         )}
       >
         <LeverageBanner />

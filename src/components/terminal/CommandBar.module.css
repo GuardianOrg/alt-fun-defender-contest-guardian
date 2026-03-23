@@ -1,0 +1,77 @@
+.bar {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  padding-left: 1rem;
+  padding-right: 1rem;
+  flex-shrink: 0;
+}
+
+.viewLabel {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  margin-right: 0.75rem;
+}
+
+.tab {
+  position: relative;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--txt-3);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  transition: all 0.15s ease;
+}
+
+.tab:hover {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tabActive {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: 700;
+}
+
+.indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 2px;
+  background: var(--mint);
+  border-radius: 9999px;
+}
+
+.liveSection {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.liveDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--mint);
+  animation: livep 2s ease-in-out infinite;
+}
+
+.liveText {
+  font-size: 13px;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+}

@@ -1,0 +1,110 @@
+.hero {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  border-radius: 0.8rem;
+  height: 41rem;
+  max-height: 50rem;
+  background: var(--hero-bg);
+  overflow: hidden;
+  position: relative;
+
+  @media (min-width: 620px) {
+    max-height: unset;
+    justify-content: flex-start;
+    height: 41rem;
+  }
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2.4rem;
+  overflow: hidden;
+  z-index: 1;
+  padding: 2.4rem 2.4rem;
+
+  @media (min-width: 620px) {
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  @media (min-width: 1024px) {
+    justify-content: center;
+    align-items: flex-start;
+    padding: 0rem 8rem;
+  }
+}
+
+.header {
+  font-size: 3rem;
+  font-weight: 300;
+  color: var(--primary-text);
+  line-height: 1.4;
+  text-align: center;
+  margin: 0;
+
+  @media (min-width: 620px) {
+    font-size: 4.2rem;
+    text-align: left;
+  }
+}
+
+.byline {
+  font-size: 2rem;
+  text-align: center;
+  margin: 0;
+
+  @media (min-width: 620px) {
+    font-size: 3rem;
+    width: 40rem;
+    text-align: left;
+  }
+}
+
+.bold {
+  font-size: 3rem;
+  font-weight: 400;
+  color: var(--primary-text);
+  line-height: 1.4;
+  text-align: center;
+
+  @media (min-width: 620px) {
+    font-size: 4.2rem;
+  }
+}
+
+.illustrationContainer {
+  img {
+    position: absolute;
+    bottom: -5rem;
+    right: 0;
+    height: 22rem;
+    object-fit: cover;
+    pointer-events: none;
+
+    @media (min-width: 400px) {
+      height: 26rem;
+    }
+
+    @media (min-width: 500px) {
+      height: 28rem;
+    }
+
+    @media (min-width: 620px) {
+      height: auto;
+      width: 100%;
+      min-height: unset;
+      bottom: 0rem;
+    }
+  }
+}
+.buttonWrapper {
+  a {
+    button {
+      font-size: 1.4rem;
+      font-weight: 300;
+    }
+  }
+}

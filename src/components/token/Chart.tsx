@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, type CandlestickData, type LineData, ColorType } from 'lightweight-charts';
 import { cn, formatPercent } from '@/utils/format';
 import type { Token } from '@/services/types';
+import styles from './Chart.module.css';
 
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h', '1D'] as const;
 
@@ -137,18 +138,14 @@ export default function Chart({ token }: Props) {
 
   return (
     <>
-      {/* Toolbar — intervals + decomp stats + overlay */}
-      <div className="flex items-center px-4 h-8 border-b border-border bg-bg-1 shrink-0 gap-1">
-        {/* Interval pills */}
-        <div className="flex items-center bg-bg-2/60 rounded-md p-0.5 gap-px">
+      <div className={styles.toolbar}>
+        <div className={styles.intervalGroup}>
           {INTERVALS.map((iv) => (
             <button
               key={iv}
               className={cn(
-                'px-2 py-0.5 rounded text-[11px] font-mono font-medium cursor-pointer border-0 transition-all duration-150',
-                interval === iv
-                  ? 'bg-mint/[0.12] text-mint'
-                  : 'bg-transparent text-txt-3 hover:text-txt hover:bg-white/[0.04]',
+                styles.intervalBtn,
+                interval === iv && styles.intervalBtnActive,
               )}
               onClick={() => setInterval(iv)}
             >
@@ -157,58 +154,53 @@ export default function Chart({ token }: Props) {
           ))}
         </div>
 
-        <div className="w-px h-4 bg-border mx-1.5" />
+        <div className={styles.dividerSmall} />
 
-        {/* Overlay toggle */}
-        <label className="flex items-center gap-1.5 cursor-pointer group">
+        <label className={styles.overlayLabel}>
           <div
             className={cn(
-              'w-6 h-3.5 rounded-full relative transition-all duration-200',
-              showOverlay ? 'bg-amber/30' : 'bg-white/[0.08]',
+              styles.toggleTrack,
+              showOverlay && styles.toggleTrackOn,
             )}
             onClick={() => setShowOverlay(!showOverlay)}
           >
             <div
               className={cn(
-                'absolute top-[3px] w-2 h-2 rounded-full transition-all duration-200',
-                showOverlay
-                  ? 'left-3 bg-amber'
-                  : 'left-[3px] bg-txt-3',
+                styles.toggleDot,
+                showOverlay && styles.toggleDotOn,
               )}
             />
           </div>
           <span className={cn(
-            'text-[11px] font-mono transition-colors',
-            showOverlay ? 'text-amber' : 'text-txt-4 group-hover:text-txt-3',
+            styles.overlayText,
+            showOverlay && styles.overlayTextOn,
           )}>
             {token.underlying}
           </span>
         </label>
 
-        <div className="w-px h-4 bg-border mx-1.5" />
+        <div className={styles.dividerSmall} />
 
-        {/* Decomp stats — inline, secondary */}
-        <div className="flex items-center gap-3 text-[11px] tabular-nums">
-          <span className="text-txt-4">
+        <div className={styles.decompStats}>
+          <span className={styles.decompLabel}>
             buys{' '}
-            <span className={cn('font-semibold', token.buyMomentum >= 0 ? 'text-mint' : 'text-red')}>
+            <span className={token.buyMomentum >= 0 ? styles.decompValueMint : styles.decompValueRed}>
               {formatPercent(token.buyMomentum)}
             </span>
           </span>
-          <span className="text-txt-4">
+          <span className={styles.decompLabel}>
             lev{' '}
-            <span className="text-amber font-semibold">{formatPercent(token.leverageBoost)}</span>
-            <span className="text-txt-4 ml-0.5">({formatPercent(underlyingChg)}×{token.leverage})</span>
+            <span className={styles.decompAmber}>{formatPercent(token.leverageBoost)}</span>
+            <span className={styles.decompDetail}>({formatPercent(underlyingChg)}×{token.leverage})</span>
           </span>
         </div>
 
-        {/* Live indicator */}
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
-          <span className="text-[11px] text-txt-4 font-mono">live</span>
+        <div className={styles.liveIndicator}>
+          <div className={styles.liveDot} />
+          <span className={styles.liveText}>live</span>
         </div>
       </div>
-      <div ref={chartContainerRef} className="flex-1 relative overflow-hidden" />
+      <div ref={chartContainerRef} className={styles.chartArea} />
     </>
   );
 }

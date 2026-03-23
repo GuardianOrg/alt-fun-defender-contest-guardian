@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { cn } from '@/utils/format';
+import styles from './ProgressBar.module.css';
 
 interface ProgressBarProps {
   buyPercent: number;
@@ -32,33 +33,31 @@ export default function ProgressBar({
   const levPctDisplay = Math.round(leveragePercent * 10) / 10;
 
   return (
-    <div className="relative w-full">
+    <div className={styles.wrapper}>
       <div
         ref={trackRef}
         className={cn(
-          'w-full rounded-full relative cursor-pointer',
-          leveragePercent > 0 ? 'overflow-visible' : 'overflow-hidden',
-          size === 'sm' ? 'h-[8px]' : 'h-[10px]',
-          'bg-white/[0.06]',
+          styles.track,
+          leveragePercent > 0 ? styles.overflowVisible : styles.overflowHidden,
+          size === 'sm' ? styles.trackSm : styles.trackMd,
         )}
         onMouseEnter={() => setTooltip(true)}
         onMouseMove={(e) => setTipPos({ x: e.clientX + 12, y: e.clientY - 60 })}
         onMouseLeave={() => setTooltip(false)}
       >
-        {/* Buy pressure segment */}
         <div
           className={cn(
-            'absolute top-0 left-0 h-full rounded-l-full',
-            'bg-mint-dim bar-glow-mint',
-            isGraduating && 'animate-gradpulse',
+            styles.buySegment,
+            'bar-glow-mint',
+            isGraduating && styles.graduating,
           )}
           style={{ width: `${buyPercent}%` }}
         />
-        {/* Leverage boost segment — white fire glow */}
         {leveragePercent > 0 && (
           <div
             className={cn(
-              'absolute top-0 h-full leverage-fire',
+              styles.leverageSegment,
+              'leverage-fire',
               isShort ? 'leverage-fire-red' : 'leverage-fire-mint',
             )}
             style={{
@@ -70,19 +69,19 @@ export default function ProgressBar({
       </div>
 
       {label && (
-        <div className="flex items-center gap-1.5 mt-1">
-          <span className="text-[13px] font-semibold text-txt-2">{label}</span>
+        <div className={styles.labelWrap}>
+          <span className={styles.labelText}>{label}</span>
         </div>
       )}
 
       {showLegend && (
-        <div className="flex gap-4 mt-2">
-          <div className="flex items-center gap-1.5 text-[11px] text-txt-3">
-            <div className="w-2 h-2 rounded-full bg-mint-dim bar-glow-mint shrink-0" />
+        <div className={styles.legend}>
+          <div className={styles.legendItem}>
+            <div className={cn(styles.legendDot, 'bar-glow-mint')} />
             buy pressure{buyUsd && ` · ${buyUsd}`}
           </div>
-          <div className="flex items-center gap-1.5 text-[11px] text-txt-3">
-            <div className={cn('w-2 h-2 rounded-full shrink-0 leverage-fire-dot', isShort ? 'leverage-fire-dot-red' : 'leverage-fire-dot-mint')} />
+          <div className={styles.legendItem}>
+            <div className={cn(styles.legendDotLeverage, 'leverage-fire-dot', isShort ? 'leverage-fire-dot-red' : 'leverage-fire-dot-mint')} />
             leverage boost{leverageUsd && ` · ${leverageUsd}`}
           </div>
         </div>
@@ -90,23 +89,23 @@ export default function ProgressBar({
 
       {tooltip && leveragePercent > 0 && (
         <div
-          className="fixed z-[999] pointer-events-none bg-bg-2 border border-border-2 rounded px-3 py-2 text-[11px] whitespace-nowrap font-mono shadow-panel"
+          className={styles.tooltip}
           style={{ left: Math.min(tipPos.x, window.innerWidth - 200), top: tipPos.y }}
         >
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-[6px] h-[6px] rounded-full bg-mint-dim shrink-0" />
-            <span className="text-txt-3">buy pressure</span>
-            <span className="text-mint font-semibold ml-auto pl-4 tabular-nums">{buyPctDisplay}%</span>
+          <div className={styles.tooltipRow}>
+            <div className={styles.tooltipDotMint} />
+            <span className={styles.tooltipLabel}>buy pressure</span>
+            <span className={styles.tooltipValueMint}>{buyPctDisplay}%</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className={styles.tooltipRowLast}>
             <div
               className={cn(
-                'w-[6px] h-[6px] rounded-full shrink-0',
-                isShort ? 'bg-red' : 'bg-aqua',
+                styles.tooltipDotBase,
+                isShort ? styles.dotRed : styles.dotAqua,
               )}
             />
-            <span className="text-txt-3">leverage boost</span>
-            <span className="text-amber font-semibold ml-auto pl-4 tabular-nums">{levPctDisplay}%</span>
+            <span className={styles.tooltipLabel}>leverage boost</span>
+            <span className={styles.tooltipValueAmber}>{levPctDisplay}%</span>
           </div>
         </div>
       )}

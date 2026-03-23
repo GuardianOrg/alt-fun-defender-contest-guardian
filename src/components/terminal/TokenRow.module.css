@@ -1,0 +1,220 @@
+.row {
+  display: grid;
+  grid-template-columns: 52px 1fr 72px 1fr 80px;
+  height: 58px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+
+.graduatingLong {
+  border-left-color: var(--mint);
+  background: rgba(77, 232, 180, 0.03);
+  animation: rowf 2.5s ease-in-out infinite;
+}
+
+.graduatingLong:hover {
+  background: rgba(77, 232, 180, 0.08) !important;
+}
+
+.graduatingShort {
+  border-left-color: var(--red);
+  background: rgba(240, 80, 80, 0.03);
+  animation: rowfs 2.5s ease-in-out infinite;
+}
+
+.graduatingShort:hover {
+  background: rgba(240, 80, 80, 0.08) !important;
+}
+
+.normalRow {
+  background: transparent;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.normalRow:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.borderMint {
+  border-left-color: color-mix(in srgb, var(--mint-dim) 50%, transparent);
+}
+
+.borderRed {
+  border-left-color: rgba(240, 80, 80, 0.6);
+}
+
+.borderAmber {
+  border-left-color: var(--amber);
+}
+
+/* Icon cell */
+.iconCell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+}
+
+.tokenImage {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.375rem;
+  object-fit: cover;
+  transition: transform 200ms ease;
+}
+
+.tokenEmoji {
+  font-size: 28px;
+  line-height: 1;
+  transition: transform 200ms ease;
+}
+
+.row:hover .tokenImage,
+.row:hover .tokenEmoji {
+  transform: scale(1.1);
+}
+
+/* Name cell */
+.nameCell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.125rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.tokenName {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--txt);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leverageBadge {
+  font-size: 12px;
+  font-weight: 700;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.leverageLong {
+  color: var(--mint);
+  background: rgba(77, 232, 180, 0.10);
+}
+
+.leverageShort {
+  color: var(--red);
+  background: rgba(240, 80, 80, 0.10);
+}
+
+.gradBadge {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  border-radius: 0.125rem;
+  border: 1px solid;
+  animation: badgep 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.gradBadgeLong {
+  color: var(--mint);
+  border-color: rgba(77, 232, 180, 0.5);
+}
+
+.gradBadgeShort {
+  color: var(--red);
+  border-color: rgba(240, 80, 80, 0.5);
+}
+
+.ltName {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ltNameLong {
+  color: rgba(77, 232, 180, 0.6);
+}
+
+.ltNameShort {
+  color: rgba(240, 80, 80, 0.6);
+}
+
+/* 24h change cell */
+.changeCell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  border-right: 1px solid var(--border);
+}
+
+.changeValue {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.changeUp {
+  color: var(--mint);
+}
+
+.changeDown {
+  color: var(--red);
+}
+
+/* Progress cell */
+.progressCell {
+  display: flex;
+  align-items: center;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* MCAP cell */
+.mcapCell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.mcapValue {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+}

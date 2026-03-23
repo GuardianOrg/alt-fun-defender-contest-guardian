@@ -1,0 +1,53 @@
+.sortHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  color: var(--primary-text);
+  font-size: 1.2rem;
+  line-height: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sortHeader:hover {
+  opacity: 0.8;
+}
+
+.chevron {
+  display: inline-block;
+  line-height: 0;
+  transform-origin: center;
+  transform-box: fill-box;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  margin-bottom: 0.1rem;
+}
+
+.chevron:hover {
+  opacity: 0.8;
+}
+
+.chevronActive {
+  opacity: 1;
+}
+
+.endAlign {
+  text-align: end;
+  justify-content: flex-end;
+}
+
+.endAlignMobile {
+  text-align: end;
+  justify-content: flex-end;
+
+  @media (min-width: 768px) {
+    text-align: start;
+    justify-content: flex-start;
+  }
+}
+
+.tooltip {
+  margin: 0 0.2rem;
+  display: flex;
+  align-items: center;
+}

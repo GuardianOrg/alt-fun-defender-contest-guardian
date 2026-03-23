@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useWallet } from '@/hooks/useWallet';
 import { useUIStore } from '@/stores/uiStore';
 import { cn } from '@/utils/format';
+import styles from './Header.module.css';
 
 const TABS = [
   { label: 'MARKETS', path: '/' },
@@ -32,24 +33,22 @@ export default function Header() {
   const isCreate = location.pathname === '/create';
 
   return (
-    <header className="flex items-center h-[44px] bg-bg-1 border-b border-border-2 px-4 shrink-0 relative">
-      {/* Logo */}
+    <header className={styles.header}>
       <div
-        className="text-sm font-bold tracking-[0.08em] mr-5 cursor-pointer select-none"
+        className={styles.logo}
         onClick={() => navigate('/')}
       >
-        <span className="text-mint drop-shadow-[0_0_8px_rgba(77,232,180,0.4)]">BOUNCE</span>
-        <span className="text-txt font-bold">.FUN</span>
+        <span className={styles.logoMint}>BOUNCE</span>
+        <span className={styles.logoTxt}>.FUN</span>
       </div>
 
-      <div className="text-[13px] tracking-[0.12em] uppercase border-l border-border pl-3 mr-5 font-bold">
-        <span className="text-mint drop-shadow-[0_0_6px_rgba(77,232,180,0.3)]">leverage</span>
-        <span className="text-txt-2 mx-1">×</span>
-        <span className="text-txt">memes</span>
+      <div className={styles.tagline}>
+        <span className={styles.taglineMint}>leverage</span>
+        <span className={styles.taglineSep}>×</span>
+        <span className={styles.taglineTxt}>memes</span>
       </div>
 
-      {/* Nav tabs */}
-      <nav className="flex h-full">
+      <nav className={styles.nav}>
         {TABS.map((tab) => {
           const hasPath = 'path' in tab;
           const isActive = hasPath && tab.path === '/' && location.pathname === '/';
@@ -57,10 +56,8 @@ export default function Header() {
             <button
               key={tab.label}
               className={cn(
-                'relative font-mono text-[13px] tracking-[0.06em] uppercase px-4 h-full flex items-center cursor-pointer',
-                'bg-transparent border-0 transition-all duration-150',
-                'text-txt-3 hover:text-txt hover:bg-white/[0.03]',
-                isActive && 'text-txt bg-white/[0.04]',
+                styles.navButton,
+                isActive && styles.navButtonActive,
               )}
               onClick={() => {
                 if ('action' in tab && tab.action === 'earnings') {
@@ -72,52 +69,48 @@ export default function Header() {
             >
               {tab.label}
               {isActive && (
-                <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-mint rounded-full" />
+                <span className={styles.activeIndicator} />
               )}
             </button>
           );
         })}
       </nav>
 
-      {/* Search */}
       {!isCreate && (
         <div
-          className="flex items-center gap-2 bg-white/[0.03] border border-border rounded-[3px] px-2.5 py-1 cursor-pointer h-7 ml-4 transition-all hover:border-border-2 hover:bg-white/[0.05]"
+          className={styles.searchTrigger}
           onClick={() => setSearchOpen(true)}
         >
-          <span className="text-sm text-txt-3">⌕</span>
-          <span className="text-[13px] text-txt-3 whitespace-nowrap">Search tokens…</span>
-          <span className="text-[11px] text-txt-4 bg-white/[0.05] border border-border rounded-sm px-1 py-px ml-1 font-mono">
-            ⌘K
-          </span>
+          <span className={styles.searchIcon}>⌕</span>
+          <span className={styles.searchText}>Search tokens…</span>
+          <span className={styles.searchKbd}>⌘K</span>
         </div>
       )}
 
-      {/* Right side */}
-      <div className="ml-auto flex items-center gap-3">
-        <span className="text-[13px] text-txt-3 tabular-nums">{clock}</span>
+      <div className={styles.rightSide}>
+        <span className={styles.clock}>{clock}</span>
         {isConnected ? (
           <span
-            className="text-[13px] text-mint border border-border-2 px-2.5 py-[3px] rounded-sm cursor-pointer transition-all hover:bg-mint/10 hover:border-mint/40"
+            className={styles.walletAddress}
             onClick={() => setEarningsOpen(true)}
           >
             {shortAddress}
           </span>
         ) : (
           <button
-            className="text-[13px] text-mint border border-border-2 px-2.5 py-[3px] rounded-sm cursor-pointer hover:bg-mint/10"
+            className={styles.connectButton}
             onClick={connect}
           >
             Connect Wallet
           </button>
         )}
         {isCreate ? (
-          <button className="font-mono text-[13px] font-bold text-mint bg-mint/[0.12] px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-default whitespace-nowrap">
+          <button className={styles.creatingBtn}>
             ⚡ creating token
           </button>
         ) : (
           <button
-            className="font-mono text-[13px] font-bold text-bg bg-mint px-5 py-1.5 rounded-sm border-0 tracking-[0.06em] uppercase h-[44px] flex items-center cursor-pointer shadow-mint-glow whitespace-nowrap transition-all hover:bg-mint-hover"
+            className={styles.launchBtn}
             onClick={() => navigate('/create')}
           >
             ⚡ launch a levered token

@@ -1,0 +1,171 @@
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  margin-bottom: 0.375rem;
+  display: block;
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  background: rgba(16, 37, 32, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 13px;
+  color: var(--txt);
+  font-family: var(--font-mono);
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.input:focus {
+  border-color: var(--border-2);
+  background: var(--bg-2);
+}
+
+.input::placeholder {
+  color: var(--txt-4);
+}
+
+.fieldBlock {
+  margin-bottom: 1rem;
+}
+
+.textarea {
+  width: 100%;
+  height: 5rem;
+  background: rgba(16, 37, 32, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 13px;
+  color: var(--txt);
+  font-family: var(--font-mono);
+  outline: none;
+  resize: none;
+  transition: all 0.15s ease;
+}
+
+.textarea:focus {
+  border-color: var(--border-2);
+  background: var(--bg-2);
+}
+
+.textarea::placeholder {
+  color: var(--txt-4);
+}
+
+.optionalTag {
+  color: var(--txt-4);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 11px;
+}
+
+.uploadZone {
+  border: 1px dashed var(--border-2);
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: rgba(16, 37, 32, 0.4);
+}
+
+.uploadZone:hover {
+  border-color: rgba(77, 232, 180, 0.4);
+  background: rgba(77, 232, 180, 0.04);
+}
+
+.uploadIcon {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  margin-bottom: 0.375rem;
+  opacity: 0.5;
+}
+
+.uploadText {
+  font-size: 13px;
+  color: var(--txt-3);
+}
+
+.uploadHint {
+  font-size: 11px;
+  color: var(--txt-4);
+  margin-top: 2px;
+}
+
+.fileInput {
+  display: none;
+}
+
+.socialToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 13px;
+  color: var(--txt-2);
+  cursor: pointer;
+  padding: 0.625rem 0.875rem;
+  margin-top: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: rgba(16, 37, 32, 0.4);
+  transition: all 0.15s ease;
+}
+
+.socialToggle:hover {
+  border-color: var(--border-2);
+  color: var(--txt);
+}
+
+.socialLinkLabel {
+  color: var(--txt-2);
+}
+
+.socialOptional {
+  color: var(--txt-4);
+  font-size: 11px;
+}
+
+.chevron {
+  margin-left: auto;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--txt-3);
+  transition: transform 0.2s ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.socialPanel {
+  border-left: 2px solid rgba(77, 232, 180, 0.2);
+  padding-left: 1rem;
+  margin-left: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.socialPanel > * + * {
+  margin-top: 0.75rem;
+}
+
+.socialFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}

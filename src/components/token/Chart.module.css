@@ -1,0 +1,168 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+  height: 2rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+  gap: 0.25rem;
+}
+
+.intervalGroup {
+  display: flex;
+  align-items: center;
+  background: rgba(16, 37, 32, 0.6);
+  border-radius: 0.375rem;
+  padding: 0.125rem;
+  gap: 1px;
+}
+
+.intervalBtn {
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  cursor: pointer;
+  border: 0;
+  transition: all 0.15s ease;
+  background: transparent;
+  color: var(--txt-3);
+}
+
+.intervalBtn:hover {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.intervalBtnActive {
+  background: rgba(77, 232, 180, 0.12);
+  color: var(--mint);
+}
+
+.intervalBtnActive:hover {
+  background: rgba(77, 232, 180, 0.12);
+  color: var(--mint);
+}
+
+.dividerSmall {
+  width: 1px;
+  height: 1rem;
+  background: var(--border);
+  margin: 0 0.375rem;
+}
+
+.overlayLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  cursor: pointer;
+}
+
+.toggleTrack {
+  width: 1.5rem;
+  height: 0.875rem;
+  border-radius: 9999px;
+  position: relative;
+  transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.toggleTrackOn {
+  background: rgba(240, 180, 41, 0.3);
+}
+
+.toggleDot {
+  position: absolute;
+  top: 3px;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  transition: all 0.2s ease;
+  left: 3px;
+  background: var(--txt-3);
+}
+
+.toggleDotOn {
+  left: 0.75rem;
+  background: var(--amber);
+}
+
+.overlayText {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+  color: var(--txt-4);
+}
+
+.overlayLabel:hover .overlayText {
+  color: var(--txt-3);
+}
+
+.overlayTextOn {
+  color: var(--amber);
+}
+
+.overlayLabel:hover .overlayTextOn {
+  color: var(--amber);
+}
+
+.decompStats {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.decompLabel {
+  color: var(--txt-4);
+}
+
+.decompValueMint {
+  font-weight: 600;
+  color: var(--mint);
+}
+
+.decompValueRed {
+  font-weight: 600;
+  color: var(--red);
+}
+
+.decompAmber {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.decompDetail {
+  color: var(--txt-4);
+  margin-left: 0.125rem;
+}
+
+.liveIndicator {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.liveDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--mint);
+  animation: livep 2s ease-in-out infinite;
+}
+
+.liveText {
+  font-size: 11px;
+  color: var(--txt-4);
+  font-family: var(--font-mono);
+}
+
+.chartArea {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}

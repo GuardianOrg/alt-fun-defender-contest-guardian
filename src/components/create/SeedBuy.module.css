@@ -1,0 +1,131 @@
+.card {
+  background: rgba(16, 37, 32, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+.amountRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.dollarSign {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  color: var(--txt-3);
+  flex-shrink: 0;
+}
+
+.amountInput {
+  flex: 1;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--border);
+  outline: none;
+  font-family: var(--font-mono);
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.amountInput::placeholder {
+  color: var(--txt-4);
+}
+
+.amountInput:focus {
+  border-bottom-color: var(--mint);
+}
+
+.quickGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.quickButton {
+  padding: 0.625rem 0.25rem;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  text-align: center;
+  border: 1px solid;
+  font-family: var(--font-mono);
+  transition: all 0.15s ease;
+}
+
+.quickButtonActive {
+  border-color: rgba(77, 232, 180, 0.4);
+  background: rgba(77, 232, 180, 0.08);
+  box-shadow: var(--shadow-inner-mint);
+}
+
+.quickButtonInactive {
+  border-color: var(--border);
+  background: rgba(22, 48, 40, 0.5);
+}
+
+.quickButtonInactive:hover {
+  border-color: var(--border-2);
+  background: var(--bg-3);
+}
+
+.quickLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--txt);
+}
+
+.quickSub {
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.statCard {
+  background: rgba(22, 48, 40, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+}
+
+.statLabel {
+  font-size: 11px;
+  color: var(--txt-3);
+  letter-spacing: 0.06em;
+}
+
+.statValue {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  color: var(--txt);
+  margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.textMint {
+  color: var(--mint);
+}
+
+.skipHint {
+  font-size: 11px;
+  color: var(--txt-4);
+  margin-top: 0.5rem;
+  text-align: center;
+}

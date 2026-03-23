@@ -1,0 +1,34 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="256" height="256" rx="128" fill="url(#paint0_linear_4418_883)"/>
+<path d="M117.25 101C117.25 96.9959 114.004 93.75 110 93.75C105.996 93.75 102.75 96.9959 102.75 101V108.25C102.75 112.254 105.996 115.5 110 115.5C114.004 115.5 117.25 112.254 117.25 108.25V101Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M88.25 64.75C88.25 60.7459 85.0041 57.5 81 57.5C76.9959 57.5 73.75 60.7459 73.75 64.75V72C73.75 76.0041 76.9959 79.25 81 79.25C85.0041 79.25 88.25 76.0041 88.25 72V64.75Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M73.75 115.5H88.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M102.75 79.25H117.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M73.75 93.75H81V115.5" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M102.75 57.5H110V79.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M117.25 177.333C117.25 173.375 114.004 170.167 110 170.167C105.996 170.167 102.75 173.375 102.75 177.333V184.5C102.75 188.458 105.996 191.667 110 191.667C114.004 191.667 117.25 188.458 117.25 184.5V177.333Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M88.25 141.5C88.25 137.542 85.0041 134.333 81 134.333C76.9959 134.333 73.75 137.542 73.75 141.5V148.667C73.75 152.625 76.9959 155.833 81 155.833C85.0041 155.833 88.25 152.625 88.25 148.667V141.5Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M73.75 191.667H88.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M102.75 155.833H117.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M73.75 170.167H81V191.667" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M102.75 134.333H110V155.833" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M178.25 100C178.25 95.9959 175.004 92.75 171 92.75C166.996 92.75 163.75 95.9959 163.75 100V107.25C163.75 111.254 166.996 114.5 171 114.5C175.004 114.5 178.25 111.254 178.25 107.25V100Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M149.25 63.75C149.25 59.7459 146.004 56.5 142 56.5C137.996 56.5 134.75 59.7459 134.75 63.75V71C134.75 75.0041 137.996 78.25 142 78.25C146.004 78.25 149.25 75.0041 149.25 71V63.75Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M134.75 114.5H149.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M163.75 78.25H178.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M134.75 92.75H142V114.5" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M163.75 56.5H171V78.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M178.25 176.333C178.25 172.375 175.004 169.167 171 169.167C166.996 169.167 163.75 172.375 163.75 176.333V183.5C163.75 187.458 166.996 190.667 171 190.667C175.004 190.667 178.25 187.458 178.25 183.5V176.333Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M149.25 140.5C149.25 136.542 146.004 133.333 142 133.333C137.996 133.333 134.75 136.542 134.75 140.5V147.667C134.75 151.625 137.996 154.833 142 154.833C146.004 154.833 149.25 151.625 149.25 147.667V140.5Z" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M134.75 190.667H149.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M163.75 154.833H178.25" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M134.75 169.167H142V190.667" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M163.75 133.333H171V154.833" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+<defs>
+<linearGradient id="paint0_linear_4418_883" x1="-125" y1="-453.5" x2="-119" y2="334.5" gradientUnits="userSpaceOnUse">
+<stop stop-color="#7EBBFF"/>
+<stop offset="0.5" stop-color="#326EF2"/>
+<stop offset="1" stop-color="#0022A6"/>
+</linearGradient>
+</defs>
+</svg>

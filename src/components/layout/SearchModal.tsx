@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useTokens } from '@/hooks/useTokens';
 import { cn } from '@/utils/format';
 import type { Token } from '@/services/types';
+import styles from './SearchModal.module.css';
 
 function Sparkline({ up }: { up: boolean }) {
   const pts = Array.from({ length: 12 }, (_, i) => {
@@ -17,7 +18,7 @@ function Sparkline({ up }: { up: boolean }) {
   const coords = norm.map((y, i) => `${(i / (norm.length - 1)) * 108 + 1},${32 - y}`).join(' ');
   const col = up ? '#4de8b4' : '#f05050';
   return (
-    <svg width="110" height="32" viewBox="0 0 110 32" preserveAspectRatio="none" className="block">
+    <svg width="110" height="32" viewBox="0 0 110 32" preserveAspectRatio="none" className={styles.sparkline}>
       <polygon points={`1,32 ${coords} 109,32`} fill={col} opacity="0.08" />
       <polyline
         points={coords}
@@ -35,29 +36,29 @@ function TrendingCard({ token, onClick }: { token: Token; onClick: () => void })
   const up = token.change24h >= 0;
   return (
     <div
-      className="shrink-0 w-[130px] bg-white/[0.02] border border-border rounded p-2.5 cursor-pointer transition-all hover:border-border-2 hover:bg-white/[0.04]"
+      className={styles.trendingCard}
       onClick={onClick}
     >
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-[26px] h-[26px] rounded-md bg-white/[0.05] flex items-center justify-center text-sm overflow-hidden">
+      <div className={styles.trendingCardHeader}>
+        <div className={styles.trendingCardIcon}>
           {token.image ? (
-            <img src={token.image} alt={token.name} className="w-full h-full object-cover" />
+            <img src={token.image} alt={token.name} className={styles.trendingCardImg} />
           ) : (
             token.emoji
           )}
         </div>
         <div>
-          <div className="text-[13px] font-bold text-txt">{token.name}</div>
-          <div className="text-[11px] text-mint/60 mt-px">{token.ltName}</div>
+          <div className={styles.trendingCardName}>{token.name}</div>
+          <div className={styles.trendingCardLtName}>{token.ltName}</div>
         </div>
       </div>
       <Sparkline up={up} />
-      <div className="text-[13px] font-semibold text-txt tabular-nums">
+      <div className={styles.trendingCardMcap}>
         ${token.mcapUsd >= 1_000_000
           ? `${(token.mcapUsd / 1_000_000).toFixed(2)}M`
           : `${(token.mcapUsd / 1_000).toFixed(1)}K`}
       </div>
-      <div className={cn('text-[13px] font-semibold mt-px tabular-nums', up ? 'text-mint' : 'text-red')}>
+      <div className={cn(styles.trendingCardChange, up ? styles.changeUp : styles.changeDown)}>
         {up ? '+' : ''}
         {token.change24h}%
       </div>
@@ -107,24 +108,24 @@ export default function SearchModal() {
 
   return (
     <div
-      className="fixed inset-0 z-[1000] bg-black/65 backdrop-blur-sm flex items-start justify-center pt-20"
+      className={styles.overlay}
       onClick={(e) => {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="w-[580px] max-h-[520px] bg-bg-2 border border-border-2 rounded-md overflow-hidden flex flex-col animate-modalin shadow-panel">
-        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-border">
-          <span className="text-base text-txt-2">⌕</span>
+      <div className={styles.modal}>
+        <div className={styles.searchBar}>
+          <span className={styles.searchIcon}>⌕</span>
           <input
             ref={inputRef}
-            className="flex-1 bg-transparent border-0 outline-0 font-mono text-sm text-txt placeholder:text-txt-3"
+            className={styles.searchInput}
             placeholder="Search tokens, tickers…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             autoComplete="off"
           />
           <span
-            className="text-[11px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-[2px] cursor-pointer hover:text-txt transition-colors"
+            className={styles.escBadge}
             onClick={() => setOpen(false)}
           >
             esc
@@ -132,61 +133,57 @@ export default function SearchModal() {
         </div>
 
         {!filtered ? (
-          <div className="p-4 overflow-y-auto flex-1">
-            <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mb-2.5">
+          <div className={styles.defaultContent}>
+            <div className={styles.sectionLabel}>
               TRENDING
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className={styles.trendingRow}>
               {tokens?.slice(0, 5).map((t) => (
                 <TrendingCard key={t.address} token={t} onClick={() => goToToken(t.address)} />
               ))}
             </div>
-            <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mt-3.5">
+            <div className={styles.recentLabel}>
               RECENTLY VIEWED
             </div>
-            <div className="text-[13px] text-txt-3 py-1 pb-2">No recently viewed tokens</div>
-            <div className="flex gap-4 mt-4 pt-3 border-t border-border">
-              <span className="text-[11px] text-txt-3 flex items-center gap-1.5">
-                <kbd className="font-mono text-[11px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
-                  ↵
-                </kbd>
+            <div className={styles.recentText}>No recently viewed tokens</div>
+            <div className={styles.shortcuts}>
+              <span className={styles.shortcutItem}>
+                <kbd className={styles.kbd}>↵</kbd>
                 select
               </span>
-              <span className="text-[11px] text-txt-3 flex items-center gap-1.5">
-                <kbd className="font-mono text-[11px] bg-white/[0.05] border border-border rounded-sm px-1 py-px text-txt-2">
-                  esc
-                </kbd>
+              <span className={styles.shortcutItem}>
+                <kbd className={styles.kbd}>esc</kbd>
                 close
               </span>
             </div>
           </div>
         ) : (
-          <div className="py-2 overflow-y-auto flex-1">
+          <div className={styles.resultsWrap}>
             {filtered.length > 0 ? (
               filtered.map((t) => (
                 <div
                   key={t.address}
-                  className="flex items-center gap-2.5 px-4 py-2 cursor-pointer transition-colors hover:bg-white/[0.03]"
+                  className={styles.resultRow}
                   onClick={() => goToToken(t.address)}
                 >
-                  <div className="w-7 h-7 rounded-md bg-white/[0.05] flex items-center justify-center text-[15px]">
+                  <div className={styles.resultIcon}>
                     {t.emoji}
                   </div>
                   <div>
-                    <div className="text-[13px] font-bold text-txt">{t.name}</div>
-                    <div className="text-[11px] text-txt-3">{t.ltName}</div>
+                    <div className={styles.resultName}>{t.name}</div>
+                    <div className={styles.resultLtName}>{t.ltName}</div>
                   </div>
-                  <div className="text-right ml-auto">
+                  <div className={styles.resultRight}>
                     <div
                       className={cn(
-                        'text-[13px] font-bold tabular-nums',
-                        t.change24h >= 0 ? 'text-mint' : 'text-red',
+                        styles.resultChange,
+                        t.change24h >= 0 ? styles.changeUp : styles.changeDown,
                       )}
                     >
                       {t.change24h >= 0 ? '+' : ''}
                       {t.change24h}%
                     </div>
-                    <div className="text-[11px] text-txt-3 mt-px tabular-nums">
+                    <div className={styles.resultMcap}>
                       ${t.mcapUsd >= 1_000_000
                         ? `${(t.mcapUsd / 1_000_000).toFixed(2)}M`
                         : `${(t.mcapUsd / 1_000).toFixed(1)}K`}
@@ -195,7 +192,7 @@ export default function SearchModal() {
                 </div>
               ))
             ) : (
-              <div className="px-4 py-4 text-[13px] text-txt-3">No tokens found</div>
+              <div className={styles.noResults}>No tokens found</div>
             )}
           </div>
         )}

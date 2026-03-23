@@ -1,0 +1,91 @@
+.container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100dvw;
+  height: 100dvh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 199;
+  overflow: hidden;
+}
+
+.closeBackground {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 100dvw;
+  height: 100dvh;
+  background-color: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  z-index: 199;
+  transition: backdrop-filter 0.25s ease-in-out;
+}
+
+.popupContent {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  max-width: 50rem;
+  max-height: calc(100dvh - 4rem);
+  width: 100%;
+  margin: 2rem;
+  background-color: var(--bg-modal);
+  border-radius: 0.8rem;
+  position: relative;
+  overflow-y: auto;
+  z-index: 200;
+}
+
+.popupContent::-webkit-scrollbar {
+  width: 0.8rem;
+}
+
+.popupContent::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 0.4rem;
+}
+
+.popupContent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.noPadding {
+  padding: 0;
+}
+
+.noGap {
+  gap: 0;
+}
+
+.headerSection {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header {
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 2rem;
+  color: var(--main);
+  margin: 0;
+}
+
+.largeHeader {
+  font-size: 2rem;
+}
+
+.closeButton {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: opacity 0.25s ease-in-out;
+}
+
+.closeButton:hover {
+  opacity: 0.8;
+}

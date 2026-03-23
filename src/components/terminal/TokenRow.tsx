@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import ProgressBar from '@/components/shared/ProgressBar';
 import { cn, formatUsd, formatPercent } from '@/utils/format';
 import type { Token } from '@/services/types';
+import styles from './TokenRow.module.css';
 
 interface Props {
   token: Token;
@@ -23,56 +24,49 @@ export default function TokenRow({ token }: Props) {
   return (
     <div
       className={cn(
-        'grid grid-cols-[52px_1fr_72px_1fr_80px] h-[58px] cursor-pointer border-b group',
+        styles.row,
         isGraduating
-          ? cn(
-              'border-l-[3px]',
-              isShort
-                ? 'border-l-red bg-red/[0.03] animate-rowfs border-border'
-                : 'border-l-mint bg-mint/[0.03] animate-rowf border-border',
-              isShort ? 'hover:!bg-red/[0.08]' : 'hover:!bg-mint/[0.08]',
-            )
+          ? isShort
+            ? styles.graduatingShort
+            : styles.graduatingLong
           : cn(
-              'border-l-[3px] border-border bg-transparent transition-colors',
-              'hover:bg-white/[0.02]',
+              styles.normalRow,
               isShort
                 ? isLtMover
-                  ? 'border-l-amber'
-                  : 'border-l-red/60'
+                  ? styles.borderAmber
+                  : styles.borderRed
                 : isLtMover
-                  ? 'border-l-amber'
-                  : 'border-l-mint-dim/50',
+                  ? styles.borderAmber
+                  : styles.borderMint,
             ),
       )}
       onClick={() => navigate(`/token/${token.address}`)}
     >
       {/* Icon */}
-      <div className="flex items-center justify-center border-r border-border">
+      <div className={styles.iconCell}>
         {token.image ? (
           <img
             src={token.image}
             alt={token.name}
-            className="w-8 h-8 rounded-md object-cover transition-transform duration-200 group-hover:scale-110"
+            className={styles.tokenImage}
           />
         ) : (
-          <span className="text-[28px] leading-none transition-transform duration-200 group-hover:scale-110">
+          <span className={styles.tokenEmoji}>
             {token.emoji}
           </span>
         )}
       </div>
 
-      {/* Name + LT pair + graduating badge — PRIMARY tier */}
-      <div className="flex flex-col justify-center gap-0.5 px-3 border-r border-border overflow-hidden">
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[15px] font-bold text-txt tracking-[0.04em] uppercase truncate">
+      {/* Name + LT pair + graduating badge */}
+      <div className={styles.nameCell}>
+        <div className={styles.nameRow}>
+          <span className={styles.tokenName}>
             {token.name}
           </span>
           <span
             className={cn(
-              'text-[12px] font-bold px-1.5 py-0.5 rounded shrink-0 tabular-nums',
-              isShort
-                ? 'text-red bg-red/[0.10]'
-                : 'text-mint bg-mint/[0.10]',
+              styles.leverageBadge,
+              isShort ? styles.leverageShort : styles.leverageLong,
             )}
           >
             {token.leverage}×
@@ -80,8 +74,8 @@ export default function TokenRow({ token }: Props) {
           {isGraduating && (
             <span
               className={cn(
-                'text-[9px] tracking-[0.08em] uppercase px-1.5 py-px rounded-sm border animate-badgep shrink-0',
-                isShort ? 'text-red border-red/50' : 'text-mint border-mint/50',
+                styles.gradBadge,
+                isShort ? styles.gradBadgeShort : styles.gradBadgeLong,
               )}
             >
               GRAD
@@ -90,8 +84,8 @@ export default function TokenRow({ token }: Props) {
         </div>
         <span
           className={cn(
-            'text-[12px] font-mono truncate',
-            isShort ? 'text-red/60' : 'text-mint/60',
+            styles.ltName,
+            isShort ? styles.ltNameShort : styles.ltNameLong,
           )}
         >
           {token.ltName.toUpperCase()}
@@ -99,12 +93,12 @@ export default function TokenRow({ token }: Props) {
         </span>
       </div>
 
-      {/* 24h change — PRIMARY tier */}
-      <div className="flex items-center justify-end px-3 border-r border-border">
+      {/* 24h change */}
+      <div className={styles.changeCell}>
         <span
           className={cn(
-            'font-mono text-[15px] font-bold tabular-nums',
-            up ? 'text-mint' : 'text-red',
+            styles.changeValue,
+            up ? styles.changeUp : styles.changeDown,
           )}
         >
           {formatPercent(token.change24h)}
@@ -112,7 +106,7 @@ export default function TokenRow({ token }: Props) {
       </div>
 
       {/* Progress bar */}
-      <div className="flex items-center px-3 border-r border-border overflow-hidden">
+      <div className={styles.progressCell}>
         <ProgressBar
           buyPercent={buyW}
           leveragePercent={levW}
@@ -121,9 +115,9 @@ export default function TokenRow({ token }: Props) {
         />
       </div>
 
-      {/* MCAP — PRIMARY tier */}
-      <div className="flex items-center justify-end px-3">
-        <span className="font-mono text-[15px] font-semibold text-txt tabular-nums">
+      {/* MCAP */}
+      <div className={styles.mcapCell}>
+        <span className={styles.mcapValue}>
           {formatUsd(token.mcapUsd)}
         </span>
       </div>

@@ -1,0 +1,13 @@
+.landingPage {
+  display: flex;
+  width: 100%;
+  max-width: var(--max-width);
+  gap: 2.4rem;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 2rem;
+
+  * {
+    z-index: 1;
+  }
+}

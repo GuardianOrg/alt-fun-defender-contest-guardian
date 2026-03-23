@@ -4,6 +4,7 @@ import { MOCK_ASSET_DATA } from '@/services/mock/assets';
 import StepHeader from './StepHeader';
 import type { Direction } from '@/services/types';
 import type { UnderlyingAsset, Leverage } from '@/config/constants';
+import styles from './PairSelector.module.css';
 
 interface Props {
   direction: Direction;
@@ -38,22 +39,21 @@ export default function PairSelector({
     <div>
       <StepHeader step={1} title="Choose your pair" subtitle="Pick a direction and underlying asset." />
 
-      {/* Direction cards */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
+      <div className={styles.directionGrid}>
         <button
           className={cn(
-            'p-5 rounded-xl border cursor-pointer font-mono text-left relative overflow-hidden transition-all duration-200',
+            styles.directionCard,
             isLong
-              ? 'border-mint/40 bg-gradient-to-br from-mint/[0.08] to-transparent shadow-inner-mint'
-              : 'border-border bg-bg-2/60 hover:border-border-2 hover:bg-bg-3/50',
+              ? styles.directionCardLongActive
+              : styles.directionCardInactive,
           )}
           onClick={() => onDirectionChange('long')}
         >
-          <div className="flex items-start justify-between mb-2.5">
+          <div className={styles.cardHeader}>
             <div
               className={cn(
-                'font-display text-2xl font-bold tracking-[0.06em] leading-none',
-                isLong ? 'text-mint' : 'text-txt-3',
+                styles.directionTitle,
+                isLong ? styles.directionTitleMint : styles.directionTitleMuted,
               )}
             >
               LONG
@@ -72,13 +72,13 @@ export default function PairSelector({
               />
             </svg>
           </div>
-          <div className="text-[13px] text-txt-3 leading-[1.5] mb-3">
+          <div className={styles.cardDesc}>
             token moves up when underlying pumps
           </div>
           <div
             className={cn(
-              'inline-block text-[11px] tracking-[0.08em] uppercase px-2.5 py-[3px] rounded-md font-semibold',
-              isLong ? 'bg-mint/[0.10] text-mint' : 'bg-white/[0.04] text-txt-4',
+              styles.cardBadge,
+              isLong ? styles.cardBadgeMintActive : styles.cardBadgeInactive,
             )}
           >
             bullish
@@ -87,18 +87,18 @@ export default function PairSelector({
 
         <button
           className={cn(
-            'p-5 rounded-xl border cursor-pointer font-mono text-left relative overflow-hidden transition-all duration-200',
+            styles.directionCard,
             !isLong
-              ? 'border-red/40 bg-gradient-to-br from-red/[0.08] to-transparent'
-              : 'border-border bg-bg-2/60 hover:border-border-2 hover:bg-bg-3/50',
+              ? styles.directionCardShortActive
+              : styles.directionCardInactive,
           )}
           onClick={() => onDirectionChange('short')}
         >
-          <div className="flex items-start justify-between mb-2.5">
+          <div className={styles.cardHeader}>
             <div
               className={cn(
-                'font-display text-2xl font-bold tracking-[0.06em] leading-none',
-                !isLong ? 'text-red' : 'text-txt-3',
+                styles.directionTitle,
+                !isLong ? styles.directionTitleRed : styles.directionTitleMuted,
               )}
             >
               SHORT
@@ -117,13 +117,13 @@ export default function PairSelector({
               />
             </svg>
           </div>
-          <div className="text-[13px] text-txt-3 leading-[1.5] mb-3">
+          <div className={styles.cardDesc}>
             token moves up when underlying dumps
           </div>
           <div
             className={cn(
-              'inline-block text-[11px] tracking-[0.08em] uppercase px-2.5 py-[3px] rounded-md font-semibold',
-              !isLong ? 'bg-red/[0.08] text-red' : 'bg-white/[0.04] text-txt-4',
+              styles.cardBadge,
+              !isLong ? styles.cardBadgeRedActive : styles.cardBadgeInactive,
             )}
           >
             bearish
@@ -131,11 +131,10 @@ export default function PairSelector({
         </button>
       </div>
 
-      {/* Asset grid */}
-      <label className="text-[11px] tracking-[0.08em] uppercase text-txt-3 mb-2 block font-medium">
+      <label className={styles.label}>
         Underlying asset
       </label>
-      <div className="grid grid-cols-3 gap-2">
+      <div className={styles.assetGrid}>
         {UNDERLYING_ASSETS.map((a) => {
           const data = MOCK_ASSET_DATA[a];
           const up = data.chg >= 0;
@@ -144,17 +143,17 @@ export default function PairSelector({
             <button
               key={a}
               className={cn(
-                'py-2.5 px-3 rounded-lg cursor-pointer border text-center transition-all duration-150 font-mono',
+                styles.assetButton,
                 selected
                   ? isLong
-                    ? 'border-mint/40 bg-mint/[0.06] shadow-inner-mint'
-                    : 'border-red/40 bg-red/[0.06]'
-                  : 'border-border bg-bg-2/50 hover:border-border-2 hover:bg-bg-3/50',
+                    ? styles.assetButtonMintSelected
+                    : styles.assetButtonRedSelected
+                  : styles.assetButtonUnselected,
               )}
               onClick={() => onAssetChange(a)}
             >
-              <div className="text-sm font-bold text-txt">{a}</div>
-              <div className={cn('text-[13px] mt-[2px] tabular-nums', up ? 'text-mint' : 'text-red')}>
+              <div className={styles.assetName}>{a}</div>
+              <div className={cn(styles.assetChg, up ? styles.textMint : styles.textRed)}>
                 {up ? '+' : ''}
                 {data.chg.toFixed(2)}%
               </div>
@@ -163,21 +162,20 @@ export default function PairSelector({
         })}
       </div>
 
-      {/* Leverage */}
-      <label className="text-[11px] tracking-[0.08em] uppercase text-txt-3 mt-4 mb-2 block font-medium">
+      <label className={styles.leverageLabel}>
         Leverage
       </label>
-      <div className="flex gap-2">
+      <div className={styles.leverageRow}>
         {LEVERAGE_OPTIONS.map((l) => (
           <button
             key={l}
             className={cn(
-              'flex-1 py-2.5 rounded-lg cursor-pointer border font-mono text-[13px] font-semibold text-center transition-all duration-150',
+              styles.leverageButton,
               leverage === l
                 ? isLong
-                  ? 'border-mint/40 text-mint bg-mint/[0.06] shadow-inner-mint'
-                  : 'border-red/40 text-red bg-red/[0.06]'
-                : 'border-border text-txt-3 bg-bg-2/50 hover:text-txt hover:border-border-2',
+                  ? styles.leverageButtonMintSelected
+                  : styles.leverageButtonRedSelected
+                : styles.leverageButtonUnselected,
             )}
             onClick={() => onLeverageChange(l)}
           >
@@ -186,25 +184,23 @@ export default function PairSelector({
         ))}
       </div>
 
-      {/* Pair summary card */}
       <div
         className={cn(
-          'flex items-center gap-3 px-4 py-3 rounded-xl border mt-4 transition-all',
-          isLong ? 'border-mint/20 bg-gradient-to-r from-mint/[0.06] to-transparent' : 'border-red/20 bg-gradient-to-r from-red/[0.06] to-transparent',
+          styles.summaryCard,
+          isLong ? styles.summaryCardMint : styles.summaryCardRed,
         )}
       >
-        <div className={cn('w-2.5 h-2.5 rounded-full shrink-0', isLong ? 'bg-mint' : 'bg-red')} />
-        <span className="text-sm font-semibold text-txt">
+        <div className={cn(styles.summaryDot, isLong ? styles.summaryDotMint : styles.summaryDotRed)} />
+        <span className={styles.summaryName}>
           {ltName(asset, leverage, direction)}
         </span>
-        <span className="text-[13px] text-txt-3 ml-auto tabular-nums">
+        <span className={styles.summaryChg}>
           {chg >= 0 ? '+' : ''}
           {chg.toFixed(1)}% today
         </span>
       </div>
 
-      {/* Hyperliquid badge */}
-      <div className="inline-flex items-center gap-2 text-[11px] font-medium text-txt-3 tracking-[0.04em] mt-3 px-3 py-2 border border-border rounded-lg bg-bg-2/30">
+      <div className={styles.hlBadge}>
         <svg width="16" height="12" viewBox="0 0 36 24" fill="none">
           <path
             d="M14 2 L2 12 L14 22"

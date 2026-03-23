@@ -1,0 +1,12 @@
+.disabledContent {
+  opacity: 0.8;
+  filter: grayscale(0.3);
+  display: inline-block;
+  pointer-events: none;
+}
+
+.disabledWrapper {
+  display: inline-block;
+  position: relative;
+  cursor: not-allowed;
+}

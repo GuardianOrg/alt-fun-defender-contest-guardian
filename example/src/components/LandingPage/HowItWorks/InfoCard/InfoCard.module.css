@@ -1,0 +1,31 @@
+.infoCard {
+  min-height: 14rem;
+  padding: 2.4rem;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  border-radius: 0.8rem;
+  background: var(--white-or-secondary-550);
+  border: 1px solid var(--primary-200-or-transparent);
+  flex: none;
+  gap: 2.4rem;
+
+  @media (min-width: 768px) {
+    flex: 1;
+  }
+}
+
+.text {
+  font-size: 1.9rem;
+  font-weight: 400;
+  color: var(--primary-text);
+  line-height: 170%;
+}
+
+.focusedText {
+  font-size: 1.9rem;
+  font-weight: 400;
+  color: var(--primary-text);
+  font-family: "Libre Baskerville", serif;
+  font-style: italic;
+}

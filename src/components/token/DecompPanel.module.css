@@ -1,0 +1,117 @@
+.wrapper {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.row {
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.card {
+  flex: 1;
+  background: rgba(16, 37, 32, 0.4);
+  border: 1px solid;
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+}
+
+.cardMint {
+  border-color: rgba(77, 232, 180, 0.15);
+}
+
+.cardRed {
+  border-color: rgba(240, 80, 80, 0.15);
+}
+
+.cardBorder {
+  flex: 1;
+  background: rgba(16, 37, 32, 0.4);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+}
+
+.cardLabel {
+  font-size: 11px;
+  color: var(--txt-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.375rem;
+}
+
+.cardValue {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.cardValueMint {
+  color: var(--mint);
+}
+
+.cardValueRed {
+  color: var(--red);
+}
+
+.cardDetail {
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-top: 0.25rem;
+}
+
+.levCard {
+  flex: 1;
+  background: rgba(240, 180, 41, 0.04);
+  border: 1px solid rgba(240, 180, 41, 0.15);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+}
+
+.levValue {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.levDetail {
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shareBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: rgba(16, 37, 32, 0.5);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--txt-3);
+  transition: all 0.15s ease;
+  align-self: stretch;
+}
+
+.shareBtn:hover {
+  border-color: var(--border-2);
+  color: var(--txt);
+  background: var(--bg-2);
+}
+
+.shareIcon {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}

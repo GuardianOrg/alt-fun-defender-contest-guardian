@@ -4,6 +4,7 @@ import { useTradeRouter } from '@/hooks/useTradeRouter';
 import { useWallet } from '@/hooks/useWallet';
 import CreatorBadge from './CreatorBadge';
 import type { Token } from '@/services/types';
+import styles from './TradePanel.module.css';
 
 interface Props {
   token: Token;
@@ -42,12 +43,12 @@ function SettingsPopup({
   return (
     <div
       ref={ref}
-      className="absolute top-full right-0 mt-1.5 w-[260px] bg-bg-2 border border-border-2 rounded-xl shadow-panel z-50 p-4 space-y-4"
+      className={styles.settingsPopup}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-txt">Settings</span>
+      <div className={styles.settingsHeader}>
+        <span className={styles.settingsTitle}>Settings</span>
         <button
-          className="text-txt-3 hover:text-txt text-[13px] cursor-pointer bg-transparent border-0 font-mono"
+          className={styles.settingsCloseBtn}
           onClick={onClose}
         >
           [Close]
@@ -55,12 +56,12 @@ function SettingsPopup({
       </div>
 
       <div>
-        <div className="text-[11px] tracking-[0.08em] uppercase text-txt-3 mb-2 font-medium">
+        <div className={styles.slippageLabel}>
           Max slippage (%)
         </div>
-        <div className="flex items-center bg-bg-3/60 border border-border rounded-lg px-3.5 py-2.5 mb-2.5 transition-all focus-within:border-border-2">
+        <div className={styles.slippageInputWrap}>
           <input
-            className="flex-1 bg-transparent border-0 outline-0 font-mono text-base font-semibold text-txt placeholder:text-txt-4 tabular-nums"
+            className={styles.slippageInput}
             type="number"
             value={custom}
             onChange={(e) => applyCustom(e.target.value)}
@@ -68,20 +69,18 @@ function SettingsPopup({
             max="50"
             step="0.1"
           />
-          <span className="text-[13px] text-txt-3 ml-1">%</span>
+          <span className={styles.percentSign}>%</span>
         </div>
-        <div className="text-[11px] text-txt-4 leading-relaxed mb-3">
+        <div className={styles.slippageHint}>
           Maximum price change you&apos;re willing to accept when placing trades.
         </div>
-        <div className="flex gap-1.5">
+        <div className={styles.presetRow}>
           {presets.map((p) => (
             <button
               key={p}
               className={cn(
-                'flex-1 py-1.5 rounded-lg border font-mono text-[13px] cursor-pointer text-center transition-all duration-150',
-                slippage === p / 100
-                  ? 'border-mint/40 text-mint bg-mint/[0.08]'
-                  : 'border-border text-txt-3 bg-transparent hover:border-border-2 hover:text-txt',
+                styles.presetBtn,
+                slippage === p / 100 && styles.presetBtnActive,
               )}
               onClick={() => {
                 onSlippageChange(p / 100);
@@ -164,53 +163,44 @@ export default function TradePanel({ token }: Props) {
   const ticker = token.name.split(' ')[0].toUpperCase();
 
   return (
-    <div className="w-[300px] shrink-0 flex flex-col bg-bg-1 shadow-panel">
-      {/* Graduating banner */}
+    <div className={styles.panel}>
       {token.status === 'graduating' && (
-        <div className="flex items-center justify-center gap-2 px-2 py-2 bg-mint/[0.06] border-b border-mint/20 text-[11px] font-semibold text-mint tracking-[0.08em] uppercase animate-gp2 shrink-0">
-          <div className="w-1.5 h-1.5 rounded-full bg-mint" />
+        <div className={styles.graduatingBanner}>
+          <div className={styles.bannerDot} />
           graduating · {token.curveFilled}% filled
-          <div className="w-1.5 h-1.5 rounded-full bg-mint" />
+          <div className={styles.bannerDot} />
         </div>
       )}
 
-      {/* BUY/SELL toggle + settings gear */}
-      <div className="flex items-center shrink-0 border-b border-border">
-        <div className="grid grid-cols-2 flex-1">
+      <div className={styles.toggleBar}>
+        <div className={styles.toggleGrid}>
           <button
             className={cn(
-              'relative h-10 flex items-center justify-center text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
-              mode === 'buy'
-                ? 'text-mint bg-mint/[0.06]'
-                : 'text-txt-3 hover:text-txt hover:bg-white/[0.02]',
+              styles.modeBtn,
+              mode === 'buy' && styles.modeBtnBuyActive,
             )}
             onClick={() => { setMode('buy'); reset(); }}
           >
             BUY
-            {mode === 'buy' && <span className="absolute bottom-0 inset-x-2 h-[2px] bg-mint rounded-full" />}
+            {mode === 'buy' && <span className={styles.modeIndicatorMint} />}
           </button>
           <button
             className={cn(
-              'relative h-10 flex items-center justify-center text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
-              mode === 'sell'
-                ? 'text-red bg-red/[0.05]'
-                : 'text-txt-3 hover:text-txt hover:bg-white/[0.02]',
+              styles.modeBtn,
+              mode === 'sell' && styles.modeBtnSellActive,
             )}
             onClick={() => { setMode('sell'); reset(); }}
           >
             SELL
-            {mode === 'sell' && <span className="absolute bottom-0 inset-x-2 h-[2px] bg-red rounded-full" />}
+            {mode === 'sell' && <span className={styles.modeIndicatorRed} />}
           </button>
         </div>
 
-        {/* Settings gear */}
-        <div className="relative shrink-0 px-2 h-10 flex items-center">
+        <div className={styles.gearWrap}>
           <button
             className={cn(
-              'w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer border-0 transition-all duration-150',
-              settingsOpen
-                ? 'bg-mint/[0.10] text-mint'
-                : 'bg-transparent text-txt-3 hover:text-txt hover:bg-white/[0.04]',
+              styles.gearBtn,
+              settingsOpen && styles.gearBtnActive,
             )}
             onClick={() => setSettingsOpen(!settingsOpen)}
           >
@@ -230,47 +220,43 @@ export default function TradePanel({ token }: Props) {
         </div>
       </div>
 
-      {/* Trade form */}
-      <div className="px-3.5 py-4 flex-1 overflow-y-auto flex flex-col gap-3">
-        {/* Denomination toggle */}
+      <div className={styles.formBody}>
         <button
-          className="self-start text-[11px] text-txt-3 hover:text-mint cursor-pointer bg-transparent border-0 font-mono transition-colors"
+          className={styles.denomToggle}
           onClick={() => { setDenomUsdc(!denomUsdc); setAmount(''); }}
         >
           Switch to {denomUsdc ? ticker : 'USDC'}
         </button>
 
-        {/* Amount input */}
-        <div className="flex items-center bg-bg-2/60 border border-border rounded-xl px-4 py-3 gap-2 transition-all focus-within:border-border-2 focus-within:bg-bg-2">
+        <div className={styles.amountWrap}>
           <input
-            className="flex-1 bg-transparent border-0 outline-0 font-mono text-xl font-semibold text-txt placeholder:text-txt-4 tabular-nums min-w-0"
+            className={styles.amountInput}
             type="number"
             placeholder="0.00"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             disabled={isBusy}
           />
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-[13px] font-semibold text-txt-2">
+          <div className={styles.denomTag}>
+            <span className={styles.denomLabel}>
               {denomUsdc ? 'USDC' : ticker}
             </span>
             <div className={cn(
-              'w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold',
+              styles.coinIcon,
               denomUsdc
-                ? 'bg-[#2775ca] text-white'
-                : mode === 'buy' ? 'bg-mint/20 text-mint' : 'bg-red/20 text-red',
+                ? styles.coinUsdc
+                : mode === 'buy' ? styles.coinMint : styles.coinRed,
             )}>
               {denomUsdc ? '$' : token.image ? (
-                <img src={token.image} alt="" className="w-full h-full rounded-full object-cover" />
+                <img src={token.image} alt="" className={styles.coinImg} />
               ) : token.emoji}
             </div>
           </div>
         </div>
 
-        {/* Quick amounts: Reset + presets + Max */}
-        <div className="flex gap-1.5">
+        <div className={styles.quickRow}>
           <button
-            className="px-2.5 py-1.5 rounded-lg border border-border text-txt-3 font-mono text-[13px] cursor-pointer transition-all duration-150 hover:border-border-2 hover:text-txt bg-transparent"
+            className={styles.resetBtn}
             onClick={() => setAmount('')}
             disabled={isBusy}
           >
@@ -280,10 +266,8 @@ export default function TradePanel({ token }: Props) {
             <button
               key={qa}
               className={cn(
-                'flex-1 py-1.5 rounded-lg border font-mono text-[13px] cursor-pointer text-center transition-all duration-150',
-                amount === String(qa)
-                  ? 'border-mint/40 text-mint bg-mint/[0.06]'
-                  : 'border-border text-txt-3 bg-transparent hover:border-border-2 hover:text-txt',
+                styles.quickBtn,
+                amount === String(qa) && styles.quickBtnActive,
               )}
               onClick={() => { setDenomUsdc(true); setAmount(String(qa)); }}
               disabled={isBusy}
@@ -292,7 +276,7 @@ export default function TradePanel({ token }: Props) {
             </button>
           ))}
           <button
-            className="px-2.5 py-1.5 rounded-lg border border-border text-mint font-mono text-[11px] font-bold tracking-[0.04em] cursor-pointer transition-all duration-150 hover:border-mint/40 hover:bg-mint/[0.04] bg-transparent"
+            className={styles.maxBtn}
             onClick={() => { setDenomUsdc(true); setAmount('4210'); }}
             disabled={isBusy}
           >
@@ -300,53 +284,50 @@ export default function TradePanel({ token }: Props) {
           </button>
         </div>
 
-        {/* Estimate */}
         {amtNum > 0 && (
-          <div className="text-[13px] text-txt-2 tabular-nums">
+          <div className={styles.estimate}>
             {mode === 'buy' ? (
               <>
                 ≈ you receive{' '}
-                <span className="text-txt font-semibold">
+                <span className={styles.estimateValue}>
                   {estimateTokens.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                 </span>{' '}
-                <span className="text-mint/70">{ticker}</span>
+                <span className={styles.estimateMint}>{ticker}</span>
               </>
             ) : (
               <>
                 ≈ you receive{' '}
-                <span className="text-txt font-semibold">
+                <span className={styles.estimateValue}>
                   ${estimateUsdc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>{' '}
-                <span className="text-txt-3">USDC</span>
+                <span className={styles.estimateLabel}>USDC</span>
               </>
             )}
           </div>
         )}
 
-        {/* Error / confirmation */}
         {error && (
-          <div className="text-[13px] text-red bg-red/[0.06] border border-red/20 rounded-lg px-3 py-2 flex items-center gap-2">
-            <span className="text-red/60">⚠</span>
+          <div className={styles.errorBox}>
+            <span className={styles.errorIcon}>⚠</span>
             {error}
           </div>
         )}
 
         {step === 'confirmed' && txHash && (
-          <div className="text-[13px] text-mint bg-mint/[0.06] border border-mint/20 rounded-lg px-3 py-2 flex items-center gap-2">
+          <div className={styles.confirmedBox}>
             ✓ Transaction confirmed
           </div>
         )}
 
-        {/* CTA */}
         <button
           className={cn(
-            'w-full py-3 rounded-xl border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all duration-200',
+            styles.ctaBtn,
             step === 'confirmed'
-              ? 'bg-mint/15 text-mint cursor-default'
+              ? styles.ctaConfirmed
               : mode === 'buy'
-                ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
-                : 'bg-red text-white shadow-red-glow hover:bg-red/90',
-            isBusy && 'opacity-70 cursor-wait',
+                ? styles.ctaBuy
+                : styles.ctaSell,
+            isBusy && styles.ctaBusy,
           )}
           onClick={doTrade}
           disabled={isBusy || step === 'confirmed'}
@@ -355,8 +336,8 @@ export default function TradePanel({ token }: Props) {
         </button>
 
         {isBusy && (
-          <div className="flex items-center gap-2 text-[11px] text-txt-3">
-            <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+          <div className={styles.busyHint}>
+            <div className={styles.liveDot} />
             {step === 'approving'
               ? 'Waiting for USDC approval in wallet…'
               : 'Confirm transaction in wallet…'}
@@ -366,21 +347,20 @@ export default function TradePanel({ token }: Props) {
 
       <CreatorBadge token={token} />
 
-      {/* Compact footer */}
-      <div className="border-t border-border px-3.5 py-2.5 shrink-0 flex items-center justify-between text-[11px]">
-        <div className="flex items-center gap-2">
+      <div className={styles.footer}>
+        <div className={styles.footerLeft}>
           <a
-            className="text-mint/70 no-underline cursor-pointer hover:text-mint transition-colors font-mono"
+            className={styles.footerCa}
             onClick={copyCA}
           >
             {copied ? '✓ copied' : `${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
           </a>
-          <span className="text-txt-4">·</span>
-          <span className="text-txt-3">{token.ltName}</span>
+          <span className={styles.footerDot}>·</span>
+          <span className={styles.footerLt}>{token.ltName}</span>
         </div>
         <span className={cn(
-          'font-medium',
-          token.status === 'graduating' ? 'text-amber' : 'text-txt-4',
+          styles.footerStatus,
+          token.status === 'graduating' ? styles.footerStatusGraduating : styles.footerStatusDefault,
         )}>
           {token.status}{token.status === 'graduating' ? ' ⚡' : ''}
         </span>

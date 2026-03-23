@@ -1,6 +1,7 @@
 import { useTradeFeed } from '@/hooks/useTradeFeed';
 import { useTokens } from '@/hooks/useTokens';
 import { cn } from '@/utils/format';
+import styles from './RightPanel.module.css';
 
 export default function RightPanel() {
   const trades = useTradeFeed();
@@ -13,13 +14,13 @@ export default function RightPanel() {
     ?.slice(0, 3) ?? [];
 
   return (
-    <div className="w-[220px] shrink-0 border-l border-border flex flex-col bg-bg-1 overflow-y-auto">
+    <div className={styles.panel}>
       {/* Recent trades */}
-      <div className="border-b border-border">
-        <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border flex justify-between items-center font-medium">
+      <div className={styles.section}>
+        <div className={cn(styles.sectionHeader, styles.sectionHeaderLive)}>
           RECENT TRADES
-          <span className="flex items-center gap-1.5 text-txt-3">
-            <span className="w-1 h-1 rounded-full bg-mint animate-livep" />
+          <span className={styles.liveIndicator}>
+            <span className={styles.liveDot} />
             LIVE
           </span>
         </div>
@@ -29,19 +30,19 @@ export default function RightPanel() {
             return (
               <div
                 key={t.id}
-                className="flex items-center gap-2 px-3 py-2 border-b border-border cursor-pointer transition-colors hover:bg-white/[0.02]"
+                className={styles.tradeRow}
               >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[13px] font-bold text-txt font-mono truncate">{t.tokenName}</span>
-                    <span className="text-[11px] text-txt-4 tabular-nums shrink-0">{t.timestamp}</span>
+                <div className={styles.tradeInfo}>
+                  <div className={styles.tradeNameRow}>
+                    <span className={styles.tradeName}>{t.tokenName}</span>
+                    <span className={styles.tradeTime}>{t.timestamp}</span>
                   </div>
-                  <div className="text-txt-4 text-[11px] truncate mt-0.5">{t.walletAddress}</div>
+                  <div className={styles.tradeWallet}>{t.walletAddress}</div>
                 </div>
                 <span
                   className={cn(
-                    'shrink-0 font-bold font-mono tabular-nums text-[14px]',
-                    isBuy ? 'text-mint' : 'text-red',
+                    styles.tradeAmount,
+                    isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
                   )}
                 >
                   {isBuy ? '+' : '-'}${t.amountUsd.toLocaleString()}
@@ -54,17 +55,17 @@ export default function RightPanel() {
 
       {/* Graduating soon */}
       {graduating.length > 0 && (
-        <div className="border-b border-border">
-          <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
+        <div className={styles.section}>
+          <div className={styles.sectionHeader}>
             GRADUATING SOON
           </div>
           {graduating.map((t) => (
             <div
               key={t.address}
-              className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0 text-[13px]"
+              className={cn(styles.infoRow, styles.infoRowNoBorderLast)}
             >
-              <span className="text-txt-2 font-mono">{t.name}</span>
-              <span className="font-medium text-amber font-mono tabular-nums">
+              <span className={styles.infoName}>{t.name}</span>
+              <span className={styles.graduatingValue}>
                 {t.curveFilled}% · {t.direction === 'long' ? 'LONG' : 'SHORT'}
               </span>
             </div>
@@ -73,17 +74,17 @@ export default function RightPanel() {
       )}
 
       {/* Top LT movers */}
-      <div className="border-b border-border">
-        <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
           TOP LT MOVERS
         </div>
         {ltMovers.map((t) => (
           <div
             key={t.address}
-            className="flex items-center justify-between px-3 py-1.5 border-b border-border last:border-b-0 text-[13px]"
+            className={cn(styles.infoRow, styles.infoRowNoBorderLast)}
           >
-            <span className="text-txt-2 font-mono">{t.name}</span>
-            <span className="font-medium text-mint font-mono tabular-nums">
+            <span className={styles.infoName}>{t.name}</span>
+            <span className={styles.ltMoverValue}>
               +{t.change24h}% {t.ltName.split(' ').slice(0, 2).join('')}
             </span>
           </div>
@@ -92,25 +93,25 @@ export default function RightPanel() {
 
       {/* My positions */}
       <div>
-        <div className="text-[11px] tracking-[0.14em] uppercase text-mint px-3 py-1.5 bg-mint-bg border-b border-border font-medium">
+        <div className={styles.sectionHeader}>
           MY POSITIONS
         </div>
         {[
-          { name: 'HOUSE', pnl: '+$184', cls: 'text-mint' },
-          { name: 'WAVEBEAR', pnl: '+$92', cls: 'text-mint' },
-          { name: 'DOOMER', pnl: '-$41', cls: 'text-red' },
+          { name: 'HOUSE', pnl: '+$184', positive: true },
+          { name: 'WAVEBEAR', pnl: '+$92', positive: true },
+          { name: 'DOOMER', pnl: '-$41', positive: false },
         ].map((p) => (
           <div
             key={p.name}
-            className="flex items-center justify-between px-3 py-1.5 border-b border-border text-[13px]"
+            className={styles.infoRow}
           >
-            <span className="text-txt-2 font-mono">{p.name}</span>
-            <span className={cn('font-medium font-mono tabular-nums', p.cls)}>{p.pnl}</span>
+            <span className={styles.infoName}>{p.name}</span>
+            <span className={cn(styles.positionPnl, p.positive ? styles.pnlPositive : styles.pnlNegative)}>{p.pnl}</span>
           </div>
         ))}
-        <div className="flex items-center justify-between px-3 py-1.5 border-t border-border-2 text-[13px]">
-          <span className="text-txt-3 font-mono">NET P&L</span>
-          <span className="font-semibold text-mint font-mono tabular-nums">+$235</span>
+        <div className={styles.netPnlRow}>
+          <span className={styles.netPnlLabel}>NET P&L</span>
+          <span className={styles.netPnlValue}>+$235</span>
         </div>
       </div>
     </div>

@@ -1,0 +1,48 @@
+.pagination {
+  display: flex;
+  justify-content: right;
+  gap: 0.8rem;
+
+  * {
+    font-size: 1.4rem;
+  }
+}
+
+.navButton {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  color: var(--secondary-700-or-white);
+  cursor: pointer;
+
+  &:disabled {
+    color: unset;
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.arrow {
+  * {
+    height: 1.6rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+.ellipsis {
+  cursor: default;
+}
+
+.pageButton {
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.4rem;
+  color: var(--secondary-700-or-white);
+  cursor: pointer;
+}
+
+.activePageButton {
+  background-color: var(--primary-500);
+  color: var(--white);
+}

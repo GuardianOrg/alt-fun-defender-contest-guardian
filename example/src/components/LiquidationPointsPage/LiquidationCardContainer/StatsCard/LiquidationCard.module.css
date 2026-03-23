@@ -1,0 +1,102 @@
+.statsCard {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  container-type: inline-size;
+}
+
+.statsCardBg {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  scale: 1.01;
+}
+
+.stats {
+  position: relative;
+  z-index: 2;
+  color: var(--white);
+  height: 100%;
+  left: 5%;
+  top: 9%;
+}
+
+.logo {
+  width: 20%;
+  height: auto;
+}
+
+.statsTextContainer {
+  position: absolute;
+  left: 0;
+}
+
+.yourTotalLiquidated {
+  color: var(--white);
+  font-family: "Libre Baskerville";
+  font-size: 4cqw;
+  font-style: italic;
+  font-weight: 200;
+  margin-top: 4cqw;
+}
+
+.liquidatedAmount {
+  color: var(--white);
+  display: flex;
+  flex-direction: row;
+  gap: 0.3rem;
+  margin-top: 2cqw;
+}
+
+.liquidatedAmount p {
+  color: var(--white);
+  font-size: 8cqw;
+  font-weight: 600;
+  line-height: 80%;
+  margin: 0;
+}
+
+.liquidationPoints {
+  color: var(--white);
+  font-family: "Libre Baskerville";
+  font-weight: 200;
+  font-style: italic;
+  font-size: 3cqw;
+  margin-top: 3cqw;
+}
+
+.liquidationPointsAmount {
+  color: var(--white);
+  font-weight: 600;
+  font-size: 2cqw;
+  margin-top: 1cqw;
+}
+
+.referralCode {
+  color: var(--white);
+  font-family: Libre Baskerville;
+  font-weight: 200;
+  font-style: Italic;
+  font-size: 2cqw;
+  margin-top: 3cqw;
+}
+
+.referralCodeValue {
+  color: var(--white);
+  font-weight: 200;
+  font-size: 2cqw;
+  margin-top: 1cqw;
+}
+
+.maskedOverlayContainer img {
+  position: absolute;
+  z-index: 1;
+  bottom: -0.3rem;
+  right: 0;
+  width: auto;
+  height: 90%;
+}

@@ -1,0 +1,47 @@
+.leverageButtonsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.leverageLabel {
+  font-size: 1.2rem;
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.leverageButtons {
+  display: flex;
+  flex-direction: row;
+  gap: 0.6rem;
+  width: 100%;
+
+  button {
+    height: 2.4rem;
+    width: 4.4rem;
+    background-color: var(--grey-100-or-primary-800);
+    color: var(--primary-400-or-primary-300);
+    border: 1px solid var(--primary-200-or-primary-800);
+    border-radius: 0.8rem;
+    cursor: pointer;
+    transition: all 0.25s ease;
+
+    &.selected {
+      background-color: var(--primary-200-or-primary-500);
+      color: var(--primary-600-or-white);
+      border: 1px solid var(--primary-500);
+      scale: 1.05;
+    }
+
+    &.selected:hover {
+      border: 1px solid var(--primary-500-or-primary-600);
+    }
+  }
+
+  button:hover {
+    background-color: var(--primary-250-or-primary-600);
+    border: 1px solid var(--primary-250-or-primary-600);
+  }
+}

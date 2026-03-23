@@ -3,6 +3,7 @@ import { useCreatorEarnings } from '@/hooks/useCreatorEarnings';
 import { useWallet } from '@/hooks/useWallet';
 import { cn } from '@/utils/format';
 import type { Token } from '@/services/types';
+import styles from './CreatorBadge.module.css';
 
 interface Props {
   token: Token;
@@ -21,42 +22,42 @@ export default function CreatorBadge({ token }: Props) {
   );
 
   return (
-    <div className="border-t border-mint/20 bg-mint/[0.04]">
+    <div className={styles.wrapper}>
       <button
-        className="w-full flex items-center justify-between px-3 py-2.5 bg-transparent border-0 cursor-pointer"
+        className={styles.header}
         onClick={() => setExpanded(!expanded)}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] tracking-[0.14em] uppercase text-mint font-semibold border border-mint/30 px-1.5 py-px rounded-sm">
+        <div className={styles.headerLeft}>
+          <span className={styles.badge}>
             creator
           </span>
-          <span className="text-[13px] text-mint font-semibold">
+          <span className={styles.claimable}>
             {tokenData
               ? `$${tokenData.feesClaimableUsd.toFixed(2)} claimable`
               : 'Your token'}
           </span>
         </div>
-        <span className="text-[13px] text-txt-3">{expanded ? '▴' : '▾'}</span>
+        <span className={styles.chevron}>{expanded ? '▴' : '▾'}</span>
       </button>
 
       {expanded && tokenData && (
-        <div className="px-3 pb-3 flex flex-col gap-2">
-          <div className="grid grid-cols-3 gap-2 text-[13px]">
+        <div className={styles.details}>
+          <div className={styles.statsGrid}>
             <div>
-              <div className="text-txt-3 text-[11px] uppercase tracking-wider">volume</div>
-              <div className="text-txt font-semibold">
+              <div className={styles.statLabel}>volume</div>
+              <div className={styles.statValue}>
                 ${tokenData.totalVolumeUsd.toLocaleString()}
               </div>
             </div>
             <div>
-              <div className="text-txt-3 text-[11px] uppercase tracking-wider">earned</div>
-              <div className="text-txt font-semibold">
+              <div className={styles.statLabel}>earned</div>
+              <div className={styles.statValue}>
                 ${tokenData.feesEarnedUsd.toFixed(2)}
               </div>
             </div>
             <div>
-              <div className="text-txt-3 text-[11px] uppercase tracking-wider">claimable</div>
-              <div className="text-mint font-semibold">
+              <div className={styles.statLabel}>claimable</div>
+              <div className={styles.statMint}>
                 ${tokenData.feesClaimableUsd.toFixed(2)}
               </div>
             </div>
@@ -64,11 +65,11 @@ export default function CreatorBadge({ token }: Props) {
 
           <button
             className={cn(
-              'w-full py-2 rounded-sm border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
+              styles.claimBtn,
               tokenData.feesClaimableUsd > 0
-                ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
-                : 'bg-bg-2 text-txt-3 cursor-not-allowed',
-              claiming && 'opacity-70 cursor-wait',
+                ? styles.claimBtnActive
+                : styles.claimBtnDisabled,
+              claiming && styles.claimBtnBusy,
             )}
             disabled={tokenData.feesClaimableUsd <= 0 || claiming}
             onClick={() => claim(token.address)}
@@ -80,7 +81,7 @@ export default function CreatorBadge({ token }: Props) {
                 : 'Nothing to claim'}
           </button>
 
-          <div className="text-[11px] text-txt-3 leading-[1.5]">
+          <div className={styles.hint}>
             You earn 0.1% of all volume on this curve. Fees settle in USDC.
           </div>
         </div>

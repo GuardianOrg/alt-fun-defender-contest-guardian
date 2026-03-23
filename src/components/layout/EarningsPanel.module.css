@@ -1,0 +1,630 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.panel {
+  width: 380px;
+  height: 100%;
+  background: var(--bg-1);
+  border-left: 1px solid var(--border-2);
+  display: flex;
+  flex-direction: column;
+  animation: modalin 0.15s ease;
+  overflow: hidden;
+  box-shadow: var(--shadow-panel);
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-2);
+  flex-shrink: 0;
+}
+
+.avatarWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.avatar {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  object-fit: cover;
+  background: var(--bg-2);
+  flex-shrink: 0;
+}
+
+.addressText {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+}
+
+.chainText {
+  font-size: 11px;
+  color: var(--txt-3);
+}
+
+.profileLabel {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mint);
+  font-weight: 600;
+}
+
+.escBtn {
+  font-size: 11px;
+  color: var(--txt-3);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 0.125rem;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.escBtn:hover {
+  color: var(--txt);
+}
+
+.notConnected {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2rem;
+  padding-right: 2rem;
+  gap: 1rem;
+}
+
+.emptyIcon {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+}
+
+.emptyTitle {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  color: var(--txt);
+  margin-bottom: 0.25rem;
+}
+
+.emptyText {
+  font-size: 13px;
+  color: var(--txt-3);
+  line-height: 1.625;
+}
+
+.connectBtn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--mint);
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  border-radius: 0.125rem;
+  border: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-mint-glow);
+}
+
+.connectBtn:hover {
+  background: var(--mint-hover);
+}
+
+.tabBar {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabButton {
+  position: relative;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  transition: all 0.15s ease;
+  color: var(--txt-3);
+}
+
+.tabButton:hover {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tabButtonActive {
+  color: var(--mint);
+  background: rgba(77, 232, 180, 0.04);
+}
+
+.tabIndicator {
+  position: absolute;
+  bottom: 0;
+  left: 0.5rem;
+  right: 0.5rem;
+  height: 2px;
+  background: var(--mint);
+  border-radius: 9999px;
+}
+
+.contentArea {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ─── Balances tab ─── */
+
+.emptyState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2rem;
+  padding-right: 2rem;
+  padding-top: 4rem;
+  padding-bottom: 4rem;
+  gap: 1rem;
+}
+
+.launchBtn {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--mint);
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  padding-top: 0.625rem;
+  padding-bottom: 0.625rem;
+  border-radius: 0.125rem;
+  border: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: var(--shadow-mint-glow);
+}
+
+.launchBtn:hover {
+  background: var(--mint-hover);
+}
+
+.totalValueWrap {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.totalValueLabel {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  margin-bottom: 0.25rem;
+}
+
+.totalValueAmount {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  color: var(--txt);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.listHeader {
+  display: flex;
+  align-items: center;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.listHeaderLeft {
+  flex: 1;
+}
+
+.listHeaderRight {
+  width: 72px;
+  text-align: right;
+}
+
+.tokenList {
+  display: flex;
+  flex-direction: column;
+}
+
+.tokenRow {
+  display: flex;
+  align-items: center;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tokenRow:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tokenEmoji {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  margin-right: 0.75rem;
+}
+
+.tokenInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.tokenName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tokenAmount {
+  font-size: 11px;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.tokenValueWrap {
+  text-align: right;
+  margin-left: 0.75rem;
+}
+
+.tokenValue {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+}
+
+.tokenChange {
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.changeMint {
+  color: var(--mint);
+}
+
+.changeRed {
+  color: var(--red);
+}
+
+.changeTxt3 {
+  color: var(--txt-3);
+}
+
+/* ─── Creator Rewards tab ─── */
+
+.rewardsSummary {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewardsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.rewardsLabel {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  margin-bottom: 0.25rem;
+}
+
+.rewardsClaimable {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  color: var(--mint);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.rewardsTotalEarned {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  color: var(--txt);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.claimBtn {
+  width: 100%;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-radius: 3px;
+  border: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.claimBtnActive {
+  background: var(--mint);
+  color: var(--bg);
+  box-shadow: var(--shadow-mint-glow);
+}
+
+.claimBtnActive:hover {
+  background: var(--mint-hover);
+}
+
+.claimBtnDisabled {
+  background: var(--bg-2);
+  color: var(--txt-3);
+  cursor: not-allowed;
+}
+
+.claiming {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+.claimingIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-top: 0.5rem;
+}
+
+.claimingDot {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 9999px;
+  background: var(--mint);
+  animation: livep 2s ease-in-out infinite;
+}
+
+.prevClaimed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.prevClaimedValue {
+  color: var(--txt-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tokensSection {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.tokensSectionLabel {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  margin-bottom: 0.75rem;
+}
+
+.tokensCards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tokenCard {
+  background: rgba(16, 37, 32, 0.6);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tokenCard:hover {
+  border-color: var(--border-2);
+  background: var(--bg-2);
+}
+
+.tokenCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tokenCardEmoji {
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+.tokenCardInfo {
+  flex: 1;
+}
+
+.tokenCardName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
+}
+
+.tokenCardLtName {
+  font-size: 11px;
+  color: var(--txt-3);
+}
+
+.statusBadge {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+  padding-top: 1px;
+  padding-bottom: 1px;
+  border-radius: 0.125rem;
+  border: 1px solid;
+}
+
+.statusGraduating {
+  color: var(--amber);
+  border-color: rgba(240, 180, 41, 0.3);
+}
+
+.statusGraduated {
+  color: var(--mint);
+  border-color: rgba(77, 232, 180, 0.3);
+}
+
+.statusActive {
+  color: var(--txt-3);
+  border-color: var(--border);
+}
+
+.tokenCardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  font-size: 13px;
+}
+
+.tokenCardStatLabel {
+  color: var(--txt-3);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tokenCardStatValue {
+  color: var(--txt);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.tokenCardStatValueMint {
+  color: var(--mint);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.curveBar {
+  margin-top: 0.5rem;
+}
+
+.curveTrack {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.curveFill {
+  height: 100%;
+  background: var(--mint-dim);
+  border-radius: 9999px;
+}
+
+.curveLabel {
+  font-size: 11px;
+  color: var(--txt-3);
+  margin-top: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.footerText {
+  font-size: 11px;
+  color: var(--txt-3);
+  line-height: 1.625;
+}
+
+.footerHighlight {
+  color: var(--mint);
+  font-weight: 600;
+}
+
+.textCenter {
+  text-align: center;
+}

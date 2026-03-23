@@ -4,6 +4,7 @@ import { useUIStore } from '@/stores/uiStore';
 import { useCreatorEarnings, useBalances } from '@/hooks/useCreatorEarnings';
 import { useWallet } from '@/hooks/useWallet';
 import { cn, formatUsd, formatPercent, formatTokenAmount } from '@/utils/format';
+import styles from './EarningsPanel.module.css';
 
 type Tab = 'balances' | 'rewards';
 
@@ -25,33 +26,33 @@ export default function EarningsPanel() {
 
   return (
     <div
-      className="fixed inset-0 z-[900] bg-black/50 backdrop-blur-sm flex justify-end"
+      className={styles.overlay}
       onClick={(e) => {
         if (e.target === e.currentTarget) setOpen(false);
       }}
     >
-      <div className="w-[380px] h-full bg-bg-1 border-l border-border-2 flex flex-col animate-modalin overflow-hidden shadow-panel">
+      <div className={styles.panel}>
         {/* Panel header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-2 shrink-0">
+        <div className={styles.panelHeader}>
           {isConnected ? (
-            <div className="flex items-center gap-2.5">
+            <div className={styles.avatarWrap}>
               <img
                 src="/avatar.png"
                 alt=""
-                className="w-7 h-7 rounded-full object-cover bg-bg-2 shrink-0"
+                className={styles.avatar}
               />
               <div>
-                <div className="text-[13px] font-bold text-txt">{shortAddress}</div>
-                <div className="text-[11px] text-txt-3">HyperEVM</div>
+                <div className={styles.addressText}>{shortAddress}</div>
+                <div className={styles.chainText}>HyperEVM</div>
               </div>
             </div>
           ) : (
-            <div className="text-[11px] tracking-[0.14em] uppercase text-mint font-semibold">
+            <div className={styles.profileLabel}>
               profile
             </div>
           )}
           <button
-            className="text-[11px] text-txt-3 bg-white/[0.05] border border-border rounded-sm px-1.5 py-px cursor-pointer hover:text-txt transition-colors"
+            className={styles.escBtn}
             onClick={() => setOpen(false)}
           >
             esc
@@ -59,16 +60,16 @@ export default function EarningsPanel() {
         </div>
 
         {!isConnected ? (
-          <div className="flex-1 flex flex-col items-center justify-center px-8 gap-4">
-            <div className="text-3xl">👤</div>
-            <div className="text-center">
-              <div className="text-sm font-semibold text-txt mb-1">Connect your wallet</div>
-              <div className="text-[13px] text-txt-3 leading-relaxed">
+          <div className={styles.notConnected}>
+            <div className={styles.emptyIcon}>👤</div>
+            <div className={styles.textCenter}>
+              <div className={styles.emptyTitle}>Connect your wallet</div>
+              <div className={styles.emptyText}>
                 View your token balances on the curve and claim creator rewards.
               </div>
             </div>
             <button
-              className="font-mono text-[13px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
+              className={styles.connectBtn}
               onClick={connect}
             >
               Connect Wallet
@@ -77,25 +78,23 @@ export default function EarningsPanel() {
         ) : (
           <>
             {/* Tabs */}
-            <div className="grid grid-cols-2 shrink-0 border-b border-border">
+            <div className={styles.tabBar}>
               {(['balances', 'rewards'] as const).map((t) => (
                 <button
                   key={t}
                   className={cn(
-                    'relative h-9 flex items-center justify-center text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer border-0 bg-transparent font-mono transition-all duration-150',
-                    tab === t
-                      ? 'text-mint bg-mint/[0.04]'
-                      : 'text-txt-3 hover:text-txt hover:bg-white/[0.02]',
+                    styles.tabButton,
+                    tab === t && styles.tabButtonActive,
                   )}
                   onClick={() => setTab(t)}
                 >
                   {t === 'balances' ? 'Balances' : 'Creator Rewards'}
-                  {tab === t && <span className="absolute bottom-0 inset-x-2 h-[2px] bg-mint rounded-full" />}
+                  {tab === t && <span className={styles.tabIndicator} />}
                 </button>
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className={styles.contentArea}>
               {tab === 'balances' ? (
                 <BalancesTab
                   tokens={heldTokens}
@@ -141,16 +140,16 @@ function BalancesTab({
 }) {
   if (tokens.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-8 py-16 gap-4">
-        <div className="text-3xl">📭</div>
-        <div className="text-center">
-          <div className="text-sm font-semibold text-txt mb-1">No tokens yet</div>
-          <div className="text-[13px] text-txt-3 leading-relaxed">
+      <div className={styles.emptyState}>
+        <div className={styles.emptyIcon}>📭</div>
+        <div className={styles.textCenter}>
+          <div className={styles.emptyTitle}>No tokens yet</div>
+          <div className={styles.emptyText}>
             Buy tokens on the bonding curve or launch your own levered token.
           </div>
         </div>
         <button
-          className="font-mono text-[13px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
+          className={styles.launchBtn}
           onClick={onLaunch}
         >
           ⚡ Launch a token
@@ -161,38 +160,38 @@ function BalancesTab({
 
   return (
     <>
-      <div className="px-4 py-4 border-b border-border">
-        <div className="text-[11px] tracking-[0.12em] uppercase text-txt-3 mb-1">total value</div>
-        <div className="font-display text-2xl font-bold text-txt leading-none tabular-nums">
+      <div className={styles.totalValueWrap}>
+        <div className={styles.totalValueLabel}>total value</div>
+        <div className={styles.totalValueAmount}>
           {formatUsd(totalValue)}
         </div>
       </div>
 
-      <div className="flex items-center px-4 py-2 text-[11px] tracking-[0.12em] uppercase text-txt-3 border-b border-border">
-        <span className="flex-1">Coins</span>
-        <span className="w-[72px] text-right">Value</span>
+      <div className={styles.listHeader}>
+        <span className={styles.listHeaderLeft}>Coins</span>
+        <span className={styles.listHeaderRight}>Value</span>
       </div>
 
-      <div className="flex flex-col">
+      <div className={styles.tokenList}>
         {tokens.map((t) => (
           <div
             key={t.address}
-            className="flex items-center px-4 py-3 border-b border-border cursor-pointer transition-all hover:bg-white/[0.02]"
+            className={styles.tokenRow}
             onClick={() => onTokenClick(t.address)}
           >
-            <span className="text-xl mr-3">{t.emoji}</span>
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-bold text-txt truncate">{t.name}</div>
-              <div className="text-[11px] text-txt-3 tabular-nums">
+            <span className={styles.tokenEmoji}>{t.emoji}</span>
+            <div className={styles.tokenInfo}>
+              <div className={styles.tokenName}>{t.name}</div>
+              <div className={styles.tokenAmount}>
                 {formatTokenAmount(t.amount)} {t.ticker}
               </div>
             </div>
-            <div className="text-right ml-3">
-              <div className="text-[13px] font-semibold text-txt tabular-nums">{formatUsd(t.valueUsd)}</div>
+            <div className={styles.tokenValueWrap}>
+              <div className={styles.tokenValue}>{formatUsd(t.valueUsd)}</div>
               <div
                 className={cn(
-                  'text-[11px] font-medium tabular-nums',
-                  t.change24h > 0 ? 'text-mint' : t.change24h < 0 ? 'text-red' : 'text-txt-3',
+                  styles.tokenChange,
+                  t.change24h > 0 ? styles.changeMint : t.change24h < 0 ? styles.changeRed : styles.changeTxt3,
                 )}
               >
                 {formatPercent(t.change24h)}
@@ -222,17 +221,17 @@ function RewardsTab({
 }) {
   if (!earnings || earnings.tokens.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center px-8 py-16 gap-4">
-        <div className="text-3xl">⚡</div>
-        <div className="text-center">
-          <div className="text-sm font-semibold text-txt mb-1">No tokens created yet</div>
-          <div className="text-[13px] text-txt-3 leading-relaxed">
+      <div className={styles.emptyState}>
+        <div className={styles.emptyIcon}>⚡</div>
+        <div className={styles.textCenter}>
+          <div className={styles.emptyTitle}>No tokens created yet</div>
+          <div className={styles.emptyText}>
             Launch a levered token to start earning 0.1% of all trading volume on the
             bonding curve. Fees accrue in USDC and can be claimed anytime.
           </div>
         </div>
         <button
-          className="font-mono text-[13px] font-bold text-bg bg-mint px-6 py-2.5 rounded-sm border-0 tracking-[0.06em] uppercase cursor-pointer transition-all shadow-mint-glow hover:bg-mint-hover"
+          className={styles.launchBtn}
           onClick={onLaunch}
         >
           ⚡ Launch a token
@@ -243,19 +242,19 @@ function RewardsTab({
 
   return (
     <>
-      <div className="px-4 py-4 border-b border-border">
-        <div className="grid grid-cols-2 gap-4 mb-4">
+      <div className={styles.rewardsSummary}>
+        <div className={styles.rewardsGrid}>
           <div>
-            <div className="text-[11px] tracking-[0.12em] uppercase text-txt-3 mb-1">claimable</div>
-            <div className="font-display text-2xl font-bold text-mint leading-none tabular-nums">
+            <div className={styles.rewardsLabel}>claimable</div>
+            <div className={styles.rewardsClaimable}>
               ${earnings.totalClaimable.toFixed(2)}
             </div>
           </div>
           <div>
-            <div className="text-[11px] tracking-[0.12em] uppercase text-txt-3 mb-1">
+            <div className={styles.rewardsLabel}>
               total earned
             </div>
-            <div className="font-display text-2xl font-bold text-txt leading-none tabular-nums">
+            <div className={styles.rewardsTotalEarned}>
               ${earnings.totalEarned.toFixed(2)}
             </div>
           </div>
@@ -263,11 +262,11 @@ function RewardsTab({
 
         <button
           className={cn(
-            'w-full py-3 rounded-[3px] border-0 font-mono text-[13px] font-bold tracking-[0.08em] uppercase cursor-pointer transition-all',
+            styles.claimBtn,
             earnings.totalClaimable > 0
-              ? 'bg-mint text-bg shadow-mint-glow hover:bg-mint-hover'
-              : 'bg-bg-2 text-txt-3 cursor-not-allowed',
-            claiming && 'opacity-70 cursor-wait',
+              ? styles.claimBtnActive
+              : styles.claimBtnDisabled,
+            claiming && styles.claiming,
           )}
           onClick={() => claim()}
           disabled={earnings.totalClaimable <= 0 || claiming}
@@ -280,72 +279,72 @@ function RewardsTab({
         </button>
 
         {claiming && (
-          <div className="flex items-center justify-center gap-2 text-[11px] text-txt-3 mt-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+          <div className={styles.claimingIndicator}>
+            <div className={styles.claimingDot} />
             Confirm in wallet…
           </div>
         )}
 
-        <div className="flex items-center justify-between text-[11px] text-txt-3 mt-3 pt-2 border-t border-border">
+        <div className={styles.prevClaimed}>
           <span>previously claimed</span>
-          <span className="text-txt-2 tabular-nums">${earnings.totalClaimed.toFixed(2)}</span>
+          <span className={styles.prevClaimedValue}>${earnings.totalClaimed.toFixed(2)}</span>
         </div>
       </div>
 
-      <div className="px-4 py-3">
-        <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mb-3">
+      <div className={styles.tokensSection}>
+        <div className={styles.tokensSectionLabel}>
           your tokens ({earnings.tokens.length})
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className={styles.tokensCards}>
           {earnings.tokens.map((t) => (
             <div
               key={t.address}
-              className="bg-bg-2/60 border border-border rounded-[3px] p-3 cursor-pointer transition-all hover:border-border-2 hover:bg-bg-2"
+              className={styles.tokenCard}
               onClick={() => onTokenClick(t.address)}
             >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg">{t.emoji}</span>
-                <div className="flex-1">
-                  <div className="text-[13px] font-bold text-txt">{t.name}</div>
-                  <div className="text-[11px] text-txt-3">{t.ltName}</div>
+              <div className={styles.tokenCardHeader}>
+                <span className={styles.tokenCardEmoji}>{t.emoji}</span>
+                <div className={styles.tokenCardInfo}>
+                  <div className={styles.tokenCardName}>{t.name}</div>
+                  <div className={styles.tokenCardLtName}>{t.ltName}</div>
                 </div>
                 <div
                   className={cn(
-                    'text-[11px] tracking-[0.08em] uppercase px-1.5 py-px rounded-sm border',
-                    t.status === 'graduating' && 'text-amber border-amber/30',
-                    t.status === 'graduated' && 'text-mint border-mint/30',
-                    t.status === 'active' && 'text-txt-3 border-border',
+                    styles.statusBadge,
+                    t.status === 'graduating' && styles.statusGraduating,
+                    t.status === 'graduated' && styles.statusGraduated,
+                    t.status === 'active' && styles.statusActive,
                   )}
                 >
                   {t.status}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-[13px]">
+              <div className={styles.tokenCardGrid}>
                 <div>
-                  <div className="text-txt-3 text-[11px] uppercase tracking-wider">volume</div>
-                  <div className="text-txt font-medium tabular-nums">{formatUsd(t.totalVolumeUsd)}</div>
+                  <div className={styles.tokenCardStatLabel}>volume</div>
+                  <div className={styles.tokenCardStatValue}>{formatUsd(t.totalVolumeUsd)}</div>
                 </div>
                 <div>
-                  <div className="text-txt-3 text-[11px] uppercase tracking-wider">earned</div>
-                  <div className="text-txt font-medium tabular-nums">${t.feesEarnedUsd.toFixed(2)}</div>
+                  <div className={styles.tokenCardStatLabel}>earned</div>
+                  <div className={styles.tokenCardStatValue}>${t.feesEarnedUsd.toFixed(2)}</div>
                 </div>
                 <div>
-                  <div className="text-txt-3 text-[11px] uppercase tracking-wider">claimable</div>
-                  <div className="text-mint font-medium tabular-nums">${t.feesClaimableUsd.toFixed(2)}</div>
+                  <div className={styles.tokenCardStatLabel}>claimable</div>
+                  <div className={styles.tokenCardStatValueMint}>${t.feesClaimableUsd.toFixed(2)}</div>
                 </div>
               </div>
 
               {t.status !== 'graduated' && (
-                <div className="mt-2">
-                  <div className="h-[4px] bg-white/[0.06] rounded-full overflow-hidden">
+                <div className={styles.curveBar}>
+                  <div className={styles.curveTrack}>
                     <div
-                      className="h-full bg-mint-dim bar-glow-mint rounded-full"
+                      className={cn(styles.curveFill, 'bar-glow-mint')}
                       style={{ width: `${t.curveFilled}%` }}
                     />
                   </div>
-                  <div className="text-[11px] text-txt-3 mt-1 tabular-nums">{t.curveFilled}% filled</div>
+                  <div className={styles.curveLabel}>{t.curveFilled}% filled</div>
                 </div>
               )}
             </div>
@@ -353,9 +352,9 @@ function RewardsTab({
         </div>
       </div>
 
-      <div className="px-4 py-3 border-t border-border mt-auto">
-        <div className="text-[11px] text-txt-3 leading-relaxed">
-          <span className="text-mint font-semibold">0.1%</span> of all curve volume goes to token
+      <div className={styles.footer}>
+        <div className={styles.footerText}>
+          <span className={styles.footerHighlight}>0.1%</span> of all curve volume goes to token
           creators. Fees accrue in USDC and can be claimed anytime.
         </div>
       </div>

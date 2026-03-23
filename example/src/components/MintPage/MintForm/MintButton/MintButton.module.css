@@ -1,0 +1,11 @@
+.submitButton {
+  transition: scale 0.25s ease;
+}
+
+.submitButton:hover {
+  scale: 1.01;
+}
+
+.submitButton.disabled:hover {
+  scale: 1;
+}

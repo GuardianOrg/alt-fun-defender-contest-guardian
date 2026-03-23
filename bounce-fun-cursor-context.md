@@ -263,3 +263,4 @@ ATH:         $220K (85% of ATH)
 - The Courier New font throughout
 - THEHOUSE as the example token
 - "The house is long." as the token description
+- Don't use tailwind, let's use css modules for everything

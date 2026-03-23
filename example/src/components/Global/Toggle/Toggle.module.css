@@ -1,0 +1,61 @@
+.switchWrapper {
+  position: relative;
+  width: 4.2rem;
+  height: 2.2rem;
+}
+
+.disabled .slider {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.hiddenCheckbox {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--grey-400-or-secondary-300);
+  border-radius: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.25s;
+}
+
+.sliderChecked {
+  background-color: var(--primary-500);
+}
+
+.sliderChecked:hover {
+  background-color: var(--primary-600);
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 1.6rem;
+  width: 1.6rem;
+  top: 50%;
+  left: 0.3rem;
+  transform: translateY(-50%);
+  background-color: var(--white);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 1.6rem;
+  border-radius: 50%;
+  transition:
+    transform 0.25s,
+    background-color 0.25s;
+}
+
+.hiddenCheckbox:checked + .slider:before {
+  transform: translateX(2rem) translateY(-50%);
+}

@@ -3,6 +3,7 @@ import { cn } from '@/utils/format';
 import { MOCK_ASSET_DATA } from '@/services/mock/assets';
 import type { Direction } from '@/services/types';
 import type { UnderlyingAsset, Leverage } from '@/config/constants';
+import styles from './LivePreview.module.css';
 
 interface Props {
   name: string;
@@ -78,41 +79,36 @@ export default function LivePreview({
   }, [asset, isUp, assetChg]);
 
   return (
-    <div className="bg-gradient-to-b from-bg-1 to-bg border-l border-border overflow-y-auto">
-      <div className="px-6 py-7">
-        <div className="text-[11px] tracking-[0.14em] uppercase text-txt-3 mb-5 font-medium flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-mint animate-livep" />
+    <div className={styles.wrapper}>
+      <div className={styles.content}>
+        <div className={styles.previewLabel}>
+          <div className={styles.liveDot} />
           live preview
         </div>
 
-        {/* Token card */}
         <div
           className={cn(
-            'border rounded-xl overflow-hidden mb-5 transition-all duration-300',
-            isLong
-              ? 'border-mint/20 bg-gradient-to-br from-mint/[0.04] to-bg-2'
-              : 'border-red/20 bg-gradient-to-br from-red/[0.04] to-bg-2',
+            styles.tokenCard,
+            isLong ? styles.tokenCardLong : styles.tokenCardShort,
           )}
         >
-          <div className="flex items-center gap-3 p-4">
-            <div className="w-12 h-12 rounded-xl bg-bg-3 border border-border flex items-center justify-center text-2xl shrink-0 overflow-hidden shadow-panel">
+          <div className={styles.tokenCardHeader}>
+            <div className={styles.tokenImage}>
               {imagePreview ? (
-                <img src={imagePreview} className="w-full h-full object-cover" alt="" />
+                <img src={imagePreview} className={styles.tokenImageImg} alt="" />
               ) : (
-                <span className="opacity-40">?</span>
+                <span className={styles.tokenImagePlaceholder}>?</span>
               )}
             </div>
-            <div className="min-w-0">
-              <div className="font-display text-lg font-bold text-txt tracking-[0.03em] truncate">
+            <div className={styles.tokenInfo}>
+              <div className={styles.tokenName}>
                 {displayName}
               </div>
-              <div className="flex items-center gap-2 mt-1">
+              <div className={styles.tokenBadgeRow}>
                 <span
                   className={cn(
-                    'text-[11px] font-semibold px-2 py-[2px] rounded-md border',
-                    isLong
-                      ? 'text-mint/80 bg-mint/[0.06] border-mint/15'
-                      : 'text-red/80 bg-red/[0.06] border-red/15',
+                    styles.tokenBadge,
+                    isLong ? styles.tokenBadgeLong : styles.tokenBadgeShort,
                   )}
                 >
                   ⚡ {ltName}
@@ -121,71 +117,67 @@ export default function LivePreview({
             </div>
           </div>
 
-          {/* Mini stats */}
-          <div className="grid grid-cols-3 border-t border-border/50">
-            <div className="px-3 py-2.5 text-center border-r border-border/50">
-              <div className="text-sm font-bold text-txt tabular-nums">{leverage}×</div>
-              <div className="text-[11px] text-txt-4 mt-0.5">leverage</div>
+          <div className={styles.miniStats}>
+            <div className={styles.miniStatCell}>
+              <div className={styles.miniStatValue}>{leverage}×</div>
+              <div className={styles.miniStatLabel}>leverage</div>
             </div>
-            <div className="px-3 py-2.5 text-center border-r border-border/50">
-              <div className="text-sm font-bold text-txt">{asset}</div>
-              <div className="text-[11px] text-txt-4 mt-0.5">underlying</div>
+            <div className={styles.miniStatCell}>
+              <div className={styles.miniStatValue}>{asset}</div>
+              <div className={styles.miniStatLabel}>underlying</div>
             </div>
-            <div className="px-3 py-2.5 text-center">
-              <div className={cn('text-sm font-bold', isLong ? 'text-mint' : 'text-red')}>
+            <div className={styles.miniStatCellLast}>
+              <div className={cn(styles.miniStatValue, isLong ? styles.textMint : styles.textRed)}>
                 {isLong ? 'LONG' : 'SHORT'}
               </div>
-              <div className="text-[11px] text-txt-4 mt-0.5">direction</div>
+              <div className={styles.miniStatLabel}>direction</div>
             </div>
           </div>
         </div>
 
-        {/* Chart card */}
-        <div className="border border-border rounded-xl overflow-hidden bg-bg-2/60">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className={styles.chartCard}>
+          <div className={styles.chartHeader}>
             <div>
-              <div className="text-sm font-semibold text-txt">{asset} / USD</div>
-              <div className="text-[11px] text-txt-3 mt-0.5">your token moves {leverage}× this</div>
+              <div className={styles.chartTitle}>{asset} / USD</div>
+              <div className={styles.chartSubtitle}>your token moves {leverage}× this</div>
             </div>
             <div
               className={cn(
-                'text-sm font-bold tabular-nums px-2 py-1 rounded-md',
-                isUp ? 'text-mint bg-mint/[0.06]' : 'text-red bg-red/[0.06]',
+                styles.chartChgBadge,
+                isUp ? styles.chartChgBadgeUp : styles.chartChgBadgeDown,
               )}
             >
               {isUp ? '+' : ''}
               {assetChg.toFixed(2)}%
             </div>
           </div>
-          <div className="p-3">
-            <canvas ref={canvasRef} width={328} height={120} className="w-full" />
+          <div className={styles.chartBody}>
+            <canvas ref={canvasRef} width={328} height={120} className={styles.canvas} />
           </div>
         </div>
 
-        {/* Info box */}
         <div
           className={cn(
-            'border rounded-xl px-4 py-3 mt-4 text-[13px] text-txt-3 leading-[1.6]',
-            isLong ? 'bg-mint/[0.03] border-mint/10' : 'bg-red/[0.03] border-red/10',
+            styles.infoBox,
+            isLong ? styles.infoBoxLong : styles.infoBoxShort,
           )}
         >
-          <b className={cn('font-semibold', isLong ? 'text-mint' : 'text-red')}>
+          <b className={cn(styles.infoBold, isLong ? styles.textMint : styles.textRed)}>
             {ltName}
           </b>{' '}
           — if {asset} {isLong ? 'rises' : 'falls'} 10%, your token moves{' '}
           {isLong ? 'up' : 'down'} ~{leverage * 10}% with zero buys.
         </div>
 
-        {/* How it works */}
-        <div className="mt-5 space-y-2">
-          <div className="text-[11px] tracking-[0.08em] uppercase text-txt-3 font-medium mb-2">how it works</div>
+        <div className={styles.howSection}>
+          <div className={styles.howTitle}>how it works</div>
           {[
             { icon: '1', text: 'Token deploys to bonding curve' },
             { icon: '2', text: 'Users buy/sell with USDC atomically' },
             { icon: '3', text: 'At $69K MCAP, token graduates to DEX' },
           ].map((step) => (
-            <div key={step.icon} className="flex items-center gap-3 text-[13px] text-txt-2">
-              <div className="w-5 h-5 rounded-full bg-bg-3 border border-border flex items-center justify-center text-[11px] text-txt-3 font-semibold shrink-0">
+            <div key={step.icon} className={styles.howStep}>
+              <div className={styles.howStepIcon}>
                 {step.icon}
               </div>
               {step.text}
