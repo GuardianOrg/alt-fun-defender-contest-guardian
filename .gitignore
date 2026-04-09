@@ -5,6 +5,8 @@ build
 .env.*
 !.env.example
 *.local
+.dev.vars
+.wrangler
 .DS_Store
 .vercel
 .turbo
