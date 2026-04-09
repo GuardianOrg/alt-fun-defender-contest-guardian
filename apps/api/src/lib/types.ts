@@ -1,1 +1,3 @@
-export type AppBindings = Env;
+export interface AppBindings {
+  DATABASE_URL: string;
+}
