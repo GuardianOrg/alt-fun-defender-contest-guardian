@@ -4,7 +4,7 @@ import { copyToClipboard } from "../utils/format";
 
 export function useCopyState(timeout = 2000) {
   const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const copy = useCallback(
     (text: string) => {

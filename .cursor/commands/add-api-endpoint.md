@@ -13,7 +13,7 @@ Create a new Hono route handler with proper typing, validation, and testing.
 7. Run `npm run typecheck --workspace=apps/api` to verify types
 
 ## Requirements
-- Return `{ data, success: true }` on success
-- Return `{ success: false, error: "message" }` on failure
+- Return `{ status: "success", data, error: null }` on success via `formatSuccess()`
+- Return `{ status: "error", data: null, error: "message" }` on failure via `formatError()`
 - Use `HTTPException` for HTTP errors
 - Validate all user input
