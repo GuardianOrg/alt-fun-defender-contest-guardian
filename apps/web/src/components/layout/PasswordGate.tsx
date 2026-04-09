@@ -3,7 +3,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import styles from "./PasswordGate.module.css";
 
 const PASS = "launchpad2026";
-const STORAGE_KEY = "bf_auth";
+const STORAGE_KEY = "lp_auth";
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(
