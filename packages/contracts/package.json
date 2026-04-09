@@ -1,0 +1,14 @@
+{
+  "name": "@bounce/contracts",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "test:verbose": "forge test -vvv",
+    "test:gas": "forge test --gas-report",
+    "fmt": "forge fmt",
+    "fmt:check": "forge fmt --check",
+    "export-abi": "node scripts/export-abi.mjs"
+  }
+}

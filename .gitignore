@@ -1,6 +1,16 @@
 node_modules
 dist
+build
 .env
+.env.*
+!.env.example
 *.local
 .DS_Store
 .vercel
+.turbo
+*.tsbuildinfo
+
+# Foundry
+packages/contracts/cache
+packages/contracts/out
+packages/contracts/broadcast

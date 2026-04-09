@@ -1,0 +1,33 @@
+---
+description: React frontend conventions for the bounce.fun webapp
+globs: "apps/web/**/*.{ts,tsx}"
+---
+
+# Frontend Rules
+
+## Components
+- Functional components only, no class components
+- Co-locate component, styles, and hooks: `ComponentName.tsx` + `ComponentName.module.css`
+- Use CSS Modules for all styling — import as `import styles from "./ComponentName.module.css"`
+- Use the `cn()` utility from `src/utils/format.ts` for conditional class names
+- Keep components focused — extract hooks for data fetching and business logic
+
+## State Management
+- Redux Toolkit for UI-only state (modals, filters, panels)
+- TanStack Query for all server/async data (Ponder GraphQL, API calls)
+- Privy hooks for wallet and contract state
+- Local React state for component-specific transient state
+
+## Data Fetching
+- On-chain indexed data: query Ponder's GraphQL endpoint via TanStack Query
+- Off-chain data (comments, profiles): query Hono API via TanStack Query
+- Contract reads: use Privy/viem with ABIs from `@bounce/shared`
+- Contract writes: use Privy/viem with ABIs from `@bounce/shared`
+- WebSocket for live trade feeds via `VITE_WS_URL`
+
+## Patterns
+- Use `react-router` v7 for routing — routes defined in `src/app/routes.ts`
+- Environment variables accessed via `import.meta.env.VITE_*`
+- Error boundaries at route level
+- Loading states for all async operations
+- Types imported from `@bounce/shared` for cross-package consistency

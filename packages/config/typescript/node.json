@@ -1,0 +1,10 @@
+{
+  "extends": "./base.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "noEmit": true,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true
+  }
+}

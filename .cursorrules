@@ -1,0 +1,52 @@
+# bounce.fun — Monorepo Cursor Rules
+
+## Stack
+
+npm workspaces monorepo with Turborepo. TypeScript strict mode everywhere.
+
+- `apps/web/` — React 19, Vite 7, CSS Modules, Redux Toolkit, TanStack Query, Privy, viem, lightweight-charts
+- `apps/api/` — Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL) via Hyperdrive
+- `apps/indexer/` — Ponder (EVM indexer), GraphQL API auto-generated from schema
+- `packages/contracts/` — Foundry (Solidity), forked from Virtuals Protocol
+- `packages/shared/` — Shared types, ABIs (generated from Foundry), constants, contract addresses
+- `packages/config/` — Shared ESLint and TypeScript configs
+
+## Architecture
+
+Contracts emit events -> Ponder indexes them into a GraphQL API (read path).
+Hono API handles off-chain data: comments, user profiles, admin actions, API keys (write path).
+Frontend queries Ponder for on-chain data, Hono API for off-chain data, and uses Privy for wallet interactions.
+ABIs flow: Foundry build -> export script -> `packages/shared/src/abis/` -> consumed by all apps.
+
+## Code Style
+
+- TypeScript strict mode, never use `any` — use `unknown` with type guards
+- Prefer named exports, except route modules and single-purpose utilities (use `export default`)
+- Use early returns to reduce nesting
+- No barrel exports (no re-exporting everything from index files beyond `packages/shared`)
+- CSS Modules for all styling — never use Tailwind, styled-components, or inline styles
+- No React class components — functional components with hooks only
+- Import types with `import type` when only used as types
+- Use `as const` on ABIs and constant objects for full type inference
+
+## Terminology
+
+| Use this | Not this |
+|---|---|
+| leverage boost | HYPE boost, LT gain, leverage appreciation |
+| bonding curve | curve, bond |
+| graduation | migrate, launch |
+| seed buy | dev buy, initial buy |
+| curve filled | progress, bonding |
+| HyperSwap | DEX (when referring to the specific post-grad venue) |
+| LT (Leveraged Token) | leveraged token (always capitalise) |
+
+## Prohibitions
+
+- Never use Tailwind CSS
+- Never use `any` type
+- Never hardcode secrets, API keys, or private keys
+- Never modify `AGENTS.md` files or `docs/*.md` during code tasks without explicit instruction
+- Never add marketing language to code comments or internal docs
+- Never use `console.log` in production code — use structured logging
+- Never commit `.env` files

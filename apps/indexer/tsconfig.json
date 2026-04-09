@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@/generated": ["./ponder-env.d.ts"]
+    }
+  },
+  "include": ["src", "ponder.config.ts", "ponder.schema.ts", "ponder-env.d.ts"]
+}
