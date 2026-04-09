@@ -8,7 +8,7 @@ import { FEES, MOCK_TOKEN_PRICE } from "../config/constants";
  *   SELL: memecoin → withdraw LT from curve → redeem LT → USDC out
  *
  * Users never touch or see the LT. Everything is denominated in USDC.
- * All calls route through the Bounce Referral Module for fee attribution.
+ * All calls route through the Referral Module for fee attribution.
  */
 
 export type TransactionStep = "idle" | "approving" | "confirmed" | "error";

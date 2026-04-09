@@ -30,11 +30,11 @@ jobs:
       - run: npm ci
 
       - name: Build
-        run: npx turbo run build --filter=@bounce/web
+        run: npx turbo run build --filter=@launchpad/web
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/web/dist --project-name=bounce-fun
+          command: pages deploy apps/web/dist --project-name=launchpad

@@ -13,7 +13,7 @@
  *           Factory: deploys curve + token → optional seed buy through router → sends tokens to creator
  *
  * The LT layer is fully abstracted — users never hold or see LTs.
- * All calls go through the Bounce Referral Module for fee attribution.
+ * All calls go through the Referral Module for fee attribution.
  *
  * Replace these stubs with real ABIs from the contract repo when ready.
  */

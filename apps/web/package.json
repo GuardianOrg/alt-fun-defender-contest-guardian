@@ -1,5 +1,5 @@
 {
-  "name": "@bounce/web",
+  "name": "@launchpad/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -12,7 +12,7 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
-    "@bounce/shared": "*",
+    "@launchpad/shared": "*",
     "@reduxjs/toolkit": "^2",
     "@tanstack/react-query": "^5",
     "lightweight-charts": "^5",
@@ -24,7 +24,7 @@
     "wagmi": "^2"
   },
   "devDependencies": {
-    "@bounce/config": "*",
+    "@launchpad/config": "*",
     "@eslint/js": "^9",
     "@types/react": "^19",
     "@types/react-dom": "^19",

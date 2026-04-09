@@ -1,11 +1,11 @@
-# bounce.fun — Monorepo Cursor Rules
+# Launchpad — Monorepo Cursor Rules
 
 ## Stack
 
 npm workspaces monorepo with Turborepo. TypeScript strict mode everywhere.
 
 - `apps/web/` — React 19, Vite 7, CSS Modules, Redux Toolkit, TanStack Query, Privy, viem, lightweight-charts
-- `apps/api/` — Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL) via Hyperdrive
+- `apps/api/` — Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL), R2 (images), Durable Objects (WebSocket)
 - `apps/indexer/` — Ponder (EVM indexer), GraphQL API auto-generated from schema
 - `packages/contracts/` — Foundry (Solidity), forked from Virtuals Protocol
 - `packages/shared/` — Shared types, ABIs (generated from Foundry), constants, contract addresses

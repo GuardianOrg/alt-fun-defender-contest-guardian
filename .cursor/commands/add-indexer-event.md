@@ -13,7 +13,7 @@ Add a new event handler to the Ponder indexer for an on-chain event.
 7. Verify the data appears in Ponder's GraphQL playground
 
 ## Requirements
-- Import ABIs from `@bounce/shared`
+- Import ABIs from `@launchpad/shared`
 - Include `blockNumber` and `timestamp` on all records
 - Use `hex` type for addresses
 - Keep handlers focused — extract helpers for complex logic

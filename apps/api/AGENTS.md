@@ -1,6 +1,6 @@
 # apps/api
 
-Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL) via Hyperdrive. WebSocket via Durable Objects.
+Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL), R2 (image storage), Durable Objects (WebSocket).
 
 ## What This App Does
 

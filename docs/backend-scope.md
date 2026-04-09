@@ -1,6 +1,6 @@
 # Backend Scope
 
-REST API + WebSocket server for the bounce.fun frontend and third-party integrators. Indexed blockchain data, user-generated content, and real-time feeds.
+REST API + WebSocket server for the launchpad frontend and third-party integrators. Indexed blockchain data, user-generated content, and real-time feeds.
 
 ---
 
@@ -17,15 +17,17 @@ REST API + WebSocket server for the bounce.fun frontend and third-party integrat
 | `Referred` | RedemptionRouter | `referrer`, `referee`, `tokenAddress`, `txHash` |
 | HyperSwap `Swap` | V2 Pair | `amount0In/Out`, `amount1In/Out`, `timestamp` (only graduated pairs) |
 | HyperSwap `Sync` | V2 Pair | `reserve0`, `reserve1` |
-| FERC20 `Transfer` | FERC20 | `from`, `to`, `amount` (optional — high indexing load) |
+| FERC20 `Transfer` | FERC20 | `from`, `to`, `amount` — skipped in v1 (high indexing load). Holder counts derived from trade data instead. |
 
 ### External Polling
 
 | Source | What | Frequency |
 |---|---|---|
 | BounceTech LT `exchangeRate()` | USD per LT for each supported LT | Every block |
-| Bounce Indexing API `/trade/:txHash` | `prepareRedeem` completion tracking | On `SellPending` events |
-| Underlying asset spot prices | HYPE, ETH, BTC, SOL, ARB, OP | Every few seconds |
+| Bounce Indexing API `GET /trade/:txHash` | `prepareRedeem` completion tracking | On `SellPending` events |
+| Bounce Indexing API `GET /leveraged-tokens` | All LT addresses, exchange rates, metadata | On startup + periodic refresh |
+| Hyperliquid `POST /info {"type":"allMids"}` | Underlying asset spot prices (HYPE, ETH, BTC, SOL, etc.) | Every few seconds |
+| Hyperliquid WS `allMids` subscription | Real-time price stream | Persistent connection |
 
 ---
 
@@ -52,7 +54,7 @@ REST API + WebSocket server for the bounce.fun frontend and third-party integrat
 | Endpoint | Description |
 |---|---|
 | `GET /creator/:wallet` | All tokens launched + aggregate stats (volume, fees earned, fees claimable). |
-| `GET /portfolio/:wallet` | Token holdings with current USD values. Only bounce.fun tokens. |
+| `GET /portfolio/:wallet` | Token holdings with current USD values. Only launchpad tokens. |
 | `GET /stats` | Platform-wide: `tokensLive`, `tokensGraduating`, `tokensGraduated`, `volume24h`. |
 | `GET /assets` | Underlying asset prices + LT exchange rates for all supported pairs. |
 | `GET /referral/:wallet` | Referral stats: referred wallets, referred volume. Tracking only. |
@@ -68,9 +70,19 @@ REST API + WebSocket server for the bounce.fun frontend and third-party integrat
 | `POST /admin/tokens/:address/hide` | Content moderation — hide from feeds |
 | `POST /admin/tokens/:address/unhide` | Reverse hide |
 
+### Image Upload
+
+| Endpoint | Description |
+|---|---|
+| `POST /images` | Upload token image. Max 5MB. Accepts JPEG, PNG, GIF, WebP. Server-side content moderation (reject illegal content — CSAM, extreme violence). Adult content permitted if legal. Returns R2 URL. Auth: wallet signature. |
+
 ### Terminal API
 
 All above endpoints mirrored under `/api/v1/` with `X-API-Key` auth for third-party integrators.
+
+### Admin Authentication
+
+Admin endpoints use `X-Admin-Key` header with a shared secret stored as a Cloudflare Worker secret (`ADMIN_API_KEY`). Wallet-based admin auth deferred to v2.
 
 ---
 
