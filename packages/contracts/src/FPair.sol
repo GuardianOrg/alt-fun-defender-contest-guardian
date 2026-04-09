@@ -37,13 +37,20 @@ contract FPair is IFPair, ReentrancyGuard {
         _;
     }
 
-    constructor(address router_, address token0_, address token1_) {
+    constructor(
+        address router_,
+        address token0_,
+        address token1_
+    ) {
         router = router_;
         tokenA = token0_;
         tokenB = token1_;
     }
 
-    function mint(uint256 reserve0, uint256 reserve1) external onlyRouter returns (bool) {
+    function mint(
+        uint256 reserve0,
+        uint256 reserve1
+    ) external onlyRouter returns (bool) {
         if (_pool.lastUpdated != 0) revert AlreadyMinted();
         _pool = Pool({reserve0: reserve0, reserve1: reserve1, k: reserve0 * reserve1, lastUpdated: block.timestamp});
         emit Mint(reserve0, reserve1);
@@ -63,11 +70,17 @@ contract FPair is IFPair, ReentrancyGuard {
         return true;
     }
 
-    function transferAsset(address recipient, uint256 amount) external onlyRouter {
+    function transferAsset(
+        address recipient,
+        uint256 amount
+    ) external onlyRouter {
         IERC20(tokenB).safeTransfer(recipient, amount);
     }
 
-    function transferToken(address recipient, uint256 amount) external onlyRouter {
+    function transferToken(
+        address recipient,
+        uint256 amount
+    ) external onlyRouter {
         IERC20(tokenA).safeTransfer(recipient, amount);
     }
 

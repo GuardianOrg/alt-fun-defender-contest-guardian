@@ -26,7 +26,10 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     error ZeroAmount();
     error PairNotFound();
 
-    function initialize(address factory_, address assetToken_) external initializer {
+    function initialize(
+        address factory_,
+        address assetToken_
+    ) external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         factory = FFactory(factory_);
@@ -37,7 +40,11 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     /// @param token The memecoin address
     /// @param isBuy True = asset in / token out, False = token in / asset out
     /// @param amountIn The input amount (net of fees for buy, gross for sell)
-    function getAmountOut(address token, bool isBuy, uint256 amountIn) public view returns (uint256) {
+    function getAmountOut(
+        address token,
+        bool isBuy,
+        uint256 amountIn
+    ) public view returns (uint256) {
         address pairAddr = factory.getPair(token, assetToken);
         if (pairAddr == address(0)) revert PairNotFound();
 

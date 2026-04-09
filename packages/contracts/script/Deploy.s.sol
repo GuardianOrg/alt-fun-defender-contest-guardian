@@ -22,7 +22,10 @@ contract Deploy is Script {
         vm.stopBroadcast();
     }
 
-    function _deploy(address deployer, address assetToken) internal {
+    function _deploy(
+        address deployer,
+        address assetToken
+    ) internal {
         address feeReceiver = deployer;
 
         FFactory factory = new FFactory();
@@ -44,7 +47,11 @@ contract Deploy is Script {
         console.log("Bonding (proxy):", bondingProxy);
     }
 
-    function _deployBonding(address factory_, address router_, address feeReceiver) internal returns (address) {
+    function _deployBonding(
+        address factory_,
+        address router_,
+        address feeReceiver
+    ) internal returns (address) {
         Bonding impl = new Bonding();
         bytes memory initData = abi.encodeCall(
             Bonding.initialize, (factory_, router_, feeReceiver, 100 ether, 10_000, 100, 85_000_000 ether)

@@ -18,6 +18,7 @@
     "viem": "^2"
   },
   "devDependencies": {
+    "@bounce/config": "*",
     "@types/node": "^25.5.2",
     "typescript": "~5.8"
   }

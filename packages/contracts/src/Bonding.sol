@@ -141,7 +141,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         router.addInitialLiquidity(tokenAddr, supply, liquidity);
     }
 
-    function _storeTokenInfo(address tokenAddr, address pair, LaunchParams calldata params) internal {
+    function _storeTokenInfo(
+        address tokenAddr,
+        address pair,
+        LaunchParams calldata params
+    ) internal {
         _tokenInfo[tokenAddr] = TokenInfo({
             creator: msg.sender,
             token: tokenAddr,

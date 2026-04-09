@@ -24,7 +24,11 @@ contract FFactory is Initializable, AccessControlUpgradeable {
     error ZeroAddress();
     error NoRouter();
 
-    function initialize(address feeTo_, uint256 buyTax_, uint256 sellTax_) external initializer {
+    function initialize(
+        address feeTo_,
+        uint256 buyTax_,
+        uint256 sellTax_
+    ) external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         feeTo = feeTo_;
@@ -32,7 +36,10 @@ contract FFactory is Initializable, AccessControlUpgradeable {
         sellTax = sellTax_;
     }
 
-    function createPair(address tokenA, address tokenB) external onlyRole(BONDING_ROLE) returns (address) {
+    function createPair(
+        address tokenA,
+        address tokenB
+    ) external onlyRole(BONDING_ROLE) returns (address) {
         if (tokenA == address(0) || tokenB == address(0)) revert ZeroAddress();
         if (router == address(0)) revert NoRouter();
 
@@ -45,7 +52,10 @@ contract FFactory is Initializable, AccessControlUpgradeable {
         return address(pair);
     }
 
-    function getPair(address tokenA, address tokenB) external view returns (address) {
+    function getPair(
+        address tokenA,
+        address tokenB
+    ) external view returns (address) {
         return _pairs[tokenA][tokenB];
     }
 
@@ -59,7 +69,11 @@ contract FFactory is Initializable, AccessControlUpgradeable {
         router = router_;
     }
 
-    function setFeeParams(address feeTo_, uint256 buyTax_, uint256 sellTax_) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setFeeParams(
+        address feeTo_,
+        uint256 buyTax_,
+        uint256 sellTax_
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (feeTo_ == address(0)) revert ZeroAddress();
         feeTo = feeTo_;
         buyTax = buyTax_;

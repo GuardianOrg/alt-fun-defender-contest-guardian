@@ -75,7 +75,11 @@ contract BondingTest is Test {
         vm.stopPrank();
     }
 
-    function _buyTokens(address tokenAddr, address buyer, uint256 amount) internal returns (uint256 tokensOut) {
+    function _buyTokens(
+        address tokenAddr,
+        address buyer,
+        uint256 amount
+    ) internal returns (uint256 tokensOut) {
         asset.mint(buyer, amount);
         vm.startPrank(buyer);
         asset.approve(address(router), amount);
@@ -172,12 +176,7 @@ contract BondingTest is Test {
         vm.startPrank(creator);
         asset.approve(address(bonding), 50 ether);
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Bad",
-            ticker: "BAD",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            purchaseAmount: 50 ether
+            name: "Bad", ticker: "BAD", description: "", image: "", urls: ["", "", "", ""], purchaseAmount: 50 ether
         });
         vm.expectRevert(Bonding.InvalidInput.selector);
         bonding.launch(params);

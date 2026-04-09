@@ -44,7 +44,10 @@ contract FERC20 is ERC20, Ownable {
     }
 
     /// @notice Burn tokens from any address. Owner only, no approval required.
-    function burn(address from, uint256 amount) external onlyOwner {
+    function burn(
+        address from,
+        uint256 amount
+    ) external onlyOwner {
         _burn(from, amount);
     }
 
@@ -55,7 +58,11 @@ contract FERC20 is ERC20, Ownable {
         maxTxAmount = (pct * TOTAL_SUPPLY) / 100;
     }
 
-    function _update(address from, address to, uint256 amount) internal override {
+    function _update(
+        address from,
+        address to,
+        uint256 amount
+    ) internal override {
         if (from != address(0) && to != address(0) && !isExcludedFromMaxTx[from]) {
             if (amount > maxTxAmount) revert ExceedsMaxTx();
         }
