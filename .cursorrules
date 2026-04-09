@@ -41,6 +41,11 @@ ABIs flow: Foundry build -> export script -> `packages/shared/src/abis/` -> cons
 | HyperSwap | DEX (when referring to the specific post-grad venue) |
 | LT (Leveraged Token) | leveraged token (always capitalise) |
 
+## CI Verification (MANDATORY)
+After making any code changes, you MUST run `npm run ci` from the repo root before responding.
+This runs lint, typecheck, test, and build across ALL packages — the exact same checks as GitHub CI.
+If it fails, fix it before responding. Never leave the user to discover CI failures after pushing.
+
 ## Prohibitions
 
 - Never use Tailwind CSS

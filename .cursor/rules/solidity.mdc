@@ -6,12 +6,11 @@ globs: "packages/contracts/**/*.sol"
 # Solidity / Foundry Rules
 
 ## Post-Edit Checklist (MANDATORY)
-After ANY edit to `.sol` files, you MUST run these commands before responding:
-1. `cd packages/contracts && forge fmt` — auto-format all Solidity files
-2. `cd packages/contracts && forge build` — verify compilation
-3. If tests exist for the changed code, `cd packages/contracts && forge test` — verify nothing broke
+After ANY edit to `.sol` files:
+1. Run `cd packages/contracts && forge fmt` — auto-format all Solidity files
+2. Then run `npm run ci` from the repo root — verifies everything (lint, typecheck, test, build) across all packages
 
-Do NOT skip these steps. Do NOT leave formatting for the user to fix.
+Do NOT skip these steps. Do NOT leave formatting or CI failures for the user to fix.
 
 ## Style
 - Use Solidity 0.8.x with the latest stable compiler

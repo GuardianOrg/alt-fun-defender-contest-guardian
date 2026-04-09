@@ -11,79 +11,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-and-typecheck:
-    name: Lint & Typecheck
+  ci:
+    name: Lint, Typecheck, Test, Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - run: npm ci
-
-      - name: Lint
-        run: npx turbo run lint --filter='...[origin/main]'
-
-      - name: Typecheck
-        run: npx turbo run typecheck --filter='...[origin/main]'
-
-  test-contracts:
-    name: Contract Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
 
-      - name: Build
-        working-directory: packages/contracts
-        run: forge build
-
-      - name: Test
-        working-directory: packages/contracts
-        run: forge test -vvv
-
-      - name: Format check
-        working-directory: packages/contracts
-        run: forge fmt --check
-
-  test-api:
-    name: API Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
       - run: npm ci
 
-      - name: Run API tests
-        run: npm run test --workspace=apps/api
-
-  build-web:
-    name: Build Web
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - name: Build
-        run: npx turbo run build --filter=@bounce/web
+      - name: CI
+        run: npm run ci
