@@ -1,3 +1,3 @@
-import baseConfig from "@bounce/config/eslint/base";
+import baseConfig from "@launchpad/config/eslint/base";
 
 export default baseConfig;

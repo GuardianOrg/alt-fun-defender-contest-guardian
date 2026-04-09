@@ -1,4 +1,4 @@
-# bounce.fun
+# Launchpad
 
 Memecoin launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset. Tokens appreciate from buy pressure AND leveraged movement of the underlying.
 
@@ -20,8 +20,8 @@ The `RedemptionRouter` is the only user-facing entry point. Users always pay and
 
 ```
 apps/web/        — React 19, Vite 7, CSS Modules, Redux Toolkit, TanStack Query, Privy, lightweight-charts
-apps/api/        — Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL) via Hyperdrive
-apps/indexer/    — Ponder (EVM indexer), GraphQL API
+apps/api/        — Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL), R2 (image storage), Durable Objects (WebSocket)
+apps/indexer/    — Ponder (EVM indexer), GraphQL API, hosted on Railway
 packages/contracts/ — Foundry (Solidity), forked from Virtuals Protocol
 packages/shared/ — Shared types, ABIs (generated from Foundry), constants, contract addresses
 packages/config/ — Shared ESLint and TypeScript configs
@@ -56,8 +56,8 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 |---|---|---|
 | Curve buy | 0.5% | 0.4% protocol / 0.1% creator |
 | Curve sell | 0.5% | 0.4% protocol / 0.1% creator |
-| HyperSwap swap (post-grad) | 0.3% | LPs (bounce.fun takes 0%) |
-| LT redemption | BounceTech internal | No additional bounce.fun fee |
+| HyperSwap swap (post-grad) | 0.3% | LPs (launchpad takes 0%) |
+| LT redemption | BounceTech internal | No additional launchpad fee |
 
 ---
 
@@ -93,12 +93,52 @@ baseAssetBalance() → uint256               // Idle USDC available for atomic r
 - Bounce Indexing API (`GET /trade/:txHash`) tracks `prepareRedeem` completion — returns `null` while pending
 - BounceTech charges redemption fees internally. We don't add our own.
 
+### BounceTech Indexing API
+
+Base URL: `https://indexing.bounce.tech`
+
+Key endpoints used by the launchpad:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /leveraged-tokens` | All LT addresses, exchange rates, metadata |
+| `GET /leveraged-tokens/:symbol` | Single LT by symbol (e.g. `HYPE3L`) |
+| `GET /trade/:txHash` | Track `prepareRedeem` completion — returns `null` while pending |
+
+No auth required. Fair use policy applies. Implement caching to reduce calls.
+
+### Hyperliquid Price API
+
+Used for underlying asset spot prices (HYPE, ETH, BTC, SOL, etc.).
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| POST | `https://api.hyperliquid.xyz/info` `{"type":"allMids"}` | All mid-prices (REST) |
+| WS | `wss://api.hyperliquid.xyz/ws` subscribe `{"type":"allMids"}` | Real-time price stream |
+| POST | `https://api.hyperliquid.xyz/info` `{"type":"candleSnapshot","req":{...}}` | OHLCV candles (1m to 1M intervals) |
+
+No auth required.
+
 ### Contract Addresses
 
 | Contract | Address |
 |---|---|
+| USDC (HyperEVM) | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` |
 | HyperSwap V2 Factory | `0x4df039804873717bff7d03694fb941cf0469b79e` |
 | HyperSwap V2 Router | `0xda0f518d521e0dE83fAdC8500C2D21b6a6C39bF9` |
+
+### Infrastructure
+
+| Service | Provider | Details |
+|---|---|---|
+| Database | Neon (PostgreSQL) | Direct connection (no Hyperdrive) |
+| Image storage | Cloudflare R2 | Bucket: `launchpad-images`, served via Worker |
+| WebSocket | Cloudflare Durable Objects | Real-time trade/price feeds |
+| Indexer hosting | Railway | Persistent process for Ponder |
+| RPC | Alchemy | HyperEVM mainnet |
+| Frontend hosting | Cloudflare Pages | Project: `launchpad` |
+| API hosting | Cloudflare Workers | Worker: `launchpad-api` |
+| Auth | Privy | Social login, embedded wallets, WalletConnect |
 
 ---
 
@@ -123,3 +163,21 @@ baseAssetBalance() → uint256               // Idle USDC available for atomic r
 | Smart contracts | `docs/contracts-scope.md` |
 | Backend API | `docs/backend-scope.md` |
 | Frontend | `docs/frontend-scope.md` |
+
+---
+
+## Image Upload & Content Moderation
+
+Token creators upload images (not URLs). Images are stored in Cloudflare R2 and served via the API Worker. Before storage, images are scanned for illegal content (CSAM, extreme violence). Adult content is permitted as long as it is legal. The moderation check happens server-side before the image is persisted to R2.
+
+## Password Gate
+
+The frontend has a temporary password gate (`PasswordGate` component) for pre-launch testing. This will be removed before public launch. It is NOT a security feature — just a deterrent for casual visitors during development.
+
+## Admin Authentication
+
+Admin endpoints (`/admin/*`) are authenticated via a shared admin API key passed in the `X-Admin-Key` header. The key is stored as a Cloudflare Worker secret (`ADMIN_API_KEY`). This is a simple v1 approach — wallet-based admin auth can be added later.
+
+## Referrals
+
+v1 tracks referrals only (no on-chain fee split). The `buy()` function accepts a `referrer` address parameter. `Referred` events are emitted and indexed for analytics. Payouts are deferred to v2.

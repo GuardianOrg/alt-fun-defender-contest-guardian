@@ -9,7 +9,7 @@ globs: "apps/indexer/**/*.ts"
 - Use Ponder for EVM event indexing
 - Schema defined in `ponder.schema.ts` using `onchainTable`
 - Event handlers in `src/` — one file per contract
-- Import ABIs from `@bounce/shared`
+- Import ABIs from `@launchpad/shared`
 
 ## Patterns
 - Use the `"setup"` event for initializing singleton records

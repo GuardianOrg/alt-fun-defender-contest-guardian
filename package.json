@@ -1,5 +1,5 @@
 {
-  "name": "bounce-fun-monorepo",
+  "name": "launchpad-monorepo",
   "private": true,
   "workspaces": [
     "apps/*",

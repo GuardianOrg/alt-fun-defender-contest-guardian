@@ -13,7 +13,7 @@ export default function HeroSection({ token }: Props) {
   const up = token.change24h >= 0;
 
   const shareToken = () => {
-    const text = `${token.emoji} ${token.name} · ${formatPercent(token.change24h)} today\n${token.ltName} — leveraged tokens\n\nbounce.fun`;
+    const text = `${token.emoji} ${token.name} · ${formatPercent(token.change24h)} today\n${token.ltName} — leveraged tokens`;
     copyToClipboard(text);
   };
 

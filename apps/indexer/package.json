@@ -1,5 +1,5 @@
 {
-  "name": "@bounce/indexer",
+  "name": "@launchpad/indexer",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -12,13 +12,13 @@
     "lint": "eslint src/"
   },
   "dependencies": {
-    "@bounce/shared": "*",
+    "@launchpad/shared": "*",
     "@ponder/core": "^0.7",
     "hono": "^4",
     "viem": "^2"
   },
   "devDependencies": {
-    "@bounce/config": "*",
+    "@launchpad/config": "*",
     "@types/node": "^25.5.2",
     "typescript": "~5.8"
   }

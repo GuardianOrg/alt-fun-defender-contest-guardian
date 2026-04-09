@@ -7,7 +7,7 @@ alwaysApply: true
 # Project Documentation Rules
 
 ## Structure
-- `AGENTS.md` (root) — product spec: what bounce.fun is, parameters, fees, BounceTech interface
+- `AGENTS.md` (root) — product spec: what the launchpad is, parameters, fees, BounceTech interface
 - `apps/*/AGENTS.md` and `packages/*/AGENTS.md` — scope-specific context
 - `docs/contracts-scope.md` — smart contract functional requirements
 - `docs/backend-scope.md` — API endpoints, WebSocket events, data indexing

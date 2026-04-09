@@ -38,8 +38,8 @@ export default function Header() {
   return (
     <header className={styles.header}>
       <div className={styles.logo} onClick={() => navigate("/")}>
-        <span className={styles.logoMint}>BOUNCE</span>
-        <span className={styles.logoTxt}>.FUN</span>
+        <span className={styles.logoMint}>LAUNCH</span>
+        <span className={styles.logoTxt}>PAD</span>
       </div>
 
       <div className={styles.tagline}>

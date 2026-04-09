@@ -70,12 +70,6 @@ Two-column: left (form) | right (live preview card).
 
 ---
 
-## Bridge
-
-LI.FI Widget in modal. Destination: HyperEVM USDC. Default source: Solana SOL. Surfaces on: zero USDC after connect, insufficient balance on buy attempt, header button.
-
----
-
 ## Trade Flows
 
 **Buy:** enter USDC → see estimated tokens → BUY → Privy login if needed → USDC approve if first buy → `RedemptionRouter.buy()` → confirmation.
@@ -107,6 +101,16 @@ Read `?ref=` URL param, store in session. Pass as `referrer` to `buy()`. `addres
 ## Mobile
 
 Single column layouts. Token detail: stacked (chart → trade panel as bottom sheet → tabs). Profile: full-width bottom drawer.
+
+---
+
+## Password Gate
+
+Temporary pre-launch gate (`PasswordGate` component). Prompts for a password before allowing access. Will be removed before public launch. Not a security feature — just a casual barrier during testing.
+
+## Image Upload
+
+Token creation uses file upload (not URL paste). Images are uploaded to the API (`POST /images`), which moderates and stores them in Cloudflare R2. Accepted formats: JPEG, PNG, GIF, WebP. Max size: 5MB.
 
 ---
 

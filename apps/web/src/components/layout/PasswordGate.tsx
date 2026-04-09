@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 
 import styles from "./PasswordGate.module.css";
 
-const PASS = "bounce2026";
+const PASS = "launchpad2026";
 const STORAGE_KEY = "bf_auth";
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
@@ -29,8 +29,8 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
     <div className={styles.wrapper}>
       <form onSubmit={submit} className={styles.form}>
         <div className={styles.logoText}>
-          <span className={styles.logoMint}>BOUNCE</span>
-          <span className={styles.logoTxt}>.FUN</span>
+          <span className={styles.logoMint}>LAUNCH</span>
+          <span className={styles.logoTxt}>PAD</span>
         </div>
         <div className={styles.subtitle}>internal preview</div>
 

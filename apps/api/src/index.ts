@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { prettyJSON } from "hono/pretty-json";
+import { DurableObject } from "cloudflare:workers";
 
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
@@ -18,7 +19,7 @@ app.use("*", logger());
 app.use("*", cors());
 app.use("*", prettyJSON());
 
-app.get("/", (c) => c.json(formatSuccess("bounce.fun API")));
+app.get("/", (c) => c.json(formatSuccess("launchpad API")));
 app.get("/health", (c) => c.json(formatSuccess("healthy")));
 
 app.route("/api/v1/tokens", tokens);
@@ -32,5 +33,9 @@ app.onError((err, c) => {
   console.error("Error:", err);
   return c.json(formatError("Internal Server Error"), 500);
 });
+
+export class WebSocketDO extends DurableObject {
+  // TODO: Implement WebSocket Durable Object for real-time feeds
+}
 
 export default app;

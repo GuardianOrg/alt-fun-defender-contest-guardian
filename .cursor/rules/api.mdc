@@ -24,7 +24,7 @@ globs: "apps/api/**/*.ts"
 - Apply `logger()`, `cors()`, and `prettyJSON()` middleware on all routes
 
 ## Database
-- Use Drizzle ORM with Neon PostgreSQL via Cloudflare Hyperdrive
+- Use Drizzle ORM with Neon PostgreSQL
 - Schema defined in `src/db/schema.ts`
 - Use `drizzle-zod` for request body validation
 - Migrations via `drizzle-kit generate` and `drizzle-kit migrate`
@@ -46,6 +46,6 @@ globs: "apps/api/**/*.ts"
 
 ## Patterns
 - Use middleware for cross-cutting concerns (auth, CORS, rate limiting)
-- Type API request/response shapes in `@bounce/shared`
+- Type API request/response shapes in `@launchpad/shared`
 - Environment variables via Cloudflare bindings, not `process.env`
 - Use `import type` for type-only imports

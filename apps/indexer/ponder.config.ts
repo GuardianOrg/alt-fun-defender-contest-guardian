@@ -1,7 +1,7 @@
 import { createConfig } from "@ponder/core";
 import { http } from "viem";
 
-import { BondingAbi, CONTRACT_ADDRESSES, HYPER_EVM } from "@bounce/shared";
+import { BondingAbi, CONTRACT_ADDRESSES, HYPER_EVM } from "@launchpad/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
@@ -10,7 +10,7 @@ const startBlock = Number(process.env.BONDING_START_BLOCK ?? 0);
 
 if (bondingAddress === ZERO_ADDRESS) {
   throw new Error(
-    "Bonding contract address is not set — update CONTRACT_ADDRESSES in @bounce/shared before running the indexer",
+    "Bonding contract address is not set — update CONTRACT_ADDRESSES in @launchpad/shared before running the indexer",
   );
 }
 

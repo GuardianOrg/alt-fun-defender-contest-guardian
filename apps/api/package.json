@@ -1,5 +1,5 @@
 {
-  "name": "@bounce/api",
+  "name": "@launchpad/api",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -16,13 +16,13 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@bounce/shared": "*",
+    "@launchpad/shared": "*",
     "drizzle-orm": "^0.39",
     "hono": "^4",
     "postgres": "^3"
   },
   "devDependencies": {
-    "@bounce/config": "*",
+    "@launchpad/config": "*",
     "@cloudflare/workers-types": "^4",
     "drizzle-kit": "^0.30",
     "drizzle-zod": "^0.7",
