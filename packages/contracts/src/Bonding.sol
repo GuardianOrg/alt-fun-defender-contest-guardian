@@ -97,7 +97,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Launch ──────────────────────────────────────────────────────────
 
-    function launch(LaunchParams calldata params) external nonReentrant returns (address, address, uint256) {
+    function launch(
+        LaunchParams calldata params
+    ) external nonReentrant returns (address, address, uint256) {
         if (params.purchaseAmount <= fee) revert InvalidInput();
 
         address assetToken = router.assetToken();

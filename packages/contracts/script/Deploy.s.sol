@@ -52,7 +52,9 @@ contract Deploy is Script {
         return address(new ERC1967Proxy(address(impl), initData));
     }
 
-    function _deployStubs(address deployer) internal {
+    function _deployStubs(
+        address deployer
+    ) internal {
         RedemptionRouter rImpl = new RedemptionRouter();
         bytes memory rInit = abi.encodeCall(RedemptionRouter.initialize, (deployer));
         address rProxy = address(new ERC1967Proxy(address(rImpl), rInit));

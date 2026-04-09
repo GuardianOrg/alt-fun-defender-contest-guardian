@@ -57,7 +57,9 @@ contract BondingTest is Test {
         return _launchToken(200 ether);
     }
 
-    function _launchToken(uint256 purchaseAmount) internal returns (address tokenAddr, address pairAddr) {
+    function _launchToken(
+        uint256 purchaseAmount
+    ) internal returns (address tokenAddr, address pairAddr) {
         asset.mint(creator, purchaseAmount);
         vm.startPrank(creator);
         asset.approve(address(bonding), purchaseAmount);

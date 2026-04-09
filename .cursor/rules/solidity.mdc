@@ -5,6 +5,14 @@ globs: "packages/contracts/**/*.sol"
 
 # Solidity / Foundry Rules
 
+## Post-Edit Checklist (MANDATORY)
+After ANY edit to `.sol` files, you MUST run these commands before responding:
+1. `cd packages/contracts && forge fmt` — auto-format all Solidity files
+2. `cd packages/contracts && forge build` — verify compilation
+3. If tests exist for the changed code, `cd packages/contracts && forge test` — verify nothing broke
+
+Do NOT skip these steps. Do NOT leave formatting for the user to fix.
+
 ## Style
 - Use Solidity 0.8.x with the latest stable compiler
 - Follow the Solidity style guide: contract-level NatSpec on all public/external functions
