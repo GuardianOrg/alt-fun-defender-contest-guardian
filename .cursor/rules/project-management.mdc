@@ -1,0 +1,30 @@
+---
+description: Rules for working with project documentation
+globs: "{AGENTS.md,docs/**/*.md}"
+alwaysApply: true
+---
+
+# Project Documentation Rules
+
+## Structure
+- `AGENTS.md` (root) — product spec: what bounce.fun is, parameters, fees, BounceTech interface
+- `apps/*/AGENTS.md` and `packages/*/AGENTS.md` — scope-specific context
+- `docs/contracts-scope.md` — smart contract functional requirements
+- `docs/backend-scope.md` — API endpoints, WebSocket events, data indexing
+- `docs/frontend-scope.md` — UI spec, page layouts, trade flows
+
+Root `AGENTS.md` is the source of truth. When files conflict, root wins.
+
+## Formatting
+Never use bare `$` signs in markdown — always wrap dollar amounts in backticks.
+
+## Terminology
+| Use this | Not this |
+|---|---|
+| leverage boost | HYPE boost, LT gain, leverage appreciation |
+| bonding curve | curve, bond |
+| graduation | migrate, launch (when referring to threshold crossing) |
+| seed buy | dev buy, initial buy |
+| curve filled | progress, bonding |
+| HyperSwap | DEX (when referring to specific post-grad venue) |
+| LT (Leveraged Token) | leveraged token (always capitalise) |

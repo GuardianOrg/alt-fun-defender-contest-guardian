@@ -1,0 +1,51 @@
+---
+description: Hono API conventions for Cloudflare Workers backend
+globs: "apps/api/**/*.ts"
+---
+
+# API Rules
+
+## Framework
+- Use Hono with Cloudflare Workers runtime
+- Mount sub-routes with `app.route("/path", router)`
+- Use `wrangler types` to generate `Env` bindings — never hand-write them
+- Config goes in `wrangler.json` (not `.toml`)
+- Enable `nodejs_compat` and `upload_source_maps`
+
+## Response Envelope
+- All responses use a consistent envelope via `formatSuccess` / `formatError` utilities in `src/utils/`
+- Success: `{ status: "success", data: T, error: null }`
+- Error: `{ status: "error", data: null, error: "message" }`
+- Route handlers return `c.json(formatSuccess(data))` or `c.json(formatError("msg"), statusCode)`
+
+## Global Handlers
+- `app.notFound()` returns `formatError("Not Found")` with 404
+- `app.onError()` logs the error and returns `formatError("Internal Server Error")` with 500
+- Apply `logger()`, `cors()`, and `prettyJSON()` middleware on all routes
+
+## Database
+- Use Drizzle ORM with Neon PostgreSQL via Cloudflare Hyperdrive
+- Schema defined in `src/db/schema.ts`
+- Use `drizzle-zod` for request body validation
+- Migrations via `drizzle-kit generate` and `drizzle-kit migrate`
+
+## Route Modules
+- One file per domain in `src/routes/`
+- Each file creates a `new Hono<{ Bindings: AppBindings }>()` and `export default` it
+- Destructure query results with `const [item] = await db.select()...` then check `if (!item)`
+- Keep handlers concise — extract complex logic into `src/utils/`
+
+## Utility Modules
+- Shared helpers go in `src/utils/`, one function per file
+- Single-purpose utilities use `export default`
+- Multi-export modules use named exports
+
+## Error Handling
+- Never expose internal error details to clients
+- Log errors with structured data (not `console.log`)
+
+## Patterns
+- Use middleware for cross-cutting concerns (auth, CORS, rate limiting)
+- Type API request/response shapes in `@bounce/shared`
+- Environment variables via Cloudflare bindings, not `process.env`
+- Use `import type` for type-only imports

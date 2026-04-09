@@ -1,0 +1,25 @@
+---
+description: Testing conventions across the monorepo
+globs: "**/*.test.{ts,tsx}"
+---
+
+# Testing Rules
+
+## Contracts (Solidity)
+- Use Foundry's built-in test framework (`forge test`)
+- Comprehensive test coverage for all public/external functions
+- Fuzz tests for math-heavy functions
+- Fork tests for integration testing against live chains
+- See `solidity.mdc` for naming conventions
+
+## API (Hono)
+- Test route handlers with Hono's built-in test client (`app.request()`)
+- Test database queries against a Neon branch (not production)
+- Mock external services (BounceTech API, etc.)
+- Cover all error paths and edge cases
+
+## Frontend (React)
+- Unit tests only for core logic functions (formatting, calculations)
+- Use Vitest if tests are needed
+- No component tests unless specifically requested
+- Focus test effort on contract and API layers

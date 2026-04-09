@@ -1,0 +1,24 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+ffi = false
+fs_permissions = [{ access = "read", path = "./out" }]
+
+[fmt]
+line_length = 120
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+multiline_func_header = "params_first"
+quote_style = "double"
+number_underscore = "thousands"
+single_line_statement_blocks = "preserve"
+
+[rpc_endpoints]
+hyperevm = "${HYPEREVM_RPC_URL}"
+hyperevm_testnet = "${HYPEREVM_TESTNET_RPC_URL}"

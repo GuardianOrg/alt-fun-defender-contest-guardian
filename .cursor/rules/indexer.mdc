@@ -1,0 +1,30 @@
+---
+description: Ponder indexer conventions for on-chain event indexing
+globs: "apps/indexer/**/*.ts"
+---
+
+# Indexer Rules
+
+## Framework
+- Use Ponder for EVM event indexing
+- Schema defined in `ponder.schema.ts` using `onchainTable`
+- Event handlers in `src/` — one file per contract
+- Import ABIs from `@bounce/shared`
+
+## Patterns
+- Use the `"setup"` event for initializing singleton records
+- Handle chain reorgs automatically (Ponder does this — don't add custom logic)
+- Use `context.db` for database operations within event handlers
+- Keep event handlers focused — extract complex calculations to `src/helpers/`
+- For exchange rate polling, use Ponder's block-based handlers
+
+## Schema
+- Table names are singular (e.g., `token`, `trade`, `creator`)
+- Use `hex` type for addresses and transaction hashes
+- Include `blockNumber` and `timestamp` on all records for ordering
+- Define relations between tables for relational queries
+
+## Performance
+- Minimize RPC calls in event handlers — use event data when possible
+- Set appropriate `pollingInterval` in config to avoid rate limiting
+- Use batch inserts when processing multiple records in one event

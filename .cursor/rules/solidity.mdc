@@ -1,0 +1,43 @@
+---
+description: Solidity smart contract development conventions using Foundry
+globs: "packages/contracts/**/*.sol"
+---
+
+# Solidity / Foundry Rules
+
+## Post-Edit Checklist (MANDATORY)
+After ANY edit to `.sol` files:
+1. Run `cd packages/contracts && forge fmt` — auto-format all Solidity files
+2. Then run `npm run ci` from the repo root — verifies everything (lint, typecheck, test, build) across all packages
+
+Do NOT skip these steps. Do NOT leave formatting or CI failures for the user to fix.
+
+## Style
+- Use Solidity 0.8.x with the latest stable compiler
+- Follow the Solidity style guide: contract-level NatSpec on all public/external functions
+- Use `forge fmt` formatting (do not fight it)
+- Errors must be custom errors (not `require` strings) for gas efficiency
+- Events for all state mutations
+- Use OpenZeppelin contracts from `lib/` (git submodules)
+
+## Security Checklist
+Before any PR, verify:
+- Reentrancy guards on external calls that transfer value
+- Access control on admin functions (Ownable or role-based)
+- Slippage protection on all swap/liquidity operations
+- No floating pragma — pin exact compiler version
+- Check-effects-interactions pattern
+- Integer overflow is handled (Solidity 0.8+ default, but verify for unchecked blocks)
+
+## Testing
+- Write tests in Solidity (not JavaScript) using `forge test`
+- Use `forge test --fork-url` for integration tests against live state
+- Fuzz tests for math-heavy functions (bonding curve calculations)
+- Invariant tests for protocol-level properties
+- Name test files `*.t.sol`, place in `test/`
+- Name test functions `test_<description>` for passing, `testFail_<description>` for expected reverts, `testFuzz_<description>` for fuzz tests
+
+## Deployment
+- Use `forge script` (not `forge create`) for reproducible deployments
+- Scripts go in `script/`, named `Deploy<Contract>.s.sol`
+- Never hardcode private keys — use `cast wallet import` encrypted keystores

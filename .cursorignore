@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.turbo/
+packages/contracts/out/
+packages/contracts/cache/
+packages/contracts/lib/
+*.lock
+*.log
+project-management/supplemental-analysis/
+project-management/Context-files/*.pdf

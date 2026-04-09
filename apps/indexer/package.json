@@ -1,0 +1,25 @@
+{
+  "name": "@bounce/indexer",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "serve": "ponder serve",
+    "codegen": "ponder codegen",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@bounce/shared": "*",
+    "@ponder/core": "^0.7",
+    "hono": "^4",
+    "viem": "^2"
+  },
+  "devDependencies": {
+    "@bounce/config": "*",
+    "@types/node": "^25.5.2",
+    "typescript": "~5.8"
+  }
+}
