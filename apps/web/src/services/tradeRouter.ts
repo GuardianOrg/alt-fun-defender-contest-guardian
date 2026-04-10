@@ -169,13 +169,16 @@ const liveTradeRouter: ITradeRouterService = {
           : 0;
 
       const bufferLt = exRate > 0 ? bufferUsdc / exRate : 0;
-      const maxSellableTokens =
-        bufferLt > 0 && ltReserveFloat > 0
-          ? (tokenReserveFloat * bufferLt) / (ltReserveFloat - bufferLt)
-          : 0;
-      const safeMaxSellable = Math.max(0, maxSellableTokens);
+      const bufferBinds = bufferLt > 0 && ltReserveFloat > bufferLt;
+      const maxSellableTokens = bufferBinds
+        ? (tokenReserveFloat * bufferLt) / (ltReserveFloat - bufferLt)
+        : Infinity;
+      const safeMaxSellable = Number.isFinite(maxSellableTokens)
+        ? Math.max(0, maxSellableTokens)
+        : Infinity;
 
-      const exceedsBuffer = grossUsdc > bufferUsdc;
+      const redeemUsdc = grossUsdc - curveFee;
+      const exceedsBuffer = redeemUsdc > bufferUsdc;
 
       return {
         usdcOut: netUsdc,

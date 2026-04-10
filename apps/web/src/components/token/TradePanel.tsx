@@ -293,9 +293,9 @@ export default function TradePanel({ token }: Props) {
                 const walletBal = parseFloat(maxBalance);
                 if (mode === "buy") {
                   setAmount(String(Math.floor(walletBal * 100) / 100));
-                } else if (sellQuote && sellQuote.maxSellableTokens > 0) {
+                } else if (sellQuote && Number.isFinite(sellQuote.maxSellableTokens)) {
                   const capped = Math.min(walletBal, sellQuote.maxSellableTokens);
-                  setAmount(String(capped));
+                  setAmount(String(Math.max(0, capped)));
                 } else {
                   setAmount(String(walletBal));
                 }
