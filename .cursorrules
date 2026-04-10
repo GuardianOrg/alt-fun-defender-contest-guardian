@@ -41,6 +41,12 @@ ABIs flow: Foundry build -> export script -> `packages/shared/src/abis/` -> cons
 | HyperSwap | DEX (when referring to the specific post-grad venue) |
 | LT (Leveraged Token) | leveraged token (always capitalise) |
 
+## Task Tracking (MANDATORY)
+`TODO.md` in the repo root is the single source of truth for open tasks.
+- Before starting work, check `TODO.md` for relevant items.
+- When completing a task listed there, remove it.
+- When discovering new work that can't be done immediately, add it to `TODO.md`.
+
 ## CI Verification (MANDATORY)
 After making any code changes, you MUST run `npm run ci` from the repo root before responding.
 This runs lint, typecheck, test, and build across ALL packages — the exact same checks as GitHub CI.

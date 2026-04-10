@@ -1,0 +1,116 @@
+const PONDER_URL = import.meta.env.VITE_PONDER_URL || "http://localhost:42069";
+
+export interface PonderToken {
+  address: string;
+  name: string;
+  symbol: string;
+  creator: string;
+  ltToken: string;
+  k: string;
+  curveSupply: string;
+  ltReserve: string;
+  graduated: boolean;
+  graduatedAt: string | null;
+  pairAddress: string | null;
+  blockNumber: string;
+  timestamp: string;
+}
+
+export interface PonderTrade {
+  id: string;
+  tokenAddress: string;
+  trader: string;
+  isBuy: boolean;
+  ltAmount: string;
+  tokenAmount: string;
+  curveSupply: string;
+  ltReserve: string;
+  blockNumber: string;
+  timestamp: string;
+}
+
+async function ponderQuery<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+  const res = await fetch(PONDER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Ponder query failed: ${res.status}`);
+  }
+
+  const json = (await res.json()) as { data: T; errors?: { message: string }[] };
+  if (json.errors?.length) {
+    throw new Error(json.errors[0].message);
+  }
+  return json.data;
+}
+
+export async function fetchPonderTokens(limit = 50): Promise<PonderToken[]> {
+  const data = await ponderQuery<{ tokens: { items: PonderToken[] } }>(
+    `query($limit: Int!) {
+      tokens(limit: $limit, orderBy: "timestamp", orderDirection: "desc") {
+        items {
+          address name symbol creator ltToken k
+          curveSupply ltReserve graduated graduatedAt
+          pairAddress blockNumber timestamp
+        }
+      }
+    }`,
+    { limit },
+  );
+  return data.tokens.items;
+}
+
+export async function fetchPonderToken(address: string): Promise<PonderToken | null> {
+  const data = await ponderQuery<{ token: PonderToken | null }>(
+    `query($address: String!) {
+      token(address: $address) {
+        address name symbol creator ltToken k
+        curveSupply ltReserve graduated graduatedAt
+        pairAddress blockNumber timestamp
+      }
+    }`,
+    { address },
+  );
+  return data.token;
+}
+
+export async function fetchPonderTrades(
+  tokenAddress?: string,
+  limit = 50,
+): Promise<PonderTrade[]> {
+  if (tokenAddress) {
+    const data = await ponderQuery<{ trades: { items: PonderTrade[] } }>(
+      `query($tokenAddress: String!, $limit: Int!) {
+        trades(
+          where: { tokenAddress: $tokenAddress }
+          limit: $limit
+          orderBy: "timestamp"
+          orderDirection: "desc"
+        ) {
+          items {
+            id tokenAddress trader isBuy ltAmount tokenAmount
+            curveSupply ltReserve blockNumber timestamp
+          }
+        }
+      }`,
+      { tokenAddress, limit },
+    );
+    return data.trades.items;
+  }
+
+  const data = await ponderQuery<{ trades: { items: PonderTrade[] } }>(
+    `query($limit: Int!) {
+      trades(limit: $limit, orderBy: "timestamp", orderDirection: "desc") {
+        items {
+          id tokenAddress trader isBuy ltAmount tokenAmount
+          curveSupply ltReserve blockNumber timestamp
+        }
+      }
+    }`,
+    { limit },
+  );
+  return data.trades.items;
+}

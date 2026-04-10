@@ -88,6 +88,7 @@ baseAssetBalance() → uint256               // Idle USDC available for atomic r
 
 ### Key Constraints
 
+- **Minimum mint/redeem: `$10` USDC.** Amounts below this revert with `0x05eb05ac`. The frontend must enforce this minimum on buy/sell inputs.
 - `redeem()` reverts with `InsufficientBalance` if amount exceeds `baseAssetBalance()`
 - `prepareRedeem()` has `AlreadyRedeeming` — only ONE pending per address per LT
 - Bounce Indexing API (`GET /trade/:txHash`) tracks `prepareRedeem` completion — returns `null` while pending
@@ -124,8 +125,8 @@ No auth required.
 | Contract | Address |
 |---|---|
 | USDC (HyperEVM) | `0xb88339CB7199b77E23DB6E890353E22632Ba630f` |
-| HyperSwap V2 Factory | `0x4df039804873717bff7d03694fb941cf0469b79e` |
-| HyperSwap V2 Router | `0xda0f518d521e0dE83fAdC8500C2D21b6a6C39bF9` |
+| HyperSwap V2 Factory | `0x724412C00059bf7d6ee7d4a1d0D5cd4de3ea1C48` |
+| HyperSwap V2 Router | `0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A` |
 
 ### Infrastructure
 
@@ -181,3 +182,7 @@ Admin endpoints (`/admin/*`) are authenticated via a shared admin API key passed
 ## Referrals
 
 v1 tracks referrals only (no on-chain fee split). The `buy()` function accepts a `referrer` address parameter. `Referred` events are emitted and indexed for analytics. Payouts are deferred to v2.
+
+## Open Tasks
+
+See `TODO.md` in the repo root for outstanding work items. This is the single source of truth for open tasks. When completing a task, remove it from `TODO.md`. When discovering new work, add it there.

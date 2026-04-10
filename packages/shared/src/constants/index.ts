@@ -1,5 +1,5 @@
-export { CONTRACT_ADDRESSES } from "./addresses.js";
-export { SUPPORTED_CHAINS, HYPER_EVM } from "./chains.js";
+export { CONTRACT_ADDRESSES, HYPERSWAP_ADDRESSES } from "./addresses.js";
+export { SUPPORTED_CHAINS, HYPER_EVM, BONDING_START_BLOCK } from "./chains.js";
 export {
   BOUNCE_INDEXING_API,
   HYPERLIQUID_INFO_API,

@@ -5,9 +5,13 @@ import styles from "./PasswordGate.module.css";
 const PASS = "launchpad2026";
 const STORAGE_KEY = "lp_auth";
 
+const isLocalhost = () =>
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
 export default function PasswordGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(
-    () => sessionStorage.getItem(STORAGE_KEY) === "1",
+    () => isLocalhost() || sessionStorage.getItem(STORAGE_KEY) === "1",
   );
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);

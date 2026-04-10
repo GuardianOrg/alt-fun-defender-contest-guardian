@@ -1,108 +1,130 @@
+import { BondingAbi } from "@launchpad/shared";
+import { createPublicClient, formatUnits, http } from "viem";
+
+
+import { fetchTokens } from "./api";
+import { erc20Abi } from "../contracts/abis";
+import { ADDRESSES } from "../contracts/addresses";
+
 import type { CreatorEarnings, HeldToken } from "./types";
+
+const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz";
+
+const publicClient = createPublicClient({
+  transport: http(HYPER_EVM_RPC),
+});
 
 export interface ICreatorService {
   getBalances(walletAddress: string): Promise<HeldToken[]>;
   getEarnings(walletAddress: string): Promise<CreatorEarnings | null>;
-  claimEarnings(walletAddress: string, tokenAddress?: string): Promise<string>;
+  claimEarnings(
+    walletAddress: string,
+    tokenAddress?: string,
+  ): Promise<string>;
 }
 
-const mockCreatorService: ICreatorService = {
-  async getBalances(_walletAddress) {
-    return [
-      {
-        address: "0x3f4a8b2c9d1e5f7a100000000000babe",
-        name: "MOONBOUND",
-        ticker: "MOON",
-        emoji: "🚀",
-        ltName: "HYPE 3× Long",
-        status: "graduating" as const,
-        amount: 4_210_000,
-        valueUsd: 791.48,
-        change24h: 24.1,
-      },
-      {
-        address: "0x3f4a8b2c9d1e5f7a200000000000babe",
-        name: "HYPERAPE",
-        ticker: "HAPE",
-        emoji: "🦍",
-        ltName: "HYPE 2× Long",
-        status: "active" as const,
-        amount: 12_500_000,
-        valueUsd: 312.5,
-        change24h: -8.3,
-      },
-      {
-        address: "0x3f4a8b2c9d1e5f7a300000000000babe",
-        name: "BEARISH",
-        ticker: "BEAR",
-        emoji: "🐻",
-        ltName: "HYPE 2× Short",
-        status: "active" as const,
-        amount: 800_000,
-        valueUsd: 88.0,
-        change24h: 5.6,
-      },
-      {
-        address: "0x3f4a8b2c9d1e5f7a600000000000babe",
-        name: "HYPERCAT",
-        ticker: "HCAT",
-        emoji: "🔥",
-        ltName: "HYPE 3× Long",
-        status: "active" as const,
-        amount: 2_100_000,
-        valueUsd: 42.0,
-        change24h: 0.0,
-      },
-    ];
+const liveCreatorService: ICreatorService = {
+  async getBalances(walletAddress) {
+    try {
+      const tokens = await fetchTokens(100);
+      const balances: HeldToken[] = [];
+
+      for (const token of tokens) {
+        try {
+          const balance = (await publicClient.readContract({
+            address: token.address as `0x${string}`,
+            abi: erc20Abi,
+            functionName: "balanceOf",
+            args: [walletAddress as `0x${string}`],
+          })) as bigint;
+
+          if (balance > 0n) {
+            balances.push({
+              address: token.address,
+              name: token.name,
+              ticker: token.ticker,
+              emoji: "",
+              ltName: `${token.ltPair} ${token.leverage}×`,
+              status: "active",
+              amount: parseFloat(formatUnits(balance, 18)),
+              valueUsd: 0,
+              change24h: 0,
+            });
+          }
+        } catch {
+          /* skip on error */
+        }
+      }
+      return balances;
+    } catch {
+      return [];
+    }
   },
 
-  async getEarnings(_walletAddress) {
-    return {
-      totalEarned: 1204.6,
-      totalClaimable: 842.4,
-      totalClaimed: 362.2,
-      tokens: [
-        {
-          address: "0x3f4a8b2c9d1e5f7a100000000000babe",
-          name: "MOONBOUND",
-          emoji: "🚀",
-          ltName: "HYPE 3× Long",
-          status: "graduating" as const,
-          curveFilled: 92,
-          totalVolumeUsd: 84_000,
-          feesEarnedUsd: 840,
-          feesClaimableUsd: 620,
-        },
-        {
-          address: "0x3f4a8b2c9d1e5f7a600000000000babe",
-          name: "HYPERCAT",
-          emoji: "🔥",
-          ltName: "HYPE 3× Long",
-          status: "active" as const,
-          curveFilled: 48,
-          totalVolumeUsd: 4_800,
-          feesEarnedUsd: 48,
-          feesClaimableUsd: 32,
-        },
-        {
-          address: "0x3f4a8b2c9d1e5f7a400000000000babe",
-          name: "HYPERVADER",
-          emoji: "⚡",
-          ltName: "HYPE 2× Long",
-          status: "graduated" as const,
-          curveFilled: 100,
-          totalVolumeUsd: 340_000,
-          feesEarnedUsd: 316.6,
-          feesClaimableUsd: 190.4,
-        },
-      ],
-    };
+  async getEarnings(walletAddress) {
+    try {
+      const tokens = await fetchTokens(100);
+      const createdTokens = tokens.filter(
+        (t) => t.creator.toLowerCase() === walletAddress.toLowerCase(),
+      );
+
+      if (createdTokens.length === 0) return null;
+
+      let totalClaimable = 0;
+      const tokenEarnings = [];
+
+      for (const token of createdTokens) {
+        try {
+          const claimable = (await publicClient.readContract({
+            address: ADDRESSES.bonding,
+            abi: BondingAbi,
+            functionName: "creatorFees",
+            args: [token.address as `0x${string}`, walletAddress as `0x${string}`],
+          })) as bigint;
+
+          const claimableUsd = parseFloat(formatUnits(claimable, 18));
+          totalClaimable += claimableUsd;
+
+          tokenEarnings.push({
+            address: token.address,
+            name: token.name,
+            emoji: "",
+            ltName: `${token.ltPair} ${token.leverage}×`,
+            status: "active" as const,
+            curveFilled: 0,
+            totalVolumeUsd: 0,
+            feesEarnedUsd: claimableUsd,
+            feesClaimableUsd: claimableUsd,
+          });
+        } catch {
+          tokenEarnings.push({
+            address: token.address,
+            name: token.name,
+            emoji: "",
+            ltName: `${token.ltPair} ${token.leverage}×`,
+            status: "active" as const,
+            curveFilled: 0,
+            totalVolumeUsd: 0,
+            feesEarnedUsd: 0,
+            feesClaimableUsd: 0,
+          });
+        }
+      }
+
+      return {
+        totalEarned: totalClaimable,
+        totalClaimable,
+        totalClaimed: 0,
+        tokens: tokenEarnings,
+      };
+    } catch {
+      return null;
+    }
   },
 
   async claimEarnings(_walletAddress, _tokenAddress) {
-    await new Promise((r) => setTimeout(r, 1000));
-    return "0x" + Math.random().toString(16).slice(2);
+    return "0x";
   },
 };
 
-export const creatorService: ICreatorService = mockCreatorService;
+export const creatorService: ICreatorService = liveCreatorService;

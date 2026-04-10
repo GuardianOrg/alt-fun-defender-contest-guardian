@@ -10,67 +10,81 @@ import {RedemptionRouter} from "../src/RedemptionRouter.sol";
 import {LPLock} from "../src/LPLock.sol";
 
 contract Deploy is Script {
+    // HyperEVM mainnet addresses
+    address constant USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
+    address constant HYPERSWAP_ROUTER = 0xda0f518d521e0dE83fAdC8500C2D21b6a6C39bF9;
+
+    // 0.5% = 50 basis points for both buy and sell tax
+    uint256 constant BUY_TAX_BPS = 50;
+    uint256 constant SELL_TAX_BPS = 50;
+    uint256 constant MAX_TX = 100; // 100% = no per-tx limit
+
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
-        address assetToken = vm.envAddress("ASSET_TOKEN");
+
+        console.log("Deployer:", deployer);
 
         vm.startBroadcast(deployerPrivateKey);
-
-        _deploy(deployer, assetToken);
-
+        _deploy(deployer);
         vm.stopBroadcast();
     }
 
     function _deploy(
-        address deployer,
-        address assetToken
+        address deployer
     ) internal {
-        address feeReceiver = deployer;
-
+        // 1. Deploy FFactory
         FFactory factory = new FFactory();
-        factory.initialize(feeReceiver, 1, 1);
+        factory.initialize(deployer, BUY_TAX_BPS, SELL_TAX_BPS);
+        console.log("FFactory:", address(factory));
 
+        // 2. Deploy FRouter
         FRouter router = new FRouter();
-        router.initialize(address(factory), assetToken);
+        router.initialize(address(factory));
+        console.log("FRouter:", address(router));
 
-        address bondingProxy = _deployBonding(address(factory), address(router), feeReceiver);
+        // 3. Deploy LPLock (proxy)
+        LPLock lpLockImpl = new LPLock();
+        bytes memory lpLockInit = abi.encodeCall(LPLock.initialize, (deployer));
+        address lpLockProxy = address(new ERC1967Proxy(address(lpLockImpl), lpLockInit));
+        console.log("LPLock (proxy):", lpLockProxy);
 
+        // 4. Deploy Bonding (proxy)
+        address bondingProxy =
+            _deployBonding(address(factory), address(router), deployer, MAX_TX, HYPERSWAP_ROUTER, lpLockProxy);
+        console.log("Bonding (proxy):", bondingProxy);
+
+        // 5. Deploy RedemptionRouter (proxy)
+        RedemptionRouter rrImpl = new RedemptionRouter();
+        bytes memory rrInit = abi.encodeCall(RedemptionRouter.initialize, (bondingProxy, USDC, HYPERSWAP_ROUTER));
+        address rrProxy = address(new ERC1967Proxy(address(rrImpl), rrInit));
+        console.log("RedemptionRouter (proxy):", rrProxy);
+
+        // 6. Wire roles and permissions
         factory.setRouter(address(router));
         factory.grantRole(factory.BONDING_ROLE(), bondingProxy);
         router.grantRole(router.BONDING_ROLE(), bondingProxy);
+        LPLock(lpLockProxy).setLocker(bondingProxy, true);
 
-        _deployStubs(deployer);
+        // Set feeTo = Bonding so trade fees accumulate there
+        factory.setFeeParams(bondingProxy, BUY_TAX_BPS, SELL_TAX_BPS);
 
-        console.log("FFactory:", address(factory));
-        console.log("FRouter:", address(router));
-        console.log("Bonding (proxy):", bondingProxy);
+        console.log("--- Deployment complete ---");
+        console.log("USDC:", USDC);
+        console.log("HyperSwap Router:", HYPERSWAP_ROUTER);
     }
 
     function _deployBonding(
         address factory_,
         address router_,
-        address feeReceiver
+        address feeTo_,
+        uint256 maxTx_,
+        address hyperswapRouter_,
+        address lpLock_
     ) internal returns (address) {
         Bonding impl = new Bonding();
-        bytes memory initData = abi.encodeCall(
-            Bonding.initialize, (factory_, router_, feeReceiver, 100 ether, 10_000, 100, 85_000_000 ether)
-        );
+        bytes memory initData =
+            abi.encodeCall(Bonding.initialize, (factory_, router_, feeTo_, maxTx_, hyperswapRouter_, lpLock_));
         return address(new ERC1967Proxy(address(impl), initData));
-    }
-
-    function _deployStubs(
-        address deployer
-    ) internal {
-        RedemptionRouter rImpl = new RedemptionRouter();
-        bytes memory rInit = abi.encodeCall(RedemptionRouter.initialize, (deployer));
-        address rProxy = address(new ERC1967Proxy(address(rImpl), rInit));
-
-        LPLock lImpl = new LPLock();
-        bytes memory lInit = abi.encodeCall(LPLock.initialize, (deployer));
-        address lProxy = address(new ERC1967Proxy(address(lImpl), lInit));
-
-        console.log("RedemptionRouter (proxy):", rProxy);
-        console.log("LPLock (proxy):", lProxy);
     }
 }

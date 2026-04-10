@@ -1,12 +1,17 @@
 import { createConfig } from "@ponder/core";
 import { http } from "viem";
 
-import { BondingAbi, CONTRACT_ADDRESSES, HYPER_EVM } from "@launchpad/shared";
+import {
+  BondingAbi,
+  CONTRACT_ADDRESSES,
+  HYPER_EVM,
+  BONDING_START_BLOCK,
+} from "@launchpad/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
-const startBlock = Number(process.env.BONDING_START_BLOCK ?? 0);
+const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
 
 if (bondingAddress === ZERO_ADDRESS) {
   throw new Error(

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, ilike, or, inArray, and } from "drizzle-orm";
 
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
@@ -42,6 +42,50 @@ tokensRoute.get("/", async (c) => {
   return c.json(formatSuccess(allTokens));
 });
 
+tokensRoute.get("/search", async (c) => {
+  const q = c.req.query("q");
+  if (!q || q.length < 1) {
+    return c.json(formatSuccess([]));
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const pattern = `%${q}%`;
+  const results = await db
+    .select()
+    .from(tokens)
+    .where(
+      and(
+        eq(tokens.isHidden, false),
+        or(
+          ilike(tokens.name, pattern),
+          ilike(tokens.ticker, pattern),
+          ilike(tokens.address, pattern),
+        ),
+      ),
+    )
+    .limit(20);
+
+  return c.json(formatSuccess(results));
+});
+
+tokensRoute.post("/batch", async (c) => {
+  const body = await c.req.json<{ addresses: string[] }>();
+  if (!body.addresses || body.addresses.length === 0) {
+    return c.json(formatSuccess([]));
+  }
+  if (body.addresses.length > 100) {
+    return c.json(formatError("Maximum 100 addresses per batch"), 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const results = await db
+    .select()
+    .from(tokens)
+    .where(inArray(tokens.address, body.addresses));
+
+  return c.json(formatSuccess(results));
+});
+
 tokensRoute.get("/:address", async (c) => {
   const address = c.req.param("address");
   const db = createDb(c.env.DATABASE_URL);
@@ -52,6 +96,47 @@ tokensRoute.get("/:address", async (c) => {
   }
 
   return c.json(formatSuccess(token));
+});
+
+tokensRoute.post("/", async (c) => {
+  const body = await c.req.json<{
+    address: string;
+    name: string;
+    ticker: string;
+    description?: string;
+    imageUrl?: string;
+    ltPair: string;
+    ltDirection: string;
+    leverage: number;
+    creator: string;
+  }>();
+
+  if (!body.address || !body.name || !body.ticker || !body.ltPair || !body.creator) {
+    return c.json(formatError("Missing required fields"), 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const [token] = await db
+    .insert(tokens)
+    .values({
+      address: body.address,
+      name: body.name,
+      ticker: body.ticker,
+      description: body.description ?? "",
+      imageUrl: body.imageUrl ?? "",
+      ltPair: body.ltPair,
+      ltDirection: body.ltDirection ?? "long",
+      leverage: body.leverage ?? 2,
+      creator: body.creator,
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (!token) {
+    return c.json(formatError("Token already exists"), 409);
+  }
+
+  return c.json(formatSuccess(token), 201);
 });
 
 export default tokensRoute;
