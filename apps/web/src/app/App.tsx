@@ -1,3 +1,5 @@
+import { PrivyProvider } from "@privy-io/react-auth";
+import { WagmiProvider as PrivyWagmiProvider } from "@privy-io/wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Provider as ReduxProvider } from "react-redux";
 import {
@@ -20,6 +22,7 @@ import ErrorBoundary from "../components/shared/ErrorBoundary";
 import LeverageBanner from "../components/terminal/LeverageBanner";
 import TerminalView from "../components/terminal/TerminalView";
 import TokenDetailView from "../components/token/TokenDetailView";
+import { hyperEVM } from "../config/chains";
 import { wagmiConfig } from "../config/wagmi";
 import { store } from "../state/store";
 import { cn } from "../utils/format";
@@ -63,15 +66,39 @@ const queryClient = new QueryClient({
   },
 });
 
+const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+if (!privyAppId) {
+  throw new Error("VITE_PRIVY_APP_ID is not set — add it to .env.local");
+}
+
 const App = () => {
   return (
     <ErrorBoundary>
       <ReduxProvider store={store}>
-        <QueryClientProvider client={queryClient}>
-          <WagmiProvider config={wagmiConfig}>
-            <RouterProvider router={router} />
-          </WagmiProvider>
-        </QueryClientProvider>
+        <PrivyProvider
+          appId={privyAppId}
+          config={{
+            defaultChain: hyperEVM,
+            supportedChains: [hyperEVM],
+            appearance: {
+              theme: "dark",
+              accentColor: "#00ff88",
+            },
+            embeddedWallets: {
+              ethereum: {
+                createOnLogin: "users-without-wallets",
+              },
+            },
+          }}
+        >
+          <QueryClientProvider client={queryClient}>
+            <WagmiProvider config={wagmiConfig}>
+              <PrivyWagmiProvider config={wagmiConfig}>
+                <RouterProvider router={router} />
+              </PrivyWagmiProvider>
+            </WagmiProvider>
+          </QueryClientProvider>
+        </PrivyProvider>
       </ReduxProvider>
     </ErrorBoundary>
   );

@@ -5,11 +5,11 @@ import LivePreview from "./LivePreview";
 import PairSelector from "./PairSelector";
 import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
+import { useCreateToken } from "../../hooks/useCreateToken";
 import { useWallet } from "../../hooks/useWallet";
-import { cn, getErrorMessage } from "../../utils/format";
+import { cn } from "../../utils/format";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
-import type { LaunchStep } from "../../services/tradeRouter";
 import type { Direction } from "../../services/types";
 
 export default function CreateView() {
@@ -20,10 +20,10 @@ export default function CreateView() {
   const [ticker, setTicker] = useState("");
   const [seedAmount, setSeedAmount] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [launchStep, setLaunchStep] = useState<LaunchStep>("idle");
-  const [launchError, setLaunchError] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
+  const { step: launchStep, error: launchError, create } = useCreateToken();
   const seedAmt = parseFloat(seedAmount) || 0;
   const isBusy = launchStep === "approving" || launchStep === "deploying";
 
@@ -32,27 +32,18 @@ export default function CreateView() {
       connect();
       return;
     }
-    if (!name.trim() || !ticker.trim()) {
-      setLaunchError("Please enter a token name and ticker.");
-      return;
-    }
+    if (!name.trim() || !ticker.trim()) return;
 
-    try {
-      setLaunchError(null);
-
-      if (seedAmt > 0) {
-        setLaunchStep("approving");
-        await new Promise((r) => setTimeout(r, 500));
-      }
-
-      setLaunchStep("deploying");
-      await new Promise((r) => setTimeout(r, 1500));
-
-      setLaunchStep("confirmed");
-    } catch (e) {
-      setLaunchError(getErrorMessage(e));
-      setLaunchStep("error");
-    }
+    await create({
+      name: name.trim(),
+      ticker: ticker.trim(),
+      description: "",
+      direction,
+      underlying: asset as "HYPE" | "ETH" | "BTC" | "SOL",
+      leverage,
+      imageFile,
+      seedBuyUsd: seedAmt,
+    });
   };
 
   const buttonLabel = () => {
@@ -93,7 +84,10 @@ export default function CreateView() {
             ticker={ticker}
             onNameChange={setName}
             onTickerChange={setTicker}
-            onImageChange={(_, preview) => setImagePreview(preview)}
+            onImageChange={(file, preview) => {
+              setImageFile(file ?? undefined);
+              setImagePreview(preview);
+            }}
           />
 
           <div className={styles.divider} />

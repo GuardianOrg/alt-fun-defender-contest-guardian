@@ -6,7 +6,7 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {FPair} from "./FPair.sol";
 
 /// @title FFactory
-/// @notice Registry of bonding curve pairs. Manages fee configuration.
+/// @notice Registry of bonding curve pairs. Manages fee configuration and per-token LT mapping.
 /// @dev Forked from Virtuals Protocol FFactory.sol. Uses AccessControl for role-gated pair creation.
 contract FFactory is Initializable, AccessControlUpgradeable {
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
@@ -14,10 +14,15 @@ contract FFactory is Initializable, AccessControlUpgradeable {
     mapping(address => mapping(address => address)) private _pairs;
     address[] public allPairs;
 
+    /// @notice Memecoin address → its bonding curve pair
+    mapping(address => address) public pairFor;
+    /// @notice Memecoin address → its paired LT address
+    mapping(address => address) public ltFor;
+
     address public router;
     address public feeTo;
-    uint256 public buyTax;
-    uint256 public sellTax;
+    uint256 public buyTax; // basis points (e.g. 50 = 0.5%)
+    uint256 public sellTax; // basis points
 
     event PairCreated(address indexed tokenA, address indexed tokenB, address pair, uint256 index);
 
@@ -47,6 +52,9 @@ contract FFactory is Initializable, AccessControlUpgradeable {
         _pairs[tokenA][tokenB] = address(pair);
         _pairs[tokenB][tokenA] = address(pair);
         allPairs.push(address(pair));
+
+        pairFor[tokenA] = address(pair);
+        ltFor[tokenA] = tokenB;
 
         emit PairCreated(tokenA, tokenB, address(pair), allPairs.length);
         return address(pair);

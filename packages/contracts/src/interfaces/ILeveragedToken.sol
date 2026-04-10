@@ -1,21 +1,51 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 /// @title ILeveragedToken
 /// @notice Interface for BounceTech Leveraged Token contracts
-interface ILeveragedToken {
-    /// @notice Returns the current exchange rate of the LT in USDC terms
-    /// @return The exchange rate scaled to 18 decimals
+interface ILeveragedToken is IERC20 {
+    /// @notice Mint LT by depositing base asset (USDC).
+    /// @param to Recipient of the minted LT
+    /// @param baseAmount Amount of USDC to deposit
+    /// @param minOut Minimum LT to receive (slippage protection)
+    /// @return ltAmount Amount of LT minted
+    function mint(
+        address to,
+        uint256 baseAmount,
+        uint256 minOut
+    ) external returns (uint256 ltAmount);
+
+    /// @notice Redeem LT for base asset (USDC). Reverts if insufficient idle USDC.
+    /// @param to Recipient of the USDC
+    /// @param ltAmount Amount of LT to redeem
+    /// @param minBase Minimum USDC to receive
+    /// @return baseAmount Amount of USDC returned
+    function redeem(
+        address to,
+        uint256 ltAmount,
+        uint256 minBase
+    ) external returns (uint256 baseAmount);
+
+    /// @notice Start an async redeem for large amounts. Only one pending per address per LT.
+    /// @param ltAmount Amount of LT to prepare for redemption
+    function prepareRedeem(
+        uint256 ltAmount
+    ) external;
+
+    /// @notice Idle USDC available for atomic redeem
+    function baseAssetBalance() external view returns (uint256);
+
+    /// @notice Current exchange rate: USD value per LT unit, scaled to 18 decimals
     function exchangeRate() external view returns (uint256);
 
-    /// @notice Returns the leverage multiplier
-    /// @return The leverage multiplier (e.g., 2, 3, 5)
-    function leverage() external view returns (uint256);
+    /// @notice Leverage multiplier (2, 3, or 5)
+    function targetLeverage() external view returns (uint256);
 
-    /// @notice Returns whether this is a long or short LT
-    /// @return True if long, false if short
+    /// @notice Whether this is a long LT
     function isLong() external view returns (bool);
 
-    /// @notice Returns the underlying asset symbol
+    /// @notice Underlying asset symbol (e.g. "HYPE", "ETH")
     function underlyingSymbol() external view returns (string memory);
 }

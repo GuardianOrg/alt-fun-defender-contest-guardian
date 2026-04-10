@@ -13,6 +13,8 @@
   },
   "dependencies": {
     "@launchpad/shared": "*",
+    "@privy-io/react-auth": "^3.21.0",
+    "@privy-io/wagmi": "^4.0.4",
     "@reduxjs/toolkit": "^2",
     "@tanstack/react-query": "^5",
     "lightweight-charts": "^5",
@@ -24,8 +26,8 @@
     "wagmi": "^2"
   },
   "devDependencies": {
-    "@launchpad/config": "*",
     "@eslint/js": "^9",
+    "@launchpad/config": "*",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4",

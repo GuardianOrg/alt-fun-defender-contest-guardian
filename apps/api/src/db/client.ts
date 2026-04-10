@@ -9,7 +9,7 @@ export function createDb(databaseUrl: string) {
   const cached = dbCache.get(databaseUrl);
   if (cached) return cached;
 
-  const client = postgres(databaseUrl);
+  const client = postgres(databaseUrl, { max: 1, idle_timeout: 5 });
   const db = drizzle(client, { schema });
   dbCache.set(databaseUrl, db);
   return db;

@@ -11,12 +11,16 @@ import {FFactory} from "./FFactory.sol";
 import {FRouter} from "./FRouter.sol";
 import {FERC20} from "./FERC20.sol";
 import {IFPair} from "./interfaces/IFPair.sol";
+import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
+import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
+import {LPLock} from "./LPLock.sol";
 
 /// @title Bonding
 /// @notice Constant-product bonding curve for the memecoin launchpad.
-/// @dev Forked from Virtuals Protocol Bonding.sol. Simplified graduation (no agent factory).
-///      K constant controls curve shape. Virtual liquidity bootstraps the curve without real capital.
-///      Graduation triggers when token reserves drop below gradThreshold.
+/// @dev Each token pairs with a BounceTech Leveraged Token (LT). K is computed per-token
+///      from the LT's exchange rate so every token opens at ~$4K market cap.
+///      Graduation triggers when LT_reserves * exchangeRate >= $12K.
+///      Upon graduation, unsold tokens are burned and a MEMECOIN/LT pool is seeded on HyperSwap V2.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -24,24 +28,37 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     FRouter public router;
     address public feeTo;
 
-    uint256 public fee;
-    uint256 public K;
-    uint256 public assetRate;
-    uint256 public gradThreshold;
+    address public hyperswapRouter;
+    address public lpLock;
+    address public redemptionRouter;
+
     uint256 public maxTx;
+
+    /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
+    ///      With 75% on curve: opening MC ≈ VIRTUAL_LIQUIDITY_USD * totalSupply / curveSupply
+    uint256 public constant VIRTUAL_LIQUIDITY_USD = 3000 ether;
+
+    /// @dev Graduation fires when real LT reserve * exchangeRate >= this value (18-decimal USD)
+    uint256 public constant GRADUATION_THRESHOLD_USD = 12_000 ether;
+
+    /// @dev Curve gets 75% of supply, 25% reserved for graduation LP
+    uint256 public constant CURVE_BPS = 7500;
+    uint256 public constant LP_RESERVE_BPS = 2500;
+    uint256 public constant BPS_DENOM = 10_000;
+
+    /// @dev Creator gets 20% of trade fees (0.1% of 0.5%)
+    uint256 public constant CREATOR_FEE_BPS = 2000;
 
     struct TokenInfo {
         address creator;
         address token;
         address pair;
+        address ltAddress;
         string name;
         string ticker;
         string description;
         string image;
-        string twitter;
-        string telegram;
-        string youtube;
-        string website;
+        string[4] urls;
         bool trading;
         bool graduated;
     }
@@ -52,23 +69,59 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string description;
         string image;
         string[4] urls;
-        uint256 purchaseAmount;
+        address ltAddress;
+        uint256 purchaseAmount; // LT amount for seed buy (0 = no seed buy)
     }
 
     mapping(address => TokenInfo) internal _tokenInfo;
     address[] public allTokens;
     mapping(address => address[]) public creatorTokens;
 
-    event Launched(address indexed token, address indexed pair, address indexed creator, uint256 index);
-    event Graduated(address indexed token, uint256 assetAmount, uint256 tokensBurned);
-    event Buy(address indexed token, address indexed buyer, uint256 assetIn, uint256 tokensOut);
-    event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 assetOut);
+    /// @dev LP reserve tokens held per memecoin for graduation
+    mapping(address => uint256) public lpReserve;
+    /// @dev HyperSwap V2 pair created at graduation
+    mapping(address => address) public graduatedPair;
+
+    /// @dev Creator fee accrual: creator => LT => amount
+    mapping(address => mapping(address => uint256)) public creatorFees;
+    /// @dev Protocol fee accrual: LT => amount
+    mapping(address => uint256) public protocolFees;
+
+    event TokenLaunched(
+        address indexed token,
+        address indexed creator,
+        address ltAddress,
+        string name,
+        string ticker,
+        uint256 k,
+        uint256 index
+    );
+    event Trade(
+        address indexed token,
+        address indexed trader,
+        bool isBuy,
+        uint256 ltAmount,
+        uint256 tokenAmount,
+        uint256 newCurveSupply,
+        uint256 newLtReserve
+    );
+    event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity);
+    event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
+    event ProtocolFeesClaimed(address indexed lt, uint256 amount);
+    event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
+    event RedemptionRouterUpdated(address indexed newRedemptionRouter);
 
     error TokenNotTrading();
+    error ZeroAddress();
     error TokenAlreadyGraduated();
     error InvalidInput();
     error SlippageExceeded();
     error DeadlineExpired();
+    error NothingToClaim();
+    error NotCreator();
+    error NotRedemptionRouter();
+    error ZeroExchangeRate();
+    error PairAlreadySeeded();
 
     constructor() {
         _disableInitializers();
@@ -78,91 +131,102 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address factory_,
         address router_,
         address feeTo_,
-        uint256 fee_,
-        uint256 assetRate_,
         uint256 maxTx_,
-        uint256 gradThreshold_
+        address hyperswapRouter_,
+        address lpLock_
     ) external initializer {
         __Ownable_init(msg.sender);
 
         factory = FFactory(factory_);
         router = FRouter(router_);
         feeTo = feeTo_;
-        fee = fee_;
-        K = 3_000_000_000_000;
-        assetRate = assetRate_;
         maxTx = maxTx_;
-        gradThreshold = gradThreshold_;
+        hyperswapRouter = hyperswapRouter_;
+        lpLock = lpLock_;
     }
 
     // ─── Launch ──────────────────────────────────────────────────────────
 
     function launch(
-        LaunchParams calldata params
-    ) external nonReentrant returns (address, address, uint256) {
-        if (params.purchaseAmount <= fee) revert InvalidInput();
+        LaunchParams calldata params,
+        address creator_
+    ) external nonReentrant returns (address tokenAddr, address pair, uint256 index) {
+        if (msg.sender != redemptionRouter) revert NotRedemptionRouter();
+        if (params.ltAddress == address(0)) revert InvalidInput();
 
-        address assetToken = router.assetToken();
-        uint256 initialPurchase = params.purchaseAmount - fee;
+        (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress);
+        index = allTokens.length;
+        _storeTokenInfo(tokenAddr, pair, params, creator_);
 
-        IERC20(assetToken).safeTransferFrom(msg.sender, feeTo, fee);
-        IERC20(assetToken).safeTransferFrom(msg.sender, address(this), initialPurchase);
+        uint256 k = IFPair(pair).kLast();
+        emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
 
-        (address tokenAddr, address pair) = _deployAndSeed(params.name, params.ticker, assetToken);
-
-        _storeTokenInfo(tokenAddr, pair, params);
-
-        emit Launched(tokenAddr, pair, msg.sender, allTokens.length);
-
-        IERC20(assetToken).forceApprove(address(router), initialPurchase);
-        _buy(address(this), initialPurchase, tokenAddr, 0);
-        IERC20(tokenAddr).safeTransfer(msg.sender, IERC20(tokenAddr).balanceOf(address(this)));
-
-        return (tokenAddr, pair, allTokens.length);
+        if (params.purchaseAmount > 0) {
+            _seedBuy(tokenAddr, params.ltAddress, params.purchaseAmount, creator_);
+        }
     }
 
     function _deployAndSeed(
         string calldata name_,
         string calldata ticker_,
-        address assetToken
+        address ltAddress
     ) internal returns (address tokenAddr, address pair) {
-        FERC20 token = new FERC20{salt: keccak256(abi.encodePacked(msg.sender, block.timestamp))}(
+        FERC20 token = new FERC20{salt: keccak256(abi.encodePacked(msg.sender, block.timestamp, allTokens.length))}(
             string.concat("fun ", name_), ticker_, maxTx, address(this)
         );
         tokenAddr = address(token);
-        uint256 supply = token.totalSupply();
+        uint256 totalSupply = token.totalSupply();
+        uint256 curveSupply = (totalSupply * CURVE_BPS) / BPS_DENOM;
 
-        pair = factory.createPair(tokenAddr, assetToken);
+        pair = factory.createPair(tokenAddr, ltAddress);
 
-        uint256 k = (K * 10_000) / assetRate;
-        uint256 liquidity = (((k * 10_000 ether) / supply) * 1 ether) / 10_000;
+        uint256 exchangeRate = ILeveragedToken(ltAddress).exchangeRate();
+        if (exchangeRate == 0) revert ZeroExchangeRate();
+        uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
-        IERC20(tokenAddr).forceApprove(address(router), supply);
-        router.addInitialLiquidity(tokenAddr, supply, liquidity);
+        IERC20(tokenAddr).forceApprove(address(router), curveSupply);
+        router.addInitialLiquidity(tokenAddr, curveSupply, virtualLtReserve);
+
+        lpReserve[tokenAddr] = totalSupply - curveSupply;
+    }
+
+    function _seedBuy(
+        address tokenAddr,
+        address ltAddress,
+        uint256 purchaseAmount,
+        address creator_
+    ) internal {
+        IERC20(ltAddress).safeTransferFrom(msg.sender, address(this), purchaseAmount);
+        IERC20(ltAddress).forceApprove(address(router), purchaseAmount);
+
+        uint256 balBefore = IERC20(tokenAddr).balanceOf(address(this));
+        _executeBuy(address(this), purchaseAmount, tokenAddr);
+        uint256 seedTokens = IERC20(tokenAddr).balanceOf(address(this)) - balBefore;
+
+        IERC20(tokenAddr).safeTransfer(creator_, seedTokens);
     }
 
     function _storeTokenInfo(
         address tokenAddr,
         address pair,
-        LaunchParams calldata params
+        LaunchParams calldata params,
+        address creator_
     ) internal {
         _tokenInfo[tokenAddr] = TokenInfo({
-            creator: msg.sender,
+            creator: creator_,
             token: tokenAddr,
             pair: pair,
+            ltAddress: params.ltAddress,
             name: params.name,
             ticker: params.ticker,
             description: params.description,
             image: params.image,
-            twitter: params.urls[0],
-            telegram: params.urls[1],
-            youtube: params.urls[2],
-            website: params.urls[3],
+            urls: params.urls,
             trading: true,
             graduated: false
         });
         allTokens.push(tokenAddr);
-        creatorTokens[msg.sender].push(tokenAddr);
+        creatorTokens[creator_].push(tokenAddr);
     }
 
     // ─── Buy / Sell ──────────────────────────────────────────────────────
@@ -175,7 +239,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external nonReentrant returns (uint256) {
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
         if (block.timestamp > deadline) revert DeadlineExpired();
-        return _buy(msg.sender, amountIn, tokenAddress, amountOutMin);
+
+        uint256 tokensOut = _executeBuy(msg.sender, amountIn, tokenAddress);
+        if (tokensOut < amountOutMin) revert SlippageExceeded();
+        return tokensOut;
     }
 
     function sell(
@@ -187,10 +254,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
         if (block.timestamp > deadline) revert DeadlineExpired();
 
-        (, uint256 netAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
+        (, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
         if (netAssetOut < amountOutMin) revert SlippageExceeded();
 
-        emit Sell(tokenAddress, msg.sender, amountIn, netAssetOut);
+        _trackFee(tokenAddress, grossAssetOut, false);
+
+        (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
+        emit Trade(tokenAddress, msg.sender, false, netAssetOut, amountIn, newCurveSupply, newLtReserve);
         return netAssetOut;
     }
 
@@ -205,6 +275,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             address creator,
             address token,
             address pair,
+            address ltAddress,
             string memory name_,
             string memory ticker,
             bool trading,
@@ -212,7 +283,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         )
     {
         TokenInfo storage info = _tokenInfo[token_];
-        return (info.creator, info.token, info.pair, info.name, info.ticker, info.trading, info.graduated);
+        return
+            (info.creator, info.token, info.pair, info.ltAddress, info.name, info.ticker, info.trading, info.graduated);
+    }
+
+    function getTokenInfo(
+        address token_
+    ) external view returns (TokenInfo memory) {
+        return _tokenInfo[token_];
     }
 
     function isTrading(
@@ -231,46 +309,115 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return allTokens.length;
     }
 
+    function canGraduate(
+        address token_
+    ) public view returns (bool) {
+        if (!_tokenInfo[token_].trading || _tokenInfo[token_].graduated) return false;
+        address pair = _tokenInfo[token_].pair;
+        address lt = _tokenInfo[token_].ltAddress;
+        uint256 realLtBalance = IFPair(pair).assetBalance();
+        uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
+        uint256 valueUsd = (realLtBalance * exchangeRate) / 1e18;
+        return valueUsd >= GRADUATION_THRESHOLD_USD;
+    }
+
+    // ─── Creator Fees ────────────────────────────────────────────────────
+
+    function claimCreatorFees(
+        address lt
+    ) external nonReentrant {
+        uint256 amount = creatorFees[msg.sender][lt];
+        if (amount == 0) revert NothingToClaim();
+        creatorFees[msg.sender][lt] = 0;
+        IERC20(lt).safeTransfer(msg.sender, amount);
+        emit CreatorFeesClaimed(msg.sender, lt, amount);
+    }
+
+    function claimProtocolFees(
+        address lt
+    ) external onlyOwner nonReentrant {
+        uint256 amount = protocolFees[lt];
+        if (amount == 0) revert NothingToClaim();
+        protocolFees[lt] = 0;
+        IERC20(lt).safeTransfer(feeTo, amount);
+        emit ProtocolFeesClaimed(lt, amount);
+    }
+
+    function transferCreator(
+        address tokenAddress,
+        address newCreator
+    ) external {
+        if (newCreator == address(0)) revert ZeroAddress();
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        if (msg.sender != info.creator) revert NotCreator();
+        if (newCreator == info.creator) revert InvalidInput();
+        info.creator = newCreator;
+        emit CreatorTransferred(tokenAddress, msg.sender, newCreator);
+    }
+
     // ─── Admin ───────────────────────────────────────────────────────────
 
     function setParams(
-        uint256 newFee,
-        uint256 newAssetRate,
         uint256 newMaxTx,
-        uint256 newGradThreshold,
         address newFeeTo
     ) external onlyOwner {
-        if (newAssetRate == 0) revert InvalidInput();
-        fee = newFee;
-        assetRate = newAssetRate;
         maxTx = newMaxTx;
-        gradThreshold = newGradThreshold;
         feeTo = newFeeTo;
+    }
+
+    function setHyperswap(
+        address newRouter,
+        address newLpLock
+    ) external onlyOwner {
+        hyperswapRouter = newRouter;
+        lpLock = newLpLock;
+    }
+
+    function setRedemptionRouter(
+        address newRedemptionRouter
+    ) external onlyOwner {
+        if (newRedemptionRouter == address(0)) revert ZeroAddress();
+        redemptionRouter = newRedemptionRouter;
+        emit RedemptionRouterUpdated(newRedemptionRouter);
     }
 
     // ─── Internals ───────────────────────────────────────────────────────
 
-    function _buy(
+    function _executeBuy(
         address buyer,
         uint256 amountIn,
-        address tokenAddress,
-        uint256 amountOutMin
+        address tokenAddress
     ) internal returns (uint256 tokensOut) {
-        address pairAddr = factory.getPair(tokenAddress, router.assetToken());
-        IFPair pair = IFPair(pairAddr);
-        (uint256 reserveToken,) = pair.getReserves();
-
         uint256 netIn;
         (netIn, tokensOut) = router.buy(amountIn, tokenAddress, buyer);
 
-        if (tokensOut < amountOutMin) revert SlippageExceeded();
+        _trackFee(tokenAddress, amountIn, true);
 
-        emit Buy(tokenAddress, buyer, netIn, tokensOut);
+        (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
+        emit Trade(tokenAddress, buyer, true, netIn, tokensOut, newCurveSupply, newLtReserve);
 
-        uint256 newReserveToken = reserveToken - tokensOut;
-        if (newReserveToken <= gradThreshold && _tokenInfo[tokenAddress].trading) {
+        if (_tokenInfo[tokenAddress].trading && canGraduate(tokenAddress)) {
             _graduate(tokenAddress);
         }
+    }
+
+    function _trackFee(
+        address tokenAddress,
+        uint256 tradeAmount,
+        bool isBuy
+    ) internal {
+        uint256 taxBps = isBuy ? factory.buyTax() : factory.sellTax();
+        uint256 totalFee = (taxBps * tradeAmount) / BPS_DENOM;
+        if (totalFee == 0) return;
+
+        uint256 creatorShare = (totalFee * CREATOR_FEE_BPS) / BPS_DENOM;
+        uint256 protocolShare = totalFee - creatorShare;
+
+        address lt = _tokenInfo[tokenAddress].ltAddress;
+        address creator_ = _tokenInfo[tokenAddress].creator;
+
+        creatorFees[creator_][lt] += creatorShare;
+        protocolFees[lt] += protocolShare;
     }
 
     function _graduate(
@@ -282,15 +429,78 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         info.trading = false;
         info.graduated = true;
 
-        uint256 assetAmount = router.graduate(tokenAddress);
+        address lt = info.ltAddress;
 
+        // Burn unsold curve tokens from pair
         address pairAddr = info.pair;
         uint256 remainingTokens = IERC20(tokenAddress).balanceOf(pairAddr);
         if (remainingTokens > 0) {
             FERC20(tokenAddress).burn(pairAddr, remainingTokens);
         }
 
-        emit Graduated(tokenAddress, assetAmount, remainingTokens);
+        // Collect all real LT from the bonding curve pair
+        uint256 ltFromPair = router.graduate(tokenAddress);
+
+        // Seed HyperSwap V2 pool: LP reserve tokens + collected LT
+        uint256 tokenAmount = lpReserve[tokenAddress];
+        lpReserve[tokenAddress] = 0;
+
+        _requirePairEmpty(tokenAddress, lt);
+
+        IERC20(tokenAddress).forceApprove(hyperswapRouter, tokenAmount);
+        IERC20(lt).forceApprove(hyperswapRouter, ltFromPair);
+
+        uint256 tokenMin = (tokenAmount * 99) / 100;
+        uint256 ltMin = (ltFromPair * 99) / 100;
+
+        (,, uint256 liquidity) = IUniswapV2Router02(hyperswapRouter)
+            .addLiquidity(tokenAddress, lt, tokenAmount, ltFromPair, tokenMin, ltMin, lpLock, block.timestamp);
+
+        address hyperPair = _getHyperswapPair(tokenAddress, lt);
+        graduatedPair[tokenAddress] = hyperPair;
+
+        LPLock(lpLock).recordLock(tokenAddress, hyperPair, liquidity);
+
+        emit TokenGraduated(tokenAddress, hyperPair, liquidity);
+    }
+
+    function _getCurveState(
+        address tokenAddress
+    ) internal view returns (uint256 curveSupply, uint256 ltReserve) {
+        address pair = _tokenInfo[tokenAddress].pair;
+        (curveSupply, ltReserve) = IFPair(pair).getReserves();
+    }
+
+    /// @dev Reverts if the HyperSwap pair already has reserves (prevents front-running graduation)
+    function _requirePairEmpty(
+        address tokenA,
+        address tokenB
+    ) internal view {
+        address hsFactory = IUniswapV2Router02(hyperswapRouter).factory();
+        (bool pairOk, bytes memory pairData) =
+            hsFactory.staticcall(abi.encodeWithSignature("getPair(address,address)", tokenA, tokenB));
+        if (pairOk && pairData.length >= 32) {
+            address existingPair = abi.decode(pairData, (address));
+            if (existingPair != address(0)) {
+                (bool resOk, bytes memory resData) = existingPair.staticcall(abi.encodeWithSignature("getReserves()"));
+                if (resOk && resData.length >= 64) {
+                    (uint112 r0, uint112 r1,) = abi.decode(resData, (uint112, uint112, uint32));
+                    if (r0 > 0 || r1 > 0) revert PairAlreadySeeded();
+                }
+            }
+        }
+    }
+
+    function _getHyperswapPair(
+        address tokenA,
+        address tokenB
+    ) internal view returns (address) {
+        address hsFactory = IUniswapV2Router02(hyperswapRouter).factory();
+        // Use staticcall to IUniswapV2Factory.getPair
+        (bool ok, bytes memory data) =
+            hsFactory.staticcall(abi.encodeWithSignature("getPair(address,address)", tokenA, tokenB));
+        require(ok && data.length >= 32, "pair lookup failed");
+        return abi.decode(data, (address));
     }
 
     function _authorizeUpgrade(

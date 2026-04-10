@@ -4,12 +4,13 @@ import { eq } from "drizzle-orm";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import formatSuccess from "../utils/format-success.js";
+import { adminAuth } from "../middleware/admin-auth.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const admin = new Hono<{ Bindings: AppBindings }>();
 
-// TODO: Add admin authentication middleware
+admin.use("*", adminAuth);
 
 admin.post("/tokens/:address/hide", async (c) => {
   const address = c.req.param("address");
