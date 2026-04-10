@@ -47,12 +47,6 @@ contract MockLeveragedToken is ERC20 {
         ERC20(baseAsset).transfer(to, baseAmount);
     }
 
-    function prepareRedeem(
-        uint256
-    ) external pure {
-        revert("MockLT: prepareRedeem not implemented");
-    }
-
     function baseAssetBalance() external view returns (uint256) {
         return ERC20(baseAsset).balanceOf(address(this));
     }

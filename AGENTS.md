@@ -79,8 +79,7 @@ External dependency. BounceTech Leveraged Tokens are the reserve asset in every 
 
 ```
 mint(to, baseAmount, minOut) → ltAmount     // USDC → LT. Always atomic.
-redeem(to, ltAmount, minBase) → baseAmount  // LT → USDC. Atomic if idle USDC sufficient.
-prepareRedeem(ltAmount)                     // Fallback for large amounts. ~15s delay.
+redeem(to, ltAmount, minBase) → baseAmount  // LT → USDC. Atomic only.
 exchangeRate() → uint256                    // USD per LT unit (18 decimals)
 targetLeverage() → uint256                  // 2, 3, or 5
 baseAssetBalance() → uint256               // Idle USDC available for atomic redeem
@@ -88,10 +87,10 @@ baseAssetBalance() → uint256               // Idle USDC available for atomic r
 
 ### Key Constraints
 
+- **Atomic redeems only.** We do NOT use `prepareRedeem()`. All sells go through `redeem()` which is atomic but limited by the LT's idle USDC buffer (`baseAssetBalance()`).
+- **Buffer-limited sells:** If a sell would redeem more USDC than `baseAssetBalance()`, `redeem()` reverts with `InsufficientBalance`. The frontend must check `baseAssetBalance()` before selling and cap sell amounts accordingly.
+- **Sell in chunks:** When a user wants to sell more than the buffer allows, they sell in smaller amounts. BounceTech's automation layer replenishes the idle USDC buffer in ~10 seconds after each redeem, so the user can sell again shortly.
 - **Minimum mint/redeem: `$10` USDC.** Amounts below this revert with `0x05eb05ac`. The frontend must enforce this minimum on buy/sell inputs.
-- `redeem()` reverts with `InsufficientBalance` if amount exceeds `baseAssetBalance()`
-- `prepareRedeem()` has `AlreadyRedeeming` — only ONE pending per address per LT
-- Bounce Indexing API (`GET /trade/:txHash`) tracks `prepareRedeem` completion — returns `null` while pending
 - BounceTech charges redemption fees internally. We don't add our own.
 
 ### BounceTech Indexing API
@@ -104,7 +103,7 @@ Key endpoints used by the launchpad:
 |---|---|
 | `GET /leveraged-tokens` | All LT addresses, exchange rates, metadata |
 | `GET /leveraged-tokens/:symbol` | Single LT by symbol (e.g. `HYPE3L`) |
-| `GET /trade/:txHash` | Track `prepareRedeem` completion — returns `null` while pending |
+| `GET /trade/:txHash` | Confirm trade indexing by transaction hash |
 
 No auth required. Fair use policy applies. Implement caching to reduce calls.
 

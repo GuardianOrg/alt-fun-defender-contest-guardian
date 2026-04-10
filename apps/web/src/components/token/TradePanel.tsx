@@ -49,6 +49,7 @@ export default function TradePanel({ token }: Props) {
 
   const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_AMOUNT;
   const sellBelowMinimum = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.usdcOut < MIN_USDC_AMOUNT;
+  const sellExceedsBuffer = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.exceedsBuffer;
 
   useEffect(() => {
     if (!amtNum || amtNum <= 0) {
@@ -138,9 +139,10 @@ export default function TradePanel({ token }: Props) {
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
     if (belowMinimum || sellBelowMinimum) return `MINIMUM $${MIN_USDC_AMOUNT} USDC`;
-    if (step === "approving") return "APPROVING USDC…";
+    if (sellExceedsBuffer) return "EXCEEDS AVAILABLE LIQUIDITY";
+    if (step === "approving") return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
-    if (step === "confirmed") return "✓ CONFIRMED";
+    if (step === "confirmed") return "CONFIRMED";
     if (step === "error") return "RETRY";
     return `${mode === "buy" ? "BUY" : "SELL"} ${token.name}`;
   };
@@ -288,11 +290,15 @@ export default function TradePanel({ token }: Props) {
             className={styles.maxBtn}
             onClick={() => {
               if (maxBalance) {
-                const truncated = parseFloat(maxBalance);
-                setAmount(mode === "buy"
-                  ? Math.floor(truncated * 100) / 100 + ""
-                  : truncated.toString(),
-                );
+                const walletBal = parseFloat(maxBalance);
+                if (mode === "buy") {
+                  setAmount(String(Math.floor(walletBal * 100) / 100));
+                } else if (sellQuote && Number.isFinite(sellQuote.maxSellableTokens)) {
+                  const capped = Math.min(walletBal, sellQuote.maxSellableTokens);
+                  setAmount(String(Math.max(0, capped)));
+                } else {
+                  setAmount(String(walletBal));
+                }
               }
             }}
             disabled={isBusy || !maxBalance}
@@ -338,6 +344,27 @@ export default function TradePanel({ token }: Props) {
           </div>
         )}
 
+        {sellExceedsBuffer && sellQuote && (
+          <div className={styles.bufferWarning}>
+            <span className={styles.bufferWarningTitle}>Sell amount exceeds available liquidity</span>
+            <span>
+              Max sellable now:{" "}
+              <span className={styles.bufferWarningMax}>
+                {sellQuote.maxSellableTokens.toLocaleString(undefined, {
+                  maximumFractionDigits: 2,
+                })}
+              </span>{" "}
+              {ticker}
+              {" "}(~${sellQuote.bufferUsdc.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })} USDC available)
+            </span>
+            <span className={styles.bufferWarningHint}>
+              Sell in smaller amounts. Liquidity replenishes in ~10s after each sell.
+            </span>
+          </div>
+        )}
+
         {(belowMinimum || sellBelowMinimum) && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
@@ -367,7 +394,7 @@ export default function TradePanel({ token }: Props) {
             isBusy && styles.ctaBusy,
           )}
           onClick={doTrade}
-          disabled={isBusy || step === "confirmed" || belowMinimum || sellBelowMinimum}
+          disabled={isBusy || step === "confirmed" || belowMinimum || sellBelowMinimum || sellExceedsBuffer}
         >
           {buttonLabel()}
         </button>
@@ -376,7 +403,9 @@ export default function TradePanel({ token }: Props) {
           <div className={styles.busyHint}>
             <div className={styles.liveDot} />
             {step === "approving"
-              ? "Waiting for USDC approval in wallet…"
+              ? mode === "sell"
+                ? "Waiting for token approval in wallet…"
+                : "Waiting for USDC approval in wallet…"
               : "Confirm transaction in wallet…"}
           </div>
         )}

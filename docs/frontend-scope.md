@@ -74,7 +74,7 @@ Two-column: left (form) | right (live preview card).
 
 **Buy:** enter USDC → see estimated tokens → BUY → Privy login if needed → USDC approve if first buy → `RedemptionRouter.buy()` → confirmation.
 
-**Sell:** enter token amount → see estimated USDC → SELL → FERC20 approve if first sell → `RedemptionRouter.sell()` → USDC arrives. Rare large sell: "USDC arriving shortly" banner → `sellClaimable` WebSocket → "Claim USDC" button.
+**Sell:** enter token amount → see estimated USDC → SELL → FERC20 approve if first sell → `RedemptionRouter.sell()` → USDC arrives atomically. If sell exceeds the LT's idle USDC buffer (`baseAssetBalance()`), the trade panel shows a warning with the max sellable amount and advises selling in smaller chunks. The buffer replenishes in ~10s after each sell.
 
 ---
 
@@ -84,7 +84,6 @@ Two-column: left (form) | right (live preview card).
 |---|---|
 | Buy | `RedemptionRouter.buy(token, usdcAmount, minOut, deadline, referrer)` |
 | Sell | `RedemptionRouter.sell(token, memeAmount, minUsdcOut, deadline)` |
-| Claim redeem | `RedemptionRouter.claimRedeem(token)` |
 | Launch token | `Bonding.launch(name, ticker, ltAddress, desc, img, urls, purchaseAmount)` |
 | Claim creator fees | `Bonding.claimCreatorFees()` |
 | USDC approval | `USDC.approve(redemptionRouter, amount)` |
@@ -129,4 +128,3 @@ Token creation uses file upload (not URL paste). Images are uploaded to the API 
 | Graduations | WebSocket `graduation` |
 | New tokens | WebSocket `newToken` |
 | Platform stats | WebSocket `stats` |
-| Sell completion | WebSocket `sellClaimable` |

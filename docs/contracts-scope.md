@@ -41,9 +41,10 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 1. `RedemptionRouter.sell(tokenAddress, memeAmount, minUsdcOut, deadline)`
 2. If on curve: routes through `Bonding.sell()`. If graduated: swaps on HyperSwap.
 3. 0.5% fee deducted on curve trades
-4. LT redeemed → USDC sent to user
-   - Most sells: atomic `redeem()` — single tx
-   - Large sells (rare): `prepareRedeem()` — USDC arrives ~15s later, user calls `claimRedeem()`
+4. LT redeemed atomically via `redeem()` → USDC sent to user in single tx
+   - Sell amount is limited by the LT's idle USDC buffer (`baseAssetBalance()`)
+   - Frontend checks buffer and caps sell amounts; users sell in chunks if needed
+   - BounceTech automation replenishes the buffer in ~10s after each redeem
 
 ---
 
