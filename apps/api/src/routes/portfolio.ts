@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { isAddress } from "viem";
 
+import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { createPonderQuery } from "../lib/ponder-client.js";
 
@@ -15,8 +17,12 @@ interface PonderRouterTrade {
 const portfolio = new Hono<{ Bindings: AppBindings }>();
 
 portfolio.get("/:wallet", async (c) => {
+  const rawWallet = c.req.param("wallet");
+  if (!isAddress(rawWallet)) {
+    return c.json(formatError("Invalid wallet address"), 400);
+  }
+  const wallet = rawWallet.toLowerCase();
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const wallet = c.req.param("wallet").toLowerCase();
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($wallet: String!) {
@@ -47,8 +53,15 @@ portfolio.get("/:wallet", async (c) => {
       existing.tokenAmount += BigInt(t.tokenAmount);
       existing.costBasis += BigInt(t.usdcAmount);
     } else {
-      existing.tokenAmount -= BigInt(t.tokenAmount);
-      existing.costBasis -= BigInt(t.usdcAmount);
+      const sold = BigInt(t.tokenAmount);
+      if (existing.tokenAmount > 0n && sold < existing.tokenAmount) {
+        const reduction = (existing.costBasis * sold) / existing.tokenAmount;
+        existing.tokenAmount -= sold;
+        existing.costBasis -= reduction;
+      } else {
+        existing.tokenAmount -= sold;
+        existing.costBasis = 0n;
+      }
     }
     holdings.set(t.tokenAddress, existing);
   }

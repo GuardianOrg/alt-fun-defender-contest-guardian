@@ -27,7 +27,6 @@ interface Props {
 export default function TradePanel({ token }: Props) {
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
-  const [denomUsdc, setDenomUsdc] = useState(true);
   const [slippage, setSlippage] = useState(0.02);
   const { copied, copy: copyCA } = useCopyState();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -45,7 +44,7 @@ export default function TradePanel({ token }: Props) {
   const amtNum = parseFloat(amount) || 0;
 
   const usdcAmount = mode === "buy"
-    ? (denomUsdc ? amtNum : (buyQuote ? buyQuote.youPay : 0))
+    ? amtNum
     : (sellQuote ? sellQuote.usdcOut : 0);
 
   const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_AMOUNT;
@@ -62,8 +61,7 @@ export default function TradePanel({ token }: Props) {
     const timeout = setTimeout(async () => {
       try {
         if (mode === "buy") {
-          const usdcIn = denomUsdc ? amtNum : amtNum;
-          const quote = await tradeRouterService.getQuoteBuy(token.address, usdcIn);
+          const quote = await tradeRouterService.getQuoteBuy(token.address, amtNum);
           if (!controller.signal.aborted) setBuyQuote(quote);
         } else {
           const quote = await tradeRouterService.getQuoteSell(token.address, amtNum, 0);
@@ -78,7 +76,7 @@ export default function TradePanel({ token }: Props) {
       controller.abort();
       clearTimeout(timeout);
     };
-  }, [amtNum, mode, denomUsdc, token.address]);
+  }, [amtNum, mode, token.address]);
 
   const loadBalance = useCallback(async () => {
     if (!address || !publicClient) return;
@@ -117,8 +115,7 @@ export default function TradePanel({ token }: Props) {
     if (!amtNum) return;
 
     if (mode === "buy") {
-      const usdcIn = denomUsdc ? amtNum : amtNum;
-      executeBuy(token.address, usdcIn, slippage, referrer);
+      executeBuy(token.address, amtNum, slippage, referrer);
     } else {
       const tokenAmountWei = parseUnits(amtNum.toFixed(18), 18);
       executeSell(token.address, tokenAmountWei, slippage);
@@ -176,6 +173,7 @@ export default function TradePanel({ token }: Props) {
             )}
             onClick={() => {
               setMode("buy");
+              setAmount("");
               reset();
             }}
           >
@@ -189,7 +187,6 @@ export default function TradePanel({ token }: Props) {
             )}
             onClick={() => {
               setMode("sell");
-              setDenomUsdc(false);
               setAmount("");
               reset();
             }}
@@ -230,18 +227,9 @@ export default function TradePanel({ token }: Props) {
       </div>
 
       <div className={styles.formBody}>
-        <button
-          className={styles.denomToggle}
-          onClick={() => {
-            setDenomUsdc(!denomUsdc);
-            setAmount("");
-          }}
-          disabled={mode === "sell"}
-        >
-          {mode === "sell"
-            ? `Amount in ${ticker}`
-            : `Switch to ${denomUsdc ? ticker : "USDC"}`}
-        </button>
+        <div className={styles.denomToggle}>
+          {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
+        </div>
 
         <div className={styles.amountWrap}>
           <input
@@ -254,19 +242,15 @@ export default function TradePanel({ token }: Props) {
           />
           <div className={styles.denomTag}>
             <span className={styles.denomLabel}>
-              {denomUsdc ? "USDC" : ticker}
+              {mode === "buy" ? "USDC" : ticker}
             </span>
             <div
               className={cn(
                 styles.coinIcon,
-                denomUsdc
-                  ? styles.coinUsdc
-                  : mode === "buy"
-                    ? styles.coinMint
-                    : styles.coinRed,
+                mode === "buy" ? styles.coinUsdc : styles.coinRed,
               )}
             >
-              {denomUsdc ? (
+              {mode === "buy" ? (
                 "$"
               ) : token.image ? (
                 <img src={token.image} alt="" className={styles.coinImg} />
@@ -293,7 +277,6 @@ export default function TradePanel({ token }: Props) {
                 amount === String(qa) && styles.quickBtnActive,
               )}
               onClick={() => {
-                setDenomUsdc(true);
                 setAmount(String(qa));
               }}
               disabled={isBusy}
@@ -305,7 +288,6 @@ export default function TradePanel({ token }: Props) {
             className={styles.maxBtn}
             onClick={() => {
               if (maxBalance) {
-                setDenomUsdc(mode === "buy");
                 const truncated = parseFloat(maxBalance);
                 setAmount(mode === "buy"
                   ? Math.floor(truncated * 100) / 100 + ""

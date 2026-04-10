@@ -133,7 +133,11 @@ tokensRoute.post("/batch", async (c) => {
 });
 
 tokensRoute.get("/:address", async (c) => {
-  const address = c.req.param("address");
+  const rawAddress = c.req.param("address");
+  if (!isAddress(rawAddress)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+  const address = getAddress(rawAddress);
   const db = createDb(c.env.DATABASE_URL);
   const [dbToken] = await db.select().from(tokens).where(eq(tokens.address, address)).limit(1);
 
@@ -169,7 +173,8 @@ tokensRoute.get("/:address", async (c) => {
 
   let curveFilled = 0;
   if (onchain?.curveSupply) {
-    const sold = BigInt(onchain.curveSupply);
+    const remaining = BigInt(onchain.curveSupply);
+    const sold = remaining >= curveAllocation ? 0n : curveAllocation - remaining;
     curveFilled = Math.min(Number((sold * 10000n) / curveAllocation) / 100, 100);
   }
 
@@ -197,6 +202,9 @@ tokensRoute.post("/", async (c) => {
     ltDirection?: string;
     leverage?: number;
     underlying?: string;
+    twitterUrl?: string;
+    telegramUrl?: string;
+    websiteUrl?: string;
     creator: string;
     signature: string;
   };
@@ -263,6 +271,9 @@ tokensRoute.post("/", async (c) => {
       ltDirection: body.ltDirection ?? "long",
       leverage: body.leverage ?? 2,
       underlying: body.underlying ?? "HYPE",
+      twitterUrl: body.twitterUrl ?? "",
+      telegramUrl: body.telegramUrl ?? "",
+      websiteUrl: body.websiteUrl ?? "",
       creator: normalizedCreator,
     })
     .onConflictDoNothing()

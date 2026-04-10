@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { isAddress } from "viem";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
@@ -53,8 +54,12 @@ trades.get("/", async (c) => {
 });
 
 trades.get("/:address", async (c) => {
+  const rawAddress = c.req.param("address");
+  if (!isAddress(rawAddress)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+  const address = rawAddress.toLowerCase();
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const address = c.req.param("address");
   const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
   const offset = safeInt(c.req.query("offset"), 0);
 
@@ -96,8 +101,12 @@ const INTERVAL_SECONDS: Record<string, number> = {
 };
 
 trades.get("/ohlcv/:address", async (c) => {
+  const rawAddress = c.req.param("address");
+  if (!isAddress(rawAddress)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+  const address = rawAddress.toLowerCase();
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const address = c.req.param("address");
   const interval = c.req.query("interval") ?? "5m";
   const bucketSize = INTERVAL_SECONDS[interval];
 

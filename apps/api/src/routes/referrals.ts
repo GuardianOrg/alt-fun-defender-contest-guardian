@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { isAddress } from "viem";
 
+import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { createPonderQuery } from "../lib/ponder-client.js";
 
@@ -8,8 +10,12 @@ import type { AppBindings } from "../lib/types.js";
 const referrals = new Hono<{ Bindings: AppBindings }>();
 
 referrals.get("/:wallet", async (c) => {
+  const rawWallet = c.req.param("wallet");
+  if (!isAddress(rawWallet)) {
+    return c.json(formatError("Invalid wallet address"), 400);
+  }
+  const wallet = rawWallet.toLowerCase();
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const wallet = c.req.param("wallet").toLowerCase();
 
   const data = await queryPonder<{
     referrals: {

@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { isAddress } from "viem";
 
+import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { createPonderQuery } from "../lib/ponder-client.js";
 
@@ -8,8 +10,12 @@ import type { AppBindings } from "../lib/types.js";
 const security = new Hono<{ Bindings: AppBindings }>();
 
 security.get("/:address", async (c) => {
+  const rawAddress = c.req.param("address");
+  if (!isAddress(rawAddress)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+  const address = rawAddress.toLowerCase();
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const address = c.req.param("address");
 
   const data = await queryPonder<{
     token: {

@@ -68,6 +68,11 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     status,
     creatorAddress: api.creator,
     createdAt: api.createdAt,
+    socialLinks: (api.twitterUrl || api.telegramUrl || api.websiteUrl) ? {
+      twitter: api.twitterUrl || undefined,
+      telegram: api.telegramUrl || undefined,
+      website: api.websiteUrl || undefined,
+    } : undefined,
   };
 }
 

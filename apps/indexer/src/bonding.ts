@@ -98,7 +98,7 @@ ponder.on("Bonding:ProtocolFeesClaimed", async ({ event, context }) => {
     .insert(feeClaim)
     .values({
       id: claimId,
-      claimer: event.args.lt,
+      claimer: event.transaction.from,
       ltAddress: event.args.lt,
       amount: event.args.amount,
       isCreator: false,
