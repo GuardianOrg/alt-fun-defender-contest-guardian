@@ -19,11 +19,12 @@
     "@launchpad/shared": "*",
     "drizzle-orm": "^0.39",
     "hono": "^4",
-    "postgres": "^3"
+    "postgres": "^3",
+    "viem": "^2.47.12"
   },
   "devDependencies": {
-    "@launchpad/config": "*",
     "@cloudflare/workers-types": "^4",
+    "@launchpad/config": "*",
     "drizzle-kit": "^0.30",
     "drizzle-zod": "^0.7",
     "typescript": "~5.8",

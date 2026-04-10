@@ -2,14 +2,14 @@ import { useState, useCallback } from "react";
 
 import {
   BOUNCE_INDEXING_API,
+  buildTokenCreationMessage,
   findLT,
   type LiveLeveragedToken,
   type SupportedAsset,
   type SupportedLeverage,
 } from "@launchpad/shared";
-import { maxUint256, parseEventLogs, parseUnits } from "viem";
+import { getAddress, maxUint256, parseEventLogs, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
-
 
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
@@ -137,17 +137,22 @@ export function useCreateToken() {
         if (newTokenAddr) {
           try {
             const ltDir = isLong ? "long" : "short";
-            await createTokenApi({
-              address: newTokenAddr,
+            const normalizedToken = getAddress(newTokenAddr);
+            const normalizedCreator = getAddress(address);
+            const apiPayload = {
+              address: normalizedToken,
               name: params.name,
               ticker: params.ticker,
-              description: params.description,
+              description: params.description ?? "",
               imageUrl,
               ltPair: lt.symbol,
               ltDirection: ltDir,
               leverage: params.leverage,
-              creator: address,
-            });
+              creator: normalizedCreator,
+            };
+            const message = buildTokenCreationMessage(apiPayload);
+            const signature = await walletClient.signMessage({ message });
+            await createTokenApi({ ...apiPayload, signature });
           } catch {
             /* API registration is non-critical for on-chain flow */
           }

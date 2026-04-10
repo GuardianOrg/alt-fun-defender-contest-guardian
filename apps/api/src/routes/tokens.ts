@@ -1,10 +1,12 @@
-import { Hono } from "hono";
+import { buildTokenCreationMessage } from "@launchpad/shared";
 import { eq, desc, ilike, or, inArray, and } from "drizzle-orm";
+import { Hono } from "hono";
+import { getAddress, isAddress, recoverMessageAddress } from "viem";
 
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
-import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
+import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -86,7 +88,7 @@ tokensRoute.post("/batch", async (c) => {
   const results = await db
     .select()
     .from(tokens)
-    .where(inArray(tokens.address, body.addresses));
+    .where(and(eq(tokens.isHidden, false), inArray(tokens.address, body.addresses)));
 
   return c.json(formatSuccess(results));
 });
@@ -114,6 +116,7 @@ tokensRoute.post("/", async (c) => {
     ltDirection: string;
     leverage: number;
     creator: string;
+    signature: string;
   };
   try {
     body = await c.req.json();
@@ -121,15 +124,55 @@ tokensRoute.post("/", async (c) => {
     return c.json(formatError("Invalid JSON body"), 400);
   }
 
-  if (!body.address || !body.name || !body.ticker || !body.ltPair || !body.creator) {
+  if (
+    !body.address ||
+    !body.name ||
+    !body.ticker ||
+    !body.ltPair ||
+    !body.creator ||
+    !body.signature
+  ) {
     return c.json(formatError("Missing required fields"), 400);
+  }
+
+  if (!isAddress(body.address) || !isAddress(body.creator)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+
+  const normalizedAddress = getAddress(body.address);
+  const normalizedCreator = getAddress(body.creator);
+
+  const message = buildTokenCreationMessage({
+    address: normalizedAddress,
+    name: body.name,
+    ticker: body.ticker,
+    description: body.description ?? "",
+    imageUrl: body.imageUrl ?? "",
+    ltPair: body.ltPair,
+    ltDirection: body.ltDirection ?? "long",
+    leverage: body.leverage ?? 2,
+    creator: normalizedCreator,
+  });
+
+  let recoveredAddress: string;
+  try {
+    recoveredAddress = await recoverMessageAddress({
+      message,
+      signature: body.signature as `0x${string}`,
+    });
+  } catch {
+    return c.json(formatError("Invalid signature"), 401);
+  }
+
+  if (getAddress(recoveredAddress) !== normalizedCreator) {
+    return c.json(formatError("Signature does not match creator"), 401);
   }
 
   const db = createDb(c.env.DATABASE_URL);
   const [token] = await db
     .insert(tokens)
     .values({
-      address: body.address,
+      address: normalizedAddress,
       name: body.name,
       ticker: body.ticker,
       description: body.description ?? "",
@@ -137,7 +180,7 @@ tokensRoute.post("/", async (c) => {
       ltPair: body.ltPair,
       ltDirection: body.ltDirection ?? "long",
       leverage: body.leverage ?? 2,
-      creator: body.creator,
+      creator: normalizedCreator,
     })
     .onConflictDoNothing()
     .returning();

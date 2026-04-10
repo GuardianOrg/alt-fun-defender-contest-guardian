@@ -59,6 +59,7 @@ export function createTokenApi(data: {
   ltDirection: string;
   leverage: number;
   creator: string;
+  signature: string;
 }): Promise<ApiToken> {
   return apiFetch("/api/v1/tokens", {
     method: "POST",
@@ -81,11 +82,13 @@ export function postComment(
   tokenAddress: string,
   author: string,
   content: string,
+  signature: string,
+  timestamp: number,
 ): Promise<ApiComment> {
   return apiFetch(`/api/v1/comments/${tokenAddress}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ author, content }),
+    body: JSON.stringify({ author, content, signature, timestamp }),
   });
 }
 

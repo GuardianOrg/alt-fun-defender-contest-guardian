@@ -109,8 +109,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
     event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
+    event RedemptionRouterUpdated(address indexed newRedemptionRouter);
 
     error TokenNotTrading();
+    error ZeroAddress();
     error TokenAlreadyGraduated();
     error InvalidInput();
     error SlippageExceeded();
@@ -345,11 +347,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenAddress,
         address newCreator
     ) external {
+        if (newCreator == address(0)) revert ZeroAddress();
         TokenInfo storage info = _tokenInfo[tokenAddress];
         if (msg.sender != info.creator) revert NotCreator();
-        address oldCreator = info.creator;
+        if (newCreator == info.creator) revert InvalidInput();
         info.creator = newCreator;
-        emit CreatorTransferred(tokenAddress, oldCreator, newCreator);
+        emit CreatorTransferred(tokenAddress, msg.sender, newCreator);
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
@@ -373,7 +376,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function setRedemptionRouter(
         address newRedemptionRouter
     ) external onlyOwner {
+        if (newRedemptionRouter == address(0)) revert ZeroAddress();
         redemptionRouter = newRedemptionRouter;
+        emit RedemptionRouterUpdated(newRedemptionRouter);
     }
 
     // ─── Internals ───────────────────────────────────────────────────────

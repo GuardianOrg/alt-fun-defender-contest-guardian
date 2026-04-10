@@ -1,3 +1,7 @@
+import {
+  BOUNCE_INDEXING_API,
+  type LiveLeveragedToken,
+} from "@launchpad/shared";
 import { formatUnits } from "viem";
 
 import { fetchComments } from "./api";
@@ -7,11 +11,59 @@ import {
   INITIAL_TOKEN_TRADES,
   MOCK_HOLDERS,
 } from "./mock/trades";
-import { fetchPonderTrades } from "./ponder";
+import { fetchPonderToken, fetchPonderTrades } from "./ponder";
 
 import type { Comment, Holder, Trade } from "./types";
 
-function ponderTradeToTrade(pt: {
+// LT address → exchange rate (USD per LT, as a float)
+let ltRateCache = new Map<string, number>();
+let ltRateCacheTime = 0;
+const LT_RATE_CACHE_TTL = 60_000;
+
+async function getLtExchangeRates(): Promise<Map<string, number>> {
+  if (Date.now() - ltRateCacheTime < LT_RATE_CACHE_TTL && ltRateCache.size > 0) {
+    return ltRateCache;
+  }
+  const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
+  const lts = (await res.json()) as LiveLeveragedToken[];
+  const rates = new Map<string, number>();
+  for (const lt of lts) {
+    rates.set(lt.address.toLowerCase(), parseFloat(formatUnits(BigInt(lt.exchangeRate), 18)));
+  }
+  ltRateCache = rates;
+  ltRateCacheTime = Date.now();
+  return rates;
+}
+
+// tokenAddress → ltAddress (lowercase)
+const tokenLtMap = new Map<string, string>();
+
+async function getLtAddressForToken(tokenAddress: string): Promise<string | undefined> {
+  const key = tokenAddress.toLowerCase();
+  const cached = tokenLtMap.get(key);
+  if (cached) return cached;
+
+  const token = await fetchPonderToken(tokenAddress);
+  if (token) {
+    const ltAddr = token.ltToken.toLowerCase();
+    tokenLtMap.set(key, ltAddr);
+    return ltAddr;
+  }
+  return undefined;
+}
+
+async function resolveExchangeRate(tokenAddress: string): Promise<number> {
+  const [rates, ltAddr] = await Promise.all([
+    getLtExchangeRates(),
+    getLtAddressForToken(tokenAddress),
+  ]);
+  if (ltAddr) {
+    return rates.get(ltAddr) ?? 1;
+  }
+  return 1;
+}
+
+interface PonderTradeInput {
   id: string;
   tokenAddress: string;
   trader: string;
@@ -19,13 +71,15 @@ function ponderTradeToTrade(pt: {
   ltAmount: string;
   tokenAmount: string;
   timestamp: string;
-}): Trade {
+}
+
+function ponderTradeToTrade(pt: PonderTradeInput, exchangeRate: number): Trade {
   const ltAmountFloat = parseFloat(formatUnits(BigInt(pt.ltAmount), 18));
 
   return {
     id: pt.id,
     side: pt.isBuy ? "BUY" : "SELL",
-    amountUsd: ltAmountFloat,
+    amountUsd: ltAmountFloat * exchangeRate,
     tokensAmount: formatUnits(BigInt(pt.tokenAmount), 18),
     walletAddress: `${pt.trader.slice(0, 4)}…${pt.trader.slice(-2)}`,
     timestamp: new Date(Number(pt.timestamp) * 1000).toISOString(),
@@ -59,11 +113,18 @@ const liveTradeService: ITradeService = {
       try {
         const trades = await fetchPonderTrades(undefined, 20);
         if (cancelled) return;
+
+        const uniqueTokens = [...new Set(trades.map((t) => t.tokenAddress))];
+        const rateEntries = await Promise.all(
+          uniqueTokens.map(async (addr) => [addr, await resolveExchangeRate(addr)] as const),
+        );
+        const rateMap = new Map(rateEntries);
+
         const batchIds = new Set<string>();
         for (const t of trades) {
           batchIds.add(t.id);
           if (seenIds.has(t.id)) continue;
-          cb(ponderTradeToTrade(t));
+          cb(ponderTradeToTrade(t, rateMap.get(t.tokenAddress) ?? 1));
         }
         seenIds.clear();
         for (const id of batchIds) seenIds.add(id);
@@ -99,13 +160,16 @@ const liveTradeService: ITradeService = {
       if (cancelled || polling) return;
       polling = true;
       try {
-        const trades = await fetchPonderTrades(address, 30);
+        const [trades, exchangeRate] = await Promise.all([
+          fetchPonderTrades(address, 30),
+          resolveExchangeRate(address),
+        ]);
         if (cancelled) return;
         const batchIds = new Set<string>();
         for (const t of trades) {
           batchIds.add(t.id);
           if (seenIds.has(t.id)) continue;
-          cb(ponderTradeToTrade(t));
+          cb(ponderTradeToTrade(t, exchangeRate));
         }
         seenIds.clear();
         for (const id of batchIds) seenIds.add(id);
