@@ -5,7 +5,7 @@ import { createPublicClient, formatUnits, http } from "viem";
 import { FEES, MOCK_TOKEN_PRICE } from "../config/constants";
 import { ADDRESSES } from "../contracts/addresses";
 
-const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz";
+const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 
 const publicClient = createPublicClient({
   transport: http(HYPER_EVM_RPC),

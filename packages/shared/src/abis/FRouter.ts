@@ -302,6 +302,11 @@ export const FRouterAbi = [
         "name": "netAssetOut",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "grossAssetOut",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"

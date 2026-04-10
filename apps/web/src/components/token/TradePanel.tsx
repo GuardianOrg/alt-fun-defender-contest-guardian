@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 
+import { parseUnits } from "viem";
+
 import CreatorBadge from "./CreatorBadge";
 import SettingsPopup from "./SettingsPopup";
 import styles from "./TradePanel.module.css";
@@ -24,7 +26,8 @@ export default function TradePanel({ token }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const { isConnected, connect } = useWallet();
-  const { step, txHash, error, executeTrade, reset } = useTradeRouter();
+  const { step, txHash, error, executeBuy, executeSell, reset } =
+    useTradeRouter();
 
   const amtNum = parseFloat(amount) || 0;
 
@@ -42,11 +45,14 @@ export default function TradePanel({ token }: Props) {
     }
     if (!amtNum) return;
 
-    const tradeAmount =
-      mode === "buy"
-        ? denomUsdc ? amtNum : amtNum * mockPrice
-        : denomUsdc ? amtNum / mockPrice : amtNum;
-    executeTrade(token.address, tradeAmount, slippage);
+    if (mode === "buy") {
+      const usdcAmount = denomUsdc ? amtNum : amtNum * mockPrice;
+      executeBuy(token.address, usdcAmount, slippage);
+    } else {
+      const tokenAmount = denomUsdc ? amtNum / mockPrice : amtNum;
+      const tokenAmountWei = parseUnits(tokenAmount.toFixed(18), 18);
+      executeSell(token.address, tokenAmountWei, slippage);
+    }
   };
 
   useEffect(() => {

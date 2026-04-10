@@ -61,6 +61,7 @@ contract BondingTest is Test {
         factory.grantRole(factory.BONDING_ROLE(), address(bonding));
         router.grantRole(router.BONDING_ROLE(), address(bonding));
         lpLockContract.setLocker(address(bonding), true);
+        bonding.setRedemptionRouter(creator);
 
         // Set feeTo = bonding so trade fees accumulate there for fee accounting
         factory.setFeeParams(address(bonding), BUY_TAX_BPS, SELL_TAX_BPS);

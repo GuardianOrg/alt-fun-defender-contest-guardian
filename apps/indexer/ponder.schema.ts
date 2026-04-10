@@ -48,7 +48,7 @@ export const referral = onchainTable("referral", (t) => ({
   tokenAddress: t.hex().notNull(),
   trader: t.hex().notNull(),
   referrer: t.hex().notNull(),
-  ltAmount: t.bigint().notNull(),
+  usdcAmount: t.bigint().notNull(),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({

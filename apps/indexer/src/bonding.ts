@@ -73,7 +73,7 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }: { event: any; con
     });
 });
 
-ponder.on("Bonding:Referred", async ({ event, context }: { event: any; context: any }) => {
+ponder.on("RedemptionRouter:Referred", async ({ event, context }: { event: any; context: any }) => {
   const { db } = context;
   const refId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -84,7 +84,7 @@ ponder.on("Bonding:Referred", async ({ event, context }: { event: any; context: 
       tokenAddress: event.args.token,
       trader: event.args.trader,
       referrer: event.args.referrer,
-      ltAmount: event.args.ltAmount,
+      usdcAmount: event.args.usdcAmount,
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     })

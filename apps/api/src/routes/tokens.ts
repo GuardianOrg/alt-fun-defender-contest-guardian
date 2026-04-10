@@ -69,7 +69,12 @@ tokensRoute.get("/search", async (c) => {
 });
 
 tokensRoute.post("/batch", async (c) => {
-  const body = await c.req.json<{ addresses: string[] }>();
+  let body: { addresses: string[] };
+  try {
+    body = await c.req.json<{ addresses: string[] }>();
+  } catch {
+    return c.json(formatError("Invalid JSON body"), 400);
+  }
   if (!body.addresses || body.addresses.length === 0) {
     return c.json(formatSuccess([]));
   }
@@ -99,7 +104,7 @@ tokensRoute.get("/:address", async (c) => {
 });
 
 tokensRoute.post("/", async (c) => {
-  const body = await c.req.json<{
+  let body: {
     address: string;
     name: string;
     ticker: string;
@@ -109,7 +114,12 @@ tokensRoute.post("/", async (c) => {
     ltDirection: string;
     leverage: number;
     creator: string;
-  }>();
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(formatError("Invalid JSON body"), 400);
+  }
 
   if (!body.address || !body.name || !body.ticker || !body.ltPair || !body.creator) {
     return c.json(formatError("Missing required fields"), 400);

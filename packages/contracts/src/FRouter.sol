@@ -108,11 +108,17 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     /// @notice Execute a sell: tokens in -> LT out. Fee deducted from output.
     /// @return tokensIn The tokens that entered the curve
     /// @return netAssetOut The LT amount sent to the seller (after fee)
+    /// @return grossAssetOut The LT amount before fee deduction (for fee accounting)
     function sell(
         uint256 amountIn,
         address token,
         address to
-    ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 tokensIn, uint256 netAssetOut) {
+    )
+        external
+        onlyRole(BONDING_ROLE)
+        nonReentrant
+        returns (uint256 tokensIn, uint256 netAssetOut, uint256 grossAssetOut)
+    {
         if (amountIn == 0) revert ZeroAmount();
 
         address asset = assetTokenFor(token);
@@ -121,9 +127,9 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
 
         IERC20(token).safeTransferFrom(to, pairAddr, amountIn);
 
-        uint256 grossOut = getAmountOut(token, false, amountIn);
-        uint256 fee = (factory.sellTax() * grossOut) / 10_000;
-        netAssetOut = grossOut - fee;
+        grossAssetOut = getAmountOut(token, false, amountIn);
+        uint256 fee = (factory.sellTax() * grossAssetOut) / 10_000;
+        netAssetOut = grossAssetOut - fee;
         address feeTo = factory.feeTo();
 
         IFPair(pairAddr).transferAsset(to, netAssetOut);
@@ -131,7 +137,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
             IFPair(pairAddr).transferAsset(feeTo, fee);
         }
 
-        IFPair(pairAddr).swap(amountIn, 0, 0, grossOut);
+        IFPair(pairAddr).swap(amountIn, 0, 0, grossAssetOut);
     }
 
     /// @notice Drain real LT balance from a pair (called during graduation).

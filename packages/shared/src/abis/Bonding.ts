@@ -627,6 +627,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "redemptionRouter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
@@ -708,6 +721,19 @@ export const BondingAbi = [
       },
       {
         "name": "newFeeTo",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRedemptionRouter",
+    "inputs": [
+      {
+        "name": "newRedemptionRouter",
         "type": "address",
         "internalType": "address"
       }
@@ -921,37 +947,6 @@ export const BondingAbi = [
   },
   {
     "type": "event",
-    "name": "Referred",
-    "inputs": [
-      {
-        "name": "token",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "trader",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "referrer",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "ltAmount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "TokenGraduated",
     "inputs": [
       {
@@ -1141,6 +1136,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotRedemptionRouter",
     "inputs": []
   },
   {

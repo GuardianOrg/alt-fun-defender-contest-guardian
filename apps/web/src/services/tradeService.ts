@@ -49,25 +49,36 @@ const liveTradeService: ITradeService = {
   subscribeFeed(cb) {
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
+    let polling = false;
+    let hasLiveData = false;
+    const seenIds = new Set<string>();
 
-    (async () => {
+    const poll = async (initial: boolean) => {
+      if (cancelled || polling) return;
+      polling = true;
       try {
         const trades = await fetchPonderTrades(undefined, 20);
         if (cancelled) return;
         for (const t of trades) {
+          if (seenIds.has(t.id)) continue;
+          seenIds.add(t.id);
           cb(ponderTradeToTrade(t));
         }
+        hasLiveData = true;
       } catch {
-        for (let i = 0; i < 8; i++) {
-          if (cancelled) return;
-          cb(generateFeedTrade());
+        if (!hasLiveData && initial) {
+          for (let i = 0; i < 8; i++) {
+            if (cancelled) return;
+            cb(generateFeedTrade());
+          }
         }
+      } finally {
+        polling = false;
       }
+    };
 
-      if (!cancelled) {
-        intervalId = setInterval(() => cb(generateFeedTrade()), 3000);
-      }
-    })();
+    void poll(true);
+    intervalId = setInterval(() => void poll(false), 3000);
 
     return () => {
       cancelled = true;
@@ -77,22 +88,33 @@ const liveTradeService: ITradeService = {
 
   subscribeTokenTrades(address, cb) {
     let cancelled = false;
+    let polling = false;
+    let hasLiveData = false;
+    const seenIds = new Set<string>();
 
-    (async () => {
+    const poll = async () => {
+      if (cancelled || polling) return;
+      polling = true;
       try {
         const trades = await fetchPonderTrades(address, 30);
         if (cancelled) return;
         for (const t of trades) {
+          if (seenIds.has(t.id)) continue;
+          seenIds.add(t.id);
           cb(ponderTradeToTrade(t));
         }
+        hasLiveData = true;
       } catch {
-        /* use mock below */
+        if (!hasLiveData && !cancelled) {
+          cb(generateTokenTrade());
+        }
+      } finally {
+        polling = false;
       }
-    })();
+    };
 
-    const interval = setInterval(() => {
-      if (!cancelled) cb(generateTokenTrade());
-    }, 5000);
+    void poll();
+    const interval = setInterval(() => void poll(), 5000);
 
     return () => {
       cancelled = true;

@@ -67,6 +67,9 @@ const queryClient = new QueryClient({
 });
 
 const privyAppId = import.meta.env.VITE_PRIVY_APP_ID;
+if (!privyAppId) {
+  throw new Error("VITE_PRIVY_APP_ID is not set — add it to .env.local");
+}
 
 const App = () => {
   return (

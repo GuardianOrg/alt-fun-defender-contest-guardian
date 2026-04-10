@@ -30,6 +30,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     address public hyperswapRouter;
     address public lpLock;
+    address public redemptionRouter;
 
     uint256 public maxTx;
 
@@ -105,7 +106,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 newLtReserve
     );
     event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity);
-    event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 ltAmount);
     event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
     event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
@@ -117,6 +117,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error DeadlineExpired();
     error NothingToClaim();
     error NotCreator();
+    error NotRedemptionRouter();
 
     constructor() {
         _disableInitializers();
@@ -146,13 +147,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         LaunchParams calldata params,
         address creator_
     ) external nonReentrant returns (address tokenAddr, address pair, uint256 index) {
+        if (msg.sender != redemptionRouter) revert NotRedemptionRouter();
         if (params.ltAddress == address(0)) revert InvalidInput();
 
         (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress);
+        index = allTokens.length;
         _storeTokenInfo(tokenAddr, pair, params, creator_);
 
         uint256 k = IFPair(pair).kLast();
-        index = allTokens.length;
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
 
         if (params.purchaseAmount > 0) {
@@ -247,10 +249,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
         if (block.timestamp > deadline) revert DeadlineExpired();
 
-        (, uint256 netAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
+        (, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
         if (netAssetOut < amountOutMin) revert SlippageExceeded();
 
-        _trackFee(tokenAddress, netAssetOut, false);
+        _trackFee(tokenAddress, grossAssetOut, false);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
         emit Trade(tokenAddress, msg.sender, false, netAssetOut, amountIn, newCurveSupply, newLtReserve);
@@ -363,6 +365,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external onlyOwner {
         hyperswapRouter = newRouter;
         lpLock = newLpLock;
+    }
+
+    function setRedemptionRouter(
+        address newRedemptionRouter
+    ) external onlyOwner {
+        redemptionRouter = newRedemptionRouter;
     }
 
     // ─── Internals ───────────────────────────────────────────────────────

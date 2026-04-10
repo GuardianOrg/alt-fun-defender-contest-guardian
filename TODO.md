@@ -25,14 +25,8 @@ BounceTech LT `mint`/`redeem` reverts below `$10` USDC (`0x05eb05ac`). The front
 ### Event naming mismatch with docs
 `docs/contracts-scope.md` lists `Buy`, `Sell`, `Graduated`. Code emits `Trade` (with `isBuy` flag) and `TokenGraduated`. Docs, indexer, and frontend must all align on the actual event names.
 
-### `Bonding.Referred` declared but never emitted
-The `Referred` event is declared in `Bonding.sol` but never emitted. Referral events only fire from `RedemptionRouter`. The indexer indexes `Bonding:Referred` which will never match any logs.
-
 ### `SellCompleted` / `SellPending` events absent
 `docs/backend-scope.md` references these events on `RedemptionRouter`, but they do not exist in the Solidity code. Needed for the async redeem tracking flow.
-
-### `Bonding.launch()` creator spoofing
-`launch(LaunchParams, address creator_)` is unrestricted — any caller can set an arbitrary `creator` address. Should be restricted to the `RedemptionRouter` or use `msg.sender`.
 
 ### HyperSwap router address mismatch
 `Deploy.s.sol` uses `0xda0f518d521e0dE83fAdC8500C2D21b6a6C39bF9` for HyperSwap Router. `packages/shared` and root `AGENTS.md` use `0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A`. Reconcile which is canonical for mainnet.
@@ -216,8 +210,8 @@ Workspace rules prohibit `console.log` in production. `app.onError` uses `consol
 
 ## Indexer — Missing
 
-### `RedemptionRouter` not registered
-`ponder.config.ts` only registers `Bonding`. `RedemptionRouter` events (`Buy`, `Sell`, `Referred` with USDC amounts, `TokenCreated`) are not indexed. The USDC-denominated trade data that the frontend needs is missing.
+### `RedemptionRouter` event handlers incomplete
+`RedemptionRouter` is registered in `ponder.config.ts` and `Referred` is indexed, but `Buy`, `Sell`, and `TokenCreated` events still need handlers. The USDC-denominated trade data that the frontend needs is missing.
 
 ### HyperSwap Swap/Sync events not indexed
 No HyperSwap V2 Pair contract registered. Post-graduation DEX trades and reserve updates are invisible to the indexer. Need dynamic pair registration (factory pattern or known list after graduation).
@@ -272,9 +266,6 @@ May be needed for post-graduation pool interactions (reading reserves, etc.). Cu
 
 ### Extensive mock data throughout frontend
 `services/mock/` (tokens, assets, trades) used as fallbacks in production code paths. Mock data leaks into the UI when APIs are down. Should be dev-only or removed once real data flows are complete.
-
-### `useCreateToken` parses logs via hardcoded topic
-Uses a hardcoded log topic hash to find the `TokenLaunched` event in transaction receipts. Fragile — will break silently if the event signature changes. Should use viem's `decodeEventLog` with the ABI.
 
 ### `ErrorBoundary` has no error logging
 `componentDidCatch` is not implemented. Errors caught by the boundary are silently swallowed with a generic fallback UI.

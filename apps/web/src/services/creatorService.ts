@@ -8,7 +8,7 @@ import { ADDRESSES } from "../contracts/addresses";
 
 import type { CreatorEarnings, HeldToken } from "./types";
 
-const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz";
+const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 
 const publicClient = createPublicClient({
   transport: http(HYPER_EVM_RPC),
@@ -75,11 +75,19 @@ const liveCreatorService: ICreatorService = {
 
       for (const token of createdTokens) {
         try {
+          const info = (await publicClient.readContract({
+            address: ADDRESSES.bonding,
+            abi: BondingAbi,
+            functionName: "tokenInfo",
+            args: [token.address as `0x${string}`],
+          })) as readonly [string, string, string, string, string, string, boolean, boolean];
+          const ltAddress = info[3] as `0x${string}`;
+
           const claimable = (await publicClient.readContract({
             address: ADDRESSES.bonding,
             abi: BondingAbi,
             functionName: "creatorFees",
-            args: [token.address as `0x${string}`, walletAddress as `0x${string}`],
+            args: [walletAddress as `0x${string}`, ltAddress],
           })) as bigint;
 
           const claimableUsd = parseFloat(formatUnits(claimable, 18));

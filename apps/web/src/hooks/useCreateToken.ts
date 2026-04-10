@@ -7,7 +7,7 @@ import {
   type SupportedAsset,
   type SupportedLeverage,
 } from "@launchpad/shared";
-import { maxUint256, parseUnits } from "viem";
+import { maxUint256, parseEventLogs, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 
 
@@ -114,14 +114,15 @@ export function useCreateToken() {
           hash: tx,
         });
 
-        const launchedLog = receipt.logs.find(
-          (log) =>
-            log.topics[0] ===
-            "0x95ebb4dff327b9c917a28dd992a9d3d878cc15e61c709003998849c71b911799",
-        );
-        const newTokenAddr = launchedLog
-          ? (`0x${launchedLog.topics[1]?.slice(26)}` as `0x${string}`)
-          : null;
+        const tokenCreatedEvents = parseEventLogs({
+          abi: RedemptionRouterAbi,
+          eventName: "TokenCreated",
+          logs: receipt.logs,
+          strict: false,
+        });
+        const newTokenAddr =
+          (tokenCreatedEvents[0]?.args as { token?: `0x${string}` })?.token ??
+          null;
 
         let imageUrl = "";
         if (params.imageFile) {
