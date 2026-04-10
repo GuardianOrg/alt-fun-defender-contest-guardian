@@ -12,8 +12,6 @@ REST API + WebSocket server for the launchpad frontend and third-party integrato
 | `Buy` | Bonding | `tokenAddress`, `buyer`, `usdcIn`, `tokensOut`, `newPrice`, `timestamp`, `txHash` |
 | `Sell` | Bonding | `tokenAddress`, `seller`, `tokensIn`, `usdcOut`, `newPrice`, `timestamp`, `txHash` |
 | `Graduated` | Bonding | `tokenAddress`, `poolAddress`, `ltDeposited`, `tokensBurned`, `timestamp` |
-| `SellCompleted` | RedemptionRouter | `tokenAddress`, `seller`, `usdcOut`, `txHash` |
-| `SellPending` | RedemptionRouter | `tokenAddress`, `seller`, `ltAmount`, `prepareTxHash` |
 | `Referred` | RedemptionRouter | `referrer`, `referee`, `tokenAddress`, `txHash` |
 | HyperSwap `Swap` | V2 Pair | `amount0In/Out`, `amount1In/Out`, `timestamp` (only graduated pairs) |
 | HyperSwap `Sync` | V2 Pair | `reserve0`, `reserve1` |
@@ -24,7 +22,6 @@ REST API + WebSocket server for the launchpad frontend and third-party integrato
 | Source | What | Frequency |
 |---|---|---|
 | BounceTech LT `exchangeRate()` | USD per LT for each supported LT | Every block |
-| Bounce Indexing API `GET /trade/:txHash` | `prepareRedeem` completion tracking | On `SellPending` events |
 | Bounce Indexing API `GET /leveraged-tokens` | All LT addresses, exchange rates, metadata | On startup + periodic refresh |
 | Hyperliquid `POST /info {"type":"allMids"}` | Underlying asset spot prices (HYPE, ETH, BTC, SOL, etc.) | Every few seconds |
 | Hyperliquid WS `allMids` subscription | Real-time price stream | Persistent connection |
@@ -97,4 +94,3 @@ Single endpoint: `WSS /ws`. Clients subscribe to channels.
 | `graduation` | Token graduated | Global |
 | `newToken` | Token launched | Global |
 | `stats` | Platform stats update | Global (every 10-30s) |
-| `sellClaimable` | Pending redeem completed, USDC ready | Per-user |

@@ -15,7 +15,7 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 - Comments per token
 - Admin analytics and content moderation
 - Terminal API (`/api/v1/`) for third-party integrators
-- WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`, `sellClaimable`
+- WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`
 
 ## Functional Spec
 

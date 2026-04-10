@@ -4,6 +4,7 @@ export {
   FFactoryAbi,
   FERC20Abi,
   LPLockAbi,
+  LeveragedTokenAbi,
 } from "@launchpad/shared";
 
 export const erc20Abi = [

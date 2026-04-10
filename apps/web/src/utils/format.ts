@@ -39,6 +39,13 @@ export function getLtDisplayName(
 }
 
 export function getErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (raw.includes("InsufficientBalance") || raw.includes("insufficient") && raw.includes("balance")) {
+    return "Sell exceeds available liquidity. Try a smaller amount — buffer replenishes in ~10s.";
+  }
+  if (raw.includes("0x05eb05ac")) {
+    return "Amount below BounceTech minimum ($10 USDC).";
+  }
   return e instanceof Error ? e.message : "Transaction failed";
 }
 

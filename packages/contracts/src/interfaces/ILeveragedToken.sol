@@ -28,13 +28,7 @@ interface ILeveragedToken is IERC20 {
         uint256 minBase
     ) external returns (uint256 baseAmount);
 
-    /// @notice Start an async redeem for large amounts. Only one pending per address per LT.
-    /// @param ltAmount Amount of LT to prepare for redemption
-    function prepareRedeem(
-        uint256 ltAmount
-    ) external;
-
-    /// @notice Idle USDC available for atomic redeem
+    /// @notice Idle USDC available for atomic redeem. Sells must not exceed this amount.
     function baseAssetBalance() external view returns (uint256);
 
     /// @notice Current exchange rate: USD value per LT unit, scaled to 18 decimals

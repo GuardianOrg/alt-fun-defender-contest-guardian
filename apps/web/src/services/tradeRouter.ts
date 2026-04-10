@@ -1,4 +1,4 @@
-import { FFactoryAbi } from "@launchpad/shared";
+import { FFactoryAbi, LeveragedTokenAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
 
@@ -10,16 +10,6 @@ const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.x
 const publicClient = createPublicClient({
   transport: http(HYPER_EVM_RPC),
 });
-
-const ILTAbi = [
-  {
-    name: "exchangeRate",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint256" }],
-  },
-] as const;
 
 export type TransactionStep = "idle" | "approving" | "confirmed" | "error";
 export type TxStep = TransactionStep | "executing";
@@ -41,6 +31,12 @@ export interface SellQuote {
   totalFee: number;
   priceImpactPct: number;
   youReceive: number;
+  /** Max token amount sellable right now given the LT's idle USDC buffer */
+  maxSellableTokens: number;
+  /** Available idle USDC in the LT contract for atomic redeems */
+  bufferUsdc: number;
+  /** Whether the requested sell exceeds the available buffer */
+  exceedsBuffer: boolean;
 }
 
 export interface ITradeRouterService {
@@ -98,7 +94,7 @@ const liveTradeRouter: ITradeRouterService = {
         }) as Promise<[bigint, bigint]>,
         publicClient.readContract({
           address: ltAddress,
-          abi: ILTAbi,
+          abi: LeveragedTokenAbi,
           functionName: "exchangeRate",
         }) as Promise<bigint>,
       ]);
@@ -136,7 +132,7 @@ const liveTradeRouter: ITradeRouterService = {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress } = await getTokenPair(tokenAddr);
 
-      const [reserves, exchangeRate] = await Promise.all([
+      const [reserves, exchangeRate, baseAssetBal] = await Promise.all([
         publicClient.readContract({
           address: pairAddress,
           abi: FPairAbi,
@@ -144,8 +140,13 @@ const liveTradeRouter: ITradeRouterService = {
         }) as Promise<[bigint, bigint]>,
         publicClient.readContract({
           address: ltAddress,
-          abi: ILTAbi,
+          abi: LeveragedTokenAbi,
           functionName: "exchangeRate",
+        }) as Promise<bigint>,
+        publicClient.readContract({
+          address: ltAddress,
+          abi: LeveragedTokenAbi,
+          functionName: "baseAssetBalance",
         }) as Promise<bigint>,
       ]);
 
@@ -153,6 +154,7 @@ const liveTradeRouter: ITradeRouterService = {
       const exRate = parseFloat(formatUnits(exchangeRate, 18));
       const ltReserveFloat = parseFloat(formatUnits(ltReserve, 18));
       const tokenReserveFloat = parseFloat(formatUnits(tokenReserve, 18));
+      const bufferUsdc = parseFloat(formatUnits(baseAssetBal, 6));
 
       const ltOut =
         (ltReserveFloat * tokenAmount) / (tokenReserveFloat + tokenAmount);
@@ -166,6 +168,15 @@ const liveTradeRouter: ITradeRouterService = {
           ? (tokenAmount / tokenReserveFloat) * 100
           : 0;
 
+      const bufferLt = exRate > 0 ? bufferUsdc / exRate : 0;
+      const maxSellableTokens =
+        bufferLt > 0 && ltReserveFloat > 0
+          ? (tokenReserveFloat * bufferLt) / (ltReserveFloat - bufferLt)
+          : 0;
+      const safeMaxSellable = Math.max(0, maxSellableTokens);
+
+      const exceedsBuffer = grossUsdc > bufferUsdc;
+
       return {
         usdcOut: netUsdc,
         curveFee,
@@ -173,6 +184,9 @@ const liveTradeRouter: ITradeRouterService = {
         totalFee,
         priceImpactPct: parseFloat(priceImpact.toFixed(2)),
         youReceive: netUsdc,
+        maxSellableTokens: safeMaxSellable,
+        bufferUsdc,
+        exceedsBuffer,
       };
     } catch {
       return null;

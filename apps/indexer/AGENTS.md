@@ -9,7 +9,6 @@ Ponder EVM indexer. Indexes on-chain events from launchpad contracts and HyperSw
 | `TokenLaunched` | Bonding |
 | `Buy` / `Sell` | Bonding |
 | `Graduated` | Bonding |
-| `SellCompleted` / `SellPending` | RedemptionRouter |
 | `Referred` | RedemptionRouter |
 | `Swap` / `Sync` | HyperSwap V2 Pair (graduated pairs only) |
 | `Transfer` | FERC20 (optional) |
