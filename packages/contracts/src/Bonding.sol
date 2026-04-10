@@ -118,6 +118,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error NothingToClaim();
     error NotCreator();
     error NotRedemptionRouter();
+    error ZeroExchangeRate();
+    error PairAlreadySeeded();
 
     constructor() {
         _disableInitializers();
@@ -167,7 +169,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string calldata ticker_,
         address ltAddress
     ) internal returns (address tokenAddr, address pair) {
-        FERC20 token = new FERC20{salt: keccak256(abi.encodePacked(msg.sender, block.timestamp))}(
+        FERC20 token = new FERC20{salt: keccak256(abi.encodePacked(msg.sender, block.timestamp, allTokens.length))}(
             string.concat("fun ", name_), ticker_, maxTx, address(this)
         );
         tokenAddr = address(token);
@@ -177,6 +179,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         pair = factory.createPair(tokenAddr, ltAddress);
 
         uint256 exchangeRate = ILeveragedToken(ltAddress).exchangeRate();
+        if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
@@ -437,11 +440,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 tokenAmount = lpReserve[tokenAddress];
         lpReserve[tokenAddress] = 0;
 
+        _requirePairEmpty(tokenAddress, lt);
+
         IERC20(tokenAddress).forceApprove(hyperswapRouter, tokenAmount);
         IERC20(lt).forceApprove(hyperswapRouter, ltFromPair);
 
+        uint256 tokenMin = (tokenAmount * 99) / 100;
+        uint256 ltMin = (ltFromPair * 99) / 100;
+
         (,, uint256 liquidity) = IUniswapV2Router02(hyperswapRouter)
-            .addLiquidity(tokenAddress, lt, tokenAmount, ltFromPair, tokenAmount, ltFromPair, lpLock, block.timestamp);
+            .addLiquidity(tokenAddress, lt, tokenAmount, ltFromPair, tokenMin, ltMin, lpLock, block.timestamp);
 
         address hyperPair = _getHyperswapPair(tokenAddress, lt);
         graduatedPair[tokenAddress] = hyperPair;
@@ -456,6 +464,26 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) internal view returns (uint256 curveSupply, uint256 ltReserve) {
         address pair = _tokenInfo[tokenAddress].pair;
         (curveSupply, ltReserve) = IFPair(pair).getReserves();
+    }
+
+    /// @dev Reverts if the HyperSwap pair already has reserves (prevents front-running graduation)
+    function _requirePairEmpty(
+        address tokenA,
+        address tokenB
+    ) internal view {
+        address hsFactory = IUniswapV2Router02(hyperswapRouter).factory();
+        (bool pairOk, bytes memory pairData) =
+            hsFactory.staticcall(abi.encodeWithSignature("getPair(address,address)", tokenA, tokenB));
+        if (pairOk && pairData.length >= 32) {
+            address existingPair = abi.decode(pairData, (address));
+            if (existingPair != address(0)) {
+                (bool resOk, bytes memory resData) = existingPair.staticcall(abi.encodeWithSignature("getReserves()"));
+                if (resOk && resData.length >= 64) {
+                    (uint112 r0, uint112 r1,) = abi.decode(resData, (uint112, uint112, uint32));
+                    if (r0 > 0 || r1 > 0) revert PairAlreadySeeded();
+                }
+            }
+        }
     }
 
     function _getHyperswapPair(

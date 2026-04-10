@@ -1,12 +1,16 @@
 import { useState, useCallback } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { useAccount } from "wagmi";
+import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 
+import { BondingAbi } from "../contracts/abis";
+import { ADDRESSES } from "../contracts/addresses";
 import { creatorService } from "../services/creatorService";
 
 export function useCreatorEarnings() {
   const { address } = useAccount();
+  const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient();
   const [claiming, setClaiming] = useState(false);
 
   const earningsQuery = useQuery({
@@ -20,16 +24,45 @@ export function useCreatorEarnings() {
 
   const claim = useCallback(
     async (tokenAddress?: string) => {
-      if (!address) return;
+      if (!address || !walletClient || !publicClient) return;
       setClaiming(true);
       try {
-        await creatorService.claimEarnings(address, tokenAddress);
+        let ltAddress: `0x${string}`;
+        if (tokenAddress) {
+          const info = (await publicClient.readContract({
+            address: ADDRESSES.bonding,
+            abi: BondingAbi,
+            functionName: "tokenInfo",
+            args: [tokenAddress as `0x${string}`],
+          })) as readonly [string, string, string, string, string, string, boolean, boolean];
+          ltAddress = info[3] as `0x${string}`;
+        } else {
+          const firstToken = earningsQuery.data?.tokens.find(
+            (t) => t.feesClaimableUsd > 0,
+          );
+          if (!firstToken) return;
+          const info = (await publicClient.readContract({
+            address: ADDRESSES.bonding,
+            abi: BondingAbi,
+            functionName: "tokenInfo",
+            args: [firstToken.address as `0x${string}`],
+          })) as readonly [string, string, string, string, string, string, boolean, boolean];
+          ltAddress = info[3] as `0x${string}`;
+        }
+
+        const hash = await walletClient.writeContract({
+          address: ADDRESSES.bonding,
+          abi: BondingAbi,
+          functionName: "claimCreatorFees",
+          args: [ltAddress],
+        });
+        await publicClient.waitForTransactionReceipt({ hash });
         earningsQuery.refetch();
       } finally {
         setClaiming(false);
       }
     },
-    [address, earningsQuery],
+    [address, walletClient, publicClient, earningsQuery],
   );
 
   return {

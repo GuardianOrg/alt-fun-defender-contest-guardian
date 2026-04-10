@@ -30,7 +30,12 @@ commentsRoute.get("/:address", async (c) => {
 commentsRoute.post("/:address", async (c) => {
   const tokenAddress = c.req.param("address");
 
-  const body = await c.req.json<{ author: string; content: string }>();
+  let body: { author: string; content: string };
+  try {
+    body = await c.req.json<{ author: string; content: string }>();
+  } catch {
+    return c.json(formatError("Invalid JSON body"), 400);
+  }
 
   if (!body.author || !body.content) {
     return c.json(formatError("Missing author or content"), 400);

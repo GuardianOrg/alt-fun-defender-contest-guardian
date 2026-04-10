@@ -59,11 +59,14 @@ const liveTradeService: ITradeService = {
       try {
         const trades = await fetchPonderTrades(undefined, 20);
         if (cancelled) return;
+        const batchIds = new Set<string>();
         for (const t of trades) {
+          batchIds.add(t.id);
           if (seenIds.has(t.id)) continue;
-          seenIds.add(t.id);
           cb(ponderTradeToTrade(t));
         }
+        seenIds.clear();
+        for (const id of batchIds) seenIds.add(id);
         hasLiveData = true;
       } catch {
         if (!hasLiveData && initial) {
@@ -98,11 +101,14 @@ const liveTradeService: ITradeService = {
       try {
         const trades = await fetchPonderTrades(address, 30);
         if (cancelled) return;
+        const batchIds = new Set<string>();
         for (const t of trades) {
+          batchIds.add(t.id);
           if (seenIds.has(t.id)) continue;
-          seenIds.add(t.id);
           cb(ponderTradeToTrade(t));
         }
+        seenIds.clear();
+        for (const id of batchIds) seenIds.add(id);
         hasLiveData = true;
       } catch {
         if (!hasLiveData && !cancelled) {

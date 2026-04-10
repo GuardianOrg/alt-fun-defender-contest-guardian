@@ -130,8 +130,8 @@ const liveCreatorService: ICreatorService = {
     }
   },
 
-  async claimEarnings(_walletAddress, _tokenAddress) {
-    return "0x";
+  async claimEarnings() {
+    throw new Error("Use useCreatorEarnings hook for on-chain claims");
   },
 };
 

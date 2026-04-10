@@ -12,7 +12,7 @@ import {LPLock} from "../src/LPLock.sol";
 contract Deploy is Script {
     // HyperEVM mainnet addresses
     address constant USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
-    address constant HYPERSWAP_ROUTER = 0xda0f518d521e0dE83fAdC8500C2D21b6a6C39bF9;
+    address constant HYPERSWAP_ROUTER = 0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A;
 
     // 0.5% = 50 basis points for both buy and sell tax
     uint256 constant BUY_TAX_BPS = 50;

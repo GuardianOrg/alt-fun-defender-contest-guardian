@@ -12,10 +12,12 @@ import {LPLock} from "../src/LPLock.sol";
 import {IFPair} from "../src/interfaces/IFPair.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
+import {MockHyperswapRouter} from "./mocks/MockHyperswapRouter.sol";
 
 contract BondingTest is Test {
     MockERC20 public usdc;
     MockLeveragedToken public lt;
+    MockHyperswapRouter public hyperswapRouter;
     FFactory public factory;
     FRouter public router;
     Bonding public bonding;
@@ -32,12 +34,10 @@ contract BondingTest is Test {
     uint256 constant MAX_TX = 100; // 100% = no limit
     uint256 constant LT_EXCHANGE_RATE = 1 ether; // 1 LT = $1 USD
 
-    // Dummy addresses for HyperSwap (not used in curve-only tests)
-    address constant HYPERSWAP_ROUTER = address(0xBEEF);
-
     function setUp() public {
         usdc = new MockERC20("USD Coin", "USDC");
         lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));
+        hyperswapRouter = new MockHyperswapRouter();
 
         factory = new FFactory();
         factory.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
@@ -52,7 +52,7 @@ contract BondingTest is Test {
         Bonding bondingImpl = new Bonding();
         bytes memory initData = abi.encodeCall(
             Bonding.initialize,
-            (address(factory), address(router), feeReceiver, MAX_TX, HYPERSWAP_ROUTER, address(lpLockContract))
+            (address(factory), address(router), feeReceiver, MAX_TX, address(hyperswapRouter), address(lpLockContract))
         );
         ERC1967Proxy proxy = new ERC1967Proxy(address(bondingImpl), initData);
         bonding = Bonding(address(proxy));
@@ -481,9 +481,26 @@ contract BondingTest is Test {
 
     function test_postGraduation_buyReverts() public {
         (address tokenAddr,) = _launchToken();
-        // Force graduation by buying enough - but graduation calls HyperSwap which will revert
-        // in tests since HYPERSWAP_ROUTER is a dummy. Test the trading flag directly.
-        // We'll test full graduation in integration tests.
+
+        // Buy enough LT to build up reserves
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        assertFalse(bonding.isGraduated(tokenAddr));
+
+        // Increase exchange rate so LT value crosses $12K threshold
+        lt.setExchangeRate(3 ether);
+        assertTrue(bonding.canGraduate(tokenAddr));
+
+        // Next buy triggers graduation
+        _buyTokens(tokenAddr, trader2, 100 ether);
+        assertTrue(bonding.isGraduated(tokenAddr));
+
+        // Buying on graduated token should revert
+        lt.mintDirect(trader, 100 ether);
+        vm.startPrank(trader);
+        lt.approve(address(router), 100 ether);
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.buy(100 ether, tokenAddr, 0, block.timestamp + 300);
+        vm.stopPrank();
     }
 
     // ─── Multiple Tokens Test ────────────────────────────────────────────

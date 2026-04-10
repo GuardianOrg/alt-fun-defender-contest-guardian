@@ -10,6 +10,25 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/we
 
 const images = new Hono<{ Bindings: AppBindings }>();
 
+function sanitizeFileName(raw: string): string {
+  const base = raw.split(/[/\\]+/).pop() ?? "file";
+  const dotIdx = base.lastIndexOf(".");
+  const hasExt = dotIdx > 0 && dotIdx < base.length - 1;
+
+  const name = (hasExt ? base.slice(0, dotIdx) : base)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[._-]+|[._-]+$/g, "");
+
+  const ext = hasExt
+    ? base.slice(dotIdx + 1).replace(/[^A-Za-z0-9]+/g, "").toLowerCase()
+    : "";
+
+  if (!name && !ext) return "file";
+  if (!ext) return name || "file";
+  return `${name || "file"}.${ext}`;
+}
+
 images.post("/", async (c) => {
   const formData = await c.req.formData();
   const file = formData.get("file");
@@ -26,7 +45,7 @@ images.post("/", async (c) => {
     return c.json(formatError("File too large. Maximum 5MB"), 400);
   }
 
-  const key = `tokens/${crypto.randomUUID()}-${file.name}`;
+  const key = `tokens/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
   const arrayBuffer = await file.arrayBuffer();
 
   await c.env.IMAGES_BUCKET.put(key, arrayBuffer, {

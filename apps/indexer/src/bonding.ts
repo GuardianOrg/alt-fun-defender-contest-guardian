@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ponder } from "@/generated";
 import { token, trade, graduation, referral } from "../ponder.schema";
 
-ponder.on("Bonding:TokenLaunched", async ({ event, context }: { event: any; context: any }) => {
+ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;
   await db
     .insert(token)
@@ -22,7 +21,7 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }: { event: any; cont
     .onConflictDoNothing();
 });
 
-ponder.on("Bonding:Trade", async ({ event, context }: { event: any; context: any }) => {
+ponder.on("Bonding:Trade", async ({ event, context }) => {
   const { db } = context;
   const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -50,7 +49,7 @@ ponder.on("Bonding:Trade", async ({ event, context }: { event: any; context: any
     });
 });
 
-ponder.on("Bonding:TokenGraduated", async ({ event, context }: { event: any; context: any }) => {
+ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
   const { db } = context;
 
   await db
@@ -73,7 +72,7 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }: { event: any; con
     });
 });
 
-ponder.on("RedemptionRouter:Referred", async ({ event, context }: { event: any; context: any }) => {
+ponder.on("RedemptionRouter:Referred", async ({ event, context }) => {
   const { db } = context;
   const refId = `${event.transaction.hash}-${event.log.logIndex}`;
 

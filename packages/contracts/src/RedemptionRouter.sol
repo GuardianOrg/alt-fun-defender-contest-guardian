@@ -30,12 +30,17 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
     error InvalidInput();
     error DeadlineExpired();
     error SlippageExceeded();
+    error ZeroAddress();
+
+    event BondingUpdated(address indexed bonding);
+    event HyperswapRouterUpdated(address indexed hyperswapRouter);
 
     function initialize(
         address bonding_,
         address usdc_,
         address hyperswapRouter_
     ) external initializer {
+        if (bonding_ == address(0) || usdc_ == address(0) || hyperswapRouter_ == address(0)) revert ZeroAddress();
         __Ownable_init(msg.sender);
         bonding = Bonding(bonding_);
         usdc = IERC20(usdc_);
@@ -132,11 +137,14 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
+        uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
+        uint256 minLtOut = exchangeRate > 0 ? (minUsdcOut * 1e18) / exchangeRate : 0;
+
         uint256 ltReceived;
         if (bonding.isGraduated(tokenAddress)) {
-            ltReceived = _sellOnHyperswap(tokenAddress, lt, tokenAmount, deadline);
+            ltReceived = _sellOnHyperswap(tokenAddress, lt, tokenAmount, minLtOut, deadline);
         } else {
-            ltReceived = _sellOnCurve(tokenAddress, lt, tokenAmount, deadline);
+            ltReceived = _sellOnCurve(tokenAddress, lt, tokenAmount, minLtOut, deadline);
         }
 
         // LT -> USDC
@@ -166,11 +174,12 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         address tokenAddress,
         address lt,
         uint256 tokenAmount,
+        uint256 minLtOut,
         uint256 deadline
     ) internal returns (uint256 ltReceived) {
         FRouter frouter = bonding.router();
         IERC20(tokenAddress).forceApprove(address(frouter), tokenAmount);
-        ltReceived = bonding.sell(tokenAmount, tokenAddress, 0, deadline);
+        ltReceived = bonding.sell(tokenAmount, tokenAddress, minLtOut, deadline);
     }
 
     // ─── Internal: HyperSwap Trades ─────────────────────────────────────
@@ -195,6 +204,7 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         address tokenAddress,
         address lt,
         uint256 tokenAmount,
+        uint256 minLtOut,
         uint256 deadline
     ) internal returns (uint256 ltReceived) {
         IERC20(tokenAddress).forceApprove(address(hyperswapRouter), tokenAmount);
@@ -202,7 +212,7 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         path[0] = tokenAddress;
         path[1] = lt;
         uint256[] memory amounts =
-            hyperswapRouter.swapExactTokensForTokens(tokenAmount, 0, path, address(this), deadline);
+            hyperswapRouter.swapExactTokensForTokens(tokenAmount, minLtOut, path, address(this), deadline);
         ltReceived = amounts[amounts.length - 1];
     }
 
@@ -211,13 +221,17 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
     function setBonding(
         address bonding_
     ) external onlyOwner {
+        if (bonding_ == address(0)) revert ZeroAddress();
         bonding = Bonding(bonding_);
+        emit BondingUpdated(bonding_);
     }
 
     function setHyperswapRouter(
         address hyperswapRouter_
     ) external onlyOwner {
+        if (hyperswapRouter_ == address(0)) revert ZeroAddress();
         hyperswapRouter = IUniswapV2Router02(hyperswapRouter_);
+        emit HyperswapRouterUpdated(hyperswapRouter_);
     }
 
     function _authorizeUpgrade(

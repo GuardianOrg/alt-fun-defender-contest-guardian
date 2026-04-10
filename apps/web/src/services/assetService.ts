@@ -1,5 +1,6 @@
 import { HYPERLIQUID_INFO_API } from "@launchpad/shared";
 
+import { fetchTokens } from "./api";
 import { fetchPonderTokens } from "./ponder";
 import { COLORS } from "../config/colors";
 
@@ -59,16 +60,19 @@ const liveAssetService: IAssetService = {
   async getPlatformStats() {
     try {
       const tokens = await fetchPonderTokens(200);
-      const graduated = tokens.filter((t) => t.graduated);
-      const graduating = tokens.filter(
-        (t) => !t.graduated,
-      );
+      const graduating = tokens.filter((t) => !t.graduated);
+
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const graduatedToday = tokens.filter(
+        (t) => t.graduated && t.graduatedAt && new Date(t.graduatedAt) >= todayStart,
+      ).length;
 
       return {
         tokensLive: tokens.length,
         graduating: graduating.length,
         volume24h: "—",
-        graduatedToday: graduated.length,
+        graduatedToday,
         totalRaised: "—",
       };
     } catch {
@@ -84,19 +88,19 @@ const liveAssetService: IAssetService = {
 
   async getPairFilters() {
     try {
-      const tokens = await fetchPonderTokens(200);
+      const tokens = await fetchTokens(200);
       const countMap = new Map<string, number>();
       for (const t of tokens) {
-        const key = t.symbol.toLowerCase().includes("short") ? "short" : "long";
-        const existing = countMap.get(key) ?? 0;
-        countMap.set(key, existing + 1);
+        const dir = t.ltDirection === "short" ? "short" : "long";
+        const existing = countMap.get(dir) ?? 0;
+        countMap.set(dir, existing + 1);
       }
 
       return [
         {
           asset: "HYPE" as const,
           direction: "long" as const,
-          count: countMap.get("long") ?? tokens.length,
+          count: countMap.get("long") ?? 0,
           color: COLORS.mint,
         },
       ];

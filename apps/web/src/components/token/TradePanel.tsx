@@ -49,8 +49,7 @@ export default function TradePanel({ token }: Props) {
       const usdcAmount = denomUsdc ? amtNum : amtNum * mockPrice;
       executeBuy(token.address, usdcAmount, slippage);
     } else {
-      const tokenAmount = denomUsdc ? amtNum / mockPrice : amtNum;
-      const tokenAmountWei = parseUnits(tokenAmount.toFixed(18), 18);
+      const tokenAmountWei = parseUnits(amtNum.toFixed(18), 18);
       executeSell(token.address, tokenAmountWei, slippage);
     }
   };
@@ -110,6 +109,8 @@ export default function TradePanel({ token }: Props) {
             )}
             onClick={() => {
               setMode("sell");
+              setDenomUsdc(false);
+              setAmount("");
               reset();
             }}
           >
@@ -155,8 +156,11 @@ export default function TradePanel({ token }: Props) {
             setDenomUsdc(!denomUsdc);
             setAmount("");
           }}
+          disabled={mode === "sell"}
         >
-          Switch to {denomUsdc ? ticker : "USDC"}
+          {mode === "sell"
+            ? `Amount in ${ticker}`
+            : `Switch to ${denomUsdc ? ticker : "USDC"}`}
         </button>
 
         <div className={styles.amountWrap}>
