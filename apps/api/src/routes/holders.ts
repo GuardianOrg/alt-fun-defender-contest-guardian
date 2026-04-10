@@ -3,9 +3,15 @@ import { isAddress } from "viem";
 
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
+
+interface TradeItem {
+  trader: string;
+  isBuy: boolean;
+  tokenAmount: string;
+}
 
 const holders = new Hono<{ Bindings: AppBindings }>();
 
@@ -15,22 +21,15 @@ holders.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = rawAddress.toLowerCase();
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
 
-  const data = await queryPonder<{
-    routerTrades: {
-      items: {
-        trader: string;
-        isBuy: boolean;
-        tokenAmount: string;
-      }[];
-    };
-  }>(
-    `query ($address: String!) {
+  const trades = await queryPonderAll<TradeItem>(
+    `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }
-        limit: 1000
+        limit: $limit
+        offset: $offset
         orderBy: "timestamp"
         orderDirection: "asc"
       ) {
@@ -41,10 +40,9 @@ holders.get("/:address", async (c) => {
         }
       }
     }`,
+    "routerTrades",
     { address },
   );
-
-  const trades = data?.routerTrades?.items ?? [];
   const balances = new Map<string, bigint>();
 
   for (const t of trades) {

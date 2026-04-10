@@ -46,7 +46,7 @@ app.route("/api/v1/security", security);
 
 app.get("/ws", async (c) => {
   const upgradeHeader = c.req.header("Upgrade");
-  if (upgradeHeader !== "websocket") {
+  if (upgradeHeader?.toLowerCase() !== "websocket") {
     return c.json(formatError("Expected WebSocket upgrade"), 426);
   }
 
@@ -80,7 +80,7 @@ export class WebSocketDO extends DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const upgradeHeader = request.headers.get("Upgrade");
-    if (upgradeHeader !== "websocket") {
+    if (upgradeHeader?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
     }
 

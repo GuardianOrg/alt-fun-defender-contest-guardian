@@ -3,9 +3,16 @@ import { isAddress } from "viem";
 
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
+
+interface ReferralItem {
+  tokenAddress: string;
+  trader: string;
+  usdcAmount: string;
+  timestamp: string;
+}
 
 const referrals = new Hono<{ Bindings: AppBindings }>();
 
@@ -15,22 +22,14 @@ referrals.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const data = await queryPonder<{
-    referrals: {
-      items: {
-        tokenAddress: string;
-        trader: string;
-        usdcAmount: string;
-        timestamp: string;
-      }[];
-    };
-  }>(
-    `query ($wallet: String!) {
+  const items = await queryPonderAll<ReferralItem>(
+    `query ($wallet: String!, $limit: Int!, $offset: Int!) {
       referrals(
         where: { referrer: $wallet }
-        limit: 1000
+        limit: $limit
+        offset: $offset
         orderBy: "timestamp"
         orderDirection: "desc"
       ) {
@@ -42,10 +41,9 @@ referrals.get("/:wallet", async (c) => {
         }
       }
     }`,
+    "referrals",
     { wallet },
   );
-
-  const items = data?.referrals?.items ?? [];
 
   const uniqueWallets = new Set(items.map((r) => r.trader));
   let totalVolume = 0n;

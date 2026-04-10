@@ -3,7 +3,7 @@ import { isAddress } from "viem";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -106,7 +106,6 @@ trades.get("/ohlcv/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = rawAddress.toLowerCase();
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const interval = c.req.query("interval") ?? "5m";
   const bucketSize = INTERVAL_SECONDS[interval];
 
@@ -114,11 +113,13 @@ trades.get("/ohlcv/:address", async (c) => {
     return c.json(formatError(`Invalid interval. Supported: ${Object.keys(INTERVAL_SECONDS).join(", ")}`), 400);
   }
 
-  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($address: String!) {
+  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
+  const rawTrades = await queryPonderAll<PonderRouterTrade>(
+    `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }
-        limit: 1000
+        limit: $limit
+        offset: $offset
         orderBy: "timestamp"
         orderDirection: "asc"
       ) {
@@ -130,10 +131,9 @@ trades.get("/ohlcv/:address", async (c) => {
         }
       }
     }`,
+    "routerTrades",
     { address },
   );
-
-  const rawTrades = data?.routerTrades?.items ?? [];
   if (rawTrades.length === 0) {
     return c.json(formatSuccess([]));
   }

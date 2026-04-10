@@ -1,4 +1,6 @@
 const FALLBACK_URL = "http://localhost:42069";
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 20;
 
 export function createPonderQuery(ponderUrl?: string) {
   const url = ponderUrl || FALLBACK_URL;
@@ -23,5 +25,37 @@ export function createPonderQuery(ponderUrl?: string) {
     } catch {
       return null;
     }
+  };
+}
+
+/**
+ * Paginate through all results for a Ponder collection query.
+ * `collectionKey` is the top-level field name in the GraphQL response (e.g. "routerTrades").
+ * The query MUST use `$limit: Int!` and `$offset: Int!` variables.
+ */
+export function createPonderPaginatedQuery(ponderUrl?: string) {
+  const queryPonder = createPonderQuery(ponderUrl);
+
+  return async function queryPonderAll<TItem>(
+    query: string,
+    collectionKey: string,
+    variables?: Record<string, unknown>,
+  ): Promise<TItem[]> {
+    const all: TItem[] = [];
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE;
+      const data = await queryPonder<Record<string, { items: TItem[] }>>(
+        query,
+        { ...variables, limit: PAGE_SIZE, offset },
+      );
+
+      const items = data?.[collectionKey]?.items ?? [];
+      all.push(...items);
+
+      if (items.length < PAGE_SIZE) break;
+    }
+
+    return all;
   };
 }

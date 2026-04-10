@@ -48,8 +48,7 @@ export interface ITradeRouterService {
   getQuoteSell(
     curveAddress: string,
     tokenAmount: number,
-    tokenPriceUsd: number,
-  ): Promise<SellQuote>;
+  ): Promise<SellQuote | null>;
 }
 
 async function getTokenPair(
@@ -132,7 +131,7 @@ const liveTradeRouter: ITradeRouterService = {
     }
   },
 
-  async getQuoteSell(curveAddress, tokenAmount, tokenPriceUsd) {
+  async getQuoteSell(curveAddress, tokenAmount) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress } = await getTokenPair(tokenAddr);
@@ -176,7 +175,7 @@ const liveTradeRouter: ITradeRouterService = {
         youReceive: netUsdc,
       };
     } catch {
-      return mockSellQuote(tokenAmount, tokenPriceUsd);
+      return null;
     }
   },
 };
@@ -199,22 +198,5 @@ function mockBuyQuote(usdcAmount: number): BuyQuote {
   };
 }
 
-function mockSellQuote(tokenAmount: number, tokenPriceUsd: number): SellQuote {
-  const grossUsdc = tokenAmount * tokenPriceUsd;
-  const curveFee = grossUsdc * FEES.curveSell;
-  const ltRedemptionFee = grossUsdc * FEES.ltRedemption * 2;
-  const totalFee = curveFee + ltRedemptionFee;
-  const netUsdc = grossUsdc - totalFee;
-  const mockMcap = MOCK_TOKEN_PRICE * 1e9;
-  const priceImpact = (grossUsdc / mockMcap) * 100;
-  return {
-    usdcOut: netUsdc,
-    curveFee,
-    ltRedemptionFee,
-    totalFee,
-    priceImpactPct: parseFloat(priceImpact.toFixed(2)),
-    youReceive: netUsdc,
-  };
-}
 
 export const tradeRouterService: ITradeRouterService = liveTradeRouter;

@@ -6,7 +6,7 @@ import { createDb } from "../db/client.js";
 import { tokens, userProfiles } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -35,26 +35,24 @@ creators.get("/:address", async (c) => {
 
   let totalVolume = 0n;
   if (tokenAddresses.length > 0) {
-    const queryPonder = createPonderQuery(c.env.PONDER_URL);
-    const volumeData = await queryPonder<{
-      routerTrades: {
-        items: { usdcAmount: string }[];
-      };
-    }>(
-      `query ($tokenAddresses: [String!]!) {
+    const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
+    const volumeTrades = await queryPonderAll<{ usdcAmount: string }>(
+      `query ($tokenAddresses: [String!]!, $limit: Int!, $offset: Int!) {
         routerTrades(
           where: { tokenAddress_in: $tokenAddresses }
-          limit: 1000
+          limit: $limit
+          offset: $offset
         ) {
           items {
             usdcAmount
           }
         }
       }`,
+      "routerTrades",
       { tokenAddresses },
     );
 
-    for (const t of volumeData?.routerTrades?.items ?? []) {
+    for (const t of volumeTrades) {
       totalVolume += BigInt(t.usdcAmount);
     }
   }

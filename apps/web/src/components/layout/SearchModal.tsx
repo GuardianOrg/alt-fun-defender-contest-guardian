@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
@@ -106,47 +106,49 @@ export default function SearchModal() {
   const navigate = useNavigate();
   const { data: tokens } = useTokens();
   const [searchResults, setSearchResults] = useState<Token[] | null>(null);
-  const doSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
+  useEffect(() => {
+    if (!query.trim()) {
       setSearchResults(null);
       return;
     }
-    try {
-      const results = await searchTokens(q);
-      setSearchResults(results.map((r) => ({
-        address: r.address,
-        name: r.name,
-        ticker: r.ticker,
-        emoji: "",
-        description: r.description,
-        direction: deriveDirection(r),
-        underlying: deriveUnderlying(r),
-        leverage: (r.leverage as 2 | 3 | 5) ?? 2,
-        ltName: ltDisplayName(r),
-        mcapUsd: 0,
-        change24h: 0,
-        buyMomentum: 0,
-        leverageBoost: 0,
-        curveFilled: 0,
-        curveRaisedUsd: 0,
-        volume24h: 0,
-        athUsd: 0,
-        status: deriveStatus(r),
-        creatorAddress: r.creator,
-        createdAt: r.createdAt,
-      })));
-    } catch {
-      setSearchResults(null);
-    }
-  }, []);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (query.trim()) doSearch(query);
-      else setSearchResults(null);
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchTokens(query);
+        if (cancelled) return;
+        setSearchResults(results.map((r) => ({
+          address: r.address,
+          name: r.name,
+          ticker: r.ticker,
+          emoji: "",
+          description: r.description,
+          direction: deriveDirection(r),
+          underlying: deriveUnderlying(r),
+          leverage: (r.leverage as 2 | 3 | 5) ?? 2,
+          ltName: ltDisplayName(r),
+          mcapUsd: 0,
+          change24h: 0,
+          buyMomentum: 0,
+          leverageBoost: 0,
+          curveFilled: 0,
+          curveRaisedUsd: 0,
+          volume24h: 0,
+          athUsd: 0,
+          status: deriveStatus(r),
+          creatorAddress: r.creator,
+          createdAt: r.createdAt,
+        })));
+      } catch {
+        if (!cancelled) setSearchResults(null);
+      }
     }, 250);
-    return () => clearTimeout(timer);
-  }, [query, doSearch]);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

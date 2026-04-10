@@ -3,7 +3,7 @@ import { isAddress } from "viem";
 
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -22,13 +22,14 @@ portfolio.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($wallet: String!) {
+  const trades = await queryPonderAll<PonderRouterTrade>(
+    `query ($wallet: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { trader: $wallet }
-        limit: 1000
+        limit: $limit
+        offset: $offset
         orderBy: "timestamp"
         orderDirection: "asc"
       ) {
@@ -40,10 +41,9 @@ portfolio.get("/:wallet", async (c) => {
         }
       }
     }`,
+    "routerTrades",
     { wallet },
   );
-
-  const trades = data?.routerTrades?.items ?? [];
 
   const holdings = new Map<string, { tokenAmount: bigint; costBasis: bigint }>();
 

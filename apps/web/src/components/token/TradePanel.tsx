@@ -64,7 +64,7 @@ export default function TradePanel({ token }: Props) {
           const quote = await tradeRouterService.getQuoteBuy(token.address, amtNum);
           if (!controller.signal.aborted) setBuyQuote(quote);
         } else {
-          const quote = await tradeRouterService.getQuoteSell(token.address, amtNum, 0);
+          const quote = await tradeRouterService.getQuoteSell(token.address, amtNum);
           if (!controller.signal.aborted) setSellQuote(quote);
         }
       } catch {
