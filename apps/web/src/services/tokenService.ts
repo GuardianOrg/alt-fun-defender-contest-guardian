@@ -6,18 +6,29 @@ import type { ApiToken } from "./api";
 import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
 
-function ltDisplayName(apiToken: ApiToken): string {
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+
+export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
   return `${apiToken.ltPair.replace(/\d+[LS]$/, "")} ${apiToken.leverage}× ${dir}`;
 }
 
-function deriveUnderlying(apiToken: ApiToken): Token["underlying"] {
+export function deriveUnderlying(apiToken: ApiToken): Token["underlying"] {
+  if (apiToken.underlying && apiToken.underlying !== "") {
+    return apiToken.underlying as Token["underlying"];
+  }
   const match = apiToken.ltPair.match(/^(HYPE|ETH|BTC|SOL|ARB|OP)/i);
   return (match ? match[1].toUpperCase() : "HYPE") as Token["underlying"];
 }
 
-function deriveDirection(apiToken: ApiToken): Direction {
+export function deriveDirection(apiToken: ApiToken): Direction {
   return apiToken.ltDirection === "short" ? "short" : "long";
+}
+
+export function deriveStatus(apiToken: ApiToken): Token["status"] {
+  if (apiToken.status === "graduated") return "graduated";
+  if (apiToken.status === "graduating") return "graduating";
+  return "active";
 }
 
 function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
@@ -40,7 +51,7 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     name: api.name,
     ticker: api.ticker,
     emoji: "",
-    image: api.imageUrl || undefined,
+    image: api.imageUrl ? new URL(api.imageUrl, API_BASE).toString() : undefined,
     description: api.description,
     direction: deriveDirection(api),
     underlying: deriveUnderlying(api),
@@ -57,6 +68,11 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     status,
     creatorAddress: api.creator,
     createdAt: api.createdAt,
+    socialLinks: (api.twitterUrl || api.telegramUrl || api.websiteUrl) ? {
+      twitter: api.twitterUrl || undefined,
+      telegram: api.telegramUrl || undefined,
+      website: api.websiteUrl || undefined,
+    } : undefined,
   };
 }
 

@@ -7,16 +7,24 @@ import { cn } from "../../utils/format";
 interface Props {
   name: string;
   ticker: string;
+  description: string;
+  socialLinks: { twitter: string; telegram: string; website: string };
   onNameChange: (v: string) => void;
   onTickerChange: (v: string) => void;
+  onDescriptionChange: (v: string) => void;
+  onSocialLinksChange: (links: { twitter: string; telegram: string; website: string }) => void;
   onImageChange: (file: File | null, preview: string | null) => void;
 }
 
 export default function TokenForm({
   name,
   ticker,
+  description,
+  socialLinks,
   onNameChange,
   onTickerChange,
+  onDescriptionChange,
+  onSocialLinksChange,
   onImageChange,
 }: Props) {
   const [socialOpen, setSocialOpen] = useState(false);
@@ -73,6 +81,8 @@ export default function TokenForm({
           className={styles.textarea}
           placeholder="What's the vibe?"
           maxLength={280}
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
         />
       </div>
 
@@ -113,6 +123,8 @@ export default function TokenForm({
                 type="text"
                 className={styles.input}
                 placeholder="@handle"
+                value={socialLinks.twitter}
+                onChange={(e) => onSocialLinksChange({ ...socialLinks, twitter: e.target.value })}
               />
             </div>
             <div>
@@ -121,6 +133,8 @@ export default function TokenForm({
                 type="text"
                 className={styles.input}
                 placeholder="t.me/..."
+                value={socialLinks.telegram}
+                onChange={(e) => onSocialLinksChange({ ...socialLinks, telegram: e.target.value })}
               />
             </div>
           </div>
@@ -132,6 +146,8 @@ export default function TokenForm({
               type="text"
               className={styles.input}
               placeholder="https://..."
+              value={socialLinks.website}
+              onChange={(e) => onSocialLinksChange({ ...socialLinks, website: e.target.value })}
             />
           </div>
         </div>

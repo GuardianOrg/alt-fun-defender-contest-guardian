@@ -85,29 +85,11 @@ export default function RightPanel() {
         ))}
       </div>
 
-      {/* My positions */}
+      {/* My positions — placeholder until GET /portfolio/:wallet is wired */}
       <div>
         <div className={styles.sectionHeader}>MY POSITIONS</div>
-        {[
-          { name: "HOUSE", pnl: "+$184", positive: true },
-          { name: "WAVEBEAR", pnl: "+$92", positive: true },
-          { name: "DOOMER", pnl: "-$41", positive: false },
-        ].map((p) => (
-          <div key={p.name} className={styles.infoRow}>
-            <span className={styles.infoName}>{p.name}</span>
-            <span
-              className={cn(
-                styles.positionPnl,
-                p.positive ? styles.pnlPositive : styles.pnlNegative,
-              )}
-            >
-              {p.pnl}
-            </span>
-          </div>
-        ))}
-        <div className={styles.netPnlRow}>
-          <span className={styles.netPnlLabel}>NET P&L</span>
-          <span className={styles.netPnlValue}>+$235</span>
+        <div className={styles.infoRow}>
+          <span className={styles.infoName}>Connect wallet to view</span>
         </div>
       </div>
     </div>

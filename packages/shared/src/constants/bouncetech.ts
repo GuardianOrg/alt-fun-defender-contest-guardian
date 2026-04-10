@@ -5,6 +5,9 @@ export const HYPERLIQUID_WS = "wss://api.hyperliquid.xyz/ws" as const;
 
 export const USDC_ADDRESS = "0xb88339CB7199b77E23DB6E890353E22632Ba630f" as const;
 
+/** BounceTech LT mint/redeem reverts below this USDC amount (error selector 0x05eb05ac). */
+export const MIN_USDC_AMOUNT = 10 as const;
+
 export interface LeveragedTokenInfo {
   address: `0x${string}`;
   symbol: string;

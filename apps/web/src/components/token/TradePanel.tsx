@@ -1,16 +1,23 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
-import { parseUnits } from "viem";
+import { MIN_USDC_AMOUNT } from "@launchpad/shared";
+import { formatUnits, parseUnits } from "viem";
+import { useAccount, usePublicClient } from "wagmi";
 
 import CreatorBadge from "./CreatorBadge";
 import SettingsPopup from "./SettingsPopup";
 import styles from "./TradePanel.module.css";
-import { FEES, MOCK_TOKEN_PRICE, QUICK_AMOUNTS } from "../../config/constants";
+import { QUICK_AMOUNTS } from "../../config/constants";
+import { erc20Abi } from "../../contracts/abis";
+import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
 import { useCopyState } from "../../hooks/useCopyState";
+import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
+import { tradeRouterService } from "../../services/tradeRouter";
 import { cn } from "../../utils/format";
 
+import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
 
 interface Props {
@@ -20,23 +27,85 @@ interface Props {
 export default function TradePanel({ token }: Props) {
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
-  const [denomUsdc, setDenomUsdc] = useState(true);
   const [slippage, setSlippage] = useState(0.02);
   const { copied, copy: copyCA } = useCopyState();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [buyQuote, setBuyQuote] = useState<BuyQuote | null>(null);
+  const [sellQuote, setSellQuote] = useState<SellQuote | null>(null);
+  const [maxBalance, setMaxBalance] = useState<string | null>(null);
 
+  const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { isConnected, connect } = useWallet();
+  const referrer = useReferral();
   const { step, txHash, error, executeBuy, executeSell, reset } =
     useTradeRouter();
 
   const amtNum = parseFloat(amount) || 0;
 
-  const mockPrice = MOCK_TOKEN_PRICE;
-  const sellFeeMultiplier = 1 - FEES.curveSell - FEES.ltRedemption * 2;
-  const usdcIn = denomUsdc ? amtNum : amtNum * mockPrice;
-  const estimateTokens = usdcIn / mockPrice;
-  const tokensIn = denomUsdc ? amtNum / mockPrice : amtNum;
-  const estimateUsdc = tokensIn * mockPrice * sellFeeMultiplier;
+  const usdcAmount = mode === "buy"
+    ? amtNum
+    : (sellQuote ? sellQuote.usdcOut : 0);
+
+  const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_AMOUNT;
+  const sellBelowMinimum = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.usdcOut < MIN_USDC_AMOUNT;
+
+  useEffect(() => {
+    if (!amtNum || amtNum <= 0) {
+      setBuyQuote(null);
+      setSellQuote(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      try {
+        if (mode === "buy") {
+          const quote = await tradeRouterService.getQuoteBuy(token.address, amtNum);
+          if (!controller.signal.aborted) setBuyQuote(quote);
+        } else {
+          const quote = await tradeRouterService.getQuoteSell(token.address, amtNum);
+          if (!controller.signal.aborted) setSellQuote(quote);
+        }
+      } catch {
+        // Quote failed, will show no estimate
+      }
+    }, 300);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [amtNum, mode, token.address]);
+
+  const loadBalance = useCallback(async () => {
+    if (!address || !publicClient) return;
+    try {
+      if (mode === "buy") {
+        const balance = await publicClient.readContract({
+          address: ADDRESSES.usdc,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [address],
+        }) as bigint;
+        setMaxBalance(formatUnits(balance, USDC_DECIMALS));
+      } else {
+        const balance = await publicClient.readContract({
+          address: token.address as `0x${string}`,
+          abi: erc20Abi,
+          functionName: "balanceOf",
+          args: [address],
+        }) as bigint;
+        setMaxBalance(formatUnits(balance, 18));
+      }
+    } catch {
+      setMaxBalance(null);
+    }
+  }, [address, publicClient, mode, token.address]);
+
+  useEffect(() => {
+    if (isConnected) loadBalance();
+  }, [isConnected, loadBalance]);
 
   const doTrade = () => {
     if (!isConnected) {
@@ -46,8 +115,7 @@ export default function TradePanel({ token }: Props) {
     if (!amtNum) return;
 
     if (mode === "buy") {
-      const usdcAmount = denomUsdc ? amtNum : amtNum * mockPrice;
-      executeBuy(token.address, usdcAmount, slippage);
+      executeBuy(token.address, amtNum, slippage, referrer);
     } else {
       const tokenAmountWei = parseUnits(amtNum.toFixed(18), 18);
       executeSell(token.address, tokenAmountWei, slippage);
@@ -56,18 +124,20 @@ export default function TradePanel({ token }: Props) {
 
   useEffect(() => {
     if (step === "confirmed") {
+      loadBalance();
       const t = setTimeout(() => {
         reset();
         setAmount("");
       }, 3000);
       return () => clearTimeout(t);
     }
-  }, [step, reset]);
+  }, [step, reset, loadBalance]);
 
   const isBusy = step === "approving" || step === "executing";
 
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
+    if (belowMinimum || sellBelowMinimum) return `MINIMUM $${MIN_USDC_AMOUNT} USDC`;
     if (step === "approving") return "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
     if (step === "confirmed") return "✓ CONFIRMED";
@@ -76,9 +146,16 @@ export default function TradePanel({ token }: Props) {
   };
 
   const ticker = token.ticker;
+  const is5x = token.leverage === 5;
 
   return (
     <div className={styles.panel}>
+      {is5x && (
+        <div className={styles.volWarning}>
+          ⚠ 5× leverage — significantly more volatility decay, recommended for short-term
+        </div>
+      )}
+
       {token.status === "graduating" && (
         <div className={styles.graduatingBanner}>
           <div className={styles.bannerDot} />
@@ -96,6 +173,7 @@ export default function TradePanel({ token }: Props) {
             )}
             onClick={() => {
               setMode("buy");
+              setAmount("");
               reset();
             }}
           >
@@ -109,7 +187,6 @@ export default function TradePanel({ token }: Props) {
             )}
             onClick={() => {
               setMode("sell");
-              setDenomUsdc(false);
               setAmount("");
               reset();
             }}
@@ -150,18 +227,9 @@ export default function TradePanel({ token }: Props) {
       </div>
 
       <div className={styles.formBody}>
-        <button
-          className={styles.denomToggle}
-          onClick={() => {
-            setDenomUsdc(!denomUsdc);
-            setAmount("");
-          }}
-          disabled={mode === "sell"}
-        >
-          {mode === "sell"
-            ? `Amount in ${ticker}`
-            : `Switch to ${denomUsdc ? ticker : "USDC"}`}
-        </button>
+        <div className={styles.denomToggle}>
+          {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
+        </div>
 
         <div className={styles.amountWrap}>
           <input
@@ -174,19 +242,15 @@ export default function TradePanel({ token }: Props) {
           />
           <div className={styles.denomTag}>
             <span className={styles.denomLabel}>
-              {denomUsdc ? "USDC" : ticker}
+              {mode === "buy" ? "USDC" : ticker}
             </span>
             <div
               className={cn(
                 styles.coinIcon,
-                denomUsdc
-                  ? styles.coinUsdc
-                  : mode === "buy"
-                    ? styles.coinMint
-                    : styles.coinRed,
+                mode === "buy" ? styles.coinUsdc : styles.coinRed,
               )}
             >
-              {denomUsdc ? (
+              {mode === "buy" ? (
                 "$"
               ) : token.image ? (
                 <img src={token.image} alt="" className={styles.coinImg} />
@@ -213,7 +277,6 @@ export default function TradePanel({ token }: Props) {
                 amount === String(qa) && styles.quickBtnActive,
               )}
               onClick={() => {
-                setDenomUsdc(true);
                 setAmount(String(qa));
               }}
               disabled={isBusy}
@@ -224,10 +287,15 @@ export default function TradePanel({ token }: Props) {
           <button
             className={styles.maxBtn}
             onClick={() => {
-              setDenomUsdc(true);
-              setAmount("4210");
+              if (maxBalance) {
+                const truncated = parseFloat(maxBalance);
+                setAmount(mode === "buy"
+                  ? Math.floor(truncated * 100) / 100 + ""
+                  : truncated.toString(),
+                );
+              }
             }}
-            disabled={isBusy}
+            disabled={isBusy || !maxBalance}
           >
             Max
           </button>
@@ -239,25 +307,41 @@ export default function TradePanel({ token }: Props) {
               <>
                 ≈ you receive{" "}
                 <span className={styles.estimateValue}>
-                  {estimateTokens.toLocaleString(undefined, {
-                    maximumFractionDigits: 0,
-                  })}
+                  {buyQuote?.tokensOut ?? "…"}
                 </span>{" "}
                 <span className={styles.estimateMint}>{ticker}</span>
+                {buyQuote && buyQuote.priceImpactPct > 1 && (
+                  <span className={styles.impactWarning}>
+                    {" "}({buyQuote.priceImpactPct.toFixed(1)}% impact)
+                  </span>
+                )}
               </>
             ) : (
               <>
                 ≈ you receive{" "}
                 <span className={styles.estimateValue}>
-                  $
-                  {estimateUsdc.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
+                  ${sellQuote
+                    ? sellQuote.youReceive.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })
+                    : "…"}
                 </span>{" "}
                 <span className={styles.estimateLabel}>USDC</span>
+                {sellQuote && sellQuote.priceImpactPct > 1 && (
+                  <span className={styles.impactWarning}>
+                    {" "}({sellQuote.priceImpactPct.toFixed(1)}% impact)
+                  </span>
+                )}
               </>
             )}
+          </div>
+        )}
+
+        {(belowMinimum || sellBelowMinimum) && (
+          <div className={styles.errorBox}>
+            <span className={styles.errorIcon}>⚠</span>
+            Minimum trade is ${MIN_USDC_AMOUNT} USDC (BounceTech LT requirement)
           </div>
         )}
 
@@ -283,7 +367,7 @@ export default function TradePanel({ token }: Props) {
             isBusy && styles.ctaBusy,
           )}
           onClick={doTrade}
-          disabled={isBusy || step === "confirmed"}
+          disabled={isBusy || step === "confirmed" || belowMinimum || sellBelowMinimum}
         >
           {buttonLabel()}
         </button>

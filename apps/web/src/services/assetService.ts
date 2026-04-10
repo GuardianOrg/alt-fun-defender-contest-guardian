@@ -39,6 +39,8 @@ export interface IAssetService {
   getPairFilters(): Promise<PairFilter[]>;
 }
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+
 const liveAssetService: IAssetService = {
   async getAssets() {
     try {
@@ -59,30 +61,40 @@ const liveAssetService: IAssetService = {
 
   async getPlatformStats() {
     try {
-      const tokens = await fetchPonderTokens(200);
-      const graduating = tokens.filter((t) => !t.graduated);
+      const res = await fetch(`${API_BASE}/api/v1/stats`);
+      const json = (await res.json()) as { data?: { tokensLive: number; tokensGraduated: number; volume24h: string } };
+      const stats = json.data;
+      if (!stats) throw new Error("No stats");
 
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      const graduatedToday = tokens.filter(
-        (t) => t.graduated && t.graduatedAt && new Date(t.graduatedAt) >= todayStart,
-      ).length;
-
+      const volume = Number(stats.volume24h) / 1e6;
       return {
-        tokensLive: tokens.length,
-        graduating: graduating.length,
-        volume24h: "—",
-        graduatedToday,
-        totalRaised: "—",
-      };
-    } catch {
-      return {
-        tokensLive: 0,
+        tokensLive: stats.tokensLive,
         graduating: 0,
-        volume24h: "—",
+        volume24h: volume >= 1000 ? `$${(volume / 1000).toFixed(1)}K` : `$${volume.toFixed(0)}`,
         graduatedToday: 0,
         totalRaised: "—",
       };
+    } catch {
+      try {
+        const tokens = await fetchPonderTokens(200);
+        const graduating = tokens.filter((t) => !t.graduated);
+
+        return {
+          tokensLive: tokens.length,
+          graduating: graduating.length,
+          volume24h: "—",
+          graduatedToday: 0,
+          totalRaised: "—",
+        };
+      } catch {
+        return {
+          tokensLive: 0,
+          graduating: 0,
+          volume24h: "—",
+          graduatedToday: 0,
+          totalRaised: "—",
+        };
+      }
     }
   },
 

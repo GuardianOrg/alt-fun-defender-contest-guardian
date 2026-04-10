@@ -10,6 +10,7 @@ declare namespace Cloudflare {
 		IMAGES_BUCKET: R2Bucket;
 		DATABASE_URL: string;
 		ADMIN_API_KEY: string;
+		PONDER_URL: string;
 		WEBSOCKET_DO: DurableObjectNamespace<import("./src/index").WebSocketDO>;
 	}
 }

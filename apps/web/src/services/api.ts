@@ -24,6 +24,11 @@ export interface ApiToken {
   ltPair: string;
   ltDirection: string;
   leverage: number;
+  underlying: string;
+  status: string;
+  twitterUrl: string;
+  telegramUrl: string;
+  websiteUrl: string;
   creator: string;
   isHidden: boolean;
   createdAt: string;
@@ -58,6 +63,9 @@ export function createTokenApi(data: {
   ltPair: string;
   ltDirection: string;
   leverage: number;
+  twitterUrl?: string;
+  telegramUrl?: string;
+  websiteUrl?: string;
   creator: string;
   signature: string;
 }): Promise<ApiToken> {

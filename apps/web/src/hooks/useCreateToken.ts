@@ -89,12 +89,18 @@ export function useCreateToken() {
 
         setStep("deploying");
 
+        const socials = params.socialLinks ?? [];
         const launchParams = {
           name: params.name,
           ticker: params.ticker,
           description: params.description,
           image: "",
-          urls: ["", "", "", ""] as [string, string, string, string],
+          urls: [
+            socials[0] ?? "",
+            socials[1] ?? "",
+            socials[2] ?? "",
+            socials[3] ?? "",
+          ] as [string, string, string, string],
           ltAddress: lt.address,
           purchaseAmount: 0n,
         };
@@ -148,6 +154,9 @@ export function useCreateToken() {
               ltPair: lt.symbol,
               ltDirection: ltDir,
               leverage: params.leverage,
+              twitterUrl: socials[0] ?? "",
+              telegramUrl: socials[1] ?? "",
+              websiteUrl: socials[2] ?? "",
               creator: normalizedCreator,
             };
             const message = buildTokenCreationMessage(apiPayload);

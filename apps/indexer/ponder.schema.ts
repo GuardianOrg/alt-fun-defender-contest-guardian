@@ -18,6 +18,7 @@ export const token = onchainTable("token", (t) => ({
   creatorIdx: index().on(table.creator),
 }));
 
+/** Bonding curve trades with LT amounts and curve state changes. */
 export const trade = onchainTable("trade", (t) => ({
   id: t.text().primaryKey(),
   tokenAddress: t.hex().notNull(),
@@ -27,6 +28,22 @@ export const trade = onchainTable("trade", (t) => ({
   tokenAmount: t.bigint().notNull(),
   curveSupply: t.bigint().notNull(),
   ltReserve: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  tokenIdx: index().on(table.tokenAddress),
+  traderIdx: index().on(table.trader),
+  timestampIdx: index().on(table.timestamp),
+}));
+
+/** USDC-denominated trades from RedemptionRouter (covers both curve and post-graduation). */
+export const routerTrade = onchainTable("router_trade", (t) => ({
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  trader: t.hex().notNull(),
+  isBuy: t.boolean().notNull(),
+  usdcAmount: t.bigint().notNull(),
+  tokenAmount: t.bigint().notNull(),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({
@@ -53,4 +70,16 @@ export const referral = onchainTable("referral", (t) => ({
   timestamp: t.bigint().notNull(),
 }), (table) => ({
   referrerIdx: index().on(table.referrer),
+}));
+
+export const feeClaim = onchainTable("fee_claim", (t) => ({
+  id: t.text().primaryKey(),
+  claimer: t.hex().notNull(),
+  ltAddress: t.hex().notNull(),
+  amount: t.bigint().notNull(),
+  isCreator: t.boolean().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  claimerIdx: index().on(table.claimer),
 }));

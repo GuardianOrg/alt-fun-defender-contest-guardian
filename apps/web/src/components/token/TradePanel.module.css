@@ -139,6 +139,26 @@
   box-shadow: var(--shadow-panel);
 }
 
+.volWarning {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 200, 50, 0.08);
+  border-bottom: 1px solid rgba(255, 200, 50, 0.25);
+  font-size: 11px;
+  font-weight: 600;
+  color: #ffc832;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.impactWarning {
+  color: #ffc832;
+  font-size: 11px;
+}
+
 .graduatingBanner {
   display: flex;
   align-items: center;

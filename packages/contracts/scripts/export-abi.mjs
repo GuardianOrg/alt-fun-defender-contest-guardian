@@ -10,6 +10,7 @@ const contracts = [
   "Bonding",
   "FFactory",
   "FRouter",
+  "FPair",
   "FERC20",
   "RedemptionRouter",
   "LPLock",

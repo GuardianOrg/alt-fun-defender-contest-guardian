@@ -7,6 +7,8 @@ import styles from "./SearchModal.module.css";
 import { tokenPath } from "../../app/routes";
 import { COLORS } from "../../config/colors";
 import { useTokens } from "../../hooks/useTokens";
+import { searchTokens } from "../../services/api";
+import { deriveDirection, deriveStatus, deriveUnderlying, ltDisplayName } from "../../services/tokenService";
 import { selectSearchOpen, setSearchOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 import ModalOverlay from "../shared/ModalOverlay";
@@ -103,6 +105,50 @@ export default function SearchModal() {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { data: tokens } = useTokens();
+  const [searchResults, setSearchResults] = useState<Token[] | null>(null);
+  useEffect(() => {
+    if (!query.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchTokens(query);
+        if (cancelled) return;
+        setSearchResults(results.map((r) => ({
+          address: r.address,
+          name: r.name,
+          ticker: r.ticker,
+          emoji: "",
+          description: r.description,
+          direction: deriveDirection(r),
+          underlying: deriveUnderlying(r),
+          leverage: (r.leverage as 2 | 3 | 5) ?? 2,
+          ltName: ltDisplayName(r),
+          mcapUsd: 0,
+          change24h: 0,
+          buyMomentum: 0,
+          leverageBoost: 0,
+          curveFilled: 0,
+          curveRaisedUsd: 0,
+          volume24h: 0,
+          athUsd: 0,
+          status: deriveStatus(r),
+          creatorAddress: r.creator,
+          createdAt: r.createdAt,
+        })));
+      } catch {
+        if (!cancelled) setSearchResults(null);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -123,13 +169,7 @@ export default function SearchModal() {
 
   if (!open) return null;
 
-  const filtered = query.trim()
-    ? tokens?.filter(
-        (t) =>
-          t.name.toLowerCase().includes(query.toLowerCase()) ||
-          t.ltName.toLowerCase().includes(query.toLowerCase()),
-      )
-    : null;
+  const filtered = query.trim() ? searchResults : null;
 
   const goToToken = (address: string) => {
     dispatch(setSearchOpen(false));
