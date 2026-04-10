@@ -1,0 +1,11 @@
+.redeemButtonContainer {
+  transition: scale 0.25s ease;
+}
+
+.redeemButtonContainer:hover {
+  scale: 1.01;
+}
+
+.redeemButtonContainer.disabled:hover {
+  scale: 1;
+}

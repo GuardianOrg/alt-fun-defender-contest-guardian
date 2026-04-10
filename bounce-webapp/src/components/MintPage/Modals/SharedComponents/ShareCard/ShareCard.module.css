@@ -1,0 +1,60 @@
+.sharecard {
+  background-color: var(--secondary-700);
+  position: relative;
+  height: 19rem;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  .sharecardGraphic {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform;
+  }
+
+  .logo {
+    width: 8rem;
+    margin-bottom: 3rem;
+  }
+
+  .direction {
+    font-family: "Libre Baskerville";
+    font-style: italic;
+    font-size: 1.2rem;
+    font-weight: 300;
+    margin-bottom: 1.2rem;
+    color: var(--white);
+  }
+
+  .tokenContainer {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 1.2rem;
+    color: var(--white);
+
+    span {
+      font-size: 3.4rem;
+    }
+  }
+
+  .redeemStats {
+    display: flex;
+    gap: 1.6rem;
+    color: var(--white);
+
+    span {
+      font-size: 1.8rem;
+      font-weight: 500;
+    }
+
+    .pnl {
+      font-weight: 300;
+    }
+  }
+}

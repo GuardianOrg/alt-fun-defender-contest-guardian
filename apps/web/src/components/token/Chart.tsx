@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 import {
   createChart,
@@ -19,7 +19,9 @@ import type {
   LineData,
 } from "lightweight-charts";
 
-const INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1D"] as const;
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+
+const INTERVALS = ["1m", "5m", "15m", "1h", "4h"] as const;
 
 function generateCandles(
   count: number,
@@ -75,15 +77,43 @@ interface Props {
   token: Token;
 }
 
+async function fetchChartData(address: string, interval: string): Promise<CandlestickData[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/trades/ohlcv/${address}?interval=${interval}`);
+    const json = await res.json() as { data?: { time: number; open: number; high: number; low: number; close: number }[] };
+    const candles = json.data ?? [];
+    if (candles.length === 0) return [];
+    return candles.map((c) => ({
+      time: c.time as unknown as CandlestickData["time"],
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export default function Chart({ token }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const [interval, setInterval] = useState<string>("1m");
+  const [interval, setInterval] = useState<string>("5m");
   const [showOverlay, setShowOverlay] = useState(false);
 
-  const underlyingChg = token.leverageBoost / token.leverage;
+  const underlyingChg = token.leverage > 0 ? token.leverageBoost / token.leverage : 0;
+
+  const loadChartData = useCallback(async (series: ISeriesApi<"Candlestick">) => {
+    const apiCandles = await fetchChartData(token.address, interval);
+    if (apiCandles.length > 0) {
+      series.setData(apiCandles);
+    } else {
+      const pts = interval === "1m" ? 120 : interval === "5m" ? 96 : interval === "15m" ? 72 : interval === "1h" ? 60 : 48;
+      series.setData(generateCandles(pts, 0.0001, token.change24h, interval === "1m" ? 3 : 1.8));
+    }
+  }, [token.address, token.change24h, interval]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -119,27 +149,9 @@ export default function Chart({ token }: Props) {
     });
     candleSeriesRef.current = candleSeries;
 
-    const pts =
-      interval === "1m"
-        ? 120
-        : interval === "5m"
-          ? 96
-          : interval === "15m"
-            ? 72
-            : interval === "1h"
-              ? 60
-              : interval === "4h"
-                ? 48
-                : 30;
-    candleSeries.setData(
-      generateCandles(
-        pts,
-        0.0001,
-        token.change24h,
-        interval === "1m" ? 3 : 1.8,
-      ),
-    );
-    chart.timeScale().fitContent();
+    loadChartData(candleSeries).then(() => {
+      chart.timeScale().fitContent();
+    });
 
     const handleResize = () => {
       if (chartContainerRef.current) {
@@ -156,7 +168,7 @@ export default function Chart({ token }: Props) {
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [interval, token.change24h]);
+  }, [interval, token.change24h, loadChartData]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -168,18 +180,7 @@ export default function Chart({ token }: Props) {
     }
 
     if (showOverlay) {
-      const pts =
-        interval === "1m"
-          ? 120
-          : interval === "5m"
-            ? 96
-            : interval === "15m"
-              ? 72
-              : interval === "1h"
-                ? 60
-                : interval === "4h"
-                  ? 48
-                  : 30;
+      const pts = interval === "1m" ? 120 : interval === "5m" ? 96 : interval === "15m" ? 72 : interval === "1h" ? 60 : 48;
       const lineSeries = chart.addSeries(LineSeries, {
         color: rgba(COLORS.amber, 0.5),
         lineWidth: 1,

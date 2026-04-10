@@ -1,0 +1,66 @@
+.logoLink {
+  cursor: pointer;
+  line-height: 0;
+}
+
+.wideOnMobileLink {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  .wideOnMobileLink {
+    width: unset;
+  }
+}
+
+.logoImage {
+  height: 2rem;
+  filter: invert(0);
+  transition: filter 0.25s ease;
+
+  @media (min-width: 400px) {
+    height: 1.6rem;
+  }
+
+  @media (min-width: 480px) {
+    height: 1.8rem;
+  }
+
+  @media (min-width: 900px) {
+    height: 2rem;
+  }
+}
+
+.largeImage {
+  height: 2.8rem;
+}
+
+.largeImage:not(.wideOnMobileImage) {
+  height: 2.8rem;
+  @media (min-width: 768px) {
+    height: unset;
+  }
+}
+
+.invertedImage {
+  filter: invert(1) brightness(5);
+}
+
+.wideOnMobileImage {
+  width: 100%;
+  max-width: 20rem;
+  height: auto;
+  padding-bottom: 2.8rem;
+
+  @media (min-width: 768px) {
+    width: unset;
+    height: unset;
+  }
+}
+
+.mobileIcon {
+  max-width: 4rem;
+}

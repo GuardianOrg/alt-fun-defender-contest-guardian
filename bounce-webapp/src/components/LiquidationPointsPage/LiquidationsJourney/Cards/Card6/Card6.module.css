@@ -1,0 +1,140 @@
+.card {
+  background: linear-gradient(135deg, var(--hl-firefly), var(--hl-ebony));
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  height: 100%;
+  padding: 3.6rem 2rem 2.8rem;
+  position: relative;
+  z-index: 0;
+
+  @media (min-width: 768px) {
+    padding: 5.6rem 2rem 2.8rem;
+  }
+}
+
+.textContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: center;
+
+  @media (min-width: 768px) {
+    gap: 0.8rem;
+  }
+}
+
+.textContainerPrivacy {
+  margin-top: 2rem;
+  @media (min-width: 768px) {
+    margin-top: 0rem;
+  }
+}
+
+.titleContainer {
+  font-family:
+    Libre Baskerville,
+    serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--hl-foam);
+
+  @media (min-width: 768px) {
+    font-size: 2.4rem;
+  }
+}
+
+.liquidationScoreTitle {
+  font-family:
+    Libre Baskerville,
+    serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--hl-foam);
+
+  @media (min-width: 768px) {
+    font-size: 1.4rem;
+  }
+}
+
+.liquidationScorePrivacy {
+  font-size: 1.6rem;
+  margin-top: 0.8rem;
+  margin-bottom: 0.8rem;
+
+  @media (min-width: 768px) {
+    font-size: 2.8rem;
+    margin-top: 2rem;
+    margin-bottom: 2.6rem;
+  }
+}
+
+.totalNotional {
+  font-size: 2rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(135deg, var(--hl-foam), var(--hl-aquamarine));
+  -webkit-background-clip: text;
+  background-clip: text;
+
+  @media (min-width: 768px) {
+    font-size: 3.2rem;
+  }
+}
+
+.insetText {
+  font-size: 1.4rem;
+  text-align: center;
+  color: var(--hl-foam);
+
+  @media (min-width: 768px) {
+    font-size: 2rem;
+  }
+}
+
+.dialWrapper {
+  position: relative;
+  width: 70%;
+}
+
+.dialImage {
+  position: relative;
+  width: 100%;
+}
+
+.arrowOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.liquidationScore {
+  * {
+    font-size: 3.8rem;
+    font-weight: 800;
+    -webkit-text-fill-color: transparent;
+    background: linear-gradient(135deg, var(--hl-foam), var(--hl-aquamarine));
+    -webkit-background-clip: text;
+    background-clip: text;
+    line-height: 1;
+    filter: drop-shadow(0 0 2px var(--hl-foam));
+  }
+
+  @media (min-width: 768px) {
+    * {
+      font-size: 8rem;
+    }
+  }
+}
+
+.claimed {
+  margin-top: 2rem;
+  @media (min-width: 768px) {
+    margin-top: 2.8rem;
+  }
+}

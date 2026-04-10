@@ -1,0 +1,58 @@
+.card {
+  background: linear-gradient(135deg, var(--hl-firefly), var(--hl-ebony));
+  container-type: inline-size;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4rem;
+  align-items: center;
+  height: 100%;
+  position: relative;
+  z-index: 0;
+}
+
+.textContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  align-items: center;
+}
+
+.titleContainer {
+  font-family:
+    Libre Baskerville,
+    serif;
+  font-style: italic;
+  font-size: 1.4rem;
+  color: var(--hl-foam);
+  margin-top: 3.2rem;
+
+  @media (min-width: 768px) {
+    font-size: 2.4rem;
+    margin-top: 2rem;
+  }
+}
+
+.subtitleContainer {
+  font-family:
+    Libre Baskerville,
+    serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--hl-foam);
+  text-align: center;
+
+  @media (min-width: 768px) {
+    font-size: 1.4rem;
+  }
+}
+
+.chartContainer {
+  height: 24rem;
+  width: 100%;
+
+  @media (min-width: 768px) {
+    height: 100%;
+  }
+}

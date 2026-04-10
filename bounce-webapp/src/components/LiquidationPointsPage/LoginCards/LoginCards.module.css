@@ -1,0 +1,47 @@
+.mainCard {
+  flex: 1;
+  background: var(--primary-500);
+  padding: 2.4rem;
+  border-radius: 0.8rem;
+  background-image: url("../../../assets/mask.svg");
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
+  min-height: 39.7rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.loadingCard {
+  flex: 1;
+  background: var(--primary-200-or-secondary-700);
+  padding: 2.4rem;
+  border-radius: 0.8rem;
+  min-height: 39.7rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mainCardTitle {
+  color: var(--white);
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 2.4rem;
+  margin: 0;
+}
+
+.mainCardText {
+  color: var(--white);
+  font-size: 1.5rem;
+  font-weight: 300;
+  line-height: 150%;
+}
+
+.code {
+  color: var(--white);
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 150%;
+}

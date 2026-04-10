@@ -1,0 +1,128 @@
+.statCard {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: none;
+  gap: 1.2rem;
+  padding: 2.4rem;
+  border-radius: 0.8rem;
+  background: var(--primary-200-or-secondary-500);
+
+  @media (min-width: 768px) {
+    flex: 1;
+  }
+}
+
+.statCardPrimary {
+  background: var(--primary-500-or-secondary-550);
+}
+
+.hasCurrency {
+  padding: 2.4rem 2.4rem 2.4rem 5.2rem;
+}
+
+.topSection {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+
+  @media (min-width: 768px) {
+    gap: 0.6rem;
+  }
+}
+
+.valueContainer {
+  display: inline-flex;
+  position: relative;
+}
+
+.value {
+  font-size: 4rem;
+  font-weight: 300;
+  color: var(--primary-text);
+
+  @media (min-width: 768px) {
+    font-size: 6.4rem;
+  }
+}
+
+.valuePrimary {
+  color: var(--white);
+}
+
+.value span {
+  font-family: inherit;
+  font-weight: inherit;
+  font-size: inherit;
+}
+
+.currency {
+  font-size: 4.2rem;
+  font-weight: 400;
+  color: var(--primary-text);
+  position: absolute;
+  line-height: 0.96;
+  top: 0.8rem;
+  left: -3rem;
+}
+
+.currencyPrimary {
+  color: var(--white);
+}
+
+.supertext {
+  font-size: 1.3rem;
+  font-weight: 400;
+  color: var(--primary-text);
+  position: absolute;
+  top: 0;
+  right: 0;
+  transform: translateX(100%);
+}
+
+.supertextPrimary {
+  color: var(--white);
+}
+
+.label {
+  font-size: 1.9rem;
+  font-weight: 300;
+  color: var(--primary-text);
+}
+
+.labelPrimary {
+  color: var(--white);
+}
+
+.details {
+  font-size: 1.3rem;
+  font-weight: 400;
+  color: var(--primary-text);
+}
+
+.detailsPrimary {
+  color: var(--white);
+}
+
+.readMoreLink {
+  height: 2.8rem;
+  padding: 0 1.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 1.4rem;
+  color: var(--primary-500);
+  background: var(--primary-250-or-secondary-400);
+  font-size: 1.6rem;
+  font-weight: 400;
+  text-decoration: none;
+}
+
+.readMoreLinkPrimary {
+  color: var(--white);
+}
+
+.readMoreLinkIcon {
+  height: 2.4rem;
+  margin-left: 0.4rem;
+}

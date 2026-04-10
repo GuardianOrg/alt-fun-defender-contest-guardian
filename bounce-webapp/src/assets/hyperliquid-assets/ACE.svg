@@ -1,0 +1,11 @@
+<svg viewBox="0 0 890.27 890.27" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" data-name="图层 1" id="图层_1">
+    <defs>
+        <style>.cls-1{fill:url(#abc_20);}.cls-2{fill:#b9883c;}</style>
+        <linearGradient gradientUnits="userSpaceOnUse" y2="75.2" x2="512.35" y1="965.47" x1="512.35" id="abc_20">
+        <stop stop-color="#bbb" offset="0"></stop>
+        <stop stop-color="#fff" offset="1"></stop>
+        </linearGradient>
+    </defs>
+    <path transform="translate(-67.22 -75.2)" d="M512.35,241.14l288,576h83L512.35,75.2,141.41,817.09h83Zm408,650.14H754.46L512.35,407,270.25,891.28H104.31L67.22,965.47H315.87L512.35,572.89,708.83,965.47H957.49Z" class="cls-1"></path>
+    <path transform="translate(-67.22 -75.2)" d="M623.5,965.47l-111-221-112,221Z" class="cls-2"></path>
+</svg>

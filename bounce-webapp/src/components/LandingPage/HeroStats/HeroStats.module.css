@@ -1,0 +1,16 @@
+.heroStats {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  width: 100%;
+}
+
+.statsSection {
+  display: flex;
+  gap: 2.4rem;
+  flex-direction: column;
+
+  @media (min-width: 1024px) {
+    flex-direction: row;
+  }
+}

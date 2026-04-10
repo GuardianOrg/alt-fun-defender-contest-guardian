@@ -1,0 +1,63 @@
+.redeemedContainer {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+
+  h2 {
+    font-size: 2rem;
+    margin: 0 0.8rem 2rem 0.8rem;
+    color: var(--main);
+  }
+}
+
+.buttonContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.informationTable {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  width: 100%;
+  margin: 0 0 2rem;
+}
+
+.informationRow {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: space-between;
+  padding: 0.2rem 0.8rem;
+  border-bottom: 1px solid var(--grey-300-or-secondary-300);
+
+  span:first-child {
+    color: var(--grey-500-or-white);
+    font-weight: 300;
+  }
+
+  span {
+    font-size: 1.2rem;
+    color: var(--grey-500-or-white);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  a {
+    opacity: 1;
+    transition: opacity 0.25s ease;
+    font-size: 1.2rem;
+    text-decoration: none;
+    color: var(--grey-500-or-white);
+    font-weight: 400;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    line-height: 0;
+  }
+
+  a:hover {
+    opacity: 0.75;
+  }
+}

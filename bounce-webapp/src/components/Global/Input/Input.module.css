@@ -1,0 +1,24 @@
+.input {
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid var(--grey-200-or-primary-500);
+  font-size: 1.4rem;
+  height: 4rem;
+  padding: 0 0.8rem;
+  display: flex;
+  align-items: center;
+  color: var(--main);
+}
+
+.input:hover {
+  border: var(--grey-300) solid 1px;
+
+  &:disabled {
+    border: 1px solid var(--grey-200-or-primary-500);
+    opacity: 0.5;
+  }
+}
+
+.input:focus {
+  border: var(--primary-500) solid 1px;
+}

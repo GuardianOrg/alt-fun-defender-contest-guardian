@@ -1,0 +1,46 @@
+.longShortButtons {
+  display: flex;
+  flex-direction: row;
+  gap: 1.6rem;
+  width: 100%;
+
+  @media (min-width: 1024px) {
+    gap: 0.8rem;
+  }
+
+  button {
+    flex: 1;
+    height: 3.2rem;
+    border-radius: 0.8rem;
+    padding: 0.2rem 0.8rem;
+    background-color: var(--primary-100-or-primary-800);
+    border: 1px solid var(--primary-200-or-primary-800);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--primary-400-or-primary-300);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: all 0.25s ease;
+
+    &.selected {
+      background-color: var(--primary-200-or-primary-500);
+      color: var(--primary-600-or-white);
+      border: 1px solid var(--primary-500);
+      scale: 1.05;
+    }
+
+    &.selected:hover {
+      border: 1px solid var(--primary-500-or-primary-600);
+    }
+  }
+
+  button:hover {
+    background-color: var(--primary-250-or-primary-600);
+    border: 1px solid var(--primary-250-or-primary-600);
+  }
+}
+
+.arrow path {
+  transition: fill 0.5s ease;
+}

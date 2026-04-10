@@ -1,9 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+
+import { buildCommentMessage } from "@launchpad/shared";
+import { useWalletClient } from "wagmi";
 
 import styles from "./BottomTabs.module.css";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
+import { useWallet } from "../../hooks/useWallet";
+import { postComment as apiPostComment, fetchComments } from "../../services/api";
 import { tradeService } from "../../services/tradeService";
-import { cn } from "../../utils/format";
+import { cn, shortenAddress } from "../../utils/format";
 
 import type { Token, Comment, Holder } from "../../services/types";
 
@@ -37,11 +42,7 @@ function TradesTab({ token }: { token: Token }) {
             <tr key={t.id} className={styles.tradeRow}>
               <td className={styles.tdLeft}>
                 <div className={styles.walletCell}>
-                  <img
-                    src="/avatar.png"
-                    alt=""
-                    className={styles.walletAvatar}
-                  />
+                  <div className={styles.walletAvatarPlaceholder} />
                   <span className={styles.walletAddress}>
                     {t.walletAddress}
                   </span>
@@ -76,25 +77,65 @@ function TradesTab({ token }: { token: Token }) {
   );
 }
 
-function CommentsTab({ comments: initialComments }: { comments: Comment[] }) {
-  const [comments, setComments] = useState<Comment[]>(initialComments);
+function CommentsTab({ token }: { token: Token }) {
+  const [comments, setComments] = useState<Comment[]>([]);
   const [input, setInput] = useState("");
+  const [posting, setPosting] = useState(false);
+  const { address, isConnected, connect } = useWallet();
+  const { data: walletClient } = useWalletClient();
 
-  const postComment = () => {
+  useEffect(() => {
+    fetchComments(token.address)
+      .then((apiComments) => {
+        setComments(apiComments.map((c) => ({
+          id: String(c.id),
+          emoji: "💬",
+          address: shortenAddress(c.author),
+          timeAgo: formatTimeAgo(c.createdAt),
+          text: c.content,
+        })));
+      })
+      .catch(() => {
+        tradeService.getComments(token.address).then(setComments);
+      });
+  }, [token.address]);
+
+  const handlePost = useCallback(async () => {
     const txt = input.trim();
     if (!txt) return;
-    setComments((prev) => [
-      {
-        id: `new-${Date.now()}`,
-        emoji: "😀",
-        address: "0x4F…3A2C",
-        timeAgo: "just now",
-        text: txt,
-      },
-      ...prev,
-    ]);
-    setInput("");
-  };
+
+    if (!isConnected || !address) {
+      connect();
+      return;
+    }
+
+    if (!walletClient) return;
+
+    setPosting(true);
+    try {
+      const timestamp = Date.now();
+      const message = buildCommentMessage(token.address, txt, timestamp);
+      const signature = await walletClient.signMessage({ message });
+
+      const created = await apiPostComment(token.address, address, txt, signature, timestamp);
+
+      setComments((prev) => [
+        {
+          id: String(created.id),
+          emoji: "💬",
+          address: shortenAddress(address),
+          timeAgo: "just now",
+          text: created.content,
+        },
+        ...prev,
+      ]);
+      setInput("");
+    } catch {
+      // Silently fail for now; could show error banner
+    } finally {
+      setPosting(false);
+    }
+  }, [input, isConnected, address, walletClient, token.address, connect]);
 
   return (
     <div className={styles.commentsWrap}>
@@ -115,21 +156,37 @@ function CommentsTab({ comments: initialComments }: { comments: Comment[] }) {
       <div className={styles.commentInputRow}>
         <input
           className={styles.commentInput}
-          placeholder="say something…"
+          placeholder={isConnected ? "say something…" : "connect wallet to comment"}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && postComment()}
+          onKeyDown={(e) => e.key === "Enter" && handlePost()}
+          disabled={posting}
         />
-        <button className={styles.commentPostBtn} onClick={postComment}>
-          post
+        <button
+          className={styles.commentPostBtn}
+          onClick={handlePost}
+          disabled={posting || !input.trim()}
+        >
+          {posting ? "…" : "post"}
         </button>
       </div>
     </div>
   );
 }
 
+function formatTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 function HoldersTab({ holders }: { holders: Holder[] }) {
-  const maxSupply = Math.max(...holders.map((h) => h.percentSupply));
+  const maxSupply = Math.max(...holders.map((h) => h.percentSupply), 1);
 
   return (
     <div className={styles.holdersWrap}>
@@ -167,11 +224,9 @@ function HoldersTab({ holders }: { holders: Holder[] }) {
 
 export default function BottomTabs({ token }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("trades");
-  const [comments, setComments] = useState<Comment[]>([]);
   const [holders, setHolders] = useState<Holder[]>([]);
 
   useEffect(() => {
-    tradeService.getComments(token.address).then(setComments);
     tradeService.getHolders(token.address).then(setHolders);
   }, [token.address]);
 
@@ -194,7 +249,7 @@ export default function BottomTabs({ token }: Props) {
       </div>
       <div className={styles.tabContent}>
         {activeTab === "trades" && <TradesTab token={token} />}
-        {activeTab === "comments" && <CommentsTab comments={comments} />}
+        {activeTab === "comments" && <CommentsTab token={token} />}
         {activeTab === "holders" && <HoldersTab holders={holders} />}
       </div>
     </>

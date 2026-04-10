@@ -1,0 +1,93 @@
+.outerContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+
+.tableContainer {
+  overflow-x: auto;
+  overflow-y: hidden;
+  * {
+    font-size: 1.2rem;
+  }
+}
+
+.tableContainer::-webkit-scrollbar {
+  display: none;
+}
+
+.positionList {
+  border-spacing: 0 0.8rem;
+
+  td {
+    padding: 0 3rem 0 1.2rem;
+    height: 100%;
+  }
+}
+
+.positionList td:first-child {
+  width: 40rem;
+}
+
+.tableHeader {
+  th {
+    padding-right: 3rem;
+    white-space: nowrap;
+  }
+}
+
+.tableRow {
+  background-color: var(--bg-focus);
+
+  td {
+    white-space: nowrap;
+  }
+}
+
+.tokenCell {
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+  white-space: nowrap;
+  border-radius: 0.8rem;
+}
+
+.token {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  white-space: nowrap;
+  border-radius: 0.8rem;
+  cursor: pointer;
+}
+
+.tokenText {
+  vertical-align: middle;
+}
+
+.positionValue {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.redeem {
+  text-align: right;
+  padding: 0.8rem 1.2rem !important;
+}
+
+.pnlCell {
+  display: flex;
+  gap: 0.4rem;
+  font-variant-numeric: tabular-nums;
+
+  button {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+}

@@ -1,0 +1,24 @@
+.bannerContainer {
+  width: 100%;
+}
+
+.topRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2.4rem;
+  width: 100%;
+}
+
+@media (min-width: 1240px) {
+  .topRow {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .topRow > :first-child {
+    order: 2;
+  }
+  .topRow > :last-child {
+    order: 1;
+  }
+}

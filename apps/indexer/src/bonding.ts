@@ -1,5 +1,5 @@
 import { ponder } from "@/generated";
-import { token, trade, graduation, referral } from "../ponder.schema";
+import { token, trade, routerTrade, graduation, referral, feeClaim } from "../ponder.schema";
 
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;
@@ -70,6 +70,80 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
       graduatedAt: BigInt(event.block.timestamp),
       pairAddress: event.args.pairAddress,
     });
+});
+
+ponder.on("Bonding:CreatorFeesClaimed", async ({ event, context }) => {
+  const { db } = context;
+  const claimId = `${event.transaction.hash}-${event.log.logIndex}`;
+
+  await db
+    .insert(feeClaim)
+    .values({
+      id: claimId,
+      claimer: event.args.creator,
+      ltAddress: event.args.lt,
+      amount: event.args.amount,
+      isCreator: true,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("Bonding:ProtocolFeesClaimed", async ({ event, context }) => {
+  const { db } = context;
+  const claimId = `${event.transaction.hash}-${event.log.logIndex}`;
+
+  await db
+    .insert(feeClaim)
+    .values({
+      id: claimId,
+      claimer: event.args.lt,
+      ltAddress: event.args.lt,
+      amount: event.args.amount,
+      isCreator: false,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("RedemptionRouter:Buy", async ({ event, context }) => {
+  const { db } = context;
+  const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
+
+  await db
+    .insert(routerTrade)
+    .values({
+      id: tradeId,
+      tokenAddress: event.args.token,
+      trader: event.args.buyer,
+      isBuy: true,
+      usdcAmount: event.args.usdcIn,
+      tokenAmount: event.args.tokensOut,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("RedemptionRouter:Sell", async ({ event, context }) => {
+  const { db } = context;
+  const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
+
+  await db
+    .insert(routerTrade)
+    .values({
+      id: tradeId,
+      tokenAddress: event.args.token,
+      trader: event.args.seller,
+      isBuy: false,
+      usdcAmount: event.args.usdcOut,
+      tokenAmount: event.args.tokensIn,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    })
+    .onConflictDoNothing();
 });
 
 ponder.on("RedemptionRouter:Referred", async ({ event, context }) => {

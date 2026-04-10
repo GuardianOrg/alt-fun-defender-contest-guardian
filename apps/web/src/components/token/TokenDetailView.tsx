@@ -44,27 +44,29 @@ export default function TokenDetailView() {
         <HeroSection token={token} />
         <Chart token={token} />
 
-        <div className={styles.curveStrip}>
-          <span className={styles.curveLabel}>curve</span>
-          <span className={styles.curveRaised}>
-            {formatUsd(token.curveRaisedUsd)}
-          </span>
-          <div className={styles.progressWrapper}>
-            <ProgressBar
-              buyPercent={buyW}
-              leveragePercent={levW}
-              isShort={token.direction === "short"}
-              isGraduating={token.status === "graduating"}
-              size="sm"
-            />
+        {token.status !== "graduated" && (
+          <div className={styles.curveStrip}>
+            <span className={styles.curveLabel}>curve</span>
+            <span className={styles.curveRaised}>
+              {formatUsd(token.curveRaisedUsd)}
+            </span>
+            <div className={styles.progressWrapper}>
+              <ProgressBar
+                buyPercent={buyW}
+                leveragePercent={levW}
+                isShort={token.direction === "short"}
+                isGraduating={token.status === "graduating"}
+                size="sm"
+              />
+            </div>
+            <span className={styles.curveThreshold}>
+              {formatUsd(GRADUATION_THRESHOLD_USD)}
+            </span>
+            {token.status === "graduating" && (
+              <span className={styles.graduatingBadge}>graduating</span>
+            )}
           </div>
-          <span className={styles.curveThreshold}>
-            {formatUsd(GRADUATION_THRESHOLD_USD)}
-          </span>
-          {token.status === "graduating" && (
-            <span className={styles.graduatingBadge}>graduating</span>
-          )}
-        </div>
+        )}
 
         <BottomTabs token={token} />
       </div>

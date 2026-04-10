@@ -1,0 +1,77 @@
+.errorPage {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 2rem;
+}
+
+.errorContainer {
+  height: 32rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  text-align: center;
+}
+
+.errorContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.errorTitle {
+  font-size: 8rem;
+  font-weight: 700;
+  color: var(--primary-500);
+  margin: 0;
+  line-height: 1;
+}
+
+.errorSubtitle {
+  font-size: 2.4rem;
+  font-weight: 600;
+  color: var(--main);
+  margin: 0;
+}
+
+.errorInfo {
+  max-width: 40rem;
+}
+
+.errorMessage {
+  font-size: 1.4rem;
+  color: var(--main);
+  opacity: 0.8;
+  margin: 0;
+
+  a {
+    font-size: 1.4rem;
+  }
+}
+
+.detailsWrapper {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.toggleDetails {
+  align-items: center;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.detailsText {
+  font-size: 1.2rem;
+  font-weight: 300;
+  color: var(--main);
+  margin-top: 2rem;
+  overflow-wrap: break-word;
+  text-align: center;
+}

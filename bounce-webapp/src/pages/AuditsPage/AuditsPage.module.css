@@ -1,0 +1,71 @@
+.auditsPage {
+  display: flex;
+  width: 100vw;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex: 1;
+  padding: 4rem;
+  max-width: var(--max-width);
+  margin-bottom: 10rem;
+
+  h2 {
+    font-size: 2rem;
+    margin: 3rem 0 1rem 0;
+  }
+
+  a {
+    font-size: 1.4rem;
+  }
+}
+
+.intro {
+  color: var(--main);
+  font-size: 1.2rem;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 3.2rem;
+  margin-top: 2.4rem;
+  width: 100%;
+
+  @media (min-width: 1024px) {
+    flex-direction: row;
+    justify-content: space-between;
+  }
+}
+
+.card {
+  background-color: var(--bg-focus);
+  border-radius: 0.8rem;
+  padding: 3.2rem;
+
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 1.6rem;
+  align-items: center;
+
+  a {
+    color: var(--primary-text);
+    text-decoration: unset;
+  }
+}
+
+.logoContainer {
+  height: 4.4rem;
+}
+
+.auditReport {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  max-width: 30rem;
+  gap: 1.2rem;
+  font-size: 1.2rem;
+  color: var(--primary-text);
+}

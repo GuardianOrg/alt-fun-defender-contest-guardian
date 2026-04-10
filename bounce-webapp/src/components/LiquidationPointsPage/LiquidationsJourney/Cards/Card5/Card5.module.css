@@ -1,0 +1,80 @@
+.card {
+  background: linear-gradient(135deg, var(--hl-firefly), var(--hl-teal));
+  container-type: inline-size;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  height: 100%;
+  z-index: 0;
+}
+
+.title {
+  font-family: "Libre Baskerville", serif;
+  font-style: italic;
+  font-size: 1.4rem;
+  color: var(--white);
+  margin-top: 2.6rem;
+
+  @media (min-width: 768px) {
+    font-size: 2.4rem;
+    margin-top: 2rem;
+  }
+}
+
+.subtitle {
+  font-family: "Libre Baskerville", serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--white);
+  margin-top: 0.8rem;
+  margin-bottom: 2rem;
+  text-align: center;
+
+  @media (min-width: 768px) {
+    font-size: 1.2rem;
+  }
+}
+
+.ten {
+  font-size: 10rem;
+  line-height: 0.9;
+  font-family: Sora, sans-serif;
+  font-weight: 800;
+  text-transform: uppercase;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(135deg, var(--hl-foam), var(--hl-foam));
+  -webkit-background-clip: text;
+  background-clip: text;
+
+  @media (min-width: 768px) {
+    font-size: 18rem;
+  }
+}
+
+.status {
+  font-size: 2rem;
+  line-height: 0.9;
+  font-family: Sora, sans-serif;
+  font-weight: 800;
+  text-transform: uppercase;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 0.6rem;
+  @media (min-width: 768px) {
+    font-size: 5rem;
+  }
+}
+
+.survivor {
+  background: linear-gradient(135deg, var(--success-100), var(--success-200));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.victim {
+  background: linear-gradient(135deg, var(--error-100), var(--error-200));
+  -webkit-background-clip: text;
+  background-clip: text;
+}

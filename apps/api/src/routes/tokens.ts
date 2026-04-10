@@ -1,5 +1,5 @@
 import { buildTokenCreationMessage } from "@launchpad/shared";
-import { eq, desc, ilike, or, inArray, and } from "drizzle-orm";
+import { eq, desc, asc, ilike, or, inArray, and, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
 
@@ -7,6 +7,7 @@ import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
+import { queryPonder } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -32,12 +33,50 @@ tokensRoute.get("/", async (c) => {
   const limit = Math.min(limitParam ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   const offset = offsetParam ?? 0;
 
+  const conditions: SQL[] = [eq(tokens.isHidden, false)];
+
+  const underlying = c.req.query("underlying");
+  if (underlying) {
+    conditions.push(eq(tokens.underlying, underlying));
+  }
+
+  const status = c.req.query("status");
+  if (status && (status === "curve" || status === "graduated")) {
+    conditions.push(eq(tokens.status, status));
+  }
+
+  const direction = c.req.query("direction");
+  if (direction && (direction === "long" || direction === "short")) {
+    conditions.push(eq(tokens.ltDirection, direction));
+  }
+
+  const leverage = c.req.query("leverage");
+  if (leverage) {
+    const lev = parseInt(leverage, 10);
+    if ([2, 3, 5].includes(lev)) {
+      conditions.push(eq(tokens.leverage, lev));
+    }
+  }
+
+  const creator = c.req.query("creator");
+  if (creator && isAddress(creator)) {
+    conditions.push(eq(tokens.creator, getAddress(creator)));
+  }
+
+  const sort = c.req.query("sort") ?? "createdAt";
+  const dir = c.req.query("dir") === "asc" ? asc : desc;
+
+  const sortColumn =
+    sort === "leverage" ? tokens.leverage :
+    sort === "name" ? tokens.name :
+    tokens.createdAt;
+
   const db = createDb(c.env.DATABASE_URL);
   const allTokens = await db
     .select()
     .from(tokens)
-    .where(eq(tokens.isHidden, false))
-    .orderBy(desc(tokens.createdAt))
+    .where(and(...conditions))
+    .orderBy(dir(sortColumn))
     .limit(limit)
     .offset(offset);
 
@@ -96,13 +135,54 @@ tokensRoute.post("/batch", async (c) => {
 tokensRoute.get("/:address", async (c) => {
   const address = c.req.param("address");
   const db = createDb(c.env.DATABASE_URL);
-  const [token] = await db.select().from(tokens).where(eq(tokens.address, address)).limit(1);
+  const [dbToken] = await db.select().from(tokens).where(eq(tokens.address, address)).limit(1);
 
-  if (!token) {
+  if (!dbToken) {
     return c.json(formatError("Token not found"), 404);
   }
 
-  return c.json(formatSuccess(token));
+  const ponderData = await queryPonder<{
+    token: {
+      curveSupply: string;
+      ltReserve: string;
+      graduated: boolean;
+      graduatedAt: string | null;
+      pairAddress: string | null;
+    } | null;
+  }>(
+    `query ($address: String!) {
+      token(id: $address) {
+        curveSupply
+        ltReserve
+        graduated
+        graduatedAt
+        pairAddress
+      }
+    }`,
+    { address },
+  );
+
+  const onchain = ponderData?.token;
+  const totalSupply = 1_000_000_000n * 10n ** 18n;
+  const curveAllocation = (totalSupply * 75n) / 100n;
+
+  let curveFilled = 0;
+  if (onchain?.curveSupply) {
+    const sold = BigInt(onchain.curveSupply);
+    curveFilled = Math.min(Number((sold * 10000n) / curveAllocation) / 100, 100);
+  }
+
+  const computedStatus = onchain?.graduated ? "graduated" : curveFilled >= 90 ? "graduating" : "curve";
+
+  return c.json(formatSuccess({
+    ...dbToken,
+    curveSupply: onchain?.curveSupply ?? "0",
+    ltReserve: onchain?.ltReserve ?? "0",
+    curveFilled,
+    status: computedStatus,
+    graduatedAt: onchain?.graduatedAt ? new Date(Number(onchain.graduatedAt) * 1000).toISOString() : dbToken.graduatedAt,
+    poolAddress: onchain?.pairAddress ?? dbToken.poolAddress,
+  }));
 });
 
 tokensRoute.post("/", async (c) => {
@@ -113,8 +193,9 @@ tokensRoute.post("/", async (c) => {
     description?: string;
     imageUrl?: string;
     ltPair: string;
-    ltDirection: string;
-    leverage: number;
+    ltDirection?: string;
+    leverage?: number;
+    underlying?: string;
     creator: string;
     signature: string;
   };
@@ -180,6 +261,7 @@ tokensRoute.post("/", async (c) => {
       ltPair: body.ltPair,
       ltDirection: body.ltDirection ?? "long",
       leverage: body.leverage ?? 2,
+      underlying: body.underlying ?? "HYPE",
       creator: normalizedCreator,
     })
     .onConflictDoNothing()

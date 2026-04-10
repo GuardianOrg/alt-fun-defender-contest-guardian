@@ -1,0 +1,82 @@
+.outerContainer {
+  display: flex;
+  flex-direction: column;
+  height: 49.4rem;
+}
+
+.outerContainer > :first-child {
+  flex-shrink: 0;
+}
+
+.primerContainer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 1.6rem;
+  gap: 1.6rem;
+  align-items: center;
+  text-align: center;
+
+  a {
+    color: var(--primary-500);
+    font-size: 1.2rem;
+    cursor: pointer;
+  }
+}
+
+.primerTextBlock {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.6rem;
+}
+
+.primerTextBlock h2 {
+  margin: 0;
+  font-size: 1.8rem;
+  color: var(--primary-500-or-white);
+}
+
+.primerTextBlock p {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.skipPrimer {
+  color: var(--primary-500-or-white);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.outerButtonContainer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 0.8rem;
+  margin-top: auto;
+}
+
+.buttonContainer {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 1.6rem;
+  width: 100%;
+}
+
+.nextButtonSlot {
+  display: inline-flex;
+  justify-content: flex-end;
+}

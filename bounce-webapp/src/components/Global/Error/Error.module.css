@@ -1,0 +1,27 @@
+.error {
+  height: 4rem;
+  border-radius: 0.8rem;
+  background: var(--error-100);
+  color: var(--error-200);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.errorIcon {
+  width: 2.2rem;
+  height: 2.2rem;
+}
+
+.errorMessage {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--error-200);
+  margin: 0;
+}

@@ -22,7 +22,7 @@ export function useTradeRouter() {
   const [error, setError] = useState<string | null>(null);
 
   const executeBuy = useCallback(
-    async (tokenAddress: string, usdcAmount: number, slippage: number) => {
+    async (tokenAddress: string, usdcAmount: number, slippage: number, referrer?: string) => {
       if (!isConnected || !address || !walletClient || !publicClient) {
         setError("Connect wallet first");
         return;
@@ -55,8 +55,7 @@ export function useTradeRouter() {
         setStep("executing");
 
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
-        const referrer =
-          "0x0000000000000000000000000000000000000000" as `0x${string}`;
+        const referrerAddr = (referrer ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
 
         const slippageBps = slippageToBps(slippage);
         const { result: quotedTokensOut } =
@@ -69,7 +68,7 @@ export function useTradeRouter() {
               usdcAmountWei,
               0n,
               deadline,
-              referrer,
+              referrerAddr,
             ],
             account: address,
           });
@@ -86,7 +85,7 @@ export function useTradeRouter() {
             usdcAmountWei,
             minTokensOut,
             deadline,
-            referrer,
+            referrerAddr,
           ],
         });
 

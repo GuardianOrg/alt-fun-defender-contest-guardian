@@ -39,11 +39,42 @@ export default function HeroSection({ token }: Props) {
         <div className={styles.metaRow}>
           <span className={styles.creatorLabel}>by {token.creatorAddress}</span>
           <div className={styles.socialLinks}>
-            {["𝕏", "TG"].map((s) => (
-              <span key={s} className={styles.socialLink}>
-                {s}
-              </span>
-            ))}
+            {token.socialLinks?.twitter && (
+              <a
+                href={token.socialLinks.twitter.startsWith("http")
+                  ? token.socialLinks.twitter
+                  : `https://x.com/${token.socialLinks.twitter.replace(/^@/, "")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.socialLink}
+              >
+                𝕏
+              </a>
+            )}
+            {token.socialLinks?.telegram && (
+              <a
+                href={token.socialLinks.telegram.startsWith("http")
+                  ? token.socialLinks.telegram
+                  : `https://${token.socialLinks.telegram}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.socialLink}
+              >
+                TG
+              </a>
+            )}
+            {token.socialLinks?.website && (
+              <a
+                href={token.socialLinks.website.startsWith("http")
+                  ? token.socialLinks.website
+                  : `https://${token.socialLinks.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.socialLink}
+              >
+                🌐
+              </a>
+            )}
           </div>
           <div className={styles.caBlock} onClick={() => copyCA(token.address)}>
             <span

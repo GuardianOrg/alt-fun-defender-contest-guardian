@@ -6,6 +6,8 @@ import type { ApiToken } from "./api";
 import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+
 function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
   return `${apiToken.ltPair.replace(/\d+[LS]$/, "")} ${apiToken.leverage}× ${dir}`;
@@ -40,7 +42,7 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     name: api.name,
     ticker: api.ticker,
     emoji: "",
-    image: api.imageUrl || undefined,
+    image: api.imageUrl ? (api.imageUrl.startsWith("http") ? api.imageUrl : `${API_BASE}${api.imageUrl}`) : undefined,
     description: api.description,
     direction: deriveDirection(api),
     underlying: deriveUnderlying(api),

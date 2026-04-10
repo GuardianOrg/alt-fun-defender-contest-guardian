@@ -1,0 +1,23 @@
+.chartContainer {
+  height: 60rem;
+  width: 100%;
+  border-radius: 0.8rem;
+  background: linear-gradient(180deg, var(--chart-bg));
+  padding: 1rem 1rem 4rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+
+  @media (min-width: 1024px) {
+    background: linear-gradient(90deg, var(--chart-bg));
+    padding: 2rem 38.8rem 2rem 2rem;
+  }
+}
+
+.chartInfoBar {
+  width: 100%;
+}
+
+.chart {
+  flex: 1;
+}

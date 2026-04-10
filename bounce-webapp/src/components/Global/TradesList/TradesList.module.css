@@ -1,0 +1,123 @@
+.outerContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+
+.tableContainer {
+  overflow-x: auto;
+  overflow-y: hidden;
+  * {
+    font-size: 1.2rem;
+  }
+}
+
+.tableContainer::-webkit-scrollbar {
+  display: none;
+}
+
+.positionList {
+  border-spacing: 0 0.8rem;
+
+  td {
+    padding: 0 3rem 0 1.2rem;
+    height: 100%;
+  }
+}
+
+.tableRow {
+  background-color: var(--bg-focus);
+  height: 4.2rem;
+
+  td {
+    white-space: nowrap;
+    padding: 0.6rem 1.2rem;
+
+    a {
+      text-decoration: none;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--primary-500-or-white);
+
+      .icon {
+        padding-bottom: 0.1rem;
+        align-items: center;
+        justify-content: center;
+        display: flex;
+      }
+    }
+  }
+}
+
+.activity {
+  text-transform: capitalize;
+}
+
+.assetCell {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  white-space: nowrap;
+  border-radius: 0.8rem;
+  cursor: pointer;
+}
+
+.pnlHeaderCell {
+  text-align: right;
+}
+
+.pnlCell {
+  text-align: right;
+}
+
+.pnlInner {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: flex-end;
+
+  button {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    padding: 0;
+    transition: opacity 0.25s ease-in-out;
+  }
+
+  button:hover {
+    opacity: 0.8;
+  }
+}
+
+.loaderContainer {
+  height: 490px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.skeletonCell {
+  padding: 0 !important;
+}
+
+.timeCell {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+
+  a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    transition: opacity 0.25s ease-in-out;
+  }
+
+  a:hover {
+    opacity: 0.8;
+  }
+}

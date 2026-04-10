@@ -1,0 +1,210 @@
+.refDiv {
+  container-type: inline-size;
+  width: 100%;
+}
+
+.shareCard {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  container-type: inline-size;
+  z-index: 0;
+  padding: 3.6cqw;
+  background-color: var(--hl-firefly);
+}
+
+.shareCardBg {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  inset: 0;
+  z-index: -1;
+}
+
+.mainContent {
+  z-index: 1;
+}
+
+.columnContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6cqw;
+  width: 70%;
+}
+
+.shareCardTitle {
+  color: var(--hl-foam);
+  z-index: 1;
+  font-size: 2.8cqw;
+  font-weight: 500;
+  display: flex;
+  width: 100%;
+  gap: 0.8cqw;
+  white-space: nowrap;
+  margin-bottom: 1.6cqw;
+  align-items: center;
+}
+
+.totalLiquidatedSection {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6cqw;
+}
+
+/* Entering privacy: fade out first, then margin. Leaving: margin back first, then fade in. */
+.columnContainer[data-privacy="true"] .totalLiquidatedSection {
+  transition: opacity 0.35s ease;
+}
+
+.columnContainer[data-privacy="false"] .totalLiquidatedSection {
+  transition: opacity 0.35s ease 0.35s;
+}
+
+.totalLiquidatedSectionHidden {
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.totalLiquidationTitle {
+  color: var(--hl-foam);
+  font-size: 2.4cqw;
+  font-weight: 300;
+}
+
+.totalLiquidationValue {
+  font-weight: 600;
+  font-size: 4cqw;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(135deg, var(--hl-foam), var(--hl-aquamarine));
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.topAssetsTitle {
+  color: var(--hl-foam);
+  font-size: 2.4cqw;
+  font-weight: 300;
+  margin-top: 0;
+  transition: margin-top 0.35s ease;
+}
+
+.columnContainer[data-privacy="true"] .topAssetsTitle {
+  margin-top: -4.6cqw;
+  transition: margin-top 0.35s ease 0.35s;
+
+  @media (min-width: 400px) {
+    margin-top: -4.8cqw;
+  }
+}
+
+.assetsContainer {
+  display: flex;
+  flex-direction: row;
+  gap: 0.8cqw;
+}
+
+.tokenImageContainer {
+  height: 3.6cqw;
+  width: 3.6cqw;
+  border-radius: 50%;
+  background-color: var(--hl-foam);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  span {
+    color: var(--hl-firefly);
+    font-size: 1.8cqw;
+    font-weight: 600;
+  }
+}
+
+.tokenImage {
+  height: 3.6cqw;
+  width: 3.6cqw;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 2px var(--hl-foam));
+}
+
+.glow {
+  filter: drop-shadow(0 0 2px var(--hl-aquamarine));
+}
+
+.liquidationScoreTitle {
+  color: var(--hl-foam);
+  font-size: 3.4cqw;
+}
+
+.liquidationScore {
+  font-size: 8cqw;
+  font-weight: 800;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(135deg, var(--hl-foam), var(--hl-aquamarine));
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 2px var(--hl-foam));
+  line-height: 0.9;
+
+  @media (min-width: 400px) {
+    font-size: 10cqw;
+  }
+}
+
+.dialWrapper {
+  position: absolute;
+  right: 6cqw;
+  bottom: 15.6cqw;
+}
+
+.dialImage {
+  width: 54cqw;
+  height: auto;
+}
+
+.arrowOverlay {
+  position: absolute;
+  bottom: -1cqw;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.footer {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-end;
+  z-index: 1;
+  border-top: 1px solid var(--hl-foam);
+  padding-top: 1.6cqw;
+}
+
+.referralCode {
+  color: var(--hl-foam);
+  font-family: Libre Baskerville;
+  font-weight: 200;
+  font-style: Italic;
+  font-size: 1.8cqw;
+  margin-top: 0;
+}
+
+.referralCodeValue {
+  color: var(--hl-foam);
+  font-weight: 200;
+  font-size: 1.8cqw;
+  margin-top: 1cqw;
+}
+
+.logoContainer {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  width: 16cqw;
+}

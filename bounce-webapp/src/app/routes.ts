@@ -1,0 +1,14 @@
+export const HOME_ROUTE = "/";
+export const MINT_ROUTE = "mint/:targetAssetParam?";
+export const BOND_ROUTE = "bond";
+export const STAKE_ROUTE = "stake";
+export const LOCK_ROUTE = "lock";
+export const PORTFOLIO_ROUTE = "portfolio";
+export const REWARDS_ROUTE = "rewards";
+export const BLOG_ROUTE = "blog";
+export const REGISTER_ROUTE = "register";
+export const TERMS_OF_SERVICE_ROUTE = "terms-of-service";
+export const PRIVACY_POLICY_ROUTE = "privacy-policy";
+export const LIQUIDATION_SCORE_ROUTE = "liquidation-score";
+export const VESTING_ROUTE = "vesting";
+export const AUDITS_ROUTE = "audits";

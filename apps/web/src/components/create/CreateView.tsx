@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+import { useNavigate } from "react-router";
 
 import styles from "./CreateView.module.css";
 import LivePreview from "./LivePreview";
 import PairSelector from "./PairSelector";
 import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
+import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useWallet } from "../../hooks/useWallet";
 import { cn } from "../../utils/format";
@@ -13,19 +16,31 @@ import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { Direction } from "../../services/types";
 
 export default function CreateView() {
+  const navigate = useNavigate();
   const [direction, setDirection] = useState<Direction>("long");
   const [asset, setAsset] = useState<UnderlyingAsset>("HYPE");
   const [leverage, setLeverage] = useState<Leverage>(2);
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState("");
+  const [description, setDescription] = useState("");
+  const [socialLinks, setSocialLinks] = useState({ twitter: "", telegram: "", website: "" });
   const [seedAmount, setSeedAmount] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
-  const { step: launchStep, error: launchError, create } = useCreateToken();
+  const { step: launchStep, error: launchError, tokenAddress, create } = useCreateToken();
   const seedAmt = parseFloat(seedAmount) || 0;
   const isBusy = launchStep === "approving" || launchStep === "deploying";
+
+  useEffect(() => {
+    if (launchStep === "confirmed" && tokenAddress) {
+      const timer = setTimeout(() => {
+        navigate(tokenPath(tokenAddress));
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [launchStep, tokenAddress, navigate]);
 
   const handleSubmit = async () => {
     if (!isConnected) {
@@ -37,12 +52,13 @@ export default function CreateView() {
     await create({
       name: name.trim(),
       ticker: ticker.trim(),
-      description: "",
+      description: description.trim(),
       direction,
       underlying: asset as "HYPE" | "ETH" | "BTC" | "SOL",
       leverage,
       imageFile,
       seedBuyUsd: seedAmt,
+      socialLinks: [socialLinks.twitter, socialLinks.telegram, socialLinks.website].filter(Boolean),
     });
   };
 
@@ -82,8 +98,12 @@ export default function CreateView() {
           <TokenForm
             name={name}
             ticker={ticker}
+            description={description}
+            socialLinks={socialLinks}
             onNameChange={setName}
             onTickerChange={setTicker}
+            onDescriptionChange={setDescription}
+            onSocialLinksChange={setSocialLinks}
             onImageChange={(file, preview) => {
               setImageFile(file ?? undefined);
               setImagePreview(preview);
@@ -105,7 +125,7 @@ export default function CreateView() {
             {launchStep === "confirmed" && (
               <div className={styles.successBanner}>
                 <span>✓</span>
-                Token deployed! Curve is live.
+                Token deployed! Redirecting…
               </div>
             )}
 

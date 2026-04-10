@@ -1,0 +1,12 @@
+.portfolioContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 3.2rem;
+  min-height: calc(100dvh - 50rem);
+  width: 100%;
+
+  @media (min-width: 1240px) {
+    flex-direction: row;
+    min-height: calc(100dvh - 500px);
+  }
+}
