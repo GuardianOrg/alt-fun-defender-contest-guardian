@@ -8,6 +8,12 @@ import type { AppBindings } from "../lib/types.js";
 
 const trades = new Hono<{ Bindings: AppBindings }>();
 
+function safeInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 interface PonderRouterTrade {
   id: string;
   tokenAddress: string;
@@ -21,7 +27,7 @@ interface PonderRouterTrade {
 
 trades.get("/", async (c) => {
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const limit = Math.min(Number(c.req.query("limit") ?? 50), 100);
+  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($limit: Int!) {
@@ -49,8 +55,8 @@ trades.get("/", async (c) => {
 trades.get("/:address", async (c) => {
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const address = c.req.param("address");
-  const limit = Math.min(Number(c.req.query("limit") ?? 50), 100);
-  const offset = Number(c.req.query("offset") ?? 0);
+  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
+  const offset = safeInt(c.req.query("offset"), 0);
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {

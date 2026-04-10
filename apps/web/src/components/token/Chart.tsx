@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   createChart,
@@ -105,18 +105,9 @@ export default function Chart({ token }: Props) {
 
   const underlyingChg = token.leverage > 0 ? token.leverageBoost / token.leverage : 0;
 
-  const loadChartData = useCallback(async (series: ISeriesApi<"Candlestick">) => {
-    const apiCandles = await fetchChartData(token.address, interval);
-    if (apiCandles.length > 0) {
-      series.setData(apiCandles);
-    } else {
-      const pts = interval === "1m" ? 120 : interval === "5m" ? 96 : interval === "15m" ? 72 : interval === "1h" ? 60 : 48;
-      series.setData(generateCandles(pts, 0.0001, token.change24h, interval === "1m" ? 3 : 1.8));
-    }
-  }, [token.address, token.change24h, interval]);
-
   useEffect(() => {
     if (!chartContainerRef.current) return;
+    let disposed = false;
 
     const chart = createChart(chartContainerRef.current, {
       layout: {
@@ -149,7 +140,14 @@ export default function Chart({ token }: Props) {
     });
     candleSeriesRef.current = candleSeries;
 
-    loadChartData(candleSeries).then(() => {
+    fetchChartData(token.address, interval).then((apiCandles) => {
+      if (disposed) return;
+      if (apiCandles.length > 0) {
+        candleSeries.setData(apiCandles);
+      } else {
+        const pts = interval === "1m" ? 120 : interval === "5m" ? 96 : interval === "15m" ? 72 : interval === "1h" ? 60 : 48;
+        candleSeries.setData(generateCandles(pts, 0.0001, token.change24h, interval === "1m" ? 3 : 1.8));
+      }
       chart.timeScale().fitContent();
     });
 
@@ -165,10 +163,11 @@ export default function Chart({ token }: Props) {
     handleResize();
 
     return () => {
+      disposed = true;
       window.removeEventListener("resize", handleResize);
       chart.remove();
     };
-  }, [interval, token.change24h, loadChartData]);
+  }, [interval, token.address, token.change24h]);
 
   useEffect(() => {
     const chart = chartRef.current;

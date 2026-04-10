@@ -71,7 +71,7 @@ const liveAssetService: IAssetService = {
         tokensLive: stats.tokensLive,
         graduating: 0,
         volume24h: volume >= 1000 ? `$${(volume / 1000).toFixed(1)}K` : `$${volume.toFixed(0)}`,
-        graduatedToday: stats.tokensGraduated,
+        graduatedToday: 0,
         totalRaised: "—",
       };
     } catch {

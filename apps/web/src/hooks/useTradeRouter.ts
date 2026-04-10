@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-import { maxUint256, parseUnits } from "viem";
+import { isAddress, maxUint256, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
@@ -55,7 +55,8 @@ export function useTradeRouter() {
         setStep("executing");
 
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
-        const referrerAddr = (referrer ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
+        const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
+        const referrerAddr: `0x${string}` = referrer && isAddress(referrer) ? referrer : ZERO_ADDR;
 
         const slippageBps = slippageToBps(slippage);
         const { result: quotedTokensOut } =

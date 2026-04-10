@@ -41,7 +41,7 @@ tokensRoute.get("/", async (c) => {
   }
 
   const status = c.req.query("status");
-  if (status && (status === "curve" || status === "graduated")) {
+  if (status && (status === "curve" || status === "graduating" || status === "graduated")) {
     conditions.push(eq(tokens.status, status));
   }
 
