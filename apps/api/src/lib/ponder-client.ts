@@ -1,23 +1,27 @@
-const PONDER_URL = process.env.PONDER_URL ?? "http://localhost:42069";
+const FALLBACK_URL = "http://localhost:42069";
 
-export async function queryPonder<T>(
-  query: string,
-  variables?: Record<string, unknown>,
-): Promise<T | null> {
-  try {
-    const res = await fetch(PONDER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, variables }),
-    });
+export function createPonderQuery(ponderUrl?: string) {
+  const url = ponderUrl || FALLBACK_URL;
 
-    if (!res.ok) return null;
+  return async function queryPonder<T>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<T | null> {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, variables }),
+      });
 
-    const json = (await res.json()) as { data?: T; errors?: unknown[] };
-    if (json.errors) return null;
+      if (!res.ok) return null;
 
-    return json.data ?? null;
-  } catch {
-    return null;
-  }
+      const json = (await res.json()) as { data?: T; errors?: unknown[] };
+      if (json.errors) return null;
+
+      return json.data ?? null;
+    } catch {
+      return null;
+    }
+  };
 }

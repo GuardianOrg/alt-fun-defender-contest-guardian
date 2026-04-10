@@ -8,6 +8,7 @@ import { tokenPath } from "../../app/routes";
 import { COLORS } from "../../config/colors";
 import { useTokens } from "../../hooks/useTokens";
 import { searchTokens } from "../../services/api";
+import { deriveDirection, deriveStatus, deriveUnderlying, ltDisplayName } from "../../services/tokenService";
 import { selectSearchOpen, setSearchOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 import ModalOverlay from "../shared/ModalOverlay";
@@ -118,10 +119,10 @@ export default function SearchModal() {
         ticker: r.ticker,
         emoji: "",
         description: r.description,
-        direction: (r.ltDirection as "long" | "short") ?? "long",
-        underlying: "HYPE" as const,
+        direction: deriveDirection(r),
+        underlying: deriveUnderlying(r),
         leverage: (r.leverage as 2 | 3 | 5) ?? 2,
-        ltName: `${r.ltPair}`,
+        ltName: ltDisplayName(r),
         mcapUsd: 0,
         change24h: 0,
         buyMomentum: 0,
@@ -130,7 +131,7 @@ export default function SearchModal() {
         curveRaisedUsd: 0,
         volume24h: 0,
         athUsd: 0,
-        status: "active" as const,
+        status: deriveStatus(r),
         creatorAddress: r.creator,
         createdAt: r.createdAt,
       })));

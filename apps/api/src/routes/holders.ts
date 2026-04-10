@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 
 import formatSuccess from "../utils/format-success.js";
-import { queryPonder } from "../lib/ponder-client.js";
+import { createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const holders = new Hono<{ Bindings: AppBindings }>();
 
 holders.get("/:address", async (c) => {
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const address = c.req.param("address");
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
 

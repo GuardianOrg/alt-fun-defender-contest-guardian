@@ -7,7 +7,7 @@ import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { queryPonder } from "../lib/ponder-client.js";
+import { createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -141,6 +141,7 @@ tokensRoute.get("/:address", async (c) => {
     return c.json(formatError("Token not found"), 404);
   }
 
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const ponderData = await queryPonder<{
     token: {
       curveSupply: string;

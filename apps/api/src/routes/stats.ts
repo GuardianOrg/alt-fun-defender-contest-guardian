@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 
 import formatSuccess from "../utils/format-success.js";
-import { queryPonder } from "../lib/ponder-client.js";
+import { createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const stats = new Hono<{ Bindings: AppBindings }>();
 
 stats.get("/", async (c) => {
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const data = await queryPonder<{
     tokens: { items: { graduated: boolean }[] };
   }>(

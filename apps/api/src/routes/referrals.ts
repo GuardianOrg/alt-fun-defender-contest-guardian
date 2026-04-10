@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 
 import formatSuccess from "../utils/format-success.js";
-import { queryPonder } from "../lib/ponder-client.js";
+import { createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const referrals = new Hono<{ Bindings: AppBindings }>();
 
 referrals.get("/:wallet", async (c) => {
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const wallet = c.req.param("wallet").toLowerCase();
 
   const data = await queryPonder<{

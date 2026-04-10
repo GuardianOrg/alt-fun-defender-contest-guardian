@@ -2,7 +2,7 @@ import { Hono } from "hono";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
-import { queryPonder } from "../lib/ponder-client.js";
+import { createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -20,9 +20,10 @@ interface PonderRouterTrade {
 }
 
 trades.get("/", async (c) => {
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const limit = Math.min(Number(c.req.query("limit") ?? 50), 100);
 
-  const data = await queryPonder<{ routerTrades: PonderRouterTrade[] }>(
+  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($limit: Int!) {
       routerTrades(limit: $limit, orderBy: "timestamp", orderDirection: "desc") {
         items {
@@ -40,12 +41,13 @@ trades.get("/", async (c) => {
     { limit },
   );
 
-  const items = (data?.routerTrades as unknown as { items: PonderRouterTrade[] })?.items ?? [];
+  const items = data?.routerTrades?.items ?? [];
 
   return c.json(formatSuccess(items));
 });
 
 trades.get("/:address", async (c) => {
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const address = c.req.param("address");
   const limit = Math.min(Number(c.req.query("limit") ?? 50), 100);
   const offset = Number(c.req.query("offset") ?? 0);
@@ -88,6 +90,7 @@ const INTERVAL_SECONDS: Record<string, number> = {
 };
 
 trades.get("/ohlcv/:address", async (c) => {
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const address = c.req.param("address");
   const interval = c.req.query("interval") ?? "5m";
   const bucketSize = INTERVAL_SECONDS[interval];

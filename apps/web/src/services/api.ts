@@ -24,6 +24,8 @@ export interface ApiToken {
   ltPair: string;
   ltDirection: string;
   leverage: number;
+  underlying: string;
+  status: string;
   creator: string;
   isHidden: boolean;
   createdAt: string;
