@@ -81,18 +81,22 @@ After graduation, all trades continue through `RedemptionRouter` via HyperSwap. 
 
 | Event | Contract | Fields |
 |---|---|---|
-| `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker` |
-| `Buy` | Bonding | `token`, `buyer`, `amountIn`, `amountOut`, `price`, `timestamp` |
-| `Sell` | Bonding | `token`, `seller`, `amountIn`, `amountOut`, `price`, `timestamp` |
-| `Graduated` | Bonding | `token`, `poolAddress` |
-| `Referred` | RedemptionRouter | `buyer`, `referrer`, `token`, `usdcAmount` |
+| `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k` |
+| `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
+| `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
+| `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |
+| `ProtocolFeesClaimed` | Bonding | `lt`, `amount` |
+| `Buy` | RedemptionRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
+| `Sell` | RedemptionRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
+| `Referred` | RedemptionRouter | `trader`, `referrer`, `token`, `usdcAmount` |
+| `TokenCreated` | RedemptionRouter | `token`, `creator` |
 
 ---
 
 ## External Integrations
 
 **HyperSwap V2** — standard Uniswap V2 fork.
-- Factory: `0x4df039804873717bff7d03694fb941cf0469b79e`
-- Router: `0xda0f518d521e0dE83fAdC8500C2D21b6a6C39bF9`
+- Factory: `0x724412C00059bf7d6ee7d4a1d0D5cd4de3ea1C48`
+- Router: `0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A`
 
 **BounceTech LT** — see root `AGENTS.md` for the interface and constraints.

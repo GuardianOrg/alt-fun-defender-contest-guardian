@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 
 import styles from "./PasswordGate.module.css";
 
-const PASS = "launchpad2026";
+const PASS = import.meta.env.VITE_GATE_PASSWORD;
 const STORAGE_KEY = "lp_auth";
 
 const isLocalhost = () =>
@@ -11,7 +11,7 @@ const isLocalhost = () =>
 
 export default function PasswordGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(
-    () => isLocalhost() || sessionStorage.getItem(STORAGE_KEY) === "1",
+    () => !PASS || isLocalhost() || sessionStorage.getItem(STORAGE_KEY) === "1",
   );
   const [value, setValue] = useState("");
   const [error, setError] = useState(false);

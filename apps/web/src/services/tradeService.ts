@@ -130,7 +130,7 @@ const liveTradeService: ITradeService = {
         for (const id of batchIds) seenIds.add(id);
         hasLiveData = true;
       } catch {
-        if (!hasLiveData && initial) {
+        if (!hasLiveData && initial && import.meta.env.DEV) {
           for (let i = 0; i < 8; i++) {
             if (cancelled) return;
             cb(generateFeedTrade());
@@ -175,7 +175,7 @@ const liveTradeService: ITradeService = {
         for (const id of batchIds) seenIds.add(id);
         hasLiveData = true;
       } catch {
-        if (!hasLiveData && !cancelled) {
+        if (!hasLiveData && !cancelled && import.meta.env.DEV) {
           cb(generateTokenTrade());
         }
       } finally {
@@ -194,7 +194,10 @@ const liveTradeService: ITradeService = {
 
   getInitialTrades(address) {
     void address;
-    return [...INITIAL_TOKEN_TRADES];
+    if (import.meta.env.DEV) {
+      return [...INITIAL_TOKEN_TRADES];
+    }
+    return [];
   },
 
   async getComments(address) {
@@ -212,8 +215,31 @@ const liveTradeService: ITradeService = {
     }
   },
 
-  async getHolders(_address) {
-    return [...MOCK_HOLDERS];
+  async getHolders(address) {
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+      const res = await fetch(`${API_BASE}/api/v1/holders/${address}`);
+      const json = (await res.json()) as {
+        status: string;
+        data: {
+          holders: { wallet: string; balance: string; percentage: number }[];
+          totalHolders: number;
+        } | null;
+      };
+      if (json.status !== "success" || !json.data) throw new Error("No data");
+      return json.data.holders.map((h, i) => ({
+        rank: i + 1,
+        address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
+        tokens: (Number(BigInt(h.balance) / 10n ** 18n) / 1e6).toFixed(1) + "M",
+        percentSupply: h.percentage,
+        isCreator: false,
+      }));
+    } catch {
+      if (import.meta.env.DEV) {
+        return [...MOCK_HOLDERS];
+      }
+      return [];
+    }
   },
 };
 

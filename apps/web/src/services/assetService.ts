@@ -33,6 +33,53 @@ async function fetchMids(): Promise<Record<string, string>> {
   return data;
 }
 
+type CandleRow = [number, string, string, string, string, string];
+
+let cached24hPrices: { data: Record<string, number>; ts: number } | null = null;
+const CHANGE_CACHE_TTL = 60_000;
+
+async function fetch24hChanges(
+  currentMids: Record<string, string>,
+): Promise<Record<string, number>> {
+  if (cached24hPrices && Date.now() - cached24hPrices.ts < CHANGE_CACHE_TTL) {
+    return cached24hPrices.data;
+  }
+
+  const now = Date.now();
+  const dayAgo = now - 24 * 60 * 60 * 1000;
+
+  const changes: Record<string, number> = {};
+
+  const requests = TRACKED_ASSETS.map(async (coin) => {
+    try {
+      const res = await fetch(HYPERLIQUID_INFO_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "candleSnapshot",
+          req: { coin, interval: "1d", startTime: dayAgo, endTime: now },
+        }),
+      });
+      const candles = (await res.json()) as CandleRow[];
+      if (candles.length > 0) {
+        const openPrice = parseFloat(candles[0][1]);
+        const currentPrice = parseFloat(currentMids[coin] ?? "0");
+        if (openPrice > 0) {
+          changes[coin] = parseFloat(
+            (((currentPrice - openPrice) / openPrice) * 100).toFixed(2),
+          );
+        }
+      }
+    } catch {
+      changes[coin] = 0;
+    }
+  });
+
+  await Promise.all(requests);
+  cached24hPrices = { data: changes, ts: now };
+  return changes;
+}
+
 export interface IAssetService {
   getAssets(): Promise<Asset[]>;
   getPlatformStats(): Promise<PlatformStats>;
@@ -45,10 +92,11 @@ const liveAssetService: IAssetService = {
   async getAssets() {
     try {
       const mids = await fetchMids();
+      const changes = await fetch24hChanges(mids);
       return TRACKED_ASSETS.map((name) => ({
         name,
         priceUsd: formatPrice(parseFloat(mids[name] ?? "0")),
-        change24h: 0,
+        change24h: changes[name] ?? 0,
       }));
     } catch {
       return TRACKED_ASSETS.map((name) => ({

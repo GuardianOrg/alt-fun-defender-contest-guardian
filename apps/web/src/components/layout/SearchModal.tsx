@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 
+import { useQueries } from "@tanstack/react-query";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
 
@@ -7,7 +8,7 @@ import styles from "./SearchModal.module.css";
 import { tokenPath } from "../../app/routes";
 import { COLORS } from "../../config/colors";
 import { useTokens } from "../../hooks/useTokens";
-import { searchTokens } from "../../services/api";
+import { fetchOhlcv, searchTokens } from "../../services/api";
 import { deriveDirection, deriveStatus, deriveUnderlying, ltDisplayName } from "../../services/tokenService";
 import { selectSearchOpen, setSearchOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
@@ -15,20 +16,24 @@ import ModalOverlay from "../shared/ModalOverlay";
 
 import type { Token } from "../../services/types";
 
-function Sparkline({ up }: { up: boolean }) {
+function normalizePoints(pts: number[]): string {
+  if (pts.length < 2) return "1,16 109,16";
+  const mn = Math.min(...pts);
+  const mx = Math.max(...pts);
+  const norm = pts.map((p) => ((p - mn) / (mx - mn || 1)) * 26 + 3);
+  return norm
+    .map((y, i) => `${(i / (norm.length - 1)) * 108 + 1},${32 - y}`)
+    .join(" ");
+}
+
+function Sparkline({ up, data }: { up: boolean; data?: number[] }) {
   const coords = useMemo(() => {
-    const pts = Array.from({ length: 12 }, (_, i) => {
-      const n = (Math.random() - 0.5) * 10;
-      const tr = up ? i * 2.2 : -i * 2;
-      return tr + n;
-    });
-    const mn = Math.min(...pts);
-    const mx = Math.max(...pts);
-    const norm = pts.map((p) => ((p - mn) / (mx - mn || 1)) * 26 + 3);
-    return norm
-      .map((y, i) => `${(i / (norm.length - 1)) * 108 + 1},${32 - y}`)
-      .join(" ");
-  }, [up]);
+    if (data && data.length >= 2) {
+      return normalizePoints(data);
+    }
+    const pts = Array.from({ length: 12 }, (_, i) => (up ? i * 2.2 : -i * 2));
+    return normalizePoints(pts);
+  }, [up, data]);
   const col = up ? COLORS.mint : COLORS.red;
   return (
     <svg
@@ -53,9 +58,11 @@ function Sparkline({ up }: { up: boolean }) {
 
 function TrendingCard({
   token,
+  sparklineData,
   onClick,
 }: {
   token: Token;
+  sparklineData?: number[];
   onClick: () => void;
 }) {
   const up = token.change24h >= 0;
@@ -78,7 +85,7 @@ function TrendingCard({
           <div className={styles.trendingCardLtName}>{token.ltName}</div>
         </div>
       </div>
-      <Sparkline up={up} />
+      <Sparkline up={up} data={sparklineData} />
       <div className={styles.trendingCardMcap}>
         $
         {token.mcapUsd >= 1_000_000
@@ -105,6 +112,29 @@ export default function SearchModal() {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { data: tokens } = useTokens();
+
+  const trendingTokens = useMemo(() => tokens?.slice(0, 5) ?? [], [tokens]);
+  const sparklineQueries = useQueries({
+    queries: trendingTokens.map((t) => ({
+      queryKey: ["sparkline", t.address],
+      queryFn: async () => {
+        const candles = await fetchOhlcv(t.address, "1h");
+        return candles.map((c) => c.close);
+      },
+      staleTime: 60_000,
+      enabled: open && !query.trim(),
+    })),
+  });
+  const sparklineMap = useMemo(() => {
+    const map = new Map<string, number[]>();
+    trendingTokens.forEach((t, i) => {
+      const data = sparklineQueries[i]?.data;
+      if (data && data.length >= 2) {
+        map.set(t.address, data);
+      }
+    });
+    return map;
+  }, [trendingTokens, sparklineQueries]);
   const [searchResults, setSearchResults] = useState<Token[] | null>(null);
   useEffect(() => {
     if (!query.trim()) {
@@ -201,10 +231,11 @@ export default function SearchModal() {
           <div className={styles.defaultContent}>
             <div className={styles.sectionLabel}>TRENDING</div>
             <div className={styles.trendingRow}>
-              {tokens?.slice(0, 5).map((t) => (
+              {trendingTokens.map((t) => (
                 <TrendingCard
                   key={t.address}
                   token={t}
+                  sparklineData={sparklineMap.get(t.address)}
                   onClick={() => goToToken(t.address)}
                 />
               ))}

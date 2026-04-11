@@ -16,7 +16,7 @@ const commentRateLimit = new Map<string, number>();
 
 const commentsRoute = new Hono<{ Bindings: AppBindings }>();
 
-commentsRoute.get("/:address", async (c) => {
+commentsRoute.get("/:address/comments", async (c) => {
   const rawAddress = c.req.param("address");
   if (!isAddress(rawAddress)) {
     return c.json(formatError("Invalid address"), 400);
@@ -37,7 +37,7 @@ commentsRoute.get("/:address", async (c) => {
   return c.json(formatSuccess(items));
 });
 
-commentsRoute.post("/:address", async (c) => {
+commentsRoute.post("/:address/comments", async (c) => {
   const rawTokenAddress = c.req.param("address");
   if (!isAddress(rawTokenAddress)) {
     return c.json(formatError("Invalid address"), 400);

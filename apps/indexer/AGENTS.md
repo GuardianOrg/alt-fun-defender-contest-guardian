@@ -2,16 +2,25 @@
 
 Ponder EVM indexer. Indexes on-chain events from launchpad contracts and HyperSwap V2 pools.
 
-## Events to Index
+## Events Indexed
 
 | Event | Contract |
 |---|---|
 | `TokenLaunched` | Bonding |
-| `Buy` / `Sell` | Bonding |
-| `Graduated` | Bonding |
+| `Trade` | Bonding (unified buy/sell with `isBuy` flag) |
+| `TokenGraduated` | Bonding |
+| `CreatorFeesClaimed` | Bonding |
+| `ProtocolFeesClaimed` | Bonding |
+| `Buy` | RedemptionRouter |
+| `Sell` | RedemptionRouter |
 | `Referred` | RedemptionRouter |
-| `Swap` / `Sync` | HyperSwap V2 Pair (graduated pairs only) |
-| `Transfer` | FERC20 (optional) |
+
+### Not Yet Indexed
+
+| Event | Contract | Status |
+|---|---|---|
+| `Swap` / `Sync` | HyperSwap V2 Pair (graduated pairs only) | Needs dynamic pair registration |
+| `Transfer` | FERC20 | Deferred (high indexing load, holder counts derived from trade data) |
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
 
