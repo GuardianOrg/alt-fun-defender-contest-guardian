@@ -74,19 +74,22 @@ admin.get("/analytics/dau", async (c) => {
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
   const trades = await queryAll<PonderRouterTrade>(
-    `query ($limit: Int!, $offset: Int!) {
-      routerTrades(limit: $limit, offset: $offset, orderBy: "timestamp", orderDirection: "desc") {
+    `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
+      routerTrades(
+        where: { timestamp_gte: $cutoff }
+        limit: $limit, offset: $offset,
+        orderBy: "timestamp", orderDirection: "desc"
+      ) {
         items { trader timestamp }
       }
     }`,
     "routerTrades",
+    { cutoff: String(cutoff) },
   );
 
   const dayWallets = new Map<string, Set<string>>();
   for (const t of trades) {
-    const ts = Number(t.timestamp);
-    if (ts < cutoff) continue;
-    const day = toDayKey(ts);
+    const day = toDayKey(Number(t.timestamp));
     let wallets = dayWallets.get(day);
     if (!wallets) {
       wallets = new Set();
@@ -109,21 +112,28 @@ admin.get("/analytics/volume", async (c) => {
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
   const trades = await queryAll<PonderRouterTrade>(
-    `query ($limit: Int!, $offset: Int!) {
-      routerTrades(limit: $limit, offset: $offset, orderBy: "timestamp", orderDirection: "desc") {
+    `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
+      routerTrades(
+        where: { timestamp_gte: $cutoff }
+        limit: $limit, offset: $offset,
+        orderBy: "timestamp", orderDirection: "desc"
+      ) {
         items { usdcAmount timestamp }
       }
     }`,
     "routerTrades",
+    { cutoff: String(cutoff) },
   );
 
-  const dayMap = new Map<string, number>();
+  const dayMicroMap = new Map<string, bigint>();
   for (const t of trades) {
-    const ts = Number(t.timestamp);
-    if (ts < cutoff) continue;
-    const day = toDayKey(ts);
-    const vol = Number(t.usdcAmount) / 1e6;
-    dayMap.set(day, (dayMap.get(day) ?? 0) + vol);
+    const day = toDayKey(Number(t.timestamp));
+    dayMicroMap.set(day, (dayMicroMap.get(day) ?? 0n) + BigInt(t.usdcAmount));
+  }
+
+  const dayMap = new Map<string, number>();
+  for (const [day, microUsdc] of dayMicroMap) {
+    dayMap.set(day, Number(microUsdc) / 1e6);
   }
 
   return c.json(formatSuccess(buildDaySeries(dayMap, days)));
@@ -147,12 +157,17 @@ admin.get("/analytics/graduations", async (c) => {
 
   const [graduations, allTokens] = await Promise.all([
     queryAll<PonderGraduation>(
-      `query ($limit: Int!, $offset: Int!) {
-        graduations(limit: $limit, offset: $offset, orderBy: "timestamp", orderDirection: "desc") {
+      `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
+        graduations(
+          where: { timestamp_gte: $cutoff }
+          limit: $limit, offset: $offset,
+          orderBy: "timestamp", orderDirection: "desc"
+        ) {
           items { tokenAddress timestamp }
         }
       }`,
       "graduations",
+      { cutoff: String(cutoff) },
     ),
     queryAll<PonderToken>(
       `query ($limit: Int!, $offset: Int!) {
@@ -170,10 +185,12 @@ admin.get("/analytics/graduations", async (c) => {
   let gradCount = 0;
 
   const tokenLaunchMap = new Map<string, number>();
+  let totalLaunches = 0;
   for (const t of allTokens) {
     const ts = Number(t.timestamp);
     tokenLaunchMap.set(t.address.toLowerCase(), ts);
     if (ts >= cutoff) {
+      totalLaunches++;
       const day = toDayKey(ts);
       launchDayMap.set(day, (launchDayMap.get(day) ?? 0) + 1);
     }
@@ -181,19 +198,15 @@ admin.get("/analytics/graduations", async (c) => {
 
   for (const g of graduations) {
     const ts = Number(g.timestamp);
-    if (ts >= cutoff) {
-      const day = toDayKey(ts);
-      gradDayMap.set(day, (gradDayMap.get(day) ?? 0) + 1);
-    }
+    const day = toDayKey(ts);
+    gradDayMap.set(day, (gradDayMap.get(day) ?? 0) + 1);
     const launchTs = tokenLaunchMap.get(g.tokenAddress.toLowerCase());
-    if (launchTs) {
+    if (launchTs && launchTs >= cutoff) {
       totalGradTime += ts - launchTs;
       gradCount++;
     }
   }
-
-  const totalLaunches = allTokens.filter((t) => Number(t.timestamp) >= cutoff).length;
-  const totalGrads = graduations.filter((g) => Number(g.timestamp) >= cutoff).length;
+  const totalGrads = graduations.length;
 
   return c.json(
     formatSuccess({
@@ -219,28 +232,40 @@ admin.get("/analytics/revenue", async (c) => {
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
   const claims = await queryAll<PonderFeeClaim>(
-    `query ($limit: Int!, $offset: Int!) {
-      feeClaims(limit: $limit, offset: $offset, orderBy: "timestamp", orderDirection: "desc") {
+    `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
+      feeClaims(
+        where: { timestamp_gte: $cutoff }
+        limit: $limit, offset: $offset,
+        orderBy: "timestamp", orderDirection: "desc"
+      ) {
         items { amount isCreator timestamp }
       }
     }`,
     "feeClaims",
+    { cutoff: String(cutoff) },
   );
 
-  const protocolDayMap = new Map<string, number>();
-  const creatorDayMap = new Map<string, number>();
+  const protocolDayRaw = new Map<string, bigint>();
+  const creatorDayRaw = new Map<string, bigint>();
 
   for (const claim of claims) {
-    const ts = Number(claim.timestamp);
-    if (ts < cutoff) continue;
-    const day = toDayKey(ts);
-    const amount = Number(claim.amount) / 1e18;
+    const day = toDayKey(Number(claim.timestamp));
+    const raw = BigInt(claim.amount);
 
     if (claim.isCreator) {
-      creatorDayMap.set(day, (creatorDayMap.get(day) ?? 0) + amount);
+      creatorDayRaw.set(day, (creatorDayRaw.get(day) ?? 0n) + raw);
     } else {
-      protocolDayMap.set(day, (protocolDayMap.get(day) ?? 0) + amount);
+      protocolDayRaw.set(day, (protocolDayRaw.get(day) ?? 0n) + raw);
     }
+  }
+
+  const protocolDayMap = new Map<string, number>();
+  for (const [day, raw] of protocolDayRaw) {
+    protocolDayMap.set(day, Number(raw) / 1e18);
+  }
+  const creatorDayMap = new Map<string, number>();
+  for (const [day, raw] of creatorDayRaw) {
+    creatorDayMap.set(day, Number(raw) / 1e18);
   }
 
   return c.json(

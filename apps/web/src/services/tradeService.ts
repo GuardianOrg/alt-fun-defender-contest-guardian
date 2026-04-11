@@ -15,6 +15,14 @@ import { fetchPonderToken, fetchPonderTrades } from "./ponder";
 
 import type { Comment, Holder, Trade } from "./types";
 
+function formatTokenBalance(raw: string): string {
+  const whole = Number(formatUnits(BigInt(raw), 18));
+  if (whole >= 1_000_000_000) return (whole / 1_000_000_000).toFixed(1) + "B";
+  if (whole >= 1_000_000) return (whole / 1_000_000).toFixed(1) + "M";
+  if (whole >= 1_000) return (whole / 1_000).toFixed(1) + "K";
+  return whole.toFixed(1);
+}
+
 // LT address → exchange rate (USD per LT, as a float)
 let ltRateCache = new Map<string, number>();
 let ltRateCacheTime = 0;
@@ -230,7 +238,7 @@ const liveTradeService: ITradeService = {
       return json.data.holders.map((h, i) => ({
         rank: i + 1,
         address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
-        tokens: (Number(BigInt(h.balance) / 10n ** 18n) / 1e6).toFixed(1) + "M",
+        tokens: formatTokenBalance(h.balance),
         percentSupply: h.percentage,
         isCreator: false,
       }));
