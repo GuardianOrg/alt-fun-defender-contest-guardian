@@ -4,7 +4,7 @@ import {
 } from "@launchpad/shared";
 import { formatUnits } from "viem";
 
-import { fetchComments } from "./api";
+import { fetchComments, fetchHolders } from "./api";
 import {
   generateFeedTrade,
   generateTokenTrade,
@@ -15,12 +15,19 @@ import { fetchPonderToken, fetchPonderTrades } from "./ponder";
 
 import type { Comment, Holder, Trade } from "./types";
 
+const TOKEN_DECIMALS = 10n ** 18n;
+
+function formatTenths(value: bigint, divisor: bigint, suffix: string): string {
+  const tenths = (value * 10n + divisor / 2n) / divisor;
+  return `${tenths / 10n}.${tenths % 10n}${suffix}`;
+}
+
 function formatTokenBalance(raw: string): string {
-  const whole = Number(formatUnits(BigInt(raw), 18));
-  if (whole >= 1_000_000_000) return (whole / 1_000_000_000).toFixed(1) + "B";
-  if (whole >= 1_000_000) return (whole / 1_000_000).toFixed(1) + "M";
-  if (whole >= 1_000) return (whole / 1_000).toFixed(1) + "K";
-  return whole.toFixed(1);
+  const amount = BigInt(raw);
+  if (amount >= 1_000_000_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000_000_000n * TOKEN_DECIMALS, "B");
+  if (amount >= 1_000_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000_000n * TOKEN_DECIMALS, "M");
+  if (amount >= 1_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000n * TOKEN_DECIMALS, "K");
+  return formatTenths(amount, TOKEN_DECIMALS, "");
 }
 
 // LT address → exchange rate (USD per LT, as a float)
@@ -225,17 +232,8 @@ const liveTradeService: ITradeService = {
 
   async getHolders(address) {
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
-      const res = await fetch(`${API_BASE}/api/v1/holders/${address}`);
-      const json = (await res.json()) as {
-        status: string;
-        data: {
-          holders: { wallet: string; balance: string; percentage: number }[];
-          totalHolders: number;
-        } | null;
-      };
-      if (json.status !== "success" || !json.data) throw new Error("No data");
-      return json.data.holders.map((h, i) => ({
+      const { holders } = await fetchHolders(address);
+      return holders.map((h, i) => ({
         rank: i + 1,
         address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
         tokens: formatTokenBalance(h.balance),

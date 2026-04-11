@@ -28,10 +28,17 @@ export function createPonderQuery(ponderUrl?: string) {
   };
 }
 
+export interface PaginatedResult<T> {
+  items: T[];
+  truncated: boolean;
+}
+
 /**
  * Paginate through all results for a Ponder collection query.
  * `collectionKey` is the top-level field name in the GraphQL response (e.g. "routerTrades").
  * The query MUST use `$limit: Int!` and `$offset: Int!` variables.
+ * Returns `{ items, truncated }` — `truncated` is true when MAX_PAGES was reached
+ * and more data may exist.
  */
 export function createPonderPaginatedQuery(ponderUrl?: string) {
   const queryPonder = createPonderQuery(ponderUrl);
@@ -40,8 +47,9 @@ export function createPonderPaginatedQuery(ponderUrl?: string) {
     query: string,
     collectionKey: string,
     variables?: Record<string, unknown>,
-  ): Promise<TItem[]> {
+  ): Promise<PaginatedResult<TItem>> {
     const all: TItem[] = [];
+    let truncated = false;
 
     for (let page = 0; page < MAX_PAGES; page++) {
       const offset = page * PAGE_SIZE;
@@ -54,8 +62,12 @@ export function createPonderPaginatedQuery(ponderUrl?: string) {
       all.push(...items);
 
       if (items.length < PAGE_SIZE) break;
+
+      if (page === MAX_PAGES - 1) {
+        truncated = true;
+      }
     }
 
-    return all;
+    return { items: all, truncated };
   };
 }

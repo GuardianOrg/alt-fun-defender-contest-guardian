@@ -75,7 +75,7 @@ trades.get("/ohlcv/:address", async (c) => {
   }
 
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const rawTrades = await queryPonderAll<PonderRouterTrade>(
+  const { items: rawTrades } = await queryPonderAll<PonderRouterTrade>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }

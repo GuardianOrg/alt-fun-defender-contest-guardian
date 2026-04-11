@@ -24,7 +24,7 @@ holders.get("/:address", async (c) => {
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
   const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
 
-  const trades = await queryPonderAll<TradeItem>(
+  const { items: trades } = await queryPonderAll<TradeItem>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }

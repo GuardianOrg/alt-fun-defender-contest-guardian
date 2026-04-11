@@ -73,7 +73,7 @@ admin.get("/analytics/dau", async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const trades = await queryAll<PonderRouterTrade>(
+  const { items: trades, truncated } = await queryAll<PonderRouterTrade>(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
       routerTrades(
         where: { timestamp_gte: $cutoff }
@@ -103,7 +103,7 @@ admin.get("/analytics/dau", async (c) => {
     dayMap.set(day, wallets.size);
   }
 
-  return c.json(formatSuccess(buildDaySeries(dayMap, days)));
+  return c.json(formatSuccess({ series: buildDaySeries(dayMap, days), truncated }));
 });
 
 admin.get("/analytics/volume", async (c) => {
@@ -111,7 +111,7 @@ admin.get("/analytics/volume", async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const trades = await queryAll<PonderRouterTrade>(
+  const { items: trades, truncated } = await queryAll<PonderRouterTrade>(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
       routerTrades(
         where: { timestamp_gte: $cutoff }
@@ -136,7 +136,7 @@ admin.get("/analytics/volume", async (c) => {
     dayMap.set(day, Number(microUsdc) / 1e6);
   }
 
-  return c.json(formatSuccess(buildDaySeries(dayMap, days)));
+  return c.json(formatSuccess({ series: buildDaySeries(dayMap, days), truncated }));
 });
 
 interface PonderGraduation {
@@ -155,7 +155,7 @@ admin.get("/analytics/graduations", async (c) => {
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const [graduations, allTokens] = await Promise.all([
+  const [gradResult, tokenResult] = await Promise.all([
     queryAll<PonderGraduation>(
       `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
         graduations(
@@ -170,14 +170,23 @@ admin.get("/analytics/graduations", async (c) => {
       { cutoff: String(cutoff) },
     ),
     queryAll<PonderToken>(
-      `query ($limit: Int!, $offset: Int!) {
-        tokens(limit: $limit, offset: $offset, orderBy: "timestamp", orderDirection: "desc") {
+      `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
+        tokens(
+          where: { timestamp_gte: $cutoff }
+          limit: $limit, offset: $offset,
+          orderBy: "timestamp", orderDirection: "desc"
+        ) {
           items { address timestamp }
         }
       }`,
       "tokens",
+      { cutoff: String(cutoff) },
     ),
   ]);
+
+  const graduations = gradResult.items;
+  const windowTokens = tokenResult.items;
+  const truncated = gradResult.truncated || tokenResult.truncated;
 
   const gradDayMap = new Map<string, number>();
   const launchDayMap = new Map<string, number>();
@@ -185,23 +194,20 @@ admin.get("/analytics/graduations", async (c) => {
   let gradCount = 0;
 
   const tokenLaunchMap = new Map<string, number>();
-  let totalLaunches = 0;
-  for (const t of allTokens) {
+  for (const t of windowTokens) {
     const ts = Number(t.timestamp);
     tokenLaunchMap.set(t.address.toLowerCase(), ts);
-    if (ts >= cutoff) {
-      totalLaunches++;
-      const day = toDayKey(ts);
-      launchDayMap.set(day, (launchDayMap.get(day) ?? 0) + 1);
-    }
+    const day = toDayKey(ts);
+    launchDayMap.set(day, (launchDayMap.get(day) ?? 0) + 1);
   }
+  const totalLaunches = windowTokens.length;
 
   for (const g of graduations) {
     const ts = Number(g.timestamp);
     const day = toDayKey(ts);
     gradDayMap.set(day, (gradDayMap.get(day) ?? 0) + 1);
     const launchTs = tokenLaunchMap.get(g.tokenAddress.toLowerCase());
-    if (launchTs && launchTs >= cutoff) {
+    if (launchTs) {
       totalGradTime += ts - launchTs;
       gradCount++;
     }
@@ -214,8 +220,9 @@ admin.get("/analytics/graduations", async (c) => {
       launches: buildDaySeries(launchDayMap, days),
       totalLaunches,
       totalGraduations: totalGrads,
-      graduationRate: totalLaunches > 0 ? totalGrads / totalLaunches : 0,
+      graduationRate: totalLaunches > 0 ? gradCount / totalLaunches : 0,
       avgTimeToGraduationSeconds: gradCount > 0 ? Math.round(totalGradTime / gradCount) : null,
+      truncated,
     }),
   );
 });
@@ -231,7 +238,7 @@ admin.get("/analytics/revenue", async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const claims = await queryAll<PonderFeeClaim>(
+  const { items: claims, truncated } = await queryAll<PonderFeeClaim>(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
       feeClaims(
         where: { timestamp_gte: $cutoff }
@@ -272,6 +279,7 @@ admin.get("/analytics/revenue", async (c) => {
     formatSuccess({
       protocol: buildDaySeries(protocolDayMap, days),
       creator: buildDaySeries(creatorDayMap, days),
+      truncated,
     }),
   );
 });
