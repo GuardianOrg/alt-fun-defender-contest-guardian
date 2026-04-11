@@ -240,3 +240,35 @@
 .launchBtn:hover {
   background: var(--mint-hover);
 }
+
+@media (max-width: 768px) {
+  .tagline {
+    display: none;
+  }
+
+  .nav {
+    display: none;
+  }
+
+  .searchTrigger {
+    display: none;
+  }
+
+  .clock {
+    display: none;
+  }
+
+  .logo {
+    margin-right: 0.5rem;
+  }
+}
+
+@media (max-width: 1024px) {
+  .searchText {
+    display: none;
+  }
+
+  .searchKbd {
+    display: none;
+  }
+}

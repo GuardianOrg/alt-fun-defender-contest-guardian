@@ -662,3 +662,10 @@
 .footerStatusDefault {
   color: var(--txt-4);
 }
+
+@media (max-width: 768px) {
+  .panel {
+    width: 100%;
+    border-top: 1px solid var(--border);
+  }
+}

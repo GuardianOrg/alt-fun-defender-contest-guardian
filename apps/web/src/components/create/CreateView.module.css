@@ -173,3 +173,27 @@
   color: var(--mint);
   font-weight: 600;
 }
+
+@media (max-width: 768px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pageHeader {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+    padding-top: 1.25rem;
+    padding-bottom: 1rem;
+  }
+
+  .heading {
+    font-size: 1.25rem;
+  }
+
+  .steps {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+}

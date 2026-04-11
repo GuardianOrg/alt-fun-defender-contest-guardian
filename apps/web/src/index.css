@@ -284,3 +284,11 @@ select {
     0 0 4px rgba(240, 80, 80, 0.6),
     0 0 8px rgba(255, 255, 255, 0.3);
 }
+
+@media (max-width: 768px) {
+  html,
+  body,
+  #root {
+    overflow: auto;
+  }
+}

@@ -12,6 +12,7 @@ import {
   MOCK_HOLDERS,
 } from "./mock/trades";
 import { fetchPonderToken, fetchPonderTrades } from "./ponder";
+import { getWebSocketClient } from "./websocket";
 
 import type { Comment, Holder, Trade } from "./types";
 
@@ -116,6 +117,16 @@ export interface ITradeService {
 
 const liveTradeService: ITradeService = {
   subscribeFeed(cb) {
+    const ws = getWebSocketClient();
+    let unsubWs: (() => void) | null = null;
+
+    if (ws) {
+      unsubWs = ws.subscribe("trade", (data) => {
+        const trade = data as Trade;
+        if (trade.id) cb(trade);
+      });
+    }
+
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
     let polling = false;
@@ -157,15 +168,27 @@ const liveTradeService: ITradeService = {
     };
 
     void poll(true);
-    intervalId = setInterval(() => void poll(false), 3000);
+    const pollInterval = ws ? 15_000 : 3_000;
+    intervalId = setInterval(() => void poll(false), pollInterval);
 
     return () => {
       cancelled = true;
       if (intervalId) clearInterval(intervalId);
+      unsubWs?.();
     };
   },
 
   subscribeTokenTrades(address, cb) {
+    const ws = getWebSocketClient();
+    let unsubWs: (() => void) | null = null;
+
+    if (ws) {
+      unsubWs = ws.subscribe("trade", (data) => {
+        const trade = data as Trade;
+        if (trade.id) cb(trade);
+      }, address);
+    }
+
     let cancelled = false;
     let polling = false;
     let hasLiveData = false;
@@ -199,11 +222,13 @@ const liveTradeService: ITradeService = {
     };
 
     void poll();
-    const interval = setInterval(() => void poll(), 5000);
+    const pollInterval = ws ? 15_000 : 5_000;
+    const interval = setInterval(() => void poll(), pollInterval);
 
     return () => {
       cancelled = true;
       clearInterval(interval);
+      unsubWs?.();
     };
   },
 

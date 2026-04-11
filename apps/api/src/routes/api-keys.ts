@@ -1,0 +1,109 @@
+import { Hono } from "hono";
+import { eq } from "drizzle-orm";
+
+import { createDb } from "../db/client.js";
+import { apiKeys } from "../db/schema.js";
+import formatError from "../utils/format-error.js";
+import formatSuccess from "../utils/format-success.js";
+
+import type { AppBindings } from "../lib/types.js";
+
+const apiKeysRoute = new Hono<{ Bindings: AppBindings }>();
+
+function generateKey(): string {
+  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const segments = [8, 8, 8, 8];
+  return segments
+    .map((len) =>
+      Array.from(crypto.getRandomValues(new Uint8Array(len)))
+        .map((b) => chars[b % chars.length])
+        .join(""),
+    )
+    .join("-");
+}
+
+apiKeysRoute.post("/", async (c) => {
+  const body = await c.req.json<{ name?: string; ownerAddress?: string; rateLimit?: number }>();
+
+  if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
+    return c.json(formatError("name is required"), 400);
+  }
+  if (!body.ownerAddress || typeof body.ownerAddress !== "string" || body.ownerAddress.length !== 42) {
+    return c.json(formatError("ownerAddress must be a valid 42-char hex address"), 400);
+  }
+
+  const key = generateKey();
+  const rateLimit = typeof body.rateLimit === "number" && body.rateLimit > 0 ? body.rateLimit : 100;
+
+  const db = createDb(c.env.DATABASE_URL);
+  const [row] = await db
+    .insert(apiKeys)
+    .values({
+      key,
+      name: body.name.trim(),
+      ownerAddress: body.ownerAddress.toLowerCase(),
+      rateLimit,
+    })
+    .returning();
+
+  return c.json(formatSuccess({ id: row.id, key, name: row.name, rateLimit: row.rateLimit }), 201);
+});
+
+apiKeysRoute.get("/", async (c) => {
+  const db = createDb(c.env.DATABASE_URL);
+  const rows = await db
+    .select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      ownerAddress: apiKeys.ownerAddress,
+      rateLimit: apiKeys.rateLimit,
+      isActive: apiKeys.isActive,
+      createdAt: apiKeys.createdAt,
+    })
+    .from(apiKeys)
+    .orderBy(apiKeys.id);
+
+  return c.json(formatSuccess(rows));
+});
+
+apiKeysRoute.post("/:id/revoke", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (!Number.isFinite(id)) {
+    return c.json(formatError("Invalid key ID"), 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const [updated] = await db
+    .update(apiKeys)
+    .set({ isActive: false })
+    .where(eq(apiKeys.id, id))
+    .returning({ id: apiKeys.id });
+
+  if (!updated) {
+    return c.json(formatError("API key not found"), 404);
+  }
+
+  return c.json(formatSuccess({ revoked: true }));
+});
+
+apiKeysRoute.post("/:id/activate", async (c) => {
+  const id = parseInt(c.req.param("id"), 10);
+  if (!Number.isFinite(id)) {
+    return c.json(formatError("Invalid key ID"), 400);
+  }
+
+  const db = createDb(c.env.DATABASE_URL);
+  const [updated] = await db
+    .update(apiKeys)
+    .set({ isActive: true })
+    .where(eq(apiKeys.id, id))
+    .returning({ id: apiKeys.id });
+
+  if (!updated) {
+    return c.json(formatError("API key not found"), 404);
+  }
+
+  return c.json(formatSuccess({ activated: true }));
+});
+
+export default apiKeysRoute;

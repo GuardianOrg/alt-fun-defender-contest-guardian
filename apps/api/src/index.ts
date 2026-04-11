@@ -18,6 +18,7 @@ import assets from "./routes/assets.js";
 import referrals from "./routes/referrals.js";
 import holders from "./routes/holders.js";
 import security from "./routes/security.js";
+import { apiKeyAuth } from "./middleware/api-key-auth.js";
 
 import type { AppBindings } from "./lib/types.js";
 
@@ -29,6 +30,8 @@ app.use("*", prettyJSON());
 
 app.get("/", (c) => c.json(formatSuccess("launchpad API")));
 app.get("/health", (c) => c.json(formatSuccess("healthy")));
+
+app.use("/api/v1/*", apiKeyAuth);
 
 app.route("/api/v1/tokens", tokens);
 app.route("/api/v1/trades", trades);
@@ -43,6 +46,37 @@ app.route("/api/v1/assets", assets);
 app.route("/api/v1/referrals", referrals);
 app.route("/api/v1/holders", holders);
 app.route("/api/v1/security", security);
+
+app.post("/api/v1/webhook/indexer", async (c) => {
+  const adminKey = c.req.header("X-Admin-Key");
+  if (!adminKey || adminKey !== c.env.ADMIN_API_KEY) {
+    return c.json(formatError("Unauthorized"), 401);
+  }
+
+  const body = (await c.req.json()) as {
+    event: string;
+    data: unknown;
+    tokenAddress?: string;
+  };
+
+  const channelMap: Record<string, string> = {
+    trade: "trade",
+    newToken: "newToken",
+    graduation: "graduation",
+    price: "price",
+    stats: "stats",
+  };
+
+  const channel = channelMap[body.event];
+  if (!channel) {
+    return c.json(formatError(`Unknown event type: ${body.event}`), 400);
+  }
+
+  const { broadcastToChannel } = await import("./lib/broadcast.js");
+  await broadcastToChannel(c.env, channel, body.data, body.tokenAddress);
+
+  return c.json(formatSuccess({ broadcasted: true }));
+});
 
 app.get("/ws", async (c) => {
   const upgradeHeader = c.req.header("Upgrade");
@@ -79,6 +113,18 @@ export class WebSocketDO extends DurableObject {
   private connections: Map<WebSocket, Subscription> = new Map();
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/broadcast" && request.method === "POST") {
+      const body = (await request.json()) as {
+        channel: string;
+        data: unknown;
+        tokenAddress?: string;
+      };
+      this.broadcast(body.channel, body.data, body.tokenAddress);
+      return new Response("ok", { status: 200 });
+    }
+
     const upgradeHeader = request.headers.get("Upgrade");
     if (upgradeHeader?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });

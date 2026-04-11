@@ -67,3 +67,23 @@
   animation: badgep 1.4s ease-in-out infinite;
   flex-shrink: 0;
 }
+
+@media (max-width: 768px) {
+  .wrapper {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .leftPanel {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    min-height: 320px;
+  }
+
+  .curveStrip {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+  }
+}
