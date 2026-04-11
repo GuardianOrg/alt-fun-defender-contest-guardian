@@ -24,7 +24,7 @@ referrals.get("/:wallet", async (c) => {
   const wallet = rawWallet.toLowerCase();
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const items = await queryPonderAll<ReferralItem>(
+  const { items } = await queryPonderAll<ReferralItem>(
     `query ($wallet: String!, $limit: Int!, $offset: Int!) {
       referrals(
         where: { referrer: $wallet }

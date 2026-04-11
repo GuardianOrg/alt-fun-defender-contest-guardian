@@ -36,7 +36,7 @@ creators.get("/:address", async (c) => {
   let totalVolume = 0n;
   if (tokenAddresses.length > 0) {
     const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-    const volumeTrades = await queryPonderAll<{ usdcAmount: string }>(
+    const { items: volumeTrades } = await queryPonderAll<{ usdcAmount: string }>(
       `query ($tokenAddresses: [String!]!, $limit: Int!, $offset: Int!) {
         routerTrades(
           where: { tokenAddress_in: $tokenAddresses }

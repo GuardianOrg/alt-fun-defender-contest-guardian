@@ -1,4 +1,4 @@
-import { Component, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
@@ -13,6 +13,14 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(): State {
     return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
+    console.error("[ErrorBoundary] Uncaught error:", {
+      message: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+    });
   }
 
   render() {

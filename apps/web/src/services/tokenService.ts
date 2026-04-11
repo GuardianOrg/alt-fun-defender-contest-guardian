@@ -120,7 +120,10 @@ async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
   ]);
 
   if (apiTokens.length === 0 && ponderTokens.length === 0) {
-    return applyFilter(MOCK_TOKENS, filter);
+    if (import.meta.env.DEV) {
+      return applyFilter(MOCK_TOKENS, filter);
+    }
+    return [];
   }
 
   const ponderMap = new Map(ponderTokens.map((t) => [t.address.toLowerCase(), t]));
@@ -139,7 +142,10 @@ async function liveGetToken(address: string): Promise<Token | undefined> {
   ]);
 
   if (!apiToken) {
-    return MOCK_TOKENS.find((t) => t.address === address);
+    if (import.meta.env.DEV) {
+      return MOCK_TOKENS.find((t) => t.address === address);
+    }
+    return undefined;
   }
 
   return mergeToken(apiToken, ponderToken);

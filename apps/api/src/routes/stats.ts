@@ -13,7 +13,7 @@ stats.get("/", async (c) => {
   const now = Math.floor(Date.now() / 1000);
   const dayAgo = now - 86400;
 
-  const [allTokens, trades24h] = await Promise.all([
+  const [tokenResult, tradeResult] = await Promise.all([
     queryPonderAll<{ graduated: boolean }>(
       `query ($limit: Int!, $offset: Int!) {
         tokens(limit: $limit, offset: $offset) {
@@ -40,6 +40,9 @@ stats.get("/", async (c) => {
       { since: String(dayAgo) },
     ),
   ]);
+
+  const allTokens = tokenResult.items;
+  const trades24h = tradeResult.items;
 
   const tokensGraduated = allTokens.filter((t) => t.graduated).length;
   const tokensLive = allTokens.length - tokensGraduated;

@@ -4,7 +4,7 @@ import {
 } from "@launchpad/shared";
 import { formatUnits } from "viem";
 
-import { fetchComments } from "./api";
+import { fetchComments, fetchHolders } from "./api";
 import {
   generateFeedTrade,
   generateTokenTrade,
@@ -14,6 +14,21 @@ import {
 import { fetchPonderToken, fetchPonderTrades } from "./ponder";
 
 import type { Comment, Holder, Trade } from "./types";
+
+const TOKEN_DECIMALS = 10n ** 18n;
+
+function formatTenths(value: bigint, divisor: bigint, suffix: string): string {
+  const tenths = (value * 10n + divisor / 2n) / divisor;
+  return `${tenths / 10n}.${tenths % 10n}${suffix}`;
+}
+
+function formatTokenBalance(raw: string): string {
+  const amount = BigInt(raw);
+  if (amount >= 1_000_000_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000_000_000n * TOKEN_DECIMALS, "B");
+  if (amount >= 1_000_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000_000n * TOKEN_DECIMALS, "M");
+  if (amount >= 1_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000n * TOKEN_DECIMALS, "K");
+  return formatTenths(amount, TOKEN_DECIMALS, "");
+}
 
 // LT address → exchange rate (USD per LT, as a float)
 let ltRateCache = new Map<string, number>();
@@ -130,7 +145,7 @@ const liveTradeService: ITradeService = {
         for (const id of batchIds) seenIds.add(id);
         hasLiveData = true;
       } catch {
-        if (!hasLiveData && initial) {
+        if (!hasLiveData && initial && import.meta.env.DEV) {
           for (let i = 0; i < 8; i++) {
             if (cancelled) return;
             cb(generateFeedTrade());
@@ -175,7 +190,7 @@ const liveTradeService: ITradeService = {
         for (const id of batchIds) seenIds.add(id);
         hasLiveData = true;
       } catch {
-        if (!hasLiveData && !cancelled) {
+        if (!hasLiveData && !cancelled && import.meta.env.DEV) {
           cb(generateTokenTrade());
         }
       } finally {
@@ -194,7 +209,10 @@ const liveTradeService: ITradeService = {
 
   getInitialTrades(address) {
     void address;
-    return [...INITIAL_TOKEN_TRADES];
+    if (import.meta.env.DEV) {
+      return [...INITIAL_TOKEN_TRADES];
+    }
+    return [];
   },
 
   async getComments(address) {
@@ -212,8 +230,22 @@ const liveTradeService: ITradeService = {
     }
   },
 
-  async getHolders(_address) {
-    return [...MOCK_HOLDERS];
+  async getHolders(address) {
+    try {
+      const { holders } = await fetchHolders(address);
+      return holders.map((h, i) => ({
+        rank: i + 1,
+        address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
+        tokens: formatTokenBalance(h.balance),
+        percentSupply: h.percentage,
+        isCreator: false,
+      }));
+    } catch {
+      if (import.meta.env.DEV) {
+        return [...MOCK_HOLDERS];
+      }
+      return [];
+    }
   },
 };
 

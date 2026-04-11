@@ -53,45 +53,6 @@ trades.get("/", async (c) => {
   return c.json(formatSuccess(items));
 });
 
-trades.get("/:address", async (c) => {
-  const rawAddress = c.req.param("address");
-  if (!isAddress(rawAddress)) {
-    return c.json(formatError("Invalid address"), 400);
-  }
-  const address = rawAddress.toLowerCase();
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
-  const offset = safeInt(c.req.query("offset"), 0);
-
-  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($address: String!, $limit: Int!, $offset: Int!) {
-      routerTrades(
-        where: { tokenAddress: $address }
-        limit: $limit
-        offset: $offset
-        orderBy: "timestamp"
-        orderDirection: "desc"
-      ) {
-        items {
-          id
-          tokenAddress
-          trader
-          isBuy
-          usdcAmount
-          tokenAmount
-          blockNumber
-          timestamp
-        }
-      }
-    }`,
-    { address, limit, offset },
-  );
-
-  const items = data?.routerTrades?.items ?? [];
-
-  return c.json(formatSuccess(items));
-});
-
 const INTERVAL_SECONDS: Record<string, number> = {
   "1m": 60,
   "5m": 300,
@@ -114,7 +75,7 @@ trades.get("/ohlcv/:address", async (c) => {
   }
 
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const rawTrades = await queryPonderAll<PonderRouterTrade>(
+  const { items: rawTrades } = await queryPonderAll<PonderRouterTrade>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }
@@ -172,6 +133,45 @@ trades.get("/ohlcv/:address", async (c) => {
   }
 
   return c.json(formatSuccess(candles));
+});
+
+trades.get("/:address", async (c) => {
+  const rawAddress = c.req.param("address");
+  if (!isAddress(rawAddress)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+  const address = rawAddress.toLowerCase();
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
+  const offset = safeInt(c.req.query("offset"), 0);
+
+  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
+    `query ($address: String!, $limit: Int!, $offset: Int!) {
+      routerTrades(
+        where: { tokenAddress: $address }
+        limit: $limit
+        offset: $offset
+        orderBy: "timestamp"
+        orderDirection: "desc"
+      ) {
+        items {
+          id
+          tokenAddress
+          trader
+          isBuy
+          usdcAmount
+          tokenAmount
+          blockNumber
+          timestamp
+        }
+      }
+    }`,
+    { address, limit, offset },
+  );
+
+  const items = data?.routerTrades?.items ?? [];
+
+  return c.json(formatSuccess(items));
 });
 
 export default trades;

@@ -24,7 +24,7 @@ security.get("/:address", async (c) => {
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const [metaData, trades] = await Promise.all([
+  const [metaData, tradeResult] = await Promise.all([
     queryPonder<{
       token: {
         creator: string;
@@ -68,6 +68,7 @@ security.get("/:address", async (c) => {
     ),
   ]);
 
+  const trades = tradeResult.items;
   const tokenData = metaData?.token;
   if (!tokenData) {
     return c.json(formatSuccess({

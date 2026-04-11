@@ -82,7 +82,7 @@ export function fetchComments(
   offset = 0,
 ): Promise<ApiComment[]> {
   return apiFetch(
-    `/api/v1/comments/${tokenAddress}?limit=${limit}&offset=${offset}`,
+    `/api/v1/tokens/${tokenAddress}/comments?limit=${limit}&offset=${offset}`,
   );
 }
 
@@ -93,7 +93,7 @@ export function postComment(
   signature: string,
   timestamp: number,
 ): Promise<ApiComment> {
-  return apiFetch(`/api/v1/comments/${tokenAddress}`, {
+  return apiFetch(`/api/v1/tokens/${tokenAddress}/comments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ author, content, signature, timestamp }),
@@ -107,4 +107,33 @@ export function uploadImage(file: File): Promise<{ url: string }> {
     method: "POST",
     body: formData,
   });
+}
+
+export interface OhlcvCandle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export function fetchOhlcv(
+  address: string,
+  interval = "1h",
+): Promise<OhlcvCandle[]> {
+  return apiFetch(`/api/v1/trades/ohlcv/${address}?interval=${interval}`);
+}
+
+export interface HolderInfo {
+  wallet: string;
+  balance: string;
+  percentage: number;
+}
+
+export function fetchHolders(
+  address: string,
+  limit = 20,
+): Promise<{ holders: HolderInfo[]; totalHolders: number }> {
+  return apiFetch(`/api/v1/holders/${address}?limit=${limit}`);
 }

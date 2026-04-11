@@ -24,7 +24,7 @@ portfolio.get("/:wallet", async (c) => {
   const wallet = rawWallet.toLowerCase();
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const trades = await queryPonderAll<PonderRouterTrade>(
+  const { items: trades } = await queryPonderAll<PonderRouterTrade>(
     `query ($wallet: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { trader: $wallet }

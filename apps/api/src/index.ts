@@ -36,7 +36,7 @@ app.route("/api/v1/creators", creators);
 app.route("/api/v1/admin", admin);
 app.route("/api/v1/images", images);
 app.route("/images", images);
-app.route("/api/v1/comments", commentsRoute);
+app.route("/api/v1/tokens", commentsRoute);
 app.route("/api/v1/portfolio", portfolio);
 app.route("/api/v1/stats", stats);
 app.route("/api/v1/assets", assets);
