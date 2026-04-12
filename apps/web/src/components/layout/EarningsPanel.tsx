@@ -37,7 +37,10 @@ export default function EarningsPanel() {
   };
 
   return (
-    <ModalOverlay onClose={() => setOpen(false)}>
+    <ModalOverlay
+      onClose={() => setOpen(false)}
+      ariaLabelledBy="earnings-panel-title"
+    >
       <div className={styles.panel}>
         {/* Panel header */}
         <div className={styles.panelHeader}>
@@ -45,12 +48,16 @@ export default function EarningsPanel() {
             <div className={styles.avatarWrap}>
               <img src="/avatar.png" alt="" className={styles.avatar} />
               <div>
-                <div className={styles.addressText}>{shortAddress}</div>
+                <div id="earnings-panel-title" className={styles.addressText}>
+                  {shortAddress}
+                </div>
                 <div className={styles.chainText}>HyperEVM</div>
               </div>
             </div>
           ) : (
-            <div className={styles.profileLabel}>profile</div>
+            <div id="earnings-panel-title" className={styles.profileLabel}>
+              profile
+            </div>
           )}
           <button className={styles.escBtn} onClick={() => setOpen(false)}>
             esc

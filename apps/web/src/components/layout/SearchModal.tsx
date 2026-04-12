@@ -22,21 +22,25 @@ export default function SearchModal() {
   if (!open) return null;
 
   return (
-    <ModalOverlay onClose={close}>
+    <ModalOverlay onClose={close} ariaLabelledBy="search-modal-title">
       <div className={styles.modal}>
         <div className={styles.searchBar}>
-          <span className={styles.searchIcon}>&#x2315;</span>
+          <span className={styles.searchIcon} aria-hidden="true">
+            &#x2315;
+          </span>
           <input
             ref={inputRef}
+            id="search-modal-title"
             className={styles.searchInput}
             placeholder="Search tokens, tickers\u2026"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             autoComplete="off"
+            aria-label="Search tokens"
           />
-          <span className={styles.escBadge} onClick={close}>
+          <button className={styles.escBadge} onClick={close} aria-label="Close search">
             esc
-          </span>
+          </button>
         </div>
 
         {!filtered ? (
