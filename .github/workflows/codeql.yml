@@ -33,3 +33,6 @@ jobs:
       - uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          # Upload disabled: repository does not have GitHub Code Security enabled.
+          # Set to "always" once Advanced Security is activated in repo settings.
+          upload: never
