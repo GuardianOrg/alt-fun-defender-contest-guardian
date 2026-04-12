@@ -14,12 +14,21 @@ Ponder EVM indexer. Indexes on-chain events from launchpad contracts and HyperSw
 | `Buy` | RedemptionRouter |
 | `Sell` | RedemptionRouter |
 | `Referred` | RedemptionRouter |
+| `Swap` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
+| `Sync` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
+
+### Factory Registration (Dynamic Pair Subscriptions)
+
+HyperSwap V2 pair contracts are not known at deploy time — they are created when a token graduates. The indexer uses Ponder's factory pattern to dynamically register pairs:
+
+- The `HyperSwapPair` contract source in `ponder.config.ts` uses `factory` config pointing at the Bonding contract's `TokenGraduated` event.
+- When `TokenGraduated` fires, Ponder extracts the `pairAddress` parameter and begins indexing `Swap` and `Sync` events from that pair.
+- Handlers in `src/hyperswap.ts` write to the `swap` and `pairReserve` tables.
 
 ### Not Yet Indexed
 
 | Event | Contract | Status |
 |---|---|---|
-| `Swap` / `Sync` | HyperSwap V2 Pair (graduated pairs only) | Needs dynamic pair registration |
 | `Transfer` | FERC20 | Deferred (high indexing load, holder counts derived from trade data) |
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
