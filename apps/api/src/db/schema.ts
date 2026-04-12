@@ -33,7 +33,8 @@ export const comments = pgTable("comments", {
 
 export const apiKeys = pgTable("api_keys", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  key: varchar("key", { length: 64 }).notNull().unique(),
+  keyHash: varchar("key_hash", { length: 64 }).notNull().unique(),
+  keyPrefix: varchar("key_prefix", { length: 8 }).notNull(),
   name: text("name").notNull(),
   ownerAddress: varchar("owner_address", { length: 42 }).notNull(),
   rateLimit: integer("rate_limit").notNull().default(100),

@@ -3,6 +3,7 @@ import type { Context, Next } from "hono";
 
 import { createDb } from "../db/client.js";
 import { apiKeys } from "../db/schema.js";
+import { extractPrefix, verifyApiKey } from "../utils/api-key-hash.js";
 import type { AppBindings } from "../lib/types.js";
 
 interface RateWindow {
@@ -32,32 +33,40 @@ export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Ne
     return;
   }
 
+  const prefix = extractPrefix(headerKey);
   const db = createDb(c.env.DATABASE_URL);
-  const [row] = await db
+  const candidates = await db
     .select()
     .from(apiKeys)
-    .where(eq(apiKeys.key, headerKey))
-    .limit(1);
+    .where(eq(apiKeys.keyPrefix, prefix));
 
-  if (!row) {
+  let matchedRow: (typeof candidates)[number] | undefined;
+  for (const candidate of candidates) {
+    if (await verifyApiKey(headerKey, candidate.keyHash)) {
+      matchedRow = candidate;
+      break;
+    }
+  }
+
+  if (!matchedRow) {
     return c.json({ status: "error", error: "Invalid API key", data: null }, 401);
   }
 
-  if (!row.isActive) {
+  if (!matchedRow.isActive) {
     return c.json({ status: "error", error: "API key is deactivated", data: null }, 403);
   }
 
   purgeExpiredWindows();
 
   const now = Date.now();
-  let window = rateLimitMap.get(row.id);
+  let window = rateLimitMap.get(matchedRow.id);
   if (!window || now >= window.resetAt) {
     window = { count: 0, resetAt: now + WINDOW_MS };
-    rateLimitMap.set(row.id, window);
+    rateLimitMap.set(matchedRow.id, window);
   }
 
   window.count++;
-  if (window.count > row.rateLimit) {
+  if (window.count > matchedRow.rateLimit) {
     c.header("Retry-After", String(Math.ceil((window.resetAt - now) / 1000)));
     return c.json({ status: "error", error: "Rate limit exceeded", data: null }, 429);
   }
