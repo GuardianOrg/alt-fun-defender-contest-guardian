@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 import styles from "./SearchModal.module.css";
 import { cn } from "../../utils/format";
 
@@ -6,18 +8,38 @@ import type { Token } from "../../services/types";
 export default function SearchResultsList({
   results,
   onSelect,
+  highlightedIndex,
+  onHighlight,
 }: {
   results: Token[];
   onSelect: (address: string) => void;
+  highlightedIndex: number;
+  onHighlight: (index: number) => void;
 }) {
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (highlightedIndex < 0 || !listRef.current) return;
+    const items = listRef.current.querySelectorAll("[data-result-index]");
+    const target = items[highlightedIndex];
+    if (target) {
+      target.scrollIntoView({ block: "nearest" });
+    }
+  }, [highlightedIndex]);
+
   return (
-    <div className={styles.resultsWrap}>
+    <div className={styles.resultsWrap} ref={listRef}>
       {results.length > 0 ? (
-        results.map((t) => (
+        results.map((t, i) => (
           <div
             key={t.address}
-            className={styles.resultRow}
+            data-result-index={i}
+            className={cn(
+              styles.resultRow,
+              i === highlightedIndex && styles.resultRowHighlighted,
+            )}
             onClick={() => onSelect(t.address)}
+            onMouseEnter={() => onHighlight(i)}
           >
             <div className={styles.resultIcon}>{t.emoji}</div>
             <div>
