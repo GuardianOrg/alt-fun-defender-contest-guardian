@@ -8,6 +8,7 @@ import TradePanel from "./TradePanel";
 import { GRADUATION_THRESHOLD_USD } from "../../config/constants";
 import { useToken } from "../../hooks/useToken";
 import { formatUsd } from "../../utils/format";
+import ErrorBoundary from "../shared/ErrorBoundary";
 import ProgressBar from "../shared/ProgressBar";
 
 export default function TokenDetailView() {
@@ -42,7 +43,13 @@ export default function TokenDetailView() {
     <div className={styles.wrapper}>
       <div className={styles.leftPanel}>
         <HeroSection token={token} />
-        <Chart token={token} />
+        <ErrorBoundary
+          fallback={
+            <div className={styles.errorFallback}>Chart failed to load</div>
+          }
+        >
+          <Chart token={token} />
+        </ErrorBoundary>
 
         {token.status !== "graduated" && (
           <div className={styles.curveStrip}>
@@ -68,10 +75,24 @@ export default function TokenDetailView() {
           </div>
         )}
 
-        <BottomTabs token={token} />
+        <ErrorBoundary
+          fallback={
+            <div className={styles.errorFallback}>
+              Failed to load tab content
+            </div>
+          }
+        >
+          <BottomTabs token={token} />
+        </ErrorBoundary>
       </div>
 
-      <TradePanel token={token} />
+      <ErrorBoundary
+        fallback={
+          <div className={styles.errorFallback}>Trade panel failed to load</div>
+        }
+      >
+        <TradePanel token={token} />
+      </ErrorBoundary>
     </div>
   );
 }

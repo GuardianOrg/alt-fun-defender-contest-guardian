@@ -6,6 +6,7 @@ import HoldersTab from "./HoldersTab";
 import TradesTab from "./TradesTab";
 import { tradeService } from "../../services/tradeService";
 import { cn } from "../../utils/format";
+import ErrorBoundary from "../shared/ErrorBoundary";
 
 import type { Token, Holder } from "../../services/types";
 
@@ -41,9 +42,33 @@ export default function BottomTabs({ token }: Props) {
         ))}
       </div>
       <div className={styles.tabContent}>
-        {activeTab === "trades" && <TradesTab token={token} />}
-        {activeTab === "comments" && <CommentsTab token={token} />}
-        {activeTab === "holders" && <HoldersTab holders={holders} />}
+        {activeTab === "trades" && (
+          <ErrorBoundary
+            fallback={
+              <div className={styles.tabError}>Failed to load trades</div>
+            }
+          >
+            <TradesTab token={token} />
+          </ErrorBoundary>
+        )}
+        {activeTab === "comments" && (
+          <ErrorBoundary
+            fallback={
+              <div className={styles.tabError}>Failed to load comments</div>
+            }
+          >
+            <CommentsTab token={token} />
+          </ErrorBoundary>
+        )}
+        {activeTab === "holders" && (
+          <ErrorBoundary
+            fallback={
+              <div className={styles.tabError}>Failed to load holders</div>
+            }
+          >
+            <HoldersTab holders={holders} />
+          </ErrorBoundary>
+        )}
       </div>
     </>
   );

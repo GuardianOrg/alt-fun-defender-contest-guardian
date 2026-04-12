@@ -1,36 +1,34 @@
 import { eq, and, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
+import { z } from "zod";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 import { createPonderQuery } from "../../lib/ponder-client.js";
+import { zodValidator } from "../../utils/validation.js";
 
 import type { AppBindings } from "../../lib/types.js";
 
+const batchTokensSchema = z.object({
+  addresses: z
+    .array(z.string())
+    .min(1, "At least one address is required")
+    .max(100, "Maximum 100 addresses per batch"),
+});
+
 const detailRoute = new Hono<{ Bindings: AppBindings }>();
 
-detailRoute.post("/batch", async (c) => {
-  let body: { addresses: string[] };
-  try {
-    body = await c.req.json<{ addresses: string[] }>();
-  } catch {
-    return c.json(formatError("Invalid JSON body"), 400);
-  }
-  if (!body.addresses || body.addresses.length === 0) {
-    return c.json(formatSuccess([]));
-  }
-  if (body.addresses.length > 100) {
-    return c.json(formatError("Maximum 100 addresses per batch"), 400);
-  }
+detailRoute.post("/batch", zodValidator("json", batchTokensSchema), async (c) => {
+  const { addresses } = c.req.valid("json");
 
   const db = createDb(c.env.DATABASE_URL);
   const results = await db
     .select()
     .from(tokens)
-    .where(and(eq(tokens.isHidden, false), inArray(tokens.address, body.addresses)));
+    .where(and(eq(tokens.isHidden, false), inArray(tokens.address, addresses)));
 
   return c.json(formatSuccess(results));
 });
