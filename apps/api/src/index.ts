@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { prettyJSON } from "hono/pretty-json";
+import { swaggerUI } from "@hono/swagger-ui";
 
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
@@ -20,6 +21,7 @@ import holders from "./routes/holders.js";
 import security from "./routes/security.js";
 import profiles from "./routes/profiles.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
+import openApiSpec from "./openapi/spec.js";
 
 import type { AppBindings } from "./lib/types.js";
 
@@ -42,6 +44,12 @@ app.get("/health", async (c) => {
     },
   }));
 });
+
+app.get("/api/docs/openapi.json", (c) => c.json(openApiSpec));
+app.get(
+  "/api/docs",
+  swaggerUI({ url: "/api/docs/openapi.json" }),
+);
 
 app.use("/api/v1/*", apiKeyAuth);
 
