@@ -8,7 +8,7 @@ import { useTokenTrades } from "../../hooks/useTradeFeed";
 import { useWallet } from "../../hooks/useWallet";
 import { postComment as apiPostComment, fetchComments } from "../../services/api";
 import { tradeService } from "../../services/tradeService";
-import { cn, shortenAddress } from "../../utils/format";
+import { cn, formatTimeAgo, shortenAddress } from "../../utils/format";
 
 import type { Token, Comment, Holder } from "../../services/types";
 
@@ -174,16 +174,6 @@ function CommentsTab({ token }: { token: Token }) {
   );
 }
 
-function formatTimeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
 
 function HoldersTab({ holders }: { holders: Holder[] }) {
   const maxSupply = Math.max(...holders.map((h) => h.percentSupply), 1);
