@@ -69,7 +69,7 @@ function createExchangeRateDb(options: {
 
   db.sql.select = vi.fn().mockImplementation(() => {
     // Used for tokensForLt and recentTrades queries
-    let resolvedResult: unknown[] = [];
+    const resolvedResult: unknown[] = [];
     return {
       from: vi.fn().mockImplementation(() => ({
         where: vi.fn().mockImplementation(() => {

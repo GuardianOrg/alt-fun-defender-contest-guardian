@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { getHandler, clearHandlers } from "./mocks/ponder";
+import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
 import { swap, pairReserve } from "../../ponder.schema";
 
