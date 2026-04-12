@@ -64,6 +64,7 @@ security.get("/:address", async (c) => {
   ]);
 
   const trades = tradeResult.items;
+  const truncated = tradeResult.truncated;
   const tokenData = metaData?.token;
   if (!tokenData) {
     return c.json(formatSuccess({
@@ -95,6 +96,7 @@ security.get("/:address", async (c) => {
     contractVerified: true,
     graduated: tokenData.graduated,
     poolAddress: tokenData.pairAddress,
+    approximate: truncated,
   }));
 });
 
