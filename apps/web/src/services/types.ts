@@ -1,6 +1,5 @@
+import type { Leverage, UnderlyingAsset } from "../config/constants";
 import type { SupportedAsset, SupportedLeverage } from "@launchpad/shared";
-
-import type { UnderlyingAsset, Leverage } from "../config/constants";
 
 export type Direction = "long" | "short";
 
