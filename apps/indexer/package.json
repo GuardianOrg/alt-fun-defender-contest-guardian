@@ -9,7 +9,8 @@
     "serve": "ponder serve",
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@launchpad/shared": "*",
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@launchpad/config": "*",
     "@types/node": "^25.5.2",
-    "typescript": "~5.8"
+    "typescript": "~5.8",
+    "vitest": "^3"
   }
 }
