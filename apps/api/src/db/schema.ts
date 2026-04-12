@@ -44,6 +44,19 @@ export const apiKeys = pgTable("api_keys", {
   index("api_keys_key_prefix_idx").on(table.keyPrefix),
 ]);
 
+export const moderationLogs = pgTable("moderation_logs", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  imageKey: text("image_key").notNull(),
+  decision: varchar("decision", { length: 20 }).notNull(), // "approved" | "rejected" | "pending_review"
+  reason: text("reason").notNull().default(""),
+  classifications: text("classifications").notNull().default("[]"), // JSON array of {label, score}
+  reviewedBy: varchar("reviewed_by", { length: 42 }),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("moderation_logs_decision_idx").on(table.decision),
+]);
+
 export const userProfiles = pgTable("user_profiles", {
   address: varchar("address", { length: 42 }).primaryKey(),
   displayName: text("display_name"),

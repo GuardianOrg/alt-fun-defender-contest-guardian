@@ -2,6 +2,8 @@ import { Hono } from "hono";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
+import { createDb } from "../db/client.js";
+import { moderationLogs } from "../db/schema.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -10,46 +12,112 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/we
 
 // Production CSAM detection should use a certified service (e.g. Microsoft PhotoDNA).
 // This Workers AI layer detects obviously objectionable content but is NOT NCMEC-certified.
-const BLOCKED_KEYWORDS = [
-  "child abuse",
-  "child exploitation",
-  "minor",
-  "underage",
-  "gore",
-  "dismember",
-  "mutilation",
-  "beheading",
-  "torture",
-  "corpse",
-  "dead body",
-  "extreme violence",
-];
+
+// Confidence thresholds for image classification
+const REJECT_THRESHOLD = 0.75;
+const REVIEW_THRESHOLD = 0.40;
+
+// ImageNet labels that indicate potentially prohibited content
+const BLOCKED_LABELS = new Set([
+  "revolver",
+  "rifle",
+  "assault_rifle",
+  "guillotine",
+  "hatchet",
+  "cleaver",
+  "meat_cleaver",
+  "military_uniform",
+  "bulletproof_vest",
+  "holster",
+]);
+
+interface ClassificationEntry {
+  label: string;
+  score: number;
+}
 
 interface ModerationResult {
   safe: boolean;
+  flaggedForReview: boolean;
   reason: string;
   unavailable?: boolean;
+  classifications: ClassificationEntry[];
 }
 
 async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<ModerationResult> {
   try {
-    const response = await ai.run("@cf/unum/uform-gen2-qwen-500m", {
+    const response = await ai.run("@cf/microsoft/resnet-50", {
       image: Array.from(imageBytes),
-      prompt: "Describe what this image contains. Focus on any people, their apparent age, violence, or graphic content.",
-      max_tokens: 128,
     });
 
-    const description = (response as { description?: string }).description?.toLowerCase() ?? "";
+    const classifications: ClassificationEntry[] = Array.isArray(response)
+      ? (response as ClassificationEntry[]).map((c) => ({ label: c.label, score: c.score }))
+      : [];
 
-    for (const keyword of BLOCKED_KEYWORDS) {
-      if (description.includes(keyword)) {
-        return { safe: false, reason: "Image contains content that violates our policy" };
+    // Check classifications against blocked labels using confidence thresholds
+    for (const entry of classifications) {
+      const normalizedLabel = entry.label.toLowerCase().replace(/\s+/g, "_");
+
+      if (!BLOCKED_LABELS.has(normalizedLabel)) {
+        continue;
+      }
+
+      if (entry.score >= REJECT_THRESHOLD) {
+        return {
+          safe: false,
+          flaggedForReview: false,
+          reason: "Image contains content that violates our policy",
+          classifications,
+        };
+      }
+
+      if (entry.score >= REVIEW_THRESHOLD) {
+        return {
+          safe: false,
+          flaggedForReview: true,
+          reason: "Image flagged for manual review",
+          classifications,
+        };
       }
     }
 
-    return { safe: true, reason: "" };
+    return { safe: true, flaggedForReview: false, reason: "", classifications };
   } catch {
-    return { safe: false, reason: "Image moderation is temporarily unavailable. Please try again.", unavailable: true };
+    return {
+      safe: false,
+      flaggedForReview: false,
+      reason: "Image moderation is temporarily unavailable. Please try again.",
+      unavailable: true,
+      classifications: [],
+    };
+  }
+}
+
+async function logModerationDecision(
+  databaseUrl: string,
+  imageKey: string,
+  decision: "approved" | "rejected" | "pending_review",
+  reason: string,
+  classifications: ClassificationEntry[],
+): Promise<void> {
+  try {
+    const db = createDb(databaseUrl);
+    await db.insert(moderationLogs).values({
+      imageKey,
+      decision,
+      reason,
+      classifications: JSON.stringify(classifications),
+    });
+  } catch {
+    // Logging failures should not block uploads — log to structured output
+    const structured = {
+      level: "error",
+      message: "Failed to log moderation decision",
+      imageKey,
+      decision,
+      timestamp: new Date().toISOString(),
+    };
+    console.log(JSON.stringify(structured));
   }
 }
 
@@ -91,20 +159,53 @@ images.post("/", async (c) => {
   }
 
   const arrayBuffer = await file.arrayBuffer();
-
-  const moderationResult = await moderateImage(c.env.AI, new Uint8Array(arrayBuffer));
-  if (!moderationResult.safe) {
-    const status = moderationResult.unavailable ? 503 : 422;
-    return c.json(formatError(moderationResult.reason), status);
-  }
-
   const key = `tokens/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
+  const moderationResult = await moderateImage(c.env.AI, new Uint8Array(arrayBuffer));
+
+  if (moderationResult.unavailable) {
+    return c.json(formatError(moderationResult.reason), 503);
+  }
+
+  if (!moderationResult.safe && !moderationResult.flaggedForReview) {
+    // Auto-rejected — log and deny
+    await logModerationDecision(
+      c.env.DATABASE_URL,
+      key,
+      "rejected",
+      moderationResult.reason,
+      moderationResult.classifications,
+    );
+    return c.json(formatError(moderationResult.reason), 422);
+  }
+
+  // Upload to R2 (both approved and pending_review images get stored)
   await c.env.IMAGES_BUCKET.put(key, arrayBuffer, {
     httpMetadata: { contentType: file.type },
   });
 
   const url = `/images/${key}`;
+
+  if (moderationResult.flaggedForReview) {
+    // Borderline — store but flag for admin review
+    await logModerationDecision(
+      c.env.DATABASE_URL,
+      key,
+      "pending_review",
+      moderationResult.reason,
+      moderationResult.classifications,
+    );
+    return c.json(formatSuccess({ url, key, flaggedForReview: true }));
+  }
+
+  // Clean pass — log and approve
+  await logModerationDecision(
+    c.env.DATABASE_URL,
+    key,
+    "approved",
+    "",
+    moderationResult.classifications,
+  );
 
   return c.json(formatSuccess({ url, key }));
 });

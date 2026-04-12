@@ -13,6 +13,13 @@ function createApp() {
 
 const mockR2Put = vi.fn().mockResolvedValue(undefined);
 const mockR2Get = vi.fn();
+const mockDbInsert = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
+
+vi.mock("../db/client.js", () => ({
+  createDb: () => ({
+    insert: () => mockDbInsert(),
+  }),
+}));
 
 function makeEnv(aiOverride?: Partial<Ai>): AppBindings {
   return {
@@ -25,7 +32,10 @@ function makeEnv(aiOverride?: Partial<Ai>): AppBindings {
     } as unknown as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     AI: {
-      run: vi.fn().mockResolvedValue({ description: "A colorful abstract painting" }),
+      run: vi.fn().mockResolvedValue([
+        { label: "tabby_cat", score: 0.85 },
+        { label: "tiger_cat", score: 0.10 },
+      ]),
       ...aiOverride,
     } as unknown as Ai,
   };
@@ -34,6 +44,7 @@ function makeEnv(aiOverride?: Partial<Ai>): AppBindings {
 describe("POST /images — image upload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
   });
 
   it("returns 400 when no file is uploaded", async () => {
@@ -86,7 +97,7 @@ describe("POST /images — image upload", () => {
     expect(body.error).toBe("File too large. Maximum 5MB");
   });
 
-  it("returns 422 when image fails moderation", async () => {
+  it("returns 422 when image classification detects blocked content above reject threshold", async () => {
     const app = createApp();
     const formData = new FormData();
     formData.append(
@@ -95,7 +106,10 @@ describe("POST /images — image upload", () => {
     );
 
     const env = makeEnv({
-      run: vi.fn().mockResolvedValue({ description: "child abuse content detected" }) as Ai["run"],
+      run: vi.fn().mockResolvedValue([
+        { label: "assault_rifle", score: 0.85 },
+        { label: "rifle", score: 0.10 },
+      ]) as Ai["run"],
     });
 
     const res = await app.request(
@@ -107,6 +121,35 @@ describe("POST /images — image upload", () => {
     expect(res.status).toBe(422);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
     expect(body.error).toBe("Image contains content that violates our policy");
+  });
+
+  it("flags image for review when classification is between review and reject threshold", async () => {
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
+    );
+
+    const env = makeEnv({
+      run: vi.fn().mockResolvedValue([
+        { label: "revolver", score: 0.50 },
+        { label: "toy", score: 0.30 },
+      ]) as Ai["run"],
+    });
+
+    const res = await app.request(
+      "/images",
+      { method: "POST", body: formData },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
+    expect(body.status).toBe("success");
+    expect((body.data as Record<string, unknown>).flaggedForReview).toBe(true);
+    // Image should still be uploaded to R2
+    expect(mockR2Put).toHaveBeenCalledTimes(1);
   });
 
   it("returns 503 when AI moderation is unavailable", async () => {
@@ -163,6 +206,7 @@ describe("POST /images — image upload", () => {
 
     for (const type of types) {
       vi.clearAllMocks();
+      mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
       const app = createApp();
       const formData = new FormData();
       const ext = type.split("/")[1];
@@ -179,6 +223,33 @@ describe("POST /images — image upload", () => {
 
       expect(res.status).toBe(200);
     }
+  });
+
+  it("does not reject safe content that happens to have low-score blocked labels", async () => {
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
+    );
+
+    const env = makeEnv({
+      run: vi.fn().mockResolvedValue([
+        { label: "tabby_cat", score: 0.80 },
+        { label: "rifle", score: 0.05 },
+      ]) as Ai["run"],
+    });
+
+    const res = await app.request(
+      "/images",
+      { method: "POST", body: formData },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { status: string; data: Record<string, unknown> };
+    expect(body.status).toBe("success");
+    expect((body.data as Record<string, unknown>).flaggedForReview).toBeUndefined();
   });
 });
 
