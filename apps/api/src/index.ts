@@ -5,6 +5,7 @@ import { prettyJSON } from "hono/pretty-json";
 
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
+import { checkPonderHealth } from "./lib/ponder-client.js";
 import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
@@ -30,7 +31,16 @@ app.use("*", cors());
 app.use("*", prettyJSON());
 
 app.get("/", (c) => c.json(formatSuccess("launchpad API")));
-app.get("/health", (c) => c.json(formatSuccess("healthy")));
+app.get("/health", async (c) => {
+  const ponderHealthy = await checkPonderHealth(c.env.PONDER_URL);
+  return c.json(formatSuccess({
+    status: ponderHealthy ? "healthy" : "degraded",
+    services: {
+      api: true,
+      ponder: ponderHealthy,
+    },
+  }));
+});
 
 app.use("/api/v1/*", apiKeyAuth);
 

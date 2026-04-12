@@ -42,7 +42,11 @@ trades.get("/", async (c) => {
     { limit },
   );
 
-  const items = data?.routerTrades?.items ?? [];
+  if (data === null) {
+    return c.json(formatError("Indexer unavailable — trade data cannot be loaded"), 503);
+  }
+
+  const items = data.routerTrades?.items ?? [];
 
   return c.json(formatSuccess(items));
 });
@@ -66,6 +70,13 @@ trades.get("/ohlcv/:address", async (c) => {
 
   if (!bucketSize) {
     return c.json(formatError(`Invalid interval. Supported: ${Object.keys(INTERVAL_SECONDS).join(", ")}`), 400);
+  }
+
+  // Pre-check Ponder availability before paginated query
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const healthCheck = await queryPonder<{ __typename: string }>("{ __typename }");
+  if (healthCheck === null) {
+    return c.json(formatError("Indexer unavailable — OHLCV data cannot be loaded"), 503);
   }
 
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
@@ -223,7 +234,11 @@ trades.get("/:address", async (c) => {
     { address, limit, offset },
   );
 
-  const items = data?.routerTrades?.items ?? [];
+  if (data === null) {
+    return c.json(formatError("Indexer unavailable — trade data cannot be loaded"), 503);
+  }
+
+  const items = data.routerTrades?.items ?? [];
 
   return c.json(formatSuccess(items));
 });

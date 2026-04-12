@@ -194,15 +194,16 @@ describe("GET /trades/:address", () => {
     expect(body.data).toHaveLength(1);
   });
 
-  it("returns empty array when Ponder returns null", async () => {
+  it("returns 503 when Ponder returns null", async () => {
     mockPonderQuery.mockResolvedValue(null);
 
     const app = createApp();
     const res = await app.request(`/trades/${VALID_ADDRESS}`, {}, makeEnv());
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.data).toEqual([]);
+    expect(body.status).toBe("error");
+    expect(body.data).toBeNull();
   });
 });
 
@@ -224,14 +225,15 @@ describe("GET /trades", () => {
     expect(body.data).toHaveLength(2);
   });
 
-  it("returns empty array when Ponder is unavailable", async () => {
+  it("returns 503 when Ponder is unavailable", async () => {
     mockPonderQuery.mockResolvedValue(null);
 
     const app = createApp();
     const res = await app.request("/trades", {}, makeEnv());
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.data).toEqual([]);
+    expect(body.status).toBe("error");
+    expect(body.data).toBeNull();
   });
 });
