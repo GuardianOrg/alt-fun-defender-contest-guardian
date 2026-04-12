@@ -13,6 +13,7 @@ import {
 } from "./mock/trades";
 import { fetchPonderToken, fetchPonderTrades } from "./ponder";
 import { getWebSocketClient } from "./websocket";
+import { formatTimeAgo } from "../utils/format";
 
 import type { Comment, Holder, Trade } from "./types";
 
@@ -292,14 +293,5 @@ const liveTradeService: ITradeService = {
   },
 };
 
-function formatTimeAgo(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 export const tradeService: ITradeService = liveTradeService;
