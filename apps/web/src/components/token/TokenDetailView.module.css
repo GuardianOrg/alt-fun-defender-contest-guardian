@@ -68,6 +68,17 @@
   flex-shrink: 0;
 }
 
+.errorFallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--txt-3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 2rem;
+}
+
 @media (max-width: 768px) {
   .wrapper {
     flex-direction: column;

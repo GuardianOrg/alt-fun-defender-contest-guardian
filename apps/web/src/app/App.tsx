@@ -50,9 +50,30 @@ const router = createBrowserRouter([
     path: HOME_ROUTE,
     element: <Layout />,
     children: [
-      { index: true, element: <TerminalView /> },
-      { path: TOKEN_ROUTE, element: <TokenDetailView /> },
-      { path: CREATE_ROUTE, element: <CreateView /> },
+      {
+        index: true,
+        element: (
+          <ErrorBoundary>
+            <TerminalView />
+          </ErrorBoundary>
+        ),
+      },
+      {
+        path: TOKEN_ROUTE,
+        element: (
+          <ErrorBoundary>
+            <TokenDetailView />
+          </ErrorBoundary>
+        ),
+      },
+      {
+        path: CREATE_ROUTE,
+        element: (
+          <ErrorBoundary>
+            <CreateView />
+          </ErrorBoundary>
+        ),
+      },
     ],
   },
 ]);
