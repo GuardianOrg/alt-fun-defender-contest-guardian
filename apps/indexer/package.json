@@ -20,8 +20,8 @@
   },
   "devDependencies": {
     "@launchpad/config": "*",
-    "@types/node": "^25.5.2",
-    "typescript": "~5.8",
-    "vitest": "^3"
+    "@types/node": "^25.6.0",
+    "typescript": "~6.0",
+    "vitest": "^4"
   }
 }

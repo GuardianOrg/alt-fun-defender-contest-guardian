@@ -12,7 +12,7 @@ export default tseslint.config([
   {
     files: ["**/*.{ts,tsx}"],
     extends: [
-      reactHooks.configs["recommended-latest"],
+      reactHooks.configs.flat["recommended-latest"],
       reactRefresh.configs.vite,
       importPlugin.flatConfigs.recommended,
     ],
@@ -29,6 +29,8 @@ export default tseslint.config([
       },
     },
     rules: {
+      "react-hooks/immutability": "off",
+      "react-hooks/set-state-in-effect": "off",
       "import/order": [
         "error",
         {

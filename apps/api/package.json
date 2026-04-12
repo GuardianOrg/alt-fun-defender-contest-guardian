@@ -26,12 +26,12 @@
     "zod": "^4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4",
+    "@cloudflare/workers-types": "^4.20260412.1",
     "@launchpad/config": "*",
-    "drizzle-kit": "^0.30",
-    "drizzle-zod": "^0.7",
-    "typescript": "~5.8",
-    "vitest": "^3",
+    "drizzle-kit": "^0.31",
+    "drizzle-zod": "^0.8",
+    "typescript": "~6.0",
+    "vitest": "^4",
     "wrangler": "^4"
   }
 }
