@@ -71,6 +71,7 @@ detailRoute.get("/:address", async (c) => {
   );
 
   const onchain = ponderData?.token;
+  const ponderAvailable = ponderData !== null;
   const totalSupply = 1_000_000_000n * 10n ** 18n;
   const curveAllocation = (totalSupply * 75n) / 100n;
 
@@ -91,7 +92,7 @@ detailRoute.get("/:address", async (c) => {
     status: computedStatus,
     graduatedAt: onchain?.graduatedAt ? new Date(Number(onchain.graduatedAt) * 1000).toISOString() : dbToken.graduatedAt,
     poolAddress: onchain?.pairAddress ?? dbToken.poolAddress,
-  }));
+  }, ponderAvailable ? "live" : "degraded"));
 });
 
 export default detailRoute;

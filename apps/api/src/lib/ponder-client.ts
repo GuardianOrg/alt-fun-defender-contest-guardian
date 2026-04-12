@@ -1,6 +1,7 @@
 const FALLBACK_URL = "http://localhost:42069";
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
+const HEALTH_CHECK_TIMEOUT = 3000;
 
 export function createPonderQuery(ponderUrl?: string) {
   const url = ponderUrl || FALLBACK_URL;
@@ -26,6 +27,34 @@ export function createPonderQuery(ponderUrl?: string) {
       return null;
     }
   };
+}
+
+/**
+ * Check if the Ponder GraphQL API is reachable and responding.
+ * Returns true if healthy, false otherwise.
+ */
+export async function checkPonderHealth(ponderUrl?: string): Promise<boolean> {
+  const url = ponderUrl || FALLBACK_URL;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT);
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "{ __typename }" }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return false;
+
+    const json = (await res.json()) as { data?: unknown; errors?: unknown[] };
+    return !!json.data && !json.errors;
+  } catch {
+    return false;
+  }
 }
 
 export interface PaginatedResult<T> {

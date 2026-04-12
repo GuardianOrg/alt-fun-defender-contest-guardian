@@ -3,7 +3,7 @@ import { isAddress } from "viem";
 
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
+import { createPonderPaginatedQuery, createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 import type { PonderRouterTrade } from "../lib/ponder-types.js";
@@ -16,6 +16,14 @@ portfolio.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
+
+  // Pre-check Ponder availability with a lightweight query
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const healthCheck = await queryPonder<{ __typename: string }>("{ __typename }");
+  if (healthCheck === null) {
+    return c.json(formatError("Indexer unavailable — portfolio data cannot be loaded"), 503);
+  }
+
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
   const { items: trades, truncated } = await queryPonderAll<Pick<PonderRouterTrade, "tokenAddress" | "isBuy" | "usdcAmount" | "tokenAmount">>(

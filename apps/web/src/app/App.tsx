@@ -14,6 +14,7 @@ import styles from "./App.module.css";
 import { CREATE_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
 import CreateView from "../components/create/CreateView";
 import AssetTape from "../components/layout/AssetTape";
+import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
 import Header from "../components/layout/Header";
 import PasswordGate from "../components/layout/PasswordGate";
@@ -34,6 +35,7 @@ const Layout = () => {
   return (
     <PasswordGate>
       <div className={cn(styles.app, isTokenPage && styles.ambpulse)}>
+        <DegradedBanner />
         <LeverageBanner />
         <Header />
         <AssetTape />

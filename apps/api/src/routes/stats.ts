@@ -41,6 +41,7 @@ stats.get("/", async (c) => {
     ),
   ]);
 
+  const ponderAvailable = tokenResult.items.length > 0 || tradeResult.items.length > 0;
   const allTokens = tokenResult.items;
   const trades24h = tradeResult.items;
 
@@ -57,7 +58,7 @@ stats.get("/", async (c) => {
     tokensGraduated,
     totalTokens: allTokens.length,
     volume24h: volume24h.toString(),
-  }));
+  }, ponderAvailable ? "live" : "degraded"));
 });
 
 export default stats;

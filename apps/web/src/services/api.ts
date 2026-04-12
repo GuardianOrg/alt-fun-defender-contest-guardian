@@ -6,13 +6,26 @@ interface ApiResponse<T> {
   status: "success" | "error";
   data: T | null;
   error: string | null;
+  dataSource?: "live" | "degraded";
 }
+
+/** Event dispatched when the API reports degraded data source */
+const DEGRADED_EVENT = "launchpad:degraded";
+
+function emitDegradedState(degraded: boolean) {
+  window.dispatchEvent(new CustomEvent(DEGRADED_EVENT, { detail: { degraded } }));
+}
+
+export { DEGRADED_EVENT };
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   const json = (await res.json()) as ApiResponse<T>;
   if (json.status === "error" || json.data === null) {
     throw new Error(json.error ?? "API error");
+  }
+  if (json.dataSource) {
+    emitDegradedState(json.dataSource === "degraded");
   }
   return json.data;
 }
