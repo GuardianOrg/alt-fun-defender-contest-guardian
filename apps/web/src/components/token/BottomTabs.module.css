@@ -211,6 +211,14 @@
   margin-top: 1px;
 }
 
+.commentError {
+  font-size: 12px;
+  color: var(--red);
+  padding: 0.25rem 0.75rem;
+  background: rgba(255, 80, 80, 0.06);
+  border-top: 1px solid var(--border);
+}
+
 .commentInputRow {
   display: flex;
   gap: 0.375rem;

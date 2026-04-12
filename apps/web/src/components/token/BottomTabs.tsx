@@ -81,6 +81,7 @@ function CommentsTab({ token }: { token: Token }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [input, setInput] = useState("");
   const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
   const { address, isConnected, connect } = useWallet();
   const { data: walletClient } = useWalletClient();
 
@@ -112,6 +113,7 @@ function CommentsTab({ token }: { token: Token }) {
     if (!walletClient) return;
 
     setPosting(true);
+    setPostError(null);
     try {
       const timestamp = Date.now();
       const message = buildCommentMessage(token.address, txt, timestamp);
@@ -130,8 +132,12 @@ function CommentsTab({ token }: { token: Token }) {
         ...prev,
       ]);
       setInput("");
-    } catch {
-      // Silently fail for now; could show error banner
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message.includes("rate")
+          ? "Rate limited, try again in 30 seconds."
+          : "Failed to post comment. Please try again.";
+      setPostError(message);
     } finally {
       setPosting(false);
     }
@@ -153,6 +159,9 @@ function CommentsTab({ token }: { token: Token }) {
           </div>
         ))}
       </div>
+      {postError && (
+        <div className={styles.commentError}>{postError}</div>
+      )}
       <div className={styles.commentInputRow}>
         <input
           className={styles.commentInput}
