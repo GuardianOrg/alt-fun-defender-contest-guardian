@@ -18,6 +18,7 @@ import assets from "./routes/assets.js";
 import referrals from "./routes/referrals.js";
 import holders from "./routes/holders.js";
 import security from "./routes/security.js";
+import { apiKeyAuth } from "./middleware/api-key-auth.js";
 
 import type { AppBindings } from "./lib/types.js";
 
@@ -29,6 +30,8 @@ app.use("*", prettyJSON());
 
 app.get("/", (c) => c.json(formatSuccess("launchpad API")));
 app.get("/health", (c) => c.json(formatSuccess("healthy")));
+
+app.use("/api/v1/*", apiKeyAuth);
 
 app.route("/api/v1/tokens", tokens);
 app.route("/api/v1/trades", trades);
@@ -43,6 +46,37 @@ app.route("/api/v1/assets", assets);
 app.route("/api/v1/referrals", referrals);
 app.route("/api/v1/holders", holders);
 app.route("/api/v1/security", security);
+
+app.post("/api/v1/webhook/indexer", async (c) => {
+  const adminKey = c.req.header("X-Admin-Key");
+  if (!adminKey || adminKey !== c.env.ADMIN_API_KEY) {
+    return c.json(formatError("Unauthorized"), 401);
+  }
+
+  const body = (await c.req.json()) as {
+    event: string;
+    data: unknown;
+    tokenAddress?: string;
+  };
+
+  const channelMap: Record<string, string> = {
+    trade: "trade",
+    newToken: "newToken",
+    graduation: "graduation",
+    price: "price",
+    stats: "stats",
+  };
+
+  const channel = channelMap[body.event];
+  if (!channel) {
+    return c.json(formatError(`Unknown event type: ${body.event}`), 400);
+  }
+
+  const { broadcastToChannel } = await import("./lib/broadcast.js");
+  await broadcastToChannel(c.env, channel, body.data, body.tokenAddress);
+
+  return c.json(formatSuccess({ broadcasted: true }));
+});
 
 app.get("/ws", async (c) => {
   const upgradeHeader = c.req.header("Upgrade");
@@ -70,15 +104,33 @@ app.onError((err, c) => {
   return c.json(formatError("Internal Server Error"), 500);
 });
 
-interface Subscription {
-  channels: Set<string>;
+interface ChannelSub {
+  /** When true, receives all messages on this channel regardless of token. */
+  global: boolean;
+  /** Token addresses this subscription is scoped to (empty = global only). */
   tokens: Set<string>;
+}
+
+interface Subscription {
+  channels: Map<string, ChannelSub>;
 }
 
 export class WebSocketDO extends DurableObject {
   private connections: Map<WebSocket, Subscription> = new Map();
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/broadcast" && request.method === "POST") {
+      const body = (await request.json()) as {
+        channel: string;
+        data: unknown;
+        tokenAddress?: string;
+      };
+      this.broadcast(body.channel, body.data, body.tokenAddress);
+      return new Response("ok", { status: 200 });
+    }
+
     const upgradeHeader = request.headers.get("Upgrade");
     if (upgradeHeader?.toLowerCase() !== "websocket") {
       return new Response("Expected WebSocket", { status: 426 });
@@ -88,7 +140,7 @@ export class WebSocketDO extends DurableObject {
     const [client, server] = Object.values(pair);
 
     this.ctx.acceptWebSocket(server);
-    this.connections.set(server, { channels: new Set(), tokens: new Set() });
+    this.connections.set(server, { channels: new Map() });
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -110,15 +162,32 @@ export class WebSocketDO extends DurableObject {
       if (!sub) return;
 
       if (data.type === "subscribe" && data.channel) {
-        sub.channels.add(data.channel);
-        if (data.token) sub.tokens.add(data.token);
+        let chanSub = sub.channels.get(data.channel);
+        if (!chanSub) {
+          chanSub = { global: false, tokens: new Set() };
+          sub.channels.set(data.channel, chanSub);
+        }
+        if (data.token) {
+          chanSub.tokens.add(data.token);
+        } else {
+          chanSub.global = true;
+        }
         ws.send(JSON.stringify({ type: "subscribed", channel: data.channel }));
         return;
       }
 
       if (data.type === "unsubscribe" && data.channel) {
-        sub.channels.delete(data.channel);
-        if (data.token) sub.tokens.delete(data.token);
+        const chanSub = sub.channels.get(data.channel);
+        if (chanSub) {
+          if (data.token) {
+            chanSub.tokens.delete(data.token);
+          } else {
+            chanSub.global = false;
+          }
+          if (!chanSub.global && chanSub.tokens.size === 0) {
+            sub.channels.delete(data.channel);
+          }
+        }
         ws.send(JSON.stringify({ type: "unsubscribed", channel: data.channel }));
       }
     } catch {
@@ -133,8 +202,9 @@ export class WebSocketDO extends DurableObject {
   broadcast(channel: string, data: unknown, tokenAddress?: string) {
     const payload = JSON.stringify({ channel, data });
     for (const [ws, sub] of this.connections) {
-      if (!sub.channels.has(channel)) continue;
-      if (tokenAddress && sub.tokens.size > 0 && !sub.tokens.has(tokenAddress)) continue;
+      const chanSub = sub.channels.get(channel);
+      if (!chanSub) continue;
+      if (tokenAddress && !chanSub.global && !chanSub.tokens.has(tokenAddress)) continue;
       try {
         ws.send(payload);
       } catch {

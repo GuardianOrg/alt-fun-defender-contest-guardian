@@ -192,3 +192,15 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+@media (max-width: 768px) {
+  .panel {
+    display: none;
+  }
+}
+
+@media (max-width: 1024px) {
+  .panel {
+    width: 180px;
+  }
+}

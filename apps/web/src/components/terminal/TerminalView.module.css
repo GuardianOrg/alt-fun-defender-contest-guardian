@@ -10,3 +10,15 @@
   flex-direction: column;
   overflow: hidden;
 }
+
+@media (max-width: 768px) {
+  .wrapper {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .mainContent {
+    overflow: visible;
+    min-height: 0;
+  }
+}

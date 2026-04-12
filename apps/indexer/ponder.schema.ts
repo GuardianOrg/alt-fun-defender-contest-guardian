@@ -83,3 +83,41 @@ export const feeClaim = onchainTable("fee_claim", (t) => ({
 }), (table) => ({
   claimerIdx: index().on(table.claimer),
 }));
+
+/** HyperSwap V2 Pair swaps (post-graduation DEX trades). */
+export const swap = onchainTable("swap", (t) => ({
+  id: t.text().primaryKey(),
+  pairAddress: t.hex().notNull(),
+  sender: t.hex().notNull(),
+  to: t.hex().notNull(),
+  amount0In: t.bigint().notNull(),
+  amount1In: t.bigint().notNull(),
+  amount0Out: t.bigint().notNull(),
+  amount1Out: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  pairIdx: index().on(table.pairAddress),
+  timestampIdx: index().on(table.timestamp),
+}));
+
+/** Latest HyperSwap V2 Pair reserves (updated on Sync events). */
+export const pairReserve = onchainTable("pair_reserve", (t) => ({
+  pairAddress: t.hex().primaryKey(),
+  reserve0: t.bigint().notNull(),
+  reserve1: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}));
+
+/** LT exchange rate snapshots polled on-chain via block intervals. */
+export const ltExchangeRate = onchainTable("lt_exchange_rate", (t) => ({
+  id: t.text().primaryKey(),
+  ltAddress: t.hex().notNull(),
+  rate: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  ltIdx: index().on(table.ltAddress),
+  timestampIdx: index().on(table.timestamp),
+}));

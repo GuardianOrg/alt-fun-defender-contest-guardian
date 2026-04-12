@@ -1,9 +1,10 @@
 import { createConfig } from "@ponder/core";
-import { http } from "viem";
+import { http, parseAbiItem } from "viem";
 
 import {
   BondingAbi,
   RedemptionRouterAbi,
+  UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
   BONDING_START_BLOCK,
@@ -28,6 +29,13 @@ export default createConfig({
       transport: http(process.env.PONDER_RPC_URL_999),
     },
   },
+  blocks: {
+    ExchangeRatePoller: {
+      network: "hyperevm",
+      startBlock,
+      interval: 10,
+    },
+  },
   contracts: {
     Bonding: {
       network: "hyperevm",
@@ -39,6 +47,18 @@ export default createConfig({
       network: "hyperevm",
       abi: RedemptionRouterAbi,
       address: redemptionRouterAddress,
+      startBlock,
+    },
+    HyperSwapPair: {
+      network: "hyperevm",
+      abi: UniswapV2PairAbi,
+      factory: {
+        address: bondingAddress,
+        event: parseAbiItem(
+          "event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity)",
+        ),
+        parameter: "pairAddress",
+      },
       startBlock,
     },
   },

@@ -8,6 +8,7 @@ import { tokens } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { createPonderQuery } from "../lib/ponder-client.js";
+import { broadcastToChannel } from "../lib/broadcast.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -282,6 +283,8 @@ tokensRoute.post("/", async (c) => {
   if (!token) {
     return c.json(formatError("Token already exists"), 409);
   }
+
+  c.executionCtx.waitUntil(broadcastToChannel(c.env, "newToken", token).catch(() => {}));
 
   return c.json(formatSuccess(token), 201);
 });

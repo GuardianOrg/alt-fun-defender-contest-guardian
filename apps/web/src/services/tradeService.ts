@@ -12,6 +12,7 @@ import {
   MOCK_HOLDERS,
 } from "./mock/trades";
 import { fetchPonderToken, fetchPonderTrades } from "./ponder";
+import { getWebSocketClient } from "./websocket";
 
 import type { Comment, Holder, Trade } from "./types";
 
@@ -116,11 +117,24 @@ export interface ITradeService {
 
 const liveTradeService: ITradeService = {
   subscribeFeed(cb) {
+    const ws = getWebSocketClient();
+    let unsubWs: (() => void) | null = null;
+    const seenIds = new Set<string>();
+
+    if (ws) {
+      unsubWs = ws.subscribe("trade", (data) => {
+        const trade = data as Trade;
+        if (trade.id && !seenIds.has(trade.id)) {
+          seenIds.add(trade.id);
+          cb(trade);
+        }
+      });
+    }
+
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let polling = false;
     let hasLiveData = false;
-    const seenIds = new Set<string>();
 
     const poll = async (initial: boolean) => {
       if (cancelled || polling) return;
@@ -157,19 +171,40 @@ const liveTradeService: ITradeService = {
     };
 
     void poll(true);
-    intervalId = setInterval(() => void poll(false), 3000);
+    const schedulePoll = () => {
+      if (cancelled) return;
+      pollTimer = setTimeout(() => {
+        void poll(false).finally(schedulePoll);
+      }, ws?.isConnected ? 15_000 : 3_000);
+    };
+    schedulePoll();
 
     return () => {
       cancelled = true;
-      if (intervalId) clearInterval(intervalId);
+      if (pollTimer) clearTimeout(pollTimer);
+      unsubWs?.();
     };
   },
 
   subscribeTokenTrades(address, cb) {
+    const ws = getWebSocketClient();
+    let unsubWs: (() => void) | null = null;
+    const seenIds = new Set<string>();
+
+    const normalizedAddress = address.toLowerCase();
+    if (ws) {
+      unsubWs = ws.subscribe("trade", (data) => {
+        const trade = data as Trade;
+        if (trade.id && !seenIds.has(trade.id) && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
+          seenIds.add(trade.id);
+          cb(trade);
+        }
+      }, normalizedAddress);
+    }
+
     let cancelled = false;
     let polling = false;
     let hasLiveData = false;
-    const seenIds = new Set<string>();
 
     const poll = async () => {
       if (cancelled || polling) return;
@@ -199,11 +234,19 @@ const liveTradeService: ITradeService = {
     };
 
     void poll();
-    const interval = setInterval(() => void poll(), 5000);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedulePoll = () => {
+      if (cancelled) return;
+      timer = setTimeout(() => {
+        void poll().finally(schedulePoll);
+      }, ws?.isConnected ? 15_000 : 5_000);
+    };
+    schedulePoll();
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      unsubWs?.();
     };
   },
 

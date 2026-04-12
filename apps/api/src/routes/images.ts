@@ -8,6 +8,51 @@ import type { AppBindings } from "../lib/types.js";
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
+// Production CSAM detection should use a certified service (e.g. Microsoft PhotoDNA).
+// This Workers AI layer detects obviously objectionable content but is NOT NCMEC-certified.
+const BLOCKED_KEYWORDS = [
+  "child abuse",
+  "child exploitation",
+  "minor",
+  "underage",
+  "gore",
+  "dismember",
+  "mutilation",
+  "beheading",
+  "torture",
+  "corpse",
+  "dead body",
+  "extreme violence",
+];
+
+interface ModerationResult {
+  safe: boolean;
+  reason: string;
+  unavailable?: boolean;
+}
+
+async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<ModerationResult> {
+  try {
+    const response = await ai.run("@cf/unum/uform-gen2-qwen-500m", {
+      image: Array.from(imageBytes),
+      prompt: "Describe what this image contains. Focus on any people, their apparent age, violence, or graphic content.",
+      max_tokens: 128,
+    });
+
+    const description = (response as { description?: string }).description?.toLowerCase() ?? "";
+
+    for (const keyword of BLOCKED_KEYWORDS) {
+      if (description.includes(keyword)) {
+        return { safe: false, reason: "Image contains content that violates our policy" };
+      }
+    }
+
+    return { safe: true, reason: "" };
+  } catch {
+    return { safe: false, reason: "Image moderation is temporarily unavailable. Please try again.", unavailable: true };
+  }
+}
+
 const images = new Hono<{ Bindings: AppBindings }>();
 
 function sanitizeFileName(raw: string): string {
@@ -45,8 +90,15 @@ images.post("/", async (c) => {
     return c.json(formatError("File too large. Maximum 5MB"), 400);
   }
 
-  const key = `tokens/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
   const arrayBuffer = await file.arrayBuffer();
+
+  const moderationResult = await moderateImage(c.env.AI, new Uint8Array(arrayBuffer));
+  if (!moderationResult.safe) {
+    const status = moderationResult.unavailable ? 503 : 422;
+    return c.json(formatError(moderationResult.reason), status);
+  }
+
+  const key = `tokens/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
   await c.env.IMAGES_BUCKET.put(key, arrayBuffer, {
     httpMetadata: { contentType: file.type },

@@ -8,12 +8,15 @@ import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { adminAuth } from "../middleware/admin-auth.js";
 import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
+import apiKeysRoute from "./api-keys.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const admin = new Hono<{ Bindings: AppBindings }>();
 
 admin.use("*", adminAuth);
+
+admin.route("/api-keys", apiKeysRoute);
 
 admin.post("/tokens/:address/hide", async (c) => {
   const rawAddress = c.req.param("address");

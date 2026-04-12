@@ -503,6 +503,92 @@ contract BondingTest is Test {
         vm.stopPrank();
     }
 
+    // ─── Graduation Integration Tests ──────────────────────────────────────
+
+    function test_graduation_setsGraduatedFlag() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader2, 100 ether);
+
+        assertTrue(bonding.isGraduated(tokenAddr));
+        assertFalse(bonding.isTrading(tokenAddr));
+    }
+
+    function test_graduation_sellAlsoReverts() public {
+        (address tokenAddr,) = _launchToken();
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader2, 100 ether);
+        assertTrue(bonding.isGraduated(tokenAddr));
+
+        vm.startPrank(trader);
+        FERC20(tokenAddr).approve(address(router), tokensOut);
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
+        vm.stopPrank();
+    }
+
+    function test_graduation_emitsTokenGraduated() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+
+        lt.mintDirect(trader2, 100 ether);
+        vm.startPrank(trader2);
+        lt.approve(address(router), 100 ether);
+
+        vm.expectEmit(true, false, false, false);
+        emit Bonding.TokenGraduated(tokenAddr, address(0), 0);
+        bonding.buy(100 ether, tokenAddr, 0, block.timestamp + 300);
+        vm.stopPrank();
+    }
+
+    function test_graduation_createsLpLock() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader2, 100 ether);
+
+        (address lpPair, uint256 lockedAmount, uint256 lockedAt) = lpLockContract.getLock(tokenAddr);
+        assertTrue(lpPair != address(0), "LP pair should be recorded");
+        assertTrue(lockedAmount > 0, "Locked LP amount should be > 0");
+        assertTrue(lockedAt > 0, "Lock timestamp should be set");
+    }
+
+    function test_graduation_setsGraduatedPair() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader2, 100 ether);
+
+        address hyperPair = bonding.graduatedPair(tokenAddr);
+        assertTrue(hyperPair != address(0), "HyperSwap pair should be set");
+    }
+
+    function test_graduation_lpReserveCleared() public {
+        (address tokenAddr,) = _launchToken();
+        uint256 lpBefore = bonding.lpReserve(tokenAddr);
+        assertTrue(lpBefore > 0, "LP reserve should be set before graduation");
+
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader2, 100 ether);
+
+        assertEq(bonding.lpReserve(tokenAddr), 0, "LP reserve should be cleared after graduation");
+    }
+
+    function test_graduation_lpTokensSentToLpLock() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader2, 100 ether);
+
+        address hyperPair = bonding.graduatedPair(tokenAddr);
+        uint256 lpBalance = IERC20(hyperPair).balanceOf(address(lpLockContract));
+        assertTrue(lpBalance > 0, "LPLock should hold LP tokens");
+    }
+
     // ─── Multiple Tokens Test ────────────────────────────────────────────
 
     function test_multipleTokens_independentCurves() public {

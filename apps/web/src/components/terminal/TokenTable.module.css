@@ -128,3 +128,22 @@
 .headCellRight {
   justify-content: flex-end;
 }
+
+@media (max-width: 768px) {
+  .wrapper {
+    flex-direction: column;
+  }
+
+  .columnShort {
+    border-left: 0;
+    border-top: 1px solid var(--border-2);
+  }
+
+  .scrollArea {
+    overflow-x: auto;
+  }
+
+  .tableHead {
+    min-width: 500px;
+  }
+}
