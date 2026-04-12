@@ -115,6 +115,10 @@ interface Subscription {
   channels: Map<string, ChannelSub>;
 }
 
+/**
+ * WebSocket Durable Object — manages real-time client subscriptions.
+ * Canonical channel list is defined in the channelMap above and documented in docs/backend-scope.md.
+ */
 export class WebSocketDO extends DurableObject {
   private connections: Map<WebSocket, Subscription> = new Map();
 
