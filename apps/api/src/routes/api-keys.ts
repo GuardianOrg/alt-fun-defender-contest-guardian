@@ -25,7 +25,12 @@ function generateKey(): string {
 }
 
 apiKeysRoute.post("/", async (c) => {
-  const body = await c.req.json<{ name?: string; ownerAddress?: string; rateLimit?: number }>();
+  let body: { name?: string; ownerAddress?: string; rateLimit?: number };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(formatError("Invalid JSON body"), 400);
+  }
 
   if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
     return c.json(formatError("name is required"), 400);
