@@ -1,104 +1,18 @@
-import { formatUnits } from "viem";
-
-import { fetchComments, fetchHolders, fetchLeveragedTokens } from "./api";
+import { fetchComments, fetchHolders } from "./api";
 import {
-  generateFeedTrade,
-  generateTokenTrade,
   INITIAL_TOKEN_TRADES,
   MOCK_HOLDERS,
 } from "./mock/trades";
-import { fetchPonderToken, fetchPonderTrades } from "./ponder";
-import { getWebSocketClient } from "./websocket";
+import { subscribeFeed, subscribeTokenTrades } from "./tradeFeed";
+import { formatTokenBalance } from "./tradeFormatter";
 import { formatTimeAgo } from "../utils/format";
 
 import type { Comment, Holder, Trade } from "./types";
 
-const TOKEN_DECIMALS = 10n ** 18n;
-
-function formatTenths(value: bigint, divisor: bigint, suffix: string): string {
-  const tenths = (value * 10n + divisor / 2n) / divisor;
-  return `${tenths / 10n}.${tenths % 10n}${suffix}`;
-}
-
-function formatTokenBalance(raw: string): string {
-  const amount = BigInt(raw);
-  if (amount >= 1_000_000_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000_000_000n * TOKEN_DECIMALS, "B");
-  if (amount >= 1_000_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000_000n * TOKEN_DECIMALS, "M");
-  if (amount >= 1_000n * TOKEN_DECIMALS) return formatTenths(amount, 1_000n * TOKEN_DECIMALS, "K");
-  return formatTenths(amount, TOKEN_DECIMALS, "");
-}
-
-// LT address → exchange rate (USD per LT, as a float)
-let ltRateCache = new Map<string, number>();
-let ltRateCacheTime = 0;
-const LT_RATE_CACHE_TTL = 60_000;
-
-async function getLtExchangeRates(): Promise<Map<string, number>> {
-  if (Date.now() - ltRateCacheTime < LT_RATE_CACHE_TTL && ltRateCache.size > 0) {
-    return ltRateCache;
-  }
-  const lts = await fetchLeveragedTokens();
-  const rates = new Map<string, number>();
-  for (const lt of lts) {
-    rates.set(lt.address.toLowerCase(), parseFloat(formatUnits(BigInt(lt.exchangeRate), 18)));
-  }
-  ltRateCache = rates;
-  ltRateCacheTime = Date.now();
-  return rates;
-}
-
-// tokenAddress → ltAddress (lowercase)
-const tokenLtMap = new Map<string, string>();
-
-async function getLtAddressForToken(tokenAddress: string): Promise<string | undefined> {
-  const key = tokenAddress.toLowerCase();
-  const cached = tokenLtMap.get(key);
-  if (cached) return cached;
-
-  const token = await fetchPonderToken(tokenAddress);
-  if (token) {
-    const ltAddr = token.ltToken.toLowerCase();
-    tokenLtMap.set(key, ltAddr);
-    return ltAddr;
-  }
-  return undefined;
-}
-
-async function resolveExchangeRate(tokenAddress: string): Promise<number> {
-  const [rates, ltAddr] = await Promise.all([
-    getLtExchangeRates(),
-    getLtAddressForToken(tokenAddress),
-  ]);
-  if (ltAddr) {
-    return rates.get(ltAddr) ?? 1;
-  }
-  return 1;
-}
-
-interface PonderTradeInput {
-  id: string;
-  tokenAddress: string;
-  trader: string;
-  isBuy: boolean;
-  ltAmount: string;
-  tokenAmount: string;
-  timestamp: string;
-}
-
-function ponderTradeToTrade(pt: PonderTradeInput, exchangeRate: number): Trade {
-  const ltAmountFloat = parseFloat(formatUnits(BigInt(pt.ltAmount), 18));
-
-  return {
-    id: pt.id,
-    side: pt.isBuy ? "BUY" : "SELL",
-    amountUsd: ltAmountFloat * exchangeRate,
-    tokensAmount: formatUnits(BigInt(pt.tokenAmount), 18),
-    walletAddress: `${pt.trader.slice(0, 4)}…${pt.trader.slice(-2)}`,
-    timestamp: new Date(Number(pt.timestamp) * 1000).toISOString(),
-    tokenAddress: pt.tokenAddress,
-    tokenName: "",
-  };
-}
+export type { PonderTradeInput } from "./tradeFormatter";
+export { getLtExchangeRates, resolveExchangeRate } from "./exchangeRates";
+export { formatTokenBalance, ponderTradeToTrade } from "./tradeFormatter";
+export { subscribeFeed, subscribeTokenTrades } from "./tradeFeed";
 
 export interface ITradeService {
   subscribeFeed(cb: (trade: Trade) => void): () => void;
@@ -112,139 +26,9 @@ export interface ITradeService {
 }
 
 const liveTradeService: ITradeService = {
-  subscribeFeed(cb) {
-    const ws = getWebSocketClient();
-    let unsubWs: (() => void) | null = null;
-    const seenIds = new Set<string>();
+  subscribeFeed,
 
-    if (ws) {
-      unsubWs = ws.subscribe("trade", (data) => {
-        const trade = data as Trade;
-        if (trade.id && !seenIds.has(trade.id)) {
-          seenIds.add(trade.id);
-          cb(trade);
-        }
-      });
-    }
-
-    let cancelled = false;
-    let pollTimer: ReturnType<typeof setTimeout> | null = null;
-    let polling = false;
-    let hasLiveData = false;
-
-    const poll = async (initial: boolean) => {
-      if (cancelled || polling) return;
-      polling = true;
-      try {
-        const trades = await fetchPonderTrades(undefined, 20);
-        if (cancelled) return;
-
-        const uniqueTokens = [...new Set(trades.map((t) => t.tokenAddress))];
-        const rateEntries = await Promise.all(
-          uniqueTokens.map(async (addr) => [addr, await resolveExchangeRate(addr)] as const),
-        );
-        const rateMap = new Map(rateEntries);
-
-        const batchIds = new Set<string>();
-        for (const t of trades) {
-          batchIds.add(t.id);
-          if (seenIds.has(t.id)) continue;
-          cb(ponderTradeToTrade(t, rateMap.get(t.tokenAddress) ?? 1));
-        }
-        seenIds.clear();
-        for (const id of batchIds) seenIds.add(id);
-        hasLiveData = true;
-      } catch {
-        if (!hasLiveData && initial && import.meta.env.DEV) {
-          for (let i = 0; i < 8; i++) {
-            if (cancelled) return;
-            cb(generateFeedTrade());
-          }
-        }
-      } finally {
-        polling = false;
-      }
-    };
-
-    void poll(true);
-    const schedulePoll = () => {
-      if (cancelled) return;
-      pollTimer = setTimeout(() => {
-        void poll(false).finally(schedulePoll);
-      }, ws?.isConnected ? 15_000 : 3_000);
-    };
-    schedulePoll();
-
-    return () => {
-      cancelled = true;
-      if (pollTimer) clearTimeout(pollTimer);
-      unsubWs?.();
-    };
-  },
-
-  subscribeTokenTrades(address, cb) {
-    const ws = getWebSocketClient();
-    let unsubWs: (() => void) | null = null;
-    const seenIds = new Set<string>();
-
-    const normalizedAddress = address.toLowerCase();
-    if (ws) {
-      unsubWs = ws.subscribe("trade", (data) => {
-        const trade = data as Trade;
-        if (trade.id && !seenIds.has(trade.id) && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
-          seenIds.add(trade.id);
-          cb(trade);
-        }
-      }, normalizedAddress);
-    }
-
-    let cancelled = false;
-    let polling = false;
-    let hasLiveData = false;
-
-    const poll = async () => {
-      if (cancelled || polling) return;
-      polling = true;
-      try {
-        const [trades, exchangeRate] = await Promise.all([
-          fetchPonderTrades(address, 30),
-          resolveExchangeRate(address),
-        ]);
-        if (cancelled) return;
-        const batchIds = new Set<string>();
-        for (const t of trades) {
-          batchIds.add(t.id);
-          if (seenIds.has(t.id)) continue;
-          cb(ponderTradeToTrade(t, exchangeRate));
-        }
-        seenIds.clear();
-        for (const id of batchIds) seenIds.add(id);
-        hasLiveData = true;
-      } catch {
-        if (!hasLiveData && !cancelled && import.meta.env.DEV) {
-          cb(generateTokenTrade());
-        }
-      } finally {
-        polling = false;
-      }
-    };
-
-    void poll();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const schedulePoll = () => {
-      if (cancelled) return;
-      timer = setTimeout(() => {
-        void poll().finally(schedulePoll);
-      }, ws?.isConnected ? 15_000 : 5_000);
-    };
-    schedulePoll();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      unsubWs?.();
-    };
-  },
+  subscribeTokenTrades,
 
   getInitialTrades(address) {
     void address;
