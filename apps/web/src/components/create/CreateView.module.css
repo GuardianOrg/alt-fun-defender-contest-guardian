@@ -81,6 +81,23 @@
   color: rgba(240, 80, 80, 0.6);
 }
 
+.warningBanner {
+  font-size: 13px;
+  color: var(--yellow, #f0c050);
+  background: rgba(240, 192, 80, 0.06);
+  border: 1px solid rgba(240, 192, 80, 0.2);
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.warningIcon {
+  color: rgba(240, 192, 80, 0.6);
+}
+
 .successBanner {
   font-size: 13px;
   color: var(--mint);

@@ -29,7 +29,7 @@ export default function CreateView() {
   const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
-  const { step: launchStep, error: launchError, tokenAddress, create } = useCreateToken();
+  const { step: launchStep, error: launchError, warning: launchWarning, tokenAddress, create } = useCreateToken();
   const seedAmt = parseFloat(seedAmount) || 0;
   const isBusy = launchStep === "approving" || launchStep === "deploying";
 
@@ -119,6 +119,13 @@ export default function CreateView() {
               <div className={styles.errorBanner}>
                 <span className={styles.errorIcon}>⚠</span>
                 {launchError}
+              </div>
+            )}
+
+            {launchStep === "confirmed" && launchWarning && (
+              <div className={styles.warningBanner}>
+                <span className={styles.warningIcon}>⚠</span>
+                {launchWarning}
               </div>
             )}
 
