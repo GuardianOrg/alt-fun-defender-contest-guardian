@@ -16,6 +16,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@hono/swagger-ui": "^0.6.1",
     "@hono/zod-validator": "^0.7.6",
     "@launchpad/shared": "*",
     "drizzle-orm": "^0.39",
