@@ -1,6 +1,6 @@
 import { HYPERLIQUID_INFO_API } from "@launchpad/shared";
 
-import { fetchTokens } from "./api";
+import { API_BASE, fetchTokens } from "./api";
 import { fetchPonderTokens } from "./ponder";
 import { COLORS } from "../config/colors";
 
@@ -85,8 +85,6 @@ export interface IAssetService {
   getPlatformStats(): Promise<PlatformStats>;
   getPairFilters(): Promise<PairFilter[]>;
 }
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
 
 const liveAssetService: IAssetService = {
   async getAssets() {
