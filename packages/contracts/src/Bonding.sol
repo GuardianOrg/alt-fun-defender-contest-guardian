@@ -122,6 +122,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error NotRedemptionRouter();
     error ZeroExchangeRate();
     error PairAlreadySeeded();
+    error PairLookupFailed();
 
     constructor() {
         _disableInitializers();
@@ -499,7 +500,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         // Use staticcall to IUniswapV2Factory.getPair
         (bool ok, bytes memory data) =
             hsFactory.staticcall(abi.encodeWithSignature("getPair(address,address)", tokenA, tokenB));
-        require(ok && data.length >= 32, "pair lookup failed");
+        if (!ok || data.length < 32) revert PairLookupFailed();
         return abi.decode(data, (address));
     }
 
