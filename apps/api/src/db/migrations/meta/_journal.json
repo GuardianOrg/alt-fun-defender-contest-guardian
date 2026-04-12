@@ -15,6 +15,13 @@
       "when": 1776182400000,
       "tag": "0001_hash_api_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776268800000,
+      "tag": "0002_add_key_prefix_index",
+      "breakpoints": true
     }
   ]
 }

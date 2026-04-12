@@ -3,7 +3,7 @@ import type { Context, Next } from "hono";
 
 import { createDb } from "../db/client.js";
 import { apiKeys } from "../db/schema.js";
-import { extractPrefix, verifyApiKey } from "../utils/api-key-hash.js";
+import { extractPrefix, hashApiKey, constantTimeEqual } from "../utils/api-key-hash.js";
 import type { AppBindings } from "../lib/types.js";
 
 interface RateWindow {
@@ -34,6 +34,7 @@ export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Ne
   }
 
   const prefix = extractPrefix(headerKey);
+  const keyHash = await hashApiKey(headerKey);
   const db = createDb(c.env.DATABASE_URL);
   const candidates = await db
     .select()
@@ -42,7 +43,7 @@ export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Ne
 
   let matchedRow: (typeof candidates)[number] | undefined;
   for (const candidate of candidates) {
-    if (await verifyApiKey(headerKey, candidate.keyHash)) {
+    if (constantTimeEqual(keyHash, candidate.keyHash)) {
       matchedRow = candidate;
       break;
     }

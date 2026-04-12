@@ -11,14 +11,12 @@ export function extractPrefix(rawKey: string): string {
   return rawKey.slice(0, KEY_PREFIX_LENGTH);
 }
 
-export async function verifyApiKey(rawKey: string, storedHash: string): Promise<boolean> {
-  const candidateHash = await hashApiKey(rawKey);
-  if (candidateHash.length !== storedHash.length) return false;
-
-  // Constant-time comparison to prevent timing attacks
+export function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
   let mismatch = 0;
-  for (let i = 0; i < candidateHash.length; i++) {
-    mismatch |= candidateHash.charCodeAt(i) ^ storedHash.charCodeAt(i);
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return mismatch === 0;
 }
+
