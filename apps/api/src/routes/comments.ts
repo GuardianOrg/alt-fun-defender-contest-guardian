@@ -10,6 +10,12 @@ import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
 
+function parseNonNegativeInt(value: string | undefined): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/.test(value)) return null;
+  return Number.parseInt(value, 10);
+}
+
 const COMMENT_RATE_LIMIT_MS = 30_000;
 const COMMENT_SIGNATURE_TTL_MS = 5 * 60_000;
 const commentRateLimit = new Map<string, number>();
@@ -22,8 +28,14 @@ commentsRoute.get("/:address/comments", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const tokenAddress = getAddress(rawAddress);
-  const limit = Math.min(Number(c.req.query("limit") ?? 50), 100);
-  const offset = Number(c.req.query("offset") ?? 0);
+
+  const limitParam = parseNonNegativeInt(c.req.query("limit"));
+  const offsetParam = parseNonNegativeInt(c.req.query("offset"));
+  if (limitParam === null || offsetParam === null) {
+    return c.json(formatError("Invalid pagination parameters"), 400);
+  }
+  const limit = Math.min(limitParam ?? 50, 100);
+  const offset = offsetParam ?? 0;
 
   const db = createDb(c.env.DATABASE_URL);
   const items = await db
