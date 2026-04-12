@@ -168,13 +168,17 @@ const liveTradeService: ITradeService = {
     };
 
     void poll(true);
-    intervalId = setInterval(() => {
-      void poll(false);
-    }, ws?.isConnected ? 15_000 : 3_000);
+    const schedulePoll = () => {
+      if (cancelled) return;
+      intervalId = setTimeout(() => {
+        void poll(false).finally(schedulePoll);
+      }, ws?.isConnected ? 15_000 : 3_000) as unknown as ReturnType<typeof setInterval>;
+    };
+    schedulePoll();
 
     return () => {
       cancelled = true;
-      if (intervalId) clearInterval(intervalId);
+      if (intervalId) clearTimeout(intervalId);
       unsubWs?.();
     };
   },
@@ -183,10 +187,13 @@ const liveTradeService: ITradeService = {
     const ws = getWebSocketClient();
     let unsubWs: (() => void) | null = null;
 
+    const normalizedAddress = address.toLowerCase();
     if (ws) {
       unsubWs = ws.subscribe("trade", (data) => {
         const trade = data as Trade;
-        if (trade.id) cb(trade);
+        if (trade.id && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
+          cb(trade);
+        }
       }, address);
     }
 
@@ -223,13 +230,18 @@ const liveTradeService: ITradeService = {
     };
 
     void poll();
-    const interval = setInterval(() => {
-      void poll();
-    }, ws?.isConnected ? 15_000 : 5_000);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const schedulePoll = () => {
+      if (cancelled) return;
+      timer = setTimeout(() => {
+        void poll().finally(schedulePoll);
+      }, ws?.isConnected ? 15_000 : 5_000);
+    };
+    schedulePoll();
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (timer) clearTimeout(timer);
       unsubWs?.();
     };
   },
