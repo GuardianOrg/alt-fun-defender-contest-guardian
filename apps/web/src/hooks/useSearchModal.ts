@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
 import { useQueries } from "@tanstack/react-query";
 import { useDispatch, useSelector } from "react-redux";
@@ -16,6 +16,7 @@ export function useSearchModal() {
   const open = useSelector(selectSearchOpen);
   const dispatch = useDispatch();
   const [query, setQuery] = useState("");
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { data: tokens } = useTokens();
@@ -43,6 +44,12 @@ export function useSearchModal() {
     return map;
   }, [trendingTokens, sparklineQueries]);
   const [searchResults, setSearchResults] = useState<Token[] | null>(null);
+
+  // Reset highlight when query or results change
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [query]);
+
   useEffect(() => {
     if (!query.trim()) {
       setSearchResults(null);
@@ -88,30 +95,60 @@ export function useSearchModal() {
   }, [query]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        dispatch(setSearchOpen(true));
-      }
-      if (e.key === "Escape") dispatch(setSearchOpen(false));
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [dispatch]);
-
-  useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 60);
     else setQuery("");
   }, [open]);
 
   const filtered = query.trim() ? searchResults : null;
 
-  const goToToken = (address: string) => {
+  const goToToken = useCallback((address: string) => {
     dispatch(setSearchOpen(false));
     navigate(tokenPath(address));
-  };
+  }, [dispatch, navigate]);
 
   const close = () => dispatch(setSearchOpen(false));
+
+  // The navigable list: search results when typing, trending tokens otherwise
+  const navigableItems = useMemo(() => {
+    if (filtered) return filtered;
+    return trendingTokens;
+  }, [filtered, trendingTokens]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        dispatch(setSearchOpen(true));
+      }
+      if (e.key === "Escape") dispatch(setSearchOpen(false));
+
+      if (!open) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightedIndex((prev) => {
+          const max = navigableItems.length - 1;
+          return prev < max ? prev + 1 : 0;
+        });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightedIndex((prev) => {
+          const max = navigableItems.length - 1;
+          return prev > 0 ? prev - 1 : max;
+        });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (highlightedIndex >= 0 && highlightedIndex < navigableItems.length) {
+          const token = navigableItems[highlightedIndex];
+          if (token) {
+            goToToken(token.address);
+          }
+        }
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [dispatch, open, navigableItems, highlightedIndex, goToToken]);
 
   return {
     open,
@@ -123,5 +160,7 @@ export function useSearchModal() {
     filtered,
     goToToken,
     close,
+    highlightedIndex,
+    setHighlightedIndex,
   };
 }

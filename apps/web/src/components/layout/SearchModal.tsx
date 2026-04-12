@@ -15,6 +15,8 @@ export default function SearchModal() {
     filtered,
     goToToken,
     close,
+    highlightedIndex,
+    setHighlightedIndex,
   } = useSearchModal();
 
   if (!open) return null;
@@ -41,12 +43,14 @@ export default function SearchModal() {
           <div className={styles.defaultContent}>
             <div className={styles.sectionLabel}>TRENDING</div>
             <div className={styles.trendingRow}>
-              {trendingTokens.map((t) => (
+              {trendingTokens.map((t, i) => (
                 <SearchTrendingCard
                   key={t.address}
                   token={t}
                   sparklineData={sparklineMap.get(t.address)}
                   onClick={() => goToToken(t.address)}
+                  highlighted={highlightedIndex === i}
+                  onMouseEnter={() => setHighlightedIndex(i)}
                 />
               ))}
             </div>
@@ -64,7 +68,12 @@ export default function SearchModal() {
             </div>
           </div>
         ) : (
-          <SearchResultsList results={filtered} onSelect={goToToken} />
+          <SearchResultsList
+            results={filtered}
+            onSelect={goToToken}
+            highlightedIndex={highlightedIndex}
+            onHighlight={setHighlightedIndex}
+          />
         )}
       </div>
     </ModalOverlay>

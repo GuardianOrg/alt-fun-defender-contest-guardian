@@ -13,7 +13,8 @@
   transition: all 0.15s ease;
 }
 
-.trendingCard:hover {
+.trendingCard:hover,
+.trendingCardHighlighted {
   border-color: var(--border-2);
   background: rgba(255, 255, 255, 0.04);
 }
@@ -243,7 +244,8 @@
     border-color 0.15s ease;
 }
 
-.resultRow:hover {
+.resultRow:hover,
+.resultRowHighlighted {
   background: rgba(255, 255, 255, 0.03);
 }
 

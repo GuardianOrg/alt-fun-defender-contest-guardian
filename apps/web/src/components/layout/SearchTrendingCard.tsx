@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import styles from "./SearchModal.module.css";
 import { COLORS } from "../../config/colors";
@@ -50,14 +50,34 @@ export default function SearchTrendingCard({
   token,
   sparklineData,
   onClick,
+  highlighted,
+  onMouseEnter,
 }: {
   token: Token;
   sparklineData?: number[];
   onClick: () => void;
+  highlighted?: boolean;
+  onMouseEnter?: () => void;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
   const up = token.change24h >= 0;
+
+  useEffect(() => {
+    if (highlighted && cardRef.current) {
+      cardRef.current.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }, [highlighted]);
+
   return (
-    <div className={styles.trendingCard} onClick={onClick}>
+    <div
+      ref={cardRef}
+      className={cn(
+        styles.trendingCard,
+        highlighted && styles.trendingCardHighlighted,
+      )}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+    >
       <div className={styles.trendingCardHeader}>
         <div className={styles.trendingCardIcon}>
           {token.image ? (
