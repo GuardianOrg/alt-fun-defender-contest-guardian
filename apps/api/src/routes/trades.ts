@@ -9,10 +9,10 @@ import type { AppBindings } from "../lib/types.js";
 
 const trades = new Hono<{ Bindings: AppBindings }>();
 
-function safeInt(value: string | undefined, fallback: number): number {
-  if (value === undefined) return fallback;
-  const parsed = parseInt(value, 10);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+function parseNonNegativeInt(value: string | undefined): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/.test(value)) return null;
+  return Number.parseInt(value, 10);
 }
 
 interface PonderRouterTrade {
@@ -28,7 +28,11 @@ interface PonderRouterTrade {
 
 trades.get("/", async (c) => {
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
+  const limitParam = parseNonNegativeInt(c.req.query("limit"));
+  if (limitParam === null) {
+    return c.json(formatError("Invalid pagination parameters"), 400);
+  }
+  const limit = Math.min(limitParam ?? 50, 100);
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($limit: Int!) {
@@ -142,8 +146,13 @@ trades.get("/:address", async (c) => {
   }
   const address = rawAddress.toLowerCase();
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
-  const offset = safeInt(c.req.query("offset"), 0);
+  const limitParam = parseNonNegativeInt(c.req.query("limit"));
+  const offsetParam = parseNonNegativeInt(c.req.query("offset"));
+  if (limitParam === null || offsetParam === null) {
+    return c.json(formatError("Invalid pagination parameters"), 400);
+  }
+  const limit = Math.min(limitParam ?? 50, 100);
+  const offset = offsetParam ?? 0;
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
