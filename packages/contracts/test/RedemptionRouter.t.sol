@@ -1,19 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test, Vm} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FFactory} from "../src/FFactory.sol";
-import {FRouter} from "../src/FRouter.sol";
 import {FERC20} from "../src/FERC20.sol";
-import {LPLock} from "../src/LPLock.sol";
 import {RedemptionRouter} from "../src/RedemptionRouter.sol";
-import {IFPair} from "../src/interfaces/IFPair.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
-import {MockHyperswapRouter} from "./mocks/MockHyperswapRouter.sol";
+import {DeployHelper} from "./DeployHelper.sol";
 
 contract RedemptionRouterV2 is RedemptionRouter {
     function version() external pure returns (uint256) {
@@ -21,61 +15,20 @@ contract RedemptionRouterV2 is RedemptionRouter {
     }
 }
 
-contract RedemptionRouterTest is Test {
-    MockERC20 public usdc;
-    MockLeveragedToken public lt;
-    MockHyperswapRouter public hyperswapRouter;
-    FFactory public factory;
-    FRouter public frouter;
-    Bonding public bonding;
-    LPLock public lpLockContract;
+contract RedemptionRouterTest is DeployHelper {
     RedemptionRouter public redemptionRouter;
 
-    address public owner = address(this);
-    address public feeReceiver = makeAddr("feeReceiver");
-    address public creator = makeAddr("creator");
-    address public trader = makeAddr("trader");
-    address public trader2 = makeAddr("trader2");
     address public referrer = makeAddr("referrer");
 
-    uint256 constant BUY_TAX_BPS = 50;
-    uint256 constant SELL_TAX_BPS = 50;
-    uint256 constant MAX_TX = 100;
-    uint256 constant LT_EXCHANGE_RATE = 1 ether;
-
     function setUp() public {
-        usdc = new MockERC20("USD Coin", "USDC");
-        lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));
-        hyperswapRouter = new MockHyperswapRouter();
-
-        factory = new FFactory();
-        factory.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
-
-        frouter = new FRouter();
-        frouter.initialize(address(factory));
-
-        LPLock lpLockImpl = new LPLock();
-        bytes memory lpLockInit = abi.encodeCall(LPLock.initialize, (owner));
-        lpLockContract = LPLock(address(new ERC1967Proxy(address(lpLockImpl), lpLockInit)));
-
-        Bonding bondingImpl = new Bonding();
-        bytes memory bondingInit = abi.encodeCall(
-            Bonding.initialize,
-            (address(factory), address(frouter), feeReceiver, MAX_TX, address(hyperswapRouter), address(lpLockContract))
-        );
-        bonding = Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
+        _deployCore();
 
         RedemptionRouter routerImpl = new RedemptionRouter();
         bytes memory routerInit =
             abi.encodeCall(RedemptionRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
         redemptionRouter = RedemptionRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
 
-        factory.setRouter(address(frouter));
-        factory.grantRole(factory.BONDING_ROLE(), address(bonding));
-        frouter.grantRole(frouter.BONDING_ROLE(), address(bonding));
-        lpLockContract.setLocker(address(bonding), true);
         bonding.setRedemptionRouter(address(redemptionRouter));
-        factory.setFeeParams(address(bonding), BUY_TAX_BPS, SELL_TAX_BPS);
 
         usdc.mint(address(lt), 1_000_000 ether);
     }
