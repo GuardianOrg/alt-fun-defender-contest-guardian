@@ -137,6 +137,7 @@
 }
 
 .escBadge {
+  font-family: inherit;
   font-size: 11px;
   color: var(--txt-3);
   background: rgba(255, 255, 255, 0.05);

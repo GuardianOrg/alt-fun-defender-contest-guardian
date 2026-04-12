@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./SearchModal.module.css";
@@ -93,6 +94,13 @@ export default function SearchTrendingCard({
     }
   }, [highlighted]);
 
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   return (
     <div
       ref={(el) => {
@@ -103,8 +111,12 @@ export default function SearchTrendingCard({
         styles.trendingCard,
         highlighted && styles.trendingCardHighlighted,
       )}
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
       onMouseEnter={onMouseEnter}
+      aria-label={`${token.name} — ${token.ltName}`}
     >
       <div className={styles.trendingCardHeader}>
         <div className={styles.trendingCardIcon}>

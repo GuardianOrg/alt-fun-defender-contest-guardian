@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from "react";
 import { useEffect, useRef } from "react";
 
 import styles from "./SearchModal.module.css";
@@ -30,7 +31,14 @@ export default function SearchResultsList({
   return (
     <div className={styles.resultsWrap} ref={listRef}>
       {results.length > 0 ? (
-        results.map((t, i) => (
+        results.map((t, i) => {
+          const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onSelect(t.address);
+            }
+          };
+          return (
           <div
             key={t.address}
             data-result-index={i}
@@ -38,7 +46,10 @@ export default function SearchResultsList({
               styles.resultRow,
               i === highlightedIndex && styles.resultRowHighlighted,
             )}
+            role="button"
+            tabIndex={0}
             onClick={() => onSelect(t.address)}
+            onKeyDown={handleKeyDown}
             onMouseEnter={() => onHighlight(i)}
           >
             <div className={styles.resultIcon}>{t.emoji}</div>
@@ -64,7 +75,8 @@ export default function SearchResultsList({
               </div>
             </div>
           </div>
-        ))
+          );
+        })
       ) : (
         <div className={styles.noResults}>No tokens found</div>
       )}

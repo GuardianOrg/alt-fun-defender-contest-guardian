@@ -25,11 +25,16 @@ export default function RightPanel() {
             LIVE
           </span>
         </div>
-        <div>
+        <div aria-live="polite" aria-label="Recent trades">
           {trades.map((t) => {
             const isBuy = t.side === "BUY";
             return (
-              <div key={t.id} className={styles.tradeRow}>
+              <div
+                key={t.id}
+                className={styles.tradeRow}
+                tabIndex={0}
+                aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${t.amountUsd.toLocaleString()} — ${t.timestamp}`}
+              >
                 <div className={styles.tradeInfo}>
                   <div className={styles.tradeNameRow}>
                     <span className={styles.tradeName}>{t.tokenName}</span>
