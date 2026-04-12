@@ -5,7 +5,7 @@ import { prettyJSON } from "hono/pretty-json";
 
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
-import tokens from "./routes/tokens.js";
+import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
 import admin from "./routes/admin.js";
