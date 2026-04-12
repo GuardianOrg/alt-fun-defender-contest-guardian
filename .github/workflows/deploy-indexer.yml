@@ -1,0 +1,32 @@
+name: Deploy Indexer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/indexer/**"
+      - "packages/shared/**"
+
+concurrency:
+  group: deploy-indexer
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -f apps/indexer/Dockerfile -t launchpad-indexer .
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy to Railway
+        run: railway up --service indexer --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
