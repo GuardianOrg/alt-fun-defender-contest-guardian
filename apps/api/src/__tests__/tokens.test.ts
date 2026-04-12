@@ -46,7 +46,7 @@ const { recoverMessageAddress } = await import("viem");
 const mockedRecoverMessageAddress = vi.mocked(recoverMessageAddress);
 
 // Import route after mocks
-const { default: tokensRoute } = await import("../routes/tokens.js");
+const { default: tokensRoute } = await import("../routes/tokens/index.js");
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
