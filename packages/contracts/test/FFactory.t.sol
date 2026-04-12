@@ -1,0 +1,192 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Test} from "forge-std/Test.sol";
+import {FFactory} from "../src/FFactory.sol";
+import {FPair} from "../src/FPair.sol";
+import {MockERC20} from "./mocks/MockERC20.sol";
+
+contract FFactoryTest is Test {
+    FFactory public factory;
+
+    address public owner = address(this);
+    address public feeReceiver = makeAddr("feeReceiver");
+    address public routerAddr = makeAddr("router");
+    address public bondingRole = makeAddr("bonding");
+    address public stranger = makeAddr("stranger");
+
+    MockERC20 public tokenA;
+    MockERC20 public tokenB;
+
+    uint256 constant BUY_TAX_BPS = 50;
+    uint256 constant SELL_TAX_BPS = 50;
+
+    function setUp() public {
+        factory = new FFactory();
+        factory.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
+        factory.setRouter(routerAddr);
+        factory.grantRole(factory.BONDING_ROLE(), bondingRole);
+
+        tokenA = new MockERC20("Token A", "TKA");
+        tokenB = new MockERC20("Token B", "TKB");
+    }
+
+    // ─── Initialize Tests ─────────────────────────────────────────────────
+
+    function test_initialize_setsParams() public view {
+        assertEq(factory.feeTo(), feeReceiver);
+        assertEq(factory.buyTax(), BUY_TAX_BPS);
+        assertEq(factory.sellTax(), SELL_TAX_BPS);
+    }
+
+    function test_initialize_grantsAdminRole() public view {
+        assertTrue(factory.hasRole(factory.DEFAULT_ADMIN_ROLE(), owner));
+    }
+
+    // ─── createPair Tests ─────────────────────────────────────────────────
+
+    function test_createPair_storesPairAndLt() public {
+        vm.prank(bondingRole);
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+
+        assertTrue(pair != address(0), "Pair should be created");
+        assertEq(factory.getPair(address(tokenA), address(tokenB)), pair);
+        assertEq(factory.getPair(address(tokenB), address(tokenA)), pair, "Reverse lookup should also work");
+        assertEq(factory.pairFor(address(tokenA)), pair);
+        assertEq(factory.ltFor(address(tokenA)), address(tokenB));
+    }
+
+    function test_createPair_incrementsAllPairs() public {
+        assertEq(factory.allPairsLength(), 0);
+
+        vm.prank(bondingRole);
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+
+        assertEq(factory.allPairsLength(), 1);
+        assertEq(factory.allPairs(0), pair);
+    }
+
+    function test_createPair_emitsPairCreated() public {
+        vm.prank(bondingRole);
+        vm.expectEmit(true, true, false, false);
+        emit FFactory.PairCreated(address(tokenA), address(tokenB), address(0), 1);
+        factory.createPair(address(tokenA), address(tokenB));
+    }
+
+    function test_createPair_pairHasCorrectImmutables() public {
+        vm.prank(bondingRole);
+        address pairAddr = factory.createPair(address(tokenA), address(tokenB));
+        FPair pair = FPair(pairAddr);
+
+        assertEq(pair.router(), routerAddr);
+        assertEq(pair.tokenA(), address(tokenA));
+        assertEq(pair.tokenB(), address(tokenB));
+    }
+
+    function test_createPair_revertsForZeroTokenA() public {
+        vm.prank(bondingRole);
+        vm.expectRevert(FFactory.ZeroAddress.selector);
+        factory.createPair(address(0), address(tokenB));
+    }
+
+    function test_createPair_revertsForZeroTokenB() public {
+        vm.prank(bondingRole);
+        vm.expectRevert(FFactory.ZeroAddress.selector);
+        factory.createPair(address(tokenA), address(0));
+    }
+
+    function test_createPair_revertsWithoutRouter() public {
+        FFactory factory2 = new FFactory();
+        factory2.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
+        factory2.grantRole(factory2.BONDING_ROLE(), bondingRole);
+        // No setRouter call
+
+        vm.prank(bondingRole);
+        vm.expectRevert(FFactory.NoRouter.selector);
+        factory2.createPair(address(tokenA), address(tokenB));
+    }
+
+    function test_createPair_revertsWithoutBondingRole() public {
+        vm.prank(stranger);
+        vm.expectRevert();
+        factory.createPair(address(tokenA), address(tokenB));
+    }
+
+    function test_createPair_multiplePairsTracked() public {
+        MockERC20 tokenC = new MockERC20("Token C", "TKC");
+
+        vm.startPrank(bondingRole);
+        address pair1 = factory.createPair(address(tokenA), address(tokenB));
+        address pair2 = factory.createPair(address(tokenC), address(tokenB));
+        vm.stopPrank();
+
+        assertEq(factory.allPairsLength(), 2);
+        assertEq(factory.allPairs(0), pair1);
+        assertEq(factory.allPairs(1), pair2);
+        assertTrue(pair1 != pair2, "Pairs should be different");
+    }
+
+    // ─── pairFor / ltFor Tests ────────────────────────────────────────────
+
+    function test_pairFor_returnsZeroForUnknownToken() public view {
+        assertEq(factory.pairFor(address(tokenA)), address(0));
+    }
+
+    function test_ltFor_returnsZeroForUnknownToken() public view {
+        assertEq(factory.ltFor(address(tokenA)), address(0));
+    }
+
+    function test_getPair_returnsZeroForUnknownPair() public view {
+        assertEq(factory.getPair(address(tokenA), address(tokenB)), address(0));
+    }
+
+    function test_getPair_symmetricLookup() public {
+        vm.prank(bondingRole);
+        address pair = factory.createPair(address(tokenA), address(tokenB));
+
+        assertEq(factory.getPair(address(tokenA), address(tokenB)), pair);
+        assertEq(factory.getPair(address(tokenB), address(tokenA)), pair);
+    }
+
+    // ─── setRouter Tests ──────────────────────────────────────────────────
+
+    function test_setRouter_updatesRouter() public {
+        address newRouter = makeAddr("newRouter");
+        factory.setRouter(newRouter);
+        assertEq(factory.router(), newRouter);
+    }
+
+    function test_setRouter_revertsWithoutAdmin() public {
+        vm.prank(stranger);
+        vm.expectRevert();
+        factory.setRouter(makeAddr("newRouter"));
+    }
+
+    // ─── setFeeParams Tests ──────────────────────────────────────────────
+
+    function test_setFeeParams_updatesAll() public {
+        address newFeeTo = makeAddr("newFeeTo");
+        factory.setFeeParams(newFeeTo, 100, 200);
+
+        assertEq(factory.feeTo(), newFeeTo);
+        assertEq(factory.buyTax(), 100);
+        assertEq(factory.sellTax(), 200);
+    }
+
+    function test_setFeeParams_revertsForZeroAddress() public {
+        vm.expectRevert(FFactory.ZeroAddress.selector);
+        factory.setFeeParams(address(0), 100, 200);
+    }
+
+    function test_setFeeParams_revertsWithoutAdmin() public {
+        vm.prank(stranger);
+        vm.expectRevert();
+        factory.setFeeParams(feeReceiver, 100, 200);
+    }
+
+    function test_setFeeParams_allowsZeroTax() public {
+        factory.setFeeParams(feeReceiver, 0, 0);
+        assertEq(factory.buyTax(), 0);
+        assertEq(factory.sellTax(), 0);
+    }
+}
