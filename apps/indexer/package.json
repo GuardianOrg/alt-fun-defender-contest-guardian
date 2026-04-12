@@ -16,7 +16,7 @@
     "@launchpad/shared": "*",
     "@ponder/core": "^0.7",
     "hono": "^4",
-    "viem": "^2"
+    "viem": "^2.47.12"
   },
   "devDependencies": {
     "@launchpad/config": "*",
