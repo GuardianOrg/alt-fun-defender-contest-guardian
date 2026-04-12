@@ -28,6 +28,7 @@ const BLOCKED_KEYWORDS = [
 interface ModerationResult {
   safe: boolean;
   reason: string;
+  unavailable?: boolean;
 }
 
 async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<ModerationResult> {
@@ -48,7 +49,7 @@ async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<Moderation
 
     return { safe: true, reason: "" };
   } catch {
-    return { safe: false, reason: "Image moderation is temporarily unavailable. Please try again." };
+    return { safe: false, reason: "Image moderation is temporarily unavailable. Please try again.", unavailable: true };
   }
 }
 
@@ -93,7 +94,8 @@ images.post("/", async (c) => {
 
   const moderationResult = await moderateImage(c.env.AI, new Uint8Array(arrayBuffer));
   if (!moderationResult.safe) {
-    return c.json(formatError(`Image rejected: ${moderationResult.reason}`), 422);
+    const status = moderationResult.unavailable ? 503 : 422;
+    return c.json(formatError(moderationResult.reason), status);
   }
 
   const key = `tokens/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;

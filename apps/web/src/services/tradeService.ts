@@ -119,11 +119,15 @@ const liveTradeService: ITradeService = {
   subscribeFeed(cb) {
     const ws = getWebSocketClient();
     let unsubWs: (() => void) | null = null;
+    const seenIds = new Set<string>();
 
     if (ws) {
       unsubWs = ws.subscribe("trade", (data) => {
         const trade = data as Trade;
-        if (trade.id) cb(trade);
+        if (trade.id && !seenIds.has(trade.id)) {
+          seenIds.add(trade.id);
+          cb(trade);
+        }
       });
     }
 
@@ -131,7 +135,6 @@ const liveTradeService: ITradeService = {
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let polling = false;
     let hasLiveData = false;
-    const seenIds = new Set<string>();
 
     const poll = async (initial: boolean) => {
       if (cancelled || polling) return;
@@ -186,12 +189,14 @@ const liveTradeService: ITradeService = {
   subscribeTokenTrades(address, cb) {
     const ws = getWebSocketClient();
     let unsubWs: (() => void) | null = null;
+    const seenIds = new Set<string>();
 
     const normalizedAddress = address.toLowerCase();
     if (ws) {
       unsubWs = ws.subscribe("trade", (data) => {
         const trade = data as Trade;
-        if (trade.id && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
+        if (trade.id && !seenIds.has(trade.id) && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
+          seenIds.add(trade.id);
           cb(trade);
         }
       }, normalizedAddress);
@@ -200,7 +205,6 @@ const liveTradeService: ITradeService = {
     let cancelled = false;
     let polling = false;
     let hasLiveData = false;
-    const seenIds = new Set<string>();
 
     const poll = async () => {
       if (cancelled || polling) return;
