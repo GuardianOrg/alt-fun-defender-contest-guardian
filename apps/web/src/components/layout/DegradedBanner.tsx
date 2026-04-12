@@ -1,6 +1,5 @@
-import useDegradedState from "../../hooks/useDegradedState";
-
 import styles from "./DegradedBanner.module.css";
+import useDegradedState from "../../hooks/useDegradedState";
 
 export default function DegradedBanner() {
   const degraded = useDegradedState();
