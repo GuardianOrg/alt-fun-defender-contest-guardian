@@ -32,16 +32,16 @@
     "@playwright/test": "^1.59.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^4",
+    "@vitejs/plugin-react": "^6",
     "eslint": "^9",
     "eslint-import-resolver-typescript": "^4",
     "eslint-plugin-import": "^2",
-    "eslint-plugin-react-hooks": "^5",
-    "eslint-plugin-react-refresh": "^0.4",
-    "globals": "^16",
+    "eslint-plugin-react-hooks": "^7",
+    "eslint-plugin-react-refresh": "^0.5",
+    "globals": "^17",
     "prettier": "^3",
-    "typescript": "~5.8",
+    "typescript": "~6.0",
     "typescript-eslint": "^8",
-    "vite": "^7"
+    "vite": "^8"
   }
 }
