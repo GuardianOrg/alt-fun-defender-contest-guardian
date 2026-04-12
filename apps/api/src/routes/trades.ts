@@ -6,6 +6,7 @@ import formatError from "../utils/format-error.js";
 import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
+import type { PonderRouterTrade } from "../lib/ponder-types.js";
 
 const trades = new Hono<{ Bindings: AppBindings }>();
 
@@ -13,17 +14,6 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
-}
-
-interface PonderRouterTrade {
-  id: string;
-  tokenAddress: string;
-  trader: string;
-  isBuy: boolean;
-  usdcAmount: string;
-  tokenAmount: string;
-  blockNumber: string;
-  timestamp: string;
 }
 
 trades.get("/", async (c) => {

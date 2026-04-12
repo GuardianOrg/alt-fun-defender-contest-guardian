@@ -6,13 +6,7 @@ import formatSuccess from "../utils/format-success.js";
 import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
-
-interface PonderRouterTrade {
-  tokenAddress: string;
-  isBuy: boolean;
-  usdcAmount: string;
-  tokenAmount: string;
-}
+import type { PonderRouterTrade } from "../lib/ponder-types.js";
 
 const portfolio = new Hono<{ Bindings: AppBindings }>();
 
@@ -24,7 +18,7 @@ portfolio.get("/:wallet", async (c) => {
   const wallet = rawWallet.toLowerCase();
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const { items: trades } = await queryPonderAll<PonderRouterTrade>(
+  const { items: trades } = await queryPonderAll<Pick<PonderRouterTrade, "tokenAddress" | "isBuy" | "usdcAmount" | "tokenAmount">>(
     `query ($wallet: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { trader: $wallet }

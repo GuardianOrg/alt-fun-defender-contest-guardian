@@ -6,17 +6,12 @@ import formatSuccess from "../utils/format-success.js";
 import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
+import type { PonderRouterTrade } from "../lib/ponder-types.js";
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
-}
-
-interface TradeItem {
-  trader: string;
-  isBuy: boolean;
-  tokenAmount: string;
 }
 
 const holders = new Hono<{ Bindings: AppBindings }>();
@@ -35,7 +30,7 @@ holders.get("/:address", async (c) => {
   }
   const limit = Math.min(limitParam ?? 20, 100);
 
-  const { items: trades } = await queryPonderAll<TradeItem>(
+  const { items: trades } = await queryPonderAll<Pick<PonderRouterTrade, "trader" | "isBuy" | "tokenAmount">>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }

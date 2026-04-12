@@ -6,12 +6,7 @@ import formatSuccess from "../utils/format-success.js";
 import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
-
-interface TradeItem {
-  trader: string;
-  isBuy: boolean;
-  tokenAmount: string;
-}
+import type { PonderRouterTrade } from "../lib/ponder-types.js";
 
 const security = new Hono<{ Bindings: AppBindings }>();
 
@@ -47,7 +42,7 @@ security.get("/:address", async (c) => {
       }`,
       { address },
     ),
-    queryPonderAll<TradeItem>(
+    queryPonderAll<Pick<PonderRouterTrade, "trader" | "isBuy" | "tokenAmount">>(
       `query ($address: String!, $limit: Int!, $offset: Int!) {
         routerTrades(
           where: { tokenAddress: $address }
