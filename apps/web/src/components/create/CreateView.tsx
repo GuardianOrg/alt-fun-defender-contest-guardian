@@ -35,12 +35,14 @@ export default function CreateView() {
 
   useEffect(() => {
     if (launchStep === "confirmed" && tokenAddress) {
+      // Extend delay when warnings are present so the user can read them
+      const delay = launchWarning ? 8000 : 1500;
       const timer = setTimeout(() => {
         navigate(tokenPath(tokenAddress));
-      }, 1500);
+      }, delay);
       return () => clearTimeout(timer);
     }
-  }, [launchStep, tokenAddress, navigate]);
+  }, [launchStep, tokenAddress, launchWarning, navigate]);
 
   const handleSubmit = async () => {
     if (!isConnected) {

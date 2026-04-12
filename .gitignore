@@ -12,6 +12,9 @@ build
 .turbo
 *.tsbuildinfo
 
+# Compiled TS output in source dirs
+apps/web/src/**/*.js
+
 # Foundry
 packages/contracts/cache
 packages/contracts/out
