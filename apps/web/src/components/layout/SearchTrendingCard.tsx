@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-
 import type { KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./SearchModal.module.css";
 import { COLORS } from "../../config/colors";

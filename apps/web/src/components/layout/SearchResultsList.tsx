@@ -1,6 +1,5 @@
-import { useEffect, useRef } from "react";
-
 import type { KeyboardEvent } from "react";
+import { useEffect, useRef } from "react";
 
 import styles from "./SearchModal.module.css";
 import { cn } from "../../utils/format";

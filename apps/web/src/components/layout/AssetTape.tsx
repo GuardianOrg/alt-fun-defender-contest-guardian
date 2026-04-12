@@ -1,5 +1,4 @@
 import type { KeyboardEvent } from "react";
-
 import { useRef } from "react";
 
 import styles from "./AssetTape.module.css";

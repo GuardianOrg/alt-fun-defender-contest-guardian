@@ -1,6 +1,5 @@
-import { useEffect, useRef, useCallback } from "react";
-
 import type { ReactNode, MouseEvent } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 import styles from "./ModalOverlay.module.css";
 
