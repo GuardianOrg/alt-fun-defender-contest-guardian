@@ -14,11 +14,13 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "devDependencies": {
     "@launchpad/config": "*",
     "tsup": "^8",
-    "typescript": "~5.8"
+    "typescript": "~5.8",
+    "vitest": "^4.1.4"
   }
 }
