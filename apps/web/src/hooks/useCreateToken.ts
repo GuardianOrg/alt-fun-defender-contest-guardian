@@ -1,25 +1,22 @@
 import { useState, useCallback } from "react";
 
 import {
-  BOUNCE_INDEXING_API,
   buildTokenCreationMessage,
   findLT,
-  type LiveLeveragedToken,
 } from "@launchpad/shared";
 import { getAddress, maxUint256, parseEventLogs, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
-import { createTokenApi, uploadImage } from "../services/api";
+import { createTokenApi, fetchLeveragedTokens, uploadImage } from "../services/api";
 import { getErrorMessage } from "../utils/format";
 
 import type { LaunchStep } from "../services/tradeRouter";
 import type { CreateTokenParams } from "../services/types";
 
-async function fetchLTs(): Promise<LiveLeveragedToken[]> {
-  const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
-  return (await res.json()) as LiveLeveragedToken[];
+async function fetchLTs() {
+  return fetchLeveragedTokens();
 }
 
 export function useCreateToken() {
