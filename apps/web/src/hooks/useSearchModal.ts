@@ -6,11 +6,13 @@ import { useNavigate } from "react-router";
 
 import { useTokens } from "./useTokens";
 import { tokenPath } from "../app/routes";
-import { fetchOhlcv, searchTokens } from "../services/api";
+import { fetchSparkline, searchTokens } from "../services/api";
 import { deriveDirection, deriveStatus, deriveUnderlying, ltDisplayName } from "../services/tokenService";
 import { selectSearchOpen, setSearchOpen } from "../state/uiSlice";
 
 import type { Token } from "../services/types";
+
+const SPARKLINE_DEFER_MS = 300;
 
 export function useSearchModal() {
   const open = useSelector(selectSearchOpen);
@@ -20,16 +22,25 @@ export function useSearchModal() {
   const navigate = useNavigate();
   const { data: tokens } = useTokens();
 
+  // Defer sparkline fetching so typing immediately after open skips them
+  const [sparklineReady, setSparklineReady] = useState(false);
+  useEffect(() => {
+    if (!open || query.trim()) {
+      setSparklineReady(false);
+      return;
+    }
+    const timer = setTimeout(() => setSparklineReady(true), SPARKLINE_DEFER_MS);
+    return () => clearTimeout(timer);
+  }, [open, query]);
+
   const trendingTokens = useMemo(() => tokens?.slice(0, 5) ?? [], [tokens]);
   const sparklineQueries = useQueries({
     queries: trendingTokens.map((t) => ({
       queryKey: ["sparkline", t.address],
-      queryFn: async () => {
-        const candles = await fetchOhlcv(t.address, "1h");
-        return candles.map((c) => c.close);
-      },
+      queryFn: () => fetchSparkline(t.address, 20),
       staleTime: 60_000,
-      enabled: open && !query.trim(),
+      gcTime: 5 * 60_000,
+      enabled: sparklineReady,
     })),
   });
   const sparklineMap = useMemo(() => {

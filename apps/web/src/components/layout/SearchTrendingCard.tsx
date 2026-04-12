@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect, useState } from "react";
 
 import styles from "./SearchModal.module.css";
 import { COLORS } from "../../config/colors";
@@ -46,6 +46,30 @@ function Sparkline({ up, data }: { up: boolean; data?: number[] }) {
   );
 }
 
+function useIsVisible() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return { ref, visible };
+}
+
 export default function SearchTrendingCard({
   token,
   sparklineData,
@@ -56,8 +80,9 @@ export default function SearchTrendingCard({
   onClick: () => void;
 }) {
   const up = token.change24h >= 0;
+  const { ref, visible } = useIsVisible();
   return (
-    <div className={styles.trendingCard} onClick={onClick}>
+    <div ref={ref} className={styles.trendingCard} onClick={onClick}>
       <div className={styles.trendingCardHeader}>
         <div className={styles.trendingCardIcon}>
           {token.image ? (
@@ -75,7 +100,7 @@ export default function SearchTrendingCard({
           <div className={styles.trendingCardLtName}>{token.ltName}</div>
         </div>
       </div>
-      <Sparkline up={up} data={sparklineData} />
+      <Sparkline up={up} data={visible ? sparklineData : undefined} />
       <div className={styles.trendingCardMcap}>
         $
         {token.mcapUsd >= 1_000_000
