@@ -6,6 +6,7 @@ import { createDb } from "../db/client.js";
 import { apiKeys } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
+import { hashApiKey, extractPrefix } from "../utils/api-key-hash.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -34,21 +35,27 @@ apiKeysRoute.post("/", async (c) => {
   }
 
   const normalizedOwner = getAddress(body.ownerAddress);
-  const key = generateKey();
+  const rawKey = generateKey();
+  const keyHash = await hashApiKey(rawKey);
+  const keyPrefix = extractPrefix(rawKey);
   const rateLimit = typeof body.rateLimit === "number" && body.rateLimit > 0 ? body.rateLimit : 100;
 
   const db = createDb(c.env.DATABASE_URL);
   const [row] = await db
     .insert(apiKeys)
     .values({
-      key,
+      keyHash,
+      keyPrefix,
       name: body.name.trim(),
       ownerAddress: normalizedOwner,
       rateLimit,
     })
     .returning();
 
-  return c.json(formatSuccess({ id: row.id, key, name: row.name, rateLimit: row.rateLimit }), 201);
+  return c.json(
+    formatSuccess({ id: row.id, key: rawKey, name: row.name, rateLimit: row.rateLimit }),
+    201,
+  );
 });
 
 apiKeysRoute.get("/", async (c) => {
@@ -56,6 +63,7 @@ apiKeysRoute.get("/", async (c) => {
   const rows = await db
     .select({
       id: apiKeys.id,
+      keyPrefix: apiKeys.keyPrefix,
       name: apiKeys.name,
       ownerAddress: apiKeys.ownerAddress,
       rateLimit: apiKeys.rateLimit,

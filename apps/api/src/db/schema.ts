@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, boolean, integer, numeric, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean, integer, numeric, varchar, index } from "drizzle-orm/pg-core";
 
 export const tokens = pgTable("tokens", {
   address: varchar("address", { length: 42 }).primaryKey(),
@@ -33,13 +33,16 @@ export const comments = pgTable("comments", {
 
 export const apiKeys = pgTable("api_keys", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  key: varchar("key", { length: 64 }).notNull().unique(),
+  keyHash: varchar("key_hash", { length: 64 }).notNull().unique(),
+  keyPrefix: varchar("key_prefix", { length: 8 }).notNull(),
   name: text("name").notNull(),
   ownerAddress: varchar("owner_address", { length: 42 }).notNull(),
   rateLimit: integer("rate_limit").notNull().default(100),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+}, (table) => [
+  index("api_keys_key_prefix_idx").on(table.keyPrefix),
+]);
 
 export const userProfiles = pgTable("user_profiles", {
   address: varchar("address", { length: 42 }).primaryKey(),
