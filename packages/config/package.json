@@ -10,8 +10,8 @@
     "./typescript/node": "./typescript/node.json"
   },
   "dependencies": {
-    "@eslint/js": "^9",
-    "eslint": "^9",
+    "@eslint/js": "^10",
+    "eslint": "^10",
     "typescript-eslint": "^8"
   }
 }

@@ -26,7 +26,8 @@ export default createConfig({
   networks: {
     hyperevm: {
       chainId: HYPER_EVM.id,
-      transport: http(process.env.PONDER_RPC_URL_999),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- viem version mismatch between ponder peer dep and direct dep
+      transport: http(process.env.PONDER_RPC_URL_999) as any,
     },
   },
   blocks: {
