@@ -10,6 +10,12 @@ import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
 
+function safeInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 const COMMENT_RATE_LIMIT_MS = 30_000;
 const COMMENT_SIGNATURE_TTL_MS = 5 * 60_000;
 const commentRateLimit = new Map<string, number>();
@@ -22,8 +28,8 @@ commentsRoute.get("/:address/comments", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const tokenAddress = getAddress(rawAddress);
-  const limit = Math.min(Number(c.req.query("limit") ?? 50), 100);
-  const offset = Number(c.req.query("offset") ?? 0);
+  const limit = Math.min(safeInt(c.req.query("limit"), 50), 100);
+  const offset = safeInt(c.req.query("offset"), 0);
 
   const db = createDb(c.env.DATABASE_URL);
   const items = await db

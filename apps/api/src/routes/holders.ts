@@ -7,6 +7,12 @@ import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
 
+function safeInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 interface TradeItem {
   trader: string;
   isBuy: boolean;
@@ -22,7 +28,7 @@ holders.get("/:address", async (c) => {
   }
   const address = rawAddress.toLowerCase();
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const limit = Math.min(Number(c.req.query("limit") ?? 20), 100);
+  const limit = Math.min(safeInt(c.req.query("limit"), 20), 100);
 
   const { items: trades } = await queryPonderAll<TradeItem>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
