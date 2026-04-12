@@ -133,7 +133,7 @@ No auth required.
 |---|---|---|
 | Database | Neon (PostgreSQL) | Direct connection (no Hyperdrive) |
 | Image storage | Cloudflare R2 | Bucket: `launchpad-images`, served via Worker |
-| WebSocket | Cloudflare Durable Objects | Real-time trade/price feeds |
+| WebSocket | Cloudflare Durable Objects | Real-time feeds. Channels: `trade`, `price`, `graduation`, `newToken`, `stats` |
 | Indexer hosting | Railway | Persistent process for Ponder |
 | RPC | Alchemy | HyperEVM mainnet |
 | Frontend hosting | Cloudflare Pages | Project: `launchpad` |
