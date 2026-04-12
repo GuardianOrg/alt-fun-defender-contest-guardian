@@ -33,3 +33,7 @@ jobs:
 
       - name: CI
         run: npm run ci
+
+      - name: Security audit
+        run: npm audit --omit=dev
+        continue-on-error: true
