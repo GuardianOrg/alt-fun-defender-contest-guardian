@@ -127,6 +127,53 @@ describe("apiKeyAuth middleware", () => {
     expect(body.ok).toBe(true);
   });
 
+  it("returns 429 for anonymous requests when per-IP rate limit is exceeded", async () => {
+    const app = createApp();
+
+    // The anonymous rate limit is 60 req/min. Send 61 requests from the same IP.
+    const ip = "203.0.113.42";
+    for (let i = 0; i < 60; i++) {
+      const res = await app.request(
+        "/test",
+        { headers: { "CF-Connecting-IP": ip } },
+        makeEnv(),
+      );
+      expect(res.status).toBe(200);
+    }
+
+    // 61st request should be rate limited
+    const res = await app.request(
+      "/test",
+      { headers: { "CF-Connecting-IP": ip } },
+      makeEnv(),
+    );
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toBe("Rate limit exceeded");
+    expect(res.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  it("does not rate limit anonymous requests from different IPs", async () => {
+    const app = createApp();
+
+    // Send requests from two different IPs — each should be under the limit
+    for (let i = 0; i < 30; i++) {
+      const res1 = await app.request(
+        "/test",
+        { headers: { "CF-Connecting-IP": "10.0.0.1" } },
+        makeEnv(),
+      );
+      expect(res1.status).toBe(200);
+
+      const res2 = await app.request(
+        "/test",
+        { headers: { "CF-Connecting-IP": "10.0.0.2" } },
+        makeEnv(),
+      );
+      expect(res2.status).toBe(200);
+    }
+  });
+
   it("returns 429 when rate limit is exceeded", async () => {
     const rawKey = "ratelimi-test-key-789";
     const keyHash = await hashApiKey(rawKey);
