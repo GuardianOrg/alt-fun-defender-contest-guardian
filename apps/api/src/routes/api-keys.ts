@@ -1,14 +1,29 @@
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { isAddress, getAddress } from "viem";
+import { z } from "zod";
 
 import { createDb } from "../db/client.js";
 import { apiKeys } from "../db/schema.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { hashApiKey, extractPrefix } from "../utils/api-key-hash.js";
+import { zodValidator } from "../utils/validation.js";
 
 import type { AppBindings } from "../lib/types.js";
+
+const createApiKeySchema = z.object({
+  name: z.string().min(1, "name is required").transform((s) => s.trim()),
+  ownerAddress: z
+    .string()
+    .refine(isAddress, "ownerAddress must be a valid Ethereum address"),
+  rateLimit: z
+    .number()
+    .int()
+    .min(1, "rateLimit must be between 1 and 10000")
+    .max(10000, "rateLimit must be between 1 and 10000")
+    .optional(),
+});
 
 const apiKeysRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -24,29 +39,14 @@ function generateKey(): string {
     .join("-");
 }
 
-apiKeysRoute.post("/", async (c) => {
-  let body: { name?: string; ownerAddress?: string; rateLimit?: number };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json(formatError("Invalid JSON body"), 400);
-  }
-
-  if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
-    return c.json(formatError("name is required"), 400);
-  }
-  if (!body.ownerAddress || typeof body.ownerAddress !== "string" || !isAddress(body.ownerAddress)) {
-    return c.json(formatError("ownerAddress must be a valid Ethereum address"), 400);
-  }
+apiKeysRoute.post("/", zodValidator("json", createApiKeySchema), async (c) => {
+  const body = c.req.valid("json");
 
   const normalizedOwner = getAddress(body.ownerAddress);
   const rawKey = generateKey();
   const keyHash = await hashApiKey(rawKey);
   const keyPrefix = extractPrefix(rawKey);
-  if (typeof body.rateLimit === "number" && (body.rateLimit <= 0 || body.rateLimit > 10000)) {
-    return c.json(formatError("rateLimit must be between 1 and 10000"), 400);
-  }
-  const rateLimit = typeof body.rateLimit === "number" && body.rateLimit > 0 ? body.rateLimit : 100;
+  const rateLimit = body.rateLimit ?? 100;
 
   const db = createDb(c.env.DATABASE_URL);
   const [row] = await db
@@ -54,7 +54,7 @@ apiKeysRoute.post("/", async (c) => {
     .values({
       keyHash,
       keyPrefix,
-      name: body.name.trim(),
+      name: body.name,
       ownerAddress: normalizedOwner,
       rateLimit,
     })
