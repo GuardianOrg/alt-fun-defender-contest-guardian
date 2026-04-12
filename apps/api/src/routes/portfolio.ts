@@ -18,7 +18,7 @@ portfolio.get("/:wallet", async (c) => {
   const wallet = rawWallet.toLowerCase();
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
 
-  const { items: trades } = await queryPonderAll<Pick<PonderRouterTrade, "tokenAddress" | "isBuy" | "usdcAmount" | "tokenAmount">>(
+  const { items: trades, truncated } = await queryPonderAll<Pick<PonderRouterTrade, "tokenAddress" | "isBuy" | "usdcAmount" | "tokenAmount">>(
     `query ($wallet: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { trader: $wallet }
@@ -68,7 +68,7 @@ portfolio.get("/:wallet", async (c) => {
       costBasisUsdc: h.costBasis.toString(),
     }));
 
-  return c.json(formatSuccess(positions));
+  return c.json(formatSuccess({ positions, approximate: truncated }));
 });
 
 export default portfolio;

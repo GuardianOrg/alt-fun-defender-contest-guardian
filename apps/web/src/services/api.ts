@@ -127,6 +127,13 @@ export function fetchOhlcv(
   return apiFetch(`/api/v1/trades/ohlcv/${address}?interval=${interval}`);
 }
 
+export function fetchSparkline(
+  address: string,
+  points = 20,
+): Promise<number[]> {
+  return apiFetch(`/api/v1/trades/sparkline/${address}?points=${points}`);
+}
+
 export interface HolderInfo {
   wallet: string;
   balance: string;
