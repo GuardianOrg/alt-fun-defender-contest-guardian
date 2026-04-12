@@ -1,3 +1,5 @@
+import type { KeyboardEvent } from "react";
+
 import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
@@ -24,6 +26,15 @@ export default function TokenRow({ token }: Props) {
   const levW = token.curveFilled - buyW;
   const isLtMover = token.leverageBoost > 15;
 
+  const handleNavigate = () => navigate(tokenPath(token.address));
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleNavigate();
+    }
+  };
+
   return (
     <div
       className={cn(
@@ -43,7 +54,11 @@ export default function TokenRow({ token }: Props) {
                   : styles.borderMint,
             ),
       )}
-      onClick={() => navigate(tokenPath(token.address))}
+      role="link"
+      tabIndex={0}
+      onClick={handleNavigate}
+      onKeyDown={handleKeyDown}
+      aria-label={`${token.name} — ${formatPercent(token.change24h)} — market cap ${formatUsd(token.mcapUsd)}`}
     >
       {/* Icon */}
       <div className={styles.iconCell}>
