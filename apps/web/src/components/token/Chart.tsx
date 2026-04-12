@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
 
 import styles from "./Chart.module.css";
-import { cn, formatPercent } from "../../utils/format";
-import { useChartData } from "../../hooks/useChartData";
 import { useChart } from "../../hooks/useChart";
+import { useChartData } from "../../hooks/useChartData";
+import { cn, formatPercent } from "../../utils/format";
 
 import type { Token } from "../../services/types";
 

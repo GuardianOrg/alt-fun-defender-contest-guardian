@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { RefObject } from "react";
 
 import {
   createChart,
@@ -15,8 +16,6 @@ import type {
   CandlestickData,
   LineData,
 } from "lightweight-charts";
-
-import type { RefObject } from "react";
 
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
