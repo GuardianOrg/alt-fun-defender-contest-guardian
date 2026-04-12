@@ -104,9 +104,15 @@ app.onError((err, c) => {
   return c.json(formatError("Internal Server Error"), 500);
 });
 
-interface Subscription {
-  channels: Set<string>;
+interface ChannelSub {
+  /** When true, receives all messages on this channel regardless of token. */
+  global: boolean;
+  /** Token addresses this subscription is scoped to (empty = global only). */
   tokens: Set<string>;
+}
+
+interface Subscription {
+  channels: Map<string, ChannelSub>;
 }
 
 export class WebSocketDO extends DurableObject {
@@ -134,7 +140,7 @@ export class WebSocketDO extends DurableObject {
     const [client, server] = Object.values(pair);
 
     this.ctx.acceptWebSocket(server);
-    this.connections.set(server, { channels: new Set(), tokens: new Set() });
+    this.connections.set(server, { channels: new Map() });
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -156,15 +162,32 @@ export class WebSocketDO extends DurableObject {
       if (!sub) return;
 
       if (data.type === "subscribe" && data.channel) {
-        sub.channels.add(data.channel);
-        if (data.token) sub.tokens.add(data.token);
+        let chanSub = sub.channels.get(data.channel);
+        if (!chanSub) {
+          chanSub = { global: false, tokens: new Set() };
+          sub.channels.set(data.channel, chanSub);
+        }
+        if (data.token) {
+          chanSub.tokens.add(data.token);
+        } else {
+          chanSub.global = true;
+        }
         ws.send(JSON.stringify({ type: "subscribed", channel: data.channel }));
         return;
       }
 
       if (data.type === "unsubscribe" && data.channel) {
-        sub.channels.delete(data.channel);
-        if (data.token) sub.tokens.delete(data.token);
+        const chanSub = sub.channels.get(data.channel);
+        if (chanSub) {
+          if (data.token) {
+            chanSub.tokens.delete(data.token);
+          } else {
+            chanSub.global = false;
+          }
+          if (!chanSub.global && chanSub.tokens.size === 0) {
+            sub.channels.delete(data.channel);
+          }
+        }
         ws.send(JSON.stringify({ type: "unsubscribed", channel: data.channel }));
       }
     } catch {
@@ -179,8 +202,9 @@ export class WebSocketDO extends DurableObject {
   broadcast(channel: string, data: unknown, tokenAddress?: string) {
     const payload = JSON.stringify({ channel, data });
     for (const [ws, sub] of this.connections) {
-      if (!sub.channels.has(channel)) continue;
-      if (tokenAddress && sub.tokens.size > 0 && !sub.tokens.has(tokenAddress)) continue;
+      const chanSub = sub.channels.get(channel);
+      if (!chanSub) continue;
+      if (tokenAddress && !chanSub.global && !chanSub.tokens.has(tokenAddress)) continue;
       try {
         ws.send(payload);
       } catch {

@@ -128,7 +128,7 @@ const liveTradeService: ITradeService = {
     }
 
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let polling = false;
     let hasLiveData = false;
     const seenIds = new Set<string>();
@@ -170,15 +170,15 @@ const liveTradeService: ITradeService = {
     void poll(true);
     const schedulePoll = () => {
       if (cancelled) return;
-      intervalId = setTimeout(() => {
+      pollTimer = setTimeout(() => {
         void poll(false).finally(schedulePoll);
-      }, ws?.isConnected ? 15_000 : 3_000) as unknown as ReturnType<typeof setInterval>;
+      }, ws?.isConnected ? 15_000 : 3_000);
     };
     schedulePoll();
 
     return () => {
       cancelled = true;
-      if (intervalId) clearTimeout(intervalId);
+      if (pollTimer) clearTimeout(pollTimer);
       unsubWs?.();
     };
   },
@@ -194,7 +194,7 @@ const liveTradeService: ITradeService = {
         if (trade.id && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
           cb(trade);
         }
-      }, address);
+      }, normalizedAddress);
     }
 
     let cancelled = false;

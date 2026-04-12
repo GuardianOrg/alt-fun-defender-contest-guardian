@@ -95,17 +95,13 @@ class WebSocketClient {
       this.subscriptions.delete(id);
       if (this.ws?.readyState !== WebSocket.OPEN) return;
 
-      const remaining = [...this.subscriptions.values()];
-
-      // Only unsubscribe the channel if no subscriptions reference it at all
-      const channelStillUsed = remaining.some((s) => s.channel === channel);
+      // Server unsubscribe is channel-scoped (always removes the channel).
+      // Only send it when no local subscriptions reference this channel at all.
+      const channelStillUsed = [...this.subscriptions.values()].some(
+        (s) => s.channel === channel,
+      );
       if (!channelStillUsed) {
         this.sendUnsubscribe(channel);
-      }
-
-      // Only unsubscribe the token if it was set and no other subscription references it
-      if (token && !remaining.some((s) => s.token === token)) {
-        this.sendUnsubscribe(channel, token);
       }
     };
   }
