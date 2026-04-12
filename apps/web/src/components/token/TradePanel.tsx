@@ -7,10 +7,12 @@ import { useAccount, usePublicClient } from "wagmi";
 import CreatorBadge from "./CreatorBadge";
 import SettingsPopup from "./SettingsPopup";
 import styles from "./TradePanel.module.css";
-import { QUICK_AMOUNTS } from "../../config/constants";
+import TradePanelBufferWarning from "./TradePanelBufferWarning";
+import TradePanelFooter from "./TradePanelFooter";
+import TradePanelInput from "./TradePanelInput";
+import TradePanelQuote from "./TradePanelQuote";
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
-import { useCopyState } from "../../hooks/useCopyState";
 import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
@@ -28,7 +30,6 @@ export default function TradePanel({ token }: Props) {
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(0.02);
-  const { copied, copy: copyCA } = useCopyState();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [buyQuote, setBuyQuote] = useState<BuyQuote | null>(null);
   const [sellQuote, setSellQuote] = useState<SellQuote | null>(null);
@@ -229,140 +230,27 @@ export default function TradePanel({ token }: Props) {
       </div>
 
       <div className={styles.formBody}>
-        <div className={styles.denomToggle}>
-          {mode === "buy" ? "Amount in USDC" : `Amount in ${ticker}`}
-        </div>
-
-        <div className={styles.amountWrap}>
-          <input
-            className={styles.amountInput}
-            type="number"
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            disabled={isBusy}
-          />
-          <div className={styles.denomTag}>
-            <span className={styles.denomLabel}>
-              {mode === "buy" ? "USDC" : ticker}
-            </span>
-            <div
-              className={cn(
-                styles.coinIcon,
-                mode === "buy" ? styles.coinUsdc : styles.coinRed,
-              )}
-            >
-              {mode === "buy" ? (
-                "$"
-              ) : token.image ? (
-                <img src={token.image} alt="" className={styles.coinImg} />
-              ) : (
-                token.emoji
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className={styles.quickRow}>
-          <button
-            className={styles.resetBtn}
-            onClick={() => setAmount("")}
-            disabled={isBusy}
-          >
-            Reset
-          </button>
-          {QUICK_AMOUNTS.map((qa) => (
-            <button
-              key={qa}
-              className={cn(
-                styles.quickBtn,
-                amount === String(qa) && styles.quickBtnActive,
-              )}
-              onClick={() => {
-                setAmount(String(qa));
-              }}
-              disabled={isBusy}
-            >
-              {qa >= 1000 ? `${qa / 1000}K` : qa}
-            </button>
-          ))}
-          <button
-            className={styles.maxBtn}
-            onClick={() => {
-              if (maxBalance) {
-                const walletBal = parseFloat(maxBalance);
-                if (mode === "buy") {
-                  setAmount(String(Math.floor(walletBal * 100) / 100));
-                } else if (sellQuote && Number.isFinite(sellQuote.maxSellableTokens)) {
-                  const capped = Math.min(walletBal, sellQuote.maxSellableTokens);
-                  setAmount(String(Math.max(0, capped)));
-                } else {
-                  setAmount(String(walletBal));
-                }
-              }
-            }}
-            disabled={isBusy || !maxBalance}
-          >
-            Max
-          </button>
-        </div>
+        <TradePanelInput
+          mode={mode}
+          amount={amount}
+          setAmount={setAmount}
+          isBusy={isBusy}
+          maxBalance={maxBalance}
+          sellQuote={sellQuote}
+          token={token}
+        />
 
         {amtNum > 0 && (
-          <div className={styles.estimate}>
-            {mode === "buy" ? (
-              <>
-                ≈ you receive{" "}
-                <span className={styles.estimateValue}>
-                  {buyQuote?.tokensOut ?? "…"}
-                </span>{" "}
-                <span className={styles.estimateMint}>{ticker}</span>
-                {buyQuote && buyQuote.priceImpactPct > 1 && (
-                  <span className={styles.impactWarning}>
-                    {" "}({buyQuote.priceImpactPct.toFixed(1)}% impact)
-                  </span>
-                )}
-              </>
-            ) : (
-              <>
-                ≈ you receive{" "}
-                <span className={styles.estimateValue}>
-                  ${sellQuote
-                    ? sellQuote.youReceive.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })
-                    : "…"}
-                </span>{" "}
-                <span className={styles.estimateLabel}>USDC</span>
-                {sellQuote && sellQuote.priceImpactPct > 1 && (
-                  <span className={styles.impactWarning}>
-                    {" "}({sellQuote.priceImpactPct.toFixed(1)}% impact)
-                  </span>
-                )}
-              </>
-            )}
-          </div>
+          <TradePanelQuote
+            mode={mode}
+            ticker={ticker}
+            buyQuote={buyQuote}
+            sellQuote={sellQuote}
+          />
         )}
 
         {sellExceedsBuffer && sellQuote && (
-          <div className={styles.bufferWarning}>
-            <span className={styles.bufferWarningTitle}>Sell amount exceeds available liquidity</span>
-            <span>
-              Max sellable now:{" "}
-              <span className={styles.bufferWarningMax}>
-                {sellQuote.maxSellableTokens.toLocaleString(undefined, {
-                  maximumFractionDigits: 2,
-                })}
-              </span>{" "}
-              {ticker}
-              {" "}(~${sellQuote.bufferUsdc.toLocaleString(undefined, {
-                maximumFractionDigits: 2,
-              })} USDC available)
-            </span>
-            <span className={styles.bufferWarningHint}>
-              Sell in smaller amounts. Liquidity replenishes in ~10s after each sell.
-            </span>
-          </div>
+          <TradePanelBufferWarning sellQuote={sellQuote} ticker={ticker} />
         )}
 
         {(belowMinimum || sellBelowMinimum) && (
@@ -413,28 +301,7 @@ export default function TradePanel({ token }: Props) {
 
       <CreatorBadge token={token} />
 
-      <div className={styles.footer}>
-        <div className={styles.footerLeft}>
-          <a className={styles.footerCa} onClick={() => copyCA(token.address)}>
-            {copied
-              ? "✓ copied"
-              : `${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
-          </a>
-          <span className={styles.footerDot}>·</span>
-          <span className={styles.footerLt}>{token.ltName}</span>
-        </div>
-        <span
-          className={cn(
-            styles.footerStatus,
-            token.status === "graduating"
-              ? styles.footerStatusGraduating
-              : styles.footerStatusDefault,
-          )}
-        >
-          {token.status}
-          {token.status === "graduating" ? " ⚡" : ""}
-        </span>
-      </div>
+      <TradePanelFooter token={token} />
     </div>
   );
 }
