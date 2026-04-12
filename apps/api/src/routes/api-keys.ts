@@ -38,6 +38,9 @@ apiKeysRoute.post("/", async (c) => {
   const rawKey = generateKey();
   const keyHash = await hashApiKey(rawKey);
   const keyPrefix = extractPrefix(rawKey);
+  if (typeof body.rateLimit === "number" && (body.rateLimit <= 0 || body.rateLimit > 10000)) {
+    return c.json(formatError("rateLimit must be between 1 and 10000"), 400);
+  }
   const rateLimit = typeof body.rateLimit === "number" && body.rateLimit > 0 ? body.rateLimit : 100;
 
   const db = createDb(c.env.DATABASE_URL);
