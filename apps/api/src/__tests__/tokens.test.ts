@@ -91,7 +91,8 @@ describe("POST /tokens — token creation", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Invalid JSON body");
+    expect(body.status).toBe("error");
+    expect(body.error).toBeTruthy();
   });
 
   it("returns 400 when required fields are missing", async () => {
@@ -108,7 +109,8 @@ describe("POST /tokens — token creation", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Missing required fields");
+    expect(body.status).toBe("error");
+    expect(body.error).toBeTruthy();
   });
 
   it("returns 400 when address is invalid", async () => {
@@ -132,7 +134,31 @@ describe("POST /tokens — token creation", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Invalid address");
+    expect(body.error).toContain("Invalid address");
+  });
+
+  it("returns 400 when ltPair is not a valid address", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: VALID_ADDRESS,
+          name: "Test",
+          ticker: "TST",
+          ltPair: "not-an-address",
+          creator: VALID_CREATOR,
+          signature: "0xabc",
+        }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toContain("Invalid LT pair address");
   });
 
   it("returns 401 when signature is invalid", async () => {

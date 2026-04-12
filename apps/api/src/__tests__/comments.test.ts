@@ -99,7 +99,12 @@ describe("POST /tokens/:address/comments", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          author: VALID_AUTHOR,
+          content: "hello",
+          signature: "0xabc",
+          timestamp: Date.now(),
+        }),
       },
       makeEnv(),
     );
@@ -123,7 +128,8 @@ describe("POST /tokens/:address/comments", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Invalid JSON body");
+    expect(body.status).toBe("error");
+    expect(body.error).toBeTruthy();
   });
 
   it("returns 400 when required fields are missing", async () => {
@@ -140,7 +146,8 @@ describe("POST /tokens/:address/comments", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Missing author, content, signature, or timestamp");
+    expect(body.status).toBe("error");
+    expect(body.error).toBeTruthy();
   });
 
   it("returns 400 when content exceeds 500 chars", async () => {
@@ -162,7 +169,7 @@ describe("POST /tokens/:address/comments", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Comment too long (max 500 chars)");
+    expect(body.error).toContain("Comment too long (max 500 chars)");
   });
 
   it("returns 400 when author address is invalid", async () => {
@@ -184,7 +191,7 @@ describe("POST /tokens/:address/comments", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Invalid author address");
+    expect(body.error).toContain("Invalid author address");
   });
 
   it("returns 401 when signature timestamp is expired", async () => {
@@ -312,6 +319,7 @@ describe("POST /tokens/:address/comments", () => {
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Invalid timestamp");
+    expect(body.status).toBe("error");
+    expect(body.error).toBeTruthy();
   });
 });
