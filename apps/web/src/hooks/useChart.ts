@@ -101,19 +101,18 @@ export function useChart({
     const chart = chartRef.current;
     if (!chart) return;
 
-    if (lineSeriesRef.current) {
+    if (overlayData.length > 0) {
+      if (!lineSeriesRef.current) {
+        lineSeriesRef.current = chart.addSeries(LineSeries, {
+          color: rgba(COLORS.amber, 0.5),
+          lineWidth: 1,
+          priceScaleId: "overlay",
+        });
+      }
+      lineSeriesRef.current.setData(overlayData);
+    } else if (lineSeriesRef.current) {
       chart.removeSeries(lineSeriesRef.current);
       lineSeriesRef.current = null;
-    }
-
-    if (overlayData.length > 0) {
-      const lineSeries = chart.addSeries(LineSeries, {
-        color: rgba(COLORS.amber, 0.5),
-        lineWidth: 1,
-        priceScaleId: "overlay",
-      });
-      lineSeries.setData(overlayData);
-      lineSeriesRef.current = lineSeries;
     }
   }, [overlayData]);
 }
