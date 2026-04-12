@@ -18,6 +18,7 @@ import assets from "./routes/assets.js";
 import referrals from "./routes/referrals.js";
 import holders from "./routes/holders.js";
 import security from "./routes/security.js";
+import profiles from "./routes/profiles.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
 
 import type { AppBindings } from "./lib/types.js";
@@ -57,6 +58,7 @@ app.route("/api/v1/assets", assets);
 app.route("/api/v1/referrals", referrals);
 app.route("/api/v1/holders", holders);
 app.route("/api/v1/security", security);
+app.route("/api/v1/profiles", profiles);
 
 app.post("/api/v1/webhook/indexer", async (c) => {
   const adminKey = c.req.header("X-Admin-Key");

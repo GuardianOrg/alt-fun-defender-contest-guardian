@@ -37,3 +37,22 @@ export function buildCommentMessage(
     `timestamp:${timestamp}`,
   ].join("\n");
 }
+
+export interface ProfileUpdatePayload {
+  address: string;
+  displayName: string;
+  bio: string;
+  twitterUrl: string;
+  timestamp: number;
+}
+
+export function buildProfileUpdateMessage(payload: ProfileUpdatePayload): string {
+  return [
+    "Update profile",
+    `address:${payload.address}`,
+    `displayName:${payload.displayName}`,
+    `bio:${payload.bio}`,
+    `twitterUrl:${payload.twitterUrl}`,
+    `timestamp:${payload.timestamp}`,
+  ].join("\n");
+}
