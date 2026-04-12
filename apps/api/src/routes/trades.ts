@@ -129,6 +129,61 @@ trades.get("/ohlcv/:address", async (c) => {
   return c.json(formatSuccess(candles));
 });
 
+trades.get("/sparkline/:address", async (c) => {
+  const rawAddress = c.req.param("address");
+  if (!isAddress(rawAddress)) {
+    return c.json(formatError("Invalid address"), 400);
+  }
+  const address = rawAddress.toLowerCase();
+  const points = Math.min(Number(c.req.query("points") ?? "20"), 50);
+
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
+    `query ($address: String!, $limit: Int!) {
+      routerTrades(
+        where: { tokenAddress: $address }
+        limit: $limit
+        orderBy: "timestamp"
+        orderDirection: "desc"
+      ) {
+        items {
+          usdcAmount
+          tokenAmount
+          timestamp
+        }
+      }
+    }`,
+    { address, limit: points * 3 },
+  );
+
+  const rawTrades = data?.routerTrades?.items ?? [];
+  if (rawTrades.length === 0) {
+    return c.json(formatSuccess([]));
+  }
+
+  // Compute prices and sample down to `points` values, oldest-first
+  const prices: number[] = [];
+  for (const t of rawTrades) {
+    const tokenAmount = Number(t.tokenAmount) / 1e18;
+    if (tokenAmount === 0) continue;
+    const price = Number(t.usdcAmount) / 1e6 / tokenAmount;
+    prices.push(price);
+  }
+  prices.reverse(); // oldest first
+
+  // Sample evenly if we have more prices than requested points
+  if (prices.length > points) {
+    const sampled: number[] = [];
+    for (let i = 0; i < points; i++) {
+      const idx = Math.round((i / (points - 1)) * (prices.length - 1));
+      sampled.push(prices[idx]);
+    }
+    return c.json(formatSuccess(sampled));
+  }
+
+  return c.json(formatSuccess(prices));
+});
+
 trades.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
   if (!isAddress(rawAddress)) {
