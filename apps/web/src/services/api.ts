@@ -1,3 +1,5 @@
+import { BOUNCE_INDEXING_API, type LiveLeveragedToken } from "@launchpad/shared";
+
 export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
 
 interface ApiResponse<T> {
@@ -136,4 +138,18 @@ export function fetchHolders(
   limit = 20,
 ): Promise<{ holders: HolderInfo[]; totalHolders: number }> {
   return apiFetch(`/api/v1/holders/${address}?limit=${limit}`);
+}
+
+// BounceTech Indexing API helpers
+
+async function bounceTechFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BOUNCE_INDEXING_API}${path}`, init);
+  if (!res.ok) {
+    throw new Error(`BounceTech API error: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
+}
+
+export function fetchLeveragedTokens(): Promise<LiveLeveragedToken[]> {
+  return bounceTechFetch<LiveLeveragedToken[]>("/leveraged-tokens");
 }

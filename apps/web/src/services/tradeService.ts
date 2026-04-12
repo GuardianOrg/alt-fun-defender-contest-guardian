@@ -1,10 +1,6 @@
-import {
-  BOUNCE_INDEXING_API,
-  type LiveLeveragedToken,
-} from "@launchpad/shared";
 import { formatUnits } from "viem";
 
-import { fetchComments, fetchHolders } from "./api";
+import { fetchComments, fetchHolders, fetchLeveragedTokens } from "./api";
 import {
   generateFeedTrade,
   generateTokenTrade,
@@ -41,8 +37,7 @@ async function getLtExchangeRates(): Promise<Map<string, number>> {
   if (Date.now() - ltRateCacheTime < LT_RATE_CACHE_TTL && ltRateCache.size > 0) {
     return ltRateCache;
   }
-  const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
-  const lts = (await res.json()) as LiveLeveragedToken[];
+  const lts = await fetchLeveragedTokens();
   const rates = new Map<string, number>();
   for (const lt of lts) {
     rates.set(lt.address.toLowerCase(), parseFloat(formatUnits(BigInt(lt.exchangeRate), 18)));
