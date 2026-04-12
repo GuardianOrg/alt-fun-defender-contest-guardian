@@ -1,70 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FFactory} from "../src/FFactory.sol";
-import {FRouter} from "../src/FRouter.sol";
 import {FERC20} from "../src/FERC20.sol";
-import {LPLock} from "../src/LPLock.sol";
 import {IFPair} from "../src/interfaces/IFPair.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
-import {MockHyperswapRouter} from "./mocks/MockHyperswapRouter.sol";
+import {DeployHelper} from "./DeployHelper.sol";
 
-contract BondingTest is Test {
-    MockERC20 public usdc;
-    MockLeveragedToken public lt;
-    MockHyperswapRouter public hyperswapRouter;
-    FFactory public factory;
-    FRouter public router;
-    Bonding public bonding;
-    LPLock public lpLockContract;
-
-    address public owner = address(this);
-    address public feeReceiver = makeAddr("feeReceiver");
-    address public creator = makeAddr("creator");
-    address public trader = makeAddr("trader");
-    address public trader2 = makeAddr("trader2");
-
-    uint256 constant BUY_TAX_BPS = 50; // 0.5%
-    uint256 constant SELL_TAX_BPS = 50; // 0.5%
-    uint256 constant MAX_TX = 100; // 100% = no limit
-    uint256 constant LT_EXCHANGE_RATE = 1 ether; // 1 LT = $1 USD
-
+contract BondingTest is DeployHelper {
     function setUp() public {
-        usdc = new MockERC20("USD Coin", "USDC");
-        lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));
-        hyperswapRouter = new MockHyperswapRouter();
-
-        factory = new FFactory();
-        factory.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
-
-        router = new FRouter();
-        router.initialize(address(factory));
-
-        LPLock lpLockImpl = new LPLock();
-        bytes memory lpLockInit = abi.encodeCall(LPLock.initialize, (owner));
-        lpLockContract = LPLock(address(new ERC1967Proxy(address(lpLockImpl), lpLockInit)));
-
-        Bonding bondingImpl = new Bonding();
-        bytes memory initData = abi.encodeCall(
-            Bonding.initialize,
-            (address(factory), address(router), feeReceiver, MAX_TX, address(hyperswapRouter), address(lpLockContract))
-        );
-        ERC1967Proxy proxy = new ERC1967Proxy(address(bondingImpl), initData);
-        bonding = Bonding(address(proxy));
-
-        factory.setRouter(address(router));
-        factory.grantRole(factory.BONDING_ROLE(), address(bonding));
-        router.grantRole(router.BONDING_ROLE(), address(bonding));
-        lpLockContract.setLocker(address(bonding), true);
+        _deployCore();
         bonding.setRedemptionRouter(creator);
-
-        // Set feeTo = bonding so trade fees accumulate there for fee accounting
-        factory.setFeeParams(address(bonding), BUY_TAX_BPS, SELL_TAX_BPS);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -78,7 +24,7 @@ contract BondingTest is Test {
     ) internal returns (address tokenAddr, address pairAddr) {
         lt.mintDirect(creator, seedLtAmount);
         vm.startPrank(creator);
-        lt.approve(address(router), seedLtAmount);
+        lt.approve(address(frouter), seedLtAmount);
         lt.approve(address(bonding), seedLtAmount);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
@@ -116,7 +62,7 @@ contract BondingTest is Test {
     ) internal returns (uint256 tokensOut) {
         lt.mintDirect(buyer, ltAmount);
         vm.startPrank(buyer);
-        lt.approve(address(router), ltAmount);
+        lt.approve(address(frouter), ltAmount);
         tokensOut = bonding.buy(ltAmount, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
     }
@@ -129,8 +75,8 @@ contract BondingTest is Test {
 
     function test_setUp_factoryAndRouterLinked() public view {
         assertEq(address(bonding.factory()), address(factory));
-        assertEq(address(bonding.router()), address(router));
-        assertEq(factory.router(), address(router));
+        assertEq(address(bonding.router()), address(frouter));
+        assertEq(factory.router(), address(frouter));
     }
 
     function test_setUp_paramsCorrect() public view {
@@ -242,7 +188,7 @@ contract BondingTest is Test {
     function test_launch_emitsEvent() public {
         lt.mintDirect(creator, 200 ether);
         vm.startPrank(creator);
-        lt.approve(address(router), 200 ether);
+        lt.approve(address(frouter), 200 ether);
         lt.approve(address(bonding), 200 ether);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
@@ -280,7 +226,7 @@ contract BondingTest is Test {
         lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
-        lt.approve(address(router), buyAmount);
+        lt.approve(address(frouter), buyAmount);
         bonding.buy(buyAmount, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
 
@@ -316,7 +262,7 @@ contract BondingTest is Test {
         lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
-        lt.approve(address(router), buyAmount);
+        lt.approve(address(frouter), buyAmount);
 
         vm.expectEmit(true, true, false, false);
         emit Bonding.Trade(tokenAddr, trader, true, 0, 0, 0, 0);
@@ -329,7 +275,7 @@ contract BondingTest is Test {
 
         lt.mintDirect(trader, 100 ether);
         vm.startPrank(trader);
-        lt.approve(address(router), 100 ether);
+        lt.approve(address(frouter), 100 ether);
         vm.expectRevert(Bonding.DeadlineExpired.selector);
         bonding.buy(100 ether, tokenAddr, 0, block.timestamp - 1);
         vm.stopPrank();
@@ -340,7 +286,7 @@ contract BondingTest is Test {
 
         lt.mintDirect(trader, 100 ether);
         vm.startPrank(trader);
-        lt.approve(address(router), 100 ether);
+        lt.approve(address(frouter), 100 ether);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
         bonding.buy(100 ether, tokenAddr, type(uint256).max, block.timestamp + 300);
         vm.stopPrank();
@@ -353,7 +299,7 @@ contract BondingTest is Test {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(router), tokensOut);
+        FERC20(tokenAddr).approve(address(frouter), tokensOut);
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
 
@@ -366,7 +312,7 @@ contract BondingTest is Test {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(router), tokensOut);
+        FERC20(tokenAddr).approve(address(frouter), tokensOut);
         bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
 
@@ -378,7 +324,7 @@ contract BondingTest is Test {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(router), tokensOut);
+        FERC20(tokenAddr).approve(address(frouter), tokensOut);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
         bonding.sell(tokensOut, tokenAddr, type(uint256).max, block.timestamp + 300);
         vm.stopPrank();
@@ -393,7 +339,7 @@ contract BondingTest is Test {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(router), tokensOut);
+        FERC20(tokenAddr).approve(address(frouter), tokensOut);
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
 
@@ -497,7 +443,7 @@ contract BondingTest is Test {
         // Buying on graduated token should revert
         lt.mintDirect(trader, 100 ether);
         vm.startPrank(trader);
-        lt.approve(address(router), 100 ether);
+        lt.approve(address(frouter), 100 ether);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
         bonding.buy(100 ether, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
@@ -523,7 +469,7 @@ contract BondingTest is Test {
         assertTrue(bonding.isGraduated(tokenAddr));
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(router), tokensOut);
+        FERC20(tokenAddr).approve(address(frouter), tokensOut);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
         bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
@@ -536,7 +482,7 @@ contract BondingTest is Test {
 
         lt.mintDirect(trader2, 100 ether);
         vm.startPrank(trader2);
-        lt.approve(address(router), 100 ether);
+        lt.approve(address(frouter), 100 ether);
 
         vm.expectEmit(true, false, false, false);
         emit Bonding.TokenGraduated(tokenAddr, address(0), 0);
@@ -633,10 +579,10 @@ contract BondingTest is Test {
         (address tokenAddr,) = _launchTokenNoSeed();
 
         uint256 netBuyIn = 100 ether;
-        uint256 tokensOut = router.getAmountOut(tokenAddr, true, netBuyIn);
+        uint256 tokensOut = frouter.getAmountOut(tokenAddr, true, netBuyIn);
         assertTrue(tokensOut > 0, "getAmountOut should return > 0 for buy");
 
-        uint256 assetBack = router.getAmountOut(tokenAddr, false, tokensOut);
+        uint256 assetBack = frouter.getAmountOut(tokenAddr, false, tokensOut);
         assertApproxEqRel(assetBack, netBuyIn, 0.1e18, "Sell should approximately return what was put in");
     }
 
@@ -667,7 +613,7 @@ contract BondingTest is Test {
 
         lt.mintDirect(trader, buyAmount);
         vm.startPrank(trader);
-        lt.approve(address(router), buyAmount);
+        lt.approve(address(frouter), buyAmount);
         uint256 tokensOut = bonding.buy(buyAmount, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
 
@@ -683,7 +629,7 @@ contract BondingTest is Test {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(router), tokensOut);
+        FERC20(tokenAddr).approve(address(frouter), tokensOut);
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
         vm.stopPrank();
 
