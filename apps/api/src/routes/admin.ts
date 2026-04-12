@@ -11,6 +11,7 @@ import { createPonderPaginatedQuery } from "../lib/ponder-client.js";
 import apiKeysRoute from "./api-keys.js";
 
 import type { AppBindings } from "../lib/types.js";
+import type { PonderRouterTrade, PonderGraduation, PonderToken, PonderFeeClaim } from "../lib/ponder-types.js";
 
 const admin = new Hono<{ Bindings: AppBindings }>();
 
@@ -65,18 +66,12 @@ function buildDaySeries(
   return result;
 }
 
-interface PonderRouterTrade {
-  trader: string;
-  usdcAmount: string;
-  timestamp: string;
-}
-
 admin.get("/analytics/dau", async (c) => {
   const days = parseDays(c.req.query("days"), 30);
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: trades, truncated } = await queryAll<PonderRouterTrade>(
+  const { items: trades, truncated } = await queryAll<Pick<PonderRouterTrade, "trader" | "timestamp">>(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
       routerTrades(
         where: { timestamp_gte: $cutoff }
@@ -114,7 +109,7 @@ admin.get("/analytics/volume", async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: trades, truncated } = await queryAll<PonderRouterTrade>(
+  const { items: trades, truncated } = await queryAll<Pick<PonderRouterTrade, "usdcAmount" | "timestamp">>(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
       routerTrades(
         where: { timestamp_gte: $cutoff }
@@ -141,16 +136,6 @@ admin.get("/analytics/volume", async (c) => {
 
   return c.json(formatSuccess({ series: buildDaySeries(dayMap, days), truncated }));
 });
-
-interface PonderGraduation {
-  tokenAddress: string;
-  timestamp: string;
-}
-
-interface PonderToken {
-  address: string;
-  timestamp: string;
-}
 
 admin.get("/analytics/graduations", async (c) => {
   const days = parseDays(c.req.query("days"), 30);
@@ -229,12 +214,6 @@ admin.get("/analytics/graduations", async (c) => {
     }),
   );
 });
-
-interface PonderFeeClaim {
-  amount: string;
-  isCreator: boolean;
-  timestamp: string;
-}
 
 admin.get("/analytics/revenue", async (c) => {
   const days = parseDays(c.req.query("days"), 30);
