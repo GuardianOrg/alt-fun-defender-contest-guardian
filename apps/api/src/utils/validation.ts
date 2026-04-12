@@ -12,7 +12,8 @@ export function zodValidator<T extends ZodType, Target extends keyof ValidationT
   target: Target,
   schema: T,
 ) {
-  return zValidator(target, schema, (result, c) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- zod v3/v4 type mismatch across hoisted packages
+  return zValidator(target, schema as any, (result, c) => {
     if (!result.success) {
       const messages = result.error.issues
         .map((issue) => {
