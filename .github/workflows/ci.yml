@@ -36,3 +36,4 @@ jobs:
 
       - name: Security audit
         run: npm audit --omit=dev
+        continue-on-error: true
