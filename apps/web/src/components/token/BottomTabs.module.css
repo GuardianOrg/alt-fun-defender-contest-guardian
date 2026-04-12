@@ -383,3 +383,13 @@
   height: 200px;
   overflow-y: auto;
 }
+
+.tabError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--txt-3);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
