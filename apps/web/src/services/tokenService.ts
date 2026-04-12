@@ -1,12 +1,10 @@
-import { fetchToken, fetchTokens } from "./api";
+import { API_BASE, fetchToken, fetchTokens } from "./api";
 import { MOCK_TOKENS } from "./mock/tokens";
 import { fetchPonderToken, fetchPonderTokens } from "./ponder";
 
 import type { ApiToken } from "./api";
 import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
 
 export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";

@@ -9,6 +9,7 @@ import {
 
 import styles from "./Chart.module.css";
 import { COLORS, rgba } from "../../config/colors";
+import { fetchOhlcv } from "../../services/api";
 import { cn, formatPercent } from "../../utils/format";
 
 import type { Token } from "../../services/types";
@@ -18,8 +19,6 @@ import type {
   CandlestickData,
   LineData,
 } from "lightweight-charts";
-
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
 
 const INTERVALS = ["1m", "5m", "15m", "1h", "4h"] as const;
 
@@ -79,9 +78,7 @@ interface Props {
 
 async function fetchChartData(address: string, interval: string): Promise<CandlestickData[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/trades/ohlcv/${address}?interval=${interval}`);
-    const json = await res.json() as { data?: { time: number; open: number; high: number; low: number; close: number }[] };
-    const candles = json.data ?? [];
+    const candles = await fetchOhlcv(address, interval);
     if (candles.length === 0) return [];
     return candles.map((c) => ({
       time: c.time as unknown as CandlestickData["time"],
