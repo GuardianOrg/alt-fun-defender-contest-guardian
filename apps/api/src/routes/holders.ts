@@ -30,7 +30,7 @@ holders.get("/:address", async (c) => {
   }
   const limit = Math.min(limitParam ?? 20, 100);
 
-  const { items: trades } = await queryPonderAll<Pick<PonderRouterTrade, "trader" | "isBuy" | "tokenAmount">>(
+  const { items: trades, truncated } = await queryPonderAll<Pick<PonderRouterTrade, "trader" | "isBuy" | "tokenAmount">>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
         where: { tokenAddress: $address }
@@ -74,6 +74,7 @@ holders.get("/:address", async (c) => {
   return c.json(formatSuccess({
     holders: holderList,
     totalHolders: Array.from(balances.values()).filter((b) => b > 0n).length,
+    approximate: truncated,
   }));
 });
 
