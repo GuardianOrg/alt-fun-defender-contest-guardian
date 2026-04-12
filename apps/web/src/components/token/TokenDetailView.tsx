@@ -32,7 +32,7 @@ export default function TokenDetailView() {
 
   const buyW = Math.round(
     token.curveFilled -
-      (token.leverageBoost > 0
+      (token.leverageBoost > 0 && token.change24h !== 0
         ? (token.leverageBoost / token.change24h) * token.curveFilled
         : 0),
   );
