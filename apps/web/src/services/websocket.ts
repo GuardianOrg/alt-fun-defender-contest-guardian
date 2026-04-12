@@ -79,6 +79,10 @@ class WebSocketClient {
     };
   }
 
+  get isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
   subscribe(channel: string, handler: MessageHandler, token?: string): () => void {
     const id = String(++this.subIdCounter);
     this.subscriptions.set(id, { channel, token, handler });

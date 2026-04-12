@@ -168,8 +168,9 @@ const liveTradeService: ITradeService = {
     };
 
     void poll(true);
-    const pollInterval = ws ? 15_000 : 3_000;
-    intervalId = setInterval(() => void poll(false), pollInterval);
+    intervalId = setInterval(() => {
+      void poll(false);
+    }, ws?.isConnected ? 15_000 : 3_000);
 
     return () => {
       cancelled = true;
@@ -222,8 +223,9 @@ const liveTradeService: ITradeService = {
     };
 
     void poll();
-    const pollInterval = ws ? 15_000 : 5_000;
-    const interval = setInterval(() => void poll(), pollInterval);
+    const interval = setInterval(() => {
+      void poll();
+    }, ws?.isConnected ? 15_000 : 5_000);
 
     return () => {
       cancelled = true;

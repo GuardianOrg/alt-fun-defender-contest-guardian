@@ -284,7 +284,7 @@ tokensRoute.post("/", async (c) => {
     return c.json(formatError("Token already exists"), 409);
   }
 
-  broadcastToChannel(c.env, "newToken", token).catch(() => {});
+  c.executionCtx.waitUntil(broadcastToChannel(c.env, "newToken", token).catch(() => {}));
 
   return c.json(formatSuccess(token), 201);
 });

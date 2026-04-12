@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
+import { isAddress, getAddress } from "viem";
 
 import { createDb } from "../db/client.js";
 import { apiKeys } from "../db/schema.js";
@@ -28,10 +29,11 @@ apiKeysRoute.post("/", async (c) => {
   if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
     return c.json(formatError("name is required"), 400);
   }
-  if (!body.ownerAddress || typeof body.ownerAddress !== "string" || body.ownerAddress.length !== 42) {
-    return c.json(formatError("ownerAddress must be a valid 42-char hex address"), 400);
+  if (!body.ownerAddress || typeof body.ownerAddress !== "string" || !isAddress(body.ownerAddress)) {
+    return c.json(formatError("ownerAddress must be a valid Ethereum address"), 400);
   }
 
+  const normalizedOwner = getAddress(body.ownerAddress);
   const key = generateKey();
   const rateLimit = typeof body.rateLimit === "number" && body.rateLimit > 0 ? body.rateLimit : 100;
 
@@ -41,7 +43,7 @@ apiKeysRoute.post("/", async (c) => {
     .values({
       key,
       name: body.name.trim(),
-      ownerAddress: body.ownerAddress.toLowerCase(),
+      ownerAddress: normalizedOwner,
       rateLimit,
     })
     .returning();
@@ -67,10 +69,11 @@ apiKeysRoute.get("/", async (c) => {
 });
 
 apiKeysRoute.post("/:id/revoke", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  if (!Number.isFinite(id)) {
+  const raw = c.req.param("id");
+  if (!/^\d+$/.test(raw)) {
     return c.json(formatError("Invalid key ID"), 400);
   }
+  const id = Number(raw);
 
   const db = createDb(c.env.DATABASE_URL);
   const [updated] = await db
@@ -87,10 +90,11 @@ apiKeysRoute.post("/:id/revoke", async (c) => {
 });
 
 apiKeysRoute.post("/:id/activate", async (c) => {
-  const id = parseInt(c.req.param("id"), 10);
-  if (!Number.isFinite(id)) {
+  const raw = c.req.param("id");
+  if (!/^\d+$/.test(raw)) {
     return c.json(formatError("Invalid key ID"), 400);
   }
+  const id = Number(raw);
 
   const db = createDb(c.env.DATABASE_URL);
   const [updated] = await db

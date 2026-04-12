@@ -10,8 +10,20 @@ interface RateWindow {
   resetAt: number;
 }
 
+// Per-isolate rate limiter. Not shared across isolates/regions — adequate for v1,
+// but should move to Durable Objects or KV for strict global enforcement.
 const rateLimitMap = new Map<number, RateWindow>();
 const WINDOW_MS = 60_000;
+let lastPurge = Date.now();
+
+function purgeExpiredWindows() {
+  const now = Date.now();
+  if (now - lastPurge < WINDOW_MS) return;
+  lastPurge = now;
+  for (const [id, window] of rateLimitMap) {
+    if (now >= window.resetAt) rateLimitMap.delete(id);
+  }
+}
 
 export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Next) {
   const headerKey = c.req.header("X-API-Key");
@@ -34,6 +46,8 @@ export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Ne
   if (!row.isActive) {
     return c.json({ status: "error", error: "API key is deactivated", data: null }, 403);
   }
+
+  purgeExpiredWindows();
 
   const now = Date.now();
   let window = rateLimitMap.get(row.id);

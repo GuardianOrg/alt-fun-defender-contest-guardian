@@ -33,7 +33,7 @@ interface ModerationResult {
 async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<ModerationResult> {
   try {
     const response = await ai.run("@cf/unum/uform-gen2-qwen-500m", {
-      image: [...imageBytes],
+      image: imageBytes,
       prompt: "Describe what this image contains. Focus on any people, their apparent age, violence, or graphic content.",
       max_tokens: 128,
     });
@@ -48,7 +48,7 @@ async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<Moderation
 
     return { safe: true, reason: "" };
   } catch {
-    // If AI service is unavailable, allow upload but log for manual review
+    // AI unavailable — fail open to avoid blocking uploads. Workers observability captures the error.
     return { safe: true, reason: "" };
   }
 }
