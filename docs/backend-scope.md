@@ -8,7 +8,7 @@ REST API + WebSocket server for the launchpad frontend and third-party integrato
 
 | Event | Contract | Key Fields |
 |---|---|---|
-| `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k` |
+| `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k`, `index` |
 | `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
 | `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
 | `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |

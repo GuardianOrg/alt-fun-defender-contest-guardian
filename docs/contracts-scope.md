@@ -72,7 +72,7 @@ After graduation, all trades continue through `RedemptionRouter` via HyperSwap. 
 ## Referral Tracking
 
 - `buy()` accepts optional `referrer` address
-- Emits `Referred(buyer, referrer, token, usdcAmount)` for off-chain indexing
+- Emits `Referred(token, trader, referrer, usdcAmount)` for off-chain indexing
 - No on-chain fee split in v1
 
 ---
@@ -81,7 +81,7 @@ After graduation, all trades continue through `RedemptionRouter` via HyperSwap. 
 
 | Event | Contract | Fields |
 |---|---|---|
-| `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k` |
+| `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k`, `index` |
 | `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
 | `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
 | `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |
@@ -89,7 +89,7 @@ After graduation, all trades continue through `RedemptionRouter` via HyperSwap. 
 | `Buy` | RedemptionRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
 | `Sell` | RedemptionRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
 | `Referred` | RedemptionRouter | `trader`, `referrer`, `token`, `usdcAmount` |
-| `TokenCreated` | RedemptionRouter | `token`, `creator` |
+| `TokenCreated` | RedemptionRouter | `token`, `creator`, `ltAddress` |
 
 ---
 
