@@ -1,3 +1,5 @@
+import type { SupportedAsset, SupportedLeverage } from "@launchpad/shared";
+
 import type { UnderlyingAsset, Leverage } from "../config/constants";
 
 export type Direction = "long" | "short";
@@ -94,15 +96,11 @@ export interface CreateTokenParams {
   ticker: string;
   description: string;
   direction: Direction;
-  underlying: UnderlyingAsset;
-  leverage: Leverage;
+  underlying: SupportedAsset;
+  leverage: SupportedLeverage;
   imageFile?: File;
-  seedBuyUsd?: number;
-  socialLinks?: {
-    twitter?: string;
-    telegram?: string;
-    website?: string;
-  };
+  seedBuyUsd: number;
+  socialLinks?: string[];
 }
 
 export interface HeldToken {

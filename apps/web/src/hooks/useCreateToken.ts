@@ -5,8 +5,6 @@ import {
   buildTokenCreationMessage,
   findLT,
   type LiveLeveragedToken,
-  type SupportedAsset,
-  type SupportedLeverage,
 } from "@launchpad/shared";
 import { getAddress, maxUint256, parseEventLogs, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
@@ -17,19 +15,7 @@ import { createTokenApi, uploadImage } from "../services/api";
 import { getErrorMessage } from "../utils/format";
 
 import type { LaunchStep } from "../services/tradeRouter";
-import type { Direction } from "../services/types";
-
-export interface CreateTokenParams {
-  name: string;
-  ticker: string;
-  description: string;
-  direction: Direction;
-  underlying: SupportedAsset;
-  leverage: SupportedLeverage;
-  imageFile?: File;
-  seedBuyUsd: number;
-  socialLinks?: string[];
-}
+import type { CreateTokenParams } from "../services/types";
 
 async function fetchLTs(): Promise<LiveLeveragedToken[]> {
   const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
