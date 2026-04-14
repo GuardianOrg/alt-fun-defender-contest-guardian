@@ -38,6 +38,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Create API test secrets
+        if: env.DATABASE_URL != ''
+        run: |
+          echo "DATABASE_URL=$DATABASE_URL" > apps/api/.dev.vars
+          echo "PONDER_URL=http://localhost:42069" >> apps/api/.dev.vars
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: CI
         run: npm run ci
 

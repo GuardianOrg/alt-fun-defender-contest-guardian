@@ -17,6 +17,9 @@
     },
     "test": {
       "dependsOn": ["^build"]
+    },
+    "test:worker": {
+      "dependsOn": ["^build"]
     }
   }
 }

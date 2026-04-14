@@ -12,7 +12,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "ci": "turbo run lint typecheck test build",
+    "ci": "turbo run lint typecheck test test:worker build",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,css,json,md}\" --ignore-path .gitignore"
   },
   "devDependencies": {
