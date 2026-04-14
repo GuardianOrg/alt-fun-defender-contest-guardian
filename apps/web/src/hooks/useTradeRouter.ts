@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 
 import { isAddress, maxUint256, parseUnits } from "viem";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { usePublicClient, useWalletClient } from "wagmi";
 
+import { useWallet } from "./useWallet";
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { type TxStep } from "../services/tradeRouter";
@@ -14,7 +15,7 @@ function slippageToBps(slippage: number): number {
 }
 
 export function useTradeRouter() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useWallet();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
   const [step, setStep] = useState<TxStep>("idle");

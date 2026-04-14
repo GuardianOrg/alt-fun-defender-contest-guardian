@@ -2,7 +2,7 @@ import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import { COLORS, rgba } from "../../config/colors";
 import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
-import { MOCK_ASSET_DATA } from "../../services/mock/assets";
+import { useAssetChanges } from "../../hooks/useAssets";
 import { cn, getLtDisplayName } from "../../utils/format";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
@@ -17,11 +17,6 @@ interface Props {
   onLeverageChange: (l: Leverage) => void;
 }
 
-function ltChg(asset: UnderlyingAsset, lev: Leverage, dir: Direction) {
-  const data = MOCK_ASSET_DATA[asset];
-  return dir === "long" ? data.change24h * lev : -data.change24h * lev;
-}
-
 export default function PairSelector({
   direction,
   asset,
@@ -30,8 +25,11 @@ export default function PairSelector({
   onAssetChange,
   onLeverageChange,
 }: Props) {
+  const assetChanges = useAssetChanges();
   const isLong = direction === "long";
-  const chg = ltChg(asset, leverage, direction);
+  const baseChg = assetChanges[asset];
+  const chg =
+    baseChg == null ? undefined : isLong ? baseChg * leverage : -baseChg * leverage;
 
   return (
     <div>
@@ -140,8 +138,9 @@ export default function PairSelector({
       <label className={styles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
         {UNDERLYING_ASSETS.map((a) => {
-          const data = MOCK_ASSET_DATA[a];
-          const up = data.change24h >= 0;
+          const change = assetChanges[a];
+          const hasData = change != null;
+          const up = hasData && change >= 0;
           const selected = a === asset;
           return (
             <button
@@ -160,11 +159,14 @@ export default function PairSelector({
               <div
                 className={cn(
                   styles.assetChg,
-                  up ? styles.textMint : styles.textRed,
+                  hasData
+                    ? up ? styles.textMint : styles.textRed
+                    : styles.textMuted,
                 )}
               >
-                {up ? "+" : ""}
-                {data.change24h.toFixed(2)}%
+                {hasData
+                  ? `${up ? "+" : ""}${change.toFixed(2)}%`
+                  : "—"}
               </div>
             </button>
           );
@@ -207,8 +209,9 @@ export default function PairSelector({
           {getLtDisplayName(asset, leverage, direction)}
         </span>
         <span className={styles.summaryChg}>
-          {chg >= 0 ? "+" : ""}
-          {chg.toFixed(1)}% today
+          {chg != null
+            ? `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% today`
+            : "— today"}
         </span>
       </div>
 

@@ -102,6 +102,7 @@ export default function CreateView() {
             ticker={ticker}
             description={description}
             socialLinks={socialLinks}
+            imagePreview={imagePreview}
             onNameChange={setName}
             onTickerChange={setTicker}
             onDescriptionChange={setDescription}

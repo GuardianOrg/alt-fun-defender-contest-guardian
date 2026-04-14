@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
 import { cn, formatUsd, formatPercent, copyToClipboard } from "../../utils/format";
@@ -10,6 +12,7 @@ interface Props {
 
 export default function HeroSection({ token }: Props) {
   const { copied, copy: copyCA } = useCopyState();
+  const [imgError, setImgError] = useState(false);
   const up = token.change24h >= 0;
 
   const shareToken = () => {
@@ -20,14 +23,16 @@ export default function HeroSection({ token }: Props) {
   return (
     <div className={styles.wrapper}>
       <div className={styles.avatar}>
-        {token.image ? (
+        {token.image && !imgError ? (
           <img
+            key={token.image}
             src={token.image}
             alt={token.name}
             className={styles.avatarImage}
+            onError={() => setImgError(true)}
           />
         ) : (
-          token.emoji
+          token.emoji || "🪙"
         )}
       </div>
 

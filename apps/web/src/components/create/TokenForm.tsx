@@ -9,6 +9,7 @@ interface Props {
   ticker: string;
   description: string;
   socialLinks: { twitter: string; telegram: string; website: string };
+  imagePreview: string | null;
   onNameChange: (v: string) => void;
   onTickerChange: (v: string) => void;
   onDescriptionChange: (v: string) => void;
@@ -21,6 +22,7 @@ export default function TokenForm({
   ticker,
   description,
   socialLinks,
+  imagePreview,
   onNameChange,
   onTickerChange,
   onDescriptionChange,
@@ -87,14 +89,43 @@ export default function TokenForm({
       </div>
 
       <label className={styles.label}>Token image</label>
-      <div
-        className={styles.uploadZone}
-        onClick={() => fileRef.current?.click()}
-      >
-        <div className={styles.uploadIcon}>🖼</div>
-        <div className={styles.uploadText}>Click or drag to upload</div>
-        <div className={styles.uploadHint}>PNG, JPG, GIF · max 5MB</div>
-      </div>
+      {imagePreview ? (
+        <div className={styles.previewZone}>
+          <img
+            src={imagePreview}
+            alt="Token preview"
+            className={styles.previewImage}
+          />
+          <div className={styles.previewActions}>
+            <button
+              type="button"
+              className={styles.previewBtn}
+              onClick={() => fileRef.current?.click()}
+            >
+              Change
+            </button>
+            <button
+              type="button"
+              className={styles.previewBtn}
+              onClick={() => {
+                onImageChange(null, null);
+                if (fileRef.current) fileRef.current.value = "";
+              }}
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className={styles.uploadZone}
+          onClick={() => fileRef.current?.click()}
+        >
+          <div className={styles.uploadIcon}>🖼</div>
+          <div className={styles.uploadText}>Click or drag to upload</div>
+          <div className={styles.uploadHint}>PNG, JPG, GIF · max 5MB</div>
+        </div>
+      )}
       <input
         ref={fileRef}
         type="file"

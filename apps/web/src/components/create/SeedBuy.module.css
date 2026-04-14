@@ -1,7 +1,7 @@
 .card {
   background: rgba(16, 37, 32, 0.4);
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: 0;
   padding: 1.25rem;
 }
 
@@ -57,7 +57,7 @@
 
 .quickButton {
   padding: 0.625rem 0.25rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
   cursor: pointer;
   text-align: center;
   border: 1px solid;
@@ -103,7 +103,7 @@
 .statCard {
   background: rgba(22, 48, 40, 0.4);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: 0;
   padding: 0.625rem 0.75rem;
 }
 

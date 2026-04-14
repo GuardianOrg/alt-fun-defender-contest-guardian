@@ -115,7 +115,7 @@
   width: 100%;
   padding-top: 1rem;
   padding-bottom: 1rem;
-  border-radius: 0.75rem;
+  border-radius: 0;
   cursor: pointer;
   border: 0;
   font-family: var(--font-mono);

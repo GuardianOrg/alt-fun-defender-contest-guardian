@@ -7,7 +7,7 @@ import {
   type UnderlyingAsset,
   type Leverage,
 } from "../../config/constants";
-import { MOCK_ASSET_DATA } from "../../services/mock/assets";
+import { useAssetChange } from "../../hooks/useAssets";
 import { cn, formatUsd, getLtDisplayName } from "../../utils/format";
 
 import type { Direction } from "../../services/types";
@@ -36,8 +36,9 @@ export default function LivePreview({
   const displayName = ticker
     ? `${(name || "YOUR TOKEN").toUpperCase()} (${ticker.toUpperCase()})`
     : (name || "your token").toUpperCase();
-  const data = MOCK_ASSET_DATA[asset];
-  const assetChg = data.change24h;
+  const rawAssetChg = useAssetChange(asset);
+  const assetChg = rawAssetChg ?? 0;
+  const hasChgData = rawAssetChg != null;
   const isUp = assetChg >= 0;
 
   useEffect(() => {
@@ -168,11 +169,14 @@ export default function LivePreview({
             <div
               className={cn(
                 styles.chartChgBadge,
-                isUp ? styles.chartChgBadgeUp : styles.chartChgBadgeDown,
+                hasChgData
+                  ? isUp ? styles.chartChgBadgeUp : styles.chartChgBadgeDown
+                  : styles.chartChgBadgeUp,
               )}
             >
-              {isUp ? "+" : ""}
-              {assetChg.toFixed(2)}%
+              {hasChgData
+                ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%`
+                : "—"}
             </div>
           </div>
           <div className={styles.chartBody}>

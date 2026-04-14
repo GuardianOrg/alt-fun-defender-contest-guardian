@@ -7,7 +7,7 @@
 
 .directionCard {
   padding: 1.25rem;
-  border-radius: 0.75rem;
+  border-radius: 0;
   border: 1px solid;
   cursor: pointer;
   font-family: var(--font-mono);
@@ -86,7 +86,7 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 3px 0.625rem;
-  border-radius: 0.375rem;
+  border-radius: 0;
   font-weight: 600;
 }
 
@@ -123,7 +123,7 @@
 
 .assetButton {
   padding: 0.625rem 0.75rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
   cursor: pointer;
   border: 1px solid;
   text-align: center;
@@ -173,6 +173,10 @@
   color: var(--red);
 }
 
+.textMuted {
+  color: var(--txt-3);
+}
+
 .leverageLabel {
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -193,7 +197,7 @@
   flex: 1;
   padding-top: 0.625rem;
   padding-bottom: 0.625rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
   cursor: pointer;
   border: 1px solid;
   font-family: var(--font-mono);
@@ -232,7 +236,7 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
+  border-radius: 0;
   border: 1px solid;
   margin-top: 1rem;
   transition: all 0.15s ease;
