@@ -1,12 +1,12 @@
-import { ponder } from "@/generated";
-import { swap, pairReserve } from "../ponder.schema";
+import { ponder } from "ponder:registry";
+import { swap, pairReserve } from "ponder:schema";
 
 ponder.on("HyperSwapPair:Swap", async ({ event, context }) => {
   const { db } = context;
   await db
     .insert(swap)
     .values({
-      id: `${event.log.transactionHash}-${event.log.logIndex}`,
+      id: `${event.transaction.hash}-${event.log.logIndex}`,
       pairAddress: event.log.address,
       sender: event.args.sender,
       to: event.args.to,

@@ -10,13 +10,13 @@
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ test/",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@launchpad/shared": "*",
-    "@ponder/core": "^0.7",
     "hono": "^4",
-    "react": "^18.2.0",
+    "ponder": "^0.16",
     "viem": "^2.47.12"
   },
   "devDependencies": {

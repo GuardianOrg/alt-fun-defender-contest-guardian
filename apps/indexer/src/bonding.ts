@@ -1,5 +1,5 @@
-import { ponder } from "@/generated";
-import { token, trade, routerTrade, graduation, referral, feeClaim } from "../ponder.schema";
+import { ponder } from "ponder:registry";
+import { token, trade, routerTrade, graduation, referral, feeClaim } from "ponder:schema";
 
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;

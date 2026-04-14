@@ -29,6 +29,13 @@ jobs:
         with:
           version: stable
 
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
       - run: npm ci
 
       - name: CI
@@ -37,3 +44,35 @@ jobs:
       - name: Security audit
         run: npm audit --omit=dev
         continue-on-error: true
+
+  indexer-smoke:
+    name: Indexer Smoke Test
+    runs-on: ubuntu-latest
+    needs: ci
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
+      - run: npm ci
+
+      - name: Build shared package
+        run: npx turbo run build --filter=@launchpad/shared
+
+      - name: Smoke test indexer
+        run: npm run test:smoke --workspace=@launchpad/indexer
+        timeout-minutes: 5
+        env:
+          PONDER_RPC_URL_999: ${{ secrets.PONDER_RPC_URL_999 }}

@@ -6,7 +6,7 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "cp -r apps/indexer/node_modules/react node_modules/ink/node_modules/react 2>/dev/null || true",
+    "postinstall": "node scripts/fix-ink-react.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
