@@ -39,6 +39,12 @@ jobs:
 
       - name: Build
         run: npx turbo run build --filter=@launchpad/web
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_PONDER_URL: ${{ vars.VITE_PONDER_URL }}
+          VITE_PRIVY_APP_ID: ${{ secrets.VITE_PRIVY_APP_ID }}
+          VITE_RPC_URL: ${{ secrets.VITE_RPC_URL }}
+          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
