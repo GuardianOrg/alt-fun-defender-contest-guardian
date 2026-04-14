@@ -48,6 +48,8 @@ jobs:
   api-smoke:
     name: API Smoke Test
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -71,15 +73,13 @@ jobs:
         run: npx turbo run build --filter=@launchpad/shared
 
       - name: Create .dev.vars
-        if: ${{ secrets.DATABASE_URL != '' }}
+        if: env.DATABASE_URL != ''
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > apps/api/.dev.vars
           echo "PONDER_URL=http://localhost:42069" >> apps/api/.dev.vars
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Smoke test API
-        if: ${{ secrets.DATABASE_URL != '' }}
+        if: env.DATABASE_URL != ''
         run: npm run test:worker --workspace=@launchpad/api
         timeout-minutes: 3
 
