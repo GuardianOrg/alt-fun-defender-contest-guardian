@@ -299,6 +299,7 @@ async function main() {
 
   const child = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--local"], {
     stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
   });
 
   let exitCode = null;
@@ -336,12 +337,15 @@ async function main() {
     }
     process.exitCode = 1;
   } finally {
-    child.kill("SIGTERM");
+    try { process.kill(-child.pid, "SIGTERM"); } catch { /* already dead */ }
     const exited = await Promise.race([
       new Promise((r) => child.on("exit", r)),
       sleep(3_000).then(() => null),
     ]);
-    if (exited === null) child.kill("SIGKILL");
+    if (exited === null) {
+      try { process.kill(-child.pid, "SIGKILL"); } catch { /* already dead */ }
+    }
+    process.exit(process.exitCode ?? 0);
   }
 }
 
