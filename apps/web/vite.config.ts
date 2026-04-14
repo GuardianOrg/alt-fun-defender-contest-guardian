@@ -4,6 +4,9 @@ import { defineConfig } from "vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   build: {
     rollupOptions: {
       // @privy-io/react-auth references optional Solana peer deps that are not
