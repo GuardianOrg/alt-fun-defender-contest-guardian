@@ -1,4 +1,5 @@
 import type { KeyboardEvent } from "react";
+import { useState } from "react";
 
 import { useNavigate } from "react-router";
 
@@ -15,6 +16,7 @@ interface Props {
 
 export default function TokenRow({ token }: Props) {
   const navigate = useNavigate();
+  const [imgError, setImgError] = useState(false);
   const isGraduating = token.status === "graduating";
   const isGraduated = token.status === "graduated";
   const isShort = token.direction === "short";
@@ -62,14 +64,15 @@ export default function TokenRow({ token }: Props) {
     >
       {/* Icon */}
       <div className={styles.iconCell}>
-        {token.image ? (
+        {token.image && !imgError ? (
           <img
             src={token.image}
             alt={token.name}
             className={styles.tokenImage}
+            onError={() => setImgError(true)}
           />
         ) : (
-          <span className={styles.tokenEmoji}>{token.emoji}</span>
+          <span className={styles.tokenEmoji}>{token.emoji || "🪙"}</span>
         )}
       </div>
 

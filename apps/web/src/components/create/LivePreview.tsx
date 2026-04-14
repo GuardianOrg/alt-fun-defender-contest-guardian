@@ -7,7 +7,7 @@ import {
   type UnderlyingAsset,
   type Leverage,
 } from "../../config/constants";
-import { MOCK_ASSET_DATA } from "../../services/mock/assets";
+import { useAssetChange } from "../../hooks/useAssets";
 import { cn, formatUsd, getLtDisplayName } from "../../utils/format";
 
 import type { Direction } from "../../services/types";
@@ -36,8 +36,7 @@ export default function LivePreview({
   const displayName = ticker
     ? `${(name || "YOUR TOKEN").toUpperCase()} (${ticker.toUpperCase()})`
     : (name || "your token").toUpperCase();
-  const data = MOCK_ASSET_DATA[asset];
-  const assetChg = data.change24h;
+  const assetChg = useAssetChange(asset);
   const isUp = assetChg >= 0;
 
   useEffect(() => {

@@ -5,8 +5,9 @@ import {
   findLT,
 } from "@launchpad/shared";
 import { getAddress, maxUint256, parseEventLogs, parseUnits } from "viem";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { usePublicClient, useWalletClient } from "wagmi";
 
+import { useWallet } from "./useWallet";
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { createTokenApi, fetchLeveragedTokens, uploadImage } from "../services/api";
@@ -20,7 +21,7 @@ async function fetchLTs() {
 }
 
 export function useCreateToken() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected } = useWallet();
   const publicClient = usePublicClient();
   const { data: walletClient } = useWalletClient();
   const [step, setStep] = useState<LaunchStep>("idle");

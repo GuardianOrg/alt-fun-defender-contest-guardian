@@ -157,8 +157,10 @@
 }
 
 .ctaEmoji {
-  font-size: 1.125rem;
-  line-height: 1.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mint);
 }
 
 .ctaText {

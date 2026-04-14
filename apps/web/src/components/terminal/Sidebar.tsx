@@ -69,7 +69,12 @@ export default function Sidebar() {
           className={styles.ctaButton}
           onClick={() => navigate(CREATE_PATH)}
         >
-          <span className={styles.ctaEmoji}>&#x26A1;</span>
+          <span className={styles.ctaEmoji}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </span>
           <span className={styles.ctaText}>
             <span className={styles.ctaTitle}>create</span>
             <span className={styles.ctaSub}>launch a levered token</span>

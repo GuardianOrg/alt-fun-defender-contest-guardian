@@ -13,14 +13,14 @@
   display: flex;
   align-items: center;
   background: rgba(16, 37, 32, 0.6);
-  border-radius: 0.375rem;
+  border-radius: 0;
   padding: 0.125rem;
   gap: 1px;
 }
 
 .intervalBtn {
   padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
+  border-radius: 0;
   font-size: 11px;
   font-family: var(--font-mono);
   font-weight: 500;

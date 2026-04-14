@@ -103,7 +103,7 @@
 .presetBtn {
   flex: 1;
   padding: 0.375rem 0;
-  border-radius: 0.5rem;
+  border-radius: 0;
   border: 1px solid var(--border);
   font-family: var(--font-mono);
   font-size: 13px;
@@ -274,7 +274,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.5rem;
+  border-radius: 0;
   cursor: pointer;
   border: 0;
   transition: all 0.15s ease;
@@ -410,7 +410,7 @@
 
 .resetBtn {
   padding: 0.375rem 0.625rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
   border: 1px solid var(--border);
   color: var(--txt-3);
   font-family: var(--font-mono);
@@ -428,7 +428,7 @@
 .quickBtn {
   flex: 1;
   padding: 0.375rem 0;
-  border-radius: 0.5rem;
+  border-radius: 0;
   border: 1px solid var(--border);
   font-family: var(--font-mono);
   font-size: 13px;
@@ -457,7 +457,7 @@
 
 .maxBtn {
   padding: 0.375rem 0.625rem;
-  border-radius: 0.5rem;
+  border-radius: 0;
   border: 1px solid var(--border);
   color: var(--mint);
   font-family: var(--font-mono);
@@ -554,7 +554,7 @@
 .ctaBtn {
   width: 100%;
   padding: 0.75rem 0;
-  border-radius: 0.75rem;
+  border-radius: 0;
   border: 0;
   font-family: var(--font-mono);
   font-size: 13px;
@@ -583,7 +583,7 @@
 
 .ctaSell {
   background: var(--red);
-  color: white;
+  color: var(--bg);
   box-shadow: var(--shadow-red-glow);
 }
 
