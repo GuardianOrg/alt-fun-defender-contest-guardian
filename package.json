@@ -19,10 +19,5 @@
     "prettier": "^3",
     "turbo": "^2"
   },
-  "packageManager": "npm@10.9.7",
-  "overrides": {
-    "ink": {
-      "react": "^18.2.0"
-    }
-  }
+  "packageManager": "npm@10.9.7"
 }
