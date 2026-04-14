@@ -6,7 +6,14 @@ import * as schema from "../../ponder.schema";
 
 const app = new Hono();
 
-app.use("*", cors());
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+  }),
+);
 app.use("/", graphql({ db, schema }));
 app.use("/graphql", graphql({ db, schema }));
 
