@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "cp -r apps/indexer/node_modules/react node_modules/ink/node_modules/react 2>/dev/null || true",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
@@ -18,5 +19,10 @@
     "prettier": "^3",
     "turbo": "^2"
   },
-  "packageManager": "npm@10.9.7"
+  "packageManager": "npm@10.9.7",
+  "overrides": {
+    "ink": {
+      "react": "^18.2.0"
+    }
+  }
 }

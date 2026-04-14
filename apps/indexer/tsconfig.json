@@ -9,8 +9,8 @@
     "declarationMap": false,
     "sourceMap": false,
     "paths": {
-      "@/generated": ["./ponder-env.d.ts"]
+      "@launchpad/shared": ["../../packages/shared/src"]
     }
   },
-  "include": ["src", "ponder.config.ts", "ponder.schema.ts", "ponder-env.d.ts"]
+  "include": ["src", "test", "ponder.config.ts", "ponder.schema.ts", "ponder-env.d.ts"]
 }
