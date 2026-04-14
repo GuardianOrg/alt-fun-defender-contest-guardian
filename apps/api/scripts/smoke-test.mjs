@@ -14,6 +14,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 const PORT = 8799;
 const BASE_URL = `http://localhost:${PORT}`;
@@ -21,17 +22,33 @@ const STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 
-const TEST_TOKEN = "0x26F8ED8C7548e066Bea4A86412aD7f099E30caBb";
-const TEST_CREATOR = "0x681E6a109e586bAE0FD5e4b5aCad8e20E0e600BA";
-const NONEXISTENT_ADDRESS = "0x0000000000000000000000000000000000000001";
+function randomAddress() {
+  const hex = "0123456789abcdef";
+  let addr = "0x";
+  for (let i = 0; i < 40; i++) addr += hex[Math.floor(Math.random() * hex.length)];
+  return addr;
+}
 
-// Check if DATABASE_URL is available
-const devVarsPath = new URL("../.dev.vars", import.meta.url).pathname;
-const hasDb = existsSync(devVarsPath) &&
-  readFileSync(devVarsPath, "utf8").includes("DATABASE_URL=");
+const NONEXISTENT_ADDRESS = randomAddress();
 
-if (!hasDb) {
-  console.log("DATABASE_URL not in .dev.vars — skipping API smoke test");
+function getVarFromDevVars(filePath, key) {
+  if (!existsSync(filePath)) return "";
+  for (const line of readFileSync(filePath, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const sep = trimmed.indexOf("=");
+    if (sep === -1) continue;
+    if (trimmed.slice(0, sep).trim() === key) return trimmed.slice(sep + 1).trim();
+  }
+  return "";
+}
+
+const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
+const databaseUrl =
+  process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
+
+if (!databaseUrl) {
+  console.log("DATABASE_URL is unset or empty — skipping API smoke test");
   process.exit(0);
 }
 
@@ -122,11 +139,17 @@ async function runTests() {
 
   console.log("\n--- Token endpoints (DB) ---\n");
 
+  // Discover a real token dynamically so tests aren't coupled to seeded data
+  let discoveredToken = null;
+  let discoveredCreator = null;
+
   await test("GET /api/v1/tokens returns list", async () => {
     const { res, body } = await fetchJson("/api/v1/tokens?limit=10&offset=0");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected array");
     assert(body.data.length >= 1, "Expected at least 1 token");
+    discoveredToken = body.data[0].address;
+    discoveredCreator = body.data[0].creator;
   });
 
   await test("Token has expected shape", async () => {
@@ -155,8 +178,11 @@ async function runTests() {
     assert(res.status === 400, `Expected 400, got ${res.status}`);
   });
 
-  await test("GET /api/v1/tokens/search finds by name", async () => {
-    const { res, body } = await fetchJson("/api/v1/tokens/search?q=E2E");
+  await test("GET /api/v1/tokens/search returns results", async () => {
+    assert(discoveredToken, "No token discovered — cannot run search test");
+    const { body: detail } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
+    const namePrefix = detail.data.name.slice(0, 3);
+    const { res, body } = await fetchJson(`/api/v1/tokens/search?q=${encodeURIComponent(namePrefix)}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(body.data.length >= 1, "Expected at least 1 result");
   });
@@ -167,10 +193,11 @@ async function runTests() {
   });
 
   await test("GET /api/v1/tokens/:address returns detail", async () => {
-    const { res, body } = await fetchJson(`/api/v1/tokens/${TEST_TOKEN}`);
+    assert(discoveredToken, "No token discovered — cannot run detail test");
+    const { res, body } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
-    assert(body.data.address === TEST_TOKEN, `Wrong address: ${body.data.address}`);
-    assert(body.data.name === "E2E Test Token", `Wrong name: ${body.data.name}`);
+    assert(body.data.address === discoveredToken, `Wrong address: ${body.data.address}`);
+    assert(typeof body.data.name === "string" && body.data.name.length > 0, "Expected non-empty name");
     assert("curveFilled" in body.data, "Missing curveFilled");
     assert("curveSupply" in body.data, "Missing curveSupply");
   });
@@ -187,13 +214,15 @@ async function runTests() {
 
   console.log("\n--- Comments (DB) ---\n");
 
-  await test("GET /api/v1/tokens/:address/comments returns list", async () => {
-    const { res, body } = await fetchJson(`/api/v1/tokens/${TEST_TOKEN}/comments`);
+  await test("GET /api/v1/tokens/:address/comments returns list shape", async () => {
+    assert(discoveredToken, "No token discovered — cannot run comments test");
+    const { res, body } = await fetchJson(`/api/v1/tokens/${discoveredToken}/comments`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected array");
-    assert(body.data.length >= 1, "Expected at least 1 comment");
-    assert("content" in body.data[0], "Missing content");
-    assert("author" in body.data[0], "Missing author");
+    if (body.data.length > 0) {
+      assert("content" in body.data[0], "Missing content");
+      assert("author" in body.data[0], "Missing author");
+    }
   });
 
   await test("Comments empty for unknown token", async () => {
@@ -205,7 +234,8 @@ async function runTests() {
   console.log("\n--- Creators (DB) ---\n");
 
   await test("GET /api/v1/creators/:address returns profile", async () => {
-    const { res, body } = await fetchJson(`/api/v1/creators/${TEST_CREATOR}`);
+    assert(discoveredCreator, "No creator discovered — cannot run creator test");
+    const { res, body } = await fetchJson(`/api/v1/creators/${discoveredCreator}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(body.data.tokens.length >= 1, "Expected at least 1 token");
     assert(body.data.stats.tokensCreated >= 1, "Expected tokensCreated >= 1");
@@ -252,20 +282,23 @@ async function runTests() {
   });
 
   await test("GET /api/v1/holders/:address returns 503", async () => {
-    const { res } = await fetchJson(`/api/v1/holders/${TEST_TOKEN}`);
+    assert(discoveredToken, "No token discovered — cannot run holders test");
+    const { res } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
     assert(res.status === 503, `Expected 503, got ${res.status}`);
   });
 
   await test("GET /api/v1/security/:address returns fallback", async () => {
-    const { res, body } = await fetchJson(`/api/v1/security/${TEST_TOKEN}`);
+    assert(discoveredToken, "No token discovered — cannot run security test");
+    const { res, body } = await fetchJson(`/api/v1/security/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert("contractVerified" in body.data, "Missing contractVerified");
   });
 
   await test("GET /api/v1/trades/sparkline/:address returns empty", async () => {
-    const { res, body } = await fetchJson(`/api/v1/trades/sparkline/${TEST_TOKEN}`);
+    assert(discoveredToken, "No token discovered — cannot run sparkline test");
+    const { res, body } = await fetchJson(`/api/v1/trades/sparkline/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
-    assert(body.data.length === 0, "Expected empty array");
+    assert(Array.isArray(body.data), "Expected array");
   });
 
   console.log("\n--- Assets (external APIs) ---\n");
