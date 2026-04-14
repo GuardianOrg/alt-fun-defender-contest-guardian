@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
-import { swap, pairReserve } from "../../ponder.schema";
+import { swap, pairReserve } from "../ponder.schema";
 
 // Importing the module registers handlers on the mock ponder object
-await import("../hyperswap");
+await import("../src/hyperswap");
 
 describe("HyperSwapPair:Swap", () => {
   let db: ReturnType<typeof createMockDb>;

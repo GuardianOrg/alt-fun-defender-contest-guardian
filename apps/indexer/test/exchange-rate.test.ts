@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb } from "./mocks/db";
-import { ltExchangeRate } from "../../ponder.schema";
+import { ltExchangeRate } from "../ponder.schema";
 
 // Must import before the module under test to register handlers
-await import("../exchange-rate");
+await import("../src/exchange-rate");
 
 function createBlockEvent(blockNumber: bigint, timestamp: bigint) {
   return {

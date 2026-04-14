@@ -1,0 +1,835 @@
+"""
+The `JSON` scalar type represents JSON values as specified by [ECMA-404](http://www.ecma-international.org/publications/files/ECMA-ST/ECMA-404.pdf).
+"""
+scalar JSON
+
+scalar BigInt
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type Meta {
+  status: JSON
+}
+
+type Query {
+  token(address: String!): token
+  tokens(where: tokenFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): tokenPage!
+  trade(id: String!): trade
+  trades(where: tradeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): tradePage!
+  routerTrade(id: String!): routerTrade
+  routerTrades(where: routerTradeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): routerTradePage!
+  graduation(tokenAddress: String!): graduation
+  graduations(where: graduationFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): graduationPage!
+  referral(id: String!): referral
+  referrals(where: referralFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): referralPage!
+  feeClaim(id: String!): feeClaim
+  feeClaims(where: feeClaimFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): feeClaimPage!
+  swap(id: String!): swap
+  swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): swapPage!
+  pairReserve(pairAddress: String!): pairReserve
+  pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): pairReservePage!
+  ltExchangeRate(id: String!): ltExchangeRate
+  ltExchangeRates(where: ltExchangeRateFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): ltExchangeRatePage!
+  _meta: Meta
+}
+
+type token {
+  address: String!
+  name: String!
+  symbol: String!
+  creator: String!
+  ltToken: String!
+  k: BigInt!
+  curveSupply: BigInt!
+  ltReserve: BigInt!
+  graduated: Boolean!
+  graduatedAt: BigInt
+  pairAddress: String
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type tokenPage {
+  items: [token!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input tokenFilter {
+  AND: [tokenFilter]
+  OR: [tokenFilter]
+  address: String
+  address_not: String
+  address_in: [String]
+  address_not_in: [String]
+  address_contains: String
+  address_not_contains: String
+  address_starts_with: String
+  address_ends_with: String
+  address_not_starts_with: String
+  address_not_ends_with: String
+  name: String
+  name_not: String
+  name_in: [String]
+  name_not_in: [String]
+  name_contains: String
+  name_not_contains: String
+  name_starts_with: String
+  name_ends_with: String
+  name_not_starts_with: String
+  name_not_ends_with: String
+  symbol: String
+  symbol_not: String
+  symbol_in: [String]
+  symbol_not_in: [String]
+  symbol_contains: String
+  symbol_not_contains: String
+  symbol_starts_with: String
+  symbol_ends_with: String
+  symbol_not_starts_with: String
+  symbol_not_ends_with: String
+  creator: String
+  creator_not: String
+  creator_in: [String]
+  creator_not_in: [String]
+  creator_contains: String
+  creator_not_contains: String
+  creator_starts_with: String
+  creator_ends_with: String
+  creator_not_starts_with: String
+  creator_not_ends_with: String
+  ltToken: String
+  ltToken_not: String
+  ltToken_in: [String]
+  ltToken_not_in: [String]
+  ltToken_contains: String
+  ltToken_not_contains: String
+  ltToken_starts_with: String
+  ltToken_ends_with: String
+  ltToken_not_starts_with: String
+  ltToken_not_ends_with: String
+  k: BigInt
+  k_not: BigInt
+  k_in: [BigInt]
+  k_not_in: [BigInt]
+  k_gt: BigInt
+  k_lt: BigInt
+  k_gte: BigInt
+  k_lte: BigInt
+  curveSupply: BigInt
+  curveSupply_not: BigInt
+  curveSupply_in: [BigInt]
+  curveSupply_not_in: [BigInt]
+  curveSupply_gt: BigInt
+  curveSupply_lt: BigInt
+  curveSupply_gte: BigInt
+  curveSupply_lte: BigInt
+  ltReserve: BigInt
+  ltReserve_not: BigInt
+  ltReserve_in: [BigInt]
+  ltReserve_not_in: [BigInt]
+  ltReserve_gt: BigInt
+  ltReserve_lt: BigInt
+  ltReserve_gte: BigInt
+  ltReserve_lte: BigInt
+  graduated: Boolean
+  graduated_not: Boolean
+  graduated_in: [Boolean]
+  graduated_not_in: [Boolean]
+  graduatedAt: BigInt
+  graduatedAt_not: BigInt
+  graduatedAt_in: [BigInt]
+  graduatedAt_not_in: [BigInt]
+  graduatedAt_gt: BigInt
+  graduatedAt_lt: BigInt
+  graduatedAt_gte: BigInt
+  graduatedAt_lte: BigInt
+  pairAddress: String
+  pairAddress_not: String
+  pairAddress_in: [String]
+  pairAddress_not_in: [String]
+  pairAddress_contains: String
+  pairAddress_not_contains: String
+  pairAddress_starts_with: String
+  pairAddress_ends_with: String
+  pairAddress_not_starts_with: String
+  pairAddress_not_ends_with: String
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type trade {
+  id: String!
+  tokenAddress: String!
+  trader: String!
+  isBuy: Boolean!
+  ltAmount: BigInt!
+  tokenAmount: BigInt!
+  curveSupply: BigInt!
+  ltReserve: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type tradePage {
+  items: [trade!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input tradeFilter {
+  AND: [tradeFilter]
+  OR: [tradeFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  trader: String
+  trader_not: String
+  trader_in: [String]
+  trader_not_in: [String]
+  trader_contains: String
+  trader_not_contains: String
+  trader_starts_with: String
+  trader_ends_with: String
+  trader_not_starts_with: String
+  trader_not_ends_with: String
+  isBuy: Boolean
+  isBuy_not: Boolean
+  isBuy_in: [Boolean]
+  isBuy_not_in: [Boolean]
+  ltAmount: BigInt
+  ltAmount_not: BigInt
+  ltAmount_in: [BigInt]
+  ltAmount_not_in: [BigInt]
+  ltAmount_gt: BigInt
+  ltAmount_lt: BigInt
+  ltAmount_gte: BigInt
+  ltAmount_lte: BigInt
+  tokenAmount: BigInt
+  tokenAmount_not: BigInt
+  tokenAmount_in: [BigInt]
+  tokenAmount_not_in: [BigInt]
+  tokenAmount_gt: BigInt
+  tokenAmount_lt: BigInt
+  tokenAmount_gte: BigInt
+  tokenAmount_lte: BigInt
+  curveSupply: BigInt
+  curveSupply_not: BigInt
+  curveSupply_in: [BigInt]
+  curveSupply_not_in: [BigInt]
+  curveSupply_gt: BigInt
+  curveSupply_lt: BigInt
+  curveSupply_gte: BigInt
+  curveSupply_lte: BigInt
+  ltReserve: BigInt
+  ltReserve_not: BigInt
+  ltReserve_in: [BigInt]
+  ltReserve_not_in: [BigInt]
+  ltReserve_gt: BigInt
+  ltReserve_lt: BigInt
+  ltReserve_gte: BigInt
+  ltReserve_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type routerTrade {
+  id: String!
+  tokenAddress: String!
+  trader: String!
+  isBuy: Boolean!
+  usdcAmount: BigInt!
+  tokenAmount: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type routerTradePage {
+  items: [routerTrade!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input routerTradeFilter {
+  AND: [routerTradeFilter]
+  OR: [routerTradeFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  trader: String
+  trader_not: String
+  trader_in: [String]
+  trader_not_in: [String]
+  trader_contains: String
+  trader_not_contains: String
+  trader_starts_with: String
+  trader_ends_with: String
+  trader_not_starts_with: String
+  trader_not_ends_with: String
+  isBuy: Boolean
+  isBuy_not: Boolean
+  isBuy_in: [Boolean]
+  isBuy_not_in: [Boolean]
+  usdcAmount: BigInt
+  usdcAmount_not: BigInt
+  usdcAmount_in: [BigInt]
+  usdcAmount_not_in: [BigInt]
+  usdcAmount_gt: BigInt
+  usdcAmount_lt: BigInt
+  usdcAmount_gte: BigInt
+  usdcAmount_lte: BigInt
+  tokenAmount: BigInt
+  tokenAmount_not: BigInt
+  tokenAmount_in: [BigInt]
+  tokenAmount_not_in: [BigInt]
+  tokenAmount_gt: BigInt
+  tokenAmount_lt: BigInt
+  tokenAmount_gte: BigInt
+  tokenAmount_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type graduation {
+  tokenAddress: String!
+  pairAddress: String!
+  liquidity: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type graduationPage {
+  items: [graduation!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input graduationFilter {
+  AND: [graduationFilter]
+  OR: [graduationFilter]
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  pairAddress: String
+  pairAddress_not: String
+  pairAddress_in: [String]
+  pairAddress_not_in: [String]
+  pairAddress_contains: String
+  pairAddress_not_contains: String
+  pairAddress_starts_with: String
+  pairAddress_ends_with: String
+  pairAddress_not_starts_with: String
+  pairAddress_not_ends_with: String
+  liquidity: BigInt
+  liquidity_not: BigInt
+  liquidity_in: [BigInt]
+  liquidity_not_in: [BigInt]
+  liquidity_gt: BigInt
+  liquidity_lt: BigInt
+  liquidity_gte: BigInt
+  liquidity_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type referral {
+  id: String!
+  tokenAddress: String!
+  trader: String!
+  referrer: String!
+  usdcAmount: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type referralPage {
+  items: [referral!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input referralFilter {
+  AND: [referralFilter]
+  OR: [referralFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  trader: String
+  trader_not: String
+  trader_in: [String]
+  trader_not_in: [String]
+  trader_contains: String
+  trader_not_contains: String
+  trader_starts_with: String
+  trader_ends_with: String
+  trader_not_starts_with: String
+  trader_not_ends_with: String
+  referrer: String
+  referrer_not: String
+  referrer_in: [String]
+  referrer_not_in: [String]
+  referrer_contains: String
+  referrer_not_contains: String
+  referrer_starts_with: String
+  referrer_ends_with: String
+  referrer_not_starts_with: String
+  referrer_not_ends_with: String
+  usdcAmount: BigInt
+  usdcAmount_not: BigInt
+  usdcAmount_in: [BigInt]
+  usdcAmount_not_in: [BigInt]
+  usdcAmount_gt: BigInt
+  usdcAmount_lt: BigInt
+  usdcAmount_gte: BigInt
+  usdcAmount_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type feeClaim {
+  id: String!
+  claimer: String!
+  ltAddress: String!
+  amount: BigInt!
+  isCreator: Boolean!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type feeClaimPage {
+  items: [feeClaim!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input feeClaimFilter {
+  AND: [feeClaimFilter]
+  OR: [feeClaimFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  claimer: String
+  claimer_not: String
+  claimer_in: [String]
+  claimer_not_in: [String]
+  claimer_contains: String
+  claimer_not_contains: String
+  claimer_starts_with: String
+  claimer_ends_with: String
+  claimer_not_starts_with: String
+  claimer_not_ends_with: String
+  ltAddress: String
+  ltAddress_not: String
+  ltAddress_in: [String]
+  ltAddress_not_in: [String]
+  ltAddress_contains: String
+  ltAddress_not_contains: String
+  ltAddress_starts_with: String
+  ltAddress_ends_with: String
+  ltAddress_not_starts_with: String
+  ltAddress_not_ends_with: String
+  amount: BigInt
+  amount_not: BigInt
+  amount_in: [BigInt]
+  amount_not_in: [BigInt]
+  amount_gt: BigInt
+  amount_lt: BigInt
+  amount_gte: BigInt
+  amount_lte: BigInt
+  isCreator: Boolean
+  isCreator_not: Boolean
+  isCreator_in: [Boolean]
+  isCreator_not_in: [Boolean]
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type swap {
+  id: String!
+  pairAddress: String!
+  sender: String!
+  to: String!
+  amount0In: BigInt!
+  amount1In: BigInt!
+  amount0Out: BigInt!
+  amount1Out: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type swapPage {
+  items: [swap!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input swapFilter {
+  AND: [swapFilter]
+  OR: [swapFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  pairAddress: String
+  pairAddress_not: String
+  pairAddress_in: [String]
+  pairAddress_not_in: [String]
+  pairAddress_contains: String
+  pairAddress_not_contains: String
+  pairAddress_starts_with: String
+  pairAddress_ends_with: String
+  pairAddress_not_starts_with: String
+  pairAddress_not_ends_with: String
+  sender: String
+  sender_not: String
+  sender_in: [String]
+  sender_not_in: [String]
+  sender_contains: String
+  sender_not_contains: String
+  sender_starts_with: String
+  sender_ends_with: String
+  sender_not_starts_with: String
+  sender_not_ends_with: String
+  to: String
+  to_not: String
+  to_in: [String]
+  to_not_in: [String]
+  to_contains: String
+  to_not_contains: String
+  to_starts_with: String
+  to_ends_with: String
+  to_not_starts_with: String
+  to_not_ends_with: String
+  amount0In: BigInt
+  amount0In_not: BigInt
+  amount0In_in: [BigInt]
+  amount0In_not_in: [BigInt]
+  amount0In_gt: BigInt
+  amount0In_lt: BigInt
+  amount0In_gte: BigInt
+  amount0In_lte: BigInt
+  amount1In: BigInt
+  amount1In_not: BigInt
+  amount1In_in: [BigInt]
+  amount1In_not_in: [BigInt]
+  amount1In_gt: BigInt
+  amount1In_lt: BigInt
+  amount1In_gte: BigInt
+  amount1In_lte: BigInt
+  amount0Out: BigInt
+  amount0Out_not: BigInt
+  amount0Out_in: [BigInt]
+  amount0Out_not_in: [BigInt]
+  amount0Out_gt: BigInt
+  amount0Out_lt: BigInt
+  amount0Out_gte: BigInt
+  amount0Out_lte: BigInt
+  amount1Out: BigInt
+  amount1Out_not: BigInt
+  amount1Out_in: [BigInt]
+  amount1Out_not_in: [BigInt]
+  amount1Out_gt: BigInt
+  amount1Out_lt: BigInt
+  amount1Out_gte: BigInt
+  amount1Out_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type pairReserve {
+  pairAddress: String!
+  reserve0: BigInt!
+  reserve1: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type pairReservePage {
+  items: [pairReserve!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input pairReserveFilter {
+  AND: [pairReserveFilter]
+  OR: [pairReserveFilter]
+  pairAddress: String
+  pairAddress_not: String
+  pairAddress_in: [String]
+  pairAddress_not_in: [String]
+  pairAddress_contains: String
+  pairAddress_not_contains: String
+  pairAddress_starts_with: String
+  pairAddress_ends_with: String
+  pairAddress_not_starts_with: String
+  pairAddress_not_ends_with: String
+  reserve0: BigInt
+  reserve0_not: BigInt
+  reserve0_in: [BigInt]
+  reserve0_not_in: [BigInt]
+  reserve0_gt: BigInt
+  reserve0_lt: BigInt
+  reserve0_gte: BigInt
+  reserve0_lte: BigInt
+  reserve1: BigInt
+  reserve1_not: BigInt
+  reserve1_in: [BigInt]
+  reserve1_not_in: [BigInt]
+  reserve1_gt: BigInt
+  reserve1_lt: BigInt
+  reserve1_gte: BigInt
+  reserve1_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type ltExchangeRate {
+  id: String!
+  ltAddress: String!
+  rate: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type ltExchangeRatePage {
+  items: [ltExchangeRate!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input ltExchangeRateFilter {
+  AND: [ltExchangeRateFilter]
+  OR: [ltExchangeRateFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  ltAddress: String
+  ltAddress_not: String
+  ltAddress_in: [String]
+  ltAddress_not_in: [String]
+  ltAddress_contains: String
+  ltAddress_not_contains: String
+  ltAddress_starts_with: String
+  ltAddress_ends_with: String
+  ltAddress_not_starts_with: String
+  ltAddress_not_ends_with: String
+  rate: BigInt
+  rate_not: BigInt
+  rate_in: [BigInt]
+  rate_not_in: [BigInt]
+  rate_gt: BigInt
+  rate_lt: BigInt
+  rate_gte: BigInt
+  rate_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}

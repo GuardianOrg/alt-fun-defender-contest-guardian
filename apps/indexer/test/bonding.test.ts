@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
-import { token, trade, graduation } from "../../ponder.schema";
+import { token, trade, graduation } from "../ponder.schema";
 
 // Importing the module registers handlers on the mock ponder object
-await import("../bonding");
+await import("../src/bonding");
 
 describe("Bonding:TokenLaunched", () => {
   let db: ReturnType<typeof createMockDb>;
