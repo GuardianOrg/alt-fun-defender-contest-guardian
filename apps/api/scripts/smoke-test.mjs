@@ -284,7 +284,7 @@ async function waitForServer() {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     try {
-      const res = await fetch(`${BASE_URL}/`);
+      const res = await fetchWithTimeout(`${BASE_URL}/`);
       if (res.ok) return;
     } catch {
       // not ready

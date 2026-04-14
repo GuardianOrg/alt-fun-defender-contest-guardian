@@ -38,7 +38,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Create API test secrets
+      - name: Create API test env
         if: env.DATABASE_URL != ''
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > apps/api/.dev.vars
