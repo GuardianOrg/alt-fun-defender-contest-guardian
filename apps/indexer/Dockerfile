@@ -18,4 +18,4 @@ RUN npm run build --workspace=@launchpad/shared
 
 WORKDIR /app/apps/indexer
 
-CMD ["sh", "-c", "npx ponder start --port ${PORT:-42069}"]
+CMD ["npm", "run", "start"]

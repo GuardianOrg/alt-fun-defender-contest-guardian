@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "ponder dev",
-    "start": "ponder start",
+    "start": "ponder start --port ${PORT:-42069}",
     "serve": "ponder serve",
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",
