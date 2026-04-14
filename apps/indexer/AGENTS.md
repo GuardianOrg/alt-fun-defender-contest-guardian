@@ -35,7 +35,7 @@ ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scop
 
 ## Hosting
 
-Hosted on Railway (persistent process). Dockerfile in this directory. Railway env vars:
+Hosted on Railway (persistent process). Dockerfile in this directory. Railway auto-deploys from `main` via GitHub integration (with "Wait for CI" enabled). Railway env vars:
 - `DATABASE_URL` — Neon PostgreSQL connection string (shared with API; Ponder isolates into its own schema)
 - `PONDER_RPC_URL_999` — Alchemy HyperEVM RPC
 - `BONDING_START_BLOCK` — block number of contract deployment (defaults to value in `@launchpad/shared`)
