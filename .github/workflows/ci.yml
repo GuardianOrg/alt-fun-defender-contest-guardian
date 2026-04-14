@@ -29,6 +29,13 @@ jobs:
         with:
           version: stable
 
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
       - run: npm ci
 
       - name: CI
@@ -52,12 +59,20 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
       - run: npm ci
 
       - name: Build shared package
-        run: npm run build --workspace=@launchpad/shared
+        run: npx turbo run build --filter=@launchpad/shared
 
       - name: Smoke test indexer
         run: npm run test:smoke --workspace=@launchpad/indexer
+        timeout-minutes: 5
         env:
           PONDER_RPC_URL_999: ${{ secrets.PONDER_RPC_URL_999 }}

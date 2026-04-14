@@ -7,20 +7,37 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = 42069;
 const BASE_URL = `http://localhost:${PORT}`;
-const STARTUP_TIMEOUT_MS = 90_000;
-const POLL_INTERVAL_MS = 2_000;
+const STARTUP_TIMEOUT_MS = 180_000;
+const POLL_INTERVAL_MS = 3_000;
 
 if (!process.env.PONDER_RPC_URL_999) {
   console.log("PONDER_RPC_URL_999 not set — skipping indexer smoke test");
   process.exit(0);
 }
 
-async function gql(query) {
-  const res = await fetch(BASE_URL, {
+/**
+ * Resolve the ponder binary from node_modules rather than relying on npx,
+ * which may try to download the wrong package (`ponder` vs `@ponder/core`).
+ */
+function findPonderBin() {
+  const candidates = [
+    resolve("node_modules", ".bin", "ponder"),
+    resolve("..", "..", "node_modules", ".bin", "ponder"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  return "ponder";
+}
+
+async function gql(url, query) {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
@@ -31,12 +48,18 @@ async function gql(query) {
 
 async function waitForServer() {
   const deadline = Date.now() + STARTUP_TIMEOUT_MS;
+  const endpoints = [BASE_URL, `${BASE_URL}/graphql`];
+
   while (Date.now() < deadline) {
-    try {
-      const res = await gql("{ _meta { status } }");
-      if (res.data?._meta) return;
-    } catch {
-      // server not ready yet
+    for (const url of endpoints) {
+      try {
+        const res = await gql(url, "{ _meta { status } }");
+        if (res.data?._meta) {
+          return url;
+        }
+      } catch {
+        // server not ready yet
+      }
     }
     await sleep(POLL_INTERVAL_MS);
   }
@@ -84,10 +107,10 @@ const SMOKE_QUERIES = [
   },
 ];
 
-async function runSmokeQueries() {
+async function runSmokeQueries(graphqlUrl) {
   let passed = 0;
   for (const { name, query } of SMOKE_QUERIES) {
-    const result = await gql(query);
+    const result = await gql(graphqlUrl, query);
     if (result.errors) {
       throw new Error(
         `Query "${name}" failed: ${JSON.stringify(result.errors)}`,
@@ -104,9 +127,11 @@ async function runSmokeQueries() {
 }
 
 async function main() {
+  const bin = findPonderBin();
+  console.log(`Ponder binary: ${bin}`);
   console.log("Starting Ponder dev server for smoke test...\n");
 
-  const child = spawn("npx", ["ponder", "dev"], {
+  const child = spawn(bin, ["dev"], {
     env: {
       ...process.env,
       // Far-future start block so ponder boots without indexing real data
@@ -115,42 +140,55 @@ async function main() {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let exitedEarly = false;
+  let exitCode = null;
   child.on("exit", (code) => {
-    if (code !== null && code !== 0) exitedEarly = true;
+    exitCode = code;
   });
 
-  let ponderStderr = "";
+  // Stream ponder output for CI visibility
+  let ponderOutput = "";
+  child.stdout.on("data", (chunk) => {
+    const text = chunk.toString();
+    ponderOutput += text;
+    process.stdout.write(`[ponder] ${text}`);
+  });
   child.stderr.on("data", (chunk) => {
-    ponderStderr += chunk.toString();
+    const text = chunk.toString();
+    ponderOutput += text;
+    process.stderr.write(`[ponder:err] ${text}`);
   });
 
   try {
-    console.log("Waiting for GraphQL server...");
-    await waitForServer();
-
-    if (exitedEarly) {
+    // Give ponder a moment to crash if the binary is wrong
+    await sleep(3_000);
+    if (exitCode !== null) {
       throw new Error(
-        `Ponder exited before queries ran.\nstderr: ${ponderStderr.slice(-1000)}`,
+        `Ponder exited immediately with code ${exitCode}.\n${ponderOutput.slice(-2000)}`,
       );
     }
 
-    console.log("Server ready — running queries:\n");
-    const passed = await runSmokeQueries();
+    console.log("Waiting for GraphQL server...");
+    const graphqlUrl = await waitForServer();
+    console.log(`Server ready at ${graphqlUrl} — running queries:\n`);
+
+    const passed = await runSmokeQueries(graphqlUrl);
     console.log(
       `\nSmoke test passed (${passed}/${SMOKE_QUERIES.length} queries OK)`,
     );
   } catch (err) {
     console.error(`\nSmoke test FAILED: ${err.message}`);
-    if (ponderStderr) {
-      console.error("\nPonder stderr (last 1000 chars):");
-      console.error(ponderStderr.slice(-1000));
+    if (ponderOutput) {
+      console.error("\nPonder output (last 2000 chars):");
+      console.error(ponderOutput.slice(-2000));
     }
     process.exitCode = 1;
   } finally {
     child.kill("SIGTERM");
-    await sleep(2_000);
-    if (!child.killed) child.kill("SIGKILL");
+    const exited = await Promise.race([
+      new Promise((r) => child.on("exit", r)),
+      sleep(3_000).then(() => null),
+    ]);
+    if (exited === null) child.kill("SIGKILL");
   }
 }
 

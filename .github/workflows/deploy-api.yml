@@ -28,9 +28,16 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Cache Turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+
       - run: npm ci
 
-      - run: npm run build --workspace=packages/shared
+      - run: npx turbo run build --filter=@launchpad/shared
 
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
