@@ -10,7 +10,7 @@ import { checkPonderHealth } from "./lib/ponder-client.js";
 import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
-import admin from "./routes/admin.js";
+import admin from "./routes/admin/index.js";
 import images from "./routes/images.js";
 import commentsRoute from "./routes/comments.js";
 import portfolio from "./routes/portfolio.js";

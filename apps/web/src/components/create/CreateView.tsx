@@ -29,18 +29,20 @@ export default function CreateView() {
   const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
-  const { step: launchStep, error: launchError, tokenAddress, create } = useCreateToken();
+  const { step: launchStep, error: launchError, warning: launchWarning, tokenAddress, create } = useCreateToken();
   const seedAmt = parseFloat(seedAmount) || 0;
   const isBusy = launchStep === "approving" || launchStep === "deploying";
 
   useEffect(() => {
     if (launchStep === "confirmed" && tokenAddress) {
+      // Extend delay when warnings are present so the user can read them
+      const delay = launchWarning ? 8000 : 1500;
       const timer = setTimeout(() => {
         navigate(tokenPath(tokenAddress));
-      }, 1500);
+      }, delay);
       return () => clearTimeout(timer);
     }
-  }, [launchStep, tokenAddress, navigate]);
+  }, [launchStep, tokenAddress, launchWarning, navigate]);
 
   const handleSubmit = async () => {
     if (!isConnected) {
@@ -119,6 +121,13 @@ export default function CreateView() {
               <div className={styles.errorBanner}>
                 <span className={styles.errorIcon}>⚠</span>
                 {launchError}
+              </div>
+            )}
+
+            {launchStep === "confirmed" && launchWarning && (
+              <div className={styles.warningBanner}>
+                <span className={styles.warningIcon}>⚠</span>
+                {launchWarning}
               </div>
             )}
 

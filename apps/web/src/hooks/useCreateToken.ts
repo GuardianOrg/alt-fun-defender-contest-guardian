@@ -25,6 +25,7 @@ export function useCreateToken() {
   const { data: walletClient } = useWalletClient();
   const [step, setStep] = useState<LaunchStep>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [tokenAddress, setTokenAddress] = useState<string | null>(null);
 
   const create = useCallback(
@@ -36,6 +37,7 @@ export function useCreateToken() {
 
       try {
         setError(null);
+        setWarning(null);
         setStep("approving");
 
         const lts = await fetchLTs();
@@ -113,13 +115,15 @@ export function useCreateToken() {
           (tokenCreatedEvents[0]?.args as { token?: `0x${string}` })?.token ??
           null;
 
+        const warnings: string[] = [];
+
         let imageUrl = "";
         if (params.imageFile) {
           try {
             const uploaded = await uploadImage(params.imageFile);
             imageUrl = uploaded.url;
           } catch {
-            /* image upload is non-critical */
+            warnings.push("Image upload failed — your token was created but has no image.");
           }
         }
 
@@ -146,11 +150,14 @@ export function useCreateToken() {
             const signature = await walletClient.signMessage({ message });
             await createTokenApi({ ...apiPayload, signature });
           } catch {
-            /* API registration is non-critical for on-chain flow */
+            warnings.push("Token metadata registration failed — your token was created on-chain but metadata (image, description, social links) was not saved. Visit your token page to retry.");
           }
           setTokenAddress(newTokenAddr);
         }
 
+        if (warnings.length > 0) {
+          setWarning(warnings.join(" "));
+        }
         setStep("confirmed");
       } catch (e) {
         setError(getErrorMessage(e));
@@ -163,8 +170,9 @@ export function useCreateToken() {
   const reset = useCallback(() => {
     setStep("idle");
     setError(null);
+    setWarning(null);
     setTokenAddress(null);
   }, []);
 
-  return { step, error, tokenAddress, create, reset };
+  return { step, error, warning, tokenAddress, create, reset };
 }
