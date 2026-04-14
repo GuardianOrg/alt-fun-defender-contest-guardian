@@ -6,29 +6,29 @@
  * Cross-platform (Node ≥ 16.7 for cpSync), runs as postinstall.
  */
 
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+function readMajor(dir) {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(dir, "package.json"), "utf8"));
+    return parseInt(pkg.version, 10);
+  } catch {
+    return undefined;
+  }
+}
 
 const INK_NM = resolve("node_modules", "ink", "node_modules");
 const TARGET = resolve(INK_NM, "react");
 
-if (existsSync(TARGET)) process.exit(0);
+if (existsSync(TARGET) && readMajor(TARGET) === 18) process.exit(0);
 
 const sources = [
   resolve("apps", "indexer", "node_modules", "react"),
   resolve("node_modules", "@ponder", "core", "node_modules", "react"),
 ];
 
-const src = sources.find((s) => {
-  try {
-    const pkg = resolve(s, "package.json");
-    if (!existsSync(pkg)) return false;
-    // dynamic import not needed — just check the file exists
-    return true;
-  } catch {
-    return false;
-  }
-});
+const src = sources.find((s) => existsSync(s) && readMajor(s) === 18);
 
 if (!src) {
   console.warn("fix-ink-react: no react@18 source found — skipping");

@@ -12,29 +12,32 @@ type PageInfo {
   endCursor: String
 }
 
+type ViewPageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+}
+
 type Meta {
   status: JSON
 }
 
 type Query {
   token(address: String!): token
-  tokens(where: tokenFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): tokenPage!
+  tokens(where: tokenFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenPage!
   trade(id: String!): trade
-  trades(where: tradeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): tradePage!
+  trades(where: tradeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tradePage!
   routerTrade(id: String!): routerTrade
-  routerTrades(where: routerTradeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): routerTradePage!
+  routerTrades(where: routerTradeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): routerTradePage!
   graduation(tokenAddress: String!): graduation
-  graduations(where: graduationFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): graduationPage!
+  graduations(where: graduationFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): graduationPage!
   referral(id: String!): referral
-  referrals(where: referralFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): referralPage!
+  referrals(where: referralFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): referralPage!
   feeClaim(id: String!): feeClaim
-  feeClaims(where: feeClaimFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): feeClaimPage!
+  feeClaims(where: feeClaimFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): feeClaimPage!
   swap(id: String!): swap
-  swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): swapPage!
+  swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): swapPage!
   pairReserve(pairAddress: String!): pairReserve
-  pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): pairReservePage!
-  ltExchangeRate(id: String!): ltExchangeRate
-  ltExchangeRates(where: ltExchangeRateFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int): ltExchangeRatePage!
+  pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): pairReservePage!
   _meta: Meta
 }
 
@@ -83,6 +86,12 @@ input tokenFilter {
   name_ends_with: String
   name_not_starts_with: String
   name_not_ends_with: String
+  name_contains_nocase: String
+  name_not_contains_nocase: String
+  name_starts_with_nocase: String
+  name_ends_with_nocase: String
+  name_not_starts_with_nocase: String
+  name_not_ends_with_nocase: String
   symbol: String
   symbol_not: String
   symbol_in: [String]
@@ -93,6 +102,12 @@ input tokenFilter {
   symbol_ends_with: String
   symbol_not_starts_with: String
   symbol_not_ends_with: String
+  symbol_contains_nocase: String
+  symbol_not_contains_nocase: String
+  symbol_starts_with_nocase: String
+  symbol_ends_with_nocase: String
+  symbol_not_starts_with_nocase: String
+  symbol_not_ends_with_nocase: String
   creator: String
   creator_not: String
   creator_in: [String]
@@ -209,6 +224,12 @@ input tradeFilter {
   id_ends_with: String
   id_not_starts_with: String
   id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
   tokenAddress: String
   tokenAddress_not: String
   tokenAddress_in: [String]
@@ -313,6 +334,12 @@ input routerTradeFilter {
   id_ends_with: String
   id_not_starts_with: String
   id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
   tokenAddress: String
   tokenAddress_not: String
   tokenAddress_in: [String]
@@ -463,6 +490,12 @@ input referralFilter {
   id_ends_with: String
   id_not_starts_with: String
   id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
   tokenAddress: String
   tokenAddress_not: String
   tokenAddress_in: [String]
@@ -548,6 +581,12 @@ input feeClaimFilter {
   id_ends_with: String
   id_not_starts_with: String
   id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
   claimer: String
   claimer_not: String
   claimer_in: [String]
@@ -630,6 +669,12 @@ input swapFilter {
   id_ends_with: String
   id_not_starts_with: String
   id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
   pairAddress: String
   pairAddress_not: String
   pairAddress_in: [String]
@@ -753,69 +798,6 @@ input pairReserveFilter {
   reserve1_lt: BigInt
   reserve1_gte: BigInt
   reserve1_lte: BigInt
-  blockNumber: BigInt
-  blockNumber_not: BigInt
-  blockNumber_in: [BigInt]
-  blockNumber_not_in: [BigInt]
-  blockNumber_gt: BigInt
-  blockNumber_lt: BigInt
-  blockNumber_gte: BigInt
-  blockNumber_lte: BigInt
-  timestamp: BigInt
-  timestamp_not: BigInt
-  timestamp_in: [BigInt]
-  timestamp_not_in: [BigInt]
-  timestamp_gt: BigInt
-  timestamp_lt: BigInt
-  timestamp_gte: BigInt
-  timestamp_lte: BigInt
-}
-
-type ltExchangeRate {
-  id: String!
-  ltAddress: String!
-  rate: BigInt!
-  blockNumber: BigInt!
-  timestamp: BigInt!
-}
-
-type ltExchangeRatePage {
-  items: [ltExchangeRate!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-input ltExchangeRateFilter {
-  AND: [ltExchangeRateFilter]
-  OR: [ltExchangeRateFilter]
-  id: String
-  id_not: String
-  id_in: [String]
-  id_not_in: [String]
-  id_contains: String
-  id_not_contains: String
-  id_starts_with: String
-  id_ends_with: String
-  id_not_starts_with: String
-  id_not_ends_with: String
-  ltAddress: String
-  ltAddress_not: String
-  ltAddress_in: [String]
-  ltAddress_not_in: [String]
-  ltAddress_contains: String
-  ltAddress_not_contains: String
-  ltAddress_starts_with: String
-  ltAddress_ends_with: String
-  ltAddress_not_starts_with: String
-  ltAddress_not_ends_with: String
-  rate: BigInt
-  rate_not: BigInt
-  rate_in: [BigInt]
-  rate_not_in: [BigInt]
-  rate_gt: BigInt
-  rate_lt: BigInt
-  rate_gte: BigInt
-  rate_lte: BigInt
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]

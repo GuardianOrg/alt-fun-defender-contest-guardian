@@ -101,10 +101,6 @@ const SMOKE_QUERIES = [
     name: "pairReserves",
     query: `{ pairReserves(limit: 1) { items { pairAddress reserve0 reserve1 } totalCount } }`,
   },
-  {
-    name: "ltExchangeRates",
-    query: `{ ltExchangeRates(limit: 1) { items { id ltAddress rate } totalCount } }`,
-  },
 ];
 
 async function runSmokeQueries(graphqlUrl) {

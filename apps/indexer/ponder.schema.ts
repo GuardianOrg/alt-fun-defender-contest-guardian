@@ -1,4 +1,4 @@
-import { onchainTable, index } from "@ponder/core";
+import { onchainTable, index } from "ponder";
 
 export const token = onchainTable("token", (t) => ({
   address: t.hex().primaryKey(),
@@ -110,14 +110,3 @@ export const pairReserve = onchainTable("pair_reserve", (t) => ({
   timestamp: t.bigint().notNull(),
 }));
 
-/** LT exchange rate snapshots polled on-chain via block intervals. */
-export const ltExchangeRate = onchainTable("lt_exchange_rate", (t) => ({
-  id: t.text().primaryKey(),
-  ltAddress: t.hex().notNull(),
-  rate: t.bigint().notNull(),
-  blockNumber: t.bigint().notNull(),
-  timestamp: t.bigint().notNull(),
-}), (table) => ({
-  ltIdx: index().on(table.ltAddress),
-  timestampIdx: index().on(table.timestamp),
-}));

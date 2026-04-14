@@ -1,5 +1,5 @@
-import { createConfig } from "@ponder/core";
-import { http, parseAbiItem } from "viem";
+import { createConfig, factory } from "ponder";
+import { parseAbiItem } from "viem";
 
 import {
   BondingAbi,
@@ -23,43 +23,36 @@ if (bondingAddress === ZERO_ADDRESS) {
 }
 
 export default createConfig({
-  networks: {
+  chains: {
     hyperevm: {
-      chainId: HYPER_EVM.id,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- viem version mismatch between ponder peer dep and direct dep
-      transport: http(process.env.PONDER_RPC_URL_999) as any,
-    },
-  },
-  blocks: {
-    ExchangeRatePoller: {
-      network: "hyperevm",
-      startBlock,
-      interval: 10,
+      id: HYPER_EVM.id,
+      rpc: process.env.PONDER_RPC_URL_999,
+      ethGetLogsBlockRange: 10_000,
     },
   },
   contracts: {
     Bonding: {
-      network: "hyperevm",
+      chain: "hyperevm",
       abi: BondingAbi,
       address: bondingAddress,
       startBlock,
     },
     RedemptionRouter: {
-      network: "hyperevm",
+      chain: "hyperevm",
       abi: RedemptionRouterAbi,
       address: redemptionRouterAddress,
       startBlock,
     },
     HyperSwapPair: {
-      network: "hyperevm",
+      chain: "hyperevm",
       abi: UniswapV2PairAbi,
-      factory: {
+      address: factory({
         address: bondingAddress,
         event: parseAbiItem(
           "event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity)",
         ),
         parameter: "pairAddress",
-      },
+      }),
       startBlock,
     },
   },
