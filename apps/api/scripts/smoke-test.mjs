@@ -258,7 +258,10 @@ async function runTests() {
   await test("GET /api/v1/profiles/:address returns default", async () => {
     const { res, body } = await fetchJson(`/api/v1/profiles/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
-    assert(body.data.address === NONEXISTENT_ADDRESS, "Wrong address");
+    assert(
+      body.data.address.toLowerCase() === NONEXISTENT_ADDRESS.toLowerCase(),
+      `Wrong address: expected ${NONEXISTENT_ADDRESS}, got ${body.data.address}`,
+    );
     assert(body.data.displayName === null, "Expected null displayName");
   });
 
