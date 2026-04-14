@@ -173,6 +173,10 @@
   color: var(--red);
 }
 
+.textMuted {
+  color: var(--txt-3);
+}
+
 .leverageLabel {
   font-size: 11px;
   letter-spacing: 0.08em;

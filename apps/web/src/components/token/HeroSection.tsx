@@ -25,6 +25,7 @@ export default function HeroSection({ token }: Props) {
       <div className={styles.avatar}>
         {token.image && !imgError ? (
           <img
+            key={token.image}
             src={token.image}
             alt={token.name}
             className={styles.avatarImage}

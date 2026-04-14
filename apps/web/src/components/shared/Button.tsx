@@ -34,6 +34,7 @@ export default function Button({
         busy && styles.busy,
         className,
       )}
+      type="button"
       disabled={disabled || busy}
       {...rest}
     >

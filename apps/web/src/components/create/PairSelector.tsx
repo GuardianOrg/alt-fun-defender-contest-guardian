@@ -27,8 +27,9 @@ export default function PairSelector({
 }: Props) {
   const assetChanges = useAssetChanges();
   const isLong = direction === "long";
-  const baseChg = assetChanges[asset] ?? 0;
-  const chg = isLong ? baseChg * leverage : -baseChg * leverage;
+  const baseChg = assetChanges[asset];
+  const chg =
+    baseChg == null ? undefined : isLong ? baseChg * leverage : -baseChg * leverage;
 
   return (
     <div>
@@ -137,8 +138,9 @@ export default function PairSelector({
       <label className={styles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
         {UNDERLYING_ASSETS.map((a) => {
-          const change = assetChanges[a] ?? 0;
-          const up = change >= 0;
+          const change = assetChanges[a];
+          const hasData = change != null;
+          const up = hasData && change >= 0;
           const selected = a === asset;
           return (
             <button
@@ -157,11 +159,14 @@ export default function PairSelector({
               <div
                 className={cn(
                   styles.assetChg,
-                  up ? styles.textMint : styles.textRed,
+                  hasData
+                    ? up ? styles.textMint : styles.textRed
+                    : styles.textMuted,
                 )}
               >
-                {up ? "+" : ""}
-                {change.toFixed(2)}%
+                {hasData
+                  ? `${up ? "+" : ""}${change.toFixed(2)}%`
+                  : "—"}
               </div>
             </button>
           );
@@ -204,8 +209,9 @@ export default function PairSelector({
           {getLtDisplayName(asset, leverage, direction)}
         </span>
         <span className={styles.summaryChg}>
-          {chg >= 0 ? "+" : ""}
-          {chg.toFixed(1)}% today
+          {chg != null
+            ? `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% today`
+            : "— today"}
         </span>
       </div>
 

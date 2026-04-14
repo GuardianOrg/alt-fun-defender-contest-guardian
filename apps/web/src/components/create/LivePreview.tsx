@@ -36,7 +36,9 @@ export default function LivePreview({
   const displayName = ticker
     ? `${(name || "YOUR TOKEN").toUpperCase()} (${ticker.toUpperCase()})`
     : (name || "your token").toUpperCase();
-  const assetChg = useAssetChange(asset);
+  const rawAssetChg = useAssetChange(asset);
+  const assetChg = rawAssetChg ?? 0;
+  const hasChgData = rawAssetChg != null;
   const isUp = assetChg >= 0;
 
   useEffect(() => {
@@ -167,11 +169,14 @@ export default function LivePreview({
             <div
               className={cn(
                 styles.chartChgBadge,
-                isUp ? styles.chartChgBadgeUp : styles.chartChgBadgeDown,
+                hasChgData
+                  ? isUp ? styles.chartChgBadgeUp : styles.chartChgBadgeDown
+                  : styles.chartChgBadgeUp,
               )}
             >
-              {isUp ? "+" : ""}
-              {assetChg.toFixed(2)}%
+              {hasChgData
+                ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%`
+                : "—"}
             </div>
           </div>
           <div className={styles.chartBody}>

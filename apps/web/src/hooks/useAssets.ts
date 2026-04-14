@@ -15,10 +15,10 @@ export function useAssets() {
   });
 }
 
-export function useAssetChanges(): Record<string, number> {
+export function useAssetChanges(): Record<string, number | undefined> {
   const { data: assets } = useAssets();
   return useMemo(() => {
-    const map: Record<string, number> = {};
+    const map: Record<string, number | undefined> = {};
     if (assets) {
       for (const a of assets) {
         map[a.name] = a.change24h;
@@ -28,9 +28,9 @@ export function useAssetChanges(): Record<string, number> {
   }, [assets]);
 }
 
-export function useAssetChange(asset: UnderlyingAsset): number {
+export function useAssetChange(asset: UnderlyingAsset): number | undefined {
   const changes = useAssetChanges();
-  return changes[asset] ?? 0;
+  return changes[asset];
 }
 
 export function usePlatformStats() {

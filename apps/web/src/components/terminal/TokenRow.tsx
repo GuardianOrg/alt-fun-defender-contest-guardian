@@ -66,6 +66,7 @@ export default function TokenRow({ token }: Props) {
       <div className={styles.iconCell}>
         {token.image && !imgError ? (
           <img
+            key={token.image}
             src={token.image}
             alt={token.name}
             className={styles.tokenImage}
