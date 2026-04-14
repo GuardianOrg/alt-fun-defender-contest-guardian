@@ -1,8 +1,8 @@
 import { db } from "ponder:api";
+import schema from "ponder:schema";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { graphql } from "ponder";
-import * as schema from "../../ponder.schema";
 
 const app = new Hono();
 
