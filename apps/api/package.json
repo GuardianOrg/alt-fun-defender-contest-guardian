@@ -14,7 +14,7 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run --passWithNoTests",
-    "test:worker": "vitest run --config vitest.worker.config.ts"
+    "test:worker": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@hono/swagger-ui": "^0.6.1",
@@ -27,7 +27,6 @@
     "zod": "^4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.14.6",
     "@cloudflare/workers-types": "^4.20260412.1",
     "@launchpad/config": "*",
     "drizzle-kit": "^0.31",
