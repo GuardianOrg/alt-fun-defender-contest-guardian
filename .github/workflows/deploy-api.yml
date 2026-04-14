@@ -30,6 +30,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm run build --workspace=packages/shared
+
       - name: Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
