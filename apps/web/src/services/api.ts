@@ -1,6 +1,10 @@
 import { BOUNCE_INDEXING_API, type LiveLeveragedToken } from "@launchpad/shared";
 
-export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8787";
+const apiUrl = import.meta.env.VITE_API_URL;
+if (!apiUrl) {
+  throw new Error("VITE_API_URL is not set");
+}
+export const API_BASE = apiUrl;
 
 interface ApiResponse<T> {
   status: "success" | "error";

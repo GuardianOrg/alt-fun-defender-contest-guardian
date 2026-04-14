@@ -1,4 +1,8 @@
-const PONDER_URL = import.meta.env.VITE_PONDER_URL || "http://localhost:42069";
+const ponderUrl = import.meta.env.VITE_PONDER_URL;
+if (!ponderUrl) {
+  throw new Error("VITE_PONDER_URL is not set");
+}
+const PONDER_URL = ponderUrl;
 
 export interface PonderToken {
   address: string;
