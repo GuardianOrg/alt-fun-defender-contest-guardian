@@ -3,6 +3,7 @@ FROM node:22-slim AS base
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY scripts/ scripts/
 COPY packages/shared/package.json packages/shared/
 COPY packages/config/package.json packages/config/
 COPY apps/indexer/package.json apps/indexer/
