@@ -4,9 +4,7 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
-  "vars": {
-    "PONDER_URL": "http://localhost:42069"
-  },
+  "vars": {},
   "observability": {
     "enabled": true
   },

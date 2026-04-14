@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/neon-http";
 
 import * as schema from "./schema.js";
 
@@ -9,8 +9,8 @@ export function createDb(databaseUrl: string) {
   const cached = dbCache.get(databaseUrl);
   if (cached) return cached;
 
-  const client = postgres(databaseUrl, { max: 1, idle_timeout: 5 });
-  const db = drizzle(client, { schema });
+  const sql = neon(databaseUrl);
+  const db = drizzle(sql, { schema });
   dbCache.set(databaseUrl, db);
   return db;
 }
