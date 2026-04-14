@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:worker": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@hono/swagger-ui": "^0.6.1",
