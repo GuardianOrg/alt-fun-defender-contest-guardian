@@ -5,9 +5,15 @@ import { useChart } from "../../hooks/useChart";
 import { useChartData } from "../../hooks/useChartData";
 import { cn, formatPercent } from "../../utils/format";
 
+import type { ChartTimeframe } from "../../services/api";
 import type { Token } from "../../services/types";
 
-const INTERVALS = ["1m", "5m", "15m", "1h", "4h"] as const;
+const TIMEFRAMES: { value: ChartTimeframe; label: string }[] = [
+  { value: "24h", label: "24H" },
+  { value: "7d", label: "7D" },
+  { value: "14d", label: "14D" },
+  { value: "1m", label: "1M" },
+];
 
 interface Props {
   token: Token;
@@ -15,69 +21,37 @@ interface Props {
 
 export default function Chart({ token }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const [interval, setInterval] = useState<string>("5m");
-  const [showOverlay, setShowOverlay] = useState(false);
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>("24h");
 
   const underlyingChg = token.leverage > 0 ? token.leverageBoost / token.leverage : 0;
 
-  const { candles, overlayData, loading } = useChartData(
-    token.address,
-    interval,
-    token.change24h,
-    showOverlay,
-  );
+  const { prices, loading } = useChartData(token.address, timeframe);
 
   useChart({
     containerRef: chartContainerRef,
-    candles,
-    overlayData,
+    prices,
     loading,
   });
+
+  const isEmpty = !loading && prices.length === 0;
 
   return (
     <>
       <div className={styles.toolbar}>
         <div className={styles.intervalGroup}>
-          {INTERVALS.map((iv) => (
+          {TIMEFRAMES.map((tf) => (
             <button
-              key={iv}
+              key={tf.value}
               className={cn(
                 styles.intervalBtn,
-                interval === iv && styles.intervalBtnActive,
+                timeframe === tf.value && styles.intervalBtnActive,
               )}
-              onClick={() => setInterval(iv)}
+              onClick={() => setTimeframe(tf.value)}
             >
-              {iv}
+              {tf.label}
             </button>
           ))}
         </div>
-
-        <div className={styles.dividerSmall} />
-
-        <label className={styles.overlayLabel}>
-          <div
-            className={cn(
-              styles.toggleTrack,
-              showOverlay && styles.toggleTrackOn,
-            )}
-            onClick={() => setShowOverlay(!showOverlay)}
-          >
-            <div
-              className={cn(
-                styles.toggleDot,
-                showOverlay && styles.toggleDotOn,
-              )}
-            />
-          </div>
-          <span
-            className={cn(
-              styles.overlayText,
-              showOverlay && styles.overlayTextOn,
-            )}
-          >
-            {token.underlying}
-          </span>
-        </label>
 
         <div className={styles.dividerSmall} />
 
@@ -110,7 +84,14 @@ export default function Chart({ token }: Props) {
           <span className={styles.liveText}>live</span>
         </div>
       </div>
-      <div ref={chartContainerRef} className={styles.chartArea} />
+      <div className={styles.chartArea}>
+        {isEmpty && (
+          <div className={styles.emptyState}>
+            <span className={styles.emptyText}>No price data available yet</span>
+          </div>
+        )}
+        <div ref={chartContainerRef} className={styles.chartCanvas} />
+      </div>
     </>
   );
 }

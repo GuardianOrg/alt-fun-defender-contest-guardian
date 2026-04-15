@@ -3,7 +3,6 @@ import type { RefObject } from "react";
 
 import {
   createChart,
-  CandlestickSeries,
   LineSeries,
   ColorType,
 } from "lightweight-charts";
@@ -13,28 +12,31 @@ import { COLORS, rgba } from "../config/colors";
 import type {
   IChartApi,
   ISeriesApi,
-  CandlestickData,
   LineData,
 } from "lightweight-charts";
 
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
-  candles: CandlestickData[];
-  overlayData: LineData[];
+  prices: LineData[];
   loading: boolean;
+}
+
+function precisionForPrice(value: number): number {
+  if (value === 0) return 2;
+  const abs = Math.abs(value);
+  if (abs >= 1) return 2;
+  const leading = -Math.floor(Math.log10(abs));
+  return Math.min(leading + 3, 14);
 }
 
 export function useChart({
   containerRef,
-  candles,
-  overlayData,
+  prices,
   loading,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
 
-  // Initialize chart
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -59,60 +61,49 @@ export function useChart({
 
     chartRef.current = chart;
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: COLORS.mint,
-      downColor: COLORS.red,
-      borderUpColor: COLORS.mint,
-      borderDownColor: COLORS.red,
-      wickUpColor: COLORS.mint,
-      wickDownColor: COLORS.red,
+    const lineSeries = chart.addSeries(LineSeries, {
+      color: COLORS.mint,
+      lineWidth: 2,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: COLORS.mint,
+      crosshairMarkerBackgroundColor: "rgba(0,0,0,0.8)",
     });
-    candleSeriesRef.current = candleSeries;
+    lineSeriesRef.current = lineSeries;
 
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    handleResize();
+    const container = containerRef.current;
+    const observer = new ResizeObserver(() => {
+      chart.applyOptions({
+        width: container.clientWidth,
+        height: container.clientHeight,
+      });
+    });
+    observer.observe(container);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      observer.disconnect();
       chart.remove();
       chartRef.current = null;
-      candleSeriesRef.current = null;
       lineSeriesRef.current = null;
     };
   }, [containerRef]);
 
-  // Update candle data
   useEffect(() => {
-    if (loading || !candleSeriesRef.current || !chartRef.current) return;
-    candleSeriesRef.current.setData(candles);
+    if (loading || !lineSeriesRef.current || !chartRef.current) return;
+
+    const representative = prices.length > 0 ? prices[0].value : 0;
+    const minMove = representative > 0
+      ? Math.pow(10, -precisionForPrice(representative))
+      : 0.01;
+
+    lineSeriesRef.current.applyOptions({
+      priceFormat: {
+        type: "price",
+        precision: precisionForPrice(representative),
+        minMove,
+      },
+    });
+
+    lineSeriesRef.current.setData(prices);
     chartRef.current.timeScale().fitContent();
-  }, [candles, loading]);
-
-  // Update overlay
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    if (overlayData.length > 0) {
-      if (!lineSeriesRef.current) {
-        lineSeriesRef.current = chart.addSeries(LineSeries, {
-          color: rgba(COLORS.amber, 0.5),
-          lineWidth: 1,
-          priceScaleId: "overlay",
-        });
-      }
-      lineSeriesRef.current.setData(overlayData);
-    } else if (lineSeriesRef.current) {
-      chart.removeSeries(lineSeriesRef.current);
-      lineSeriesRef.current = null;
-    }
-  }, [overlayData]);
+  }, [prices, loading]);
 }

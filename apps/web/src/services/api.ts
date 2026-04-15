@@ -128,20 +128,18 @@ export function uploadImage(file: File): Promise<{ url: string }> {
   });
 }
 
-export interface OhlcvCandle {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+export interface ChartPricePoint {
+  timestamp: number;
+  price: number;
 }
 
-export function fetchOhlcv(
+export type ChartTimeframe = "24h" | "7d" | "14d" | "1m";
+
+export function fetchChart(
   address: string,
-  interval = "1h",
-): Promise<OhlcvCandle[]> {
-  return apiFetch(`/api/v1/trades/ohlcv/${address}?interval=${interval}`);
+  timeframe: ChartTimeframe = "24h",
+): Promise<ChartPricePoint[]> {
+  return apiFetch(`/api/v1/chart/${address}?timeframe=${timeframe}`);
 }
 
 export function fetchSparkline(
