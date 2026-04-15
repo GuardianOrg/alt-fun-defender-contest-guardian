@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import styles from "./PasswordGate.module.css";
+import Button from "../shared/Button";
 
 const PASS = import.meta.env.VITE_GATE_PASSWORD;
 const STORAGE_KEY = "lp_auth";
@@ -49,9 +50,9 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
 
         {error && <div className={styles.error}>Wrong password</div>}
 
-        <button type="submit" className={styles.submitBtn}>
+        <Button variant="primary" fullWidth type="submit">
           Enter
-        </button>
+        </Button>
       </form>
     </div>
   );

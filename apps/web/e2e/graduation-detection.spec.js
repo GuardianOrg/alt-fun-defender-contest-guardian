@@ -46,7 +46,7 @@ test_1.test.describe("Graduation detection", function () {
                 case 1:
                     _c.sent();
                     // Wait for the page to load
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=ALTFUN").first()).toBeVisible({
                             timeout: 10000,
                         })];
                 case 2:
@@ -68,7 +68,7 @@ test_1.test.describe("Graduation detection", function () {
                 case 0: return [4 /*yield*/, page.goto("/")];
                 case 1:
                     _c.sent();
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=ALTFUN").first()).toBeVisible({
                             timeout: 10000,
                         })];
                 case 2:
@@ -94,7 +94,7 @@ test_1.test.describe("Graduation detection", function () {
                 case 0: return [4 /*yield*/, page.goto("/")];
                 case 1:
                     _c.sent();
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=ALTFUN").first()).toBeVisible({
                             timeout: 10000,
                         })];
                 case 2:
@@ -188,7 +188,7 @@ test_1.test.describe("Graduation detection", function () {
                 case 0: return [4 /*yield*/, page.goto("/")];
                 case 1:
                     _c.sent();
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=ALTFUN").first()).toBeVisible({
                             timeout: 10000,
                         })];
                 case 2:

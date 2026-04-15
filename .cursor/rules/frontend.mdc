@@ -1,5 +1,5 @@
 ---
-description: React frontend conventions for the launchpad webapp
+description: React frontend conventions for the Alt Fun webapp
 globs: "apps/web/**/*.{ts,tsx}"
 ---
 

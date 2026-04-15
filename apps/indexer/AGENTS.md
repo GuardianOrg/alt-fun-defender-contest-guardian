@@ -1,6 +1,6 @@
 # apps/indexer
 
-Ponder EVM indexer. Indexes on-chain events from launchpad contracts and HyperSwap V2 pools.
+Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap V2 pools.
 
 ## Events Indexed
 
