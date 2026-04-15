@@ -7,7 +7,7 @@ import {
   type UnderlyingAsset,
   type Leverage,
 } from "../../config/constants";
-import { useAssetChange } from "../../hooks/useAssets";
+import { useAssetCandles, useAssetChange } from "../../hooks/useAssets";
 import { cn, formatUsd, getLtDisplayName } from "../../utils/format";
 
 import type { Direction } from "../../services/types";
@@ -40,10 +40,11 @@ export default function LivePreview({
   const assetChg = rawAssetChg ?? 0;
   const hasChgData = rawAssetChg != null;
   const isUp = assetChg >= 0;
+  const { data: candles } = useAssetCandles(asset);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || !candles || candles.length < 2) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const W = canvas.width;
@@ -51,20 +52,10 @@ export default function LivePreview({
     ctx.clearRect(0, 0, W, H);
 
     const color = isUp ? COLORS.mint : COLORS.red;
-    const pts = Array.from({ length: 60 }, (_, i) => {
-      const noise = (Math.random() - 0.48) * 1.8;
-      const trend = (assetChg / 100) * (i / 60) * 0.8;
-      return noise + trend;
-    });
-    let v = 0;
-    const lineData = pts.map((p) => {
-      v += p;
-      return v;
-    });
-    const mn = Math.min(...lineData);
-    const mx = Math.max(...lineData);
+    const mn = Math.min(...candles);
+    const mx = Math.max(...candles);
     const pad = 4;
-    const norm = lineData.map(
+    const norm = candles.map(
       (p) => ((p - mn) / (mx - mn || 1)) * (H - 2 * pad) + pad,
     );
 
@@ -95,7 +86,7 @@ export default function LivePreview({
     ctx.lineWidth = 1.5;
     ctx.lineJoin = "round";
     ctx.stroke();
-  }, [asset, isUp, assetChg]);
+  }, [candles, isUp]);
 
   return (
     <div className={styles.wrapper}>

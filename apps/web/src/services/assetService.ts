@@ -91,6 +91,26 @@ async function fetch24hChanges(
   return changes;
 }
 
+export async function fetchAssetCandles(
+  coin: string,
+  interval: string = "15m",
+  hours: number = 24,
+): Promise<number[]> {
+  const now = Date.now();
+  const startTime = now - hours * 60 * 60 * 1000;
+
+  const res = await fetch(HYPERLIQUID_INFO_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      type: "candleSnapshot",
+      req: { coin, interval, startTime, endTime: now },
+    }),
+  });
+  const candles = (await res.json()) as CandleObject[];
+  return candles.map((c) => parseFloat(c.c));
+}
+
 export interface IAssetService {
   getAssets(): Promise<Asset[]>;
   getPlatformStats(): Promise<PlatformStats>;

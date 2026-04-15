@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
-import { assetService } from "../services/assetService";
+import { assetService, fetchAssetCandles } from "../services/assetService";
 
 import type { UnderlyingAsset } from "../config/constants";
 
@@ -31,6 +31,15 @@ export function useAssetChanges(): Record<string, number | undefined> {
 export function useAssetChange(asset: UnderlyingAsset): number | undefined {
   const changes = useAssetChanges();
   return changes[asset];
+}
+
+export function useAssetCandles(asset: UnderlyingAsset) {
+  return useQuery({
+    queryKey: ["assetCandles", asset],
+    queryFn: () => fetchAssetCandles(asset),
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
 }
 
 export function usePlatformStats() {
