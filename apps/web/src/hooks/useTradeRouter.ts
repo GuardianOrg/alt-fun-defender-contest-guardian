@@ -112,7 +112,7 @@ export function useTradeRouter() {
   );
 
   const executeSell = useCallback(
-    async (tokenAddress: string, tokenAmount: bigint, slippage: number) => {
+    async (tokenAddress: string, tokenAmount: bigint, _slippage: number) => {
       if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
@@ -146,18 +146,7 @@ export function useTradeRouter() {
 
         setStep("executing");
 
-        const slippageBps = slippageToBps(slippage);
-        const { result: quotedUsdcOut } = await hyperEvmClient.simulateContract({
-          address: routerAddr,
-          abi: LaunchpadRouterAbi,
-          functionName: "sell",
-          args: [
-            tokenAddress as `0x${string}`,
-            tokenAmount,
-            0n,
-          ],
-          account: address,
-        });
+        // TODO: use slippage + simulateContract quote for minOut instead of 0n
         const sellTx = await walletClient.writeContract({
           address: routerAddr,
           abi: LaunchpadRouterAbi,
