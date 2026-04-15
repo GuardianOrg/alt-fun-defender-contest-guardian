@@ -10,7 +10,7 @@ import TokenForm from "./TokenForm";
 import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useWallet } from "../../hooks/useWallet";
-import { cn } from "../../utils/format";
+import Button from "../shared/Button";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { Direction } from "../../services/types";
@@ -137,19 +137,17 @@ export default function CreateView() {
               </div>
             )}
 
-            <button
-              className={cn(
-                styles.launchButton,
-                launchStep === "confirmed"
-                  ? styles.launchButtonConfirmed
-                  : styles.launchButtonActive,
-                isBusy && styles.launchButtonBusy,
-              )}
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
+              busy={isBusy}
+              disabled={launchStep === "confirmed"}
+              className={launchStep === "confirmed" ? styles.launchButtonConfirmed : undefined}
               onClick={handleSubmit}
-              disabled={isBusy || launchStep === "confirmed"}
             >
               {buttonLabel()}
-            </button>
+            </Button>
 
             {isBusy && (
               <div className={styles.busyRow}>

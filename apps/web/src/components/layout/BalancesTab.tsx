@@ -1,5 +1,6 @@
 import styles from "./EarningsPanel.module.css";
 import { cn, formatUsd, formatPercent, formatTokenAmount } from "../../utils/format";
+import Button from "../shared/Button";
 
 import type { HeldToken } from "../../services/types";
 
@@ -26,9 +27,9 @@ export default function BalancesTab({
             Buy tokens on the bonding curve or launch your own levered token.
           </div>
         </div>
-        <button className={styles.launchBtn} onClick={onLaunch}>
+        <Button variant="primary" onClick={onLaunch}>
           &#x26A1; Launch a token
-        </button>
+        </Button>
       </div>
     );
   }

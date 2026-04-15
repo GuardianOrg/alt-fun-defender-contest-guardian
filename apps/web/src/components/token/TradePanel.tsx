@@ -19,6 +19,7 @@ import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
 import { cn } from "../../utils/format";
+import Button from "../shared/Button";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
@@ -277,21 +278,16 @@ export default function TradePanel({ token }: Props) {
           <div className={styles.confirmedBox}>✓ Transaction confirmed</div>
         )}
 
-        <button
-          className={cn(
-            styles.ctaBtn,
-            step === "confirmed"
-              ? styles.ctaConfirmed
-              : mode === "buy"
-                ? styles.ctaBuy
-                : styles.ctaSell,
-            isBusy && styles.ctaBusy,
-          )}
+        <Button
+          variant={mode === "buy" ? "primary" : "danger"}
+          fullWidth
+          busy={isBusy}
+          disabled={step === "confirmed" || belowMinimum || sellBelowMinimum || sellExceedsBuffer}
+          className={step === "confirmed" ? styles.ctaConfirmed : undefined}
           onClick={doTrade}
-          disabled={isBusy || step === "confirmed" || belowMinimum || sellBelowMinimum || sellExceedsBuffer}
         >
           {buttonLabel()}
-        </button>
+        </Button>
 
         {isBusy && (
           <div className={styles.busyHint}>

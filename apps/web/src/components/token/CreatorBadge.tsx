@@ -4,7 +4,7 @@ import styles from "./CreatorBadge.module.css";
 import { FEES } from "../../config/constants";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
-import { cn } from "../../utils/format";
+import Button from "../shared/Button";
 
 import type { Token } from "../../services/types";
 
@@ -62,15 +62,11 @@ export default function CreatorBadge({ token }: Props) {
             </div>
           </div>
 
-          <button
-            className={cn(
-              styles.claimBtn,
-              tokenData.feesClaimableUsd > 0
-                ? styles.claimBtnActive
-                : styles.claimBtnDisabled,
-              claiming && styles.claimBtnBusy,
-            )}
-            disabled={tokenData.feesClaimableUsd <= 0 || claiming}
+          <Button
+            variant="primary"
+            fullWidth
+            busy={claiming}
+            disabled={tokenData.feesClaimableUsd <= 0}
             onClick={() => claim(token.address)}
           >
             {claiming
@@ -78,7 +74,7 @@ export default function CreatorBadge({ token }: Props) {
               : tokenData.feesClaimableUsd > 0
                 ? `Claim $${tokenData.feesClaimableUsd.toFixed(2)}`
                 : "Nothing to claim"}
-          </button>
+          </Button>
 
           <div className={styles.hint}>
             You earn {FEES.creatorSplit * 100}% of all volume on this curve. Fees settle in USDC.

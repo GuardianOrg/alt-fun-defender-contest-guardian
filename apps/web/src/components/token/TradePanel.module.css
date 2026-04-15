@@ -551,49 +551,12 @@
   gap: 0.5rem;
 }
 
-.ctaBtn {
-  width: 100%;
-  padding: 0.75rem 0;
-  border-radius: 0;
-  border: 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.ctaConfirmed {
+.ctaConfirmed.ctaConfirmed {
   background: rgba(77, 232, 180, 0.15);
   color: var(--mint);
   cursor: default;
-}
-
-.ctaBuy {
-  background: var(--mint);
-  color: var(--bg);
-  box-shadow: var(--shadow-mint-glow);
-}
-
-.ctaBuy:hover {
-  background: var(--mint-hover);
-}
-
-.ctaSell {
-  background: var(--red);
-  color: var(--bg);
-  box-shadow: var(--shadow-red-glow);
-}
-
-.ctaSell:hover {
-  background: rgba(240, 80, 80, 0.9);
-}
-
-.ctaBusy {
-  opacity: 0.7;
-  cursor: wait;
+  box-shadow: none;
+  opacity: 1;
 }
 
 .busyHint {

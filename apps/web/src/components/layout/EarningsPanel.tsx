@@ -14,6 +14,7 @@ import {
 import { useWallet } from "../../hooks/useWallet";
 import { selectEarningsOpen, setEarningsOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
+import Button from "../shared/Button";
 import ModalOverlay from "../shared/ModalOverlay";
 
 type Tab = "balances" | "rewards";
@@ -73,9 +74,9 @@ export default function EarningsPanel() {
                 View your token balances on the curve and claim creator rewards.
               </div>
             </div>
-            <button className={styles.connectBtn} onClick={connect}>
+            <Button variant="primary" onClick={connect}>
               Connect Wallet
-            </button>
+            </Button>
           </div>
         ) : (
           <>

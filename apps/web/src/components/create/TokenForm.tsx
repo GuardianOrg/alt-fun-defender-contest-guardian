@@ -3,6 +3,7 @@ import { useState, useRef } from "react";
 import StepHeader from "./StepHeader";
 import styles from "./TokenForm.module.css";
 import { cn } from "../../utils/format";
+import Button from "../shared/Button";
 
 interface Props {
   name: string;
@@ -97,23 +98,23 @@ export default function TokenForm({
             className={styles.previewImage}
           />
           <div className={styles.previewActions}>
-            <button
-              type="button"
-              className={styles.previewBtn}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => fileRef.current?.click()}
             >
               Change
-            </button>
-            <button
-              type="button"
-              className={styles.previewBtn}
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 onImageChange(null, null);
                 if (fileRef.current) fileRef.current.value = "";
               }}
             >
               Remove
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
