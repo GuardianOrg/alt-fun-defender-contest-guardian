@@ -33,3 +33,5 @@ Can we deploy tokens via some proxy template so the deployment is smaller?
 Vanity addresses
 
 Change sell button options to percentages, 10, 25, 50, 75, 100
+
+Add transaction status popup thing like Pump fun has

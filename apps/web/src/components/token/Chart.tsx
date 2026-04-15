@@ -85,6 +85,11 @@ export default function Chart({ token }: Props) {
         </div>
       </div>
       <div className={styles.chartArea}>
+        {loading && (
+          <div className={styles.loadingState}>
+            <div className={styles.spinner} />
+          </div>
+        )}
         {isEmpty && (
           <div className={styles.emptyState}>
             <span className={styles.emptyText}>No price data available yet</span>

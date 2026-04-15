@@ -102,7 +102,12 @@ export function useChart({
   }, [containerRef]);
 
   useEffect(() => {
-    if (loading || !seriesRef.current || !chartRef.current) return;
+    if (!seriesRef.current || !chartRef.current) return;
+
+    if (loading) {
+      seriesRef.current.setData([]);
+      return;
+    }
 
     const representative = candles.length > 0 ? candles[0].close : 0;
     const minMove = representative > 0
