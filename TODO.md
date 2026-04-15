@@ -35,3 +35,5 @@ Vanity addresses
 Change sell button options to percentages, 10, 25, 50, 75, 100
 
 Add transaction status popup thing like Pump fun has
+
+We don't want to sign for comments

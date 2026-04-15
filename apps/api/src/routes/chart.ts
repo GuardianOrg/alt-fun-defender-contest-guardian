@@ -172,7 +172,7 @@ chart.get("/:address", async (c) => {
     }
   }
 
-  const sampleSec = Math.max(1, Math.floor(candleSec / 15));
+  const sampleSec = Math.max(10, Math.floor(candleSec / 10));
 
   const db = createDb(c.env.DATABASE_URL);
   const [dbToken] = await db
@@ -220,14 +220,22 @@ chart.get("/:address", async (c) => {
   const [ltRows, tradesResult] = await Promise.all([
     btSql`
       SELECT
-        extract(epoch from tick_timestamp)::bigint AS ts,
-        exchange_rate::text AS exchange_rate
-      FROM token_snapshots_v1
-      WHERE token_address = ${checksummedLt}
-        AND tick_timestamp >= to_timestamp(${fromSec})
-        AND tick_timestamp < to_timestamp(${nowSec})
-        AND extract(epoch from tick_timestamp)::bigint % ${sampleSec} = 0
-      ORDER BY tick_timestamp ASC
+        extract(epoch from s.t)::bigint AS ts,
+        t.exchange_rate::text AS exchange_rate
+      FROM generate_series(
+        to_timestamp(${fromSec}),
+        to_timestamp(${nowSec}),
+        make_interval(secs => ${sampleSec})
+      ) AS s(t)
+      CROSS JOIN LATERAL (
+        SELECT exchange_rate
+        FROM token_snapshots_v1
+        WHERE token_address = ${checksummedLt}
+          AND tick_timestamp <= s.t
+        ORDER BY tick_timestamp DESC
+        LIMIT 1
+      ) t
+      ORDER BY s.t
     ` as unknown as Promise<LtSnapshotRow[]>,
     (async () => {
       const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
