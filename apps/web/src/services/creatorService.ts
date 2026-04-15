@@ -1,7 +1,7 @@
 import { BondingAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
-import { fetchTokens } from "./api";
+import { API_BASE, fetchTokens } from "./api";
 import { hyperEVM } from "../config/chains";
 import { erc20Abi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
@@ -126,8 +126,9 @@ const liveCreatorService: ICreatorService = {
           return {
             address: token.address,
             name: token.name,
-            emoji: "",
+            imageUrl: token.imageUrl ? new URL(token.imageUrl, API_BASE).toString() : undefined,
             ltName: `${token.ltPair} ${token.leverage}×`,
+            ltAddress: token.ltPair,
             status: "active" as const,
             curveFilled: 0,
             totalVolumeUsd: 0,
@@ -139,8 +140,9 @@ const liveCreatorService: ICreatorService = {
         return {
           address: token.address,
           name: token.name,
-          emoji: "",
+          imageUrl: token.imageUrl ? new URL(token.imageUrl, API_BASE).toString() : undefined,
           ltName: `${token.ltPair} ${token.leverage}×`,
+          ltAddress: token.ltPair,
           status: "active" as const,
           curveFilled: 0,
           totalVolumeUsd: 0,

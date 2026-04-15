@@ -1,9 +1,11 @@
 import styles from "./EarningsPanel.module.css";
 import { FEES } from "../../config/constants";
-import { cn, formatUsd } from "../../utils/format";
+import { cn, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { CreatorEarnings } from "../../services/types";
+
+const EXPLORER_BASE = "https://hyperevmscan.io/address";
 
 interface Props {
   earnings: CreatorEarnings | undefined;
@@ -99,10 +101,30 @@ export default function RewardsTab({
               onClick={() => onTokenClick(t.address)}
             >
               <div className={styles.tokenCardHeader}>
-                <span className={styles.tokenCardEmoji}>{t.emoji}</span>
+                {t.imageUrl ? (
+                  <img
+                    src={t.imageUrl}
+                    alt=""
+                    className={styles.tokenCardImage}
+                  />
+                ) : (
+                  <div className={styles.tokenCardImagePlaceholder}>
+                    {t.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className={styles.tokenCardInfo}>
                   <div className={styles.tokenCardName}>{t.name}</div>
-                  <div className={styles.tokenCardLtName}>{t.ltName}</div>
+                  <a
+                    href={`${EXPLORER_BASE}/${t.ltAddress}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={styles.tokenCardLtLink}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {t.ltAddress.startsWith("0x")
+                      ? `${shortenAddress(t.ltAddress)} ${t.ltName.split(" ").pop()}`
+                      : t.ltName}
+                  </a>
                 </div>
                 <div
                   className={cn(

@@ -117,8 +117,9 @@ export interface HeldToken {
 export interface CreatedToken {
   address: string;
   name: string;
-  emoji: string;
+  imageUrl?: string;
   ltName: string;
+  ltAddress: string;
   status: TokenStatus;
   curveFilled: number;
   totalVolumeUsd: number;
