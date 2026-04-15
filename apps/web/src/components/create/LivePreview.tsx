@@ -63,7 +63,10 @@ export default function LivePreview({
     });
     const mn = Math.min(...lineData);
     const mx = Math.max(...lineData);
-    const norm = lineData.map((p) => ((p - mn) / (mx - mn || 1)) * 26 + 3);
+    const pad = 4;
+    const norm = lineData.map(
+      (p) => ((p - mn) / (mx - mn || 1)) * (H - 2 * pad) + pad,
+    );
 
     const grad = ctx.createLinearGradient(0, 0, 0, H);
     grad.addColorStop(
@@ -73,11 +76,11 @@ export default function LivePreview({
     grad.addColorStop(1, "rgba(0,0,0,0)");
 
     ctx.beginPath();
-    ctx.moveTo(1, 32);
+    ctx.moveTo(1, H);
     norm.forEach((y, i) =>
-      ctx.lineTo((i / (norm.length - 1)) * (W - 2) + 1, 32 - y),
+      ctx.lineTo((i / (norm.length - 1)) * (W - 2) + 1, H - y),
     );
-    ctx.lineTo(W - 1, 32);
+    ctx.lineTo(W - 1, H);
     ctx.closePath();
     ctx.fillStyle = grad;
     ctx.fill();
@@ -85,8 +88,8 @@ export default function LivePreview({
     ctx.beginPath();
     norm.forEach((y, i) =>
       i === 0
-        ? ctx.moveTo(1, 32 - y)
-        : ctx.lineTo((i / (norm.length - 1)) * (W - 2) + 1, 32 - y),
+        ? ctx.moveTo(1, H - y)
+        : ctx.lineTo((i / (norm.length - 1)) * (W - 2) + 1, H - y),
     );
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
