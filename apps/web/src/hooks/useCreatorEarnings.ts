@@ -64,7 +64,10 @@ export function useCreatorEarnings() {
           functionName: "claimCreatorFees",
           args: [ltAddress],
         });
-        await hyperEvmClient.waitForTransactionReceipt({ hash });
+        const receipt = await hyperEvmClient.waitForTransactionReceipt({ hash });
+        if (receipt.status === "reverted") {
+          throw new Error("Claim transaction reverted on-chain");
+        }
         earningsQuery.refetch();
       } finally {
         setClaiming(false);

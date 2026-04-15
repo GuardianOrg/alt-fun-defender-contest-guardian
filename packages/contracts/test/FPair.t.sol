@@ -7,7 +7,7 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract FPairTest is Test {
     FPair public pair;
-    MockERC20 public memecoin;
+    MockERC20 public token;
     MockERC20 public asset;
 
     address public routerAddr = makeAddr("router");
@@ -18,13 +18,13 @@ contract FPairTest is Test {
     uint256 constant INITIAL_ASSET_RESERVE = 4000 ether;
 
     function setUp() public {
-        memecoin = new MockERC20("Memecoin", "MEME");
+        token = new MockERC20("Token", "TKN");
         asset = new MockERC20("Asset", "LT");
 
-        pair = new FPair(routerAddr, address(memecoin), address(asset));
+        pair = new FPair(routerAddr, address(token), address(asset));
 
         // Fund pair with tokens for testing
-        memecoin.mint(address(pair), INITIAL_TOKEN_RESERVE);
+        token.mint(address(pair), INITIAL_TOKEN_RESERVE);
         asset.mint(address(pair), INITIAL_ASSET_RESERVE);
     }
 
@@ -32,7 +32,7 @@ contract FPairTest is Test {
 
     function test_constructor_setsImmutables() public view {
         assertEq(pair.router(), routerAddr);
-        assertEq(pair.tokenA(), address(memecoin));
+        assertEq(pair.tokenA(), address(token));
         assertEq(pair.tokenB(), address(asset));
     }
 
@@ -129,7 +129,7 @@ contract FPairTest is Test {
         uint256 amount = 1000 ether;
         pair.transferToken(recipient, amount);
 
-        assertEq(memecoin.balanceOf(recipient), amount);
+        assertEq(token.balanceOf(recipient), amount);
     }
 
     function test_transferToken_revertsForNonRouter() public {

@@ -6,29 +6,29 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {FERC20} from "../src/FERC20.sol";
-import {RedemptionRouter} from "../src/RedemptionRouter.sol";
+import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
-contract RedemptionRouterV2 is RedemptionRouter {
+contract LaunchpadRouterV2 is LaunchpadRouter {
     function version() external pure returns (uint256) {
         return 2;
     }
 }
 
-contract RedemptionRouterTest is DeployHelper {
-    RedemptionRouter public redemptionRouter;
+contract LaunchpadRouterTest is DeployHelper {
+    LaunchpadRouter public launchpadRouter;
 
     address public referrer = makeAddr("referrer");
 
     function setUp() public {
         _deployCore();
 
-        RedemptionRouter routerImpl = new RedemptionRouter();
+        LaunchpadRouter routerImpl = new LaunchpadRouter();
         bytes memory routerInit =
-            abi.encodeCall(RedemptionRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
-        redemptionRouter = RedemptionRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
+            abi.encodeCall(LaunchpadRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
+        launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
 
-        bonding.setRedemptionRouter(address(redemptionRouter));
+        bonding.setLaunchpadRouter(address(launchpadRouter));
 
         usdc.mint(address(lt), 1_000_000 ether);
     }
@@ -51,12 +51,12 @@ contract RedemptionRouterTest is DeployHelper {
         if (seedUsdc > 0) {
             usdc.mint(creator, seedUsdc);
             vm.startPrank(creator);
-            usdc.approve(address(redemptionRouter), seedUsdc);
-            tokenAddr = redemptionRouter.createToken(params, seedUsdc);
+            usdc.approve(address(launchpadRouter), seedUsdc);
+            tokenAddr = launchpadRouter.createToken(params, seedUsdc);
             vm.stopPrank();
         } else {
             vm.prank(creator);
-            tokenAddr = redemptionRouter.createToken(params, 0);
+            tokenAddr = launchpadRouter.createToken(params, 0);
         }
     }
 
@@ -67,8 +67,8 @@ contract RedemptionRouterTest is DeployHelper {
     ) internal returns (uint256 tokensOut) {
         usdc.mint(buyer, usdcAmount);
         vm.startPrank(buyer);
-        usdc.approve(address(redemptionRouter), usdcAmount);
-        tokensOut = redemptionRouter.buy(tokenAddr, usdcAmount, 0, block.timestamp + 300, address(0));
+        usdc.approve(address(launchpadRouter), usdcAmount);
+        tokensOut = launchpadRouter.buy(tokenAddr, usdcAmount, 0, address(0));
         vm.stopPrank();
     }
 
@@ -113,10 +113,10 @@ contract RedemptionRouterTest is DeployHelper {
         });
 
         vm.expectEmit(false, true, false, false);
-        emit RedemptionRouter.TokenCreated(address(0), creator, address(lt));
+        emit LaunchpadRouter.TokenCreated(address(0), creator, address(lt));
 
         vm.prank(creator);
-        redemptionRouter.createToken(params, 0);
+        launchpadRouter.createToken(params, 0);
     }
 
     function test_createToken_revertsZeroLt() public {
@@ -131,8 +131,8 @@ contract RedemptionRouterTest is DeployHelper {
         });
 
         vm.prank(creator);
-        vm.expectRevert(RedemptionRouter.InvalidInput.selector);
-        redemptionRouter.createToken(params, 0);
+        vm.expectRevert(LaunchpadRouter.InvalidInput.selector);
+        launchpadRouter.createToken(params, 0);
     }
 
     // ─── Buy Tests (Curve) ───────────────────────────────────────────────
@@ -150,8 +150,8 @@ contract RedemptionRouterTest is DeployHelper {
         usdc.mint(trader, 500 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 500 ether);
-        redemptionRouter.buy(tokenAddr, 500 ether, 0, block.timestamp + 300, address(0));
+        usdc.approve(address(launchpadRouter), 500 ether);
+        launchpadRouter.buy(tokenAddr, 500 ether, 0, address(0));
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(trader), 0, "All USDC should be spent");
@@ -162,11 +162,11 @@ contract RedemptionRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 100 ether);
+        usdc.approve(address(launchpadRouter), 100 ether);
 
         vm.expectEmit(true, true, false, false);
-        emit RedemptionRouter.Buy(tokenAddr, trader, 100 ether, 0);
-        redemptionRouter.buy(tokenAddr, 100 ether, 0, block.timestamp + 300, address(0));
+        emit LaunchpadRouter.Buy(tokenAddr, trader, 100 ether, 0);
+        launchpadRouter.buy(tokenAddr, 100 ether, 0, address(0));
         vm.stopPrank();
     }
 
@@ -174,19 +174,8 @@ contract RedemptionRouterTest is DeployHelper {
         address tokenAddr = _createToken(0);
 
         vm.prank(trader);
-        vm.expectRevert(RedemptionRouter.InvalidInput.selector);
-        redemptionRouter.buy(tokenAddr, 0, 0, block.timestamp + 300, address(0));
-    }
-
-    function test_buy_revertsOnExpiredDeadline() public {
-        address tokenAddr = _createToken(0);
-        usdc.mint(trader, 100 ether);
-
-        vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 100 ether);
-        vm.expectRevert(RedemptionRouter.DeadlineExpired.selector);
-        redemptionRouter.buy(tokenAddr, 100 ether, 0, block.timestamp - 1, address(0));
-        vm.stopPrank();
+        vm.expectRevert(LaunchpadRouter.InvalidInput.selector);
+        launchpadRouter.buy(tokenAddr, 0, 0, address(0));
     }
 
     function test_buy_revertsOnSlippage() public {
@@ -194,9 +183,9 @@ contract RedemptionRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 100 ether);
-        vm.expectRevert(RedemptionRouter.SlippageExceeded.selector);
-        redemptionRouter.buy(tokenAddr, 100 ether, type(uint256).max, block.timestamp + 300, address(0));
+        usdc.approve(address(launchpadRouter), 100 ether);
+        vm.expectRevert(LaunchpadRouter.SlippageExceeded.selector);
+        launchpadRouter.buy(tokenAddr, 100 ether, type(uint256).max, address(0));
         vm.stopPrank();
     }
 
@@ -207,11 +196,11 @@ contract RedemptionRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 100 ether);
+        usdc.approve(address(launchpadRouter), 100 ether);
 
         vm.expectEmit(true, true, true, true);
-        emit RedemptionRouter.Referred(tokenAddr, trader, referrer, 100 ether);
-        redemptionRouter.buy(tokenAddr, 100 ether, 0, block.timestamp + 300, referrer);
+        emit LaunchpadRouter.Referred(tokenAddr, trader, referrer, 100 ether);
+        launchpadRouter.buy(tokenAddr, 100 ether, 0, referrer);
         vm.stopPrank();
     }
 
@@ -220,10 +209,10 @@ contract RedemptionRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 100 ether);
+        usdc.approve(address(launchpadRouter), 100 ether);
 
         vm.recordLogs();
-        redemptionRouter.buy(tokenAddr, 100 ether, 0, block.timestamp + 300, address(0));
+        launchpadRouter.buy(tokenAddr, 100 ether, 0, address(0));
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -238,10 +227,10 @@ contract RedemptionRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(redemptionRouter), 100 ether);
+        usdc.approve(address(launchpadRouter), 100 ether);
 
         vm.recordLogs();
-        redemptionRouter.buy(tokenAddr, 100 ether, 0, block.timestamp + 300, trader);
+        launchpadRouter.buy(tokenAddr, 100 ether, 0, trader);
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -258,8 +247,8 @@ contract RedemptionRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
-        uint256 usdcOut = redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp + 300);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut > 0, "Should receive USDC back");
@@ -271,8 +260,8 @@ contract RedemptionRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
-        redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp + 300);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        launchpadRouter.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertEq(FERC20(tokenAddr).balanceOf(trader), 0, "All tokens should be sold");
@@ -283,11 +272,11 @@ contract RedemptionRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
 
         vm.expectEmit(true, true, false, false);
-        emit RedemptionRouter.Sell(tokenAddr, trader, tokensOut, 0);
-        redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp + 300);
+        emit LaunchpadRouter.Sell(tokenAddr, trader, tokensOut, 0);
+        launchpadRouter.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
     }
 
@@ -295,19 +284,8 @@ contract RedemptionRouterTest is DeployHelper {
         address tokenAddr = _createToken(0);
 
         vm.prank(trader);
-        vm.expectRevert(RedemptionRouter.InvalidInput.selector);
-        redemptionRouter.sell(tokenAddr, 0, 0, block.timestamp + 300);
-    }
-
-    function test_sell_revertsOnExpiredDeadline() public {
-        address tokenAddr = _createToken(0);
-        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
-
-        vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
-        vm.expectRevert(RedemptionRouter.DeadlineExpired.selector);
-        redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp - 1);
-        vm.stopPrank();
+        vm.expectRevert(LaunchpadRouter.InvalidInput.selector);
+        launchpadRouter.sell(tokenAddr, 0, 0);
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
@@ -318,8 +296,8 @@ contract RedemptionRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcIn);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
-        uint256 usdcOut = redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp + 300);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut < usdcIn, "Round trip should cost fees");
@@ -343,8 +321,8 @@ contract RedemptionRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, seller, 100 ether);
 
         vm.startPrank(seller);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
-        uint256 usdcOut = redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp + 300);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut > 0, "Post-grad sell should return USDC");
@@ -355,57 +333,57 @@ contract RedemptionRouterTest is DeployHelper {
     function test_setBonding_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        redemptionRouter.setBonding(address(1));
+        launchpadRouter.setBonding(address(1));
     }
 
     function test_setBonding_updatesValue() public {
         address newBonding = makeAddr("newBonding");
-        redemptionRouter.setBonding(newBonding);
-        assertEq(address(redemptionRouter.bonding()), newBonding);
+        launchpadRouter.setBonding(newBonding);
+        assertEq(address(launchpadRouter.bonding()), newBonding);
     }
 
     function test_setBonding_revertsZeroAddress() public {
-        vm.expectRevert(RedemptionRouter.ZeroAddress.selector);
-        redemptionRouter.setBonding(address(0));
+        vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
+        launchpadRouter.setBonding(address(0));
     }
 
     function test_setHyperswapRouter_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        redemptionRouter.setHyperswapRouter(address(1));
+        launchpadRouter.setHyperswapRouter(address(1));
     }
 
     function test_setHyperswapRouter_revertsZeroAddress() public {
-        vm.expectRevert(RedemptionRouter.ZeroAddress.selector);
-        redemptionRouter.setHyperswapRouter(address(0));
+        vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
+        launchpadRouter.setHyperswapRouter(address(0));
     }
 
     // ─── UUPS Upgrade ────────────────────────────────────────────────────
 
     function test_upgrade_ownerCanUpgrade() public {
-        RedemptionRouterV2 newImpl = new RedemptionRouterV2();
-        redemptionRouter.upgradeToAndCall(address(newImpl), "");
-        assertEq(RedemptionRouterV2(address(redemptionRouter)).version(), 2);
+        LaunchpadRouterV2 newImpl = new LaunchpadRouterV2();
+        launchpadRouter.upgradeToAndCall(address(newImpl), "");
+        assertEq(LaunchpadRouterV2(address(launchpadRouter)).version(), 2);
     }
 
     function test_upgrade_nonOwnerCannotUpgrade() public {
-        RedemptionRouterV2 newImpl = new RedemptionRouterV2();
+        LaunchpadRouterV2 newImpl = new LaunchpadRouterV2();
 
         vm.prank(trader);
         vm.expectRevert();
-        redemptionRouter.upgradeToAndCall(address(newImpl), "");
+        launchpadRouter.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_upgrade_preservesState() public {
         address tokenAddr = _createToken(0);
         _buyViaRouter(tokenAddr, trader, 100 ether);
 
-        RedemptionRouterV2 newImpl = new RedemptionRouterV2();
-        redemptionRouter.upgradeToAndCall(address(newImpl), "");
+        LaunchpadRouterV2 newImpl = new LaunchpadRouterV2();
+        launchpadRouter.upgradeToAndCall(address(newImpl), "");
 
-        assertEq(address(redemptionRouter.bonding()), address(bonding));
-        assertEq(address(redemptionRouter.usdc()), address(usdc));
-        assertEq(redemptionRouter.owner(), owner);
+        assertEq(address(launchpadRouter.bonding()), address(bonding));
+        assertEq(address(launchpadRouter.usdc()), address(usdc));
+        assertEq(launchpadRouter.owner(), owner);
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────
@@ -429,8 +407,8 @@ contract RedemptionRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcAmount);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(redemptionRouter), tokensOut);
-        uint256 usdcOut = redemptionRouter.sell(tokenAddr, tokensOut, 0, block.timestamp + 300);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut <= usdcAmount, "Should never profit on round trip through router");

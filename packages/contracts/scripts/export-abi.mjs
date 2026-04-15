@@ -12,7 +12,7 @@ const contracts = [
   "FRouter",
   "FPair",
   "FERC20",
-  "RedemptionRouter",
+  "LaunchpadRouter",
   "LPLock",
 ];
 

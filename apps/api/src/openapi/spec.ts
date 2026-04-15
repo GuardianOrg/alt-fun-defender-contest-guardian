@@ -163,7 +163,7 @@ const spec = {
   info: {
     title: "Launchpad API",
     version: "1.0.0",
-    description: `Memecoin launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset.
+    description: `Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset.
 
 ## Authentication
 

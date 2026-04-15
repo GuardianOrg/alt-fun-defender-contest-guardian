@@ -9,7 +9,7 @@ import {IFPair} from "./interfaces/IFPair.sol";
 /// @title FPair
 /// @notice Per-token bonding curve pair. Tracks reserves and holds tokens.
 /// @dev Forked from Virtuals Protocol FPair.sol. Only the router may mutate state.
-///      reserve0 = memecoin (tokenA), reserve1 = asset (tokenB, virtual at init).
+///      reserve0 = token (tokenA), reserve1 = asset (tokenB, virtual at init).
 contract FPair is IFPair, ReentrancyGuard {
     using SafeERC20 for IERC20;
 

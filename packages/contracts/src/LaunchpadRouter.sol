@@ -11,11 +11,11 @@ import {FRouter} from "./FRouter.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
-/// @title RedemptionRouter
-/// @notice Single entry point for users: pay USDC, receive memecoins (and vice versa).
+/// @title LaunchpadRouter
+/// @notice Single entry point for users: pay USDC, receive tokens (and vice versa).
 /// @dev Handles USDC -> LT mint -> bonding curve buy (or HyperSwap swap post-graduation).
-///      Sell path: memecoin -> curve sell or HyperSwap swap -> LT redeem -> USDC.
-contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+///      Sell path: token -> curve sell or HyperSwap swap -> LT redeem -> USDC.
+contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     Bonding public bonding;
@@ -28,7 +28,6 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
     event TokenCreated(address indexed token, address indexed creator, address ltAddress);
 
     error InvalidInput();
-    error DeadlineExpired();
     error SlippageExceeded();
     error ZeroAddress();
 
@@ -79,21 +78,18 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         emit TokenCreated(tokenAddr, msg.sender, lt);
     }
 
-    /// @notice Buy memecoins with USDC
-    /// @param tokenAddress Memecoin to buy
+    /// @notice Buy tokens with USDC
+    /// @param tokenAddress Token to buy
     /// @param usdcAmount USDC to spend
-    /// @param minTokensOut Minimum memecoins to receive
-    /// @param deadline Transaction deadline
+    /// @param minTokensOut Minimum tokens to receive
     /// @param referrer Referrer address (address(0) if none)
     function buy(
         address tokenAddress,
         uint256 usdcAmount,
         uint256 minTokensOut,
-        uint256 deadline,
         address referrer
     ) external nonReentrant returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
-        if (block.timestamp > deadline) revert DeadlineExpired();
 
         (,,, address lt,,,,) = bonding.tokenInfo(tokenAddress);
 
@@ -103,9 +99,9 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         uint256 ltAmount = ILeveragedToken(lt).mint(address(this), usdcAmount, 0);
 
         if (bonding.isGraduated(tokenAddress)) {
-            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltAmount, minTokensOut, deadline);
+            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltAmount, minTokensOut);
         } else {
-            tokensOut = _buyOnCurve(tokenAddress, lt, ltAmount, minTokensOut, deadline);
+            tokensOut = _buyOnCurve(tokenAddress, lt, ltAmount, minTokensOut);
         }
 
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
@@ -119,32 +115,26 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         }
     }
 
-    /// @notice Sell memecoins for USDC
-    /// @param tokenAddress Memecoin to sell
-    /// @param tokenAmount Amount of memecoins to sell
+    /// @notice Sell tokens for USDC
+    /// @param tokenAddress Token to sell
+    /// @param tokenAmount Amount of tokens to sell
     /// @param minUsdcOut Minimum USDC to receive
-    /// @param deadline Transaction deadline
     function sell(
         address tokenAddress,
         uint256 tokenAmount,
-        uint256 minUsdcOut,
-        uint256 deadline
+        uint256 minUsdcOut
     ) external nonReentrant returns (uint256 usdcOut) {
         if (tokenAmount == 0) revert InvalidInput();
-        if (block.timestamp > deadline) revert DeadlineExpired();
 
         (,,, address lt,,,,) = bonding.tokenInfo(tokenAddress);
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
-        uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
-        uint256 minLtOut = exchangeRate > 0 ? (minUsdcOut * 1e18) / exchangeRate : 0;
-
         uint256 ltReceived;
         if (bonding.isGraduated(tokenAddress)) {
-            ltReceived = _sellOnHyperswap(tokenAddress, lt, tokenAmount, minLtOut, deadline);
+            ltReceived = _sellOnHyperswap(tokenAddress, lt, tokenAmount);
         } else {
-            ltReceived = _sellOnCurve(tokenAddress, lt, tokenAmount, minLtOut, deadline);
+            ltReceived = _sellOnCurve(tokenAddress, tokenAmount);
         }
 
         // LT -> USDC
@@ -162,24 +152,20 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         address tokenAddress,
         address lt,
         uint256 ltAmount,
-        uint256 minOut,
-        uint256 deadline
+        uint256 minOut
     ) internal returns (uint256 tokensOut) {
         FRouter frouter = bonding.router();
         IERC20(lt).forceApprove(address(frouter), ltAmount);
-        tokensOut = bonding.buy(ltAmount, tokenAddress, minOut, deadline);
+        tokensOut = bonding.buy(ltAmount, tokenAddress, minOut);
     }
 
     function _sellOnCurve(
         address tokenAddress,
-        address lt,
-        uint256 tokenAmount,
-        uint256 minLtOut,
-        uint256 deadline
+        uint256 tokenAmount
     ) internal returns (uint256 ltReceived) {
         FRouter frouter = bonding.router();
         IERC20(tokenAddress).forceApprove(address(frouter), tokenAmount);
-        ltReceived = bonding.sell(tokenAmount, tokenAddress, minLtOut, deadline);
+        ltReceived = bonding.sell(tokenAmount, tokenAddress, 0);
     }
 
     // ─── Internal: HyperSwap Trades ─────────────────────────────────────
@@ -188,31 +174,28 @@ contract RedemptionRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuar
         address tokenAddress,
         address lt,
         uint256 ltAmount,
-        uint256 minOut,
-        uint256 deadline
+        uint256 minOut
     ) internal returns (uint256 tokensOut) {
         IERC20(lt).forceApprove(address(hyperswapRouter), ltAmount);
         address[] memory path = new address[](2);
         path[0] = lt;
         path[1] = tokenAddress;
         uint256[] memory amounts =
-            hyperswapRouter.swapExactTokensForTokens(ltAmount, minOut, path, address(this), deadline);
+            hyperswapRouter.swapExactTokensForTokens(ltAmount, minOut, path, address(this), block.timestamp);
         tokensOut = amounts[amounts.length - 1];
     }
 
     function _sellOnHyperswap(
         address tokenAddress,
         address lt,
-        uint256 tokenAmount,
-        uint256 minLtOut,
-        uint256 deadline
+        uint256 tokenAmount
     ) internal returns (uint256 ltReceived) {
         IERC20(tokenAddress).forceApprove(address(hyperswapRouter), tokenAmount);
         address[] memory path = new address[](2);
         path[0] = tokenAddress;
         path[1] = lt;
         uint256[] memory amounts =
-            hyperswapRouter.swapExactTokensForTokens(tokenAmount, minLtOut, path, address(this), deadline);
+            hyperswapRouter.swapExactTokensForTokens(tokenAmount, 0, path, address(this), block.timestamp);
         ltReceived = amounts[amounts.length - 1];
     }
 

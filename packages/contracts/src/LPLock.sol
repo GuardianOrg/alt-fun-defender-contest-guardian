@@ -16,7 +16,7 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
         uint256 lockedAt;
     }
 
-    /// @notice Memecoin address -> lock details
+    /// @notice Token address -> lock details
     mapping(address => LockInfo) public locks;
 
     /// @notice Addresses authorized to record locks (Bonding contract)

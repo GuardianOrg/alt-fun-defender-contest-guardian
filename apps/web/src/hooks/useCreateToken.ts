@@ -9,7 +9,7 @@ import { createPublicClient, getAddress, http, maxUint256, parseEventLogs, parse
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
-import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
+import { erc20Abi, LaunchpadRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { createTokenApi, fetchLeveragedTokens, uploadImage } from "../services/api";
 import { getErrorMessage } from "../utils/format";
@@ -65,7 +65,7 @@ export function useCreateToken() {
             address: ADDRESSES.usdc,
             abi: erc20Abi,
             functionName: "allowance",
-            args: [address, ADDRESSES.redemptionRouter],
+            args: [address, ADDRESSES.launchpadRouter],
           })) as bigint;
 
           if (allowance < usdcAmount) {
@@ -73,9 +73,12 @@ export function useCreateToken() {
               address: ADDRESSES.usdc,
               abi: erc20Abi,
               functionName: "approve",
-              args: [ADDRESSES.redemptionRouter, maxUint256],
+              args: [ADDRESSES.launchpadRouter, maxUint256],
             });
-            await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+            const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+            if (approveReceipt.status === "reverted") {
+              throw new Error("USDC approval transaction reverted");
+            }
           }
         }
 
@@ -102,8 +105,8 @@ export function useCreateToken() {
           : 0n;
 
         const gasEstimate = await hyperEvmClient.estimateContractGas({
-          address: ADDRESSES.redemptionRouter,
-          abi: RedemptionRouterAbi,
+          address: ADDRESSES.launchpadRouter,
+          abi: LaunchpadRouterAbi,
           functionName: "createToken",
           args: [launchParams, seedUsdcAmount],
           account: address,
@@ -111,8 +114,8 @@ export function useCreateToken() {
         const gasLimit = (gasEstimate * 130n) / 100n;
 
         const tx = await walletClient.writeContract({
-          address: ADDRESSES.redemptionRouter,
-          abi: RedemptionRouterAbi,
+          address: ADDRESSES.launchpadRouter,
+          abi: LaunchpadRouterAbi,
           functionName: "createToken",
           args: [launchParams, seedUsdcAmount],
           gas: gasLimit,
@@ -127,7 +130,7 @@ export function useCreateToken() {
         }
 
         const tokenCreatedEvents = parseEventLogs({
-          abi: RedemptionRouterAbi,
+          abi: LaunchpadRouterAbi,
           eventName: "TokenCreated",
           logs: receipt.logs,
           strict: false,

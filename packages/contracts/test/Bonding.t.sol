@@ -10,7 +10,7 @@ import {DeployHelper} from "./DeployHelper.sol";
 contract BondingTest is DeployHelper {
     function setUp() public {
         _deployCore();
-        bonding.setRedemptionRouter(creator);
+        bonding.setLaunchpadRouter(creator);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(buyer, ltAmount);
         vm.startPrank(buyer);
         lt.approve(address(frouter), ltAmount);
-        tokensOut = bonding.buy(ltAmount, tokenAddr, 0, block.timestamp + 300);
+        tokensOut = bonding.buy(ltAmount, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -227,7 +227,7 @@ contract BondingTest is DeployHelper {
 
         vm.startPrank(trader);
         lt.approve(address(frouter), buyAmount);
-        bonding.buy(buyAmount, tokenAddr, 0, block.timestamp + 300);
+        bonding.buy(buyAmount, tokenAddr, 0);
         vm.stopPrank();
 
         assertEq(lt.balanceOf(trader), 0, "All LT should be spent");
@@ -266,18 +266,7 @@ contract BondingTest is DeployHelper {
 
         vm.expectEmit(true, true, false, false);
         emit Bonding.Trade(tokenAddr, trader, true, 0, 0, 0, 0);
-        bonding.buy(buyAmount, tokenAddr, 0, block.timestamp + 300);
-        vm.stopPrank();
-    }
-
-    function test_buy_revertsOnDeadline() public {
-        (address tokenAddr,) = _launchToken();
-
-        lt.mintDirect(trader, 100 ether);
-        vm.startPrank(trader);
-        lt.approve(address(frouter), 100 ether);
-        vm.expectRevert(Bonding.DeadlineExpired.selector);
-        bonding.buy(100 ether, tokenAddr, 0, block.timestamp - 1);
+        bonding.buy(buyAmount, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -288,7 +277,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(trader);
         lt.approve(address(frouter), 100 ether);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
-        bonding.buy(100 ether, tokenAddr, type(uint256).max, block.timestamp + 300);
+        bonding.buy(100 ether, tokenAddr, type(uint256).max);
         vm.stopPrank();
     }
 
@@ -300,20 +289,20 @@ contract BondingTest is DeployHelper {
 
         vm.startPrank(trader);
         FERC20(tokenAddr).approve(address(frouter), tokensOut);
-        uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
+        uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0);
         vm.stopPrank();
 
         assertEq(lt.balanceOf(trader), ltBack);
         assertTrue(ltBack > 0, "Should receive LT back");
     }
 
-    function test_sell_burnsMemecoinsFromTrader() public {
+    function test_sell_burnsTokensFromTrader() public {
         (address tokenAddr,) = _launchToken();
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
         FERC20(tokenAddr).approve(address(frouter), tokensOut);
-        bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
+        bonding.sell(tokensOut, tokenAddr, 0);
         vm.stopPrank();
 
         assertEq(FERC20(tokenAddr).balanceOf(trader), 0, "All tokens should be sold");
@@ -326,7 +315,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(trader);
         FERC20(tokenAddr).approve(address(frouter), tokensOut);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
-        bonding.sell(tokensOut, tokenAddr, type(uint256).max, block.timestamp + 300);
+        bonding.sell(tokensOut, tokenAddr, type(uint256).max);
         vm.stopPrank();
     }
 
@@ -340,7 +329,7 @@ contract BondingTest is DeployHelper {
 
         vm.startPrank(trader);
         FERC20(tokenAddr).approve(address(frouter), tokensOut);
-        uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
+        uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0);
         vm.stopPrank();
 
         assertTrue(ltBack < buyAmount, "Trader loses to fees on round trip");
@@ -445,7 +434,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(trader);
         lt.approve(address(frouter), 100 ether);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
-        bonding.buy(100 ether, tokenAddr, 0, block.timestamp + 300);
+        bonding.buy(100 ether, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -471,7 +460,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(trader);
         FERC20(tokenAddr).approve(address(frouter), tokensOut);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
-        bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
+        bonding.sell(tokensOut, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -486,7 +475,7 @@ contract BondingTest is DeployHelper {
 
         vm.expectEmit(true, false, false, false);
         emit Bonding.TokenGraduated(tokenAddr, address(0), 0);
-        bonding.buy(100 ether, tokenAddr, 0, block.timestamp + 300);
+        bonding.buy(100 ether, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -614,7 +603,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(trader, buyAmount);
         vm.startPrank(trader);
         lt.approve(address(frouter), buyAmount);
-        uint256 tokensOut = bonding.buy(buyAmount, tokenAddr, 0, block.timestamp + 300);
+        uint256 tokensOut = bonding.buy(buyAmount, tokenAddr, 0);
         vm.stopPrank();
 
         assertTrue(tokensOut > 0);
@@ -630,7 +619,7 @@ contract BondingTest is DeployHelper {
 
         vm.startPrank(trader);
         FERC20(tokenAddr).approve(address(frouter), tokensOut);
-        uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, block.timestamp + 300);
+        uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0);
         vm.stopPrank();
 
         assertTrue(ltBack <= buyAmount, "Should never profit on round trip");

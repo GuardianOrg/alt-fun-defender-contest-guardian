@@ -12,7 +12,7 @@ contract FRouterTest is Test {
     FFactory public factory;
     FRouter public router;
 
-    MockERC20 public memecoin;
+    MockERC20 public token;
     MockERC20 public asset;
 
     address public owner = address(this);
@@ -30,7 +30,7 @@ contract FRouterTest is Test {
     address pairAddr;
 
     function setUp() public {
-        memecoin = new MockERC20("Memecoin", "MEME");
+        token = new MockERC20("Token", "TKN");
         asset = new MockERC20("Asset", "LT");
 
         factory = new FFactory();
@@ -45,13 +45,13 @@ contract FRouterTest is Test {
 
         // Create pair and seed liquidity
         vm.prank(bondingRole);
-        pairAddr = factory.createPair(address(memecoin), address(asset));
+        pairAddr = factory.createPair(address(token), address(asset));
 
         // Mint tokens to bonding role for initial liquidity
-        memecoin.mint(bondingRole, TOKEN_SUPPLY);
+        token.mint(bondingRole, TOKEN_SUPPLY);
         vm.startPrank(bondingRole);
-        memecoin.approve(address(router), TOKEN_SUPPLY);
-        router.addInitialLiquidity(address(memecoin), TOKEN_SUPPLY, ASSET_RESERVE);
+        token.approve(address(router), TOKEN_SUPPLY);
+        router.addInitialLiquidity(address(token), TOKEN_SUPPLY, ASSET_RESERVE);
         vm.stopPrank();
     }
 
@@ -67,7 +67,7 @@ contract FRouterTest is Test {
         vm.stopPrank();
 
         vm.prank(bondingRole);
-        (, tokensOut) = router.buy(amountIn, address(memecoin), buyer);
+        (, tokensOut) = router.buy(amountIn, address(token), buyer);
     }
 
     function _doSell(
@@ -75,38 +75,38 @@ contract FRouterTest is Test {
         uint256 tokenAmount
     ) internal returns (uint256 netAssetOut) {
         vm.startPrank(seller);
-        memecoin.approve(address(router), tokenAmount);
+        token.approve(address(router), tokenAmount);
         vm.stopPrank();
 
         vm.prank(bondingRole);
-        (, netAssetOut,) = router.sell(tokenAmount, address(memecoin), seller);
+        (, netAssetOut,) = router.sell(tokenAmount, address(token), seller);
     }
 
     // ─── getAmountOut Tests ──────────────────────────────────────────────
 
     function test_getAmountOut_buy_returnsPositive() public view {
-        uint256 out = router.getAmountOut(address(memecoin), true, 100 ether);
+        uint256 out = router.getAmountOut(address(token), true, 100 ether);
         assertTrue(out > 0, "Buy should return tokens");
     }
 
     function test_getAmountOut_sell_returnsPositive() public view {
-        uint256 out = router.getAmountOut(address(memecoin), false, 1_000_000 ether);
+        uint256 out = router.getAmountOut(address(token), false, 1_000_000 ether);
         assertTrue(out > 0, "Sell should return asset");
     }
 
     function test_getAmountOut_buy_largerInputGivesMoreOutput() public view {
-        uint256 out1 = router.getAmountOut(address(memecoin), true, 100 ether);
-        uint256 out2 = router.getAmountOut(address(memecoin), true, 200 ether);
+        uint256 out1 = router.getAmountOut(address(token), true, 100 ether);
+        uint256 out2 = router.getAmountOut(address(token), true, 200 ether);
         assertTrue(out2 > out1, "Larger input should give more output");
     }
 
     function test_getAmountOut_buy_zeroInputReturnsZero() public view {
-        uint256 out = router.getAmountOut(address(memecoin), true, 0);
+        uint256 out = router.getAmountOut(address(token), true, 0);
         assertEq(out, 0, "Zero input should give zero output");
     }
 
     function test_getAmountOut_sell_zeroInputReturnsZero() public view {
-        uint256 out = router.getAmountOut(address(memecoin), false, 0);
+        uint256 out = router.getAmountOut(address(token), false, 0);
         assertEq(out, 0, "Zero input should give zero output");
     }
 
@@ -120,7 +120,7 @@ contract FRouterTest is Test {
         // For a buy: new_r1 = r1 + amountIn, new_r0 = k / new_r1
         // tokensOut = r0 - new_r0
         uint256 amountIn = 500 ether;
-        uint256 tokensOut = router.getAmountOut(address(memecoin), true, amountIn);
+        uint256 tokensOut = router.getAmountOut(address(token), true, amountIn);
 
         IFPair pair = IFPair(pairAddr);
         (uint256 r0, uint256 r1) = pair.getReserves();
@@ -134,7 +134,7 @@ contract FRouterTest is Test {
     function test_getAmountOut_extremeReserves() public {
         // Test with a very large buy relative to reserves
         uint256 largeAmount = 3000 ether; // 75% of asset reserve
-        uint256 out = router.getAmountOut(address(memecoin), true, largeAmount);
+        uint256 out = router.getAmountOut(address(token), true, largeAmount);
         assertTrue(out > 0, "Should handle large buy");
         assertTrue(out < TOKEN_SUPPLY, "Output should not exceed supply");
     }
@@ -143,7 +143,7 @@ contract FRouterTest is Test {
 
     function test_buy_transfersTokensToTrader() public {
         uint256 tokensOut = _doBuy(trader, 500 ether);
-        assertEq(memecoin.balanceOf(trader), tokensOut);
+        assertEq(token.balanceOf(trader), tokensOut);
         assertTrue(tokensOut > 0);
     }
 
@@ -181,7 +181,7 @@ contract FRouterTest is Test {
         asset.approve(address(router), amountIn);
 
         vm.prank(bondingRole);
-        (uint256 netAssetIn, uint256 tokensOut) = router.buy(amountIn, address(memecoin), trader);
+        (uint256 netAssetIn, uint256 tokensOut) = router.buy(amountIn, address(token), trader);
 
         assertEq(netAssetIn, expectedNet, "netAssetIn should be amountIn minus fee");
         assertTrue(tokensOut > 0, "tokensOut should be positive");
@@ -190,7 +190,7 @@ contract FRouterTest is Test {
     function test_buy_revertsOnZeroAmount() public {
         vm.prank(bondingRole);
         vm.expectRevert(FRouter.ZeroAmount.selector);
-        router.buy(0, address(memecoin), trader);
+        router.buy(0, address(token), trader);
     }
 
     function test_buy_revertsWithoutBondingRole() public {
@@ -198,7 +198,7 @@ contract FRouterTest is Test {
         vm.startPrank(stranger);
         asset.approve(address(router), 100 ether);
         vm.expectRevert();
-        router.buy(100 ether, address(memecoin), stranger);
+        router.buy(100 ether, address(token), stranger);
         vm.stopPrank();
     }
 
@@ -237,18 +237,17 @@ contract FRouterTest is Test {
         uint256 tokensOut = _doBuy(trader, 500 ether);
 
         // Calculate expected gross output
-        uint256 grossOut = router.getAmountOut(address(memecoin), false, tokensOut);
+        uint256 grossOut = router.getAmountOut(address(token), false, tokensOut);
         uint256 expectedFee = (SELL_TAX_BPS * grossOut) / 10_000;
         uint256 expectedNet = grossOut - expectedFee;
 
         uint256 feeReceiverBefore = asset.balanceOf(feeReceiver);
 
         vm.prank(trader);
-        memecoin.approve(address(router), tokensOut);
+        token.approve(address(router), tokensOut);
 
         vm.prank(bondingRole);
-        (uint256 tokensIn, uint256 netAssetOut, uint256 grossAssetOut) =
-            router.sell(tokensOut, address(memecoin), trader);
+        (uint256 tokensIn, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(tokensOut, address(token), trader);
 
         assertEq(tokensIn, tokensOut);
         assertEq(grossAssetOut, grossOut, "Gross output should match getAmountOut");
@@ -261,16 +260,16 @@ contract FRouterTest is Test {
     function test_sell_revertsOnZeroAmount() public {
         vm.prank(bondingRole);
         vm.expectRevert(FRouter.ZeroAmount.selector);
-        router.sell(0, address(memecoin), trader);
+        router.sell(0, address(token), trader);
     }
 
     function test_sell_revertsWithoutBondingRole() public {
         uint256 tokensOut = _doBuy(trader, 500 ether);
 
         vm.startPrank(trader);
-        memecoin.approve(address(router), tokensOut);
+        token.approve(address(router), tokensOut);
         vm.expectRevert();
-        router.sell(tokensOut, address(memecoin), trader);
+        router.sell(tokensOut, address(token), trader);
         vm.stopPrank();
     }
 
@@ -327,7 +326,7 @@ contract FRouterTest is Test {
         assertTrue(pairBalance > 0, "Pair should have asset balance");
 
         vm.prank(bondingRole);
-        uint256 amount = router.graduate(address(memecoin));
+        uint256 amount = router.graduate(address(token));
 
         assertEq(amount, pairBalance, "Should drain full asset balance");
         assertEq(asset.balanceOf(bondingRole), amount, "Assets should go to caller");
@@ -337,7 +336,7 @@ contract FRouterTest is Test {
     function test_graduate_revertsWithoutBondingRole() public {
         vm.prank(stranger);
         vm.expectRevert();
-        router.graduate(address(memecoin));
+        router.graduate(address(token));
     }
 
     function test_graduate_returnsZeroWhenNoBalance() public {
@@ -359,7 +358,7 @@ contract FRouterTest is Test {
         uint256 amountIn
     ) public view {
         amountIn = bound(amountIn, 1, 100_000 ether);
-        uint256 out = router.getAmountOut(address(memecoin), true, amountIn);
+        uint256 out = router.getAmountOut(address(token), true, amountIn);
         assertTrue(out < TOKEN_SUPPLY, "Output should never exceed token reserve");
     }
 
@@ -367,7 +366,7 @@ contract FRouterTest is Test {
         uint256 amountIn
     ) public view {
         amountIn = bound(amountIn, 1, TOKEN_SUPPLY / 2);
-        uint256 out = router.getAmountOut(address(memecoin), false, amountIn);
+        uint256 out = router.getAmountOut(address(token), false, amountIn);
         assertTrue(out < ASSET_RESERVE, "Output should never exceed asset reserve");
     }
 

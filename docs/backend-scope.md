@@ -13,9 +13,9 @@ REST API + WebSocket server for the launchpad frontend and third-party integrato
 | `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
 | `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |
 | `ProtocolFeesClaimed` | Bonding | `lt`, `amount` |
-| `Buy` | RedemptionRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
-| `Sell` | RedemptionRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
-| `Referred` | RedemptionRouter | `trader`, `referrer`, `token`, `usdcAmount` |
+| `Buy` | LaunchpadRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
+| `Sell` | LaunchpadRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
+| `Referred` | LaunchpadRouter | `trader`, `referrer`, `token`, `usdcAmount` |
 | HyperSwap `Swap` | V2 Pair | `amount0In/Out`, `amount1In/Out`, `timestamp` (only graduated pairs) |
 | HyperSwap `Sync` | V2 Pair | `reserve0`, `reserve1` |
 | FERC20 `Transfer` | FERC20 | `from`, `to`, `amount` — skipped in v1 (high indexing load). Holder counts derived from trade data instead. |

@@ -3,7 +3,7 @@ export { FFactoryAbi } from "./FFactory.js";
 export { FRouterAbi } from "./FRouter.js";
 export { FPairAbi } from "./FPair.js";
 export { FERC20Abi } from "./FERC20.js";
-export { RedemptionRouterAbi } from "./RedemptionRouter.js";
+export { LaunchpadRouterAbi } from "./LaunchpadRouter.js";
 export { LPLockAbi } from "./LPLock.js";
 export { UniswapV2PairAbi } from "./UniswapV2Pair.js";
 export { LeveragedTokenAbi } from "./LeveragedToken.js";

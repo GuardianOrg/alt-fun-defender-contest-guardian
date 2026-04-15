@@ -5,7 +5,7 @@ import { createPublicClient, http, isAddress, maxUint256, parseUnits } from "vie
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
-import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
+import { erc20Abi, LaunchpadRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { type TxStep } from "../services/tradeRouter";
 import { getErrorMessage } from "../utils/format";
@@ -40,7 +40,7 @@ export function useTradeRouter() {
         setStep("approving");
 
         const usdcAmountWei = parseUnits(usdcAmount.toString(), USDC_DECIMALS);
-        const routerAddr = ADDRESSES.redemptionRouter;
+        const routerAddr = ADDRESSES.launchpadRouter;
 
         const allowance = await hyperEvmClient.readContract({
           address: ADDRESSES.usdc,
@@ -56,12 +56,14 @@ export function useTradeRouter() {
             functionName: "approve",
             args: [routerAddr, maxUint256],
           });
-          await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+          const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+          if (approveReceipt.status === "reverted") {
+            throw new Error("USDC approval transaction reverted");
+          }
         }
 
         setStep("executing");
 
-        const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
         const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
         const referrerAddr: `0x${string}` = referrer && isAddress(referrer) ? referrer : ZERO_ADDR;
 
@@ -69,13 +71,12 @@ export function useTradeRouter() {
         const { result: quotedTokensOut } =
           await hyperEvmClient.simulateContract({
             address: routerAddr,
-            abi: RedemptionRouterAbi,
+            abi: LaunchpadRouterAbi,
             functionName: "buy",
             args: [
               tokenAddress as `0x${string}`,
               usdcAmountWei,
               0n,
-              deadline,
               referrerAddr,
             ],
             account: address,
@@ -86,18 +87,20 @@ export function useTradeRouter() {
 
         const buyTx = await walletClient.writeContract({
           address: routerAddr,
-          abi: RedemptionRouterAbi,
+          abi: LaunchpadRouterAbi,
           functionName: "buy",
           args: [
             tokenAddress as `0x${string}`,
             usdcAmountWei,
             minTokensOut,
-            deadline,
             referrerAddr,
           ],
         });
 
-        await hyperEvmClient.waitForTransactionReceipt({ hash: buyTx });
+        const buyReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: buyTx });
+        if (buyReceipt.status === "reverted") {
+          throw new Error("Buy transaction reverted on-chain");
+        }
         setTxHash(buyTx);
         setStep("confirmed");
       } catch (e) {
@@ -119,7 +122,7 @@ export function useTradeRouter() {
         setError(null);
         setStep("approving");
 
-        const routerAddr = ADDRESSES.redemptionRouter;
+        const routerAddr = ADDRESSES.launchpadRouter;
 
         const allowance = await hyperEvmClient.readContract({
           address: tokenAddress as `0x${string}`,
@@ -135,23 +138,23 @@ export function useTradeRouter() {
             functionName: "approve",
             args: [routerAddr, maxUint256],
           });
-          await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+          const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+          if (approveReceipt.status === "reverted") {
+            throw new Error("Token approval transaction reverted");
+          }
         }
 
         setStep("executing");
 
-        const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
-
         const slippageBps = slippageToBps(slippage);
         const { result: quotedUsdcOut } = await hyperEvmClient.simulateContract({
           address: routerAddr,
-          abi: RedemptionRouterAbi,
+          abi: LaunchpadRouterAbi,
           functionName: "sell",
           args: [
             tokenAddress as `0x${string}`,
             tokenAmount,
             0n,
-            deadline,
           ],
           account: address,
         });
@@ -160,17 +163,19 @@ export function useTradeRouter() {
 
         const sellTx = await walletClient.writeContract({
           address: routerAddr,
-          abi: RedemptionRouterAbi,
+          abi: LaunchpadRouterAbi,
           functionName: "sell",
           args: [
             tokenAddress as `0x${string}`,
             tokenAmount,
             minUsdcOut,
-            deadline,
           ],
         });
 
-        await hyperEvmClient.waitForTransactionReceipt({ hash: sellTx });
+        const sellReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: sellTx });
+        if (sellReceipt.status === "reverted") {
+          throw new Error("Sell transaction reverted on-chain");
+        }
         setTxHash(sellTx);
         setStep("confirmed");
       } catch (e) {

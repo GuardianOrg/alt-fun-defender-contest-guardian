@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {Bonding} from "../src/Bonding.sol";
 import {FFactory} from "../src/FFactory.sol";
 import {FRouter} from "../src/FRouter.sol";
-import {RedemptionRouter} from "../src/RedemptionRouter.sol";
+import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
 import {LPLock} from "../src/LPLock.sol";
 
 contract Deploy is Script {
@@ -54,18 +54,18 @@ contract Deploy is Script {
             _deployBonding(address(factory), address(router), deployer, MAX_TX, HYPERSWAP_ROUTER, lpLockProxy);
         console.log("Bonding (proxy):", bondingProxy);
 
-        // 5. Deploy RedemptionRouter (proxy)
-        RedemptionRouter rrImpl = new RedemptionRouter();
-        bytes memory rrInit = abi.encodeCall(RedemptionRouter.initialize, (bondingProxy, USDC, HYPERSWAP_ROUTER));
+        // 5. Deploy LaunchpadRouter (proxy)
+        LaunchpadRouter rrImpl = new LaunchpadRouter();
+        bytes memory rrInit = abi.encodeCall(LaunchpadRouter.initialize, (bondingProxy, USDC, HYPERSWAP_ROUTER));
         address rrProxy = address(new ERC1967Proxy(address(rrImpl), rrInit));
-        console.log("RedemptionRouter (proxy):", rrProxy);
+        console.log("LaunchpadRouter (proxy):", rrProxy);
 
         // 6. Wire roles and permissions
         factory.setRouter(address(router));
         factory.grantRole(factory.BONDING_ROLE(), bondingProxy);
         router.grantRole(router.BONDING_ROLE(), bondingProxy);
         LPLock(lpLockProxy).setLocker(bondingProxy, true);
-        Bonding(bondingProxy).setRedemptionRouter(rrProxy);
+        Bonding(bondingProxy).setLaunchpadRouter(rrProxy);
 
         // Set feeTo = Bonding so trade fees accumulate there
         factory.setFeeParams(bondingProxy, BUY_TAX_BPS, SELL_TAX_BPS);
