@@ -3,10 +3,10 @@ import { useEffect, useState } from "react";
 import { fetchChart } from "../services/api";
 
 import type { ChartTimeframe } from "../services/api";
-import type { LineData } from "lightweight-charts";
+import type { CandlestickData } from "lightweight-charts";
 
 interface UseChartDataResult {
-  prices: LineData[];
+  candles: CandlestickData[];
   loading: boolean;
 }
 
@@ -14,7 +14,7 @@ export function useChartData(
   address: string,
   timeframe: ChartTimeframe,
 ): UseChartDataResult {
-  const [prices, setPrices] = useState<LineData[]>([]);
+  const [candles, setCandles] = useState<CandlestickData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,19 +22,22 @@ export function useChartData(
     setLoading(true);
 
     fetchChart(address, timeframe)
-      .then((points) => {
+      .then((data) => {
         if (cancelled) return;
-        setPrices(
-          points.map((p) => ({
-            time: (p.timestamp / 1000) as unknown as LineData["time"],
-            value: p.price,
+        setCandles(
+          data.map((c) => ({
+            time: c.time as unknown as CandlestickData["time"],
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
           })),
         );
         setLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
-        setPrices([]);
+        setCandles([]);
         setLoading(false);
       });
 
@@ -43,5 +46,5 @@ export function useChartData(
     };
   }, [address, timeframe]);
 
-  return { prices, loading };
+  return { candles, loading };
 }

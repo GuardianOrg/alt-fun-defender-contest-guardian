@@ -126,6 +126,54 @@ function findRatioAtTime(
   return best?.ratio ?? null;
 }
 
+interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+const CANDLE_SECONDS: Record<Timeframe, number> = {
+  "24h": 900,      // 15min candles → ~96 candles
+  "7d": 7_200,     // 2h candles   → ~84 candles
+  "14d": 14_400,   // 4h candles   → ~84 candles
+  "1m": 28_800,    // 8h candles   → ~90 candles
+};
+
+function buildCandles(
+  prices: { timestamp: number; price: number }[],
+  bucketMs: number,
+): Candle[] {
+  if (prices.length === 0) return [];
+
+  const candleMap = new Map<number, Candle>();
+  const candles: Candle[] = [];
+
+  for (const p of prices) {
+    const bucketTs = Math.floor(p.timestamp / bucketMs) * (bucketMs / 1000);
+
+    const existing = candleMap.get(bucketTs);
+    if (existing) {
+      existing.high = Math.max(existing.high, p.price);
+      existing.low = Math.min(existing.low, p.price);
+      existing.close = p.price;
+    } else {
+      const candle: Candle = {
+        time: bucketTs,
+        open: p.price,
+        high: p.price,
+        low: p.price,
+        close: p.price,
+      };
+      candleMap.set(bucketTs, candle);
+      candles.push(candle);
+    }
+  }
+
+  return candles;
+}
+
 const chart = new Hono<{ Bindings: AppBindings }>();
 
 chart.get("/:address", async (c) => {
@@ -221,20 +269,23 @@ chart.get("/:address", async (c) => {
     return c.json(formatSuccess([]));
   }
 
-  const prices: { timestamp: number; price: number }[] = [];
+  const rawPrices: { timestamp: number; price: number }[] = [];
 
   for (const point of ltPrices) {
     const timestampSec = Math.floor(point.timestamp / 1000);
     const ratio = findRatioAtTime(ratioTimeline, timestampSec);
     if (ratio === null) continue;
 
-    prices.push({
+    rawPrices.push({
       timestamp: point.timestamp,
       price: ratio * point.price,
     });
   }
 
-  return c.json(formatSuccess(prices));
+  const bucketMs = CANDLE_SECONDS[timeframe as Timeframe] * 1000;
+  const candles = buildCandles(rawPrices, bucketMs);
+
+  return c.json(formatSuccess(candles));
 });
 
 export default chart;

@@ -128,9 +128,12 @@ export function uploadImage(file: File): Promise<{ url: string }> {
   });
 }
 
-export interface ChartPricePoint {
-  timestamp: number;
-  price: number;
+export interface ChartCandle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 export type ChartTimeframe = "24h" | "7d" | "14d" | "1m";
@@ -138,7 +141,7 @@ export type ChartTimeframe = "24h" | "7d" | "14d" | "1m";
 export function fetchChart(
   address: string,
   timeframe: ChartTimeframe = "24h",
-): Promise<ChartPricePoint[]> {
+): Promise<ChartCandle[]> {
   return apiFetch(`/api/v1/chart/${address}?timeframe=${timeframe}`);
 }
 

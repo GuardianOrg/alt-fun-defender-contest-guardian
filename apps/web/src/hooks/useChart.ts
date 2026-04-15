@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 
 import {
   createChart,
-  LineSeries,
+  CandlestickSeries,
   ColorType,
 } from "lightweight-charts";
 
@@ -13,7 +13,7 @@ import type { ChartTimeframe } from "../services/api";
 import type {
   IChartApi,
   ISeriesApi,
-  LineData,
+  CandlestickData,
 } from "lightweight-charts";
 
 const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
@@ -25,7 +25,7 @@ const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
 
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
-  prices: LineData[];
+  candles: CandlestickData[];
   timeframe: ChartTimeframe;
   loading: boolean;
 }
@@ -40,12 +40,12 @@ function precisionForPrice(value: number): number {
 
 export function useChart({
   containerRef,
-  prices,
+  candles,
   timeframe,
   loading,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
-  const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -75,14 +75,15 @@ export function useChart({
 
     chartRef.current = chart;
 
-    const lineSeries = chart.addSeries(LineSeries, {
-      color: COLORS.mint,
-      lineWidth: 2,
-      crosshairMarkerRadius: 4,
-      crosshairMarkerBorderColor: COLORS.mint,
-      crosshairMarkerBackgroundColor: "rgba(0,0,0,0.8)",
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: COLORS.mint,
+      downColor: COLORS.red,
+      borderUpColor: COLORS.mint,
+      borderDownColor: COLORS.red,
+      wickUpColor: COLORS.mint,
+      wickDownColor: COLORS.red,
     });
-    lineSeriesRef.current = lineSeries;
+    seriesRef.current = series;
 
     const container = containerRef.current;
     const observer = new ResizeObserver(() => {
@@ -97,19 +98,19 @@ export function useChart({
       observer.disconnect();
       chart.remove();
       chartRef.current = null;
-      lineSeriesRef.current = null;
+      seriesRef.current = null;
     };
   }, [containerRef]);
 
   useEffect(() => {
-    if (loading || !lineSeriesRef.current || !chartRef.current) return;
+    if (loading || !seriesRef.current || !chartRef.current) return;
 
-    const representative = prices.length > 0 ? prices[0].value : 0;
+    const representative = candles.length > 0 ? candles[0].close : 0;
     const minMove = representative > 0
       ? Math.pow(10, -precisionForPrice(representative))
       : 0.01;
 
-    lineSeriesRef.current.applyOptions({
+    seriesRef.current.applyOptions({
       priceFormat: {
         type: "price",
         precision: precisionForPrice(representative),
@@ -117,15 +118,15 @@ export function useChart({
       },
     });
 
-    lineSeriesRef.current.setData(prices);
+    seriesRef.current.setData(candles);
 
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSec = TIMEFRAME_SECONDS[timeframe];
     const from = nowSec - windowSec;
 
     chartRef.current.timeScale().setVisibleRange({
-      from: from as unknown as LineData["time"],
-      to: nowSec as unknown as LineData["time"],
+      from: from as unknown as CandlestickData["time"],
+      to: nowSec as unknown as CandlestickData["time"],
     });
-  }, [prices, timeframe, loading]);
+  }, [candles, timeframe, loading]);
 }
