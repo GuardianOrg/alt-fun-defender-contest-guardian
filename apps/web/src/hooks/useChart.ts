@@ -9,15 +9,24 @@ import {
 
 import { COLORS, rgba } from "../config/colors";
 
+import type { ChartTimeframe } from "../services/api";
 import type {
   IChartApi,
   ISeriesApi,
   LineData,
 } from "lightweight-charts";
 
+const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
+  "24h": 86_400,
+  "7d": 604_800,
+  "14d": 1_209_600,
+  "1m": 2_592_000,
+};
+
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   prices: LineData[];
+  timeframe: ChartTimeframe;
   loading: boolean;
 }
 
@@ -32,6 +41,7 @@ function precisionForPrice(value: number): number {
 export function useChart({
   containerRef,
   prices,
+  timeframe,
   loading,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
@@ -108,6 +118,14 @@ export function useChart({
     });
 
     lineSeriesRef.current.setData(prices);
-    chartRef.current.timeScale().fitContent();
-  }, [prices, loading]);
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const windowSec = TIMEFRAME_SECONDS[timeframe];
+    const from = nowSec - windowSec;
+
+    chartRef.current.timeScale().setVisibleRange({
+      from: from as unknown as LineData["time"],
+      to: nowSec as unknown as LineData["time"],
+    });
+  }, [prices, timeframe, loading]);
 }

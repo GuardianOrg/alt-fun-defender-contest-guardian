@@ -30,6 +30,7 @@ export default function Chart({ token }: Props) {
   useChart({
     containerRef: chartContainerRef,
     prices,
+    timeframe,
     loading,
   });
 
