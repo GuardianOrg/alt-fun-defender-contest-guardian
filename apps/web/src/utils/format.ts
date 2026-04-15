@@ -47,6 +47,15 @@ export function getErrorMessage(e: unknown): string {
   if (raw.includes("0x05eb05ac")) {
     return "Amount below BounceTech minimum ($10 USDC).";
   }
+  if (lower.includes("wallet timeout") || lower.includes("request timeout")) {
+    return "Wallet timed out — please try again. If using a mobile wallet, make sure the app is open.";
+  }
+  if (lower.includes("user rejected") || lower.includes("user denied") || lower.includes("rejected the request")) {
+    return "Transaction was rejected in your wallet.";
+  }
+  if (lower.includes("slippageexceeded") || raw.includes("SlippageExceeded")) {
+    return "Price moved too much — try increasing slippage or reducing the amount.";
+  }
   return e instanceof Error ? e.message : "Transaction failed";
 }
 

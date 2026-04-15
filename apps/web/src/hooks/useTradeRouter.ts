@@ -68,33 +68,41 @@ export function useTradeRouter() {
         const referrerAddr: `0x${string}` = referrer && isAddress(referrer) ? referrer : ZERO_ADDR;
 
         const slippageBps = slippageToBps(slippage);
+        const buyArgs = [
+          tokenAddress as `0x${string}`,
+          usdcAmountWei,
+          0n,
+          referrerAddr,
+        ] as const;
+
         const { result: quotedTokensOut } =
           await hyperEvmClient.simulateContract({
             address: routerAddr,
             abi: LaunchpadRouterAbi,
             functionName: "buy",
-            args: [
-              tokenAddress as `0x${string}`,
-              usdcAmountWei,
-              0n,
-              referrerAddr,
-            ],
+            args: buyArgs,
             account: address,
           });
         const minTokensOut =
           ((quotedTokensOut as bigint) * BigInt(10_000 - slippageBps)) /
           10_000n;
 
+        const finalArgs = [buyArgs[0], buyArgs[1], minTokensOut, buyArgs[3]] as const;
+
+        const gasEstimate = await hyperEvmClient.estimateContractGas({
+          address: routerAddr,
+          abi: LaunchpadRouterAbi,
+          functionName: "buy",
+          args: finalArgs,
+          account: address,
+        });
+
         const buyTx = await walletClient.writeContract({
           address: routerAddr,
           abi: LaunchpadRouterAbi,
           functionName: "buy",
-          args: [
-            tokenAddress as `0x${string}`,
-            usdcAmountWei,
-            minTokensOut,
-            referrerAddr,
-          ],
+          args: finalArgs,
+          gas: (gasEstimate * 130n) / 100n,
         });
 
         const buyReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: buyTx });
@@ -146,16 +154,26 @@ export function useTradeRouter() {
 
         setStep("executing");
 
-        // TODO: use slippage + simulateContract quote for minOut instead of 0n
+        const sellArgs = [
+          tokenAddress as `0x${string}`,
+          tokenAmount,
+          0n,
+        ] as const;
+
+        const gasEstimate = await hyperEvmClient.estimateContractGas({
+          address: routerAddr,
+          abi: LaunchpadRouterAbi,
+          functionName: "sell",
+          args: sellArgs,
+          account: address,
+        });
+
         const sellTx = await walletClient.writeContract({
           address: routerAddr,
           abi: LaunchpadRouterAbi,
           functionName: "sell",
-          args: [
-            tokenAddress as `0x${string}`,
-            tokenAmount,
-            0n,
-          ],
+          args: sellArgs,
+          gas: (gasEstimate * 130n) / 100n,
         });
 
         const sellReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: sellTx });
