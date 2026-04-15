@@ -1,17 +1,16 @@
 import { BondingAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
-
 import { fetchTokens } from "./api";
+import { hyperEVM } from "../config/chains";
 import { erc20Abi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 
 import type { CreatorEarnings, HeldToken } from "./types";
 
-const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-
 const publicClient = createPublicClient({
-  transport: http(HYPER_EVM_RPC),
+  chain: hyperEVM,
+  transport: http(),
 });
 
 export interface ICreatorService {

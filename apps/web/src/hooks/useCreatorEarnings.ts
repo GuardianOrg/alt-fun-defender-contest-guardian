@@ -2,9 +2,9 @@ import { useState, useCallback } from "react";
 
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, http } from "viem";
-import { useAccount } from "wagmi";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
+import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import { BondingAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
@@ -17,7 +17,7 @@ const hyperEvmClient = createPublicClient({
 });
 
 export function useCreatorEarnings() {
-  const { address } = useAccount();
+  const { address } = useWallet();
   const walletClient = usePrivyWalletClient();
   const [claiming, setClaiming] = useState(false);
 
@@ -87,7 +87,7 @@ export function useCreatorEarnings() {
 }
 
 export function useBalances() {
-  const { address } = useAccount();
+  const { address } = useWallet();
 
   const query = useQuery({
     queryKey: ["balances", address],
