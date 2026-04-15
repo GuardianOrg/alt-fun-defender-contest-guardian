@@ -16,11 +16,11 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 import {LPLock} from "./LPLock.sol";
 
 /// @title Bonding
-/// @notice Constant-product bonding curve for the memecoin launchpad.
+/// @notice Constant-product bonding curve for the launchpad.
 /// @dev Each token pairs with a BounceTech Leveraged Token (LT). K is computed per-token
 ///      from the LT's exchange rate so every token opens at ~$4K market cap.
 ///      Graduation triggers when LT_reserves * exchangeRate >= $12K.
-///      Upon graduation, unsold tokens are burned and a MEMECOIN/LT pool is seeded on HyperSwap V2.
+///      Upon graduation, unsold tokens are burned and a TOKEN/LT pool is seeded on HyperSwap V2.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -30,7 +30,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     address public hyperswapRouter;
     address public lpLock;
-    address public redemptionRouter;
+    address public launchpadRouter;
 
     uint256 public maxTx;
 
@@ -77,7 +77,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     address[] public allTokens;
     mapping(address => address[]) public creatorTokens;
 
-    /// @dev LP reserve tokens held per memecoin for graduation
+    /// @dev LP reserve tokens held per token for graduation
     mapping(address => uint256) public lpReserve;
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
@@ -109,17 +109,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
     event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
-    event RedemptionRouterUpdated(address indexed newRedemptionRouter);
+    event LaunchpadRouterUpdated(address indexed newLaunchpadRouter);
 
     error TokenNotTrading();
     error ZeroAddress();
     error TokenAlreadyGraduated();
     error InvalidInput();
     error SlippageExceeded();
-    error DeadlineExpired();
     error NothingToClaim();
     error NotCreator();
-    error NotRedemptionRouter();
+    error NotLaunchpadRouter();
     error ZeroExchangeRate();
     error PairAlreadySeeded();
     error PairLookupFailed();
@@ -152,7 +151,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         LaunchParams calldata params,
         address creator_
     ) external nonReentrant returns (address tokenAddr, address pair, uint256 index) {
-        if (msg.sender != redemptionRouter) revert NotRedemptionRouter();
+        if (msg.sender != launchpadRouter) revert NotLaunchpadRouter();
         if (params.ltAddress == address(0)) revert InvalidInput();
 
         (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress);
@@ -235,11 +234,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function buy(
         uint256 amountIn,
         address tokenAddress,
-        uint256 amountOutMin,
-        uint256 deadline
+        uint256 amountOutMin
     ) external nonReentrant returns (uint256) {
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
-        if (block.timestamp > deadline) revert DeadlineExpired();
 
         uint256 tokensOut = _executeBuy(msg.sender, amountIn, tokenAddress);
         if (tokensOut < amountOutMin) revert SlippageExceeded();
@@ -249,11 +246,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function sell(
         uint256 amountIn,
         address tokenAddress,
-        uint256 amountOutMin,
-        uint256 deadline
+        uint256 amountOutMin
     ) external nonReentrant returns (uint256) {
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
-        if (block.timestamp > deadline) revert DeadlineExpired();
 
         (, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
         if (netAssetOut < amountOutMin) revert SlippageExceeded();
@@ -374,12 +369,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         lpLock = newLpLock;
     }
 
-    function setRedemptionRouter(
-        address newRedemptionRouter
+    function setLaunchpadRouter(
+        address newLaunchpadRouter
     ) external onlyOwner {
-        if (newRedemptionRouter == address(0)) revert ZeroAddress();
-        redemptionRouter = newRedemptionRouter;
-        emit RedemptionRouterUpdated(newRedemptionRouter);
+        if (newLaunchpadRouter == address(0)) revert ZeroAddress();
+        launchpadRouter = newLaunchpadRouter;
+        emit LaunchpadRouterUpdated(newLaunchpadRouter);
     }
 
     // ─── Internals ───────────────────────────────────────────────────────

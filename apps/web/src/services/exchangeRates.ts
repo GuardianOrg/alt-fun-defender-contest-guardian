@@ -16,7 +16,8 @@ export async function getLtExchangeRates(): Promise<Map<string, number>> {
     return ltRateCache;
   }
   const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
-  const lts = (await res.json()) as LiveLeveragedToken[];
+  const json = (await res.json()) as { data: LiveLeveragedToken[] };
+  const lts = json.data;
   const rates = new Map<string, number>();
   for (const lt of lts) {
     rates.set(lt.address.toLowerCase(), parseFloat(formatUnits(BigInt(lt.exchangeRate), 18)));

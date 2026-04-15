@@ -89,14 +89,15 @@ export default function TradePanelInput({
           className={styles.maxBtn}
           onClick={() => {
             if (maxBalance) {
-              const walletBal = parseFloat(maxBalance);
               if (mode === "buy") {
+                const walletBal = parseFloat(maxBalance);
                 setAmount(String(Math.floor(walletBal * 100) / 100));
               } else if (sellQuote && Number.isFinite(sellQuote.maxSellableTokens)) {
+                const walletBal = parseFloat(maxBalance);
                 const capped = Math.min(walletBal, sellQuote.maxSellableTokens);
                 setAmount(String(Math.max(0, capped)));
               } else {
-                setAmount(String(walletBal));
+                setAmount(maxBalance);
               }
             }
           }}

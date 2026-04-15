@@ -145,11 +145,6 @@ export const BondingAbi = [
         "name": "amountOutMin",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -537,6 +532,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "launchpadRouter",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lpLock",
     "inputs": [],
     "outputs": [
@@ -627,19 +635,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "redemptionRouter",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
@@ -676,11 +671,6 @@ export const BondingAbi = [
         "name": "amountOutMin",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -712,15 +702,10 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setParams",
+    "name": "setLaunchpadRouter",
     "inputs": [
       {
-        "name": "newMaxTx",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "newFeeTo",
+        "name": "newLaunchpadRouter",
         "type": "address",
         "internalType": "address"
       }
@@ -730,10 +715,15 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setRedemptionRouter",
+    "name": "setParams",
     "inputs": [
       {
-        "name": "newRedemptionRouter",
+        "name": "newMaxTx",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "newFeeTo",
         "type": "address",
         "internalType": "address"
       }
@@ -903,6 +893,19 @@ export const BondingAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LaunchpadRouterUpdated",
+    "inputs": [
+      {
+        "name": "newLaunchpadRouter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1094,11 +1097,6 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "DeadlineExpired",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -1140,7 +1138,7 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "NotRedemptionRouter",
+    "name": "NotLaunchpadRouter",
     "inputs": []
   },
   {
@@ -1169,6 +1167,16 @@ export const BondingAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "PairAlreadySeeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PairLookupFailed",
+    "inputs": []
   },
   {
     "type": "error",
@@ -1216,5 +1224,15 @@ export const BondingAbi = [
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroExchangeRate",
+    "inputs": []
   }
 ] as const;

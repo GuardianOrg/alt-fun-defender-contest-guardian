@@ -12,7 +12,7 @@ const contracts = [
   "FRouter",
   "FPair",
   "FERC20",
-  "RedemptionRouter",
+  "LaunchpadRouter",
   "LPLock",
 ];
 
@@ -39,6 +39,13 @@ for (const name of contracts) {
   exports.push(`export { ${name}Abi } from "./${name}.js";`);
 
   console.log(`Exported ${name} ABI -> ${outPath}`);
+}
+
+const manualAbis = ["UniswapV2Pair", "LeveragedToken"];
+for (const name of manualAbis) {
+  if (existsSync(join(abiDir, `${name}.ts`))) {
+    exports.push(`export { ${name}Abi } from "./${name}.js";`);
+  }
 }
 
 const indexContent = exports.length > 0

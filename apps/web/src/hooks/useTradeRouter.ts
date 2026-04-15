@@ -1,13 +1,20 @@
 import { useState, useCallback } from "react";
 
-import { isAddress, maxUint256, parseUnits } from "viem";
-import { usePublicClient, useWalletClient } from "wagmi";
+import { createPublicClient, http, isAddress, maxUint256, parseUnits } from "viem";
 
+import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
-import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
+import { hyperEVM } from "../config/chains";
+import { erc20Abi, LaunchpadRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { type TxStep } from "../services/tradeRouter";
 import { getErrorMessage } from "../utils/format";
+
+const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const hyperEvmClient = createPublicClient({
+  chain: hyperEVM,
+  transport: http(rpcUrl),
+});
 
 function slippageToBps(slippage: number): number {
   const clamped = Number.isFinite(slippage) ? Math.max(slippage, 0) : 0;
@@ -16,15 +23,14 @@ function slippageToBps(slippage: number): number {
 
 export function useTradeRouter() {
   const { address, isConnected } = useWallet();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const walletClient = usePrivyWalletClient();
   const [step, setStep] = useState<TxStep>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const executeBuy = useCallback(
     async (tokenAddress: string, usdcAmount: number, slippage: number, referrer?: string) => {
-      if (!isConnected || !address || !walletClient || !publicClient) {
+      if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
       }
@@ -34,9 +40,9 @@ export function useTradeRouter() {
         setStep("approving");
 
         const usdcAmountWei = parseUnits(usdcAmount.toString(), USDC_DECIMALS);
-        const routerAddr = ADDRESSES.redemptionRouter;
+        const routerAddr = ADDRESSES.launchpadRouter;
 
-        const allowance = await publicClient.readContract({
+        const allowance = await hyperEvmClient.readContract({
           address: ADDRESSES.usdc,
           abi: erc20Abi,
           functionName: "allowance",
@@ -50,26 +56,27 @@ export function useTradeRouter() {
             functionName: "approve",
             args: [routerAddr, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+          const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+          if (approveReceipt.status === "reverted") {
+            throw new Error("USDC approval transaction reverted");
+          }
         }
 
         setStep("executing");
 
-        const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
         const ZERO_ADDR = "0x0000000000000000000000000000000000000000" as const;
         const referrerAddr: `0x${string}` = referrer && isAddress(referrer) ? referrer : ZERO_ADDR;
 
         const slippageBps = slippageToBps(slippage);
         const { result: quotedTokensOut } =
-          await publicClient.simulateContract({
+          await hyperEvmClient.simulateContract({
             address: routerAddr,
-            abi: RedemptionRouterAbi,
+            abi: LaunchpadRouterAbi,
             functionName: "buy",
             args: [
               tokenAddress as `0x${string}`,
               usdcAmountWei,
               0n,
-              deadline,
               referrerAddr,
             ],
             account: address,
@@ -80,18 +87,20 @@ export function useTradeRouter() {
 
         const buyTx = await walletClient.writeContract({
           address: routerAddr,
-          abi: RedemptionRouterAbi,
+          abi: LaunchpadRouterAbi,
           functionName: "buy",
           args: [
             tokenAddress as `0x${string}`,
             usdcAmountWei,
             minTokensOut,
-            deadline,
             referrerAddr,
           ],
         });
 
-        await publicClient.waitForTransactionReceipt({ hash: buyTx });
+        const buyReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: buyTx });
+        if (buyReceipt.status === "reverted") {
+          throw new Error("Buy transaction reverted on-chain");
+        }
         setTxHash(buyTx);
         setStep("confirmed");
       } catch (e) {
@@ -99,12 +108,12 @@ export function useTradeRouter() {
         setStep("error");
       }
     },
-    [isConnected, address, walletClient, publicClient],
+    [isConnected, address, walletClient],
   );
 
   const executeSell = useCallback(
-    async (tokenAddress: string, tokenAmount: bigint, slippage: number) => {
-      if (!isConnected || !address || !walletClient || !publicClient) {
+    async (tokenAddress: string, tokenAmount: bigint, _slippage: number) => {
+      if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
       }
@@ -113,9 +122,9 @@ export function useTradeRouter() {
         setError(null);
         setStep("approving");
 
-        const routerAddr = ADDRESSES.redemptionRouter;
+        const routerAddr = ADDRESSES.launchpadRouter;
 
-        const allowance = await publicClient.readContract({
+        const allowance = await hyperEvmClient.readContract({
           address: tokenAddress as `0x${string}`,
           abi: erc20Abi,
           functionName: "allowance",
@@ -129,42 +138,30 @@ export function useTradeRouter() {
             functionName: "approve",
             args: [routerAddr, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+          const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+          if (approveReceipt.status === "reverted") {
+            throw new Error("Token approval transaction reverted");
+          }
         }
 
         setStep("executing");
 
-        const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
-
-        const slippageBps = slippageToBps(slippage);
-        const { result: quotedUsdcOut } = await publicClient.simulateContract({
+        // TODO: use slippage + simulateContract quote for minOut instead of 0n
+        const sellTx = await walletClient.writeContract({
           address: routerAddr,
-          abi: RedemptionRouterAbi,
+          abi: LaunchpadRouterAbi,
           functionName: "sell",
           args: [
             tokenAddress as `0x${string}`,
             tokenAmount,
             0n,
-            deadline,
-          ],
-          account: address,
-        });
-        const minUsdcOut =
-          ((quotedUsdcOut as bigint) * BigInt(10_000 - slippageBps)) / 10_000n;
-
-        const sellTx = await walletClient.writeContract({
-          address: routerAddr,
-          abi: RedemptionRouterAbi,
-          functionName: "sell",
-          args: [
-            tokenAddress as `0x${string}`,
-            tokenAmount,
-            minUsdcOut,
-            deadline,
           ],
         });
 
-        await publicClient.waitForTransactionReceipt({ hash: sellTx });
+        const sellReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: sellTx });
+        if (sellReceipt.status === "reverted") {
+          throw new Error("Sell transaction reverted on-chain");
+        }
         setTxHash(sellTx);
         setStep("confirmed");
       } catch (e) {
@@ -172,7 +169,7 @@ export function useTradeRouter() {
         setStep("error");
       }
     },
-    [isConnected, address, walletClient, publicClient],
+    [isConnected, address, walletClient],
   );
 
   const reset = useCallback(() => {

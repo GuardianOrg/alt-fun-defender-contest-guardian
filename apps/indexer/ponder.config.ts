@@ -3,7 +3,7 @@ import { parseAbiItem } from "viem";
 
 import {
   BondingAbi,
-  RedemptionRouterAbi,
+  LaunchpadRouterAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
@@ -13,7 +13,7 @@ import {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
-const redemptionRouterAddress = CONTRACT_ADDRESSES.redemptionRouter as `0x${string}`;
+const launchpadRouterAddress = CONTRACT_ADDRESSES.launchpadRouter as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
 
 if (bondingAddress === ZERO_ADDRESS) {
@@ -37,10 +37,10 @@ export default createConfig({
       address: bondingAddress,
       startBlock,
     },
-    RedemptionRouter: {
+    LaunchpadRouter: {
       chain: "hyperevm",
-      abi: RedemptionRouterAbi,
-      address: redemptionRouterAddress,
+      abi: LaunchpadRouterAbi,
+      address: launchpadRouterAddress,
       startBlock,
     },
     HyperSwapPair: {

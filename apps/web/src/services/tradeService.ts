@@ -1,8 +1,4 @@
 import { fetchComments, fetchHolders } from "./api";
-import {
-  INITIAL_TOKEN_TRADES,
-  MOCK_HOLDERS,
-} from "./mock/trades";
 import { subscribeFeed, subscribeTokenTrades } from "./tradeFeed";
 import { formatTokenBalance } from "./tradeFormatter";
 import { formatTimeAgo } from "../utils/format";
@@ -30,11 +26,8 @@ const liveTradeService: ITradeService = {
 
   subscribeTokenTrades,
 
-  getInitialTrades(address) {
-    void address;
-    if (import.meta.env.DEV) {
-      return [...INITIAL_TOKEN_TRADES];
-    }
+  getInitialTrades(_address) {
+    void _address;
     return [];
   },
 
@@ -64,9 +57,6 @@ const liveTradeService: ITradeService = {
         isCreator: false,
       }));
     } catch {
-      if (import.meta.env.DEV) {
-        return [...MOCK_HOLDERS];
-      }
       return [];
     }
   },

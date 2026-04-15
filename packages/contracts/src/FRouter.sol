@@ -33,7 +33,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         factory = FFactory(factory_);
     }
 
-    /// @notice Resolve the LT address for a given memecoin
+    /// @notice Resolve the LT address for a given token
     function assetTokenFor(
         address token
     ) public view returns (address) {

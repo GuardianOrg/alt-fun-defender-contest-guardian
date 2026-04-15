@@ -1,18 +1,18 @@
 # Launchpad
 
-Memecoin launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset. Tokens appreciate from buy pressure AND leveraged movement of the underlying.
+Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset. Tokens appreciate from buy pressure AND leveraged movement of the underlying.
 
 ---
 
 ## How It Works
 
-1. **Create:** Creator picks an underlying asset + leverage (e.g. HYPE 2x Long) and launches a memecoin
-2. **Buy:** User sends USDC → Router mints LT → LT enters bonding curve → user gets memecoin
-3. **Sell:** User sends memecoin → Router sells on curve → redeems LT → user gets USDC
-4. **Graduate:** When curve hits `$12K` raised → unsold tokens burned → MEMECOIN/LT pool on HyperSwap V2, LP locked
+1. **Create:** Creator picks an underlying asset + leverage (e.g. HYPE 2x Long) and launches a token
+2. **Buy:** User sends USDC → Router mints LT → LT enters bonding curve → user gets tokens
+3. **Sell:** User sends tokens → Router sells on curve → redeems LT → user gets USDC
+4. **Graduate:** When curve hits `$12K` raised → unsold tokens burned → TOKEN/LT pool on HyperSwap V2, LP locked
 5. **Post-grad:** Trading continues through Router on HyperSwap. Leveraged exposure persists.
 
-The `RedemptionRouter` is the only user-facing entry point. Users always pay and receive USDC.
+The `LaunchpadRouter` is the only user-facing entry point. Users always pay and receive USDC.
 
 ---
 
@@ -45,7 +45,7 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 | Graduation trigger | `LT_reserves × exchangeRate ≥ $12K` — burn unsold tokens |
 | User-facing currency | USDC in / USDC out. LT fully abstracted. |
 | Post-grad venue | HyperSwap V2 |
-| Post-grad pair | MEMECOIN/LT (leveraged exposure persists) |
+| Post-grad pair | TOKEN/LT (leveraged exposure persists) |
 | LP handling | Locked in `LPLock.sol` (UUPS upgradeable, no withdraw in v1) |
 | Leverage options | 2x, 3x, 5x (5x gets vol decay warning) |
 | Wallet | Privy (social login, embedded wallets, WalletConnect) |
@@ -63,11 +63,52 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 ## Token Lifecycle
 
-**Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through RedemptionRouter. Curve reserve is LT.
+**Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through LaunchpadRouter. Curve reserve is LT.
 
-**Phase 2 — Graduation:** Trigger fires → unsold tokens burned → LT reserve collected → MEMECOIN/LT pool on HyperSwap → LP locked → curve closed.
+**Phase 2 — Graduation:** Trigger fires → unsold tokens burned → LT reserve collected → TOKEN/LT pool on HyperSwap → LP locked → curve closed.
 
-**Phase 3 — Open Trading:** MEMECOIN/LT pool on HyperSwap. All trades still go through RedemptionRouter (USDC in/out).
+**Phase 3 — Open Trading:** TOKEN/LT pool on HyperSwap. All trades still go through LaunchpadRouter (USDC in/out).
+
+---
+
+## Token Creation Flow (Two-Phase)
+
+Creating a token is a **two-phase process**. Both phases must succeed for the token to appear in the UI.
+
+### Phase 1 — On-Chain
+
+Frontend calls `LaunchpadRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 token, creates the bonding curve pair via `Bonding.launch()`, and optionally executes a seed buy. Two key events are emitted: `TokenLaunched` (from Bonding) and `TokenCreated` (from LaunchpadRouter). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+
+### Phase 2 — Off-Chain API Registration
+
+Frontend calls `POST /api/v1/tokens` with token metadata (name, ticker, description, image URL, LT address, social links) signed by the creator's wallet. This inserts a row into PostgreSQL. Without this step, the token exists on-chain but is invisible in the UI.
+
+**Critical:** The home page token list (`GET /api/v1/tokens`) reads **exclusively from PostgreSQL**. Ponder (the indexer) only enriches individual token detail views with on-chain curve state (supply, reserves, graduation status). If the API registration fails, the token will not appear anywhere in the frontend.
+
+### Field Semantics
+
+| Field | Stores | Example |
+|---|---|---|
+| `ltPair` | LT **contract address** (not the symbol) | `0x1234…abcd` |
+| `underlying` | Underlying asset symbol | `HYPE`, `ETH`, `BTC`, `SOL` |
+| `ltDirection` | Long or short | `long`, `short` |
+| `leverage` | Leverage multiplier | `2`, `3`, `5` |
+
+### Signing
+
+Off-chain writes (token creation, comments, profile updates) require a wallet signature. The message is built with `buildTokenCreationMessage()` from `@launchpad/shared`. Both the frontend and API use the same function to ensure message parity. The API verifies `recoverMessageAddress(message, signature) === creator`.
+
+---
+
+## Data Sources
+
+| UI Location | Primary Source | Enrichment |
+|---|---|---|
+| Home page token list | PostgreSQL (`GET /api/v1/tokens`) | Ponder (curve state merged client-side) |
+| Token detail page | PostgreSQL (`GET /api/v1/tokens/:address`) | Ponder (curve supply, LT reserve, graduation) |
+| Trade history | Ponder (`routerTrades` GraphQL) | — |
+| Holders | On-chain RPC (`balanceOf` multicall) | — |
+| Asset prices | Hyperliquid API | — |
 
 ---
 

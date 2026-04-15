@@ -15,7 +15,7 @@ describe("CONTRACT_ADDRESSES", () => {
 
   it("contains expected contract keys", () => {
     expect(Object.keys(CONTRACT_ADDRESSES)).toEqual(
-      expect.arrayContaining(["bonding", "factory", "router", "redemptionRouter", "lpLock"]),
+      expect.arrayContaining(["bonding", "factory", "router", "launchpadRouter", "lpLock"]),
     );
   });
 });

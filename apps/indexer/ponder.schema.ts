@@ -36,7 +36,7 @@ export const trade = onchainTable("trade", (t) => ({
   timestampIdx: index().on(table.timestamp),
 }));
 
-/** USDC-denominated trades from RedemptionRouter (covers both curve and post-graduation). */
+/** USDC-denominated trades from LaunchpadRouter (covers both curve and post-graduation). */
 export const routerTrade = onchainTable("router_trade", (t) => ({
   id: t.text().primaryKey(),
   tokenAddress: t.hex().notNull(),

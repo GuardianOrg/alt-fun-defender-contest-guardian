@@ -1,8 +1,4 @@
 import { resolveExchangeRate } from "./exchangeRates";
-import {
-  generateFeedTrade,
-  generateTokenTrade,
-} from "./mock/trades";
 import { fetchPonderTrades } from "./ponder";
 import { ponderTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
@@ -27,9 +23,8 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   let cancelled = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let polling = false;
-  let hasLiveData = false;
 
-  const poll = async (initial: boolean) => {
+  const poll = async () => {
     if (cancelled || polling) return;
     polling = true;
     try {
@@ -50,24 +45,18 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       }
       seenIds.clear();
       for (const id of batchIds) seenIds.add(id);
-      hasLiveData = true;
     } catch {
-      if (!hasLiveData && initial && import.meta.env.DEV) {
-        for (let i = 0; i < 8; i++) {
-          if (cancelled) return;
-          cb(generateFeedTrade());
-        }
-      }
+      // No data available
     } finally {
       polling = false;
     }
   };
 
-  void poll(true);
+  void poll();
   const schedulePoll = () => {
     if (cancelled) return;
     pollTimer = setTimeout(() => {
-      void poll(false).finally(schedulePoll);
+      void poll().finally(schedulePoll);
     }, ws?.isConnected ? 15_000 : 3_000);
   };
   schedulePoll();
@@ -100,7 +89,6 @@ export function subscribeTokenTrades(
 
   let cancelled = false;
   let polling = false;
-  let hasLiveData = false;
 
   const poll = async () => {
     if (cancelled || polling) return;
@@ -119,11 +107,8 @@ export function subscribeTokenTrades(
       }
       seenIds.clear();
       for (const id of batchIds) seenIds.add(id);
-      hasLiveData = true;
     } catch {
-      if (!hasLiveData && !cancelled && import.meta.env.DEV) {
-        cb(generateTokenTrade());
-      }
+      // No data available
     } finally {
       polling = false;
     }

@@ -37,7 +37,16 @@ Before any PR, verify:
 - Name test files `*.t.sol`, place in `test/`
 - Name test functions `test_<description>` for passing, `testFail_<description>` for expected reverts, `testFuzz_<description>` for fuzz tests
 
-## Deployment
+## Deployment (MANDATORY)
 - Use `forge script` (not `forge create`) for reproducible deployments
 - Scripts go in `script/`, named `Deploy<Contract>.s.sol`
 - Never hardcode private keys — use `cast wallet import` encrypted keystores
+- **Redeploy when contracts change:** Whenever `.sol` source files in `src/` are modified, the contracts MUST be redeployed so on-chain bytecode matches the repo. The deployed contracts must always match the source code.
+- **Deployment steps:**
+  1. Run tests: `forge test`
+  2. Deploy: `source .env && forge script script/Deploy.s.sol --rpc-url "$HYPEREVM_RPC_URL" --broadcast`
+  3. Export ABIs: `npm run export-abi --workspace=packages/contracts`
+  4. Update addresses in `packages/shared/src/constants/addresses.ts` with new proxy/contract addresses
+  5. Update `BONDING_START_BLOCK` in `packages/shared/src/constants/chains.ts` to the deployment block
+  6. Update hardcoded addresses in `packages/contracts/script/E2ETest.s.sol`
+  7. Run `npm run ci` from repo root to verify everything compiles

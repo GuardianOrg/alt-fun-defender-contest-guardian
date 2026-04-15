@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 
 import { buildCommentMessage } from "@launchpad/shared";
-import { useWalletClient } from "wagmi";
 
 import styles from "./BottomTabs.module.css";
+import { usePrivyWalletClient } from "../../hooks/usePrivyWalletClient";
 import { useWallet } from "../../hooks/useWallet";
 import { postComment as apiPostComment, fetchComments } from "../../services/api";
 import { tradeService } from "../../services/tradeService";
@@ -17,7 +17,7 @@ export default function CommentsTab({ token }: { token: Token }) {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const { address, isConnected, connect } = useWallet();
-  const { data: walletClient } = useWalletClient();
+  const walletClient = usePrivyWalletClient();
 
   useEffect(() => {
     fetchComments(token.address)

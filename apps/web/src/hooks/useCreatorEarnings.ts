@@ -1,16 +1,24 @@
 import { useState, useCallback } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { createPublicClient, http } from "viem";
+import { useAccount } from "wagmi";
 
+import { usePrivyWalletClient } from "./usePrivyWalletClient";
+import { hyperEVM } from "../config/chains";
 import { BondingAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 import { creatorService } from "../services/creatorService";
 
+const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const hyperEvmClient = createPublicClient({
+  chain: hyperEVM,
+  transport: http(rpcUrl),
+});
+
 export function useCreatorEarnings() {
   const { address } = useAccount();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const walletClient = usePrivyWalletClient();
   const [claiming, setClaiming] = useState(false);
 
   const earningsQuery = useQuery({
@@ -24,12 +32,12 @@ export function useCreatorEarnings() {
 
   const claim = useCallback(
     async (tokenAddress?: string) => {
-      if (!address || !walletClient || !publicClient) return;
+      if (!address || !walletClient) return;
       setClaiming(true);
       try {
         let ltAddress: `0x${string}`;
         if (tokenAddress) {
-          const info = (await publicClient.readContract({
+          const info = (await hyperEvmClient.readContract({
             address: ADDRESSES.bonding,
             abi: BondingAbi,
             functionName: "tokenInfo",
@@ -41,7 +49,7 @@ export function useCreatorEarnings() {
             (t) => t.feesClaimableUsd > 0,
           );
           if (!firstToken) return;
-          const info = (await publicClient.readContract({
+          const info = (await hyperEvmClient.readContract({
             address: ADDRESSES.bonding,
             abi: BondingAbi,
             functionName: "tokenInfo",
@@ -56,13 +64,16 @@ export function useCreatorEarnings() {
           functionName: "claimCreatorFees",
           args: [ltAddress],
         });
-        await publicClient.waitForTransactionReceipt({ hash });
+        const receipt = await hyperEvmClient.waitForTransactionReceipt({ hash });
+        if (receipt.status === "reverted") {
+          throw new Error("Claim transaction reverted on-chain");
+        }
         earningsQuery.refetch();
       } finally {
         setClaiming(false);
       }
     },
-    [address, walletClient, publicClient, earningsQuery],
+    [address, walletClient, earningsQuery],
   );
 
   return {

@@ -1,4 +1,4 @@
-export const RedemptionRouterAbi = [
+export const LaunchpadRouterAbi = [
   {
     "type": "function",
     "name": "UPGRADE_INTERFACE_VERSION",
@@ -41,11 +41,6 @@ export const RedemptionRouterAbi = [
       },
       {
         "name": "minTokensOut",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -212,11 +207,6 @@ export const RedemptionRouterAbi = [
         "name": "minUsdcOut",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "deadline",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -300,6 +290,19 @@ export const RedemptionRouterAbi = [
   },
   {
     "type": "event",
+    "name": "BondingUpdated",
+    "inputs": [
+      {
+        "name": "bonding",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Buy",
     "inputs": [
       {
@@ -325,6 +328,19 @@ export const RedemptionRouterAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "HyperswapRouterUpdated",
+    "inputs": [
+      {
+        "name": "hyperswapRouter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -474,11 +490,6 @@ export const RedemptionRouterAbi = [
   },
   {
     "type": "error",
-    "name": "DeadlineExpired",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -571,5 +582,10 @@ export const RedemptionRouterAbi = [
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
   }
 ] as const;

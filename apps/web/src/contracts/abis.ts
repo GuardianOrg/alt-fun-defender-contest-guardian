@@ -1,6 +1,6 @@
 export {
   BondingAbi,
-  RedemptionRouterAbi,
+  LaunchpadRouterAbi,
   FFactoryAbi,
   FERC20Abi,
   LPLockAbi,

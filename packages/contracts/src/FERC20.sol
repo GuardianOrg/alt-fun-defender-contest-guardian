@@ -5,7 +5,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title FERC20
-/// @notice Memecoin ERC20 created by the bonding curve launchpad.
+/// @notice ERC20 token created by the bonding curve launchpad.
 /// @dev Forked from Virtuals Protocol FERC20.sol. Fixed 1B supply, owner-only burn,
 ///      and configurable maxTx limit (percentage of total supply).
 ///      Owner is the Bonding contract — only it can burn or adjust maxTx.

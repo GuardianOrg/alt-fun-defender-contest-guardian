@@ -3,13 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {RedemptionRouter} from "../src/RedemptionRouter.sol";
+import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
 import {IFPair} from "../src/interfaces/IFPair.sol";
 
 contract E2ETest is Script {
     address constant HYPE2L = 0x0f8db745e9C28275F8B6e2BAF6BAA8eE7431b557;
-    address constant BONDING = 0x80001B9766aEb92847BAdE7Ff83c333e22bfA06B;
-    address constant REDEMPTION_ROUTER = 0x9466386335AdE8b10516F510E5c2BF6d2B2aA679;
+    address constant BONDING = 0x91A5797B722Ea82E018d1b9BBac83b6fc0017532;
+    address constant LAUNCHPAD_ROUTER = 0x94802dbfF2a37AF5CE029204ce2105D9F9ad7426;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -17,7 +17,7 @@ contract E2ETest is Script {
         console.log("Deployer:", deployer);
 
         Bonding bonding = Bonding(BONDING);
-        RedemptionRouter router = RedemptionRouter(REDEMPTION_ROUTER);
+        LaunchpadRouter router = LaunchpadRouter(LAUNCHPAD_ROUTER);
 
         vm.startBroadcast(pk);
 

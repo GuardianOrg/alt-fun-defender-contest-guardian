@@ -1,4 +1,5 @@
-import { createConfig, http } from "wagmi";
+import { createConfig } from "@privy-io/wagmi";
+import { http } from "wagmi";
 
 import { hyperEVM } from "./chains";
 

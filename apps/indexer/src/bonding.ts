@@ -108,7 +108,7 @@ ponder.on("Bonding:ProtocolFeesClaimed", async ({ event, context }) => {
     .onConflictDoNothing();
 });
 
-ponder.on("RedemptionRouter:Buy", async ({ event, context }) => {
+ponder.on("LaunchpadRouter:Buy", async ({ event, context }) => {
   const { db } = context;
   const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -127,7 +127,7 @@ ponder.on("RedemptionRouter:Buy", async ({ event, context }) => {
     .onConflictDoNothing();
 });
 
-ponder.on("RedemptionRouter:Sell", async ({ event, context }) => {
+ponder.on("LaunchpadRouter:Sell", async ({ event, context }) => {
   const { db } = context;
   const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -146,7 +146,7 @@ ponder.on("RedemptionRouter:Sell", async ({ event, context }) => {
     .onConflictDoNothing();
 });
 
-ponder.on("RedemptionRouter:Referred", async ({ event, context }) => {
+ponder.on("LaunchpadRouter:Referred", async ({ event, context }) => {
   const { db } = context;
   const refId = `${event.transaction.hash}-${event.log.logIndex}`;
 

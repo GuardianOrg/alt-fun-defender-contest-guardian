@@ -34,8 +34,8 @@ abstract contract DeployHelper is Test {
     uint256 constant MAX_TX = 100; // 100% = no limit
     uint256 constant LT_EXCHANGE_RATE = 1 ether; // 1 LT = $1 USD
 
-    /// @notice Deploys all core contracts and wires roles. Does NOT set the redemption router
-    /// on Bonding — callers must do that themselves (e.g. `bonding.setRedemptionRouter(...)`).
+    /// @notice Deploys all core contracts and wires roles. Does NOT set the launchpad router
+    /// on Bonding — callers must do that themselves (e.g. `bonding.setLaunchpadRouter(...)`).
     function _deployCore() internal {
         usdc = new MockERC20("USD Coin", "USDC");
         lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));

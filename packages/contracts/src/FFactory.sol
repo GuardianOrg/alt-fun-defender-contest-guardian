@@ -14,9 +14,9 @@ contract FFactory is Initializable, AccessControlUpgradeable {
     mapping(address => mapping(address => address)) private _pairs;
     address[] public allPairs;
 
-    /// @notice Memecoin address → its bonding curve pair
+    /// @notice Token address → its bonding curve pair
     mapping(address => address) public pairFor;
-    /// @notice Memecoin address → its paired LT address
+    /// @notice Token address → its paired LT address
     mapping(address => address) public ltFor;
 
     address public router;

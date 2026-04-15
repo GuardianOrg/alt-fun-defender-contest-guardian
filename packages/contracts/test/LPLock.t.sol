@@ -21,7 +21,7 @@ contract LPLockTest is Test {
     address public owner = address(this);
     address public bonding = makeAddr("bonding");
     address public unauthorized = makeAddr("unauthorized");
-    address public tokenAddr = makeAddr("memecoin");
+    address public tokenAddr = makeAddr("token");
     address public pairAddr = makeAddr("pair");
 
     function setUp() public {
