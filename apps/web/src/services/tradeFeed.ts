@@ -38,8 +38,9 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       const rateMap = new Map(rateEntries);
 
       const batchIds = new Set<string>();
-      for (const t of trades) {
-        batchIds.add(t.id);
+      for (const t of trades) batchIds.add(t.id);
+      for (let i = trades.length - 1; i >= 0; i--) {
+        const t = trades[i];
         if (seenIds.has(t.id)) continue;
         cb(ponderTradeToTrade(t, rateMap.get(t.tokenAddress) ?? 1));
       }
@@ -100,8 +101,9 @@ export function subscribeTokenTrades(
       ]);
       if (cancelled) return;
       const batchIds = new Set<string>();
-      for (const t of trades) {
-        batchIds.add(t.id);
+      for (const t of trades) batchIds.add(t.id);
+      for (let i = trades.length - 1; i >= 0; i--) {
+        const t = trades[i];
         if (seenIds.has(t.id)) continue;
         cb(ponderTradeToTrade(t, exchangeRate));
       }
