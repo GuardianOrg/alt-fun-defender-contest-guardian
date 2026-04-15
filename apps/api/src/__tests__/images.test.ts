@@ -24,6 +24,7 @@ vi.mock("../db/client.js", () => ({
 function makeEnv(aiOverride?: Partial<Ai>): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
+    BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",
     PONDER_URL: "",
     IMAGES_BUCKET: {

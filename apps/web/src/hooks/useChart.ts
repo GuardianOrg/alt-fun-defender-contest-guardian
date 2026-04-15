@@ -4,37 +4,48 @@ import type { RefObject } from "react";
 import {
   createChart,
   CandlestickSeries,
-  LineSeries,
   ColorType,
 } from "lightweight-charts";
 
 import { COLORS, rgba } from "../config/colors";
 
+import type { ChartTimeframe } from "../services/api";
 import type {
   IChartApi,
   ISeriesApi,
   CandlestickData,
-  LineData,
 } from "lightweight-charts";
+
+const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
+  "1d": 86_400,
+  "5d": 432_000,
+  "1m": 2_592_000,
+};
 
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   candles: CandlestickData[];
-  overlayData: LineData[];
+  timeframe: ChartTimeframe;
   loading: boolean;
+}
+
+function precisionForPrice(value: number): number {
+  if (value === 0) return 2;
+  const abs = Math.abs(value);
+  if (abs >= 1) return 2;
+  const leading = -Math.floor(Math.log10(abs));
+  return Math.min(leading + 3, 14);
 }
 
 export function useChart({
   containerRef,
   candles,
-  overlayData,
+  timeframe,
   loading,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
-  // Initialize chart
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -54,12 +65,16 @@ export function useChart({
         horzLine: { color: rgba(COLORS.mint, 0.25) },
       },
       rightPriceScale: { borderColor: rgba(COLORS.mint, 0.1) },
-      timeScale: { borderColor: rgba(COLORS.mint, 0.1) },
+      timeScale: {
+        borderColor: rgba(COLORS.mint, 0.1),
+        timeVisible: true,
+        secondsVisible: false,
+      },
     });
 
     chartRef.current = chart;
 
-    const candleSeries = chart.addSeries(CandlestickSeries, {
+    const series = chart.addSeries(CandlestickSeries, {
       upColor: COLORS.mint,
       downColor: COLORS.red,
       borderUpColor: COLORS.mint,
@@ -67,52 +82,55 @@ export function useChart({
       wickUpColor: COLORS.mint,
       wickDownColor: COLORS.red,
     });
-    candleSeriesRef.current = candleSeries;
+    seriesRef.current = series;
 
-    const handleResize = () => {
-      if (containerRef.current) {
-        chart.applyOptions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight,
-        });
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    handleResize();
+    const container = containerRef.current;
+    const observer = new ResizeObserver(() => {
+      chart.applyOptions({
+        width: container.clientWidth,
+        height: container.clientHeight,
+      });
+    });
+    observer.observe(container);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      observer.disconnect();
       chart.remove();
       chartRef.current = null;
-      candleSeriesRef.current = null;
-      lineSeriesRef.current = null;
+      seriesRef.current = null;
     };
   }, [containerRef]);
 
-  // Update candle data
   useEffect(() => {
-    if (loading || !candleSeriesRef.current || !chartRef.current) return;
-    candleSeriesRef.current.setData(candles);
-    chartRef.current.timeScale().fitContent();
-  }, [candles, loading]);
+    if (!seriesRef.current || !chartRef.current) return;
 
-  // Update overlay
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (!chart) return;
-
-    if (overlayData.length > 0) {
-      if (!lineSeriesRef.current) {
-        lineSeriesRef.current = chart.addSeries(LineSeries, {
-          color: rgba(COLORS.amber, 0.5),
-          lineWidth: 1,
-          priceScaleId: "overlay",
-        });
-      }
-      lineSeriesRef.current.setData(overlayData);
-    } else if (lineSeriesRef.current) {
-      chart.removeSeries(lineSeriesRef.current);
-      lineSeriesRef.current = null;
+    if (loading) {
+      seriesRef.current.setData([]);
+      return;
     }
-  }, [overlayData]);
+
+    const representative = candles.length > 0 ? candles[0].close : 0;
+    const minMove = representative > 0
+      ? Math.pow(10, -precisionForPrice(representative))
+      : 0.01;
+
+    seriesRef.current.applyOptions({
+      priceFormat: {
+        type: "price",
+        precision: precisionForPrice(representative),
+        minMove,
+      },
+    });
+
+    seriesRef.current.setData(candles);
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const windowSec = TIMEFRAME_SECONDS[timeframe];
+    const from = nowSec - windowSec;
+
+    chartRef.current.timeScale().setVisibleRange({
+      from: from as unknown as CandlestickData["time"],
+      to: nowSec as unknown as CandlestickData["time"],
+    });
+  }, [candles, timeframe, loading]);
 }
