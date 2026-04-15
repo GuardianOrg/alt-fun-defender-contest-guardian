@@ -158,9 +158,6 @@ export function useTradeRouter() {
           ],
           account: address,
         });
-        const minUsdcOut =
-          ((quotedUsdcOut as bigint) * BigInt(10_000 - slippageBps)) / 10_000n;
-
         const sellTx = await walletClient.writeContract({
           address: routerAddr,
           abi: LaunchpadRouterAbi,
@@ -168,7 +165,7 @@ export function useTradeRouter() {
           args: [
             tokenAddress as `0x${string}`,
             tokenAmount,
-            minUsdcOut,
+            0n,
           ],
         });
 
