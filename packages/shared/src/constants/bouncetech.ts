@@ -30,7 +30,7 @@ export interface LiveLeveragedToken extends LeveragedTokenInfo {
 }
 
 /**
- * Assets Alt Fun supports for token creation.
+ * Assets that Alt Fun supports for token creation.
  * PAXG is available on BounceTech but excluded from Alt Fun v1.
  */
 export const SUPPORTED_UNDERLYING_ASSETS = ["HYPE", "ETH", "BTC", "SOL"] as const;

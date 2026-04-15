@@ -4,7 +4,7 @@ import styles from "./PasswordGate.module.css";
 import Button from "../shared/Button";
 
 const PASS = import.meta.env.VITE_GATE_PASSWORD;
-const STORAGE_KEY = "lp_auth";
+const STORAGE_KEY = "af_auth";
 
 const isLocalhost = () =>
   window.location.hostname === "localhost" ||
@@ -34,8 +34,8 @@ export default function PasswordGate({ children }: { children: ReactNode }) {
     <div className={styles.wrapper}>
       <form onSubmit={submit} className={styles.form}>
         <div className={styles.logoText}>
-          <span className={styles.logoMint}>LAUNCH</span>
-          <span className={styles.logoTxt}>PAD</span>
+          <span className={styles.logoMint}>ALT</span>
+          <span className={styles.logoTxt}>FUN</span>
         </div>
         <div className={styles.subtitle}>internal preview</div>
 

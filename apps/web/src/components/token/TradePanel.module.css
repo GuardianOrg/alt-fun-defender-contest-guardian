@@ -551,7 +551,7 @@
   gap: 0.5rem;
 }
 
-.ctaConfirmed.ctaConfirmed {
+button.ctaConfirmed:disabled {
   background: rgba(77, 232, 180, 0.15);
   color: var(--mint);
   cursor: default;
