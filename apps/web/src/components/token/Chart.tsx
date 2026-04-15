@@ -9,9 +9,8 @@ import type { ChartTimeframe } from "../../services/api";
 import type { Token } from "../../services/types";
 
 const TIMEFRAMES: { value: ChartTimeframe; label: string }[] = [
-  { value: "24h", label: "24H" },
-  { value: "7d", label: "7D" },
-  { value: "14d", label: "14D" },
+  { value: "1d", label: "1D" },
+  { value: "5d", label: "5D" },
   { value: "1m", label: "1M" },
 ];
 
@@ -21,7 +20,7 @@ interface Props {
 
 export default function Chart({ token }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const [timeframe, setTimeframe] = useState<ChartTimeframe>("24h");
+  const [timeframe, setTimeframe] = useState<ChartTimeframe>("1d");
 
   const underlyingChg = token.leverage > 0 ? token.leverageBoost / token.leverage : 0;
 

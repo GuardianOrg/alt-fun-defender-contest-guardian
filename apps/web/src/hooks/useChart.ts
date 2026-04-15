@@ -17,9 +17,8 @@ import type {
 } from "lightweight-charts";
 
 const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
-  "24h": 86_400,
-  "7d": 604_800,
-  "14d": 1_209_600,
+  "1d": 86_400,
+  "5d": 432_000,
   "1m": 2_592_000,
 };
 

@@ -1,34 +1,36 @@
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
+import { neon } from "@neondatabase/serverless";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
-import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-client.js";
+import {
+  createPonderQuery,
+  createPonderPaginatedQuery,
+} from "../lib/ponder-client.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 import type { AppBindings } from "../lib/types.js";
 
-const BOUNCETECH_API = "https://api.bounce.tech";
-
-const VALID_TIMEFRAMES = ["24h", "7d", "14d", "1m"] as const;
+const VALID_TIMEFRAMES = ["1d", "5d", "1m"] as const;
 type Timeframe = (typeof VALID_TIMEFRAMES)[number];
 
-interface BouncePricePoint {
-  timestamp: number;
-  price: number;
-}
+const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
+  "1d": 86_400,
+  "5d": 432_000,
+  "1m": 2_592_000,
+};
 
-interface BouncePriceResponse {
-  status: string;
-  data: {
-    token: string;
-    timeframe: string;
-    prices: BouncePricePoint[];
-  };
-  error: string | null;
-}
+const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
+  "1d": 300,
+  "5d": 1_800,
+  "1m": 14_400,
+};
+
+const MIN_CANDLE_SECONDS = 60;
+const MAX_CANDLES = 500;
 
 interface PonderBondingTrade {
   curveSupply: string;
@@ -49,40 +51,20 @@ interface RatioSnapshot {
   ratio: number;
 }
 
-const CURVE_SUPPLY_INITIAL = 750_000_000n * 10n ** 18n; // 75% of 1B
-
-const ltPriceCache = new Map<string, { data: BouncePricePoint[]; ts: number }>();
-const LT_CACHE_TTL: Record<Timeframe, number> = {
-  "24h": 60_000,
-  "7d": 300_000,
-  "14d": 600_000,
-  "1m": 600_000,
-};
-
-async function fetchLtPrices(
-  ltAddress: string,
-  timeframe: Timeframe,
-): Promise<BouncePricePoint[]> {
-  const cacheKey = `${ltAddress}:${timeframe}`;
-  const cached = ltPriceCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < LT_CACHE_TTL[timeframe]) {
-    return cached.data;
-  }
-
-  const checksummed = getAddress(ltAddress);
-  const res = await fetch(
-    `${BOUNCETECH_API}/token-prices/${checksummed}?timeframe=${timeframe}`,
-  );
-  if (!res.ok) {
-    return cached?.data ?? [];
-  }
-
-  const json = (await res.json()) as BouncePriceResponse;
-  const prices = json.data?.prices ?? [];
-
-  ltPriceCache.set(cacheKey, { data: prices, ts: Date.now() });
-  return prices;
+interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
+
+interface LtSnapshotRow {
+  ts: string;
+  exchange_rate: string;
+}
+
+const CURVE_SUPPLY_INITIAL = 750_000_000n * 10n ** 18n;
 
 function buildRatioTimeline(
   k: bigint,
@@ -126,24 +108,9 @@ function findRatioAtTime(
   return best?.ratio ?? null;
 }
 
-interface Candle {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-}
-
-const CANDLE_SECONDS: Record<Timeframe, number> = {
-  "24h": 900,      // 15min candles → ~96 candles
-  "7d": 7_200,     // 2h candles   → ~84 candles
-  "14d": 14_400,   // 4h candles   → ~84 candles
-  "1m": 28_800,    // 8h candles   → ~90 candles
-};
-
 function buildCandles(
-  prices: { timestamp: number; price: number }[],
-  bucketMs: number,
+  prices: { ts: number; price: number }[],
+  candleSec: number,
 ): Candle[] {
   if (prices.length === 0) return [];
 
@@ -151,7 +118,7 @@ function buildCandles(
   const candles: Candle[] = [];
 
   for (const p of prices) {
-    const bucketTs = Math.floor(p.timestamp / bucketMs) * (bucketMs / 1000);
+    const bucketTs = Math.floor(p.ts / candleSec) * candleSec;
 
     const existing = candleMap.get(bucketTs);
     if (existing) {
@@ -182,7 +149,7 @@ chart.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = rawAddress.toLowerCase();
-  const timeframe = (c.req.query("timeframe") ?? "24h") as string;
+  const timeframe = (c.req.query("timeframe") ?? "1d") as string;
 
   if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
     return c.json(
@@ -192,6 +159,20 @@ chart.get("/:address", async (c) => {
       400,
     );
   }
+
+  const tf = timeframe as Timeframe;
+  const windowSec = TIMEFRAME_SECONDS[tf];
+
+  const rawInterval = c.req.query("interval");
+  let candleSec = DEFAULT_CANDLE_SECONDS[tf];
+  if (rawInterval) {
+    const parsed = parseInt(rawInterval, 10);
+    if (!Number.isNaN(parsed) && parsed >= MIN_CANDLE_SECONDS) {
+      candleSec = Math.max(parsed, Math.ceil(windowSec / MAX_CANDLES));
+    }
+  }
+
+  const sampleSec = Math.max(1, Math.floor(candleSec / 15));
 
   const db = createDb(c.env.DATABASE_URL);
   const [dbToken] = await db
@@ -219,7 +200,10 @@ chart.get("/:address", async (c) => {
   const ltAddress = dbToken?.ltPair ?? tokenInfo?.ltToken;
 
   if (!ltAddress) {
-    return c.json(formatError("Token not found or LT address unavailable"), 404);
+    return c.json(
+      formatError("Token not found or LT address unavailable"),
+      404,
+    );
   }
 
   const k = tokenInfo?.k ? BigInt(tokenInfo.k) : null;
@@ -227,8 +211,24 @@ chart.get("/:address", async (c) => {
     ? Number(tokenInfo.timestamp)
     : 0;
 
-  const [ltPrices, tradesResult] = await Promise.all([
-    fetchLtPrices(ltAddress, timeframe as Timeframe),
+  const nowSec = Math.floor(Date.now() / 1000);
+  const fromSec = nowSec - windowSec;
+
+  const checksummedLt = getAddress(ltAddress);
+  const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
+
+  const [ltRows, tradesResult] = await Promise.all([
+    btSql`
+      SELECT
+        extract(epoch from tick_timestamp)::bigint AS ts,
+        exchange_rate::text AS exchange_rate
+      FROM token_snapshots_v1
+      WHERE token_address = ${checksummedLt}
+        AND tick_timestamp >= to_timestamp(${fromSec})
+        AND tick_timestamp < to_timestamp(${nowSec})
+        AND extract(epoch from tick_timestamp)::bigint % ${sampleSec} = 0
+      ORDER BY tick_timestamp ASC
+    ` as unknown as Promise<LtSnapshotRow[]>,
     (async () => {
       const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
       return queryPonderAll<PonderBondingTrade>(
@@ -253,7 +253,7 @@ chart.get("/:address", async (c) => {
     })(),
   ]);
 
-  if (ltPrices.length === 0) {
+  if (ltRows.length === 0) {
     return c.json(formatSuccess([]));
   }
 
@@ -269,21 +269,18 @@ chart.get("/:address", async (c) => {
     return c.json(formatSuccess([]));
   }
 
-  const rawPrices: { timestamp: number; price: number }[] = [];
+  const rawPrices: { ts: number; price: number }[] = [];
 
-  for (const point of ltPrices) {
-    const timestampSec = Math.floor(point.timestamp / 1000);
-    const ratio = findRatioAtTime(ratioTimeline, timestampSec);
+  for (const row of ltRows) {
+    const ts = Number(row.ts);
+    const exchangeRate = Number(row.exchange_rate) / 1e18;
+    const ratio = findRatioAtTime(ratioTimeline, ts);
     if (ratio === null) continue;
 
-    rawPrices.push({
-      timestamp: point.timestamp,
-      price: ratio * point.price,
-    });
+    rawPrices.push({ ts, price: ratio * exchangeRate });
   }
 
-  const bucketMs = CANDLE_SECONDS[timeframe as Timeframe] * 1000;
-  const candles = buildCandles(rawPrices, bucketMs);
+  const candles = buildCandles(rawPrices, candleSec);
 
   return c.json(formatSuccess(candles));
 });

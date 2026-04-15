@@ -45,6 +45,7 @@ function createApp() {
 function makeEnv(): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
+    BOUNCETECH_DATABASE_URL: "",
     ADMIN_API_KEY: "admin-key",
     PONDER_URL: "",
     IMAGES_BUCKET: {} as R2Bucket,

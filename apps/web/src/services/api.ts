@@ -136,13 +136,16 @@ export interface ChartCandle {
   close: number;
 }
 
-export type ChartTimeframe = "24h" | "7d" | "14d" | "1m";
+export type ChartTimeframe = "1d" | "5d" | "1m";
 
 export function fetchChart(
   address: string,
-  timeframe: ChartTimeframe = "24h",
+  timeframe: ChartTimeframe = "1d",
+  interval?: number,
 ): Promise<ChartCandle[]> {
-  return apiFetch(`/api/v1/chart/${address}?timeframe=${timeframe}`);
+  let url = `/api/v1/chart/${address}?timeframe=${timeframe}`;
+  if (interval) url += `&interval=${interval}`;
+  return apiFetch(url);
 }
 
 export function fetchSparkline(

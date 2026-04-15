@@ -15,6 +15,7 @@ function makeEnv(adminKey = "test-admin-key"): AppBindings {
   return {
     ADMIN_API_KEY: adminKey,
     DATABASE_URL: "",
+    BOUNCETECH_DATABASE_URL: "",
     PONDER_URL: "",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
