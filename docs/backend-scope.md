@@ -1,6 +1,6 @@
 # Backend Scope
 
-REST API + WebSocket server for the launchpad frontend and third-party integrators. Indexed blockchain data, user-generated content, and real-time feeds.
+REST API + WebSocket server for the Alt Fun frontend and third-party integrators. Indexed blockchain data, user-generated content, and real-time feeds.
 
 ---
 
@@ -54,7 +54,7 @@ REST API + WebSocket server for the launchpad frontend and third-party integrato
 | Endpoint | Description |
 |---|---|
 | `GET /creator/:wallet` | All tokens launched + aggregate stats (volume, fees earned, fees claimable). |
-| `GET /portfolio/:wallet` | Token holdings with current USD values. Only launchpad tokens. |
+| `GET /portfolio/:wallet` | Token holdings with current USD values. Only Alt Fun tokens. |
 | `GET /stats` | Platform-wide: `tokensLive`, `tokensGraduating`, `tokensGraduated`, `volume24h`. |
 | `GET /assets` | Underlying asset prices + LT exchange rates for all supported pairs. |
 | `GET /referral/:wallet` | Referral stats: referred wallets, referred volume. Tracking only. |

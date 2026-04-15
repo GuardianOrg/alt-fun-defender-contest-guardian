@@ -1,6 +1,7 @@
 import styles from "./EarningsPanel.module.css";
 import { FEES } from "../../config/constants";
 import { cn, formatUsd } from "../../utils/format";
+import Button from "../shared/Button";
 
 import type { CreatorEarnings } from "../../services/types";
 
@@ -31,9 +32,9 @@ export default function RewardsTab({
             be claimed anytime.
           </div>
         </div>
-        <button className={styles.launchBtn} onClick={onLaunch}>
+        <Button variant="primary" onClick={onLaunch}>
           &#x26A1; Launch a token
-        </button>
+        </Button>
       </div>
     );
   }
@@ -56,23 +57,19 @@ export default function RewardsTab({
           </div>
         </div>
 
-        <button
-          className={cn(
-            styles.claimBtn,
-            earnings.totalClaimable > 0
-              ? styles.claimBtnActive
-              : styles.claimBtnDisabled,
-            claiming && styles.claiming,
-          )}
+        <Button
+          variant="primary"
+          fullWidth
+          busy={claiming}
+          disabled={earnings.totalClaimable <= 0}
           onClick={() => claim()}
-          disabled={earnings.totalClaimable <= 0 || claiming}
         >
           {claiming
             ? "Claiming\u2026"
             : earnings.totalClaimable > 0
               ? `Claim $${earnings.totalClaimable.toFixed(2)} USDC`
               : "Nothing to claim"}
-        </button>
+        </Button>
 
         {claiming && (
           <div className={styles.claimingIndicator}>

@@ -107,29 +107,6 @@
   line-height: 1.625;
 }
 
-.connectBtn {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--bg);
-  background: var(--mint);
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
-  border-radius: 0.125rem;
-  border: 0;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: var(--shadow-mint-glow);
-}
-
-.connectBtn:hover {
-  background: var(--mint-hover);
-}
-
 .tabBar {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -193,29 +170,6 @@
   padding-top: 4rem;
   padding-bottom: 4rem;
   gap: 1rem;
-}
-
-.launchBtn {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--bg);
-  background: var(--mint);
-  padding-left: 1.5rem;
-  padding-right: 1.5rem;
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
-  border-radius: 0.125rem;
-  border: 0;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: var(--shadow-mint-glow);
-}
-
-.launchBtn:hover {
-  background: var(--mint-hover);
 }
 
 .totalValueWrap {
@@ -387,42 +341,6 @@
   color: var(--txt);
   line-height: 1;
   font-variant-numeric: tabular-nums;
-}
-
-.claimBtn {
-  width: 100%;
-  padding-top: 0.75rem;
-  padding-bottom: 0.75rem;
-  border-radius: 3px;
-  border: 0;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.claimBtnActive {
-  background: var(--mint);
-  color: var(--bg);
-  box-shadow: var(--shadow-mint-glow);
-}
-
-.claimBtnActive:hover {
-  background: var(--mint-hover);
-}
-
-.claimBtnDisabled {
-  background: var(--bg-2);
-  color: var(--txt-3);
-  cursor: not-allowed;
-}
-
-.claiming {
-  opacity: 0.7;
-  cursor: wait;
 }
 
 .claimingIndicator {

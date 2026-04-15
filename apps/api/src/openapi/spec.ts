@@ -1,5 +1,5 @@
 /**
- * OpenAPI 3.1 specification for the Launchpad API.
+ * OpenAPI 3.1 specification for the Alt Fun API.
  *
  * Covers all /api/v1/* endpoints with request/response schemas,
  * authentication details, WebSocket protocol docs, and error formats.
@@ -161,7 +161,7 @@ const adminKeyHeader = {
 const spec = {
   openapi: "3.1.0",
   info: {
-    title: "Launchpad API",
+    title: "Alt Fun API",
     version: "1.0.0",
     description: `Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset.
 

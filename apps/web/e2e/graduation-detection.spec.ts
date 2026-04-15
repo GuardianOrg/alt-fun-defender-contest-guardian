@@ -7,7 +7,7 @@ test.describe("Graduation detection", () => {
     await page.goto("/");
 
     // Wait for the page to load
-    await expect(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+    await expect(page.locator("text=ALTFUN").first()).toBeVisible({
       timeout: 10_000,
     });
 
@@ -20,7 +20,7 @@ test.describe("Graduation detection", () => {
   test("can filter by GRADUATING tab", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+    await expect(page.locator("text=ALTFUN").first()).toBeVisible({
       timeout: 10_000,
     });
 
@@ -34,7 +34,7 @@ test.describe("Graduation detection", () => {
   test("can filter by GRADUATED tab", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+    await expect(page.locator("text=ALTFUN").first()).toBeVisible({
       timeout: 10_000,
     });
 
@@ -100,7 +100,7 @@ test.describe("Graduation detection", () => {
   test("command bar shows all filter tabs", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+    await expect(page.locator("text=ALTFUN").first()).toBeVisible({
       timeout: 10_000,
     });
 

@@ -3,6 +3,7 @@ import { useState } from "react";
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
 import { cn, formatUsd, formatPercent, copyToClipboard } from "../../utils/format";
+import Button from "../shared/Button";
 
 import type { Token } from "../../services/types";
 
@@ -132,7 +133,7 @@ export default function HeroSection({ token }: Props) {
       </div>
 
       <div className={styles.shareWrapper}>
-        <button className={styles.shareBtn} onClick={shareToken}>
+        <Button variant="secondary" size="sm" onClick={shareToken}>
           <svg
             width="12"
             height="12"
@@ -148,7 +149,7 @@ export default function HeroSection({ token }: Props) {
             <line x1="12" y1="2" x2="12" y2="15" />
           </svg>
           Share
-        </button>
+        </Button>
       </div>
     </div>
   );

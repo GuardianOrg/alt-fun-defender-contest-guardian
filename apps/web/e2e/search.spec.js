@@ -46,7 +46,7 @@ test_1.test.describe("Search", function () {
                 case 1:
                     _c.sent();
                     // Wait for page to load
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=ALTFUN").first()).toBeVisible({
                             timeout: 10000,
                         })];
                 case 2:

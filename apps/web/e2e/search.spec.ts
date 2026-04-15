@@ -4,7 +4,7 @@ test.describe("Search", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     // Wait for page to load
-    await expect(page.locator("text=LAUNCHPAD").first()).toBeVisible({
+    await expect(page.locator("text=ALTFUN").first()).toBeVisible({
       timeout: 10_000,
     });
   });

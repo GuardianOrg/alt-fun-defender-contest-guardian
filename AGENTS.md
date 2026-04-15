@@ -1,4 +1,4 @@
-# Launchpad
+# Alt Fun
 
 Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leveraged Token (LT) as its reserve asset. Tokens appreciate from buy pressure AND leveraged movement of the underlying.
 
@@ -56,8 +56,8 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 |---|---|---|
 | Curve buy | 0.5% | 0.4% protocol / 0.1% creator |
 | Curve sell | 0.5% | 0.4% protocol / 0.1% creator |
-| HyperSwap swap (post-grad) | 0.3% | LPs (launchpad takes 0%) |
-| LT redemption | BounceTech internal | No additional launchpad fee |
+| HyperSwap swap (post-grad) | 0.3% | LPs (Alt Fun takes 0%) |
+| LT redemption | BounceTech internal | No additional Alt Fun fee |
 
 ---
 
@@ -138,7 +138,7 @@ baseAssetBalance() → uint256               // Idle USDC available for atomic r
 
 Base URL: `https://indexing.bounce.tech`
 
-Key endpoints used by the launchpad:
+Key endpoints used by Alt Fun:
 
 | Endpoint | Purpose |
 |---|---|

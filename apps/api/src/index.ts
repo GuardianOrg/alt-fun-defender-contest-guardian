@@ -33,7 +33,7 @@ app.use("*", logger());
 app.use("*", cors());
 app.use("*", prettyJSON());
 
-app.get("/", (c) => c.json(formatSuccess("launchpad API")));
+app.get("/", (c) => c.json(formatSuccess("Alt Fun API")));
 app.get("/health", async (c) => {
   const ponderHealthy = await checkPonderHealth(c.env.PONDER_URL);
   return c.json(formatSuccess({

@@ -30,8 +30,8 @@ export interface LiveLeveragedToken extends LeveragedTokenInfo {
 }
 
 /**
- * Assets the launchpad supports for token creation.
- * PAXG is available on BounceTech but excluded from launchpad v1.
+ * Assets that Alt Fun supports for token creation.
+ * PAXG is available on BounceTech but excluded from Alt Fun v1.
  */
 export const SUPPORTED_UNDERLYING_ASSETS = ["HYPE", "ETH", "BTC", "SOL"] as const;
 export type SupportedAsset = (typeof SUPPORTED_UNDERLYING_ASSETS)[number];
@@ -40,7 +40,7 @@ export const SUPPORTED_LEVERAGES = [2, 3, 5] as const;
 export type SupportedLeverage = (typeof SUPPORTED_LEVERAGES)[number];
 
 /**
- * Filter a live LT list down to the ones the launchpad supports.
+ * Filter a live LT list down to the ones Alt Fun supports.
  */
 export function filterSupportedLTs(lts: LiveLeveragedToken[]): LiveLeveragedToken[] {
   return lts.filter(
