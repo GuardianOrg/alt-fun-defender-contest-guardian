@@ -947,6 +947,19 @@ export const BondingAbi = [
   },
   {
     "type": "event",
+    "name": "RedemptionRouterUpdated",
+    "inputs": [
+      {
+        "name": "newRedemptionRouter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TokenGraduated",
     "inputs": [
       {
@@ -1172,6 +1185,16 @@ export const BondingAbi = [
   },
   {
     "type": "error",
+    "name": "PairAlreadySeeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PairLookupFailed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -1216,5 +1239,15 @@ export const BondingAbi = [
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroExchangeRate",
+    "inputs": []
   }
 ] as const;

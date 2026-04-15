@@ -1,5 +1,4 @@
 import { API_BASE, fetchToken, fetchTokens } from "./api";
-import { MOCK_TOKENS } from "./mock/tokens";
 import { fetchPonderToken, fetchPonderTokens } from "./ponder";
 
 import type { ApiToken } from "./api";
@@ -8,7 +7,8 @@ import type { Direction, Token, TokenFilter } from "./types";
 
 export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
-  return `${apiToken.ltPair.replace(/\d+[LS]$/, "")} ${apiToken.leverage}× ${dir}`;
+  const underlying = deriveUnderlying(apiToken);
+  return `${underlying} ${apiToken.leverage}× ${dir}`;
 }
 
 export function deriveUnderlying(apiToken: ApiToken): Token["underlying"] {
@@ -118,9 +118,6 @@ async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
   ]);
 
   if (apiTokens.length === 0 && ponderTokens.length === 0) {
-    if (import.meta.env.DEV) {
-      return applyFilter(MOCK_TOKENS, filter);
-    }
     return [];
   }
 
@@ -140,9 +137,6 @@ async function liveGetToken(address: string): Promise<Token | undefined> {
   ]);
 
   if (!apiToken) {
-    if (import.meta.env.DEV) {
-      return MOCK_TOKENS.find((t) => t.address === address);
-    }
     return undefined;
   }
 

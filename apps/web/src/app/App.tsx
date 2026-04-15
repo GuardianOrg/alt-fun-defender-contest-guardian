@@ -1,5 +1,5 @@
 import { PrivyProvider } from "@privy-io/react-auth";
-import { WagmiProvider as PrivyWagmiProvider } from "@privy-io/wagmi";
+import { WagmiProvider } from "@privy-io/wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Provider as ReduxProvider } from "react-redux";
 import {
@@ -8,7 +8,6 @@ import {
   createBrowserRouter,
   useLocation,
 } from "react-router";
-import { WagmiProvider } from "wagmi";
 
 import styles from "./App.module.css";
 import { CREATE_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
@@ -116,9 +115,7 @@ const App = () => {
         >
           <QueryClientProvider client={queryClient}>
             <WagmiProvider config={wagmiConfig}>
-              <PrivyWagmiProvider config={wagmiConfig}>
-                <RouterProvider router={router} />
-              </PrivyWagmiProvider>
+              <RouterProvider router={router} />
             </WagmiProvider>
           </QueryClientProvider>
         </PrivyProvider>

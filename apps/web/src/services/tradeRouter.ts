@@ -2,7 +2,7 @@ import { FFactoryAbi, LeveragedTokenAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
 
-import { FEES, MOCK_TOKEN_PRICE } from "../config/constants";
+import { FEES } from "../config/constants";
 import { ADDRESSES } from "../contracts/addresses";
 
 const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
@@ -40,7 +40,7 @@ export interface SellQuote {
 }
 
 export interface ITradeRouterService {
-  getQuoteBuy(curveAddress: string, usdcAmount: number): Promise<BuyQuote>;
+  getQuoteBuy(curveAddress: string, usdcAmount: number): Promise<BuyQuote | null>;
   getQuoteSell(
     curveAddress: string,
     tokenAmount: number,
@@ -123,7 +123,7 @@ const liveTradeRouter: ITradeRouterService = {
         youReceive: `${(tokensOut / 1e6).toFixed(1)}M`,
       };
     } catch {
-      return mockBuyQuote(usdcAmount);
+      return null;
     }
   },
 
@@ -196,24 +196,5 @@ const liveTradeRouter: ITradeRouterService = {
     }
   },
 };
-
-function mockBuyQuote(usdcAmount: number): BuyQuote {
-  const curveFee = usdcAmount * FEES.curveBuy;
-  const netUsdc = usdcAmount - curveFee;
-  const tokensOut = netUsdc / MOCK_TOKEN_PRICE;
-  const mockMcap = MOCK_TOKEN_PRICE * 1e9;
-  const priceImpact = (usdcAmount / mockMcap) * 100;
-  return {
-    tokensOut: tokensOut.toLocaleString(undefined, {
-      maximumFractionDigits: 0,
-    }),
-    curveFee,
-    totalFee: curveFee,
-    priceImpactPct: parseFloat(priceImpact.toFixed(2)),
-    youPay: usdcAmount,
-    youReceive: `${(tokensOut / 1e6).toFixed(1)}M`,
-  };
-}
-
 
 export const tradeRouterService: ITradeRouterService = liveTradeRouter;

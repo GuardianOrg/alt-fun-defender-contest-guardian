@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 
 import { MIN_USDC_AMOUNT } from "@launchpad/shared";
-import { formatUnits, parseUnits } from "viem";
-import { useAccount, usePublicClient } from "wagmi";
+import { createPublicClient, formatUnits, http, parseUnits } from "viem";
+import { useAccount } from "wagmi";
 
 import CreatorBadge from "./CreatorBadge";
 import SettingsPopup from "./SettingsPopup";
@@ -11,6 +11,7 @@ import TradePanelBufferWarning from "./TradePanelBufferWarning";
 import TradePanelFooter from "./TradePanelFooter";
 import TradePanelInput from "./TradePanelInput";
 import TradePanelQuote from "./TradePanelQuote";
+import { hyperEVM } from "../../config/chains";
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
 import { useReferral } from "../../hooks/useReferral";
@@ -21,6 +22,12 @@ import { cn } from "../../utils/format";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
+
+const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const hyperEvmClient = createPublicClient({
+  chain: hyperEVM,
+  transport: http(rpcUrl),
+});
 
 interface Props {
   token: Token;
@@ -36,7 +43,6 @@ export default function TradePanel({ token }: Props) {
   const [maxBalance, setMaxBalance] = useState<string | null>(null);
 
   const { address } = useAccount();
-  const publicClient = usePublicClient();
   const { isConnected, connect } = useWallet();
   const referrer = useReferral();
   const { step, txHash, error, executeBuy, executeSell, reset } =
@@ -81,10 +87,10 @@ export default function TradePanel({ token }: Props) {
   }, [amtNum, mode, token.address]);
 
   const loadBalance = useCallback(async () => {
-    if (!address || !publicClient) return;
+    if (!address) return;
     try {
       if (mode === "buy") {
-        const balance = await publicClient.readContract({
+        const balance = await hyperEvmClient.readContract({
           address: ADDRESSES.usdc,
           abi: erc20Abi,
           functionName: "balanceOf",
@@ -92,7 +98,7 @@ export default function TradePanel({ token }: Props) {
         }) as bigint;
         setMaxBalance(formatUnits(balance, USDC_DECIMALS));
       } else {
-        const balance = await publicClient.readContract({
+        const balance = await hyperEvmClient.readContract({
           address: token.address as `0x${string}`,
           abi: erc20Abi,
           functionName: "balanceOf",
@@ -103,7 +109,7 @@ export default function TradePanel({ token }: Props) {
     } catch {
       setMaxBalance(null);
     }
-  }, [address, publicClient, mode, token.address]);
+  }, [address, mode, token.address]);
 
   useEffect(() => {
     if (isConnected) loadBalance();
@@ -119,7 +125,7 @@ export default function TradePanel({ token }: Props) {
     if (mode === "buy") {
       executeBuy(token.address, amtNum, slippage, referrer);
     } else {
-      const tokenAmountWei = parseUnits(amtNum.toFixed(18), 18);
+      const tokenAmountWei = parseUnits(amount, 18);
       executeSell(token.address, tokenAmountWei, slippage);
     }
   };

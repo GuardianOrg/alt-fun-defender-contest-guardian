@@ -300,6 +300,19 @@ export const RedemptionRouterAbi = [
   },
   {
     "type": "event",
+    "name": "BondingUpdated",
+    "inputs": [
+      {
+        "name": "bonding",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Buy",
     "inputs": [
       {
@@ -325,6 +338,19 @@ export const RedemptionRouterAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "HyperswapRouterUpdated",
+    "inputs": [
+      {
+        "name": "hyperswapRouter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -571,5 +597,10 @@ export const RedemptionRouterAbi = [
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
   }
 ] as const;

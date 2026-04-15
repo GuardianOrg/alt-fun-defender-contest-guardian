@@ -1,7 +1,5 @@
 export const GRADUATION_THRESHOLD_USD = 12_000;
 
-export const MOCK_TOKEN_PRICE = 0.000188;
-
 export const FEES = {
   /** 0.5% on buy — split 0.4% protocol / 0.1% creator */
   curveBuy: 0.005,

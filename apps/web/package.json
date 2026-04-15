@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
     "test:e2e": "playwright test",
+    "test": "vitest run --passWithNoTests",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
@@ -42,6 +43,7 @@
     "prettier": "^3",
     "typescript": "~6.0",
     "typescript-eslint": "^8",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.4"
   }
 }

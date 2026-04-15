@@ -71,6 +71,47 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 ---
 
+## Token Creation Flow (Two-Phase)
+
+Creating a token is a **two-phase process**. Both phases must succeed for the token to appear in the UI.
+
+### Phase 1 — On-Chain
+
+Frontend calls `RedemptionRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 memecoin, creates the bonding curve pair via `Bonding.launch()`, and optionally executes a seed buy. Two key events are emitted: `TokenLaunched` (from Bonding) and `TokenCreated` (from RedemptionRouter). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+
+### Phase 2 — Off-Chain API Registration
+
+Frontend calls `POST /api/v1/tokens` with token metadata (name, ticker, description, image URL, LT address, social links) signed by the creator's wallet. This inserts a row into PostgreSQL. Without this step, the token exists on-chain but is invisible in the UI.
+
+**Critical:** The home page token list (`GET /api/v1/tokens`) reads **exclusively from PostgreSQL**. Ponder (the indexer) only enriches individual token detail views with on-chain curve state (supply, reserves, graduation status). If the API registration fails, the token will not appear anywhere in the frontend.
+
+### Field Semantics
+
+| Field | Stores | Example |
+|---|---|---|
+| `ltPair` | LT **contract address** (not the symbol) | `0x1234…abcd` |
+| `underlying` | Underlying asset symbol | `HYPE`, `ETH`, `BTC`, `SOL` |
+| `ltDirection` | Long or short | `long`, `short` |
+| `leverage` | Leverage multiplier | `2`, `3`, `5` |
+
+### Signing
+
+Off-chain writes (token creation, comments, profile updates) require a wallet signature. The message is built with `buildTokenCreationMessage()` from `@launchpad/shared`. Both the frontend and API use the same function to ensure message parity. The API verifies `recoverMessageAddress(message, signature) === creator`.
+
+---
+
+## Data Sources
+
+| UI Location | Primary Source | Enrichment |
+|---|---|---|
+| Home page token list | PostgreSQL (`GET /api/v1/tokens`) | Ponder (curve state merged client-side) |
+| Token detail page | PostgreSQL (`GET /api/v1/tokens/:address`) | Ponder (curve supply, LT reserve, graduation) |
+| Trade history | Ponder (`routerTrades` GraphQL) | — |
+| Holders | On-chain RPC (`balanceOf` multicall) | — |
+| Asset prices | Hyperliquid API | — |
+
+---
+
 ## BounceTech LT Integration
 
 External dependency. BounceTech Leveraged Tokens are the reserve asset in every bonding curve.

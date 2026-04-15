@@ -8,11 +8,16 @@ import type { Asset, PairFilter, PlatformStats } from "./types";
 
 const TRACKED_ASSETS = ["HYPE", "ETH", "SOL", "BTC"] as const;
 
-function formatPrice(usd: number): string {
+export function formatPrice(usd: number): string {
   if (usd >= 10_000) return `$${Math.round(usd).toLocaleString()}`;
   if (usd >= 100) return `$${usd.toFixed(0)}`;
   if (usd >= 1) return `$${usd.toFixed(2)}`;
   return `$${usd.toFixed(4)}`;
+}
+
+export function computeChange24h(openPrice: number, currentPrice: number): number | undefined {
+  if (openPrice <= 0) return undefined;
+  return parseFloat((((currentPrice - openPrice) / openPrice) * 100).toFixed(2));
 }
 
 let cachedMids: Record<string, string> | null = null;
@@ -33,7 +38,14 @@ async function fetchMids(): Promise<Record<string, string>> {
   return data;
 }
 
-type CandleRow = [number, string, string, string, string, string];
+interface CandleObject {
+  t: number;
+  o: string;
+  c: string;
+  h: string;
+  l: string;
+  v: string;
+}
 
 let cached24hPrices: { data: Record<string, number>; ts: number } | null = null;
 const CHANGE_CACHE_TTL = 60_000;
@@ -60,14 +72,13 @@ async function fetch24hChanges(
           req: { coin, interval: "1d", startTime: dayAgo, endTime: now },
         }),
       });
-      const candles = (await res.json()) as CandleRow[];
+      const candles = (await res.json()) as CandleObject[];
       if (candles.length > 0) {
-        const openPrice = parseFloat(candles[0][1]);
+        const openPrice = parseFloat(candles[0].o);
         const currentPrice = parseFloat(currentMids[coin] ?? "0");
-        if (openPrice > 0) {
-          changes[coin] = parseFloat(
-            (((currentPrice - openPrice) / openPrice) * 100).toFixed(2),
-          );
+        const change = computeChange24h(openPrice, currentPrice);
+        if (change != null) {
+          changes[coin] = change;
         }
       }
     } catch {

@@ -4,10 +4,11 @@ import {
   buildTokenCreationMessage,
   findLT,
 } from "@launchpad/shared";
-import { getAddress, maxUint256, parseEventLogs, parseUnits } from "viem";
-import { usePublicClient, useWalletClient } from "wagmi";
+import { createPublicClient, getAddress, http, maxUint256, parseEventLogs, parseUnits } from "viem";
 
+import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
+import { hyperEVM } from "../config/chains";
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { createTokenApi, fetchLeveragedTokens, uploadImage } from "../services/api";
@@ -16,14 +17,19 @@ import { getErrorMessage } from "../utils/format";
 import type { LaunchStep } from "../services/tradeRouter";
 import type { CreateTokenParams } from "../services/types";
 
+const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const hyperEvmClient = createPublicClient({
+  chain: hyperEVM,
+  transport: http(rpcUrl),
+});
+
 async function fetchLTs() {
   return fetchLeveragedTokens();
 }
 
 export function useCreateToken() {
   const { address, isConnected } = useWallet();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const walletClient = usePrivyWalletClient();
   const [step, setStep] = useState<LaunchStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -31,7 +37,7 @@ export function useCreateToken() {
 
   const create = useCallback(
     async (params: CreateTokenParams) => {
-      if (!isConnected || !address || !walletClient || !publicClient) {
+      if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
       }
@@ -55,7 +61,7 @@ export function useCreateToken() {
             params.seedBuyUsd.toString(),
             USDC_DECIMALS,
           );
-          const allowance = (await publicClient.readContract({
+          const allowance = (await hyperEvmClient.readContract({
             address: ADDRESSES.usdc,
             abi: erc20Abi,
             functionName: "allowance",
@@ -69,7 +75,7 @@ export function useCreateToken() {
               functionName: "approve",
               args: [ADDRESSES.redemptionRouter, maxUint256],
             });
-            await publicClient.waitForTransactionReceipt({ hash: approveTx });
+            await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
           }
         }
 
@@ -95,16 +101,30 @@ export function useCreateToken() {
           ? parseUnits(params.seedBuyUsd.toString(), USDC_DECIMALS)
           : 0n;
 
+        const gasEstimate = await hyperEvmClient.estimateContractGas({
+          address: ADDRESSES.redemptionRouter,
+          abi: RedemptionRouterAbi,
+          functionName: "createToken",
+          args: [launchParams, seedUsdcAmount],
+          account: address,
+        });
+        const gasLimit = (gasEstimate * 130n) / 100n;
+
         const tx = await walletClient.writeContract({
           address: ADDRESSES.redemptionRouter,
           abi: RedemptionRouterAbi,
           functionName: "createToken",
           args: [launchParams, seedUsdcAmount],
+          gas: gasLimit,
         });
 
-        const receipt = await publicClient.waitForTransactionReceipt({
+        const receipt = await hyperEvmClient.waitForTransactionReceipt({
           hash: tx,
         });
+
+        if (receipt.status === "reverted") {
+          throw new Error("Token creation transaction reverted on-chain");
+        }
 
         const tokenCreatedEvents = parseEventLogs({
           abi: RedemptionRouterAbi,
@@ -118,13 +138,18 @@ export function useCreateToken() {
 
         const warnings: string[] = [];
 
+        if (newTokenAddr) {
+          setTokenAddress(newTokenAddr);
+        }
+
         let imageUrl = "";
         if (params.imageFile) {
           try {
             const uploaded = await uploadImage(params.imageFile);
             imageUrl = uploaded.url;
-          } catch {
-            warnings.push("Image upload failed — your token was created but has no image.");
+          } catch (uploadErr) {
+            const detail = uploadErr instanceof Error ? uploadErr.message : "unknown error";
+            warnings.push(`Image upload failed (${detail}) — your token was created but has no image.`);
           }
         }
 
@@ -139,9 +164,10 @@ export function useCreateToken() {
               ticker: params.ticker,
               description: params.description ?? "",
               imageUrl,
-              ltPair: lt.symbol,
+              ltPair: lt.address,
               ltDirection: ltDir,
               leverage: params.leverage,
+              underlying: params.underlying,
               twitterUrl: socials[0] ?? "",
               telegramUrl: socials[1] ?? "",
               websiteUrl: socials[2] ?? "",
@@ -153,7 +179,6 @@ export function useCreateToken() {
           } catch {
             warnings.push("Token metadata registration failed — your token was created on-chain but metadata (image, description, social links) was not saved. Visit your token page to retry.");
           }
-          setTokenAddress(newTokenAddr);
         }
 
         if (warnings.length > 0) {
@@ -165,7 +190,7 @@ export function useCreateToken() {
         setStep("error");
       }
     },
-    [isConnected, address, walletClient, publicClient],
+    [isConnected, address, walletClient],
   );
 
   const reset = useCallback(() => {

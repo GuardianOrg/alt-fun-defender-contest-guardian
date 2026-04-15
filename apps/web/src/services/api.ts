@@ -174,6 +174,7 @@ async function bounceTechFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return (await res.json()) as T;
 }
 
-export function fetchLeveragedTokens(): Promise<LiveLeveragedToken[]> {
-  return bounceTechFetch<LiveLeveragedToken[]>("/leveraged-tokens");
+export async function fetchLeveragedTokens(): Promise<LiveLeveragedToken[]> {
+  const res = await bounceTechFetch<{ data: LiveLeveragedToken[] }>("/leveraged-tokens");
+  return res.data;
 }

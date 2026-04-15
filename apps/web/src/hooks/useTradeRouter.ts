@@ -1,13 +1,20 @@
 import { useState, useCallback } from "react";
 
-import { isAddress, maxUint256, parseUnits } from "viem";
-import { usePublicClient, useWalletClient } from "wagmi";
+import { createPublicClient, http, isAddress, maxUint256, parseUnits } from "viem";
 
+import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
+import { hyperEVM } from "../config/chains";
 import { erc20Abi, RedemptionRouterAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { type TxStep } from "../services/tradeRouter";
 import { getErrorMessage } from "../utils/format";
+
+const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const hyperEvmClient = createPublicClient({
+  chain: hyperEVM,
+  transport: http(rpcUrl),
+});
 
 function slippageToBps(slippage: number): number {
   const clamped = Number.isFinite(slippage) ? Math.max(slippage, 0) : 0;
@@ -16,15 +23,14 @@ function slippageToBps(slippage: number): number {
 
 export function useTradeRouter() {
   const { address, isConnected } = useWallet();
-  const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const walletClient = usePrivyWalletClient();
   const [step, setStep] = useState<TxStep>("idle");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const executeBuy = useCallback(
     async (tokenAddress: string, usdcAmount: number, slippage: number, referrer?: string) => {
-      if (!isConnected || !address || !walletClient || !publicClient) {
+      if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
       }
@@ -36,7 +42,7 @@ export function useTradeRouter() {
         const usdcAmountWei = parseUnits(usdcAmount.toString(), USDC_DECIMALS);
         const routerAddr = ADDRESSES.redemptionRouter;
 
-        const allowance = await publicClient.readContract({
+        const allowance = await hyperEvmClient.readContract({
           address: ADDRESSES.usdc,
           abi: erc20Abi,
           functionName: "allowance",
@@ -50,7 +56,7 @@ export function useTradeRouter() {
             functionName: "approve",
             args: [routerAddr, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+          await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
         }
 
         setStep("executing");
@@ -61,7 +67,7 @@ export function useTradeRouter() {
 
         const slippageBps = slippageToBps(slippage);
         const { result: quotedTokensOut } =
-          await publicClient.simulateContract({
+          await hyperEvmClient.simulateContract({
             address: routerAddr,
             abi: RedemptionRouterAbi,
             functionName: "buy",
@@ -91,7 +97,7 @@ export function useTradeRouter() {
           ],
         });
 
-        await publicClient.waitForTransactionReceipt({ hash: buyTx });
+        await hyperEvmClient.waitForTransactionReceipt({ hash: buyTx });
         setTxHash(buyTx);
         setStep("confirmed");
       } catch (e) {
@@ -99,12 +105,12 @@ export function useTradeRouter() {
         setStep("error");
       }
     },
-    [isConnected, address, walletClient, publicClient],
+    [isConnected, address, walletClient],
   );
 
   const executeSell = useCallback(
     async (tokenAddress: string, tokenAmount: bigint, slippage: number) => {
-      if (!isConnected || !address || !walletClient || !publicClient) {
+      if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
       }
@@ -115,7 +121,7 @@ export function useTradeRouter() {
 
         const routerAddr = ADDRESSES.redemptionRouter;
 
-        const allowance = await publicClient.readContract({
+        const allowance = await hyperEvmClient.readContract({
           address: tokenAddress as `0x${string}`,
           abi: erc20Abi,
           functionName: "allowance",
@@ -129,7 +135,7 @@ export function useTradeRouter() {
             functionName: "approve",
             args: [routerAddr, maxUint256],
           });
-          await publicClient.waitForTransactionReceipt({ hash: approveTx });
+          await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
         }
 
         setStep("executing");
@@ -137,7 +143,7 @@ export function useTradeRouter() {
         const deadline = BigInt(Math.floor(Date.now() / 1000) + 300);
 
         const slippageBps = slippageToBps(slippage);
-        const { result: quotedUsdcOut } = await publicClient.simulateContract({
+        const { result: quotedUsdcOut } = await hyperEvmClient.simulateContract({
           address: routerAddr,
           abi: RedemptionRouterAbi,
           functionName: "sell",
@@ -164,7 +170,7 @@ export function useTradeRouter() {
           ],
         });
 
-        await publicClient.waitForTransactionReceipt({ hash: sellTx });
+        await hyperEvmClient.waitForTransactionReceipt({ hash: sellTx });
         setTxHash(sellTx);
         setStep("confirmed");
       } catch (e) {
@@ -172,7 +178,7 @@ export function useTradeRouter() {
         setStep("error");
       }
     },
-    [isConnected, address, walletClient, publicClient],
+    [isConnected, address, walletClient],
   );
 
   const reset = useCallback(() => {
