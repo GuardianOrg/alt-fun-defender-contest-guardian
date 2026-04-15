@@ -56,7 +56,11 @@ export function useChart({
         horzLine: { color: rgba(COLORS.mint, 0.25) },
       },
       rightPriceScale: { borderColor: rgba(COLORS.mint, 0.1) },
-      timeScale: { borderColor: rgba(COLORS.mint, 0.1) },
+      timeScale: {
+        borderColor: rgba(COLORS.mint, 0.1),
+        timeVisible: true,
+        secondsVisible: false,
+      },
     });
 
     chartRef.current = chart;
