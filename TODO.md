@@ -37,3 +37,7 @@ Change sell button options to percentages, 10, 25, 50, 75, 100
 Add transaction status popup thing like Pump fun has
 
 We don't want to sign for comments
+
+For the amounts where we show the token amounts, we should abbreviate like 10k 1m etc. This is for trades tab, and anywhere else
+
+And should add time for the trades, like 1s ago or whatever

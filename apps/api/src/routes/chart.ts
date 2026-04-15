@@ -65,15 +65,20 @@ interface LtSnapshotRow {
 }
 
 const CURVE_SUPPLY_INITIAL = 750_000_000n * 10n ** 18n;
+const RATIO_PRECISION = 10n ** 18n;
+
+function bigintRatio(numerator: bigint, denominator: bigint): number {
+  if (denominator === 0n) return 0;
+  return Number((numerator * RATIO_PRECISION) / denominator) / 1e18;
+}
 
 function buildRatioTimeline(
   k: bigint,
   launchTimestamp: number,
   trades: PonderBondingTrade[],
 ): RatioSnapshot[] {
-  const initialLtReserve = (k * 10n ** 18n) / CURVE_SUPPLY_INITIAL;
-  const initialRatio =
-    Number(initialLtReserve) / Number(CURVE_SUPPLY_INITIAL);
+  const initialLtReserve = (k * RATIO_PRECISION) / CURVE_SUPPLY_INITIAL;
+  const initialRatio = bigintRatio(initialLtReserve, CURVE_SUPPLY_INITIAL);
 
   const snapshots: RatioSnapshot[] = [
     { timestamp: launchTimestamp, ratio: initialRatio },
@@ -86,26 +91,11 @@ function buildRatioTimeline(
 
     snapshots.push({
       timestamp: Number(t.timestamp),
-      ratio: Number(ltReserve) / Number(curveSupply),
+      ratio: bigintRatio(ltReserve, curveSupply),
     });
   }
 
   return snapshots;
-}
-
-function findRatioAtTime(
-  snapshots: RatioSnapshot[],
-  timestampSec: number,
-): number | null {
-  let best: RatioSnapshot | null = null;
-  for (const s of snapshots) {
-    if (s.timestamp <= timestampSec) {
-      best = s;
-    } else {
-      break;
-    }
-  }
-  return best?.ratio ?? null;
 }
 
 function buildCandles(
@@ -182,6 +172,10 @@ chart.get("/:address", async (c) => {
     .limit(1);
 
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const healthCheck = await queryPonder<{ __typename: string }>("{ __typename }");
+  if (healthCheck === null) {
+    return c.json(formatError("Indexer unavailable — chart data cannot be loaded"), 503);
+  }
 
   const ponderToken = await queryPonder<{ token: PonderTokenInfo | null }>(
     `query ($address: String!) {
@@ -215,6 +209,10 @@ chart.get("/:address", async (c) => {
   const fromSec = nowSec - windowSec;
 
   const checksummedLt = getAddress(ltAddress);
+
+  if (!c.env.BOUNCETECH_DATABASE_URL) {
+    return c.json(formatError("BOUNCETECH_DATABASE_URL is not configured"), 500);
+  }
   const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
 
   const [ltRows, tradesResult] = await Promise.all([
@@ -265,6 +263,13 @@ chart.get("/:address", async (c) => {
     return c.json(formatSuccess([]));
   }
 
+  if (tradesResult.truncated) {
+    return c.json(
+      formatError("Trade history too large to build accurate chart"),
+      503,
+    );
+  }
+
   const trades = tradesResult.items;
   const ratioTimeline =
     k && k > 0n
@@ -278,14 +283,22 @@ chart.get("/:address", async (c) => {
   }
 
   const rawPrices: { ts: number; price: number }[] = [];
+  let ratioIdx = 0;
 
   for (const row of ltRows) {
     const ts = Number(row.ts);
-    const exchangeRate = Number(row.exchange_rate) / 1e18;
-    const ratio = findRatioAtTime(ratioTimeline, ts);
-    if (ratio === null) continue;
 
-    rawPrices.push({ ts, price: ratio * exchangeRate });
+    while (
+      ratioIdx + 1 < ratioTimeline.length &&
+      ratioTimeline[ratioIdx + 1].timestamp <= ts
+    ) {
+      ratioIdx++;
+    }
+
+    if (ratioTimeline[ratioIdx].timestamp > ts) continue;
+
+    const exchangeRate = Number(row.exchange_rate) / 1e18;
+    rawPrices.push({ ts, price: ratioTimeline[ratioIdx].ratio * exchangeRate });
   }
 
   const candles = buildCandles(rawPrices, candleSec);
