@@ -21,10 +21,10 @@ function useMcapSortedTokens(
     if (!tokens) return tokens;
     if (filter !== "trending" && filter !== undefined) return tokens;
 
-    const mcapOf = (t: Token): number => {
-      const live = prices[t.address.toLowerCase()]?.mcapUsd;
-      return typeof live === "number" && live > 0 ? live : t.mcapUsd;
-    };
+    // Tokens with no live price (indexer lag, missing LT rate, etc.) sort to
+    // the bottom rather than being treated as $0 mcap of equal rank.
+    const mcapOf = (t: Token): number =>
+      prices[t.address.toLowerCase()]?.mcapUsd ?? 0;
 
     const graduated = tokens.filter((t) => t.status === "graduated");
     const active = tokens.filter((t) => t.status !== "graduated");

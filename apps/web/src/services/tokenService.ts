@@ -55,8 +55,6 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     underlying: deriveUnderlying(api),
     leverage: api.leverage as Token["leverage"],
     ltName: ltDisplayName(api),
-    mcapUsd: 0,
-    change24h: 0,
     buyMomentum: 0,
     leverageBoost: 0,
     curveFilled: Math.min(curveFilled, 100),
@@ -84,18 +82,15 @@ export interface ITokenService {
 }
 
 /**
- * Filter and sort tokens. Sorting by market cap (`trending`) is intentionally
- * left to the consumer because live mcap lives in hooks, not on the Token
- * object directly.
+ * Filter tokens. Note: the `trending` mcap-based ordering is NOT applied here
+ * because live market cap isn't on `Token` — it's composed in
+ * `useMcapSortedTokens` from live LT prices. This function only applies
+ * filters that can be computed from static token state.
  */
 export function applyFilter(
   tokens: Token[],
   filter: TokenFilter | undefined,
-  getMcap?: (address: string) => number,
 ): Token[] {
-  const mcapOf = (t: Token) =>
-    getMcap ? getMcap(t.address) : t.mcapUsd;
-
   switch (filter) {
     case "graduating":
       return tokens.filter((t) => t.status === "graduating");
@@ -111,15 +106,9 @@ export function applyFilter(
         .filter((t) => t.leverageBoost > 0)
         .sort((a, b) => b.leverageBoost - a.leverageBoost);
     case "all":
-      return tokens;
     case "trending":
-    default: {
-      const graduated = tokens.filter((t) => t.status === "graduated");
-      const active = tokens.filter((t) => t.status !== "graduated");
-      active.sort((a, b) => mcapOf(b) - mcapOf(a));
-      const king = graduated.sort((a, b) => mcapOf(b) - mcapOf(a))[0];
-      return king ? [king, ...active] : active;
-    }
+    default:
+      return tokens;
   }
 }
 

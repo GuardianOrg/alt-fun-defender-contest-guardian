@@ -16,8 +16,10 @@ export interface Token {
   underlying: UnderlyingAsset;
   leverage: Leverage;
   ltName: string;
-  mcapUsd: number;
-  change24h: number;
+  // NOTE: live market cap and 24h change are intentionally NOT on `Token`.
+  // They depend on live LT rates that aren't part of the on-chain/DB token
+  // identity. Consume them via `useTokenMarketStats` / `useTokenMarketStatsMap`,
+  // which surface proper loading/error state so "unknown" never renders as 0.
   buyMomentum: number;
   leverageBoost: number;
   curveFilled: number;

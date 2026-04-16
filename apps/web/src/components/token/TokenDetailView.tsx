@@ -31,12 +31,13 @@ export default function TokenDetailView() {
     );
   }
 
-  const buyW = Math.round(
-    token.curveFilled -
-      (token.leverageBoost > 0 && token.change24h !== 0
-        ? (token.leverageBoost / token.change24h) * token.curveFilled
-        : 0),
-  );
+  // Progress bar split between "bought" progress and "leverage-driven" progress.
+  // TODO: once `leverageBoost` is populated from on-chain data (currently always
+  // 0), restore the (leverageBoost / change24h) × curveFilled apportionment,
+  // pulling change24h from `useTokenMarketStats` so "unknown" doesn't render
+  // as 0. For now the whole bar is buy-driven — matches the old silent-zero
+  // behaviour without misusing `Token.change24h`.
+  const buyW = Math.round(token.curveFilled);
   const levW = token.curveFilled - buyW;
 
   return (
