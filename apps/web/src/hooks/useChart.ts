@@ -8,6 +8,7 @@ import {
 } from "lightweight-charts";
 
 import { COLORS, rgba } from "../config/colors";
+import { formatUsd } from "../utils/format";
 
 import type { ChartTimeframe } from "../services/api";
 import type {
@@ -27,14 +28,6 @@ interface UseChartOptions {
   candles: CandlestickData[];
   timeframe: ChartTimeframe;
   loading: boolean;
-}
-
-function precisionForPrice(value: number): number {
-  if (value === 0) return 2;
-  const abs = Math.abs(value);
-  if (abs >= 1) return 2;
-  const leading = -Math.floor(Math.log10(abs));
-  return Math.min(leading + 3, 14);
 }
 
 export function useChart({
@@ -109,16 +102,11 @@ export function useChart({
       return;
     }
 
-    const representative = candles.length > 0 ? candles[0].close : 0;
-    const minMove = representative > 0
-      ? Math.pow(10, -precisionForPrice(representative))
-      : 0.01;
-
     seriesRef.current.applyOptions({
       priceFormat: {
-        type: "price",
-        precision: precisionForPrice(representative),
-        minMove,
+        type: "custom",
+        formatter: formatUsd,
+        minMove: 0.01,
       },
     });
 
