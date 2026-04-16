@@ -34,7 +34,7 @@ export function ponderTradeToTrade(pt: PonderTradeInput, exchangeRate: number): 
     id: pt.id,
     side: pt.isBuy ? "BUY" : "SELL",
     amountUsd: ltAmountFloat * exchangeRate,
-    tokensAmount: formatUnits(BigInt(pt.tokenAmount), 18),
+    tokensAmount: formatTokenBalance(pt.tokenAmount),
     walletAddress: `${pt.trader.slice(0, 4)}…${pt.trader.slice(-2)}`,
     timestamp: new Date(Number(pt.timestamp) * 1000).toISOString(),
     tokenAddress: pt.tokenAddress,
