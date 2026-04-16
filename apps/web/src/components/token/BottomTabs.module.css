@@ -150,6 +150,10 @@
   font-size: 11px;
   font-family: var(--font-mono);
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   transition:
     color 0.15s ease,
     background-color 0.15s ease,
@@ -158,6 +162,15 @@
 
 .txnLink:hover {
   color: var(--mint);
+}
+
+.externalIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.txnLink:hover .externalIcon {
+  opacity: 1;
 }
 
 .commentsWrap {

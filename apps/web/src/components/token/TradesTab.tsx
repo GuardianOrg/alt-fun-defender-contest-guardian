@@ -1,8 +1,13 @@
 import styles from "./BottomTabs.module.css";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
-import { cn, formatTimeAgo } from "../../utils/format";
+import { cn, formatTimeAgo, shortenAddress } from "../../utils/format";
 
 import type { Token } from "../../services/types";
+
+function extractTxHash(tradeId: string): string {
+  const dashIdx = tradeId.lastIndexOf("-");
+  return dashIdx > 0 ? tradeId.slice(0, dashIdx) : tradeId;
+}
 
 export default function TradesTab({ token }: { token: Token }) {
   const trades = useTokenTrades(token.address);
@@ -22,7 +27,7 @@ export default function TradesTab({ token }: { token: Token }) {
       </thead>
       <tbody>
         {trades.map((t) => {
-          const mockTxn = t.id.slice(0, 6);
+          const txHash = extractTxHash(t.id);
           const isBuy = t.side === "BUY";
           return (
             <tr key={t.id} className={styles.tradeRow}>
@@ -53,7 +58,29 @@ export default function TradesTab({ token }: { token: Token }) {
               </td>
               <td className={styles.tdTime}>{formatTimeAgo(t.timestamp)}</td>
               <td className={styles.tdTxn}>
-                <span className={styles.txnLink}>{mockTxn}</span>
+                <a
+                  className={styles.txnLink}
+                  href={`https://hyperevmscan.io/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {shortenAddress(txHash)}
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className={styles.externalIcon}
+                  >
+                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </a>
               </td>
             </tr>
           );
