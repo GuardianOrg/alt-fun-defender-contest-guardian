@@ -8,6 +8,7 @@ import {
 } from "lightweight-charts";
 
 import { COLORS, rgba } from "../config/colors";
+import { formatUsd } from "../utils/format";
 
 import type { ChartTimeframe } from "../services/api";
 import type {
@@ -27,12 +28,6 @@ interface UseChartOptions {
   candles: CandlestickData[];
   timeframe: ChartTimeframe;
   loading: boolean;
-}
-
-function formatMarketCap(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
-  return `$${value.toFixed(2)}`;
 }
 
 export function useChart({
@@ -110,8 +105,8 @@ export function useChart({
     seriesRef.current.applyOptions({
       priceFormat: {
         type: "custom",
-        formatter: formatMarketCap,
-        minMove: 1,
+        formatter: formatUsd,
+        minMove: 0.01,
       },
     });
 
