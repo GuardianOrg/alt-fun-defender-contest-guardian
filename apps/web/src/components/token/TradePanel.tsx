@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-import { MIN_USDC_AMOUNT } from "@launchpad/shared";
+import { MIN_USDC_BUY_AMOUNT, MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http, parseUnits } from "viem";
 import { useAccount } from "wagmi";
 
@@ -55,8 +55,8 @@ export default function TradePanel({ token }: Props) {
     ? amtNum
     : (sellQuote ? sellQuote.usdcOut : 0);
 
-  const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_AMOUNT;
-  const sellBelowMinimum = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.usdcOut < MIN_USDC_AMOUNT;
+  const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_BUY_AMOUNT;
+  const sellBelowMinimum = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.usdcOut < MIN_USDC_SELL_AMOUNT;
   const sellExceedsBuffer = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.exceedsBuffer;
 
   useEffect(() => {
@@ -146,7 +146,8 @@ export default function TradePanel({ token }: Props) {
 
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
-    if (belowMinimum || sellBelowMinimum) return `MINIMUM $${MIN_USDC_AMOUNT} USDC`;
+    if (belowMinimum) return `MINIMUM $${MIN_USDC_BUY_AMOUNT} USDC`;
+    if (sellBelowMinimum) return `MINIMUM $${MIN_USDC_SELL_AMOUNT} USDC`;
     if (sellExceedsBuffer) return "EXCEEDS AVAILABLE LIQUIDITY";
     if (step === "approving") return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
@@ -260,10 +261,17 @@ export default function TradePanel({ token }: Props) {
           <TradePanelBufferWarning sellQuote={sellQuote} ticker={ticker} />
         )}
 
-        {(belowMinimum || sellBelowMinimum) && (
+        {belowMinimum && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
-            Minimum trade is ${MIN_USDC_AMOUNT} USDC
+            Minimum buy is ${MIN_USDC_BUY_AMOUNT} USDC
+          </div>
+        )}
+
+        {sellBelowMinimum && (
+          <div className={styles.errorBox}>
+            <span className={styles.errorIcon}>⚠</span>
+            Minimum sell is ${MIN_USDC_SELL_AMOUNT} USDC
           </div>
         )}
 

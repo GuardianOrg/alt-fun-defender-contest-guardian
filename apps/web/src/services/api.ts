@@ -159,6 +159,22 @@ export function fetchMarketData(): Promise<MarketDataMap> {
   return apiFetch("/api/v1/market-data");
 }
 
+export interface ApiBalance {
+  address: string;
+  name: string;
+  ticker: string;
+  imageUrl: string;
+  ltPair: string;
+  leverage: number;
+  underlying: string;
+  ltDirection: string;
+  balance: string;
+}
+
+export function fetchBalances(wallet: string): Promise<ApiBalance[]> {
+  return apiFetch(`/api/v1/balances/${wallet}`);
+}
+
 export function fetchSparkline(
   address: string,
   points = 20,

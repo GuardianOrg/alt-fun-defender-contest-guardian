@@ -1,5 +1,7 @@
 import { ponder } from "ponder:registry";
-import { token, trade, routerTrade, graduation, referral, feeClaim } from "ponder:schema";
+import { token, trade, routerTrade, graduation, referral, feeClaim, tokenBalance } from "ponder:schema";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;
@@ -162,4 +164,33 @@ ponder.on("LaunchpadRouter:Referred", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoNothing();
+});
+
+ponder.on("FERC20Token:Transfer", async ({ event, context }) => {
+  const { db } = context;
+  const tokenAddr = event.log.address;
+  const from = event.args.from;
+  const to = event.args.to;
+  const value = event.args.value;
+
+  if (from !== ZERO_ADDRESS) {
+    const id = `${from}-${tokenAddr}`;
+    const existing = await db.find(tokenBalance, { id });
+    const prev = existing?.balance ?? 0n;
+    const balance = prev >= value ? prev - value : 0n;
+    await db
+      .insert(tokenBalance)
+      .values({ id, wallet: from, tokenAddress: tokenAddr, balance })
+      .onConflictDoUpdate({ balance });
+  }
+
+  if (to !== ZERO_ADDRESS) {
+    const id = `${to}-${tokenAddr}`;
+    const existing = await db.find(tokenBalance, { id });
+    const prev = existing?.balance ?? 0n;
+    await db
+      .insert(tokenBalance)
+      .values({ id, wallet: to, tokenAddress: tokenAddr, balance: prev + value })
+      .onConflictDoUpdate({ balance: prev + value });
+  }
 });

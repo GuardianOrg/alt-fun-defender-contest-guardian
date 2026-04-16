@@ -1,3 +1,5 @@
+import { MIN_USDC_BUY_AMOUNT, MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
+
 import type { Leverage } from "../config/constants";
 import type { Direction } from "../services/types";
 
@@ -45,7 +47,7 @@ export function getErrorMessage(e: unknown): string {
     return "Sell exceeds available liquidity. Try a smaller amount — buffer replenishes in ~10s.";
   }
   if (raw.includes("0x05eb05ac")) {
-    return "Amount below minimum ($20 USDC).";
+    return `Amount below minimum ($${MIN_USDC_BUY_AMOUNT} buy / $${MIN_USDC_SELL_AMOUNT} sell).`;
   }
   if (lower.includes("wallet timeout") || lower.includes("request timeout")) {
     return "Wallet timed out — please try again. If using a mobile wallet, make sure the app is open.";
