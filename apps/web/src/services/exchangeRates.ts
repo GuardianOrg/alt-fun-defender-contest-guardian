@@ -29,6 +29,8 @@ export async function getLtExchangeRates(): Promise<Map<string, number>> {
 
 // tokenAddress → ltAddress (lowercase)
 const tokenLtMap = new Map<string, string>();
+// tokenAddress → display name
+const tokenNameMap = new Map<string, string>();
 
 async function getLtAddressForToken(tokenAddress: string): Promise<string | undefined> {
   const key = tokenAddress.toLowerCase();
@@ -39,18 +41,27 @@ async function getLtAddressForToken(tokenAddress: string): Promise<string | unde
   if (token) {
     const ltAddr = token.ltToken.toLowerCase();
     tokenLtMap.set(key, ltAddr);
+    tokenNameMap.set(key, token.symbol || token.name);
     return ltAddr;
   }
   return undefined;
 }
 
+export function resolveTokenName(tokenAddress: string): string {
+  return tokenNameMap.get(tokenAddress.toLowerCase()) ?? "";
+}
+
 export async function resolveExchangeRate(tokenAddress: string): Promise<number> {
-  const [rates, ltAddr] = await Promise.all([
-    getLtExchangeRates(),
-    getLtAddressForToken(tokenAddress),
-  ]);
-  if (ltAddr) {
-    return rates.get(ltAddr) ?? 1;
+  try {
+    const [rates, ltAddr] = await Promise.all([
+      getLtExchangeRates(),
+      getLtAddressForToken(tokenAddress),
+    ]);
+    if (ltAddr) {
+      return rates.get(ltAddr) ?? 1;
+    }
+  } catch {
+    // BounceTech or Ponder unavailable — fall back to 1:1 rate
   }
   return 1;
 }

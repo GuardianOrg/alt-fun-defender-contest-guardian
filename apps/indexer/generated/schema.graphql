@@ -38,6 +38,8 @@ type Query {
   swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): swapPage!
   pairReserve(pairAddress: String!): pairReserve
   pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): pairReservePage!
+  tokenBalance(id: String!): tokenBalance
+  tokenBalances(where: tokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenBalancePage!
   _meta: Meta
 }
 
@@ -814,4 +816,66 @@ input pairReserveFilter {
   timestamp_lt: BigInt
   timestamp_gte: BigInt
   timestamp_lte: BigInt
+}
+
+type tokenBalance {
+  id: String!
+  wallet: String!
+  tokenAddress: String!
+  balance: BigInt!
+}
+
+type tokenBalancePage {
+  items: [tokenBalance!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input tokenBalanceFilter {
+  AND: [tokenBalanceFilter]
+  OR: [tokenBalanceFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  wallet: String
+  wallet_not: String
+  wallet_in: [String]
+  wallet_not_in: [String]
+  wallet_contains: String
+  wallet_not_contains: String
+  wallet_starts_with: String
+  wallet_ends_with: String
+  wallet_not_starts_with: String
+  wallet_not_ends_with: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  balance: BigInt
+  balance_not: BigInt
+  balance_in: [BigInt]
+  balance_not_in: [BigInt]
+  balance_gt: BigInt
+  balance_lt: BigInt
+  balance_gte: BigInt
+  balance_lte: BigInt
 }

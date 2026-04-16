@@ -1,4 +1,4 @@
-import { resolveExchangeRate } from "./exchangeRates";
+import { resolveExchangeRate, resolveTokenName } from "./exchangeRates";
 import { fetchPonderTrades } from "./ponder";
 import { ponderTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
@@ -42,12 +42,14 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       for (let i = trades.length - 1; i >= 0; i--) {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
-        cb(ponderTradeToTrade(t, rateMap.get(t.tokenAddress) ?? 1));
+        const mapped = ponderTradeToTrade(t, rateMap.get(t.tokenAddress) ?? 1);
+        mapped.tokenName = resolveTokenName(t.tokenAddress);
+        cb(mapped);
       }
       seenIds.clear();
       for (const id of batchIds) seenIds.add(id);
-    } catch {
-      // No data available
+    } catch (err) {
+      console.warn("[tradeFeed] poll failed:", err);
     } finally {
       polling = false;
     }
@@ -105,12 +107,14 @@ export function subscribeTokenTrades(
       for (let i = trades.length - 1; i >= 0; i--) {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
-        cb(ponderTradeToTrade(t, exchangeRate));
+        const mapped = ponderTradeToTrade(t, exchangeRate);
+        mapped.tokenName = resolveTokenName(t.tokenAddress);
+        cb(mapped);
       }
       seenIds.clear();
       for (const id of batchIds) seenIds.add(id);
-    } catch {
-      // No data available
+    } catch (err) {
+      console.warn("[tradeFeed] token poll failed:", err);
     } finally {
       polling = false;
     }
