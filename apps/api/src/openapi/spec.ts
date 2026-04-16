@@ -395,7 +395,7 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
       post: {
         tags: ["Comments"],
         summary: "Post a comment",
-        description: "Post a comment on a token. Requires wallet signature. Rate limited to 1 comment per 30s per wallet per token.",
+        description: "Post a comment on a token. Requires a session signature (see `buildSessionMessage`). Rate limited to 1 comment per 3s per wallet per token.",
         parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
         requestBody: {
           required: true,
@@ -403,12 +403,12 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
             "application/json": {
               schema: {
                 type: "object",
-                required: ["author", "content", "signature", "timestamp"],
+                required: ["author", "content", "signature", "expiresAt"],
                 properties: {
                   author: { type: "string", description: "Author wallet address" },
                   content: { type: "string", minLength: 1, maxLength: 500 },
-                  signature: { type: "string", description: "EIP-191 signature" },
-                  timestamp: { type: "number", description: "Unix timestamp in milliseconds (must be within 5 minutes)" },
+                  signature: { type: "string", description: "EIP-191 signature of the session message" },
+                  expiresAt: { type: "number", description: "Session expiry timestamp in milliseconds since epoch" },
                 },
               },
             },

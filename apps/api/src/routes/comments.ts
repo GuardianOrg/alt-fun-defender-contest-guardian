@@ -18,7 +18,7 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
   return Number.parseInt(value, 10);
 }
 
-const COMMENT_RATE_LIMIT_MS = 30_000;
+const COMMENT_RATE_LIMIT_MS = 3_000;
 const commentRateLimit = new Map<string, number>();
 
 const createCommentSchema = z.object({
@@ -96,7 +96,7 @@ commentsRoute.post(
     const lastCommentAt = commentRateLimit.get(rateLimitKey);
     if (lastCommentAt !== undefined && Date.now() - lastCommentAt < COMMENT_RATE_LIMIT_MS) {
       return c.json(
-        formatError("Rate limit exceeded: 1 comment per 30s per wallet per token"),
+        formatError("Rate limit exceeded: 1 comment per 3s per wallet per token"),
         429,
       );
     }

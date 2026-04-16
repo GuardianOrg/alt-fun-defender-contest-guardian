@@ -61,10 +61,10 @@ export default function CommentsTab({ token }: { token: Token }) {
       ]);
       setInput("");
     } catch (err: unknown) {
-      const message =
-        err instanceof Error && err.message.includes("rate")
-          ? "Rate limited, try again in 30 seconds."
-          : "Failed to post comment. Please try again.";
+      const apiMessage = err instanceof Error ? err.message : "";
+      const message = /rate limit/i.test(apiMessage)
+        ? "Too fast — wait a few seconds and try again."
+        : apiMessage || "Failed to post comment. Please try again.";
       setPostError(message);
     } finally {
       setPosting(false);
