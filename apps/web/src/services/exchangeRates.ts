@@ -48,20 +48,23 @@ async function getLtAddressForToken(tokenAddress: string): Promise<string | unde
 }
 
 export function resolveTokenName(tokenAddress: string): string {
-  return tokenNameMap.get(tokenAddress.toLowerCase()) ?? "";
+  return tokenNameMap.get(tokenAddress.toLowerCase())
+    || `${tokenAddress.slice(0, 6)}…${tokenAddress.slice(-4)}`;
 }
 
 export async function resolveExchangeRate(tokenAddress: string): Promise<number> {
+  const ratesPromise = getLtExchangeRates();
   try {
-    const [rates, ltAddr] = await Promise.all([
-      getLtExchangeRates(),
-      getLtAddressForToken(tokenAddress),
-    ]);
-    if (ltAddr) {
+    const ltAddr = await getLtAddressForToken(tokenAddress);
+    if (!ltAddr) return 1;
+    try {
+      const rates = await ratesPromise;
       return rates.get(ltAddr) ?? 1;
+    } catch {
+      // BounceTech unavailable — fall back to 1:1 rate
     }
   } catch {
-    // BounceTech or Ponder unavailable — fall back to 1:1 rate
+    // Ponder unavailable — fall back to 1:1 rate
   }
   return 1;
 }
