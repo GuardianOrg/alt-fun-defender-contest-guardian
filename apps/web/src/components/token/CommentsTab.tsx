@@ -1,9 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 
-import { buildCommentMessage } from "@launchpad/shared";
-
 import styles from "./BottomTabs.module.css";
-import { usePrivyWalletClient } from "../../hooks/usePrivyWalletClient";
+import { useSessionSignature } from "../../hooks/useSessionSignature";
 import { useWallet } from "../../hooks/useWallet";
 import { postComment as apiPostComment, fetchComments } from "../../services/api";
 import { tradeService } from "../../services/tradeService";
@@ -17,7 +15,7 @@ export default function CommentsTab({ token }: { token: Token }) {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const { address, isConnected, connect } = useWallet();
-  const walletClient = usePrivyWalletClient();
+  const { getSessionSignature } = useSessionSignature();
 
   useEffect(() => {
     fetchComments(token.address)
@@ -44,16 +42,12 @@ export default function CommentsTab({ token }: { token: Token }) {
       return;
     }
 
-    if (!walletClient) return;
-
     setPosting(true);
     setPostError(null);
     try {
-      const timestamp = Date.now();
-      const message = buildCommentMessage(token.address, txt, timestamp);
-      const signature = await walletClient.signMessage({ message });
+      const { signature, expiresAt } = await getSessionSignature();
 
-      const created = await apiPostComment(token.address, address, txt, signature, timestamp);
+      const created = await apiPostComment(token.address, address, txt, signature, expiresAt);
 
       setComments((prev) => [
         {
@@ -75,7 +69,7 @@ export default function CommentsTab({ token }: { token: Token }) {
     } finally {
       setPosting(false);
     }
-  }, [input, isConnected, address, walletClient, token.address, connect]);
+  }, [input, isConnected, address, getSessionSignature, token.address, connect]);
 
   return (
     <div className={styles.commentsWrap}>

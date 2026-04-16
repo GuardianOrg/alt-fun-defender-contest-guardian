@@ -1,3 +1,19 @@
+/** Session duration: 24 hours */
+export const SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Builds a session authentication message that the user signs once on login.
+ * The signature is persisted in localStorage and reused for actions like
+ * commenting and profile updates, avoiding repeated signing prompts.
+ */
+export function buildSessionMessage(address: string, expiresAt: number): string {
+  return [
+    "Sign in to Alt Fun",
+    `address:${address}`,
+    `expiresAt:${expiresAt}`,
+  ].join("\n");
+}
+
 export interface TokenCreationPayload {
   address: string;
   name: string;

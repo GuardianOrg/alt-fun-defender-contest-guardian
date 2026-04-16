@@ -4,6 +4,8 @@ import {
   buildTokenCreationMessage,
   buildCommentMessage,
   buildProfileUpdateMessage,
+  buildSessionMessage,
+  SESSION_DURATION_MS,
 } from "../signing.js";
 import type { TokenCreationPayload, ProfileUpdatePayload } from "../signing.js";
 
@@ -124,5 +126,36 @@ describe("buildProfileUpdateMessage", () => {
     expect(msg).toContain("displayName:");
     expect(msg).toContain("bio:");
     expect(msg).toContain("twitterUrl:");
+  });
+});
+
+describe("buildSessionMessage", () => {
+  const address = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B";
+  const expiresAt = 1700000000000;
+
+  it("starts with the domain separator", () => {
+    const msg = buildSessionMessage(address, expiresAt);
+    expect(msg.startsWith("Sign in to Alt Fun\n")).toBe(true);
+  });
+
+  it("includes address and expiresAt in correct order", () => {
+    const msg = buildSessionMessage(address, expiresAt);
+    const lines = msg.split("\n");
+    expect(lines).toEqual([
+      "Sign in to Alt Fun",
+      `address:${address}`,
+      `expiresAt:${expiresAt}`,
+    ]);
+  });
+
+  it("has exactly 3 lines", () => {
+    const msg = buildSessionMessage(address, expiresAt);
+    expect(msg.split("\n")).toHaveLength(3);
+  });
+});
+
+describe("SESSION_DURATION_MS", () => {
+  it("is 24 hours in milliseconds", () => {
+    expect(SESSION_DURATION_MS).toBe(24 * 60 * 60 * 1000);
   });
 });
