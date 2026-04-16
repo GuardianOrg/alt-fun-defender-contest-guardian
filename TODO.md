@@ -6,8 +6,6 @@ Single source of truth for open tasks. Remove items when completed. Add items wh
 
 - **Post-graduation chart pricing**: The chart currently uses bonding curve trades (Ponder `trade` table) to derive token/LT ratios. For graduated tokens trading on HyperSwap, swap events are not yet indexed. When HyperSwap `Swap`/`Sync` indexing is added, update `GET /api/v1/chart/:address` to incorporate post-grad DEX reserve changes for continuous pricing.
 
-Images only show on the domain they were uploaded on
-
 Should implement infinite scroll for tokens on home page
 
 Implement recent trades
@@ -36,7 +34,7 @@ For the amounts where we show the token amounts, we should abbreviate like 10k 1
 
 And should add time for the trades, like 1s ago or whatever
 
-Another nice to have on the UI to make it more dynamic is every couple of second (maybe 5) reordering the tokens displayed on the list. The whole thing by descending MC so they kind of compete for top spot and graduation
+Another nice to have on the UI to make it more dynamic is every couple of seconds (maybe 5) reordering the tokens displayed on the list. The whole thing by descending MC so they kind of compete for top spot and graduation
 
 Change to live feed for the tickers
 
@@ -48,6 +46,6 @@ Chart should be websocket?
 
 IS chart live updating?
 
-Does chart reflectmemecoin trades?
+Does chart reflect memecoin trades?
 
 Test graduating
