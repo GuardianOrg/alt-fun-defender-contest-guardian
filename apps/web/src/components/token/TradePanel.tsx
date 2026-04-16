@@ -169,7 +169,7 @@ export default function TradePanel({ token }: Props) {
       {token.status === "graduating" && (
         <div className={styles.graduatingBanner}>
           <div className={styles.bannerDot} />
-          graduating · {token.curveFilled}% filled
+          graduating · {token.curveFilled}% progress
           <div className={styles.bannerDot} />
         </div>
       )}
