@@ -18,7 +18,7 @@ const hyperEvmClient = createPublicClient({
 
 function slippageToBps(slippage: number): number {
   const clamped = Number.isFinite(slippage) ? Math.max(slippage, 0) : 0;
-  return Math.min(Math.floor(clamped * 100), 10_000);
+  return Math.min(Math.floor(clamped * 10_000), 10_000);
 }
 
 export function useTradeRouter() {
