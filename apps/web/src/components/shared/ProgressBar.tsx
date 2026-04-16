@@ -94,7 +94,7 @@ export default function ProgressBar({
         </div>
       )}
 
-      {tooltip && leveragePercent > 0 && (
+      {tooltip && (
         <div
           className={styles.tooltip}
           style={{
@@ -102,21 +102,29 @@ export default function ProgressBar({
             top: tipPos.y,
           }}
         >
-          <div className={styles.tooltipRow}>
+          <div
+            className={
+              leveragePercent > 0 ? styles.tooltipRow : styles.tooltipRowLast
+            }
+          >
             <div className={styles.tooltipDotMint} />
             <span className={styles.tooltipLabel}>buy pressure</span>
             <span className={styles.tooltipValueMint}>{buyPctDisplay}%</span>
           </div>
-          <div className={styles.tooltipRowLast}>
-            <div
-              className={cn(
-                styles.tooltipDotBase,
-                isShort ? styles.dotRed : styles.dotAqua,
-              )}
-            />
-            <span className={styles.tooltipLabel}>leverage boost</span>
-            <span className={styles.tooltipValueAmber}>{levPctDisplay}%</span>
-          </div>
+          {leveragePercent > 0 && (
+            <div className={styles.tooltipRowLast}>
+              <div
+                className={cn(
+                  styles.tooltipDotBase,
+                  isShort ? styles.dotRed : styles.dotAqua,
+                )}
+              />
+              <span className={styles.tooltipLabel}>leverage boost</span>
+              <span className={styles.tooltipValueAmber}>
+                {levPctDisplay}%
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>
