@@ -18,7 +18,7 @@ import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
-import { cn } from "../../utils/format";
+import { cn, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
@@ -283,7 +283,31 @@ export default function TradePanel({ token }: Props) {
         )}
 
         {step === "confirmed" && txHash && (
-          <div className={styles.confirmedBox}>✓ Transaction confirmed</div>
+          <div className={styles.confirmedBox}>
+            <span>✓ Transaction confirmed</span>
+            <a
+              className={styles.confirmedTxLink}
+              href={`https://hyperevmscan.io/tx/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {shortenAddress(txHash)}
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+            </a>
+          </div>
         )}
 
         <Button

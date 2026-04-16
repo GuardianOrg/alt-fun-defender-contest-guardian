@@ -548,7 +548,24 @@
   padding: 0.5rem 0.75rem;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
+}
+
+.confirmedTxLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--mint);
+  opacity: 0.8;
+  text-decoration: none;
+  transition: opacity 0.15s ease;
+}
+
+.confirmedTxLink:hover {
+  opacity: 1;
 }
 
 button.ctaConfirmed:disabled {

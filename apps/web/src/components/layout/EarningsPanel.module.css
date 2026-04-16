@@ -465,11 +465,22 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .tokenCardLtLink:hover {
   color: var(--mint);
+}
+
+.tokenCardLtLinkIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.tokenCardLtLink:hover .tokenCardLtLinkIcon {
+  opacity: 1;
 }
 
 .statusBadge {
