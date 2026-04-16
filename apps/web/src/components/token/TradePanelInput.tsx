@@ -1,5 +1,5 @@
 import styles from "./TradePanel.module.css";
-import { QUICK_AMOUNTS } from "../../config/constants";
+import { QUICK_AMOUNTS, SELL_PERCENT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
 
 import type { SellQuote } from "../../services/tradeRouter";
@@ -70,41 +70,69 @@ export default function TradePanelInput({
         >
           Reset
         </button>
-        {QUICK_AMOUNTS.map((qa) => (
+        {mode === "buy" ? (
+          QUICK_AMOUNTS.map((qa) => (
+            <button
+              key={qa}
+              className={cn(
+                styles.quickBtn,
+                amount === String(qa) && styles.quickBtnActive,
+              )}
+              onClick={() => {
+                setAmount(String(qa));
+              }}
+              disabled={isBusy}
+            >
+              {qa >= 1000 ? `${qa / 1000}K` : qa}
+            </button>
+          ))
+        ) : (
+          SELL_PERCENT_OPTIONS.map((pct) => {
+            const computedValue = maxBalance
+              ? (() => {
+                  const bal = parseFloat(maxBalance);
+                  const cap =
+                    sellQuote && Number.isFinite(sellQuote.maxSellableTokens)
+                      ? Math.min(bal, sellQuote.maxSellableTokens)
+                      : bal;
+                  return String(Math.max(0, cap * (pct / 100)));
+                })()
+              : null;
+            return (
+              <button
+                key={pct}
+                className={cn(
+                  styles.quickBtn,
+                  computedValue !== null &&
+                    amount === computedValue &&
+                    styles.quickBtnActive,
+                )}
+                onClick={() => {
+                  if (computedValue !== null) {
+                    setAmount(computedValue);
+                  }
+                }}
+                disabled={isBusy || !maxBalance}
+              >
+                {pct}%
+              </button>
+            );
+          })
+        )}
+        {mode === "buy" && (
           <button
-            key={qa}
-            className={cn(
-              styles.quickBtn,
-              amount === String(qa) && styles.quickBtnActive,
-            )}
+            className={styles.maxBtn}
             onClick={() => {
-              setAmount(String(qa));
-            }}
-            disabled={isBusy}
-          >
-            {qa >= 1000 ? `${qa / 1000}K` : qa}
-          </button>
-        ))}
-        <button
-          className={styles.maxBtn}
-          onClick={() => {
-            if (maxBalance) {
-              if (mode === "buy") {
+              if (maxBalance) {
                 const walletBal = parseFloat(maxBalance);
                 setAmount(String(Math.floor(walletBal * 100) / 100));
-              } else if (sellQuote && Number.isFinite(sellQuote.maxSellableTokens)) {
-                const walletBal = parseFloat(maxBalance);
-                const capped = Math.min(walletBal, sellQuote.maxSellableTokens);
-                setAmount(String(Math.max(0, capped)));
-              } else {
-                setAmount(maxBalance);
               }
-            }
-          }}
-          disabled={isBusy || !maxBalance}
-        >
-          Max
-        </button>
+            }}
+            disabled={isBusy || !maxBalance}
+          >
+            Max
+          </button>
+        )}
       </div>
     </>
   );

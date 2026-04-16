@@ -24,6 +24,8 @@ export const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02] as const;
 
 export const QUICK_AMOUNTS = [50, 100, 500, 1000] as const;
 
+export const SELL_PERCENT_OPTIONS = [10, 25, 50, 75, 100] as const;
+
 export const SEED_PCT_OPTIONS = [0.5, 1, 2, 3, 5] as const;
 
 export const UNDERLYING_ASSETS = [
