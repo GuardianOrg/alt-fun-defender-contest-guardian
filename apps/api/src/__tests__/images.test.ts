@@ -193,7 +193,7 @@ describe("POST /images — image upload", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
     expect(body.status).toBe("success");
-    expect((body.data as Record<string, unknown>).url).toMatch(/^\/images\/tokens\//);
+    expect((body.data as Record<string, unknown>).url).toMatch(/^https?:\/\/.+\/images\/tokens\//);
     expect((body.data as Record<string, unknown>).key).toMatch(/^tokens\//);
 
     expect(mockR2Put).toHaveBeenCalledTimes(1);

@@ -27,7 +27,7 @@ function ColumnHeader({
       <div className={styles.countCell}>{count} tokens</div>
       <div className={styles.sortActive}>TRENDING \u25BE</div>
       <div className={styles.sortItem}>NEWEST</div>
-      <div className={styles.sortItem}>% FILLED</div>
+      <div className={styles.sortItem}>PROGRESS</div>
     </div>
   );
 }

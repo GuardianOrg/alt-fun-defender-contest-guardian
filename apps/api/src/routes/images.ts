@@ -184,7 +184,8 @@ images.post("/", async (c) => {
     httpMetadata: { contentType: file.type },
   });
 
-  const url = `/images/${key}`;
+  const origin = new URL(c.req.url).origin;
+  const url = `${origin}/images/${key}`;
 
   if (moderationResult.flaggedForReview) {
     // Borderline — store but flag for admin review
@@ -220,11 +221,10 @@ images.get("/:prefix/:key", async (c) => {
     return c.json(formatError("Image not found"), 404);
   }
 
-  const headers = new Headers();
-  headers.set("Content-Type", object.httpMetadata?.contentType ?? "application/octet-stream");
-  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  c.header("Content-Type", object.httpMetadata?.contentType ?? "application/octet-stream");
+  c.header("Cache-Control", "public, max-age=31536000, immutable");
 
-  return new Response(object.body, { headers });
+  return c.body(object.body);
 });
 
 export default images;

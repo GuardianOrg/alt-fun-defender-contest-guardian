@@ -6,15 +6,9 @@ Single source of truth for open tasks. Remove items when completed. Add items wh
 
 - **Post-graduation chart pricing**: The chart currently uses bonding curve trades (Ponder `trade` table) to derive token/LT ratios. For graduated tokens trading on HyperSwap, swap events are not yet indexed. When HyperSwap `Swap`/`Sync` indexing is added, update `GET /api/v1/chart/:address` to incorporate post-grad DEX reserve changes for continuous pricing.
 
-Buy reverting on Yves token
-
 Images only show on the domain they were uploaded on
 
-Rename "% Filled" to "Progress"
-
 Should implement infinite scroll for tokens on home page
-
-Don't persist the dismisal of the banner at the top
 
 Implement recent trades
 
@@ -41,3 +35,19 @@ We don't want to sign for comments
 For the amounts where we show the token amounts, we should abbreviate like 10k 1m etc. This is for trades tab, and anywhere else
 
 And should add time for the trades, like 1s ago or whatever
+
+Another nice to have on the UI to make it more dynamic is every couple of second (maybe 5) reordering the tokens displayed on the list. The whole thing by descending MC so they kind of compete for top spot and graduation
+
+Change to live feed for the tickers
+
+Add leveraged token breakdown for progress
+
+Change chart days to not take up full screen if not covering period
+
+Chart should be websocket?
+
+IS chart live updating?
+
+Does chart reflectmemecoin trades?
+
+Test graduating

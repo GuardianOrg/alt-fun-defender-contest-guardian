@@ -168,7 +168,7 @@ export default function RewardsTab({
                     />
                   </div>
                   <div className={styles.curveLabel}>
-                    {t.curveFilled}% filled
+                    {t.curveFilled}% progress
                   </div>
                 </div>
               )}
