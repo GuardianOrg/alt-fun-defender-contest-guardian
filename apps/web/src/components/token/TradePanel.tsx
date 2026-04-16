@@ -263,7 +263,7 @@ export default function TradePanel({ token }: Props) {
         {(belowMinimum || sellBelowMinimum) && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
-            Minimum trade is ${MIN_USDC_AMOUNT} USDC (BounceTech LT requirement)
+            Minimum trade is ${MIN_USDC_AMOUNT} USDC
           </div>
         )}
 
