@@ -1,7 +1,7 @@
 import styles from "./RightPanel.module.css";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
-import { cn } from "../../utils/format";
+import { cn, formatTimeAgo } from "../../utils/format";
 
 export default function RightPanel() {
   const trades = useTradeFeed();
@@ -38,7 +38,7 @@ export default function RightPanel() {
                 <div className={styles.tradeInfo}>
                   <div className={styles.tradeNameRow}>
                     <span className={styles.tradeName}>{t.tokenName}</span>
-                    <span className={styles.tradeTime}>{t.timestamp}</span>
+                    <span className={styles.tradeTime}>{formatTimeAgo(t.timestamp)}</span>
                   </div>
                   <div className={styles.tradeWallet}>{t.walletAddress}</div>
                 </div>

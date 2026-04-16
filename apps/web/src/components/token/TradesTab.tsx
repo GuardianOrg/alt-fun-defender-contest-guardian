@@ -1,6 +1,6 @@
 import styles from "./BottomTabs.module.css";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
-import { cn } from "../../utils/format";
+import { cn, formatTimeAgo } from "../../utils/format";
 
 import type { Token } from "../../services/types";
 
@@ -51,7 +51,7 @@ export default function TradesTab({ token }: { token: Token }) {
               >
                 {t.tokensAmount}
               </td>
-              <td className={styles.tdTime}>{t.timestamp}</td>
+              <td className={styles.tdTime}>{formatTimeAgo(t.timestamp)}</td>
               <td className={styles.tdTxn}>
                 <span className={styles.txnLink}>{mockTxn}</span>
               </td>
