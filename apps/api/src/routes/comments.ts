@@ -1,4 +1,4 @@
-import { buildCommentMessage } from "@launchpad/shared";
+import { buildSessionMessage } from "@launchpad/shared";
 import { eq, desc } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -19,7 +19,6 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
 }
 
 const COMMENT_RATE_LIMIT_MS = 30_000;
-const COMMENT_SIGNATURE_TTL_MS = 5 * 60_000;
 const commentRateLimit = new Map<string, number>();
 
 const createCommentSchema = z.object({
@@ -29,7 +28,7 @@ const createCommentSchema = z.object({
     .min(1, "Content is required")
     .max(500, "Comment too long (max 500 chars)"),
   signature: z.string().min(1, "Signature is required"),
-  timestamp: z.number().finite("Invalid timestamp"),
+  expiresAt: z.number().finite("Invalid expiresAt"),
 });
 
 const commentsRoute = new Hono<{ Bindings: AppBindings }>();
@@ -73,11 +72,12 @@ commentsRoute.post(
 
     const body = c.req.valid("json");
 
-    if (Math.abs(Date.now() - body.timestamp) > COMMENT_SIGNATURE_TTL_MS) {
-      return c.json(formatError("Expired signature timestamp"), 401);
+    if (Date.now() >= body.expiresAt) {
+      return c.json(formatError("Session signature has expired"), 401);
     }
 
-    const message = buildCommentMessage(tokenAddress, body.content, body.timestamp);
+    const normalizedAuthor = getAddress(body.author);
+    const message = buildSessionMessage(normalizedAuthor, body.expiresAt);
     let recoveredAddress: string;
     try {
       recoveredAddress = await recoverMessageAddress({
@@ -88,7 +88,6 @@ commentsRoute.post(
       return c.json(formatError("Invalid signature"), 401);
     }
 
-    const normalizedAuthor = getAddress(body.author);
     if (getAddress(recoveredAddress) !== normalizedAuthor) {
       return c.json(formatError("Signature does not match author"), 401);
     }

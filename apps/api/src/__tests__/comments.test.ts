@@ -104,7 +104,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "hello",
           signature: "0xabc",
-          timestamp: Date.now(),
+          expiresAt: Date.now() + 86_400_000,
         }),
       },
       makeEnv(),
@@ -162,7 +162,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "x".repeat(501),
           signature: "0xabc",
-          timestamp: Date.now(),
+          expiresAt: Date.now() + 86_400_000,
         }),
       },
       makeEnv(),
@@ -184,7 +184,7 @@ describe("POST /tokens/:address/comments", () => {
           author: "not-an-address",
           content: "hello",
           signature: "0xabc",
-          timestamp: Date.now(),
+          expiresAt: Date.now() + 86_400_000,
         }),
       },
       makeEnv(),
@@ -195,9 +195,9 @@ describe("POST /tokens/:address/comments", () => {
     expect(body.error).toContain("Invalid author address");
   });
 
-  it("returns 401 when signature timestamp is expired", async () => {
+  it("returns 401 when session signature has expired", async () => {
     const app = createApp();
-    const expiredTimestamp = Date.now() - 6 * 60 * 1000; // 6 minutes ago
+    const expiredExpiresAt = Date.now() - 1000; // already expired
     const res = await app.request(
       `/tokens/${VALID_TOKEN}/comments`,
       {
@@ -207,7 +207,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "hello",
           signature: "0xabc",
-          timestamp: expiredTimestamp,
+          expiresAt: expiredExpiresAt,
         }),
       },
       makeEnv(),
@@ -215,7 +215,7 @@ describe("POST /tokens/:address/comments", () => {
 
     expect(res.status).toBe(401);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Expired signature timestamp");
+    expect(body.error).toBe("Session signature has expired");
   });
 
   it("returns 401 when signature is invalid", async () => {
@@ -231,7 +231,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "hello",
           signature: "0xbadsig",
-          timestamp: Date.now(),
+          expiresAt: Date.now() + 86_400_000,
         }),
       },
       makeEnv(),
@@ -257,7 +257,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "hello",
           signature: "0xsig",
-          timestamp: Date.now(),
+          expiresAt: Date.now() + 86_400_000,
         }),
       },
       makeEnv(),
@@ -289,7 +289,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "hello",
           signature: "0xvalidsig",
-          timestamp: Date.now(),
+          expiresAt: Date.now() + 86_400_000,
         }),
       },
       makeEnv(),
@@ -301,7 +301,7 @@ describe("POST /tokens/:address/comments", () => {
     expect((body.data as Record<string, unknown>).content).toBe("hello");
   });
 
-  it("returns 400 when timestamp is not a number", async () => {
+  it("returns 400 when expiresAt is not a number", async () => {
     const app = createApp();
     const res = await app.request(
       `/tokens/${VALID_TOKEN}/comments`,
@@ -312,7 +312,7 @@ describe("POST /tokens/:address/comments", () => {
           author: VALID_AUTHOR,
           content: "hello",
           signature: "0xabc",
-          timestamp: "not-a-number",
+          expiresAt: "not-a-number",
         }),
       },
       makeEnv(),

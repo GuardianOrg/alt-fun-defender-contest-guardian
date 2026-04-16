@@ -1,4 +1,4 @@
-import { buildProfileUpdateMessage } from "@launchpad/shared";
+import { buildSessionMessage } from "@launchpad/shared";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -11,8 +11,6 @@ import formatSuccess from "../utils/format-success.js";
 import { zodValidator } from "../utils/validation.js";
 
 import type { AppBindings } from "../lib/types.js";
-
-const PROFILE_SIGNATURE_TTL_MS = 5 * 60_000;
 
 const updateProfileSchema = z.object({
   displayName: z
@@ -31,7 +29,7 @@ const updateProfileSchema = z.object({
     .optional()
     .default(""),
   signature: z.string().min(1, "Signature is required"),
-  timestamp: z.number().finite("Invalid timestamp"),
+  expiresAt: z.number().finite("Invalid expiresAt"),
 });
 
 const profilesRoute = new Hono<{ Bindings: AppBindings }>();
@@ -78,17 +76,11 @@ profilesRoute.put(
 
     const body = c.req.valid("json");
 
-    if (Math.abs(Date.now() - body.timestamp) > PROFILE_SIGNATURE_TTL_MS) {
-      return c.json(formatError("Expired signature timestamp"), 401);
+    if (Date.now() >= body.expiresAt) {
+      return c.json(formatError("Session signature has expired"), 401);
     }
 
-    const message = buildProfileUpdateMessage({
-      address,
-      displayName: body.displayName,
-      bio: body.bio,
-      twitterUrl: body.twitterUrl,
-      timestamp: body.timestamp,
-    });
+    const message = buildSessionMessage(address, body.expiresAt);
 
     let recoveredAddress: string;
     try {

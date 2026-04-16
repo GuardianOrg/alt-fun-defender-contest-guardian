@@ -110,12 +110,12 @@ export function postComment(
   author: string,
   content: string,
   signature: string,
-  timestamp: number,
+  expiresAt: number,
 ): Promise<ApiComment> {
   return apiFetch(`/api/v1/tokens/${tokenAddress}/comments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ author, content, signature, timestamp }),
+    body: JSON.stringify({ author, content, signature, expiresAt }),
   });
 }
 
