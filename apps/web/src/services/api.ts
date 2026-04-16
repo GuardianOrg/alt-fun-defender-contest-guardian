@@ -148,6 +148,17 @@ export function fetchChart(
   return apiFetch(url);
 }
 
+export interface MarketDataEntry {
+  mcapUsd: number;
+  change24h: number;
+}
+
+export type MarketDataMap = Record<string, MarketDataEntry>;
+
+export function fetchMarketData(): Promise<MarketDataMap> {
+  return apiFetch("/api/v1/market-data");
+}
+
 export function fetchSparkline(
   address: string,
   points = 20,

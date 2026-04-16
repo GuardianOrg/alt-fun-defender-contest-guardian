@@ -9,6 +9,10 @@ import type { CandlestickData } from "lightweight-charts";
 interface UseChartDataResult {
   candles: CandlestickData[];
   loading: boolean;
+  /** Current market cap derived from the last chart candle close */
+  currentMcap: number;
+  /** Percent change over the chart timeframe (first open → last close) */
+  changePercent: number;
 }
 
 export function useChartData(
@@ -47,5 +51,18 @@ export function useChartData(
     };
   }, [address, timeframe]);
 
-  return { candles, loading };
+  const currentMcap =
+    candles.length > 0
+      ? (candles[candles.length - 1].close as number)
+      : 0;
+
+  const changePercent =
+    candles.length > 0 && (candles[0].open as number) > 0
+      ? (((candles[candles.length - 1].close as number) -
+          (candles[0].open as number)) /
+          (candles[0].open as number)) *
+        100
+      : 0;
+
+  return { candles, loading, currentMcap, changePercent };
 }
