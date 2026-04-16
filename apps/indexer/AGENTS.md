@@ -14,22 +14,15 @@ Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap
 | `Buy` | LaunchpadRouter |
 | `Sell` | LaunchpadRouter |
 | `Referred` | LaunchpadRouter |
+| `Transfer` | FERC20 (factory-registered via `TokenLaunched`) |
 | `Swap` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
 | `Sync` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
 
-### Factory Registration (Dynamic Pair Subscriptions)
+### Factory Registration (Dynamic Contract Subscriptions)
 
-HyperSwap V2 pair contracts are not known at deploy time — they are created when a token graduates. The indexer uses Ponder's factory pattern to dynamically register pairs:
+**FERC20 tokens** are deployed when a token launches. The `FERC20Token` contract source uses `factory` config pointing at the Bonding contract's `TokenLaunched` event. When `TokenLaunched` fires, Ponder extracts the `token` parameter and begins indexing `Transfer` events. The handler in `src/bonding.ts` writes to the `tokenBalance` table.
 
-- The `HyperSwapPair` contract source in `ponder.config.ts` uses `factory` config pointing at the Bonding contract's `TokenGraduated` event.
-- When `TokenGraduated` fires, Ponder extracts the `pairAddress` parameter and begins indexing `Swap` and `Sync` events from that pair.
-- Handlers in `src/hyperswap.ts` write to the `swap` and `pairReserve` tables.
-
-### Not Yet Indexed
-
-| Event | Contract | Status |
-|---|---|---|
-| `Transfer` | FERC20 | Deferred (high indexing load, holder counts derived from trade data) |
+**HyperSwap V2 pairs** are created when a token graduates. The `HyperSwapPair` contract source uses `factory` config pointing at the Bonding contract's `TokenGraduated` event. When `TokenGraduated` fires, Ponder extracts the `pairAddress` parameter and begins indexing `Swap` and `Sync` events. Handlers in `src/hyperswap.ts` write to the `swap` and `pairReserve` tables.
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
 

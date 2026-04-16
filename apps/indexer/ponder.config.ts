@@ -3,6 +3,7 @@ import { parseAbiItem } from "viem";
 
 import {
   BondingAbi,
+  FERC20Abi,
   LaunchpadRouterAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
@@ -41,6 +42,18 @@ export default createConfig({
       chain: "hyperevm",
       abi: LaunchpadRouterAbi,
       address: launchpadRouterAddress,
+      startBlock,
+    },
+    FERC20Token: {
+      chain: "hyperevm",
+      abi: FERC20Abi,
+      address: factory({
+        address: bondingAddress,
+        event: parseAbiItem(
+          "event TokenLaunched(address indexed token, address indexed creator, address ltAddress, string name, string ticker, uint256 k, uint256 index)",
+        ),
+        parameter: "token",
+      }),
       startBlock,
     },
     HyperSwapPair: {

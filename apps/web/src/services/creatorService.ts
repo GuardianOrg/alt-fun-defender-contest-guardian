@@ -1,13 +1,11 @@
 import { BondingAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
-import { API_BASE, fetchTokens, fetchMarketData } from "./api";
+import { API_BASE, fetchTokens } from "./api";
 import { hyperEVM } from "../config/chains";
-import { TOKEN_SUPPLY } from "../config/constants";
-import { erc20Abi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 
-import type { CreatorEarnings, HeldToken } from "./types";
+import type { CreatorEarnings } from "./types";
 
 const publicClient = createPublicClient({
   chain: hyperEVM,
@@ -15,7 +13,6 @@ const publicClient = createPublicClient({
 });
 
 export interface ICreatorService {
-  getBalances(walletAddress: string): Promise<HeldToken[]>;
   getEarnings(walletAddress: string): Promise<CreatorEarnings | null>;
   claimEarnings(
     walletAddress: string,
@@ -24,56 +21,6 @@ export interface ICreatorService {
 }
 
 const liveCreatorService: ICreatorService = {
-  async getBalances(walletAddress) {
-    try {
-      const [tokens, marketData] = await Promise.all([
-        fetchTokens(100),
-        fetchMarketData(),
-      ]);
-      if (tokens.length === 0) return [];
-
-      const balanceCalls = tokens.map((token) => ({
-        address: token.address as `0x${string}`,
-        abi: erc20Abi,
-        functionName: "balanceOf" as const,
-        args: [walletAddress as `0x${string}`],
-      }));
-
-      const results = await publicClient.multicall({
-        contracts: balanceCalls,
-        allowFailure: true,
-      });
-
-      const balances: HeldToken[] = [];
-      for (let i = 0; i < tokens.length; i++) {
-        const result = results[i];
-        if (result.status === "success") {
-          const balance = result.result as bigint;
-          if (balance > 0n) {
-            const token = tokens[i];
-            const md = marketData[token.address.toLowerCase()];
-            const amount = parseFloat(formatUnits(balance, 18));
-            const pricePerToken = md ? md.mcapUsd / TOKEN_SUPPLY : 0;
-            balances.push({
-              address: token.address,
-              name: token.name,
-              ticker: token.ticker,
-              emoji: "",
-              ltName: `${token.ltPair} ${token.leverage}×`,
-              status: "active",
-              amount,
-              valueUsd: amount * pricePerToken,
-              change24h: md?.change24h ?? 0,
-            });
-          }
-        }
-      }
-      return balances;
-    } catch {
-      return [];
-    }
-  },
-
   async getEarnings(walletAddress) {
     try {
       const tokens = await fetchTokens(100);
@@ -83,7 +30,6 @@ const liveCreatorService: ICreatorService = {
 
       if (createdTokens.length === 0) return null;
 
-      // Batch all tokenInfo calls into a single multicall
       const tokenInfoCalls = createdTokens.map((token) => ({
         address: ADDRESSES.bonding,
         abi: BondingAbi,
@@ -96,7 +42,6 @@ const liveCreatorService: ICreatorService = {
         allowFailure: true,
       });
 
-      // Build creatorFees calls using LT addresses from tokenInfo results
       const creatorFeeCalls = tokenInfoResults.map((infoResult, i) => {
         if (infoResult.status === "success") {
           const info = infoResult.result as readonly [string, string, string, string, string, string, boolean, boolean];
@@ -108,7 +53,6 @@ const liveCreatorService: ICreatorService = {
             args: [walletAddress as `0x${string}`, ltAddress],
           };
         }
-        // Placeholder call for failed tokenInfo — will also fail, handled below
         return {
           address: ADDRESSES.bonding,
           abi: BondingAbi,

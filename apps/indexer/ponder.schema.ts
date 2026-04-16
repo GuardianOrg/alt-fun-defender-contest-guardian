@@ -110,3 +110,14 @@ export const pairReserve = onchainTable("pair_reserve", (t) => ({
   timestamp: t.bigint().notNull(),
 }));
 
+/** Per-wallet token balances, updated on every ERC-20 Transfer. */
+export const tokenBalance = onchainTable("token_balance", (t) => ({
+  id: t.text().primaryKey(),
+  wallet: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  balance: t.bigint().notNull(),
+}), (table) => ({
+  walletIdx: index().on(table.wallet),
+  tokenIdx: index().on(table.tokenAddress),
+}));
+
