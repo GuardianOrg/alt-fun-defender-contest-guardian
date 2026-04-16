@@ -121,3 +121,21 @@ export const tokenBalance = onchainTable("token_balance", (t) => ({
   tokenIdx: index().on(table.tokenAddress),
 }));
 
+/**
+ * Post-trade curve state, written on every Bonding:Trade. Used to look up a
+ * token's curve ratio at a past timestamp for 24h change deltas. The LT
+ * exchange rate at the same cutoff is fetched from BounceTech's `token_snapshots_v1`
+ * at API read time — reading `exchangeRate()` historically via `readContract`
+ * reverts on HyperEVM because the LT view touches a Hyperliquid precompile.
+ */
+export const tokenSnapshot = onchainTable("token_snapshot", (t) => ({
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  curveSupply: t.bigint().notNull(),
+  ltReserve: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  tokenTsIdx: index().on(table.tokenAddress, table.timestamp),
+}));
+

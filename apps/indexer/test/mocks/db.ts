@@ -8,8 +8,13 @@ import { vi } from "vitest";
 export function createMockDb() {
   const insertCalls: { table: unknown; values: unknown; conflict: "doNothing" | "doUpdate"; conflictValues?: unknown }[] = [];
   const updateCalls: { table: unknown; key: unknown; values: unknown }[] = [];
+  const findResults = new Map<string, unknown>();
 
   const mockDb = {
+    find: vi.fn(async (table: unknown, key: unknown) => {
+      const mapKey = JSON.stringify({ table: (table as { _?: { name?: string } })?._?.name ?? "_", key });
+      return findResults.get(mapKey) ?? null;
+    }),
     insert: vi.fn((table: unknown) => {
       const entry: (typeof insertCalls)[number] = { table, values: undefined, conflict: "doNothing" };
       insertCalls.push(entry);
@@ -37,10 +42,6 @@ export function createMockDb() {
         }),
       };
     }),
-    sql: {
-      selectDistinct: vi.fn(),
-      select: vi.fn(),
-    },
     _insertCalls: insertCalls,
     _updateCalls: updateCalls,
   };

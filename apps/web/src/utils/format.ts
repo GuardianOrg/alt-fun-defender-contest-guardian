@@ -15,6 +15,18 @@ export function formatPercent(value: number): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+/** Format a nullable USD value, rendering `—` when null/undefined. */
+export function formatUsdOrDash(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return formatUsd(value);
+}
+
+/** Format a nullable percent, rendering `—` when null/undefined. */
+export function formatPercentOrDash(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return formatPercent(value);
+}
+
 export function shortenAddress(address: string): string {
   if (address.length <= 10) return address;
   return `${address.slice(0, 4)}…${address.slice(-4)}`;

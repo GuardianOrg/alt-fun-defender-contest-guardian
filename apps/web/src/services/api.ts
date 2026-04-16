@@ -149,14 +149,21 @@ export function fetchChart(
 }
 
 export interface MarketDataEntry {
-  mcapUsd: number;
-  change24h: number;
+  mcapUsd: number | null;
+  change24h: number | null;
+  past24hPriceUsd: number | null;
 }
 
 export type MarketDataMap = Record<string, MarketDataEntry>;
 
 export function fetchMarketData(): Promise<MarketDataMap> {
   return apiFetch("/api/v1/market-data");
+}
+
+export function fetchMarketDataForToken(
+  address: string,
+): Promise<MarketDataEntry> {
+  return apiFetch(`/api/v1/market-data/${address.toLowerCase()}`);
 }
 
 export interface ApiBalance {

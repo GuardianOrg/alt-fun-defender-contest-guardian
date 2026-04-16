@@ -82,8 +82,6 @@ export function useSearchModal() {
           underlying: deriveUnderlying(r),
           leverage: (r.leverage as 2 | 3 | 5) ?? 2,
           ltName: ltDisplayName(r),
-          mcapUsd: 0,
-          change24h: 0,
           buyMomentum: 0,
           leverageBoost: 0,
           curveFilled: 0,

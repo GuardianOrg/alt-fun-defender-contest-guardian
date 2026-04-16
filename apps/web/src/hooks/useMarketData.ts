@@ -2,14 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 
 import { fetchMarketData } from "../services/api";
 
-import type { MarketDataMap, MarketDataEntry } from "../services/api";
+import type { MarketDataEntry, MarketDataMap } from "../services/api";
 
 const MARKET_DATA_STALE_TIME = 30_000;
 const MARKET_DATA_REFETCH_INTERVAL = 30_000;
 
 /**
- * Fetches market data (mcapUsd, change24h) for all tokens.
- * Returns the full map plus a helper to look up a single token.
+ * Fetches historical market data (mcapUsd, change24h, past24hPriceUsd) for all
+ * tokens from `/api/v1/market-data`. This is the only consumer-facing source
+ * of truth for 24h change.
  */
 export function useMarketData() {
   const query = useQuery({

@@ -1,5 +1,15 @@
 import { ponder } from "ponder:registry";
-import { token, trade, routerTrade, graduation, referral, feeClaim, tokenBalance } from "ponder:schema";
+
+import {
+  token,
+  trade,
+  routerTrade,
+  graduation,
+  referral,
+  feeClaim,
+  tokenBalance,
+  tokenSnapshot,
+} from "ponder:schema";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
@@ -49,6 +59,22 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
       curveSupply: event.args.newCurveSupply,
       ltReserve: event.args.newLtReserve,
     });
+
+  // Curve-state snapshot used by /market-data to reconstruct the curve ratio at
+  // any cutoff. The LT exchange rate at the same cutoff is joined in from
+  // BounceTech's `token_snapshots_v1` at API read time — we can't read it here
+  // historically on HyperEVM (Hyperliquid precompile reverts on past blocks).
+  await db
+    .insert(tokenSnapshot)
+    .values({
+      id: tradeId,
+      tokenAddress: event.args.token,
+      curveSupply: event.args.newCurveSupply,
+      ltReserve: event.args.newLtReserve,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    })
+    .onConflictDoNothing();
 });
 
 ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {

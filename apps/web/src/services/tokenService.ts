@@ -1,19 +1,9 @@
-import { API_BASE, fetchToken, fetchTokens, fetchMarketData } from "./api";
+import { API_BASE, fetchToken, fetchTokens } from "./api";
 import { fetchPonderToken, fetchPonderTokens } from "./ponder";
 
-import type { ApiToken, MarketDataEntry, MarketDataMap } from "./api";
+import type { ApiToken } from "./api";
 import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
-
-const MARKET_DATA_TIMEOUT_MS = 5_000;
-
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
 
 export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
@@ -39,11 +29,7 @@ export function deriveStatus(apiToken: ApiToken): Token["status"] {
   return "active";
 }
 
-function mergeToken(
-  api: ApiToken,
-  onchain: PonderToken | null,
-  md?: MarketDataEntry,
-): Token {
+function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
   const totalSupply = 1_000_000_000n * 10n ** 18n;
   const curveAlloc = (totalSupply * 75n) / 100n;
   const curveSupply = onchain ? BigInt(onchain.curveSupply) : 0n;
@@ -69,8 +55,6 @@ function mergeToken(
     underlying: deriveUnderlying(api),
     leverage: api.leverage as Token["leverage"],
     ltName: ltDisplayName(api),
-    mcapUsd: md?.mcapUsd ?? 0,
-    change24h: md?.change24h ?? 0,
     buyMomentum: 0,
     leverageBoost: 0,
     curveFilled: Math.min(curveFilled, 100),
@@ -97,7 +81,16 @@ export interface ITokenService {
   ): Promise<Token[]>;
 }
 
-function applyFilter(tokens: Token[], filter?: TokenFilter): Token[] {
+/**
+ * Filter tokens. Note: the `trending` mcap-based ordering is NOT applied here
+ * because live market cap isn't on `Token` — it's composed in
+ * `useMcapSortedTokens` from live LT prices. This function only applies
+ * filters that can be computed from static token state.
+ */
+export function applyFilter(
+  tokens: Token[],
+  filter: TokenFilter | undefined,
+): Token[] {
   switch (filter) {
     case "graduating":
       return tokens.filter((t) => t.status === "graduating");
@@ -113,27 +106,16 @@ function applyFilter(tokens: Token[], filter?: TokenFilter): Token[] {
         .filter((t) => t.leverageBoost > 0)
         .sort((a, b) => b.leverageBoost - a.leverageBoost);
     case "all":
-      return tokens;
     case "trending":
-    default: {
-      const graduated = tokens.filter((t) => t.status === "graduated");
-      const active = tokens.filter((t) => t.status !== "graduated");
-      active.sort((a, b) => b.mcapUsd - a.mcapUsd);
-      const king = graduated.sort((a, b) => b.mcapUsd - a.mcapUsd)[0];
-      return king ? [king, ...active] : active;
-    }
+    default:
+      return tokens;
   }
 }
 
 async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
-  const [apiTokens, ponderTokens, marketDataMap] = await Promise.all([
+  const [apiTokens, ponderTokens] = await Promise.all([
     fetchTokens(100).catch((): ApiToken[] => []),
     fetchPonderTokens(100).catch((): PonderToken[] => []),
-    withTimeout(
-      fetchMarketData().catch((): MarketDataMap => ({})),
-      MARKET_DATA_TIMEOUT_MS,
-      {},
-    ),
   ]);
 
   if (apiTokens.length === 0 && ponderTokens.length === 0) {
@@ -142,35 +124,21 @@ async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
 
   const ponderMap = new Map(ponderTokens.map((t) => [t.address.toLowerCase(), t]));
 
-  const merged = apiTokens.map((api) => {
-    const md = marketDataMap[api.address.toLowerCase()];
-    return mergeToken(
-      api,
-      ponderMap.get(api.address.toLowerCase()) ?? null,
-      md,
-    );
-  });
+  const merged = apiTokens.map((api) =>
+    mergeToken(api, ponderMap.get(api.address.toLowerCase()) ?? null),
+  );
 
   return applyFilter(merged, filter);
 }
 
 async function liveGetToken(address: string): Promise<Token | undefined> {
-  const [apiToken, ponderToken, marketDataMap] = await Promise.all([
+  const [apiToken, ponderToken] = await Promise.all([
     fetchToken(address).catch(() => null),
     fetchPonderToken(address).catch(() => null),
-    withTimeout(
-      fetchMarketData().catch((): MarketDataMap => ({})),
-      MARKET_DATA_TIMEOUT_MS,
-      {},
-    ),
   ]);
 
-  if (!apiToken) {
-    return undefined;
-  }
-
-  const md = marketDataMap[address.toLowerCase()];
-  return mergeToken(apiToken, ponderToken, md);
+  if (!apiToken) return undefined;
+  return mergeToken(apiToken, ponderToken);
 }
 
 async function liveGetTokensByDirection(

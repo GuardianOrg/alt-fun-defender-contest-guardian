@@ -1,5 +1,10 @@
 import styles from "./EarningsPanel.module.css";
-import { cn, formatUsd, formatPercent, formatTokenAmount } from "../../utils/format";
+import {
+  cn,
+  formatPercentOrDash,
+  formatTokenAmount,
+  formatUsd,
+} from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { HeldToken } from "../../services/types";
@@ -65,14 +70,14 @@ export default function BalancesTab({
               <div
                 className={cn(
                   styles.tokenChange,
-                  t.change24h > 0
+                  t.change24h !== null && t.change24h > 0
                     ? styles.changeMint
-                    : t.change24h < 0
+                    : t.change24h !== null && t.change24h < 0
                       ? styles.changeRed
                       : styles.changeTxt3,
                 )}
               >
-                {formatPercent(t.change24h)}
+                {formatPercentOrDash(t.change24h)}
               </div>
             </div>
           </div>

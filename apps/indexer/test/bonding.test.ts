@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
-import { token, trade, graduation } from "../ponder.schema";
+import { token, trade, graduation, tokenSnapshot } from "../ponder.schema";
 
-// Importing the module registers handlers on the mock ponder object
 await import("../src/bonding");
 
 describe("Bonding:TokenLaunched", () => {
@@ -36,7 +35,7 @@ describe("Bonding:TokenLaunched", () => {
     expect(call.values).toEqual({
       address: "0xtoken1",
       name: "Test Token",
-      symbol: "TEST", // ticker -> symbol mapping
+      symbol: "TEST",
       creator: "0xcreator",
       ltToken: "0xlt1",
       k: 500000n,
@@ -96,7 +95,7 @@ describe("Bonding:Trade", () => {
     db = createMockDb();
   });
 
-  it("inserts a trade and updates token reserves", async () => {
+  it("inserts a trade, updates token reserves, and writes a curve snapshot", async () => {
     const handler = getHandler("Bonding:Trade");
     const event = createMockEvent({
       args: {
@@ -116,11 +115,9 @@ describe("Bonding:Trade", () => {
 
     await handler({ event, context: { db } });
 
-    // Should insert trade
-    expect(db._insertCalls).toHaveLength(1);
-    const insertCall = db._insertCalls[0];
-    expect(insertCall.table).toBe(trade);
-    expect(insertCall.values).toEqual({
+    const tradeInsert = db._insertCalls.find((c) => c.table === trade);
+    expect(tradeInsert).toBeDefined();
+    expect(tradeInsert!.values).toEqual({
       id: "0xtx1-3",
       tokenAddress: "0xtoken1",
       trader: "0xtrader1",
@@ -132,9 +129,8 @@ describe("Bonding:Trade", () => {
       blockNumber: 50n,
       timestamp: 1700001000n,
     });
-    expect(insertCall.conflict).toBe("doNothing");
+    expect(tradeInsert!.conflict).toBe("doNothing");
 
-    // Should update token
     expect(db._updateCalls).toHaveLength(1);
     const updateCall = db._updateCalls[0];
     expect(updateCall.table).toBe(token);
@@ -143,6 +139,20 @@ describe("Bonding:Trade", () => {
       curveSupply: 5000n,
       ltReserve: 1000n,
     });
+
+    const snapshotInsert = db._insertCalls.find(
+      (c) => c.table === tokenSnapshot,
+    );
+    expect(snapshotInsert).toBeDefined();
+    expect(snapshotInsert!.values).toEqual({
+      id: "0xtx1-3",
+      tokenAddress: "0xtoken1",
+      curveSupply: 5000n,
+      ltReserve: 1000n,
+      blockNumber: 50n,
+      timestamp: 1700001000n,
+    });
+    expect(snapshotInsert!.conflict).toBe("doNothing");
   });
 
   it("generates correct ID from txHash and logIndex", async () => {
@@ -163,7 +173,8 @@ describe("Bonding:Trade", () => {
 
     await handler({ event, context: { db } });
 
-    const values = db._insertCalls[0].values as Record<string, unknown>;
+    const tradeInsert = db._insertCalls.find((c) => c.table === trade);
+    const values = tradeInsert!.values as Record<string, unknown>;
     expect(values.id).toBe("0xdeadbeef-7");
   });
 
@@ -183,7 +194,8 @@ describe("Bonding:Trade", () => {
 
     await handler({ event, context: { db } });
 
-    const values = db._insertCalls[0].values as Record<string, unknown>;
+    const tradeInsert = db._insertCalls.find((c) => c.table === trade);
+    const values = tradeInsert!.values as Record<string, unknown>;
     expect(values.isBuy).toBe(false);
   });
 });
@@ -209,7 +221,6 @@ describe("Bonding:TokenGraduated", () => {
 
     await handler({ event, context: { db } });
 
-    // Should insert graduation
     expect(db._insertCalls).toHaveLength(1);
     const insertCall = db._insertCalls[0];
     expect(insertCall.table).toBe(graduation);
@@ -222,7 +233,6 @@ describe("Bonding:TokenGraduated", () => {
     });
     expect(insertCall.conflict).toBe("doNothing");
 
-    // Should update token
     expect(db._updateCalls).toHaveLength(1);
     const updateCall = db._updateCalls[0];
     expect(updateCall.table).toBe(token);
