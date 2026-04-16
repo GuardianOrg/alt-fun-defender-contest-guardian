@@ -2,7 +2,12 @@ import type { KeyboardEvent } from "react";
 import { useEffect, useRef } from "react";
 
 import styles from "./SearchModal.module.css";
-import { cn } from "../../utils/format";
+import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
+import {
+  cn,
+  formatPercentOrDash,
+  formatUsdOrDash,
+} from "../../utils/format";
 
 import type { Token } from "../../services/types";
 
@@ -18,6 +23,7 @@ export default function SearchResultsList({
   onHighlight: (index: number) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
+  const { getStats } = useTokenMarketStatsMap();
 
   useEffect(() => {
     if (highlightedIndex < 0 || !listRef.current) return;
@@ -38,6 +44,8 @@ export default function SearchResultsList({
               onSelect(t.address);
             }
           };
+          const stats = getStats(t.address);
+          const up = (stats.change24h ?? 0) >= 0;
           return (
           <div
             key={t.address}
@@ -61,17 +69,13 @@ export default function SearchResultsList({
               <div
                 className={cn(
                   styles.resultChange,
-                  t.change24h >= 0 ? styles.changeUp : styles.changeDown,
+                  up ? styles.changeUp : styles.changeDown,
                 )}
               >
-                {t.change24h >= 0 ? "+" : ""}
-                {t.change24h}%
+                {formatPercentOrDash(stats.change24h)}
               </div>
               <div className={styles.resultMcap}>
-                $
-                {t.mcapUsd >= 1_000_000
-                  ? `${(t.mcapUsd / 1_000_000).toFixed(2)}M`
-                  : `${(t.mcapUsd / 1_000).toFixed(1)}K`}
+                {formatUsdOrDash(stats.mcapUsd)}
               </div>
             </div>
           </div>

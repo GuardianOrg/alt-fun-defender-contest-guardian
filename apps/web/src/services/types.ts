@@ -111,7 +111,7 @@ export interface HeldToken {
   status: TokenStatus;
   amount: number;
   valueUsd: number;
-  change24h: number;
+  change24h: number | null;
 }
 
 export interface CreatedToken {

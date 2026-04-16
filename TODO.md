@@ -1,6 +1,6 @@
 # TODO
 
-Transfer domain
+- **Deploy note (market data snapshots)**: The indexer now writes a `tokenSnapshot` row (curve state only: `curveSupply`, `ltReserve`) on every `Bonding:Trade`, read by `/api/v1/market-data`. Historical LT exchange rates are read from BounceTech's existing Neon DB (`token_snapshots_v1`) via `BOUNCETECH_DATABASE_URL` — no indexer reads of `exchangeRate()` (reading LT views at past blocks on HyperEVM reverts because of the Hyperliquid precompile). Railway-hosted Ponder needs a full re-sync from `startBlock` to populate `tokenSnapshot` history. During the first 24h after re-sync, `change24h` will render `—` for tokens that haven't traded within the window on the live chain (their pre-trade curve state isn't snapshotted yet); as soon as the next trade lands, subsequent reads pick up accurately. Plan a short maintenance window when deploying.
 
 Look into how overflow bonding buys are handled
 

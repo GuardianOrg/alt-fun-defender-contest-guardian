@@ -2,7 +2,14 @@ import { useState } from "react";
 
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
-import { cn, formatUsd, formatPercent, copyToClipboard } from "../../utils/format";
+import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
+import {
+  cn,
+  copyToClipboard,
+  formatPercentOrDash,
+  formatUsd,
+  formatUsdOrDash,
+} from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { Token } from "../../services/types";
@@ -14,10 +21,11 @@ interface Props {
 export default function HeroSection({ token }: Props) {
   const { copied, copy: copyCA } = useCopyState();
   const [imgError, setImgError] = useState(false);
-  const up = token.change24h >= 0;
+  const stats = useTokenMarketStats(token.address);
+  const up = (stats.change24h ?? 0) >= 0;
 
   const shareToken = () => {
-    const text = `${token.emoji} ${token.name} · ${formatPercent(token.change24h)} today\n${token.ltName} — leveraged tokens`;
+    const text = `${token.emoji} ${token.name} · ${formatPercentOrDash(stats.change24h)} today\n${token.ltName} — leveraged tokens`;
     copyToClipboard(text);
   };
 
@@ -100,7 +108,7 @@ export default function HeroSection({ token }: Props) {
       <div className={styles.divider} />
 
       <div className={styles.mcapBlock}>
-        <div className={styles.mcapValue}>{formatUsd(token.mcapUsd)}</div>
+        <div className={styles.mcapValue}>{formatUsdOrDash(stats.mcapUsd)}</div>
         <div className={styles.changeRow}>
           <span
             className={cn(
@@ -108,7 +116,7 @@ export default function HeroSection({ token }: Props) {
               up ? styles.changeUp : styles.changeDown,
             )}
           >
-            {formatPercent(token.change24h)}
+            {formatPercentOrDash(stats.change24h)}
           </span>
           <span className={styles.changePeriod}>24h</span>
         </div>

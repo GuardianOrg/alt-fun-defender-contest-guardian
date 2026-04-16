@@ -3,7 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./SearchModal.module.css";
 import { COLORS } from "../../config/colors";
-import { cn } from "../../utils/format";
+import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
+import {
+  cn,
+  formatPercentOrDash,
+  formatUsdOrDash,
+} from "../../utils/format";
 
 import type { Token } from "../../services/types";
 
@@ -85,7 +90,8 @@ export default function SearchTrendingCard({
   onMouseEnter?: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const up = token.change24h >= 0;
+  const stats = useTokenMarketStats(token.address);
+  const up = (stats.change24h ?? 0) >= 0;
   const { ref: visibilityRef, visible } = useIsVisible();
 
   useEffect(() => {
@@ -137,10 +143,7 @@ export default function SearchTrendingCard({
       </div>
       <Sparkline up={up} data={visible ? sparklineData : undefined} />
       <div className={styles.trendingCardMcap}>
-        $
-        {token.mcapUsd >= 1_000_000
-          ? `${(token.mcapUsd / 1_000_000).toFixed(2)}M`
-          : `${(token.mcapUsd / 1_000).toFixed(1)}K`}
+        {formatUsdOrDash(stats.mcapUsd)}
       </div>
       <div
         className={cn(
@@ -148,8 +151,7 @@ export default function SearchTrendingCard({
           up ? styles.changeUp : styles.changeDown,
         )}
       >
-        {up ? "+" : ""}
-        {token.change24h}%
+        {formatPercentOrDash(stats.change24h)}
       </div>
     </div>
   );

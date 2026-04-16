@@ -1,11 +1,13 @@
 import styles from "./RightPanel.module.css";
+import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
-import { cn, formatTimeAgo } from "../../utils/format";
+import { cn, formatPercentOrDash, formatTimeAgo } from "../../utils/format";
 
 export default function RightPanel() {
   const trades = useTradeFeed();
   const { data: tokens } = useTokens();
+  const { getStats } = useTokenMarketStatsMap();
 
   const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
   const ltMovers =
@@ -84,7 +86,8 @@ export default function RightPanel() {
           >
             <span className={styles.infoName}>{t.name}</span>
             <span className={styles.ltMoverValue}>
-              +{t.change24h}% {t.ltName.split(" ").slice(0, 2).join("")}
+              {formatPercentOrDash(getStats(t.address).change24h)}{" "}
+              {t.ltName.split(" ").slice(0, 2).join("")}
             </span>
           </div>
         ))}

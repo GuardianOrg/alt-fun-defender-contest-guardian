@@ -3,6 +3,7 @@ import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, formatUnits, http } from "viem";
 
+import { useMarketData } from "./useMarketData";
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPrices } from "./useTokenPrices";
 import { useWallet } from "./useWallet";
@@ -150,6 +151,7 @@ async function fetchRawBalancesFromChain(walletAddress: string): Promise<RawBala
 export function useBalances() {
   const { address } = useWallet();
   const { getPrice, isLoading: pricesLoading } = useTokenPrices();
+  const { getTokenMarketData } = useMarketData();
 
   const query = useQuery({
     queryKey: ["balances", address],
@@ -170,6 +172,7 @@ export function useBalances() {
     .map((b) => {
       const amount = parseFloat(formatUnits(b.balance, 18));
       const pricePerToken = getPrice(b.address);
+      const marketEntry = getTokenMarketData(b.address);
       return {
         address: b.address,
         name: b.name,
@@ -179,7 +182,7 @@ export function useBalances() {
         status: "active" as const,
         amount,
         valueUsd: amount * pricePerToken,
-        change24h: 0,
+        change24h: marketEntry?.change24h ?? null,
       };
     })
     .filter((t) => pricesLoading || t.valueUsd >= MIN_DISPLAY_VALUE_USD);

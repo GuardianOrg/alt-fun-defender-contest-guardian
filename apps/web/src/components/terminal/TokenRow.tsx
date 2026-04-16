@@ -5,7 +5,12 @@ import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
-import { cn, formatUsd, formatPercent } from "../../utils/format";
+import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
+import {
+  cn,
+  formatPercentOrDash,
+  formatUsdOrDash,
+} from "../../utils/format";
 import ProgressBar from "../shared/ProgressBar";
 
 import type { Token } from "../../services/types";
@@ -17,10 +22,11 @@ interface Props {
 export default function TokenRow({ token }: Props) {
   const navigate = useNavigate();
   const [imgError, setImgError] = useState(false);
+  const stats = useTokenMarketStats(token.address);
   const isGraduating = token.status === "graduating";
   const isGraduated = token.status === "graduated";
   const isShort = token.direction === "short";
-  const up = token.change24h >= 0;
+  const up = (stats.change24h ?? 0) >= 0;
   const buyW = Math.min(
     token.curveFilled - (token.leverageBoost > 0 ? token.leverageBoost : 0),
     token.curveFilled,
@@ -60,7 +66,7 @@ export default function TokenRow({ token }: Props) {
       tabIndex={0}
       onClick={handleNavigate}
       onKeyDown={handleKeyDown}
-      aria-label={`${token.name} — ${formatPercent(token.change24h)} — market cap ${formatUsd(token.mcapUsd)}`}
+      aria-label={`${token.name} — ${formatPercentOrDash(stats.change24h)} — market cap ${formatUsdOrDash(stats.mcapUsd)}`}
     >
       {/* Icon */}
       <div className={styles.iconCell}>
@@ -119,7 +125,7 @@ export default function TokenRow({ token }: Props) {
             up ? styles.changeUp : styles.changeDown,
           )}
         >
-          {formatPercent(token.change24h)}
+          {formatPercentOrDash(stats.change24h)}
         </span>
       </div>
 
@@ -135,7 +141,7 @@ export default function TokenRow({ token }: Props) {
 
       {/* MCAP */}
       <div className={styles.mcapCell}>
-        <span className={styles.mcapValue}>{formatUsd(token.mcapUsd)}</span>
+        <span className={styles.mcapValue}>{formatUsdOrDash(stats.mcapUsd)}</span>
       </div>
     </div>
   );
