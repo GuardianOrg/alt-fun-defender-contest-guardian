@@ -35,7 +35,7 @@ export interface SeedBuyStats {
  *   curveFilled  = usdcAfterFee / graduationThreshold × 100
  */
 export function seedBuyStats(usdcAmount: number): SeedBuyStats {
-  if (usdcAmount <= 0) {
+  if (!Number.isFinite(usdcAmount) || usdcAmount <= 0) {
     return { tokensReceived: 0, supplyPct: 0, curveFilled: 0 };
   }
 
@@ -60,7 +60,7 @@ export function seedBuyStats(usdcAmount: number): SeedBuyStats {
  */
 export function usdcForSupplyPct(pct: number): number {
   const curveSupplyPct = (CURVE_BPS / BPS_DENOM) * 100; // 75
-  if (pct <= 0 || pct >= curveSupplyPct) return 0;
+  if (!Number.isFinite(pct) || pct <= 0 || pct >= curveSupplyPct) return 0;
 
   const usdcAfterFee =
     (VIRTUAL_LIQUIDITY_USD * pct) / (curveSupplyPct - pct);
