@@ -86,15 +86,6 @@ select {
   background: rgba(77, 232, 180, 0.35);
 }
 
-@keyframes scrolltape {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-100%);
-  }
-}
-
 @keyframes ambpulse {
   0%,
   100% {
