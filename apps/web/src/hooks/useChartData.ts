@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { TOKEN_SUPPLY } from "../config/constants";
 import { fetchChart } from "../services/api";
 
 import type { ChartTimeframe } from "../services/api";
@@ -27,10 +28,10 @@ export function useChartData(
         setCandles(
           data.map((c) => ({
             time: c.time as unknown as CandlestickData["time"],
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
+            open: c.open * TOKEN_SUPPLY,
+            high: c.high * TOKEN_SUPPLY,
+            low: c.low * TOKEN_SUPPLY,
+            close: c.close * TOKEN_SUPPLY,
           })),
         );
         setLoading(false);
