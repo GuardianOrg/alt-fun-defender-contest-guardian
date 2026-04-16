@@ -2,12 +2,9 @@ import { useState } from "react";
 
 import styles from "./SeedBuy.module.css";
 import StepHeader from "./StepHeader";
-import {
-  SEED_PCT_OPTIONS,
-  GRADUATION_THRESHOLD_USD,
-  TOKEN_SUPPLY,
-} from "../../config/constants";
+import { SEED_PCT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
+import { seedBuyStats, usdcForSupplyPct } from "../../utils/seedBuyMath";
 
 interface Props {
   seedAmount: string;
@@ -18,13 +15,12 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
   const [activePct, setActivePct] = useState<number | null>(null);
   const amt = parseFloat(seedAmount) || 0;
 
-  const supplyPct =
-    amt > 0 ? Math.min((amt / GRADUATION_THRESHOLD_USD) * 75, 99) : 0;
+  const stats = seedBuyStats(amt);
+
   const tokensReceived =
-    amt > 0 ? `${((TOKEN_SUPPLY * supplyPct) / 100 / 1e6).toFixed(1)}M` : "—";
-  const supplyStr = amt > 0 ? `${supplyPct.toFixed(1)}%` : "—";
-  const curveStr =
-    amt > 0 ? `${((amt / GRADUATION_THRESHOLD_USD) * 100).toFixed(1)}%` : "—";
+    amt > 0 ? `${(stats.tokensReceived / 1e6).toFixed(1)}M` : "—";
+  const supplyStr = amt > 0 ? `${stats.supplyPct.toFixed(1)}%` : "—";
+  const curveStr = amt > 0 ? `${stats.curveFilled.toFixed(1)}%` : "—";
 
   return (
     <div>
@@ -51,24 +47,29 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
         </div>
 
         <div className={styles.quickGrid}>
-          {SEED_PCT_OPTIONS.map((opt) => (
-            <button
-              key={opt.pct}
-              className={cn(
-                styles.quickButton,
-                activePct === opt.pct
-                  ? styles.quickButtonActive
-                  : styles.quickButtonInactive,
-              )}
-              onClick={() => {
-                onSeedChange(String(opt.usd));
-                setActivePct(opt.pct);
-              }}
-            >
-              <div className={styles.quickLabel}>{opt.pct}%</div>
-              <div className={styles.quickSub}>${opt.usd.toLocaleString()}</div>
-            </button>
-          ))}
+          {SEED_PCT_OPTIONS.map((pct) => {
+            const usd = usdcForSupplyPct(pct);
+            return (
+              <button
+                key={pct}
+                className={cn(
+                  styles.quickButton,
+                  activePct === pct
+                    ? styles.quickButtonActive
+                    : styles.quickButtonInactive,
+                )}
+                onClick={() => {
+                  onSeedChange(Math.ceil(usd).toString());
+                  setActivePct(pct);
+                }}
+              >
+                <div className={styles.quickLabel}>{pct}%</div>
+                <div className={styles.quickSub}>
+                  ${Math.ceil(usd).toLocaleString()}
+                </div>
+              </button>
+            );
+          })}
         </div>
 
         <div className={styles.statsGrid}>
