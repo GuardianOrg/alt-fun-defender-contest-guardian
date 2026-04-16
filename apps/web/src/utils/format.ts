@@ -45,7 +45,7 @@ export function getErrorMessage(e: unknown): string {
     return "Sell exceeds available liquidity. Try a smaller amount — buffer replenishes in ~10s.";
   }
   if (raw.includes("0x05eb05ac")) {
-    return "Amount below minimum ($20 USDC).";
+    return "Amount below minimum ($20 buy / $12 sell).";
   }
   if (lower.includes("wallet timeout") || lower.includes("request timeout")) {
     return "Wallet timed out — please try again. If using a mobile wallet, make sure the app is open.";

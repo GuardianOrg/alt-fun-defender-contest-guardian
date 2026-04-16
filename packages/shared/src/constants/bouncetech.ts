@@ -5,8 +5,11 @@ export const HYPERLIQUID_WS = "wss://api.hyperliquid.xyz/ws" as const;
 
 export const USDC_ADDRESS = "0xb88339CB7199b77E23DB6E890353E22632Ba630f" as const;
 
-/** Alt Fun minimum transaction size — higher than BounceTech's $10 floor to provide buffer. */
-export const MIN_USDC_AMOUNT = 20 as const;
+/** Alt Fun minimum buy size — higher than BounceTech's $10 floor to provide buffer. */
+export const MIN_USDC_BUY_AMOUNT = 20 as const;
+
+/** Alt Fun minimum sell size — above BounceTech's $10 floor but lower than the buy minimum. */
+export const MIN_USDC_SELL_AMOUNT = 12 as const;
 
 export interface LeveragedTokenInfo {
   address: `0x${string}`;
