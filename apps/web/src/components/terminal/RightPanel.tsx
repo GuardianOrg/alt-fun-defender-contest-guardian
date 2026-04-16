@@ -26,7 +26,7 @@ export default function RightPanel() {
           </span>
         </div>
         <div aria-live="polite" aria-label="Recent trades">
-          {trades.map((t) => {
+          {trades.slice(0, 7).map((t) => {
             const isBuy = t.side === "BUY";
             return (
               <div
