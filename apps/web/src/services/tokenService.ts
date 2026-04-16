@@ -5,6 +5,16 @@ import type { ApiToken, MarketDataEntry, MarketDataMap } from "./api";
 import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
 
+const MARKET_DATA_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
   const underlying = deriveUnderlying(apiToken);
@@ -119,7 +129,11 @@ async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
   const [apiTokens, ponderTokens, marketDataMap] = await Promise.all([
     fetchTokens(100).catch((): ApiToken[] => []),
     fetchPonderTokens(100).catch((): PonderToken[] => []),
-    fetchMarketData().catch((): MarketDataMap => ({})),
+    withTimeout(
+      fetchMarketData().catch((): MarketDataMap => ({})),
+      MARKET_DATA_TIMEOUT_MS,
+      {},
+    ),
   ]);
 
   if (apiTokens.length === 0 && ponderTokens.length === 0) {
@@ -144,7 +158,11 @@ async function liveGetToken(address: string): Promise<Token | undefined> {
   const [apiToken, ponderToken, marketDataMap] = await Promise.all([
     fetchToken(address).catch(() => null),
     fetchPonderToken(address).catch(() => null),
-    fetchMarketData().catch((): MarketDataMap => ({})),
+    withTimeout(
+      fetchMarketData().catch((): MarketDataMap => ({})),
+      MARKET_DATA_TIMEOUT_MS,
+      {},
+    ),
   ]);
 
   if (!apiToken) {
