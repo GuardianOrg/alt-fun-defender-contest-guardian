@@ -24,13 +24,7 @@ export const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02] as const;
 
 export const QUICK_AMOUNTS = [50, 100, 500, 1000] as const;
 
-export const SEED_PCT_OPTIONS = [
-  { pct: 1, usd: 28 },
-  { pct: 10, usd: 302 },
-  { pct: 30, usd: 1096 },
-  { pct: 50, usd: 2314 },
-  { pct: 80, usd: 6906 },
-] as const;
+export const SEED_PCT_OPTIONS = [0.5, 1, 2, 3, 5] as const;
 
 export const UNDERLYING_ASSETS = [
   "HYPE",
