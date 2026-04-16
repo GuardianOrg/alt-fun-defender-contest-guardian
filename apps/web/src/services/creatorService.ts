@@ -1,8 +1,9 @@
 import { BondingAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
-import { API_BASE, fetchTokens } from "./api";
+import { API_BASE, fetchTokens, fetchMarketData } from "./api";
 import { hyperEVM } from "../config/chains";
+import { TOKEN_SUPPLY } from "../config/constants";
 import { erc20Abi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 
@@ -25,7 +26,10 @@ export interface ICreatorService {
 const liveCreatorService: ICreatorService = {
   async getBalances(walletAddress) {
     try {
-      const tokens = await fetchTokens(100);
+      const [tokens, marketData] = await Promise.all([
+        fetchTokens(100),
+        fetchMarketData(),
+      ]);
       if (tokens.length === 0) return [];
 
       const balanceCalls = tokens.map((token) => ({
@@ -47,6 +51,9 @@ const liveCreatorService: ICreatorService = {
           const balance = result.result as bigint;
           if (balance > 0n) {
             const token = tokens[i];
+            const md = marketData[token.address.toLowerCase()];
+            const amount = parseFloat(formatUnits(balance, 18));
+            const pricePerToken = md ? md.mcapUsd / TOKEN_SUPPLY : 0;
             balances.push({
               address: token.address,
               name: token.name,
@@ -54,9 +61,9 @@ const liveCreatorService: ICreatorService = {
               emoji: "",
               ltName: `${token.ltPair} ${token.leverage}×`,
               status: "active",
-              amount: parseFloat(formatUnits(balance, 18)),
-              valueUsd: 0,
-              change24h: 0,
+              amount,
+              valueUsd: amount * pricePerToken,
+              change24h: md?.change24h ?? 0,
             });
           }
         }
