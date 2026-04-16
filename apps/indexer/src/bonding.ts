@@ -177,10 +177,11 @@ ponder.on("FERC20Token:Transfer", async ({ event, context }) => {
     const id = `${from}-${tokenAddr}`;
     const existing = await db.find(tokenBalance, { id });
     const prev = existing?.balance ?? 0n;
+    const balance = prev >= value ? prev - value : 0n;
     await db
       .insert(tokenBalance)
-      .values({ id, wallet: from, tokenAddress: tokenAddr, balance: prev - value })
-      .onConflictDoUpdate({ balance: prev - value });
+      .values({ id, wallet: from, tokenAddress: tokenAddr, balance })
+      .onConflictDoUpdate({ balance });
   }
 
   if (to !== ZERO_ADDRESS) {

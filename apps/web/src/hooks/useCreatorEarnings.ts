@@ -149,7 +149,7 @@ async function fetchRawBalancesFromChain(walletAddress: string): Promise<RawBala
 
 export function useBalances() {
   const { address } = useWallet();
-  const { getPrice } = useTokenPrices();
+  const { getPrice, isLoading: pricesLoading } = useTokenPrices();
 
   const query = useQuery({
     queryKey: ["balances", address],
@@ -182,13 +182,13 @@ export function useBalances() {
         change24h: 0,
       };
     })
-    .filter((t) => t.valueUsd >= MIN_DISPLAY_VALUE_USD);
+    .filter((t) => pricesLoading || t.valueUsd >= MIN_DISPLAY_VALUE_USD);
 
   const totalValue = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
 
   return {
     tokens,
     totalValue,
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || pricesLoading,
   };
 }
