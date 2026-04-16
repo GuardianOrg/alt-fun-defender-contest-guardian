@@ -1,7 +1,7 @@
-import { API_BASE, fetchToken, fetchTokens } from "./api";
+import { API_BASE, fetchToken, fetchTokens, fetchMarketData } from "./api";
 import { fetchPonderToken, fetchPonderTokens } from "./ponder";
 
-import type { ApiToken } from "./api";
+import type { ApiToken, MarketDataEntry, MarketDataMap } from "./api";
 import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
 
@@ -29,7 +29,11 @@ export function deriveStatus(apiToken: ApiToken): Token["status"] {
   return "active";
 }
 
-function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
+function mergeToken(
+  api: ApiToken,
+  onchain: PonderToken | null,
+  md?: MarketDataEntry,
+): Token {
   const totalSupply = 1_000_000_000n * 10n ** 18n;
   const curveAlloc = (totalSupply * 75n) / 100n;
   const curveSupply = onchain ? BigInt(onchain.curveSupply) : 0n;
@@ -55,8 +59,8 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     underlying: deriveUnderlying(api),
     leverage: api.leverage as Token["leverage"],
     ltName: ltDisplayName(api),
-    mcapUsd: 0,
-    change24h: 0,
+    mcapUsd: md?.mcapUsd ?? 0,
+    change24h: md?.change24h ?? 0,
     buyMomentum: 0,
     leverageBoost: 0,
     curveFilled: Math.min(curveFilled, 100),
@@ -112,9 +116,10 @@ function applyFilter(tokens: Token[], filter?: TokenFilter): Token[] {
 }
 
 async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
-  const [apiTokens, ponderTokens] = await Promise.all([
+  const [apiTokens, ponderTokens, marketDataMap] = await Promise.all([
     fetchTokens(100).catch((): ApiToken[] => []),
     fetchPonderTokens(100).catch((): PonderToken[] => []),
+    fetchMarketData().catch((): MarketDataMap => ({})),
   ]);
 
   if (apiTokens.length === 0 && ponderTokens.length === 0) {
@@ -123,24 +128,31 @@ async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
 
   const ponderMap = new Map(ponderTokens.map((t) => [t.address.toLowerCase(), t]));
 
-  const merged = apiTokens.map((api) =>
-    mergeToken(api, ponderMap.get(api.address.toLowerCase()) ?? null),
-  );
+  const merged = apiTokens.map((api) => {
+    const md = marketDataMap[api.address.toLowerCase()];
+    return mergeToken(
+      api,
+      ponderMap.get(api.address.toLowerCase()) ?? null,
+      md,
+    );
+  });
 
   return applyFilter(merged, filter);
 }
 
 async function liveGetToken(address: string): Promise<Token | undefined> {
-  const [apiToken, ponderToken] = await Promise.all([
+  const [apiToken, ponderToken, marketDataMap] = await Promise.all([
     fetchToken(address).catch(() => null),
     fetchPonderToken(address).catch(() => null),
+    fetchMarketData().catch((): MarketDataMap => ({})),
   ]);
 
   if (!apiToken) {
     return undefined;
   }
 
-  return mergeToken(apiToken, ponderToken);
+  const md = marketDataMap[address.toLowerCase()];
+  return mergeToken(apiToken, ponderToken, md);
 }
 
 async function liveGetTokensByDirection(

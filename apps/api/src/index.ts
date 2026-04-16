@@ -21,6 +21,7 @@ import holders from "./routes/holders.js";
 import security from "./routes/security.js";
 import profiles from "./routes/profiles.js";
 import chart from "./routes/chart.js";
+import marketData from "./routes/market-data.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import openApiSpec from "./openapi/spec.js";
 
@@ -69,6 +70,7 @@ app.route("/api/v1/holders", holders);
 app.route("/api/v1/security", security);
 app.route("/api/v1/profiles", profiles);
 app.route("/api/v1/chart", chart);
+app.route("/api/v1/market-data", marketData);
 
 app.post("/api/v1/webhook/indexer", async (c) => {
   const adminKey = c.req.header("X-Admin-Key");
