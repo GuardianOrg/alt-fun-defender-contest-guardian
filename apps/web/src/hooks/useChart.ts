@@ -54,6 +54,12 @@ export function useChart({
   // cheaper than `setData()` on every 2s price tick.
   const lastCandlesRef = useRef<CandlestickData[] | null>(null);
   const lastTimeframeRef = useRef<ChartTimeframe | null>(null);
+  // Wall-clock `to` set by the most recent full resync's setVisibleRange. Live
+  // ticks keep this static; once it lags real time by more than a candle's
+  // duration we fall through to a full resync to re-pad whitespace on the right
+  // and re-anchor the viewport. Without this the chart slowly stops tracking
+  // real time as the tab is left open.
+  const lastVisibleToRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -116,6 +122,7 @@ export function useChart({
     if (loading) {
       seriesRef.current.setData([]);
       lastCandlesRef.current = null;
+      lastVisibleToRef.current = null;
       return;
     }
 
@@ -135,8 +142,17 @@ export function useChart({
     // tail) vs. a full resync (timeframe change, initial load, reconnect).
     // On live ticks we call `series.update()` for cheap OHLC merges;
     // otherwise we re-pad and `setData()` from scratch.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const candleSec = CANDLE_SECONDS[timeframe];
+    // Force a full resync once wall-clock has advanced by a full candle past
+    // the viewport set at the last resync — keeps setVisibleRange's `to`
+    // tracking real time and ensures fresh right-side whitespace padding.
+    const viewportStale =
+      lastVisibleToRef.current !== null &&
+      nowSec - lastVisibleToRef.current >= candleSec;
     const isLiveTick =
       !timeframeChanged &&
+      !viewportStale &&
       prev !== null &&
       prev.length > 0 &&
       candles.length >= prev.length &&
@@ -154,9 +170,7 @@ export function useChart({
       return;
     }
 
-    const nowSec = Math.floor(Date.now() / 1000);
     const windowSec = TIMEFRAME_SECONDS[timeframe];
-    const candleSec = CANDLE_SECONDS[timeframe];
     const from = Math.floor((nowSec - windowSec) / candleSec) * candleSec;
 
     // Pad the series with whitespace slots spanning the full timeframe so the
@@ -187,5 +201,6 @@ export function useChart({
       from: from as unknown as CandlestickData["time"],
       to: nowSec as unknown as CandlestickData["time"],
     });
+    lastVisibleToRef.current = nowSec;
   }, [candles, timeframe, loading]);
 }

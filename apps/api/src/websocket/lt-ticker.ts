@@ -61,13 +61,14 @@ export class LtTicker extends DurableObject<AppBindings> {
 
     if (url.pathname === "/ensure") {
       const existing = await this.ctx.storage.getAlarm();
+      const scheduledFor = existing ?? Date.now() + TICK_INTERVAL_MS;
       if (existing === null) {
-        await this.ctx.storage.setAlarm(Date.now() + TICK_INTERVAL_MS);
+        await this.ctx.storage.setAlarm(scheduledFor);
         this.log("info", "lt_ticker_kickstart", {});
       }
       return Response.json({
         ...this.heartbeat,
-        alarmScheduledFor: existing ?? Date.now() + TICK_INTERVAL_MS,
+        alarmScheduledFor: scheduledFor,
       });
     }
 
@@ -84,7 +85,10 @@ export class LtTicker extends DurableObject<AppBindings> {
       await this.refreshTrackedLtsIfStale();
 
       if (this.trackedLts.length === 0) {
+        // Reached the DB and got an empty set — this is a successful tick,
+        // so clear any stale error from a previous failure.
         this.heartbeat.lastTickAt = Date.now();
+        this.heartbeat.lastError = null;
         this.heartbeat.tickCount++;
         this.heartbeat.trackedLtCount = 0;
         return;
