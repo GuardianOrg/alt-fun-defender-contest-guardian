@@ -134,10 +134,11 @@ export class LtTicker extends DurableObject<AppBindings> {
 
   private async refreshTrackedLtsIfStale(): Promise<void> {
     const now = Date.now();
-    if (
-      this.trackedLts.length > 0 &&
-      now - this.trackedLtsRefreshedAt < LT_REFRESH_INTERVAL_MS
-    ) {
+    // Throttle purely on elapsed time, regardless of whether the previous
+    // refresh yielded a non-empty set. Checking `trackedLts.length` as part
+    // of the guard would make an empty table (or first-run cold state) hammer
+    // the DB every tick.
+    if (now - this.trackedLtsRefreshedAt < LT_REFRESH_INTERVAL_MS) {
       return;
     }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { computeTokenPrice } from "@launchpad/shared";
+import { computeCurveRatio } from "@launchpad/shared";
 
 import { TOKEN_SUPPLY } from "../config/constants";
 import { fetchChart } from "../services/api";
@@ -114,7 +114,6 @@ export function useChartData(
 
   const ratioRef = useRef(0);
   const exchangeRateRef = useRef(0);
-  const lastBucketRef = useRef<number | null>(null);
 
   // Bump to force a resync (initial mount, timeframe change, WS reconnect).
   const [syncEpoch, setSyncEpoch] = useState(0);
@@ -137,9 +136,6 @@ export function useChartData(
           low: c.low * TOKEN_SUPPLY,
           close: c.close * TOKEN_SUPPLY,
         }));
-
-        lastBucketRef.current =
-          mapped.length > 0 ? (mapped[mapped.length - 1].time as number) : null;
 
         setCandles(mapped);
         setLoading(false);
@@ -173,13 +169,7 @@ export function useChartData(
       const mcap = priceUsd * TOKEN_SUPPLY;
       const nowSec = Math.floor(Date.now() / 1000);
 
-      setCandles((prev) => {
-        const next = mergePriceIntoCandles(prev, mcap, nowSec, candleSec);
-        if (next.length > 0) {
-          lastBucketRef.current = next[next.length - 1].time as number;
-        }
-        return next;
-      });
+      setCandles((prev) => mergePriceIntoCandles(prev, mcap, nowSec, candleSec));
     };
 
     const unsubTrade = ws.subscribe(
@@ -197,11 +187,7 @@ export function useChartData(
         try {
           const curveSupply = BigInt(trade.curveSupply);
           const ltReserve = BigInt(trade.ltReserve);
-          // Use the shared `computeTokenPrice` with `exchangeRate = 1` to
-          // recover the ratio at the same precision the server uses. Dividing
-          // the result by the exchange rate (always 1 here) is a no-op, but
-          // this keeps a single bigint-ratio implementation on both sides.
-          const ratio = computeTokenPrice(curveSupply, ltReserve, 1);
+          const ratio = computeCurveRatio(curveSupply, ltReserve);
           if (ratio > 0) {
             ratioRef.current = ratio;
             applyLivePrice();

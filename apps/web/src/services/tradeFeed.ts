@@ -24,15 +24,24 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
   const seenIds = new Set<string>();
+  const pendingIds = new Set<string>();
 
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
       const raw = data as PonderTradeInput;
-      if (!raw.id || seenIds.has(raw.id)) return;
-      seenIds.add(raw.id);
-      void formatWsTrade(raw).then((trade) => {
-        if (trade) cb(trade);
-      });
+      if (!raw.id || seenIds.has(raw.id) || pendingIds.has(raw.id)) return;
+      pendingIds.add(raw.id);
+      void formatWsTrade(raw)
+        .then((trade) => {
+          if (trade) {
+            // Only mark as seen once we've successfully emitted it. If the
+            // exchange-rate lookup failed (trade === null), leave the id out
+            // of `seenIds` so the REST poll can retry.
+            seenIds.add(raw.id);
+            cb(trade);
+          }
+        })
+        .finally(() => pendingIds.delete(raw.id));
     });
   }
 
@@ -94,6 +103,7 @@ export function subscribeTokenTrades(
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
   const seenIds = new Set<string>();
+  const pendingIds = new Set<string>();
 
   const normalizedAddress = address.toLowerCase();
   if (ws) {
@@ -102,14 +112,20 @@ export function subscribeTokenTrades(
       if (
         !raw.id ||
         seenIds.has(raw.id) ||
+        pendingIds.has(raw.id) ||
         raw.tokenAddress?.toLowerCase() !== normalizedAddress
       ) {
         return;
       }
-      seenIds.add(raw.id);
-      void formatWsTrade(raw).then((trade) => {
-        if (trade) cb(trade);
-      });
+      pendingIds.add(raw.id);
+      void formatWsTrade(raw)
+        .then((trade) => {
+          if (trade) {
+            seenIds.add(raw.id);
+            cb(trade);
+          }
+        })
+        .finally(() => pendingIds.delete(raw.id));
     }, normalizedAddress);
   }
 

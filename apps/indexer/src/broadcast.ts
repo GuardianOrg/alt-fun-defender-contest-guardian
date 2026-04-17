@@ -14,6 +14,12 @@
 const WEBHOOK_TIMEOUT_MS = 1_000;
 /** Blocks older than this (seconds) are considered backfill, not live. */
 const LIVE_WINDOW_SEC = 60;
+/**
+ * Absorb minor forward drift between block timestamps and the indexer's
+ * wall-clock. Anything beyond this is treated as clock corruption / malformed
+ * data and filtered out rather than broadcast.
+ */
+const CLOCK_SKEW_TOLERANCE_SEC = 30;
 
 export interface WebhookEvent {
   event: "trade" | "newToken" | "graduation" | "price" | "stats";
@@ -26,7 +32,8 @@ export function isLiveEvent(blockTimestampSec: bigint | number): boolean {
     ? Number(blockTimestampSec)
     : blockTimestampSec;
   const nowSec = Math.floor(Date.now() / 1000);
-  return nowSec - ts <= LIVE_WINDOW_SEC;
+  const ageSec = nowSec - ts;
+  return ageSec >= -CLOCK_SKEW_TOLERANCE_SEC && ageSec <= LIVE_WINDOW_SEC;
 }
 
 export function broadcastEvent(payload: WebhookEvent): void {
