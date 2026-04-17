@@ -1,10 +1,6 @@
 # TODO
 
-Trending icon issue
-
 See effort to charge fees in AMM vs in Zap
-
-- Shows Loading token when you visit token page, should instead show the page, and just a loading state for the specific elements we need
 
 - White background on connect button
 
@@ -51,5 +47,7 @@ Add Volume stat, show in token page and profile page
 Add some link to a bridge or something
 
 Handle the case when a user buys more than is available right at the end for bonding graduation, maybe refund them the excess or something.
+
+Website design updates?
 
 # Post launch

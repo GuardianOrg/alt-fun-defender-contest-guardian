@@ -178,8 +178,10 @@
 }
 
 .connectButton {
+  font-family: var(--font-mono);
   font-size: 13px;
   color: var(--mint);
+  background: transparent;
   border: 1px solid var(--border-2);
   padding-left: 0.625rem;
   padding-right: 0.625rem;
@@ -187,10 +189,12 @@
   padding-bottom: 3px;
   border-radius: 0.125rem;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .connectButton:hover {
   background: rgba(77, 232, 180, 0.1);
+  border-color: rgba(77, 232, 180, 0.4);
 }
 
 .creatingBtn {
