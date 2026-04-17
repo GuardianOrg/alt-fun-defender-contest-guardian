@@ -15,7 +15,8 @@ export interface PonderToken {
   ltReserve: string;
   graduated: boolean;
   graduatedAt: string | null;
-  pairAddress: string | null;
+  bondingPair: string | null;
+  hyperswapPair: string | null;
   blockNumber: string;
   timestamp: string;
 }
@@ -58,7 +59,7 @@ export async function fetchPonderTokens(limit = 50): Promise<PonderToken[]> {
         items {
           address name symbol creator ltToken k
           curveSupply ltReserve graduated graduatedAt
-          pairAddress blockNumber timestamp
+          bondingPair hyperswapPair blockNumber timestamp
         }
       }
     }`,
@@ -73,7 +74,7 @@ export async function fetchPonderToken(address: string): Promise<PonderToken | n
       token(address: $address) {
         address name symbol creator ltToken k
         curveSupply ltReserve graduated graduatedAt
-        pairAddress blockNumber timestamp
+        bondingPair hyperswapPair blockNumber timestamp
       }
     }`,
     { address },

@@ -56,7 +56,8 @@ type token {
   ltReserve: BigInt!
   graduated: Boolean!
   graduatedAt: BigInt
-  pairAddress: String
+  bondingPair: String
+  hyperswapPair: String
   blockNumber: BigInt!
   timestamp: BigInt!
 }
@@ -168,16 +169,26 @@ input tokenFilter {
   graduatedAt_lt: BigInt
   graduatedAt_gte: BigInt
   graduatedAt_lte: BigInt
-  pairAddress: String
-  pairAddress_not: String
-  pairAddress_in: [String]
-  pairAddress_not_in: [String]
-  pairAddress_contains: String
-  pairAddress_not_contains: String
-  pairAddress_starts_with: String
-  pairAddress_ends_with: String
-  pairAddress_not_starts_with: String
-  pairAddress_not_ends_with: String
+  bondingPair: String
+  bondingPair_not: String
+  bondingPair_in: [String]
+  bondingPair_not_in: [String]
+  bondingPair_contains: String
+  bondingPair_not_contains: String
+  bondingPair_starts_with: String
+  bondingPair_ends_with: String
+  bondingPair_not_starts_with: String
+  bondingPair_not_ends_with: String
+  hyperswapPair: String
+  hyperswapPair_not: String
+  hyperswapPair_in: [String]
+  hyperswapPair_not_in: [String]
+  hyperswapPair_contains: String
+  hyperswapPair_not_contains: String
+  hyperswapPair_starts_with: String
+  hyperswapPair_ends_with: String
+  hyperswapPair_not_starts_with: String
+  hyperswapPair_not_ends_with: String
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]

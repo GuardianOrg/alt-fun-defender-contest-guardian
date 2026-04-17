@@ -4,6 +4,7 @@ import { parseAbiItem } from "viem";
 import {
   BondingAbi,
   FERC20Abi,
+  FFactoryAbi,
   LaunchpadRouterAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
@@ -14,6 +15,7 @@ import {
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
+const factoryAddress = CONTRACT_ADDRESSES.factory as `0x${string}`;
 const launchpadRouterAddress = CONTRACT_ADDRESSES.launchpadRouter as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
 
@@ -36,6 +38,12 @@ export default createConfig({
       chain: "hyperevm",
       abi: BondingAbi,
       address: bondingAddress,
+      startBlock,
+    },
+    FFactory: {
+      chain: "hyperevm",
+      abi: FFactoryAbi,
+      address: factoryAddress,
       startBlock,
     },
     LaunchpadRouter: {

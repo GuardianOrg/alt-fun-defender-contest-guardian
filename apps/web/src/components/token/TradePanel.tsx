@@ -18,7 +18,7 @@ import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
-import { cn, shortenAddress } from "../../utils/format";
+import { cn, formatCurveFilled, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
@@ -170,7 +170,7 @@ export default function TradePanel({ token }: Props) {
       {token.status === "graduating" && (
         <div className={styles.graduatingBanner}>
           <div className={styles.bannerDot} />
-          graduating · {token.curveFilled}% progress
+          graduating · {formatCurveFilled(token.curveFilled)} progress
           <div className={styles.bannerDot} />
         </div>
       )}

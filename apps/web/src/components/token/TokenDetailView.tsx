@@ -37,8 +37,11 @@ export default function TokenDetailView() {
   // pulling change24h from `useTokenMarketStats` so "unknown" doesn't render
   // as 0. For now the whole bar is buy-driven — matches the old silent-zero
   // behaviour without misusing `Token.change24h`.
-  const buyW = Math.round(token.curveFilled);
-  const levW = token.curveFilled - buyW;
+  // A null `curveFilled` (degraded indexer) renders as an empty bar; numeric
+  // display sites use `formatCurveFilled` to show `—` instead of `0%`.
+  const filled = token.curveFilled ?? 0;
+  const buyW = Math.round(filled);
+  const levW = filled - buyW;
 
   return (
     <div className={styles.wrapper}>

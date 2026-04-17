@@ -24,7 +24,7 @@ security.get("/:address", async (c) => {
       token: {
         creator: string;
         graduated: boolean;
-        pairAddress: string | null;
+        hyperswapPair: string | null;
       } | null;
       graduation: {
         liquidity: string;
@@ -34,7 +34,7 @@ security.get("/:address", async (c) => {
         token(id: $address) {
           creator
           graduated
-          pairAddress
+          hyperswapPair
         }
         graduation(id: $address) {
           liquidity
@@ -95,7 +95,7 @@ security.get("/:address", async (c) => {
     creatorHoldingPct: Math.max(0, creatorHoldingPct),
     contractVerified: true,
     graduated: tokenData.graduated,
-    poolAddress: tokenData.pairAddress,
+    poolAddress: tokenData.hyperswapPair,
     approximate: truncated,
   }));
 });

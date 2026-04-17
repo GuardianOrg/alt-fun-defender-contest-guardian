@@ -2,7 +2,6 @@
 
 # TODO
 
-- Improve RPC usage, it's very high at the moment
 - See effort to charge fees in AMM vs in Zap
 - K keyboard shortcut in search box hits the roof
 - Create button in bottom left doesn't fit

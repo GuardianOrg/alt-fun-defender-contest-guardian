@@ -23,10 +23,22 @@ vi.mock("../db/client.js", () => ({
 
 // --- Ponder mock ---
 const mockPonderQuery = vi.fn();
+const mockPonderPaginatedQuery = vi.fn();
 vi.mock("../lib/ponder-client.js", () => ({
   createPonderQuery: () => mockPonderQuery,
-  createPonderPaginatedQuery: () => vi.fn(),
+  createPonderPaginatedQuery: () => mockPonderPaginatedQuery,
 }));
+
+// --- BounceTech DB mock ---
+const mockNeonQuery = vi.fn();
+vi.mock("@neondatabase/serverless", () => ({
+  neon: () => mockNeonQuery,
+}));
+
+// --- Global fetch mock (used by BounceTech live LT API) ---
+const mockFetch = vi.fn();
+vi.stubGlobal("fetch", mockFetch);
+vi.stubGlobal("caches", undefined);
 
 // --- Broadcast mock ---
 vi.mock("../lib/broadcast.js", () => ({
@@ -57,7 +69,7 @@ function createApp() {
 function makeEnv(): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
-    BOUNCETECH_DATABASE_URL: "",
+    BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",
     PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
@@ -278,6 +290,44 @@ describe("POST /tokens — token creation", () => {
   });
 });
 
+const LT_ADDR = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
+
+function makeDbToken(overrides: Record<string, unknown> = {}) {
+  return {
+    address: VALID_ADDRESS,
+    name: "Test",
+    ticker: "TST",
+    description: "",
+    imageUrl: "",
+    ltPair: LT_ADDR,
+    ltDirection: "long",
+    leverage: 2,
+    underlying: "HYPE",
+    status: "curve",
+    graduatedAt: null,
+    poolAddress: null,
+    twitterUrl: "",
+    telegramUrl: "",
+    websiteUrl: "",
+    creator: VALID_CREATOR,
+    isHidden: false,
+    createdAt: new Date("2024-01-01T00:00:00Z"),
+    ...overrides,
+  };
+}
+
+function mockBounceLtResponse(rates: Record<string, string>) {
+  mockFetch.mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({
+      data: Object.entries(rates).map(([address, exchangeRate]) => ({
+        address,
+        exchangeRate,
+      })),
+    }),
+  }));
+}
+
 describe("GET /tokens/:address — token lookup with Ponder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -303,62 +353,67 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.error).toBe("Token not found");
   });
 
-  it("returns token with Ponder data merged", async () => {
-    const dbToken = {
-      address: VALID_ADDRESS,
-      name: "Test",
-      ticker: "TST",
-      status: "curve",
-      graduatedAt: null,
-      poolAddress: null,
-    };
+  it("returns token with Ponder on-chain state + market data merged", async () => {
     mockSelectWhere.mockReturnValue({
-      limit: vi.fn().mockResolvedValue([dbToken]),
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
     });
-    mockPonderQuery.mockResolvedValue({
+    // First query: fetchTokenOnchain
+    mockPonderQuery.mockResolvedValueOnce({
       token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
         curveSupply: "500000000000000000000000000",
-        ltReserve: "1000000",
+        ltReserve: "1000000000000000000",
         graduated: false,
         graduatedAt: null,
-        pairAddress: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        timestamp: "1700000000",
       },
     });
+    mockBounceLtResponse({ [LT_ADDR]: "2000000000000000000" });
+    // Second ponder query: historical snapshots
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
 
     const app = createApp();
     const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
+    const body = (await res.json()) as {
+      status: string;
+      dataSource?: string;
+      data: Record<string, unknown>;
+    };
     expect(body.status).toBe("success");
-    expect((body.data as Record<string, unknown>).curveSupply).toBe("500000000000000000000000000");
-    expect((body.data as Record<string, unknown>).ltReserve).toBe("1000000");
-    expect(typeof (body.data as Record<string, unknown>).curveFilled).toBe("number");
+    expect(body.dataSource).toBe("live");
+    expect(body.data.curveSupply).toBe("500000000000000000000000000");
+    expect(body.data.ltReserve).toBe("1000000000000000000");
+    expect(body.data.bondingPair).toBe("0xbondingpair");
+    expect(typeof body.data.curveFilled).toBe("number");
+    expect(body.data.mcapUsd).not.toBeNull();
   });
 
-  it("returns token with defaults when Ponder returns null", async () => {
-    const dbToken = {
-      address: VALID_ADDRESS,
-      name: "Test",
-      ticker: "TST",
-      status: "curve",
-      graduatedAt: null,
-      poolAddress: null,
-    };
+  it("returns token with degraded data source when market data is unavailable", async () => {
     mockSelectWhere.mockReturnValue({
-      limit: vi.fn().mockResolvedValue([dbToken]),
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
     });
-    mockPonderQuery.mockResolvedValue(null);
+    mockPonderQuery.mockResolvedValueOnce(null);
 
     const app = createApp();
     const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
-    expect((body.data as Record<string, unknown>).curveSupply).toBe("0");
-    expect((body.data as Record<string, unknown>).ltReserve).toBe("0");
-    expect((body.data as Record<string, unknown>).curveFilled).toBe(0);
-    expect((body.data as Record<string, unknown>).status).toBe("curve");
+    const body = (await res.json()) as {
+      status: string;
+      dataSource?: string;
+      data: Record<string, unknown>;
+    };
+    expect(body.dataSource).toBe("degraded");
+    expect(body.data.curveSupply).toBeNull();
+    expect(body.data.ltReserve).toBeNull();
+    expect(body.data.curveFilled).toBeNull();
+    expect(body.data.status).toBe("curve");
   });
 });
 

@@ -16,16 +16,21 @@ export interface Token {
   underlying: UnderlyingAsset;
   leverage: Leverage;
   ltName: string;
-  // NOTE: live market cap and 24h change are intentionally NOT on `Token`.
-  // They depend on live LT rates that aren't part of the on-chain/DB token
-  // identity. Consume them via `useTokenMarketStats` / `useTokenMarketStatsMap`,
-  // which surface proper loading/error state so "unknown" never renders as 0.
+  /** LT contract address (Postgres-sourced; never requires an RPC lookup). */
+  ltAddress: string;
   buyMomentum: number;
   leverageBoost: number;
-  curveFilled: number;
+  /** Bonding curve progress (0–100). Null when the indexer is degraded —
+   *  callers must treat null as "unknown" and render a dash, never 0. */
+  curveFilled: number | null;
   curveRaisedUsd: number;
   volume24h: number;
   athUsd: number;
+  /** Current price/mcap/24h change served by the API. Null while indexer or
+   *  BounceTech is degraded — callers must treat null as "unknown", never 0. */
+  priceUsd: number | null;
+  mcapUsd: number | null;
+  change24h: number | null;
   status: TokenStatus;
   creatorAddress: string;
   createdAt: string;
@@ -123,7 +128,7 @@ export interface CreatedToken {
   ltName: string;
   ltAddress: string;
   status: TokenStatus;
-  curveFilled: number;
+  curveFilled: number | null;
   totalVolumeUsd: number;
   feesEarnedUsd: number;
   feesClaimableUsd: number;

@@ -4,6 +4,16 @@ import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
+import {
+  computeMarketDataForAddresses,
+  type MarketDataItem,
+  type PonderTokenOnchain,
+} from "../../lib/market-data.js";
+import {
+  computeCurveFilled,
+  computeStatus,
+  type EnrichedToken,
+} from "../../lib/token-enrich.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -11,11 +21,53 @@ import type { AppBindings } from "../../lib/types.js";
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
+const LIST_CACHE_TTL_SECONDS = 5;
+// Short TTL for responses served while Ponder/BounceTech are down. Absorbs
+// bursts so an outage doesn't amplify into load on the already-struggling
+// dependency, while still recovering within ~1s once it comes back.
+const DEGRADED_CACHE_TTL_SECONDS = 1;
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
+}
+
+type DbToken = typeof tokens.$inferSelect;
+
+function enrich(
+  dbToken: DbToken,
+  onchain: PonderTokenOnchain | undefined,
+  market: MarketDataItem | undefined,
+): EnrichedToken {
+  const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
+  const curveSupply = onchain?.curveSupply ?? null;
+  const ltReserve = onchain?.ltReserve ?? null;
+  const curveFilled = computeCurveFilled(curveSupply);
+  const graduated = onchain?.graduated ?? false;
+  const status = computeStatus(dbToken.status, graduated, curveFilled);
+  const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
+
+  return {
+    ...rest,
+    createdAt: createdAt.toISOString(),
+    poolAddress: hyperswapPair,
+    curveSupply,
+    ltReserve,
+    curveFilled,
+    status,
+    graduated,
+    graduatedAt: onchain?.graduatedAt
+      ? new Date(Number(onchain.graduatedAt) * 1000).toISOString()
+      : dbGraduatedAt
+        ? dbGraduatedAt.toISOString()
+        : null,
+    bondingPair: onchain?.bondingPair ?? null,
+    hyperswapPair,
+    priceUsd: market?.priceUsd ?? null,
+    mcapUsd: market?.mcapUsd ?? null,
+    change24h: market?.change24h ?? null,
+  };
 }
 
 const listRoute = new Hono<{ Bindings: AppBindings }>();
@@ -69,8 +121,16 @@ listRoute.get("/", async (c) => {
     sort === "name" ? tokens.name :
     tokens.createdAt;
 
+  const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
+  const cache = cachesObj?.default;
+  const cacheKey = new Request(new URL(c.req.url).toString(), { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
+
   const db = createDb(c.env.DATABASE_URL);
-  const allTokens = await db
+  const dbTokens = await db
     .select()
     .from(tokens)
     .where(and(...conditions))
@@ -78,7 +138,52 @@ listRoute.get("/", async (c) => {
     .limit(limit)
     .offset(offset);
 
-  return c.json(formatSuccess(allTokens));
+  if (dbTokens.length === 0) {
+    const empty = c.json(formatSuccess([], "live"));
+    empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+    if (cache) {
+      await cache.put(cacheKey, empty.clone());
+    }
+    return empty;
+  }
+
+  // Only fetch market data for the addresses on this page, not the whole
+  // catalogue. On a 50-token page this is ~20× less work on Ponder /
+  // BounceTech than `computeMarketDataBatch` would do.
+  const marketResult = await computeMarketDataForAddresses(
+    c.env.PONDER_URL,
+    c.env.BOUNCETECH_DATABASE_URL,
+    dbTokens.map((t) => t.address),
+  );
+
+  const onchainByAddress = new Map<string, PonderTokenOnchain>();
+  const marketByAddress = new Map<string, MarketDataItem>();
+  if (marketResult.ok) {
+    for (const t of marketResult.data.tokens) {
+      onchainByAddress.set(t.address.toLowerCase(), t);
+    }
+    for (const [addr, entry] of Object.entries(marketResult.data.market)) {
+      marketByAddress.set(addr, entry);
+    }
+  }
+
+  const enriched = dbTokens.map((t) =>
+    enrich(
+      t,
+      onchainByAddress.get(t.address.toLowerCase()),
+      marketByAddress.get(t.address.toLowerCase()),
+    ),
+  );
+
+  const response = c.json(
+    formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
+  );
+  const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+  if (cache) {
+    await cache.put(cacheKey, response.clone());
+  }
+  return response;
 });
 
 listRoute.get("/search", async (c) => {

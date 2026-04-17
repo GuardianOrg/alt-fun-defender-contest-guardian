@@ -7,7 +7,7 @@ import { useNavigate } from "react-router";
 import { useTokens } from "./useTokens";
 import { tokenPath } from "../app/routes";
 import { fetchSparkline, searchTokens } from "../services/api";
-import { deriveDirection, deriveStatus, deriveUnderlying, ltDisplayName } from "../services/tokenService";
+import { fromApiToken } from "../services/tokenService";
 import { selectSearchOpen, setSearchOpen } from "../state/uiSlice";
 
 import type { Token } from "../services/types";
@@ -72,26 +72,7 @@ export function useSearchModal() {
       try {
         const results = await searchTokens(query);
         if (cancelled) return;
-        setSearchResults(results.map((r) => ({
-          address: r.address,
-          name: r.name,
-          ticker: r.ticker,
-          emoji: "",
-          description: r.description,
-          direction: deriveDirection(r),
-          underlying: deriveUnderlying(r),
-          leverage: (r.leverage as 2 | 3 | 5) ?? 2,
-          ltName: ltDisplayName(r),
-          buyMomentum: 0,
-          leverageBoost: 0,
-          curveFilled: 0,
-          curveRaisedUsd: 0,
-          volume24h: 0,
-          athUsd: 0,
-          status: deriveStatus(r),
-          creatorAddress: r.creator,
-          createdAt: r.createdAt,
-        })));
+        setSearchResults(results.map(fromApiToken));
       } catch {
         if (!cancelled) setSearchResults(null);
       }

@@ -2,7 +2,7 @@ import styles from "./RightPanel.module.css";
 import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
-import { cn, formatPercentOrDash, formatTimeAgo } from "../../utils/format";
+import { cn, formatCurveFilled, formatPercentOrDash, formatTimeAgo } from "../../utils/format";
 
 export default function RightPanel() {
   const trades = useTradeFeed();
@@ -69,7 +69,7 @@ export default function RightPanel() {
             >
               <span className={styles.infoName}>{t.name}</span>
               <span className={styles.graduatingValue}>
-                {t.curveFilled}% · {t.direction === "long" ? "LONG" : "SHORT"}
+                {formatCurveFilled(t.curveFilled)} · {t.direction === "long" ? "LONG" : "SHORT"}
               </span>
             </div>
           ))}

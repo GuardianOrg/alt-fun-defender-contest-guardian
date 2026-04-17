@@ -5,12 +5,28 @@ import { z } from "zod";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
+import {
+  computeMarketDataSingle,
+  type MarketDataItem,
+  type PonderTokenOnchain,
+} from "../../lib/market-data.js";
+import {
+  computeCurveFilled,
+  computeStatus,
+  type DbToken,
+  type EnrichedToken,
+} from "../../lib/token-enrich.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
-import { createPonderQuery } from "../../lib/ponder-client.js";
 import { zodValidator } from "../../utils/validation.js";
 
 import type { AppBindings } from "../../lib/types.js";
+
+const DETAIL_CACHE_TTL_SECONDS = 2;
+// Short TTL for responses served while Ponder/BounceTech are down. Absorbs
+// bursts so an outage doesn't amplify into load on the already-struggling
+// dependency, while still recovering within ~1s once it comes back.
+const DEGRADED_CACHE_TTL_SECONDS = 1;
 
 const batchTokensSchema = z.object({
   addresses: z
@@ -18,6 +34,41 @@ const batchTokensSchema = z.object({
     .min(1, "At least one address is required")
     .max(100, "Maximum 100 addresses per batch"),
 });
+
+function enrich(
+  dbToken: DbToken,
+  onchain: PonderTokenOnchain | null | undefined,
+  market: MarketDataItem | null | undefined,
+): EnrichedToken {
+  const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
+  const curveSupply = onchain?.curveSupply ?? null;
+  const ltReserve = onchain?.ltReserve ?? null;
+  const curveFilled = computeCurveFilled(curveSupply);
+  const graduated = onchain?.graduated ?? false;
+  const status = computeStatus(dbToken.status, graduated, curveFilled);
+  const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
+
+  return {
+    ...rest,
+    createdAt: createdAt.toISOString(),
+    poolAddress: hyperswapPair,
+    curveSupply,
+    ltReserve,
+    curveFilled,
+    status,
+    graduated,
+    graduatedAt: onchain?.graduatedAt
+      ? new Date(Number(onchain.graduatedAt) * 1000).toISOString()
+      : dbGraduatedAt
+        ? dbGraduatedAt.toISOString()
+        : null,
+    bondingPair: onchain?.bondingPair ?? null,
+    hyperswapPair,
+    priceUsd: market?.priceUsd ?? null,
+    mcapUsd: market?.mcapUsd ?? null,
+    change24h: market?.change24h ?? null,
+  };
+}
 
 const detailRoute = new Hono<{ Bindings: AppBindings }>();
 
@@ -39,58 +90,47 @@ detailRoute.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = getAddress(rawAddress);
+
+  const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
+  const cache = cachesObj?.default;
+  const cacheKey = new Request(new URL(c.req.url).toString(), { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
+
   const db = createDb(c.env.DATABASE_URL);
-  const [dbToken] = await db.select().from(tokens).where(eq(tokens.address, address)).limit(1);
+  const [dbToken] = await db
+    .select()
+    .from(tokens)
+    .where(eq(tokens.address, address))
+    .limit(1);
 
   if (!dbToken) {
     return c.json(formatError("Token not found"), 404);
   }
 
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const ponderData = await queryPonder<{
-    token: {
-      curveSupply: string;
-      ltReserve: string;
-      graduated: boolean;
-      graduatedAt: string | null;
-      pairAddress: string | null;
-    } | null;
-  }>(
-    `query ($address: String!) {
-      token(id: $address) {
-        curveSupply
-        ltReserve
-        graduated
-        graduatedAt
-        pairAddress
-      }
-    }`,
-    { address },
+  const marketResult = await computeMarketDataSingle(
+    c.env.PONDER_URL,
+    c.env.BOUNCETECH_DATABASE_URL,
+    address,
   );
 
-  const onchain = ponderData?.token;
-  const ponderAvailable = ponderData !== null;
-  const totalSupply = 1_000_000_000n * 10n ** 18n;
-  const curveAllocation = (totalSupply * 75n) / 100n;
+  const dataSource = marketResult.ok ? "live" : "degraded";
+  const onchain = marketResult.ok ? marketResult.data.token : null;
+  const market = marketResult.ok ? marketResult.data.market : null;
 
-  let curveFilled = 0;
-  if (onchain?.curveSupply) {
-    const remaining = BigInt(onchain.curveSupply);
-    const sold = remaining >= curveAllocation ? 0n : curveAllocation - remaining;
-    curveFilled = Math.min(Number((sold * 10000n) / curveAllocation) / 100, 100);
+  const response = c.json(
+    formatSuccess(enrich(dbToken, onchain, market), dataSource),
+  );
+
+  const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+  if (cache) {
+    await cache.put(cacheKey, response.clone());
   }
 
-  const computedStatus = onchain?.graduated ? "graduated" : curveFilled >= 90 ? "graduating" : "curve";
-
-  return c.json(formatSuccess({
-    ...dbToken,
-    curveSupply: onchain?.curveSupply ?? "0",
-    ltReserve: onchain?.ltReserve ?? "0",
-    curveFilled,
-    status: computedStatus,
-    graduatedAt: onchain?.graduatedAt ? new Date(Number(onchain.graduatedAt) * 1000).toISOString() : dbToken.graduatedAt,
-    poolAddress: onchain?.pairAddress ?? dbToken.poolAddress,
-  }, ponderAvailable ? "live" : "degraded"));
+  return response;
 });
 
 export default detailRoute;

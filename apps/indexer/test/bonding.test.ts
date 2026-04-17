@@ -45,7 +45,7 @@ describe("Bonding:TokenLaunched", () => {
       blockNumber: 42n,
       timestamp: 1700000000n,
     });
-    expect(call.conflict).toBe("doNothing");
+    expect(call.conflict).toBe("doUpdate");
   });
 
   it("initializes curveSupply and ltReserve to 0", async () => {
@@ -69,7 +69,7 @@ describe("Bonding:TokenLaunched", () => {
     expect(values.graduated).toBe(false);
   });
 
-  it("uses onConflictDoNothing for replay safety", async () => {
+  it("uses onConflictDoUpdate to overwrite FFactory:PairCreated placeholder", async () => {
     const handler = getHandler("Bonding:TokenLaunched");
     const event = createMockEvent({
       args: {
@@ -80,11 +80,66 @@ describe("Bonding:TokenLaunched", () => {
         ltAddress: "0xlt",
         k: 1n,
       },
+      blockNumber: 42n,
+      blockTimestamp: 1700000000n,
     });
 
     await handler({ event, context: { db } });
 
-    expect(db._insertCalls[0].conflict).toBe("doNothing");
+    expect(db._insertCalls[0].conflict).toBe("doUpdate");
+    expect(db._insertCalls[0].conflictValues).toEqual({
+      name: "Test",
+      symbol: "T",
+      creator: "0xc",
+      ltToken: "0xlt",
+      k: 1n,
+      blockNumber: 42n,
+      timestamp: 1700000000n,
+    });
+  });
+});
+
+describe("FFactory:PairCreated", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  it("inserts a placeholder row carrying bondingPair", async () => {
+    const handler = getHandler("FFactory:PairCreated");
+    const event = createMockEvent({
+      args: {
+        tokenA: "0xtoken1",
+        tokenB: "0xlt1",
+        pair: "0xbondingpair1",
+        index: 1n,
+      },
+      blockNumber: 41n,
+      blockTimestamp: 1699999999n,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(db._insertCalls).toHaveLength(1);
+    const call = db._insertCalls[0];
+    expect(call.table).toBe(token);
+    expect(call.values).toEqual({
+      address: "0xtoken1",
+      name: "",
+      symbol: "",
+      creator: "0x0000000000000000000000000000000000000000",
+      ltToken: "0xlt1",
+      k: 0n,
+      curveSupply: 0n,
+      ltReserve: 0n,
+      graduated: false,
+      bondingPair: "0xbondingpair1",
+      blockNumber: 41n,
+      timestamp: 1699999999n,
+    });
+    expect(call.conflict).toBe("doUpdate");
+    expect(call.conflictValues).toEqual({ bondingPair: "0xbondingpair1" });
   });
 });
 
@@ -240,7 +295,7 @@ describe("Bonding:TokenGraduated", () => {
     expect(updateCall.values).toEqual({
       graduated: true,
       graduatedAt: 1700100000n,
-      pairAddress: "0xpair1",
+      hyperswapPair: "0xpair1",
     });
   });
 });
