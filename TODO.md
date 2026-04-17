@@ -2,8 +2,6 @@
 
 # TODO
 
-- K keyboard shortcut in search box hits the roof
-- Create button in bottom left doesn't fit
 - My positions on right says "Connect wallet to view" even though already connected
 - Change chart days to not take up full screen if not covering period
 - Chart should be websocket?

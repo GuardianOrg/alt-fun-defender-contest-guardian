@@ -1,5 +1,5 @@
 .sidebar {
-  width: 200px;
+  width: 220px;
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   display: flex;
@@ -190,6 +190,6 @@
 
 @media (max-width: 1024px) {
   .sidebar {
-    width: 160px;
+    width: 176px;
   }
 }
