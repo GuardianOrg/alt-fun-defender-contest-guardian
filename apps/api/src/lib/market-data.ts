@@ -1,5 +1,6 @@
 import { getAddress } from "viem";
 import { neon } from "@neondatabase/serverless";
+import { computeTokenPrice } from "@launchpad/shared";
 
 import {
   createPonderQuery,
@@ -8,7 +9,6 @@ import {
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
 export const TOKEN_SUPPLY = 1_000_000_000;
-const RATIO_PRECISION = 10n ** 18n;
 
 export interface PonderTokenOnchain {
   address: string;
@@ -47,21 +47,6 @@ export interface MarketDataItem {
   mcapUsd: number | null;
   change24h: number | null;
   past24hPriceUsd: number | null;
-}
-
-function bigintRatio(numerator: bigint, denominator: bigint): number {
-  if (denominator === 0n) return 0;
-  return Number((numerator * RATIO_PRECISION) / denominator) / 1e18;
-}
-
-function computePrice(
-  curveSupply: bigint,
-  ltReserve: bigint,
-  ltExchangeRate: number,
-): number {
-  if (curveSupply === 0n || ltExchangeRate <= 0) return 0;
-  const ratio = bigintRatio(ltReserve, curveSupply);
-  return ratio * ltExchangeRate;
 }
 
 export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
@@ -281,7 +266,7 @@ export function buildMarketDataItem(
   const currentCurveSupply = BigInt(token.curveSupply);
   const currentLtReserve = BigInt(token.ltReserve);
 
-  const currentPrice = computePrice(
+  const currentPrice = computeTokenPrice(
     currentCurveSupply,
     currentLtReserve,
     currentExRate,
@@ -303,7 +288,7 @@ export function buildMarketDataItem(
       const reserve = snapshot
         ? BigInt(snapshot.ltReserve)
         : currentLtReserve;
-      past24hPriceUsd = computePrice(supply, reserve, pastRate);
+      past24hPriceUsd = computeTokenPrice(supply, reserve, pastRate);
     }
   }
 

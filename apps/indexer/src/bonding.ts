@@ -11,6 +11,8 @@ import {
   tokenSnapshot,
 } from "ponder:schema";
 
+import { broadcastEvent, isLiveEvent } from "./broadcast.js";
+
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
@@ -112,6 +114,28 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoNothing();
+
+  // Real-time broadcast for the `trade` WS channel. Skipped during historical
+  // backfill so restarts don't replay stale trades to live subscribers.
+  // `curveSupply` / `ltReserve` are included so the frontend chart can
+  // recompute `ratio = ltReserve / curveSupply` without a Ponder round-trip.
+  if (isLiveEvent(event.block.timestamp)) {
+    broadcastEvent({
+      event: "trade",
+      tokenAddress: event.args.token,
+      data: {
+        id: tradeId,
+        tokenAddress: event.args.token,
+        trader: event.args.trader,
+        isBuy: event.args.isBuy,
+        ltAmount: event.args.ltAmount.toString(),
+        tokenAmount: event.args.tokenAmount.toString(),
+        curveSupply: event.args.newCurveSupply.toString(),
+        ltReserve: event.args.newLtReserve.toString(),
+        timestamp: event.block.timestamp.toString(),
+      },
+    });
+  }
 });
 
 ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {

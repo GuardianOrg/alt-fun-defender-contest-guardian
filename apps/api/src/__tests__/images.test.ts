@@ -32,6 +32,7 @@ function makeEnv(aiOverride?: Partial<Ai>): AppBindings {
       get: mockR2Get,
     } as unknown as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
+    LT_TICKER_DO: {} as DurableObjectNamespace,
     AI: {
       run: vi.fn().mockResolvedValue([
         { label: "tabby_cat", score: 0.85 },

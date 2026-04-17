@@ -3,20 +3,45 @@ import { fetchPonderTrades } from "./ponder";
 import { ponderTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
+import type { PonderTradeInput } from "./tradeFormatter";
 import type { Trade } from "./types";
+
+/**
+ * Convert a raw WS trade broadcast from the indexer into the client's
+ * formatted `Trade` type. Looks up the LT exchange rate to compute `amountUsd`;
+ * returns `null` if the rate isn't resolvable (caller can retry on next REST
+ * poll).
+ */
+async function formatWsTrade(raw: PonderTradeInput): Promise<Trade | null> {
+  const exchangeRate = await resolveExchangeRate(raw.tokenAddress);
+  if (!exchangeRate) return null;
+  const trade = ponderTradeToTrade(raw, exchangeRate);
+  trade.tokenName = resolveTokenName(raw.tokenAddress);
+  return trade;
+}
 
 export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
   const seenIds = new Set<string>();
+  const pendingIds = new Set<string>();
 
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
-      const trade = data as Trade;
-      if (trade.id && !seenIds.has(trade.id)) {
-        seenIds.add(trade.id);
-        cb(trade);
-      }
+      const raw = data as PonderTradeInput;
+      if (!raw.id || seenIds.has(raw.id) || pendingIds.has(raw.id)) return;
+      pendingIds.add(raw.id);
+      void formatWsTrade(raw)
+        .then((trade) => {
+          if (trade) {
+            // Only mark as seen once we've successfully emitted it. If the
+            // exchange-rate lookup failed (trade === null), leave the id out
+            // of `seenIds` so the REST poll can retry.
+            seenIds.add(raw.id);
+            cb(trade);
+          }
+        })
+        .finally(() => pendingIds.delete(raw.id));
     });
   }
 
@@ -78,15 +103,29 @@ export function subscribeTokenTrades(
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
   const seenIds = new Set<string>();
+  const pendingIds = new Set<string>();
 
   const normalizedAddress = address.toLowerCase();
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
-      const trade = data as Trade;
-      if (trade.id && !seenIds.has(trade.id) && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
-        seenIds.add(trade.id);
-        cb(trade);
+      const raw = data as PonderTradeInput;
+      if (
+        !raw.id ||
+        seenIds.has(raw.id) ||
+        pendingIds.has(raw.id) ||
+        raw.tokenAddress?.toLowerCase() !== normalizedAddress
+      ) {
+        return;
       }
+      pendingIds.add(raw.id);
+      void formatWsTrade(raw)
+        .then((trade) => {
+          if (trade) {
+            seenIds.add(raw.id);
+            cb(trade);
+          }
+        })
+        .finally(() => pendingIds.delete(raw.id));
     }, normalizedAddress);
   }
 

@@ -24,7 +24,11 @@ export default function Chart({ token }: Props) {
 
   const underlyingChg = token.leverage > 0 ? token.leverageBoost / token.leverage : 0;
 
-  const { candles, loading } = useChartData(token.address, timeframe);
+  const { candles, loading } = useChartData(
+    token.address,
+    token.ltAddress,
+    timeframe,
+  );
 
   useChart({
     containerRef: chartContainerRef,

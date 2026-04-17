@@ -153,11 +153,19 @@ export interface ChartCandle {
 
 export type ChartTimeframe = "1d" | "5d" | "1m";
 
+export interface ChartSnapshot {
+  candles: ChartCandle[];
+  /** Curve ratio (ltReserve / curveSupply) at the latest indexed trade. */
+  currentRatio: number;
+  /** LT exchange rate from BounceTech at the latest sampled tick. */
+  currentExchangeRate: number;
+}
+
 export function fetchChart(
   address: string,
   timeframe: ChartTimeframe = "1d",
   interval?: number,
-): Promise<ChartCandle[]> {
+): Promise<ChartSnapshot> {
   let url = `/api/v1/chart/${address}?timeframe=${timeframe}`;
   if (interval) url += `&interval=${interval}`;
   return apiFetch(url);

@@ -77,6 +77,7 @@ function makeEnv(): AppBindings {
       idFromName: () => "id",
       get: () => ({ fetch: vi.fn().mockResolvedValue(new Response("ok")) }),
     } as unknown as DurableObjectNamespace,
+    LT_TICKER_DO: {} as DurableObjectNamespace,
     AI: {} as Ai,
   };
 }

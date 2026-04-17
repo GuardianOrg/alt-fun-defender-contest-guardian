@@ -5,5 +5,6 @@ export interface AppBindings {
   PONDER_URL: string;
   IMAGES_BUCKET: R2Bucket;
   WEBSOCKET_DO: DurableObjectNamespace;
+  LT_TICKER_DO: DurableObjectNamespace;
   AI: Ai;
 }

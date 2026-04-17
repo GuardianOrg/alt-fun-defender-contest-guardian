@@ -25,6 +25,9 @@ export interface PonderTradeInput {
   ltAmount: string;
   tokenAmount: string;
   timestamp: string;
+  /** Present on WS-sourced trades; absent from Ponder REST polling. */
+  curveSupply?: string;
+  ltReserve?: string;
 }
 
 export function ponderTradeToTrade(pt: PonderTradeInput, exchangeRate: number): Trade {
@@ -39,5 +42,7 @@ export function ponderTradeToTrade(pt: PonderTradeInput, exchangeRate: number): 
     timestamp: new Date(Number(pt.timestamp) * 1000).toISOString(),
     tokenAddress: pt.tokenAddress,
     tokenName: "",
+    curveSupply: pt.curveSupply,
+    ltReserve: pt.ltReserve,
   };
 }

@@ -47,6 +47,7 @@ function makeEnv(): AppBindings {
     PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
+    LT_TICKER_DO: {} as DurableObjectNamespace,
     AI: {} as Ai,
   };
 }
@@ -105,7 +106,7 @@ describe("GET /chart/:address", () => {
     expect(body.error).toContain("Token not found");
   });
 
-  it("returns empty array when no LT snapshots exist", async () => {
+  it("returns empty snapshot when no LT snapshots exist", async () => {
     mockPonderQuery
       .mockResolvedValueOnce({ __typename: "Query" })
       .mockResolvedValueOnce({
@@ -124,9 +125,18 @@ describe("GET /chart/:address", () => {
     const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; data: unknown[] };
+    const body = (await res.json()) as {
+      status: string;
+      data: {
+        candles: unknown[];
+        currentRatio: number;
+        currentExchangeRate: number;
+      };
+    };
     expect(body.status).toBe("success");
-    expect(body.data).toEqual([]);
+    expect(body.data.candles).toEqual([]);
+    expect(body.data.currentRatio).toBe(0);
+    expect(body.data.currentExchangeRate).toBe(0);
   });
 
   it("returns 503 when trade history is truncated", async () => {
@@ -190,11 +200,20 @@ describe("GET /chart/:address", () => {
     const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; data: unknown[] };
+    const body = (await res.json()) as {
+      status: string;
+      data: {
+        candles: Record<string, unknown>[];
+        currentRatio: number;
+        currentExchangeRate: number;
+      };
+    };
     expect(body.status).toBe("success");
-    expect(body.data.length).toBeGreaterThan(0);
+    expect(body.data.candles.length).toBeGreaterThan(0);
+    expect(body.data.currentRatio).toBeGreaterThan(0);
+    expect(body.data.currentExchangeRate).toBeCloseTo(1.9, 5);
 
-    const candle = body.data[0] as Record<string, unknown>;
+    const candle = body.data.candles[0];
     expect(candle).toHaveProperty("time");
     expect(candle).toHaveProperty("open");
     expect(candle).toHaveProperty("high");
@@ -202,7 +221,7 @@ describe("GET /chart/:address", () => {
     expect(candle).toHaveProperty("close");
     expect(typeof candle.time).toBe("number");
     expect(typeof candle.open).toBe("number");
-    expect(candle.open).toBeGreaterThan(0);
+    expect(candle.open as number).toBeGreaterThan(0);
   });
 
   it("accepts all valid timeframes", async () => {

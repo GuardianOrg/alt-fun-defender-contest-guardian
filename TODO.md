@@ -2,10 +2,7 @@
 
 # TODO
 
-- Chart should be websocket?
-- IS chart live updating?
-- Does chart reflect memecoin trades?
-- What is a websocket, what is an api? does anything need updating
+- Unify client `Trade` interface into `packages/shared` (currently split between `apps/web/src/services/types.ts` and the broadcast payload shape).
 - Implement trending system
 - Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
@@ -29,7 +26,6 @@
 # Post Audit (polish)
 
 - Add some link to a bridge or something
-- recent trades should come in one by one
 - Add transaction status popup thing like Pump fun has
 - Another nice to have on the UI to make it more dynamic is every couple of seconds (maybe 5) reordering the tokens displayed on the list. The whole thing by descending MC so they kind of compete for top spot and graduation
 

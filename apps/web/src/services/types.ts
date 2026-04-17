@@ -50,6 +50,15 @@ export interface Trade {
   timestamp: string;
   tokenAddress: string;
   tokenName: string;
+  /**
+   * Post-trade bonding curve state. Present on trades sourced from the WS
+   * `trade` channel (indexer broadcast), absent on trades sourced from the
+   * Ponder REST polling fallback. Used by `useChartData` to recompute the
+   * curve ratio live for the chart — formatted as 1e18-scaled bigint strings
+   * matching the on-chain representation.
+   */
+  curveSupply?: string;
+  ltReserve?: string;
 }
 
 export interface Asset {
