@@ -2,7 +2,6 @@
 
 # TODO
 
-- Change chart days to not take up full screen if not covering period
 - Chart should be websocket?
 - IS chart live updating?
 - Does chart reflect memecoin trades?
