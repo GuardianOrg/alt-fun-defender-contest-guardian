@@ -15,12 +15,22 @@ import type {
   IChartApi,
   ISeriesApi,
   CandlestickData,
+  WhitespaceData,
+  Time,
 } from "lightweight-charts";
 
 const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
   "1d": 86_400,
   "5d": 432_000,
   "1m": 2_592_000,
+};
+
+// Must match DEFAULT_CANDLE_SECONDS in apps/api/src/routes/chart.ts so
+// whitespace slots align with real candle buckets returned by the API.
+const CANDLE_SECONDS: Record<ChartTimeframe, number> = {
+  "1d": 300,
+  "5d": 1_800,
+  "1m": 14_400,
 };
 
 interface UseChartOptions {
@@ -110,11 +120,33 @@ export function useChart({
       },
     });
 
-    seriesRef.current.setData(candles);
-
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSec = TIMEFRAME_SECONDS[timeframe];
-    const from = nowSec - windowSec;
+    const candleSec = CANDLE_SECONDS[timeframe];
+    const from = Math.floor((nowSec - windowSec) / candleSec) * candleSec;
+
+    // Pad the series with whitespace slots spanning the full timeframe so the
+    // candles stay anchored to the right with uniform width even when we have
+    // less data than the selected window. Without this, lightweight-charts
+    // clamps setVisibleRange to the data range and stretches the candles to
+    // fill the whole chart area.
+    const firstCandleTime =
+      candles.length > 0 ? (candles[0].time as number) : nowSec + candleSec;
+    const lastCandleTime =
+      candles.length > 0
+        ? (candles[candles.length - 1].time as number)
+        : from - candleSec;
+
+    const padded: (CandlestickData | WhitespaceData)[] = [];
+    for (let t = from; t < firstCandleTime; t += candleSec) {
+      padded.push({ time: t as unknown as Time });
+    }
+    padded.push(...candles);
+    for (let t = lastCandleTime + candleSec; t <= nowSec; t += candleSec) {
+      padded.push({ time: t as unknown as Time });
+    }
+
+    seriesRef.current.setData(padded);
 
     chartRef.current.timeScale().setVisibleRange({
       from: from as unknown as CandlestickData["time"],
