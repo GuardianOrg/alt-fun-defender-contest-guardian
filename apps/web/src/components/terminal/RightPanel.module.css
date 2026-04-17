@@ -155,6 +155,22 @@
   font-variant-numeric: tabular-nums;
 }
 
+.infoRowClickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.infoRowClickable:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.positionValue {
+  font-weight: 500;
+  color: var(--mint);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .positionPnl {
   font-weight: 500;
   font-family: var(--font-mono);

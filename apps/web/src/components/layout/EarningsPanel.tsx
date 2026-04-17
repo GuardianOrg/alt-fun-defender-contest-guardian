@@ -7,10 +7,8 @@ import BalancesTab from "./BalancesTab";
 import styles from "./EarningsPanel.module.css";
 import RewardsTab from "./RewardsTab";
 import { tokenPath, CREATE_PATH } from "../../app/routes";
-import {
-  useCreatorEarnings,
-  useBalances,
-} from "../../hooks/useCreatorEarnings";
+import { useBalances } from "../../hooks/useBalances";
+import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
 import { selectEarningsOpen, setEarningsOpen } from "../../state/uiSlice";
 import { cn } from "../../utils/format";

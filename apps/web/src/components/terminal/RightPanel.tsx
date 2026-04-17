@@ -1,13 +1,31 @@
+import { useNavigate } from "react-router";
+
 import styles from "./RightPanel.module.css";
+import { tokenPath } from "../../app/routes";
+import { useBalances } from "../../hooks/useBalances";
 import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
-import { cn, formatCurveFilled, formatPercentOrDash, formatTimeAgo } from "../../utils/format";
+import { useWallet } from "../../hooks/useWallet";
+import {
+  cn,
+  formatCurveFilled,
+  formatPercentOrDash,
+  formatTimeAgo,
+  formatUsd,
+} from "../../utils/format";
 
 export default function RightPanel() {
   const trades = useTradeFeed();
   const { data: tokens } = useTokens();
   const { getStats } = useTokenMarketStatsMap();
+  const { isConnected } = useWallet();
+  const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
+  const navigate = useNavigate();
+
+  const positions = [...heldTokens]
+    .sort((a, b) => b.valueUsd - a.valueUsd)
+    .slice(0, 5);
 
   const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
   const ltMovers =
@@ -93,12 +111,47 @@ export default function RightPanel() {
         ))}
       </div>
 
-      {/* My positions — placeholder until GET /portfolio/:wallet is wired */}
+      {/* My positions */}
       <div>
         <div className={styles.sectionHeader}>MY POSITIONS</div>
-        <div className={styles.infoRow}>
-          <span className={styles.infoName}>Connect wallet to view</span>
-        </div>
+        {!isConnected ? (
+          <div className={styles.infoRow}>
+            <span className={styles.infoName}>Connect wallet to view</span>
+          </div>
+        ) : balancesLoading && positions.length === 0 ? (
+          <div className={styles.infoRow}>
+            <span className={styles.infoName}>Loading…</span>
+          </div>
+        ) : positions.length === 0 ? (
+          <div className={styles.infoRow}>
+            <span className={styles.infoName}>No positions yet</span>
+          </div>
+        ) : (
+          positions.map((p) => (
+            <div
+              key={p.address}
+              className={cn(
+                styles.infoRow,
+                styles.infoRowClickable,
+                styles.infoRowNoBorderLast,
+              )}
+              onClick={() => navigate(tokenPath(p.address))}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  navigate(tokenPath(p.address));
+                }
+              }}
+            >
+              <span className={styles.infoName}>{p.ticker || p.name}</span>
+              <span className={styles.positionValue}>
+                {formatUsd(p.valueUsd)}
+              </span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
