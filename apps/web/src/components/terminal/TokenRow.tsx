@@ -27,11 +27,15 @@ export default function TokenRow({ token }: Props) {
   const isGraduated = token.status === "graduated";
   const isShort = token.direction === "short";
   const up = (stats.change24h ?? 0) >= 0;
+  // Width math renders `null` (unknown) as an empty bar — we can't guess
+  // progress, so we show none. The text-only sites use `formatCurveFilled`
+  // which renders `—` instead.
+  const filled = token.curveFilled ?? 0;
   const buyW = Math.min(
-    token.curveFilled - (token.leverageBoost > 0 ? token.leverageBoost : 0),
-    token.curveFilled,
+    filled - (token.leverageBoost > 0 ? token.leverageBoost : 0),
+    filled,
   );
-  const levW = token.curveFilled - buyW;
+  const levW = filled - buyW;
   const isLtMover = token.leverageBoost > 15;
 
   const handleNavigate = () => navigate(tokenPath(token.address));

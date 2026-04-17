@@ -1,6 +1,6 @@
 import styles from "./EarningsPanel.module.css";
 import { FEES } from "../../config/constants";
-import { cn, formatUsd, shortenAddress } from "../../utils/format";
+import { cn, formatCurveFilled, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { CreatorEarnings } from "../../services/types";
@@ -181,11 +181,11 @@ export default function RewardsTab({
                   <div className={styles.curveTrack}>
                     <div
                       className={cn(styles.curveFill, "bar-glow-mint")}
-                      style={{ width: `${t.curveFilled}%` }}
+                      style={{ width: `${t.curveFilled ?? 0}%` }}
                     />
                   </div>
                   <div className={styles.curveLabel}>
-                    {t.curveFilled}% progress
+                    {formatCurveFilled(t.curveFilled)} progress
                   </div>
                 </div>
               )}

@@ -110,6 +110,51 @@ export async function fetchAllTokensOnchain(
   }
 }
 
+/**
+ * Fetch on-chain state for a specific set of token addresses. Returns `null`
+ * when the indexer is unreachable. Addresses not present in Ponder are simply
+ * omitted from the result. Prefer this over `fetchAllTokensOnchain` when the
+ * caller already has a bounded list (e.g. a paginated `/tokens` page).
+ */
+export async function fetchTokensOnchainByAddresses(
+  ponderUrl: string | undefined,
+  addresses: string[],
+): Promise<PonderTokenOnchain[] | null> {
+  if (addresses.length === 0) return [];
+  const queryPonderAll = createPonderPaginatedQuery(ponderUrl);
+  const lowered = addresses.map((a) => a.toLowerCase());
+  try {
+    const result = await queryPonderAll<PonderTokenOnchain>(
+      `query ($addresses: [String!]!, $limit: Int!, $offset: Int!) {
+        tokens(
+          where: { address_in: $addresses }
+          limit: $limit
+          offset: $offset
+          orderBy: "timestamp"
+          orderDirection: "desc"
+        ) {
+          items {
+            address
+            ltToken
+            curveSupply
+            ltReserve
+            graduated
+            graduatedAt
+            bondingPair
+            hyperswapPair
+            timestamp
+          }
+        }
+      }`,
+      "tokens",
+      { addresses: lowered },
+    );
+    return result.items;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchTokenOnchain(
   ponderUrl: string | undefined,
   address: string,
@@ -285,18 +330,15 @@ export type MarketDataBatchResult =
   | { ok: false; error: string; code: 503 };
 
 /**
- * Fetch every token's on-chain state from Ponder + its current and historical
- * price inputs, and compute `(priceUsd, mcapUsd, change24h)` keyed by
- * lowercased token address.
+ * Given a resolved set of `PonderTokenOnchain` rows, fetch the current and
+ * historical price inputs from BounceTech + Ponder and compute
+ * `(priceUsd, mcapUsd, change24h)` keyed by lowercased token address.
  */
-export async function computeMarketDataBatch(
+async function buildBatchFromTokens(
   ponderUrl: string | undefined,
   bouncetechDbUrl: string | undefined,
+  tokens: PonderTokenOnchain[],
 ): Promise<MarketDataBatchResult> {
-  const tokens = await fetchAllTokensOnchain(ponderUrl);
-  if (tokens === null) {
-    return { ok: false, error: "Indexer unavailable", code: 503 };
-  }
   if (tokens.length === 0) {
     return { ok: true, data: { tokens: [], market: {} } };
   }
@@ -340,6 +382,44 @@ export async function computeMarketDataBatch(
   }
 
   return { ok: true, data: { tokens, market } };
+}
+
+/**
+ * Fetch every token's on-chain state from Ponder + its current and historical
+ * price inputs, and compute `(priceUsd, mcapUsd, change24h)` keyed by
+ * lowercased token address. Used by the full-catalogue `/market-data` route.
+ * Callers that only need a known subset should use
+ * `computeMarketDataForAddresses` instead — it skips the full-catalogue fetch.
+ */
+export async function computeMarketDataBatch(
+  ponderUrl: string | undefined,
+  bouncetechDbUrl: string | undefined,
+): Promise<MarketDataBatchResult> {
+  const tokens = await fetchAllTokensOnchain(ponderUrl);
+  if (tokens === null) {
+    return { ok: false, error: "Indexer unavailable", code: 503 };
+  }
+  return buildBatchFromTokens(ponderUrl, bouncetechDbUrl, tokens);
+}
+
+/**
+ * Same as `computeMarketDataBatch` but scoped to a specific set of token
+ * addresses (e.g. a paginated `/tokens` page). Avoids loading every token in
+ * the indexer when the caller already knows which ones they care about.
+ */
+export async function computeMarketDataForAddresses(
+  ponderUrl: string | undefined,
+  bouncetechDbUrl: string | undefined,
+  addresses: string[],
+): Promise<MarketDataBatchResult> {
+  if (addresses.length === 0) {
+    return { ok: true, data: { tokens: [], market: {} } };
+  }
+  const tokens = await fetchTokensOnchainByAddresses(ponderUrl, addresses);
+  if (tokens === null) {
+    return { ok: false, error: "Indexer unavailable", code: 503 };
+  }
+  return buildBatchFromTokens(ponderUrl, bouncetechDbUrl, tokens);
 }
 
 export type MarketDataSingleResult =

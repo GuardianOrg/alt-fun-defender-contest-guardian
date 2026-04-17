@@ -60,7 +60,7 @@ const liveCreatorService: ICreatorService = {
           ltName: `${token.ltPair} ${token.leverage}×`,
           ltAddress: token.ltPair,
           status: "active" as const,
-          curveFilled: token.curveFilled ?? 0,
+          curveFilled: token.curveFilled ?? null,
           totalVolumeUsd: 0,
           feesEarnedUsd: claimableUsd,
           feesClaimableUsd: claimableUsd,

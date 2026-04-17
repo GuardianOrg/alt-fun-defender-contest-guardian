@@ -23,6 +23,10 @@ import { zodValidator } from "../../utils/validation.js";
 import type { AppBindings } from "../../lib/types.js";
 
 const DETAIL_CACHE_TTL_SECONDS = 2;
+// Short TTL for responses served while Ponder/BounceTech are down. Absorbs
+// bursts so an outage doesn't amplify into load on the already-struggling
+// dependency, while still recovering within ~1s once it comes back.
+const DEGRADED_CACHE_TTL_SECONDS = 1;
 
 const batchTokensSchema = z.object({
   addresses: z
@@ -120,11 +124,10 @@ detailRoute.get("/:address", async (c) => {
     formatSuccess(enrich(dbToken, onchain, market), dataSource),
   );
 
-  if (marketResult.ok) {
-    response.headers.set("Cache-Control", `s-maxage=${DETAIL_CACHE_TTL_SECONDS}`);
-    if (cache) {
-      await cache.put(cacheKey, response.clone());
-    }
+  const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+  if (cache) {
+    await cache.put(cacheKey, response.clone());
   }
 
   return response;

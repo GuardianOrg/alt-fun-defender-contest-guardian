@@ -27,6 +27,14 @@ export function formatPercentOrDash(value: number | null | undefined): string {
   return formatPercent(value);
 }
 
+/** Curve-filled progress (0–100, integer). Unknown renders as `—` rather than
+ *  silently collapsing to 0, so a degraded indexer can't make live curves look
+ *  empty. */
+export function formatCurveFilled(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return `${Math.round(value)}%`;
+}
+
 export function shortenAddress(address: string): string {
   if (address.length <= 10) return address;
   return `${address.slice(0, 4)}…${address.slice(-4)}`;

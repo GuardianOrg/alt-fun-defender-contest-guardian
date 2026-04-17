@@ -42,7 +42,7 @@ export function fromApiToken(api: ApiToken): Token {
     ltAddress: api.ltPair,
     buyMomentum: 0,
     leverageBoost: 0,
-    curveFilled: api.curveFilled ?? 0,
+    curveFilled: api.curveFilled ?? null,
     curveRaisedUsd: 0,
     volume24h: 0,
     athUsd: 0,

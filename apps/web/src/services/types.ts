@@ -20,7 +20,9 @@ export interface Token {
   ltAddress: string;
   buyMomentum: number;
   leverageBoost: number;
-  curveFilled: number;
+  /** Bonding curve progress (0–100). Null when the indexer is degraded —
+   *  callers must treat null as "unknown" and render a dash, never 0. */
+  curveFilled: number | null;
   curveRaisedUsd: number;
   volume24h: number;
   athUsd: number;
@@ -126,7 +128,7 @@ export interface CreatedToken {
   ltName: string;
   ltAddress: string;
   status: TokenStatus;
-  curveFilled: number;
+  curveFilled: number | null;
   totalVolumeUsd: number;
   feesEarnedUsd: number;
   feesClaimableUsd: number;

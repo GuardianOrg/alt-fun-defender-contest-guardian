@@ -5,7 +5,7 @@ import { getAddress, isAddress } from "viem";
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import {
-  computeMarketDataBatch,
+  computeMarketDataForAddresses,
   type MarketDataItem,
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
@@ -22,6 +22,10 @@ import type { AppBindings } from "../../lib/types.js";
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
 const LIST_CACHE_TTL_SECONDS = 5;
+// Short TTL for responses served while Ponder/BounceTech are down. Absorbs
+// bursts so an outage doesn't amplify into load on the already-struggling
+// dependency, while still recovering within ~1s once it comes back.
+const DEGRADED_CACHE_TTL_SECONDS = 1;
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
@@ -134,9 +138,22 @@ listRoute.get("/", async (c) => {
     .limit(limit)
     .offset(offset);
 
-  const marketResult = await computeMarketDataBatch(
+  if (dbTokens.length === 0) {
+    const empty = c.json(formatSuccess([], "live"));
+    empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+    if (cache) {
+      await cache.put(cacheKey, empty.clone());
+    }
+    return empty;
+  }
+
+  // Only fetch market data for the addresses on this page, not the whole
+  // catalogue. On a 50-token page this is ~20× less work on Ponder /
+  // BounceTech than `computeMarketDataBatch` would do.
+  const marketResult = await computeMarketDataForAddresses(
     c.env.PONDER_URL,
     c.env.BOUNCETECH_DATABASE_URL,
+    dbTokens.map((t) => t.address),
   );
 
   const onchainByAddress = new Map<string, PonderTokenOnchain>();
@@ -161,11 +178,10 @@ listRoute.get("/", async (c) => {
   const response = c.json(
     formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
   );
-  if (marketResult.ok) {
-    response.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
-    if (cache) {
-      await cache.put(cacheKey, response.clone());
-    }
+  const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+  if (cache) {
+    await cache.put(cacheKey, response.clone());
   }
   return response;
 });

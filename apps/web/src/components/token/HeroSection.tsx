@@ -6,6 +6,7 @@ import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   cn,
   copyToClipboard,
+  formatCurveFilled,
   formatPercentOrDash,
   formatUsd,
   formatUsdOrDash,
@@ -133,7 +134,7 @@ export default function HeroSection({ token }: Props) {
         </span>
         <span>
           Curve{" "}
-          <span className={styles.statHighlight}>{token.curveFilled}%</span>
+          <span className={styles.statHighlight}>{formatCurveFilled(token.curveFilled)}</span>
         </span>
         <span>
           Lev <span className={styles.statAmber}>{token.leverage}×</span>
