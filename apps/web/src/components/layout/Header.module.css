@@ -106,11 +106,11 @@
   border: 1px solid var(--border);
   border-radius: 3px;
   padding-left: 0.625rem;
-  padding-right: 0.625rem;
+  padding-right: 0.25rem;
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
   cursor: pointer;
-  height: 1.75rem;
+  height: 2rem;
   margin-left: 1rem;
   transition: all 0.15s ease;
 }
@@ -121,27 +121,31 @@
 }
 
 .searchIcon {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  color: var(--txt-3);
+  width: 14px;
+  height: 14px;
+  color: var(--txt-2);
+  flex-shrink: 0;
 }
 
 .searchText {
   font-size: 13px;
-  color: var(--txt-3);
+  color: var(--txt-2);
   white-space: nowrap;
 }
 
 .searchKbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
   font-size: 11px;
-  color: var(--txt-4);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
+  line-height: 1;
+  color: var(--txt-2);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-2);
   border-radius: 0.125rem;
-  padding-left: 0.25rem;
-  padding-right: 0.25rem;
-  padding-top: 1px;
-  padding-bottom: 1px;
+  padding-left: 0.3125rem;
+  padding-right: 0.3125rem;
   margin-left: 0.25rem;
   font-family: var(--font-mono);
 }

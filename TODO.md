@@ -2,7 +2,6 @@
 
 # TODO
 
-- See effort to charge fees in AMM vs in Zap
 - K keyboard shortcut in search box hits the roof
 - Create button in bottom left doesn't fit
 - My positions on right says "Connect wallet to view" even though already connected
@@ -10,10 +9,13 @@
 - Chart should be websocket?
 - IS chart live updating?
 - Does chart reflect memecoin trades?
+- What is a websocket, what is an api? does anything need updating
 - Implement trending system
 - Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
 - Website design updates?
+
+- Implement creator fees in the zap
 - Can we deploy tokens via some proxy template so the deployment is smaller?
 - Add some flow for enabling big blocks.
 - Vanity addresses

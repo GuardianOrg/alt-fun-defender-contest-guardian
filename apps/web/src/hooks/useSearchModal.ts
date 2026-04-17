@@ -1,18 +1,16 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
-import { useQueries } from "@tanstack/react-query";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router";
 
+import { useRecentlyViewed } from "./useRecentlyViewed";
 import { useTokens } from "./useTokens";
 import { tokenPath } from "../app/routes";
-import { fetchSparkline, searchTokens } from "../services/api";
+import { searchTokens } from "../services/api";
 import { fromApiToken } from "../services/tokenService";
 import { selectSearchOpen, setSearchOpen } from "../state/uiSlice";
 
 import type { Token } from "../services/types";
-
-const SPARKLINE_DEFER_MS = 300;
 
 export function useSearchModal() {
   const open = useSelector(selectSearchOpen);
@@ -22,41 +20,22 @@ export function useSearchModal() {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { data: tokens } = useTokens();
-
-  // Defer sparkline fetching so typing immediately after open skips them
-  const [sparklineReady, setSparklineReady] = useState(false);
-  useEffect(() => {
-    if (!open || query.trim()) {
-      setSparklineReady(false);
-      return;
-    }
-    const timer = setTimeout(() => setSparklineReady(true), SPARKLINE_DEFER_MS);
-    return () => clearTimeout(timer);
-  }, [open, query]);
+  const recentlyViewedAddresses = useRecentlyViewed();
 
   const trendingTokens = useMemo(() => tokens?.slice(0, 5) ?? [], [tokens]);
-  const sparklineQueries = useQueries({
-    queries: trendingTokens.map((t) => ({
-      queryKey: ["sparkline", t.address],
-      queryFn: () => fetchSparkline(t.address, 20),
-      staleTime: 60_000,
-      gcTime: 5 * 60_000,
-      enabled: sparklineReady,
-    })),
-  });
-  const sparklineMap = useMemo(() => {
-    const map = new Map<string, number[]>();
-    trendingTokens.forEach((t, i) => {
-      const data = sparklineQueries[i]?.data;
-      if (data && data.length >= 2) {
-        map.set(t.address, data);
-      }
-    });
-    return map;
-  }, [trendingTokens, sparklineQueries]);
+
+  const recentlyViewedTokens = useMemo(() => {
+    if (!tokens || recentlyViewedAddresses.length === 0) return [];
+    const byAddress = new Map(
+      tokens.map((t) => [t.address.toLowerCase(), t] as const),
+    );
+    return recentlyViewedAddresses
+      .map((a) => byAddress.get(a.toLowerCase()))
+      .filter((t): t is Token => Boolean(t));
+  }, [tokens, recentlyViewedAddresses]);
+
   const [searchResults, setSearchResults] = useState<Token[] | null>(null);
 
-  // Reset highlight when query or results change
   useEffect(() => {
     setHighlightedIndex(-1);
   }, [query]);
@@ -98,11 +77,10 @@ export function useSearchModal() {
 
   const close = () => dispatch(setSearchOpen(false));
 
-  // The navigable list: search results when typing, trending tokens otherwise
   const navigableItems = useMemo(() => {
     if (filtered) return filtered;
-    return trendingTokens;
-  }, [filtered, trendingTokens]);
+    return [...trendingTokens, ...recentlyViewedTokens];
+  }, [filtered, trendingTokens, recentlyViewedTokens]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -146,7 +124,7 @@ export function useSearchModal() {
     setQuery,
     inputRef,
     trendingTokens,
-    sparklineMap,
+    recentlyViewedTokens,
     filtered,
     goToToken,
     close,

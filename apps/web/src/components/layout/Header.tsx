@@ -80,7 +80,19 @@ export default function Header() {
           className={styles.searchTrigger}
           onClick={() => dispatch(setSearchOpen(true))}
         >
-          <span className={styles.searchIcon}>&#x2315;</span>
+          <svg
+            className={styles.searchIcon}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
           <span className={styles.searchText}>Search tokens&hellip;</span>
           <span className={styles.searchKbd}>⌘K</span>
         </div>

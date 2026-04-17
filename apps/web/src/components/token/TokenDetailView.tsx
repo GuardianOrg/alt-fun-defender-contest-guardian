@@ -6,6 +6,7 @@ import HeroSection from "./HeroSection";
 import styles from "./TokenDetailView.module.css";
 import TradePanel from "./TradePanel";
 import { GRADUATION_THRESHOLD_USD } from "../../config/constants";
+import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
 import { formatUsd } from "../../utils/format";
 import ErrorBoundary from "../shared/ErrorBoundary";
@@ -14,6 +15,7 @@ import ProgressBar from "../shared/ProgressBar";
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
   const { data: token, isLoading, isError } = useToken(address);
+  useTrackRecentlyViewed(token?.address);
 
   if (isLoading) {
     return (
