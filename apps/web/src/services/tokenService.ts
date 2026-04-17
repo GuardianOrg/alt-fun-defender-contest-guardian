@@ -1,8 +1,6 @@
 import { API_BASE, fetchToken, fetchTokens } from "./api";
-import { fetchPonderToken, fetchPonderTokens } from "./ponder";
 
 import type { ApiToken } from "./api";
-import type { PonderToken } from "./ponder";
 import type { Direction, Token, TokenFilter } from "./types";
 
 export function ltDisplayName(apiToken: ApiToken): string {
@@ -23,27 +21,13 @@ export function deriveDirection(apiToken: ApiToken): Direction {
   return apiToken.ltDirection === "short" ? "short" : "long";
 }
 
-export function deriveStatus(apiToken: ApiToken): Token["status"] {
-  if (apiToken.status === "graduated") return "graduated";
-  if (apiToken.status === "graduating") return "graduating";
+export function deriveStatus(api: ApiToken): Token["status"] {
+  if (api.status === "graduated" || api.graduated) return "graduated";
+  if (api.status === "graduating") return "graduating";
   return "active";
 }
 
-function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
-  const totalSupply = 1_000_000_000n * 10n ** 18n;
-  const curveAlloc = (totalSupply * 75n) / 100n;
-  const curveSupply = onchain ? BigInt(onchain.curveSupply) : 0n;
-  const soldTokens = curveAlloc - curveSupply;
-  const curveFilled =
-    curveAlloc > 0n ? Number((soldTokens * 10000n) / curveAlloc) / 100 : 0;
-
-  const isGraduated = onchain?.graduated ?? false;
-  const status: Token["status"] = isGraduated
-    ? "graduated"
-    : curveFilled >= 90
-      ? "graduating"
-      : "active";
-
+export function fromApiToken(api: ApiToken): Token {
   return {
     address: api.address,
     name: api.name,
@@ -55,13 +39,17 @@ function mergeToken(api: ApiToken, onchain: PonderToken | null): Token {
     underlying: deriveUnderlying(api),
     leverage: api.leverage as Token["leverage"],
     ltName: ltDisplayName(api),
+    ltAddress: api.ltPair,
     buyMomentum: 0,
     leverageBoost: 0,
-    curveFilled: Math.min(curveFilled, 100),
+    curveFilled: api.curveFilled ?? 0,
     curveRaisedUsd: 0,
     volume24h: 0,
     athUsd: 0,
-    status,
+    priceUsd: api.priceUsd ?? null,
+    mcapUsd: api.mcapUsd ?? null,
+    change24h: api.change24h ?? null,
+    status: deriveStatus(api),
     creatorAddress: api.creator,
     createdAt: api.createdAt,
     socialLinks: (api.twitterUrl || api.telegramUrl || api.websiteUrl) ? {
@@ -82,10 +70,9 @@ export interface ITokenService {
 }
 
 /**
- * Filter tokens. Note: the `trending` mcap-based ordering is NOT applied here
- * because live market cap isn't on `Token` — it's composed in
- * `useMcapSortedTokens` from live LT prices. This function only applies
- * filters that can be computed from static token state.
+ * Apply filters that can be computed from the token row alone. The `trending`
+ * mcap-based ordering lives in `useMcapSortedTokens` in `useTokens` because it
+ * needs the full token list to sort globally.
  */
 export function applyFilter(
   tokens: Token[],
@@ -113,32 +100,15 @@ export function applyFilter(
 }
 
 async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
-  const [apiTokens, ponderTokens] = await Promise.all([
-    fetchTokens(100).catch((): ApiToken[] => []),
-    fetchPonderTokens(100).catch((): PonderToken[] => []),
-  ]);
-
-  if (apiTokens.length === 0 && ponderTokens.length === 0) {
-    return [];
-  }
-
-  const ponderMap = new Map(ponderTokens.map((t) => [t.address.toLowerCase(), t]));
-
-  const merged = apiTokens.map((api) =>
-    mergeToken(api, ponderMap.get(api.address.toLowerCase()) ?? null),
-  );
-
-  return applyFilter(merged, filter);
+  const apiTokens = await fetchTokens(100).catch((): ApiToken[] => []);
+  if (apiTokens.length === 0) return [];
+  return applyFilter(apiTokens.map(fromApiToken), filter);
 }
 
 async function liveGetToken(address: string): Promise<Token | undefined> {
-  const [apiToken, ponderToken] = await Promise.all([
-    fetchToken(address).catch(() => null),
-    fetchPonderToken(address).catch(() => null),
-  ]);
-
+  const apiToken = await fetchToken(address).catch(() => null);
   if (!apiToken) return undefined;
-  return mergeToken(apiToken, ponderToken);
+  return fromApiToken(apiToken);
 }
 
 async function liveGetTokensByDirection(

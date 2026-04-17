@@ -4,6 +4,16 @@ import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
+import {
+  computeMarketDataBatch,
+  type MarketDataItem,
+  type PonderTokenOnchain,
+} from "../../lib/market-data.js";
+import {
+  computeCurveFilled,
+  computeStatus,
+  type EnrichedToken,
+} from "../../lib/token-enrich.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -11,11 +21,49 @@ import type { AppBindings } from "../../lib/types.js";
 
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 100;
+const LIST_CACHE_TTL_SECONDS = 5;
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
+}
+
+type DbToken = typeof tokens.$inferSelect;
+
+function enrich(
+  dbToken: DbToken,
+  onchain: PonderTokenOnchain | undefined,
+  market: MarketDataItem | undefined,
+): EnrichedToken {
+  const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
+  const curveSupply = onchain?.curveSupply ?? null;
+  const ltReserve = onchain?.ltReserve ?? null;
+  const curveFilled = computeCurveFilled(curveSupply);
+  const graduated = onchain?.graduated ?? false;
+  const status = computeStatus(dbToken.status, graduated, curveFilled);
+  const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
+
+  return {
+    ...rest,
+    createdAt: createdAt.toISOString(),
+    poolAddress: hyperswapPair,
+    curveSupply,
+    ltReserve,
+    curveFilled,
+    status,
+    graduated,
+    graduatedAt: onchain?.graduatedAt
+      ? new Date(Number(onchain.graduatedAt) * 1000).toISOString()
+      : dbGraduatedAt
+        ? dbGraduatedAt.toISOString()
+        : null,
+    bondingPair: onchain?.bondingPair ?? null,
+    hyperswapPair,
+    priceUsd: market?.priceUsd ?? null,
+    mcapUsd: market?.mcapUsd ?? null,
+    change24h: market?.change24h ?? null,
+  };
 }
 
 const listRoute = new Hono<{ Bindings: AppBindings }>();
@@ -69,8 +117,16 @@ listRoute.get("/", async (c) => {
     sort === "name" ? tokens.name :
     tokens.createdAt;
 
+  const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
+  const cache = cachesObj?.default;
+  const cacheKey = new Request(new URL(c.req.url).toString(), { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
+
   const db = createDb(c.env.DATABASE_URL);
-  const allTokens = await db
+  const dbTokens = await db
     .select()
     .from(tokens)
     .where(and(...conditions))
@@ -78,7 +134,40 @@ listRoute.get("/", async (c) => {
     .limit(limit)
     .offset(offset);
 
-  return c.json(formatSuccess(allTokens));
+  const marketResult = await computeMarketDataBatch(
+    c.env.PONDER_URL,
+    c.env.BOUNCETECH_DATABASE_URL,
+  );
+
+  const onchainByAddress = new Map<string, PonderTokenOnchain>();
+  const marketByAddress = new Map<string, MarketDataItem>();
+  if (marketResult.ok) {
+    for (const t of marketResult.data.tokens) {
+      onchainByAddress.set(t.address.toLowerCase(), t);
+    }
+    for (const [addr, entry] of Object.entries(marketResult.data.market)) {
+      marketByAddress.set(addr, entry);
+    }
+  }
+
+  const enriched = dbTokens.map((t) =>
+    enrich(
+      t,
+      onchainByAddress.get(t.address.toLowerCase()),
+      marketByAddress.get(t.address.toLowerCase()),
+    ),
+  );
+
+  const response = c.json(
+    formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
+  );
+  if (marketResult.ok) {
+    response.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+    if (cache) {
+      await cache.put(cacheKey, response.clone());
+    }
+  }
+  return response;
 });
 
 listRoute.get("/search", async (c) => {

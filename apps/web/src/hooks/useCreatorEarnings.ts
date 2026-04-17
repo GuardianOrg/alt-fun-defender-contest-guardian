@@ -40,29 +40,15 @@ export function useCreatorEarnings() {
       if (!address || !walletClient) return;
       setClaiming(true);
       try {
-        let ltAddress: `0x${string}`;
-        if (tokenAddress) {
-          const info = (await hyperEvmClient.readContract({
-            address: ADDRESSES.bonding,
-            abi: BondingAbi,
-            functionName: "tokenInfo",
-            args: [tokenAddress as `0x${string}`],
-          })) as readonly [string, string, string, string, string, string, boolean, boolean];
-          ltAddress = info[3] as `0x${string}`;
-        } else {
-          const firstToken = earningsQuery.data?.tokens.find(
-            (t) => t.feesClaimableUsd > 0,
-          );
-          if (!firstToken) return;
-          const info = (await hyperEvmClient.readContract({
-            address: ADDRESSES.bonding,
-            abi: BondingAbi,
-            functionName: "tokenInfo",
-            args: [firstToken.address as `0x${string}`],
-          })) as readonly [string, string, string, string, string, string, boolean, boolean];
-          ltAddress = info[3] as `0x${string}`;
-        }
+        const tokensList = earningsQuery.data?.tokens ?? [];
+        const target = tokenAddress
+          ? tokensList.find(
+              (t) => t.address.toLowerCase() === tokenAddress.toLowerCase(),
+            )
+          : tokensList.find((t) => t.feesClaimableUsd > 0);
+        if (!target) return;
 
+        const ltAddress = target.ltAddress as `0x${string}`;
         const hash = await walletClient.writeContract({
           address: ADDRESSES.bonding,
           abi: BondingAbi,

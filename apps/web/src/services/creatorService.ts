@@ -30,36 +30,14 @@ const liveCreatorService: ICreatorService = {
 
       if (createdTokens.length === 0) return null;
 
-      const tokenInfoCalls = createdTokens.map((token) => ({
+      // `ltPair` is already indexed in Postgres, so we skip the previous
+      // `tokenInfo` multicall and go straight to `creatorFees(creator, lt)`.
+      const creatorFeeCalls = createdTokens.map((token) => ({
         address: ADDRESSES.bonding,
         abi: BondingAbi,
-        functionName: "tokenInfo" as const,
-        args: [token.address as `0x${string}`],
+        functionName: "creatorFees" as const,
+        args: [walletAddress as `0x${string}`, token.ltPair as `0x${string}`],
       }));
-
-      const tokenInfoResults = await publicClient.multicall({
-        contracts: tokenInfoCalls,
-        allowFailure: true,
-      });
-
-      const creatorFeeCalls = tokenInfoResults.map((infoResult, i) => {
-        if (infoResult.status === "success") {
-          const info = infoResult.result as readonly [string, string, string, string, string, string, boolean, boolean];
-          const ltAddress = info[3] as `0x${string}`;
-          return {
-            address: ADDRESSES.bonding,
-            abi: BondingAbi,
-            functionName: "creatorFees" as const,
-            args: [walletAddress as `0x${string}`, ltAddress],
-          };
-        }
-        return {
-          address: ADDRESSES.bonding,
-          abi: BondingAbi,
-          functionName: "creatorFees" as const,
-          args: [walletAddress as `0x${string}`, createdTokens[i].address as `0x${string}`],
-        };
-      });
 
       const feeResults = await publicClient.multicall({
         contracts: creatorFeeCalls,
@@ -69,24 +47,11 @@ const liveCreatorService: ICreatorService = {
       let totalClaimable = 0;
       const tokenEarnings = createdTokens.map((token, i) => {
         const feeResult = feeResults[i];
-        if (tokenInfoResults[i].status === "success" && feeResult.status === "success") {
-          const claimable = feeResult.result as bigint;
-          const claimableUsd = parseFloat(formatUnits(claimable, 18));
-          totalClaimable += claimableUsd;
-
-          return {
-            address: token.address,
-            name: token.name,
-            imageUrl: token.imageUrl ? new URL(token.imageUrl, API_BASE).toString() : undefined,
-            ltName: `${token.ltPair} ${token.leverage}×`,
-            ltAddress: token.ltPair,
-            status: "active" as const,
-            curveFilled: 0,
-            totalVolumeUsd: 0,
-            feesEarnedUsd: claimableUsd,
-            feesClaimableUsd: claimableUsd,
-          };
-        }
+        const claimableUsd =
+          feeResult.status === "success"
+            ? parseFloat(formatUnits(feeResult.result as bigint, 18))
+            : 0;
+        totalClaimable += claimableUsd;
 
         return {
           address: token.address,
@@ -95,10 +60,10 @@ const liveCreatorService: ICreatorService = {
           ltName: `${token.ltPair} ${token.leverage}×`,
           ltAddress: token.ltPair,
           status: "active" as const,
-          curveFilled: 0,
+          curveFilled: token.curveFilled ?? 0,
           totalVolumeUsd: 0,
-          feesEarnedUsd: 0,
-          feesClaimableUsd: 0,
+          feesEarnedUsd: claimableUsd,
+          feesClaimableUsd: claimableUsd,
         };
       });
 

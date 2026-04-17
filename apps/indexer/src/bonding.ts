@@ -30,7 +30,44 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     })
-    .onConflictDoNothing();
+    // FFactory:PairCreated fires earlier in the same tx and may have inserted a
+    // placeholder row carrying `bondingPair`. Overwrite the metadata fields but
+    // preserve `bondingPair` / `hyperswapPair`.
+    .onConflictDoUpdate({
+      name: event.args.name,
+      symbol: event.args.ticker,
+      creator: event.args.creator,
+      ltToken: event.args.ltAddress,
+      k: event.args.k,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    });
+});
+
+ponder.on("FFactory:PairCreated", async ({ event, context }) => {
+  const { db } = context;
+  const tokenAddr = event.args.tokenA;
+  const ltAddr = event.args.tokenB;
+
+  // Runs in the same tx as Bonding:TokenLaunched, before it. The Bonding
+  // handler later overwrites the placeholder metadata fields.
+  await db
+    .insert(token)
+    .values({
+      address: tokenAddr,
+      name: "",
+      symbol: "",
+      creator: ZERO_ADDRESS,
+      ltToken: ltAddr,
+      k: 0n,
+      curveSupply: 0n,
+      ltReserve: 0n,
+      graduated: false,
+      bondingPair: event.args.pair,
+      blockNumber: BigInt(event.block.number),
+      timestamp: BigInt(event.block.timestamp),
+    })
+    .onConflictDoUpdate({ bondingPair: event.args.pair });
 });
 
 ponder.on("Bonding:Trade", async ({ event, context }) => {
@@ -96,7 +133,7 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
     .set({
       graduated: true,
       graduatedAt: BigInt(event.block.timestamp),
-      pairAddress: event.args.pairAddress,
+      hyperswapPair: event.args.pairAddress,
     });
 });
 

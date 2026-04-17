@@ -51,6 +51,21 @@ export interface ApiToken {
   creator: string;
   isHidden: boolean;
   createdAt: string;
+  // Derived on the API from Ponder + BounceTech. Optional because the
+  // `/tokens/search` endpoint returns only the base Postgres shape for speed.
+  // Nullable (when present) because the indexer or BounceTech may be
+  // temporarily unavailable — UI should treat null as "unknown", never zero.
+  curveSupply?: string | null;
+  ltReserve?: string | null;
+  curveFilled?: number | null;
+  graduated?: boolean;
+  graduatedAt?: string | null;
+  bondingPair?: string | null;
+  hyperswapPair?: string | null;
+  priceUsd?: number | null;
+  mcapUsd?: number | null;
+  change24h?: number | null;
+  poolAddress?: string | null;
 }
 
 export interface ApiComment {

@@ -11,7 +11,10 @@ export const token = onchainTable("token", (t) => ({
   ltReserve: t.bigint().notNull(),
   graduated: t.boolean().notNull().default(false),
   graduatedAt: t.bigint(),
-  pairAddress: t.hex(),
+  /** Bonding curve pair address (from FFactory.PairCreated). Set once at launch. */
+  bondingPair: t.hex(),
+  /** HyperSwap V2 pair address (from Bonding.TokenGraduated). Set at graduation. */
+  hyperswapPair: t.hex(),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({
