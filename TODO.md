@@ -1,9 +1,5 @@
 # TODO
 
-- **Deploy note (market data snapshots)**: The indexer now writes a `tokenSnapshot` row (curve state only: `curveSupply`, `ltReserve`) on every `Bonding:Trade`, read by `/api/v1/market-data`. Historical LT exchange rates are read from BounceTech's existing Neon DB (`token_snapshots_v1`) via `BOUNCETECH_DATABASE_URL` — no indexer reads of `exchangeRate()` (reading LT views at past blocks on HyperEVM reverts because of the Hyperliquid precompile). Railway-hosted Ponder needs a full re-sync from `startBlock` to populate `tokenSnapshot` history. During the first 24h after re-sync, `change24h` will render `—` for tokens that haven't traded within the window on the live chain (their pre-trade curve state isn't snapshotted yet); as soon as the next trade lands, subsequent reads pick up accurately. Plan a short maintenance window when deploying.
-
-Look into how overflow bonding buys are handled
-
 Trending icon issue
 
 See effort to charge fees in AMM vs in Zap
@@ -11,6 +7,8 @@ See effort to charge fees in AMM vs in Zap
 - Shows Loading token when you visit token page, should instead show the page, and just a loading state for the specific elements we need
 
 - White background on connect button
+
+- Improve RPC usage, it's very high at the moment
 
 - **Post-graduation chart pricing**: The chart currently uses bonding curve trades (Ponder `trade` table) to derive token/LT ratios. For graduated tokens trading on HyperSwap, swap events are not yet indexed. When HyperSwap `Swap`/`Sync` indexing is added, update `GET /api/v1/chart/:address` to incorporate post-grad DEX reserve changes for continuous pricing.
 
@@ -51,5 +49,7 @@ Implement LT Movers Section
 Add Volume stat, show in token page and profile page
 
 Add some link to a bridge or something
+
+Handle the case when a user buys more than is available right at the end for bonding graduation, maybe refund them the excess or something.
 
 # Post launch
