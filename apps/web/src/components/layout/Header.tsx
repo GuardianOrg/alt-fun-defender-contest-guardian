@@ -89,27 +89,29 @@ export default function Header() {
       <div className={styles.rightSide}>
         <span className={styles.clock}>{clock}</span>
         {isConnected ? (
-          <span
-            className={styles.walletAddress}
-            onClick={() => dispatch(setEarningsOpen(true))}
-          >
-            {shortAddress}
-          </span>
+          <>
+            <span
+              className={styles.walletAddress}
+              onClick={() => dispatch(setEarningsOpen(true))}
+            >
+              {shortAddress}
+            </span>
+            {isCreate ? (
+              <button className={styles.creatingBtn}>
+                &#x26A1; creating token
+              </button>
+            ) : (
+              <button
+                className={styles.launchBtn}
+                onClick={() => navigate(CREATE_PATH)}
+              >
+                &#x26A1; launch a levered token
+              </button>
+            )}
+          </>
         ) : (
-          <button className={styles.connectButton} onClick={connect}>
+          <button className={styles.connectButtonPrimary} onClick={connect}>
             Connect Wallet
-          </button>
-        )}
-        {isCreate ? (
-          <button className={styles.creatingBtn}>
-            &#x26A1; creating token
-          </button>
-        ) : (
-          <button
-            className={styles.launchBtn}
-            onClick={() => navigate(CREATE_PATH)}
-          >
-            &#x26A1; launch a levered token
           </button>
         )}
       </div>
