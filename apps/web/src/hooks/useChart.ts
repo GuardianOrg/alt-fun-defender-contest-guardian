@@ -48,6 +48,12 @@ export function useChart({
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  // Track the last candle array we applied so we can distinguish a live tick
+  // (last element mutated) from a full resync (timeframe change / refetch).
+  // Live ticks use `series.update()` which is an OHLC merge — dramatically
+  // cheaper than `setData()` on every 2s price tick.
+  const lastCandlesRef = useRef<CandlestickData[] | null>(null);
+  const lastTimeframeRef = useRef<ChartTimeframe | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -109,6 +115,7 @@ export function useChart({
 
     if (loading) {
       seriesRef.current.setData([]);
+      lastCandlesRef.current = null;
       return;
     }
 
@@ -119,6 +126,33 @@ export function useChart({
         minMove: 0.01,
       },
     });
+
+    const prev = lastCandlesRef.current;
+    const timeframeChanged = lastTimeframeRef.current !== timeframe;
+    lastTimeframeRef.current = timeframe;
+
+    // Detect whether this is a live-tick update (same anchor + non-shrinking
+    // tail) vs. a full resync (timeframe change, initial load, reconnect).
+    // On live ticks we call `series.update()` for cheap OHLC merges;
+    // otherwise we re-pad and `setData()` from scratch.
+    const isLiveTick =
+      !timeframeChanged &&
+      prev !== null &&
+      prev.length > 0 &&
+      candles.length >= prev.length &&
+      (candles[0]?.time as number) === (prev[0]?.time as number);
+
+    if (isLiveTick && seriesRef.current) {
+      // Apply the last previously-known candle (may have been merged) plus
+      // any new tail candles (roll-overs). `update()` is an upsert keyed by
+      // time — merges if present, appends if not.
+      const startIdx = Math.max(0, (prev as CandlestickData[]).length - 1);
+      for (let i = startIdx; i < candles.length; i++) {
+        seriesRef.current.update(candles[i]);
+      }
+      lastCandlesRef.current = candles;
+      return;
+    }
 
     const nowSec = Math.floor(Date.now() / 1000);
     const windowSec = TIMEFRAME_SECONDS[timeframe];
@@ -147,6 +181,7 @@ export function useChart({
     }
 
     seriesRef.current.setData(padded);
+    lastCandlesRef.current = candles;
 
     chartRef.current.timeScale().setVisibleRange({
       from: from as unknown as CandlestickData["time"],

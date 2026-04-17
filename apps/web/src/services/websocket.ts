@@ -1,4 +1,5 @@
 type MessageHandler = (data: unknown) => void;
+type OpenHandler = () => void;
 
 interface ChannelSubscription {
   channel: string;
@@ -14,11 +15,13 @@ class WebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
   private subscriptions: Map<string, ChannelSubscription> = new Map();
+  private openHandlers: Set<OpenHandler> = new Set();
   private reconnectMs = INITIAL_RECONNECT_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private disposed = false;
   private subIdCounter = 0;
+  private hasOpenedOnce = false;
 
   constructor(url: string) {
     this.url = url;
@@ -41,6 +44,20 @@ class WebSocketClient {
       for (const sub of this.subscriptions.values()) {
         this.sendSubscribe(sub.channel, sub.token);
       }
+      // Only fire reconnection handlers on *re*opens, not the first connect —
+      // callers already have their initial snapshot then. Downstream hooks
+      // (useChartData) use this to refetch after a drop so they resync any
+      // state they might have missed while disconnected.
+      if (this.hasOpenedOnce) {
+        for (const fn of this.openHandlers) {
+          try {
+            fn();
+          } catch {
+            // ignore handler throws; one bad listener can't break the stream
+          }
+        }
+      }
+      this.hasOpenedOnce = true;
     };
 
     this.ws.onmessage = (event) => {
@@ -117,10 +134,22 @@ class WebSocketClient {
     };
   }
 
+  /**
+   * Subscribe to reconnect events. Fires only on *re*opens (not the first
+   * connect). Returns an unsubscribe function.
+   */
+  onReconnect(handler: OpenHandler): () => void {
+    this.openHandlers.add(handler);
+    return () => {
+      this.openHandlers.delete(handler);
+    };
+  }
+
   dispose(): void {
     this.disposed = true;
     this.cleanup();
     this.subscriptions.clear();
+    this.openHandlers.clear();
   }
 
   private sendSubscribe(channel: string, token?: string): void {

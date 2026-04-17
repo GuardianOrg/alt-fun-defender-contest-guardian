@@ -29,6 +29,7 @@ import openApiSpec from "./openapi/spec.js";
 import type { AppBindings } from "./lib/types.js";
 
 export { WebSocketDO } from "./websocket/durable-object.js";
+export { LtTicker } from "./websocket/lt-ticker.js";
 
 const app = new Hono<{ Bindings: AppBindings }>();
 
@@ -147,4 +148,33 @@ app.onError((err, c) => {
   return c.json(formatError("Internal Server Error"), 500);
 });
 
-export default app;
+export default {
+  fetch: app.fetch,
+  /**
+   * Cron trigger (1 min cadence per wrangler.json) — kickstart the LtTicker
+   * DO if it's dormant. `/ensure` is idempotent: if an alarm is already
+   * scheduled it's a no-op. This guarantees the ticker self-heals within
+   * ~60s of any deploy, DO eviction, or transient failure without relying
+   * on user traffic.
+   */
+  async scheduled(
+    _controller: ScheduledController,
+    env: AppBindings,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    const id = env.LT_TICKER_DO.idFromName("lt-ticker");
+    const stub = env.LT_TICKER_DO.get(id);
+    ctx.waitUntil(
+      stub.fetch("https://internal/ensure").catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "lt_ticker_kickstart_failed",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+  },
+};

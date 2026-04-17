@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
 import { token, trade, graduation, tokenSnapshot } from "../ponder.schema";
@@ -252,6 +252,101 @@ describe("Bonding:Trade", () => {
     const tradeInsert = db._insertCalls.find((c) => c.table === trade);
     const values = tradeInsert!.values as Record<string, unknown>;
     expect(values.isBuy).toBe(false);
+  });
+});
+
+describe("Bonding:Trade WS broadcaster", () => {
+  let db: ReturnType<typeof createMockDb>;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    db = createMockDb();
+    fetchSpy = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchSpy);
+    process.env.API_WEBHOOK_URL = "https://api.example.com";
+    process.env.ADMIN_API_KEY = "test-admin-key";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.API_WEBHOOK_URL;
+    delete process.env.ADMIN_API_KEY;
+  });
+
+  it("broadcasts live trades with curveSupply and ltReserve", async () => {
+    const handler = getHandler("Bonding:Trade");
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        trader: "0xtrader1",
+        isBuy: true,
+        ltAmount: 1000n,
+        tokenAmount: 5000n,
+        newCurveSupply: 5000n,
+        newLtReserve: 1000n,
+      },
+      txHash: "0xlive",
+      logIndex: 0,
+      blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://api.example.com/api/v1/webhook/indexer");
+    expect(init.method).toBe("POST");
+    expect(init.headers["X-Admin-Key"]).toBe("test-admin-key");
+
+    const body = JSON.parse(init.body as string);
+    expect(body.event).toBe("trade");
+    expect(body.tokenAddress).toBe("0xtoken1");
+    expect(body.data.curveSupply).toBe("5000");
+    expect(body.data.ltReserve).toBe("1000");
+    expect(body.data.isBuy).toBe(true);
+  });
+
+  it("skips broadcast during historical backfill", async () => {
+    const handler = getHandler("Bonding:Trade");
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        trader: "0xtrader1",
+        isBuy: true,
+        ltAmount: 1000n,
+        tokenAmount: 5000n,
+        newCurveSupply: 5000n,
+        newLtReserve: 1000n,
+      },
+      blockTimestamp: 1700000000n,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("skips broadcast when webhook env vars are unset", async () => {
+    delete process.env.API_WEBHOOK_URL;
+    const handler = getHandler("Bonding:Trade");
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        trader: "0xtrader1",
+        isBuy: true,
+        ltAmount: 1000n,
+        tokenAmount: 5000n,
+        newCurveSupply: 5000n,
+        newLtReserve: 1000n,
+      },
+      blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 

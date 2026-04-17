@@ -92,8 +92,42 @@ Single endpoint: `WSS /ws`. Clients subscribe to channels.
 
 | Event | Description | Subscription |
 |---|---|---|
-| `trade` | Every buy/sell (curve or pool) | Global or per-token. `minimumSize` filter. |
-| `price` | Price change after trade or LT rate update | Per-token |
+| `trade` | Every buy/sell on the bonding curve | Global or per-token |
+| `price` | LT exchange rate tick (from `LtTicker` DO, ~2s cadence) | Per-LT (routing key is the LT contract address) |
 | `graduation` | Token graduated | Global |
 | `newToken` | Token launched | Global |
 | `stats` | Platform stats update | Global (every 10-30s) |
+
+### `trade` payload
+
+Broadcast from the Ponder indexer's `Bonding:Trade` handler via fire-and-forget POST to `/api/v1/webhook/indexer`. Historical backfill is skipped — the broadcaster only fires when the block timestamp is within 60s of wall-clock now.
+
+```json
+{
+  "id": "0x<txHash>-<logIndex>",
+  "tokenAddress": "0x…",
+  "trader": "0x…",
+  "isBuy": true,
+  "ltAmount": "<bigint as string, 1e18-scaled>",
+  "tokenAmount": "<bigint as string, 1e18-scaled>",
+  "curveSupply": "<post-trade curveSupply, 1e18-scaled>",
+  "ltReserve": "<post-trade ltReserve, 1e18-scaled>",
+  "timestamp": "<unix seconds as string>"
+}
+```
+
+`curveSupply` and `ltReserve` let clients recompute the live curve ratio without a round-trip. The chart pairs these with `price` ticks to drive live updates.
+
+### `price` payload
+
+Produced by the `LtTicker` Durable Object, which wakes every 2 seconds via a self-rescheduling alarm, reads the latest `exchange_rate` per LT from BounceTech's `token_snapshots_v1` (LATERAL query), and broadcasts only LTs whose rate changed since the previous tick. Routing key is the LT contract address, not the bonding token address — a single LT update fans out to all tokens that share it.
+
+```json
+{
+  "ltAddress": "0x…",
+  "exchangeRate": "<bigint as string, 1e18-scaled>",
+  "ts": "<unix seconds>"
+}
+```
+
+Clients convert to a float via `Number(exchangeRate) / 1e18`. The live price formula `price = (ltReserve / curveSupply) × exchangeRate` is implemented in `computeTokenPrice` from `@launchpad/shared` and is the single source of truth on both server and client.

@@ -3,7 +3,22 @@ import { fetchPonderTrades } from "./ponder";
 import { ponderTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
+import type { PonderTradeInput } from "./tradeFormatter";
 import type { Trade } from "./types";
+
+/**
+ * Convert a raw WS trade broadcast from the indexer into the client's
+ * formatted `Trade` type. Looks up the LT exchange rate to compute `amountUsd`;
+ * returns `null` if the rate isn't resolvable (caller can retry on next REST
+ * poll).
+ */
+async function formatWsTrade(raw: PonderTradeInput): Promise<Trade | null> {
+  const exchangeRate = await resolveExchangeRate(raw.tokenAddress);
+  if (!exchangeRate) return null;
+  const trade = ponderTradeToTrade(raw, exchangeRate);
+  trade.tokenName = resolveTokenName(raw.tokenAddress);
+  return trade;
+}
 
 export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   const ws = getWebSocketClient();
@@ -12,11 +27,12 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
 
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
-      const trade = data as Trade;
-      if (trade.id && !seenIds.has(trade.id)) {
-        seenIds.add(trade.id);
-        cb(trade);
-      }
+      const raw = data as PonderTradeInput;
+      if (!raw.id || seenIds.has(raw.id)) return;
+      seenIds.add(raw.id);
+      void formatWsTrade(raw).then((trade) => {
+        if (trade) cb(trade);
+      });
     });
   }
 
@@ -82,11 +98,18 @@ export function subscribeTokenTrades(
   const normalizedAddress = address.toLowerCase();
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
-      const trade = data as Trade;
-      if (trade.id && !seenIds.has(trade.id) && trade.tokenAddress?.toLowerCase() === normalizedAddress) {
-        seenIds.add(trade.id);
-        cb(trade);
+      const raw = data as PonderTradeInput;
+      if (
+        !raw.id ||
+        seenIds.has(raw.id) ||
+        raw.tokenAddress?.toLowerCase() !== normalizedAddress
+      ) {
+        return;
       }
+      seenIds.add(raw.id);
+      void formatWsTrade(raw).then((trade) => {
+        if (trade) cb(trade);
+      });
     }, normalizedAddress);
   }
 

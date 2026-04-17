@@ -38,6 +38,7 @@ function makeEnv(): AppBindings {
     PONDER_URL: "http://localhost:42069",
     IMAGES_BUCKET: {} as R2Bucket,
     WEBSOCKET_DO: {} as DurableObjectNamespace,
+    LT_TICKER_DO: {} as DurableObjectNamespace,
     AI: {} as Ai,
   };
 }

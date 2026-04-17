@@ -4,6 +4,7 @@ import { adminAuth } from "../../middleware/admin-auth.js";
 import apiKeysRoute from "../api-keys.js";
 import analytics from "./analytics.js";
 import moderation from "./moderation.js";
+import ltTicker from "./lt-ticker.js";
 
 import type { AppBindings } from "../../lib/types.js";
 
@@ -13,6 +14,7 @@ admin.use("*", adminAuth);
 
 admin.route("/api-keys", apiKeysRoute);
 admin.route("/analytics", analytics);
+admin.route("/lt-ticker", ltTicker);
 admin.route("/", moderation);
 
 export default admin;

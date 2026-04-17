@@ -42,6 +42,7 @@ export default function TradePanel({ token }: Props) {
   const [buyQuote, setBuyQuote] = useState<BuyQuote | null>(null);
   const [sellQuote, setSellQuote] = useState<SellQuote | null>(null);
   const [maxBalance, setMaxBalance] = useState<string | null>(null);
+  const [maxBalanceWei, setMaxBalanceWei] = useState<bigint | null>(null);
 
   const { address } = useAccount();
   const { isConnected, connect } = useWallet();
@@ -98,6 +99,7 @@ export default function TradePanel({ token }: Props) {
           args: [address],
         }) as bigint;
         setMaxBalance(formatUnits(balance, USDC_DECIMALS));
+        setMaxBalanceWei(balance);
       } else {
         const balance = await hyperEvmClient.readContract({
           address: token.address as `0x${string}`,
@@ -106,9 +108,11 @@ export default function TradePanel({ token }: Props) {
           args: [address],
         }) as bigint;
         setMaxBalance(formatUnits(balance, 18));
+        setMaxBalanceWei(balance);
       }
     } catch {
       setMaxBalance(null);
+      setMaxBalanceWei(null);
     }
   }, [address, mode, token.address]);
 
@@ -126,7 +130,9 @@ export default function TradePanel({ token }: Props) {
     if (mode === "buy") {
       executeBuy(token.address, amtNum, slippage, referrer);
     } else {
-      const tokenAmountWei = parseUnits(amount, 18);
+      const parsed = parseUnits(amount, 18);
+      const tokenAmountWei =
+        maxBalanceWei !== null && parsed > maxBalanceWei ? maxBalanceWei : parsed;
       executeSell(token.address, tokenAmountWei, slippage);
     }
   };

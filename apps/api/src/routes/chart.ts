@@ -260,7 +260,13 @@ chart.get("/:address", async (c) => {
   ]);
 
   if (ltRows.length === 0) {
-    return c.json(formatSuccess([]));
+    return c.json(
+      formatSuccess({
+        candles: [],
+        currentRatio: 0,
+        currentExchangeRate: 0,
+      }),
+    );
   }
 
   if (tradesResult.truncated) {
@@ -279,7 +285,15 @@ chart.get("/:address", async (c) => {
         : [];
 
   if (ratioTimeline.length === 0) {
-    return c.json(formatSuccess([]));
+    const latestExchangeRate =
+      Number(ltRows[ltRows.length - 1].exchange_rate) / 1e18;
+    return c.json(
+      formatSuccess({
+        candles: [],
+        currentRatio: 0,
+        currentExchangeRate: latestExchangeRate,
+      }),
+    );
   }
 
   const rawPrices: { ts: number; price: number }[] = [];
@@ -303,7 +317,20 @@ chart.get("/:address", async (c) => {
 
   const candles = buildCandles(rawPrices, candleSec);
 
-  return c.json(formatSuccess(candles));
+  // The client uses these to seed its live aggregator: on WS ticks it
+  // recomputes `price = currentRatio × currentExchangeRate` and updates the
+  // in-progress candle. Matches the formula in `@launchpad/shared`.
+  const currentRatio = ratioTimeline[ratioTimeline.length - 1].ratio;
+  const currentExchangeRate =
+    Number(ltRows[ltRows.length - 1].exchange_rate) / 1e18;
+
+  return c.json(
+    formatSuccess({
+      candles,
+      currentRatio,
+      currentExchangeRate,
+    }),
+  );
 });
 
 export default chart;
