@@ -48,10 +48,28 @@ function createState() {
     }),
   };
 
+  // The LtTicker constructor calls ctx.blockConcurrencyWhile for self-
+  // kickstart. The real CF runtime blocks incoming requests on this until
+  // the init promise resolves; our mock captures the returned promise so
+  // tests can await it before asserting on setAlarm counts.
+  const pendingInits: Promise<void>[] = [];
+  const blockConcurrencyWhile = vi.fn(async (fn: () => Promise<void>) => {
+    const p = fn();
+    pendingInits.push(p);
+    await p;
+  });
+
   return {
     _state: state,
-    ctx: { storage } as unknown as DurableObjectState,
+    pendingInits,
+    ctx: { storage, blockConcurrencyWhile } as unknown as DurableObjectState,
   };
+}
+
+// Wait for any constructor-time blockConcurrencyWhile callbacks to settle
+// so subsequent setAlarm mock assertions aren't racey.
+async function settleInit(pendingInits: Promise<void>[]) {
+  await Promise.allSettled(pendingInits);
 }
 
 function makeEnv(): AppBindings {
@@ -74,25 +92,37 @@ function stubDistinct(ltPairs: string[]) {
   });
 }
 
+describe("LtTicker self-kickstart on construction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("schedules an alarm in the constructor when none exists", async () => {
+    const { ctx, pendingInits } = createState();
+    new LtTicker(ctx, makeEnv());
+    await settleInit(pendingInits);
+    expect(ctx.storage.setAlarm).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not schedule a second alarm when one already exists", async () => {
+    const { ctx, _state, pendingInits } = createState();
+    _state.alarm = Date.now() + 5000;
+    new LtTicker(ctx, makeEnv());
+    await settleInit(pendingInits);
+    expect(ctx.storage.setAlarm).not.toHaveBeenCalled();
+  });
+});
+
 describe("LtTicker /ensure", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("schedules first alarm when none exists", async () => {
-    const { ctx } = createState();
+  it("is a no-op by the time /ensure is called (constructor already kickstarted)", async () => {
+    const { ctx, pendingInits } = createState();
     const ticker = new LtTicker(ctx, makeEnv());
-
-    const res = await ticker.fetch(new Request("https://internal/ensure"));
-
-    expect(res.status).toBe(200);
-    expect(ctx.storage.setAlarm).toHaveBeenCalledTimes(1);
-  });
-
-  it("is a no-op when alarm is already scheduled", async () => {
-    const { ctx, _state } = createState();
-    _state.alarm = Date.now() + 5000;
-    const ticker = new LtTicker(ctx, makeEnv());
+    await settleInit(pendingInits);
+    (ctx.storage.setAlarm as ReturnType<typeof vi.fn>).mockClear();
 
     const res = await ticker.fetch(new Request("https://internal/ensure"));
 
@@ -101,8 +131,9 @@ describe("LtTicker /ensure", () => {
   });
 
   it("returns 404 for unknown paths", async () => {
-    const { ctx } = createState();
+    const { ctx, pendingInits } = createState();
     const ticker = new LtTicker(ctx, makeEnv());
+    await settleInit(pendingInits);
     const res = await ticker.fetch(new Request("https://internal/other"));
     expect(res.status).toBe(404);
   });
@@ -113,8 +144,22 @@ describe("LtTicker alarm diff logic", () => {
     vi.clearAllMocks();
   });
 
+  // Helper: the constructor self-kickstart schedules one alarm via
+  // blockConcurrencyWhile; wait for that init to settle, then clear the
+  // mock so each test asserts on setAlarm calls triggered by alarm() only.
+  async function buildTicker(
+    ctx: DurableObjectState,
+    pendingInits: Promise<void>[],
+    env: AppBindings,
+  ) {
+    const ticker = new LtTicker(ctx, env);
+    await settleInit(pendingInits);
+    (ctx.storage.setAlarm as ReturnType<typeof vi.fn>).mockClear();
+    return ticker;
+  }
+
   it("sets next alarm first, then broadcasts changed rates", async () => {
-    const { ctx } = createState();
+    const { ctx, pendingInits } = createState();
     stubDistinct(["0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]);
     mockNeonQuery.mockResolvedValue([
       {
@@ -123,7 +168,7 @@ describe("LtTicker alarm diff logic", () => {
       },
     ]);
 
-    const ticker = new LtTicker(ctx, makeEnv());
+    const ticker = await buildTicker(ctx, pendingInits, makeEnv());
     await ticker.alarm();
 
     // Alarm rescheduled first — critical for liveness.
@@ -143,7 +188,7 @@ describe("LtTicker alarm diff logic", () => {
   });
 
   it("does not broadcast when rate is unchanged", async () => {
-    const { ctx } = createState();
+    const { ctx, pendingInits } = createState();
     stubDistinct(["0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]);
     mockNeonQuery.mockResolvedValue([
       {
@@ -152,7 +197,7 @@ describe("LtTicker alarm diff logic", () => {
       },
     ]);
 
-    const ticker = new LtTicker(ctx, makeEnv());
+    const ticker = await buildTicker(ctx, pendingInits, makeEnv());
     await ticker.alarm();
     mockBroadcast.mockClear();
 
@@ -162,7 +207,7 @@ describe("LtTicker alarm diff logic", () => {
   });
 
   it("broadcasts only the LT whose rate changed", async () => {
-    const { ctx } = createState();
+    const { ctx, pendingInits } = createState();
     stubDistinct([
       "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -178,7 +223,7 @@ describe("LtTicker alarm diff logic", () => {
       },
     ]);
 
-    const ticker = new LtTicker(ctx, makeEnv());
+    const ticker = await buildTicker(ctx, pendingInits, makeEnv());
     await ticker.alarm();
     mockBroadcast.mockClear();
 
@@ -203,11 +248,11 @@ describe("LtTicker alarm diff logic", () => {
   });
 
   it("reschedules next alarm even when BT query throws", async () => {
-    const { ctx } = createState();
+    const { ctx, pendingInits } = createState();
     stubDistinct(["0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"]);
     mockNeonQuery.mockRejectedValue(new Error("connection failed"));
 
-    const ticker = new LtTicker(ctx, makeEnv());
+    const ticker = await buildTicker(ctx, pendingInits, makeEnv());
     await ticker.alarm();
 
     expect(ctx.storage.setAlarm).toHaveBeenCalledTimes(1);
@@ -215,10 +260,10 @@ describe("LtTicker alarm diff logic", () => {
   });
 
   it("skips broadcast entirely when no LTs are tracked", async () => {
-    const { ctx } = createState();
+    const { ctx, pendingInits } = createState();
     stubDistinct([]);
 
-    const ticker = new LtTicker(ctx, makeEnv());
+    const ticker = await buildTicker(ctx, pendingInits, makeEnv());
     await ticker.alarm();
 
     expect(ctx.storage.setAlarm).toHaveBeenCalledTimes(1);

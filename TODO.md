@@ -3,6 +3,7 @@
 # TODO
 
 - Unify client `Trade` interface into `packages/shared` (currently split between `apps/web/src/services/types.ts` and the broadcast payload shape).
+- Slow down scrolling tickers
 - Implement trending system
 - Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
