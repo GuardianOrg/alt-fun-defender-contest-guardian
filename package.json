@@ -7,6 +7,7 @@
   ],
   "scripts": {
     "postinstall": "node scripts/fix-ink-react.mjs",
+    "setup": "node scripts/setup.mjs",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",

@@ -37,6 +37,28 @@ app.use("*", logger());
 app.use("*", cors());
 app.use("*", prettyJSON());
 
+/**
+ * Once per Worker isolate, touch the LtTicker DO so its constructor runs and
+ * self-kickstarts its alarm loop. In prod this is redundant with the cron
+ * trigger, but in local dev `wrangler dev` doesn't fire crons, and without
+ * this the ticker would stay dormant until someone hit the admin endpoint
+ * manually. Cost is a single DO fetch per cold start.
+ */
+let ltTickerTouched = false;
+app.use("*", async (c, next) => {
+  if (!ltTickerTouched) {
+    ltTickerTouched = true;
+    const id = c.env.LT_TICKER_DO.idFromName("lt-ticker");
+    const stub = c.env.LT_TICKER_DO.get(id);
+    c.executionCtx.waitUntil(
+      stub.fetch("https://internal/ensure").catch(() => {
+        ltTickerTouched = false;
+      }),
+    );
+  }
+  await next();
+});
+
 app.get("/", (c) => c.json(formatSuccess("Alt Fun API")));
 app.get("/health", async (c) => {
   const ponderHealthy = await checkPonderHealth(c.env.PONDER_URL);

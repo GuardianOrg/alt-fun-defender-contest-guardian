@@ -41,8 +41,11 @@ interface HeartbeatState {
  * Cadence is intentionally matched to BounceTech's ~2s write cadence on
  * `token_snapshots_v1` — polling faster just returns duplicate values.
  *
- * Kickstart comes from a 1-minute Cron Trigger that POSTs to `/ensure`; any
- * manual admin hit to that endpoint also suffices to start a dormant ticker.
+ * The DO self-kickstarts on construction: if no alarm is scheduled when the
+ * instance is created (e.g. first request after deploy, local dev cold start,
+ * DO eviction) it schedules one via `blockConcurrencyWhile` before accepting
+ * any request. The 1-minute Cron Trigger and the `/ensure` admin endpoint
+ * are both safety nets — in practice the DO heals itself on any touch.
  */
 export class LtTicker extends DurableObject<AppBindings> {
   private lastSeen: Map<string, string> = new Map();
@@ -55,6 +58,21 @@ export class LtTicker extends DurableObject<AppBindings> {
     tickCount: 0,
     trackedLtCount: 0,
   };
+
+  constructor(ctx: DurableObjectState, env: AppBindings) {
+    super(ctx, env);
+    // `blockConcurrencyWhile` delays incoming requests/alarms until init
+    // resolves, which is safe because it returns immediately when an alarm
+    // is already scheduled. This removes the need for external kickstart in
+    // local dev (where cron triggers don't fire) and acts as an extra safety
+    // net in prod.
+    ctx.blockConcurrencyWhile(async () => {
+      const existing = await ctx.storage.getAlarm();
+      if (existing === null) {
+        await ctx.storage.setAlarm(Date.now() + TICK_INTERVAL_MS);
+      }
+    });
+  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
