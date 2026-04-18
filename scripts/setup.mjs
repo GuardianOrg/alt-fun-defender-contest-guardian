@@ -34,6 +34,7 @@ const PLACEHOLDER = "ASK_A_TEAMMATE";
 const copied = [];
 const alreadyExisted = [];
 const needsSecrets = [];
+const missingRequiredTemplates = [];
 
 for (const { example, target, optional } of ENV_PAIRS) {
   const examplePath = resolve(ROOT, example);
@@ -41,7 +42,7 @@ for (const { example, target, optional } of ENV_PAIRS) {
 
   if (!existsSync(examplePath)) {
     if (!optional) {
-      console.error(`  missing template: ${example}`);
+      missingRequiredTemplates.push(example);
     }
     continue;
   }
@@ -53,13 +54,21 @@ for (const { example, target, optional } of ENV_PAIRS) {
     copied.push(target);
   }
 
+  // Only match KEY=value assignments whose *value* still contains the
+  // placeholder. Comment lines and the instructional header mention the
+  // placeholder string literally, so a plain `contents.includes` would keep
+  // flagging files forever after they're filled in.
   const contents = readFileSync(targetPath, "utf8");
-  if (contents.includes(PLACEHOLDER)) {
-    const placeholderLines = contents
-      .split("\n")
-      .filter((l) => l.includes(PLACEHOLDER))
-      .map((l) => l.split("=")[0].trim());
-    needsSecrets.push({ file: target, keys: placeholderLines });
+  const placeholderKeys = contents
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .map((line) => line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/))
+    .filter((match) => match !== null && match[2].includes(PLACEHOLDER))
+    .map((match) => match[1]);
+
+  if (placeholderKeys.length > 0) {
+    needsSecrets.push({ file: target, keys: placeholderKeys });
   }
 }
 
@@ -73,9 +82,28 @@ if (alreadyExisted.length > 0) {
   for (const t of alreadyExisted) console.log(`    · ${t}`);
 }
 
+// Bail early if a required template is missing — continuing would silently
+// leave the repo half-configured and Setup would still print a success
+// message with exit 0.
+if (missingRequiredTemplates.length > 0) {
+  console.error("\n== ERROR: missing required templates ==");
+  for (const t of missingRequiredTemplates) console.error(`    - ${t}`);
+  console.error(
+    "\n  These files should be committed to the repo. Check out a clean",
+  );
+  console.error(
+    "  copy of the branch or restore them from git history before retrying.",
+  );
+  process.exit(1);
+}
+
 console.log("\n== building @launchpad/shared ==");
+// On Windows, spawnSync can't resolve `npm` without the `.cmd` extension
+// (unless shell: true, which brings its own quoting footguns). Explicit
+// platform-aware binary name is the safer choice.
+const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 const build = spawnSync(
-  "npm",
+  npmBin,
   ["run", "build", "--workspace", "@launchpad/shared"],
   { cwd: ROOT, stdio: "inherit" },
 );

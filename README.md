@@ -33,7 +33,7 @@ After running setup, open the flagged files and fill in the real secrets (Neon D
 
 | Path | What it is | Stack |
 |---|---|---|
-| [`apps/web/`](./apps/web/AGENTS.md) | Web app | React 19, Vite 7, CSS Modules, Redux Toolkit, TanStack Query, Privy, viem, lightweight-charts |
+| [`apps/web/`](./apps/web/AGENTS.md) | Web app | React 19, Vite 8, CSS Modules, Redux Toolkit, TanStack Query, Privy, viem, lightweight-charts |
 | [`apps/api/`](./apps/api/AGENTS.md) | REST + WebSocket API | Hono on Cloudflare Workers, Drizzle, Neon (PostgreSQL), R2, Durable Objects |
 | [`apps/indexer/`](./apps/indexer/AGENTS.md) | EVM indexer | Ponder (GraphQL auto-generated from schema), Railway |
 | [`packages/contracts/`](./packages/contracts/AGENTS.md) | Solidity contracts | Foundry, forked from Virtuals Protocol |
