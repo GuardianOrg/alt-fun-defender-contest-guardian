@@ -13,7 +13,27 @@ export const TOKEN_SUPPLY = 1_000_000_000;
 export interface PonderTokenOnchain {
   address: string;
   ltToken: string;
+  /**
+   * Per-token constant-product invariant set at launch:
+   *   k = TOTAL_SUPPLY_RAW * virtualLtReserveAtLaunch
+   * Needed to recover the virtual LT component at read time so we can subtract
+   * it from `ltReserve` to get the real USD raised. See
+   * `computeCurveFilledBreakdown` in `lib/token-enrich.ts`.
+   */
+  k: string;
+  /**
+   * Virtual AMM reserve0 (the value the pair's constant-product math uses).
+   * Initialised to TOTAL_SUPPLY (1B × 1e18) and floors at LP_RESERVE_RAW
+   * (250M × 1e18) at full sellout — not [0, 750M]. Callers that want "real
+   * remaining curve supply" must subtract LP_RESERVE_RAW.
+   */
   curveSupply: string;
+  /**
+   * Virtual AMM reserve1. Starts at `virtualLtReserveAtLaunch = $4K / rate`
+   * and grows with buys / shrinks with sells. Callers that want "real LT
+   * raised" (== `IFPair.assetBalance()` on-chain) must subtract
+   * `virtualLtReserveAtLaunch = k / TOTAL_SUPPLY_RAW`.
+   */
   ltReserve: string;
   graduated: boolean;
   graduatedAt: string | null;
@@ -89,6 +109,7 @@ export async function fetchAllTokensOnchain(
           items {
             address
             ltToken
+            k
             curveSupply
             ltReserve
             graduated
@@ -134,6 +155,7 @@ export async function fetchTokensOnchainByAddresses(
           items {
             address
             ltToken
+            k
             curveSupply
             ltReserve
             graduated
@@ -164,6 +186,7 @@ export async function fetchTokenOnchain(
       token(address: $address) {
         address
         ltToken
+        k
         curveSupply
         ltReserve
         graduated

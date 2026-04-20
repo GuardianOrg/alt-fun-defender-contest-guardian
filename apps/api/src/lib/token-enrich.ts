@@ -4,6 +4,12 @@ import type { tokens } from "../db/schema.js";
 const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
 /** 75% of total supply is sold on the bonding curve; 25% reserved for LP. */
 const CURVE_ALLOCATION = (TOTAL_SUPPLY * 75n) / 100n;
+/**
+ * Post-sellout virtual reserve0 floor (`TOTAL_SUPPLY − CURVE_ALLOCATION`,
+ * = 250M × 1e18). Also the 25% LP reserve used for dynamic LP seeding.
+ * See `packages/contracts/src/Bonding.sol` natspec on virtual reserves.
+ */
+const LP_RESERVE_RAW = TOTAL_SUPPLY - CURVE_ALLOCATION;
 /** USD trigger for graduation (matches `Bonding.GRADUATION_THRESHOLD_USD`). */
 const GRADUATION_THRESHOLD_USD = 12_000;
 
@@ -12,17 +18,28 @@ export type DbToken = typeof tokens.$inferSelect;
 export type TokenStatus = "curve" | "graduating" | "graduated";
 
 /**
- * Compute curve-filled percentage (0–100) from the remaining curve supply. Null
- * when the indexer is unavailable — callers should render this as an unknown
- * state rather than "0%".
+ * Compute curve-filled percentage (0–100) from the **virtual** `reserve0` that
+ * the indexer persists (= `IFPair.getReserves()[0]` from `Bonding.Trade`).
+ *
+ * Under the dynamic-LP design, virtual `reserve0` is initialised to the full
+ * `TOTAL_SUPPLY` (1B) while only `CURVE_ALLOCATION` (750M) real tokens are
+ * transferred to the pair. As curve tokens are sold, `reserve0` drops 1:1 with
+ * the real balance (FPair.swap is symmetric on virtual vs real amounts), so
+ * `reserve0` floors at `LP_RESERVE_RAW = 250M` at full sellout. We can recover
+ * the real on-curve supply as `max(0, reserve0 − LP_RESERVE_RAW)`.
+ *
+ * Returns `null` when the indexer is unavailable — render as "unknown", not
+ * "0%".
  */
 export function computeCurveFilled(
   curveSupplyRaw: string | null | undefined,
 ): number | null {
   if (curveSupplyRaw === null || curveSupplyRaw === undefined) return null;
-  const remaining = BigInt(curveSupplyRaw);
-  if (remaining >= CURVE_ALLOCATION) return 0;
-  const sold = CURVE_ALLOCATION - remaining;
+  const virtualReserve0 = BigInt(curveSupplyRaw);
+  const realRemaining =
+    virtualReserve0 > LP_RESERVE_RAW ? virtualReserve0 - LP_RESERVE_RAW : 0n;
+  if (realRemaining >= CURVE_ALLOCATION) return 0;
+  const sold = CURVE_ALLOCATION - realRemaining;
   return Math.min(Number((sold * 10000n) / CURVE_ALLOCATION) / 100, 100);
 }
 
@@ -55,10 +72,21 @@ export interface CurveFilledBreakdown {
  * the split we use `usdFilled` as the denominator and clamp to `total` so the
  * two buckets never overshoot the headline number (which would look wrong in
  * the UI).
+ *
+ * Virtual vs real reserves: `curveSupplyRaw` and `ltReserveRaw` are the AMM's
+ * **virtual** reserves (what the constant-product math uses, needed unmodified
+ * for chart pricing). For USD raised we need the **real** LT balance that
+ * matches `IFPair.assetBalance()` on-chain — i.e. what `Bonding.canGraduate`
+ * compares against the $12K threshold. We recover it by subtracting the
+ * launch-time virtual LT reserve (`virtualLtAtLaunch = k / TOTAL_SUPPLY`)
+ * from the current virtual `reserve1`. Without `k` we can't do that subtraction
+ * and would overcount by the initial $4K virtual liquidity, so we degrade
+ * cleanly to supply-only progress.
  */
 export function computeCurveFilledBreakdown(
   curveSupplyRaw: string | null | undefined,
   ltReserveRaw: string | null | undefined,
+  kRaw: string | null | undefined,
   organicUsdcRaisedRaw: string | null | undefined,
   ltExchangeRate: number | null | undefined,
   graduated: boolean,
@@ -73,11 +101,13 @@ export function computeCurveFilledBreakdown(
     return { total: null, organic: null, leverageBoost: null };
   }
 
-  // Without an LT rate we can't turn `ltReserve` into USD, so we can't
-  // compute the boost. Fall back to showing supply-filled with no split.
+  // Without an LT rate or `k` we can't turn `ltReserve` into *real* USD
+  // raised, so we can't compute the USD trigger. Fall back to supply-only.
   if (
     ltReserveRaw === undefined ||
     ltReserveRaw === null ||
+    kRaw === undefined ||
+    kRaw === null ||
     ltExchangeRate === undefined ||
     ltExchangeRate === null ||
     ltExchangeRate <= 0
@@ -85,20 +115,34 @@ export function computeCurveFilledBreakdown(
     return { total: supplyFilled, organic: null, leverageBoost: null };
   }
 
-  // Current USD value of LT sitting in the curve. Pair starts with a virtual
-  // reserve (no real LT at launch), so this is effectively "USD raised" at
-  // current LT prices — the same number that `Bonding.canGraduate` compares
-  // against the $12K threshold.
-  const ltReserve = Number(BigInt(ltReserveRaw)) / 1e18;
-  const usdRaisedNow = ltReserve * ltExchangeRate;
+  // Recover real LT balance from the virtual reserve1. At mint,
+  //   k = TOTAL_SUPPLY × virtualLtAtLaunch   (`FPair.mint`, see Bonding.sol)
+  // so `virtualLtAtLaunch = k / TOTAL_SUPPLY`. Real LT flowing in via buys
+  // bumps both reserve1 and assetBalance() by the same amount, so
+  //   realLt = reserve1 − virtualLtAtLaunch.
+  // Clamp at 0 to be defensive against rounding in edge conditions.
+  const virtualReserve1 = BigInt(ltReserveRaw);
+  const k = BigInt(kRaw);
+  const virtualLtAtLaunch = k / TOTAL_SUPPLY;
+  const realLtRaw =
+    virtualReserve1 > virtualLtAtLaunch
+      ? virtualReserve1 - virtualLtAtLaunch
+      : 0n;
+  const realLt = Number(realLtRaw) / 1e18;
+  const usdRaisedNow = realLt * ltExchangeRate;
   const usdFilled = (usdRaisedNow / GRADUATION_THRESHOLD_USD) * 100;
 
   const total = Math.min(Math.max(supplyFilled, usdFilled), 100);
 
-  const organicUsd =
-    organicUsdcRaisedRaw === undefined || organicUsdcRaisedRaw === null
-      ? 0
-      : Number(BigInt(organicUsdcRaisedRaw)) / 1e6;
+  // Missing organic counter => don't invent a split. Returning `0` here would
+  // silently render the bar as 100% leverage boost, which is a lie (and
+  // contradicts the doc on `CurveFilledBreakdown`). Frontend treats `null` as
+  // "unknown" and falls back to a single solid fill — that's the honest UI.
+  if (organicUsdcRaisedRaw === undefined || organicUsdcRaisedRaw === null) {
+    return { total, organic: null, leverageBoost: null };
+  }
+
+  const organicUsd = Number(BigInt(organicUsdcRaisedRaw)) / 1e6;
   const organicPct = (organicUsd / GRADUATION_THRESHOLD_USD) * 100;
 
   const organic = Math.min(Math.max(organicPct, 0), total);

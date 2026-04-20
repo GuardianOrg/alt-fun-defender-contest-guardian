@@ -48,6 +48,7 @@ function enrich(
   const breakdown = computeCurveFilledBreakdown(
     curveSupply,
     ltReserve,
+    onchain?.k ?? null,
     onchain?.organicUsdcRaised ?? null,
     market?.ltExchangeRate ?? null,
     graduated,
