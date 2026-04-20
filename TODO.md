@@ -1,6 +1,7 @@
 # Unsorted
 
 - Set it up so we can choose the candle width
+- Ability to change graduation threshold (what happens with existing tokens?)
 
 # TODO
 
