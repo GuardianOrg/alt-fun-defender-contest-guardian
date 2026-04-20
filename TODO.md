@@ -2,6 +2,7 @@
 
 # TODO
 
+- Claimed here but total earned and previously claimed reset
 - Unify client `Trade` interface into `packages/shared` (currently split between `apps/web/src/services/types.ts` and the broadcast payload shape).
 - Slow down scrolling tickers
 - Implement trending system
@@ -9,6 +10,8 @@
 - Add Volume stat, show in token page and profile page
 - Website design updates?
 
+- Is Router the right term?
+- Charge fees only in the router, and then only in USDC
 - Implement creator fees in the zap
 - Can we deploy tokens via some proxy template so the deployment is smaller?
 - Add some flow for enabling big blocks.
