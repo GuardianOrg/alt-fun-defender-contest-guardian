@@ -531,6 +531,45 @@ contract BondingTest is DeployHelper {
         assertTrue(lpBalance > 0, "LPLock should hold LP tokens");
     }
 
+    /// @notice Regression: a seed buy large enough to trigger graduation inline
+    ///         must still deliver the full `tokensOut` to the creator with no
+    ///         token dust stuck in the Bonding contract. Pre-fix, `_seedBuy`
+    ///         used `balanceOf(this)` deltas to compute `seedTokens`, which
+    ///         understated by the full 250M LP reserve burned/transferred
+    ///         during `_graduate` within the same call — either short-changing
+    ///         the creator by 250M or reverting with Panic(0x11) on underflow.
+    function test_seedBuy_graduatesInline_creatorGetsFullBuy() public {
+        // At LT_EXCHANGE_RATE = $1/LT, a seed of 13_000 LT = $13K USD crosses
+        // the $12K USD graduation trigger (and exhausts the curve at the same
+        // boundary by construction). Overflow-cap + fee refund are expected.
+        uint256 seedAmount = 13_000 ether;
+        lt.mintDirect(creator, seedAmount);
+        vm.startPrank(creator);
+        lt.approve(address(frouter), seedAmount);
+        lt.approve(address(bonding), seedAmount);
+
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "MegaSeed",
+            ticker: "MEGA",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            purchaseAmount: seedAmount
+        });
+
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+
+        assertTrue(bonding.isGraduated(tokenAddr), "Seed buy should have graduated inline");
+
+        // The two invariants that pin Copilot's bug: creator got real tokens,
+        // and none are stranded in Bonding (pre-fix this would have held the
+        // 250M LP reserve that the old delta math failed to transfer out).
+        assertTrue(FERC20(tokenAddr).balanceOf(creator) > 0, "Creator should receive seed tokens");
+        assertEq(FERC20(tokenAddr).balanceOf(address(bonding)), 0, "Bonding must not retain token dust");
+    }
+
     // ─── Multiple Tokens Test ────────────────────────────────────────────
 
     function test_multipleTokens_independentCurves() public {

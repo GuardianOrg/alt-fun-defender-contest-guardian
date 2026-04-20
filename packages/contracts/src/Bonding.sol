@@ -217,9 +217,15 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         IERC20(ltAddress).safeTransferFrom(msg.sender, address(this), purchaseAmount);
         IERC20(ltAddress).forceApprove(address(router), purchaseAmount);
 
-        uint256 tokenBalBefore = IERC20(tokenAddr).balanceOf(address(this));
-        (, uint256 amountInUsed) = _executeBuy(address(this), purchaseAmount, tokenAddr);
-        uint256 seedTokens = IERC20(tokenAddr).balanceOf(address(this)) - tokenBalBefore;
+        // IMPORTANT: take `seedTokens` from `_executeBuy`'s return value, not from a
+        // `balanceOf(this)` delta. A large seed buy can satisfy the graduation
+        // trigger inline (supply-exhaust, or USD trigger if the LT rate has moved
+        // between launch and this call), and `_graduate` burns `lpBurned` from
+        // `address(this)` and sends `tokensForLP` to HyperSwap — i.e. the full
+        // 250M LP reserve leaves the contract during the same call. A naive
+        // `balanceAfter − balanceBefore` would either short-change the creator
+        // by 250M or underflow-revert if the buy netted fewer than 250M tokens.
+        (uint256 seedTokens, uint256 amountInUsed) = _executeBuy(address(this), purchaseAmount, tokenAddr);
 
         IERC20(tokenAddr).safeTransfer(creator_, seedTokens);
 
