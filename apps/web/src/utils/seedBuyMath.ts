@@ -2,8 +2,12 @@
  * Bonding curve math for seed buy estimation.
  *
  * The bonding curve is a constant-product AMM (x * y = k) where:
- *   reserve0 = token supply on the curve (initially 75% of total supply)
+ *   reserve0 = virtual token reserve (initialised to TOTAL_SUPPLY, 1B)
  *   reserve1 = virtual LT reserve (set so opening MC ≈ $4K)
+ *
+ * Only CURVE_SUPPLY (75% = 750M) of real tokens are transferred to the pair;
+ * the other 25% is reserved for graduation LP seeding. The virtual reserve
+ * design pins `tokensForLP ≤ LP_RESERVE` at graduation. See `docs/contracts-scope.md`.
  *
  * Because both the virtual reserve and the LT minted from USDC scale
  * inversely with the LT exchange rate, the rate cancels out — the number
@@ -15,8 +19,8 @@
 const TOTAL_SUPPLY = 1_000_000_000;
 const CURVE_BPS = 7500;
 const BPS_DENOM = 10_000;
-const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750,000,000
-const VIRTUAL_LIQUIDITY_USD = 3_000;
+const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real sellable cap
+const VIRTUAL_LIQUIDITY_USD = 4_000;
 const GRADUATION_THRESHOLD_USD = 12_000;
 const BUY_FEE_BPS = 50; // 0.5%
 
@@ -30,7 +34,8 @@ export interface SeedBuyStats {
  * Compute seed buy stats from a USDC amount using the constant-product formula.
  *
  *   usdcAfterFee = usdcAmount × (1 − buyFee)
- *   tokensOut    = curveSupply × usdcAfterFee / (virtualLiquidity + usdcAfterFee)
+ *   tokensOut    = totalSupply × usdcAfterFee / (virtualLiquidity + usdcAfterFee)
+ *                  (then clamped to curveSupply — on-chain `FRouter.buy` caps at real balance)
  *   supplyPct    = tokensOut / totalSupply × 100
  *   curveFilled  = usdcAfterFee / graduationThreshold × 100
  */
@@ -40,8 +45,9 @@ export function seedBuyStats(usdcAmount: number): SeedBuyStats {
   }
 
   const usdcAfterFee = usdcAmount * (1 - BUY_FEE_BPS / BPS_DENOM);
-  const tokensReceived =
-    (CURVE_SUPPLY * usdcAfterFee) / (VIRTUAL_LIQUIDITY_USD + usdcAfterFee);
+  const rawTokens =
+    (TOTAL_SUPPLY * usdcAfterFee) / (VIRTUAL_LIQUIDITY_USD + usdcAfterFee);
+  const tokensReceived = Math.min(rawTokens, CURVE_SUPPLY);
   const supplyPct = (tokensReceived / TOTAL_SUPPLY) * 100;
   const curveFilled = (usdcAfterFee / GRADUATION_THRESHOLD_USD) * 100;
 
@@ -52,17 +58,16 @@ export function seedBuyStats(usdcAmount: number): SeedBuyStats {
  * Compute the USDC amount needed to acquire a target percentage of total supply.
  *
  * Derived by inverting the constant-product formula:
- *   pct = 75 × usdcAfterFee / (3000 + usdcAfterFee)
- *   ⟹  usdcAfterFee = 3000 × pct / (75 − pct)
+ *   pct = 100 × usdcAfterFee / (4000 + usdcAfterFee)
+ *   ⟹  usdcAfterFee = 4000 × pct / (100 − pct)
  *   ⟹  usdcAmount   = usdcAfterFee / (1 − buyFee)
  *
- * Returns 0 for pct <= 0 or pct >= 75 (can't buy more than the curve supply).
+ * Returns 0 for pct <= 0 or pct >= 75 (can't buy more than CURVE_SUPPLY of real tokens).
  */
 export function usdcForSupplyPct(pct: number): number {
   const curveSupplyPct = (CURVE_BPS / BPS_DENOM) * 100; // 75
   if (!Number.isFinite(pct) || pct <= 0 || pct >= curveSupplyPct) return 0;
 
-  const usdcAfterFee =
-    (VIRTUAL_LIQUIDITY_USD * pct) / (curveSupplyPct - pct);
+  const usdcAfterFee = (VIRTUAL_LIQUIDITY_USD * pct) / (100 - pct);
   return usdcAfterFee / (1 - BUY_FEE_BPS / BPS_DENOM);
 }

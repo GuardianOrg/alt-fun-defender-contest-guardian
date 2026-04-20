@@ -20,11 +20,12 @@ describe("seedBuyStats", () => {
   it("computes correct stats for a small buy", () => {
     // $100 USDC input
     // usdcAfterFee = 100 * 0.995 = 99.5
-    // tokensOut = 750_000_000 * 99.5 / (3000 + 99.5) = 74_625_000_000 / 3099.5
-    // supplyPct = tokensOut / 1_000_000_000 * 100
+    // rawTokens  = 1_000_000_000 * 99.5 / (4000 + 99.5) = 99_500_000_000 / 4099.5 ≈ 24_271_252
+    // (well below the 750M real-balance cap)
+    // supplyPct  = rawTokens / 1_000_000_000 * 100
     const stats = seedBuyStats(100);
-    expect(stats.tokensReceived).toBeCloseTo(24_076_464, -2);
-    expect(stats.supplyPct).toBeCloseTo(2.408, 2);
+    expect(stats.tokensReceived).toBeCloseTo(24_271_252, -2);
+    expect(stats.supplyPct).toBeCloseTo(2.427, 2);
     expect(stats.curveFilled).toBeCloseTo(0.829, 2);
   });
 
@@ -36,9 +37,12 @@ describe("seedBuyStats", () => {
     }
   });
 
-  it("approaches 75% asymptotically for very large amounts", () => {
+  it("caps at 75% (CURVE_SUPPLY) for very large amounts — matches on-chain cap", () => {
+    // The uncapped parabola approaches 100% (TOTAL_SUPPLY) asymptotically, but the
+    // on-chain `FRouter.buy` caps `tokensOut` at the pair's real balance (CURVE_SUPPLY),
+    // so the UI mirrors that.
     const stats = seedBuyStats(1_000_000);
-    expect(stats.supplyPct).toBeLessThan(75);
+    expect(stats.supplyPct).toBeLessThanOrEqual(75);
     expect(stats.supplyPct).toBeGreaterThan(74);
   });
 
@@ -63,17 +67,17 @@ describe("usdcForSupplyPct", () => {
   });
 
   it("computes correct USDC for 1% of supply", () => {
-    // usdcAfterFee = 3000 * 1 / (75 - 1) = 3000/74 ≈ 40.54
-    // usdcAmount = 40.54 / 0.995 ≈ 40.74
+    // usdcAfterFee = 4000 * 1 / (100 - 1) = 4000/99 ≈ 40.40
+    // usdcAmount = 40.40 / 0.995 ≈ 40.61
     const usdc = usdcForSupplyPct(1);
-    expect(usdc).toBeCloseTo(40.74, 1);
+    expect(usdc).toBeCloseTo(40.61, 1);
   });
 
   it("computes correct USDC for 5% of supply", () => {
-    // usdcAfterFee = 3000 * 5 / (75 - 5) = 15000/70 ≈ 214.29
-    // usdcAmount = 214.29 / 0.995 ≈ 215.36
+    // usdcAfterFee = 4000 * 5 / (100 - 5) = 20000/95 ≈ 210.53
+    // usdcAmount = 210.53 / 0.995 ≈ 211.58
     const usdc = usdcForSupplyPct(5);
-    expect(usdc).toBeCloseTo(215.36, 1);
+    expect(usdc).toBeCloseTo(211.58, 1);
   });
 
   it("returns increasing USDC for increasing percentages (non-linear)", () => {

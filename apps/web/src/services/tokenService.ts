@@ -41,7 +41,13 @@ export function fromApiToken(api: ApiToken): Token {
     ltName: ltDisplayName(api),
     ltAddress: api.ltPair,
     buyMomentum: 0,
-    leverageBoost: 0,
+    // Split of `curveFilled` surfaced by the API (organic USDC vs LT
+    // appreciation). The UI renders the bar as `organic + boost = curveFilled`
+    // when both are present, or a single solid fill when the breakdown is
+    // degraded (e.g. indexer down). Null means "unknown", NOT zero — see
+    // `ProgressBar` which treats null by rendering the full bar solid.
+    leverageBoost: api.curveFilledLeverageBoost ?? 0,
+    organicFilled: api.curveFilledOrganic ?? null,
     curveFilled: api.curveFilled ?? null,
     curveRaisedUsd: 0,
     volume24h: 0,

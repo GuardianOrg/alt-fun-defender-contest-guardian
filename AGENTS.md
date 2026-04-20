@@ -9,7 +9,7 @@ Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leve
 1. **Create:** Creator picks an underlying asset + leverage (e.g. HYPE 2x Long) and launches a token
 2. **Buy:** User sends USDC → Router mints LT → LT enters bonding curve → user gets tokens
 3. **Sell:** User sends tokens → Router sells on curve → redeems LT → user gets USDC
-4. **Graduate:** When curve hits `$12K` raised → unsold tokens burned → TOKEN/LT pool on HyperSwap V2, LP locked
+4. **Graduate:** Dual trigger — curve closes when **either** `raisedLT × exchangeRate ≥ $12K` **or** all 750M curve tokens sold. LP is seeded with exactly the tokens needed to match the last curve price ("dynamic LP seeding" → zero price gap between curve and DEX). Excess LP-reserve tokens and any unsold curve tokens are burned. LP is locked.
 5. **Post-grad:** Trading continues through Router on HyperSwap. Leveraged exposure persists.
 
 The `LaunchpadRouter` is the only user-facing entry point. Users always pay and receive USDC.
@@ -35,14 +35,16 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 | Parameter | Value |
 |---|---|
-| Curve type | Constant-product (Virtuals Bonding.sol fork) |
+| Curve type | Constant-product (Virtuals Bonding.sol fork) with virtual token reserves |
 | Supply | 1B fixed per token |
-| Curve/LP split | 75% on curve / 25% to DEX pool |
+| Curve/LP split | 75% sellable on curve / 25% reserved for LP (excess burned at graduation) |
+| Virtual `reserve0` | Initialised at full 1B (`totalSupply`); only 750M real tokens transferred. Pins post-sellout virtual reserve at 250M = `LP_RESERVE` and makes `tokensForLP ≤ LP_RESERVE` a mathematical invariant. |
 | K parameter | Dynamic per token — computed at `launch()` from LT's `exchangeRate()` |
 | Opening market cap | ~`$4K` |
-| Graduation market cap | ~`$64K` |
-| Graduation threshold | ~`$12K` USDC raised (at launch-time exchange rate) |
-| Graduation trigger | `LT_reserves × exchangeRate ≥ $12K` — burn unsold tokens |
+| Graduation market cap | ~`$16K` at launch-time rate (higher when LT rallies) |
+| Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ $12K` (HYPE pumps). **Supply:** all 750M curve tokens sold (flat/bear markets). |
+| Dynamic LP seeding | `tokensForLP = raisedLT × reserve0 / reserve1`. Guarantees LP opens at the exact last curve price (zero-gap). Excess of `LP_RESERVE` burned. |
+| Overflow buy protection | A buy that would exceed remaining real supply is capped; unused LT refunded (as USDC) to the buyer. |
 | User-facing currency | USDC in / USDC out. LT fully abstracted. |
 | Post-grad venue | HyperSwap V2 |
 | Post-grad pair | TOKEN/LT (leveraged exposure persists) |
@@ -63,9 +65,9 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 ## Token Lifecycle
 
-**Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through LaunchpadRouter. Curve reserve is LT.
+**Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through LaunchpadRouter. Curve reserve is LT. FPair holds virtual `reserve0 = totalSupply` and 750M real tokens (25% is held back in `Bonding` as `lpReserve` for graduation).
 
-**Phase 2 — Graduation:** Trigger fires → unsold tokens burned → LT reserve collected → TOKEN/LT pool on HyperSwap → LP locked → curve closed.
+**Phase 2 — Graduation (dynamic LP seeding):** Either trigger fires → unsold real tokens burned from the pair → all real LT drained → `tokensForLP = raisedLT × reserve0 / reserve1` is computed (the exact amount that makes the LP open at the last curve price) → remainder of the 250M `lpReserve` is burned → `addLiquidity()` on HyperSwap with `(tokensForLP, raisedLT)` → LP locked → curve closed. Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in `test/GraduationInvariants.t.sol`.
 
 **Phase 3 — Open Trading:** TOKEN/LT pool on HyperSwap. All trades still go through LaunchpadRouter (USDC in/out).
 

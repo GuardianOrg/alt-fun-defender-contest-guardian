@@ -15,6 +15,16 @@ export const token = onchainTable("token", (t) => ({
   bondingPair: t.hex(),
   /** HyperSwap V2 pair address (from Bonding.TokenGraduated). Set at graduation. */
   hyperswapPair: t.hex(),
+  /**
+   * Net USDC (6dp) put into this token via `LaunchpadRouter` — buys add
+   * `usdcIn`, sells subtract `usdcOut` (floored at 0). Used to decompose the
+   * graduation progress bar into "organic buys" vs "LT price appreciation":
+   * we expose the organic USD contribution, and derive the boost as
+   * `totalUsdRaised - organicUsdRaised`. Updated on every Buy/Sell regardless
+   * of graduation status (the UI only shows the split while the token is on
+   * the curve).
+   */
+  organicUsdcRaised: t.bigint().notNull().default(0n),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({
@@ -59,6 +69,12 @@ export const graduation = onchainTable("graduation", (t) => ({
   tokenAddress: t.hex().primaryKey(),
   pairAddress: t.hex().notNull(),
   liquidity: t.bigint().notNull(),
+  /** Exact tokens seeded into the HyperSwap LP (dynamic LP seeding). */
+  tokensInLP: t.bigint().notNull(),
+  /** LP reserve leftovers burned to make the LP open at the last curve price. */
+  lpBurned: t.bigint().notNull(),
+  /** Unsold curve tokens burned when the USD trigger fires before sellout. */
+  unsoldBurned: t.bigint().notNull(),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }));

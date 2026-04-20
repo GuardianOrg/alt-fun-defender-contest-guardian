@@ -357,13 +357,16 @@ describe("Bonding:TokenGraduated", () => {
     db = createMockDb();
   });
 
-  it("inserts graduation record and updates token status", async () => {
+  it("inserts graduation record with dynamic-LP-seeding fields and updates token status", async () => {
     const handler = getHandler("Bonding:TokenGraduated");
     const event = createMockEvent({
       args: {
         token: "0xtoken1",
         pairAddress: "0xpair1",
         liquidity: 50000n,
+        tokensInLP: 250_000_000n * 10n ** 18n,
+        lpBurned: 0n,
+        unsoldBurned: 10_000_000n * 10n ** 18n,
       },
       blockNumber: 200n,
       blockTimestamp: 1700100000n,
@@ -378,6 +381,9 @@ describe("Bonding:TokenGraduated", () => {
       tokenAddress: "0xtoken1",
       pairAddress: "0xpair1",
       liquidity: 50000n,
+      tokensInLP: 250_000_000n * 10n ** 18n,
+      lpBurned: 0n,
+      unsoldBurned: 10_000_000n * 10n ** 18n,
       blockNumber: 200n,
       timestamp: 1700100000n,
     });
@@ -392,5 +398,78 @@ describe("Bonding:TokenGraduated", () => {
       graduatedAt: 1700100000n,
       hyperswapPair: "0xpair1",
     });
+  });
+});
+
+describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  it("bumps organicUsdcRaised on Buy", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 1_000_000n, // 1 USDC
+    });
+
+    const handler = getHandler("LaunchpadRouter:Buy");
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        buyer: "0xbuyer",
+        usdcIn: 5_000_000n, // 5 USDC
+        tokensOut: 1000n,
+      },
+    });
+
+    await handler({ event, context: { db } });
+
+    const tokenUpdate = db._updateCalls.find((c) => c.table === token);
+    expect(tokenUpdate).toBeDefined();
+    expect(tokenUpdate!.values).toEqual({ organicUsdcRaised: 6_000_000n });
+  });
+
+  it("subtracts on Sell and floors at zero", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 1_000_000n,
+    });
+
+    const handler = getHandler("LaunchpadRouter:Sell");
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        seller: "0xseller",
+        tokensIn: 1000n,
+        usdcOut: 3_000_000n, // sell exceeds historical buys
+      },
+    });
+
+    await handler({ event, context: { db } });
+
+    const tokenUpdate = db._updateCalls.find((c) => c.table === token);
+    expect(tokenUpdate).toBeDefined();
+    expect(tokenUpdate!.values).toEqual({ organicUsdcRaised: 0n });
+  });
+
+  it("skips the counter update when the token row is missing", async () => {
+    // No `_setFindResult` — simulates a webhook event arriving for a token
+    // that hasn't been indexed yet (shouldn't happen in practice, but the
+    // handler must not crash).
+    const handler = getHandler("LaunchpadRouter:Buy");
+    const event = createMockEvent({
+      args: {
+        token: "0xunknown",
+        buyer: "0xbuyer",
+        usdcIn: 5_000_000n,
+        tokensOut: 1000n,
+      },
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(db._updateCalls.find((c) => c.table === token)).toBeUndefined();
   });
 });

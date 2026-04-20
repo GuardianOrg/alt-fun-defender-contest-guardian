@@ -17,6 +17,18 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 - Terminal API (`/api/v1/`) for third-party integrators
 - WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`
 
+## Token enrichment (graduation progress bar)
+
+`GET /api/v1/tokens` and `GET /api/v1/tokens/:addr` return three progress fields derived in `src/lib/token-enrich.ts`:
+
+| Field | Meaning |
+|---|---|
+| `curveFilled` | Headline progress toward graduation (0–100). `max(supplyFilled, usdFilled)` — whichever trigger fires first. `null` while the indexer is degraded. |
+| `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`). Clamped at `curveFilled`. |
+| `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation. Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
+
+The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
+
 ## Durable Objects
 
 - `WebSocketDO` — fans out WS messages to subscribed clients. Supports global and per-subject routing (keyed by token or LT address).

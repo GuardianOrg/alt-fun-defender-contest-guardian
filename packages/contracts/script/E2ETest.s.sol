@@ -8,8 +8,8 @@ import {IFPair} from "../src/interfaces/IFPair.sol";
 
 contract E2ETest is Script {
     address constant HYPE2L = 0x0f8db745e9C28275F8B6e2BAF6BAA8eE7431b557;
-    address constant BONDING = 0x91A5797B722Ea82E018d1b9BBac83b6fc0017532;
-    address constant LAUNCHPAD_ROUTER = 0x94802dbfF2a37AF5CE029204ce2105D9F9ad7426;
+    address constant BONDING = 0x1944710C55ac3Dcbf36ED9B80f289418B26c032a;
+    address constant LAUNCHPAD_ROUTER = 0x3E86AFB20De663f8689C09698aEeF3DF5F28a1Fe;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");

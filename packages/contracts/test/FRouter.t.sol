@@ -51,7 +51,8 @@ contract FRouterTest is Test {
         token.mint(bondingRole, TOKEN_SUPPLY);
         vm.startPrank(bondingRole);
         token.approve(address(router), TOKEN_SUPPLY);
-        router.addInitialLiquidity(address(token), TOKEN_SUPPLY, ASSET_RESERVE);
+        // For FRouter unit tests, use matching virtual/real reserves (no overflow scenario).
+        router.addInitialLiquidity(address(token), TOKEN_SUPPLY, TOKEN_SUPPLY, ASSET_RESERVE);
         vm.stopPrank();
     }
 
@@ -67,7 +68,7 @@ contract FRouterTest is Test {
         vm.stopPrank();
 
         vm.prank(bondingRole);
-        (, tokensOut) = router.buy(amountIn, address(token), buyer);
+        (,, tokensOut) = router.buy(amountIn, address(token), buyer);
     }
 
     function _doSell(
@@ -181,8 +182,9 @@ contract FRouterTest is Test {
         asset.approve(address(router), amountIn);
 
         vm.prank(bondingRole);
-        (uint256 netAssetIn, uint256 tokensOut) = router.buy(amountIn, address(token), trader);
+        (uint256 amountInUsed, uint256 netAssetIn, uint256 tokensOut) = router.buy(amountIn, address(token), trader);
 
+        assertEq(amountInUsed, amountIn, "No overflow expected, amountInUsed should equal amountIn");
         assertEq(netAssetIn, expectedNet, "netAssetIn should be amountIn minus fee");
         assertTrue(tokensOut > 0, "tokensOut should be positive");
     }
@@ -305,7 +307,7 @@ contract FRouterTest is Test {
         vm.startPrank(stranger);
         token2.approve(address(router), 1000 ether);
         vm.expectRevert();
-        router.addInitialLiquidity(address(token2), 1000 ether, 100 ether);
+        router.addInitialLiquidity(address(token2), 1000 ether, 1000 ether, 100 ether);
         vm.stopPrank();
     }
 
@@ -313,7 +315,7 @@ contract FRouterTest is Test {
         address fakeToken = makeAddr("fakeToken");
         vm.prank(bondingRole);
         vm.expectRevert(FRouter.PairNotFound.selector);
-        router.addInitialLiquidity(fakeToken, 1000 ether, 100 ether);
+        router.addInitialLiquidity(fakeToken, 1000 ether, 1000 ether, 100 ether);
     }
 
     // ─── Graduate Tests ──────────────────────────────────────────────────

@@ -20,6 +20,22 @@ Plus: search modal (Cmd+K), profile panel (right drawer), bridge modal (LI.FI).
 - TradingView Lightweight Charts for candlestick charts
 - CSS Modules for styling — no Tailwind
 
+## Progress-bar breakdown (`Token.organicFilled` / `Token.leverageBoost`)
+
+Every graduation progress bar is a two-segment render powered by the API's `curveFilledOrganic` / `curveFilledLeverageBoost` fields:
+
+- `organicFilled` (0–100, nullable): curve-fill % from real USDC buys.
+- `leverageBoost` (0–100, never negative): curve-fill % from LT price appreciation.
+- `curveFilled` = `organicFilled + leverageBoost` when both are present.
+
+**Rendering rules (see `TokenRow.tsx`, `TokenDetailView.tsx`, `Chart.tsx`):**
+
+1. If `organicFilled === null` (indexer/BounceTech degraded), render a single solid fill of width `curveFilled` — never assume zero for the missing bucket.
+2. If the token is `graduated`, hide the split entirely.
+3. `leverageBoost > 15` flips the row border to amber (the "LT mover" highlight).
+
+**Filter/sort:** the `lt-movers` tab orders by `leverageBoost` descending. That's still the intended behaviour with the new semantics — a high `leverageBoost` means the LT's pump is doing real work toward graduation.
+
 ## Functional Spec
 
 Full UI spec (page layouts, trade flows, data sources, contract calls): `docs/frontend-scope.md`

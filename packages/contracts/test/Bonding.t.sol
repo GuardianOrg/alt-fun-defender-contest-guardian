@@ -63,7 +63,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(buyer, ltAmount);
         vm.startPrank(buyer);
         lt.approve(address(frouter), ltAmount);
-        tokensOut = bonding.buy(ltAmount, tokenAddr, 0);
+        (tokensOut,) = bonding.buy(ltAmount, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -125,17 +125,21 @@ contract BondingTest is DeployHelper {
         assertTrue(creatorBalance > 0, "Creator should have tokens from seed buy");
     }
 
-    function test_launch_75percentOnCurve() public {
+    function test_launch_75percentOnCurveSellable() public {
         (address tokenAddr, address pairAddr) = _launchToken();
         IFPair pair = IFPair(pairAddr);
-        (uint256 reserveToken,) = pair.getReserves();
 
         uint256 totalSupply = FERC20(tokenAddr).totalSupply();
         uint256 expected75 = (totalSupply * 7500) / 10_000;
 
-        // After seed buy, reserve should be slightly less than 75% (some bought out)
-        assertTrue(reserveToken < expected75, "Reserve should be less than 75% after seed buy");
-        assertTrue(reserveToken > expected75 / 2, "Reserve should still be substantial");
+        // Real tokens in pair (sellable) should be slightly less than 75% after seed buy
+        uint256 realBalance = pair.tokenBalance();
+        assertTrue(realBalance < expected75, "Real balance should be less than 75% after seed buy");
+        assertTrue(realBalance > expected75 / 2, "Real balance should still be substantial");
+
+        // Virtual reserve0 starts at totalSupply (1B), so even after a seed buy it is well above 75%
+        (uint256 reserveToken,) = pair.getReserves();
+        assertTrue(reserveToken > expected75, "Virtual reserve0 should be > 75% (starts at totalSupply)");
     }
 
     function test_launch_reservesLPTokens() public {
@@ -156,7 +160,10 @@ contract BondingTest is DeployHelper {
 
         uint256 totalSupply = FERC20(tokenAddr).totalSupply();
         uint256 expected75 = (totalSupply * 7500) / 10_000;
-        assertEq(reserveToken, expected75, "Full 75% should be on curve with no seed buy");
+
+        // Virtual reserve0 equals totalSupply; real balance equals curveSupply (75%)
+        assertEq(reserveToken, totalSupply, "Virtual reserve0 should equal totalSupply");
+        assertEq(pair.tokenBalance(), expected75, "Real token balance should equal 75%");
 
         uint256 creatorBalance = FERC20(tokenAddr).balanceOf(creator);
         assertEq(creatorBalance, 0, "Creator should have no tokens without seed buy");
@@ -474,7 +481,7 @@ contract BondingTest is DeployHelper {
         lt.approve(address(frouter), 100 ether);
 
         vm.expectEmit(true, false, false, false);
-        emit Bonding.TokenGraduated(tokenAddr, address(0), 0);
+        emit Bonding.TokenGraduated(tokenAddr, address(0), 0, 0, 0, 0);
         bonding.buy(100 ether, tokenAddr, 0);
         vm.stopPrank();
     }
@@ -603,7 +610,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(trader, buyAmount);
         vm.startPrank(trader);
         lt.approve(address(frouter), buyAmount);
-        uint256 tokensOut = bonding.buy(buyAmount, tokenAddr, 0);
+        (uint256 tokensOut,) = bonding.buy(buyAmount, tokenAddr, 0);
         vm.stopPrank();
 
         assertTrue(tokensOut > 0);

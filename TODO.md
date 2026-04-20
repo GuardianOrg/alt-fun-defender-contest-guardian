@@ -1,5 +1,7 @@
 # Unsorted
 
+- Set it up so we can choose the candle width
+
 # TODO
 
 - Claimed here but total earned and previously claimed reset
@@ -16,7 +18,6 @@
 - Can we deploy tokens via some proxy template so the deployment is smaller?
 - Add some flow for enabling big blocks.
 - Vanity addresses
-- Handle the case when a user buys more than is available right at the end for bonding graduation, maybe refund them the excess or something.
 - Test graduating
 
 # Post graduation

@@ -19,6 +19,12 @@ export interface PonderTokenOnchain {
   graduatedAt: string | null;
   bondingPair: string | null;
   hyperswapPair: string | null;
+  /**
+   * Cumulative net USDC (6dp) routed through LaunchpadRouter for this token
+   * (buys minus sells, floored at 0). Used to split the graduation progress
+   * bar into "organic buys" vs "LT price appreciation".
+   */
+  organicUsdcRaised: string;
   timestamp: string;
 }
 
@@ -47,6 +53,12 @@ export interface MarketDataItem {
   mcapUsd: number | null;
   change24h: number | null;
   past24hPriceUsd: number | null;
+  /**
+   * Current LT exchange rate (USD per LT). Needed by `token-enrich` to turn
+   * the curve's `ltReserve` into "USD raised" for the graduation progress
+   * bar split. Null when the rate is unknown or zero.
+   */
+  ltExchangeRate: number | null;
 }
 
 export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
@@ -83,6 +95,7 @@ export async function fetchAllTokensOnchain(
             graduatedAt
             bondingPair
             hyperswapPair
+            organicUsdcRaised
             timestamp
           }
         }
@@ -127,6 +140,7 @@ export async function fetchTokensOnchainByAddresses(
             graduatedAt
             bondingPair
             hyperswapPair
+            organicUsdcRaised
             timestamp
           }
         }
@@ -156,6 +170,7 @@ export async function fetchTokenOnchain(
         graduatedAt
         bondingPair
         hyperswapPair
+        organicUsdcRaised
         timestamp
       }
     }`,
@@ -302,6 +317,7 @@ export function buildMarketDataItem(
     mcapUsd,
     change24h,
     past24hPriceUsd,
+    ltExchangeRate: currentExRate > 0 ? currentExRate : null,
   };
 }
 

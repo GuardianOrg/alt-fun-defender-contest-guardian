@@ -147,6 +147,9 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
       tokenAddress: event.args.token,
       pairAddress: event.args.pairAddress,
       liquidity: event.args.liquidity,
+      tokensInLP: event.args.tokensInLP,
+      lpBurned: event.args.lpBurned,
+      unsoldBurned: event.args.unsoldBurned,
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     })
@@ -214,6 +217,18 @@ ponder.on("LaunchpadRouter:Buy", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoNothing();
+
+  // Bump `organicUsdcRaised` so the API can split the graduation progress bar
+  // into "organic" (user USDC) and "LT price appreciation" (current LT×rate
+  // minus organic). We update unconditionally — if the LT rallied mid-buy and
+  // graduation fires in the same tx, this event still represents real user
+  // capital and should count toward the organic bucket.
+  const current = await db.find(token, { address: event.args.token });
+  if (current) {
+    await db.update(token, { address: event.args.token }).set({
+      organicUsdcRaised: current.organicUsdcRaised + event.args.usdcIn,
+    });
+  }
 });
 
 ponder.on("LaunchpadRouter:Sell", async ({ event, context }) => {
@@ -233,6 +248,18 @@ ponder.on("LaunchpadRouter:Sell", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoNothing();
+
+  // Mirror image of the Buy handler — net USDC out reduces the organic
+  // bucket. Floor at zero: if a user sells more USDC than the cumulative buys
+  // (e.g. post-graduation sells on a token with very thin curve history), we
+  // don't want a negative organic number bleeding into the UI.
+  const current = await db.find(token, { address: event.args.token });
+  if (current) {
+    const next = current.organicUsdcRaised - event.args.usdcOut;
+    await db.update(token, { address: event.args.token }).set({
+      organicUsdcRaised: next > 0n ? next : 0n,
+    });
+  }
 });
 
 ponder.on("LaunchpadRouter:Referred", async ({ event, context }) => {

@@ -369,6 +369,7 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
         graduatedAt: null,
         bondingPair: "0xbondingpair",
         hyperswapPair: null,
+        organicUsdcRaised: "0",
         timestamp: "1700000000",
       },
     });
@@ -392,7 +393,95 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.ltReserve).toBe("1000000000000000000");
     expect(body.data.bondingPair).toBe("0xbondingpair");
     expect(typeof body.data.curveFilled).toBe("number");
+    expect(body.data.curveFilledOrganic).not.toBeNull();
+    expect(body.data.curveFilledLeverageBoost).not.toBeNull();
     expect(body.data.mcapUsd).not.toBeNull();
+  });
+
+  it("splits curveFilled into organic USD vs LT boost", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    // Setup: $1,200 of organic USDC raised; LT reserve * exchange rate = $2,400
+    // So: organic ~ 10%, total ~ 20%, boost ~ 10%.
+    // 600 LT @ 4 USD/LT = $2400 total.
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        curveSupply: "700000000000000000000000000", // 700M remaining => ~6.67% supply
+        ltReserve: "600000000000000000000", // 600 LT
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "1200000000", // 1,200 USDC (6dp)
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "4000000000000000000" }); // 4 USD/LT
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    // USD-based fill dominates supply-based here: 2400 / 12000 = 20%
+    expect(body.data.curveFilled).toBeCloseTo(20, 1);
+    // Organic: 1200 / 12000 = 10%
+    expect(body.data.curveFilledOrganic).toBeCloseTo(10, 1);
+    // Boost: total - organic = 10%
+    expect(body.data.curveFilledLeverageBoost).toBeCloseTo(10, 1);
+  });
+
+  it("clamps leverageBoost to 0 when the LT has dropped", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    // $3,000 of organic USDC, but LT dropped so reserve value = $1,800.
+    // Product decision: don't surface negative boost — show total only.
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        curveSupply: "700000000000000000000000000",
+        ltReserve: "900000000000000000000", // 900 LT
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "3000000000", // $3,000
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "2000000000000000000" }); // $2/LT
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    // total = max(supplyFilled ≈ 6.67%, usdFilled = 1800/12000 = 15%) = 15%
+    expect(body.data.curveFilled).toBeCloseTo(15, 1);
+    // Organic clamped at total (would be 25% otherwise)
+    expect(body.data.curveFilledOrganic).toBeCloseTo(15, 1);
+    expect(body.data.curveFilledLeverageBoost).toBe(0);
   });
 
   it("returns token with degraded data source when market data is unavailable", async () => {
