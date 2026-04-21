@@ -33,17 +33,17 @@ export default function TokenDetailView() {
     );
   }
 
-  // Progress bar split between "bought" progress and "leverage-driven" progress.
-  // TODO: once `leverageBoost` is populated from on-chain data (currently always
-  // 0), restore the (leverageBoost / change24h) × curveFilled apportionment,
-  // pulling change24h from `useTokenMarketStats` so "unknown" doesn't render
-  // as 0. For now the whole bar is buy-driven — matches the old silent-zero
-  // behaviour without misusing `Token.change24h`.
-  // A null `curveFilled` (degraded indexer) renders as an empty bar; numeric
+  // Progress bar split between organic USDC buys and LT price appreciation.
+  // The API pre-clamps both buckets so they sum to `curveFilled` and never
+  // go negative (a dropping LT shows as all-organic, no boost). When the
+  // indexer/BounceTech is degraded `organicFilled` is null — fall back to
+  // a single solid fill so we don't imply "all boost, no organic".
+  // A null `curveFilled` (degraded) renders as an empty bar; numeric
   // display sites use `formatCurveFilled` to show `—` instead of `0%`.
   const filled = token.curveFilled ?? 0;
-  const buyW = Math.round(filled);
-  const levW = filled - buyW;
+  const organic = token.organicFilled ?? filled;
+  const buyW = Math.min(organic, filled);
+  const levW = Math.max(filled - buyW, 0);
 
   return (
     <div className={styles.wrapper}>

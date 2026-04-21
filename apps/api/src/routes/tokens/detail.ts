@@ -12,6 +12,7 @@ import {
 } from "../../lib/market-data.js";
 import {
   computeCurveFilled,
+  computeCurveFilledBreakdown,
   computeStatus,
   type DbToken,
   type EnrichedToken,
@@ -43,8 +44,16 @@ function enrich(
   const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
   const curveSupply = onchain?.curveSupply ?? null;
   const ltReserve = onchain?.ltReserve ?? null;
-  const curveFilled = computeCurveFilled(curveSupply);
   const graduated = onchain?.graduated ?? false;
+  const breakdown = computeCurveFilledBreakdown(
+    curveSupply,
+    ltReserve,
+    onchain?.k ?? null,
+    onchain?.organicUsdcRaised ?? null,
+    market?.ltExchangeRate ?? null,
+    graduated,
+  );
+  const curveFilled = breakdown.total ?? computeCurveFilled(curveSupply);
   const status = computeStatus(dbToken.status, graduated, curveFilled);
   const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
 
@@ -55,6 +64,8 @@ function enrich(
     curveSupply,
     ltReserve,
     curveFilled,
+    curveFilledOrganic: breakdown.organic,
+    curveFilledLeverageBoost: breakdown.leverageBoost,
     status,
     graduated,
     graduatedAt: onchain?.graduatedAt

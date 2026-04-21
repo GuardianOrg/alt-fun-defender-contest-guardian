@@ -35,12 +35,17 @@ export const FRouterAbi = [
         "internalType": "address"
       },
       {
-        "name": "tokenAmount",
+        "name": "virtualReserveToken",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "assetAmount",
+        "name": "realTokenAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reserveAsset",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -88,6 +93,11 @@ export const FRouterAbi = [
       }
     ],
     "outputs": [
+      {
+        "name": "amountInUsed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
       {
         "name": "netAssetIn",
         "type": "uint256",

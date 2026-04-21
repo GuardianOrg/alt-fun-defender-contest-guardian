@@ -63,7 +63,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(buyer, ltAmount);
         vm.startPrank(buyer);
         lt.approve(address(frouter), ltAmount);
-        tokensOut = bonding.buy(ltAmount, tokenAddr, 0);
+        (tokensOut,) = bonding.buy(ltAmount, tokenAddr, 0);
         vm.stopPrank();
     }
 
@@ -125,17 +125,21 @@ contract BondingTest is DeployHelper {
         assertTrue(creatorBalance > 0, "Creator should have tokens from seed buy");
     }
 
-    function test_launch_75percentOnCurve() public {
+    function test_launch_75percentOnCurveSellable() public {
         (address tokenAddr, address pairAddr) = _launchToken();
         IFPair pair = IFPair(pairAddr);
-        (uint256 reserveToken,) = pair.getReserves();
 
         uint256 totalSupply = FERC20(tokenAddr).totalSupply();
         uint256 expected75 = (totalSupply * 7500) / 10_000;
 
-        // After seed buy, reserve should be slightly less than 75% (some bought out)
-        assertTrue(reserveToken < expected75, "Reserve should be less than 75% after seed buy");
-        assertTrue(reserveToken > expected75 / 2, "Reserve should still be substantial");
+        // Real tokens in pair (sellable) should be slightly less than 75% after seed buy
+        uint256 realBalance = pair.tokenBalance();
+        assertTrue(realBalance < expected75, "Real balance should be less than 75% after seed buy");
+        assertTrue(realBalance > expected75 / 2, "Real balance should still be substantial");
+
+        // Virtual reserve0 starts at totalSupply (1B), so even after a seed buy it is well above 75%
+        (uint256 reserveToken,) = pair.getReserves();
+        assertTrue(reserveToken > expected75, "Virtual reserve0 should be > 75% (starts at totalSupply)");
     }
 
     function test_launch_reservesLPTokens() public {
@@ -156,7 +160,10 @@ contract BondingTest is DeployHelper {
 
         uint256 totalSupply = FERC20(tokenAddr).totalSupply();
         uint256 expected75 = (totalSupply * 7500) / 10_000;
-        assertEq(reserveToken, expected75, "Full 75% should be on curve with no seed buy");
+
+        // Virtual reserve0 equals totalSupply; real balance equals curveSupply (75%)
+        assertEq(reserveToken, totalSupply, "Virtual reserve0 should equal totalSupply");
+        assertEq(pair.tokenBalance(), expected75, "Real token balance should equal 75%");
 
         uint256 creatorBalance = FERC20(tokenAddr).balanceOf(creator);
         assertEq(creatorBalance, 0, "Creator should have no tokens without seed buy");
@@ -474,7 +481,7 @@ contract BondingTest is DeployHelper {
         lt.approve(address(frouter), 100 ether);
 
         vm.expectEmit(true, false, false, false);
-        emit Bonding.TokenGraduated(tokenAddr, address(0), 0);
+        emit Bonding.TokenGraduated(tokenAddr, address(0), 0, 0, 0, 0);
         bonding.buy(100 ether, tokenAddr, 0);
         vm.stopPrank();
     }
@@ -522,6 +529,45 @@ contract BondingTest is DeployHelper {
         address hyperPair = bonding.graduatedPair(tokenAddr);
         uint256 lpBalance = IERC20(hyperPair).balanceOf(address(lpLockContract));
         assertTrue(lpBalance > 0, "LPLock should hold LP tokens");
+    }
+
+    /// @notice Regression: a seed buy large enough to trigger graduation inline
+    ///         must still deliver the full `tokensOut` to the creator with no
+    ///         token dust stuck in the Bonding contract. Pre-fix, `_seedBuy`
+    ///         used `balanceOf(this)` deltas to compute `seedTokens`, which
+    ///         understated by the full 250M LP reserve burned/transferred
+    ///         during `_graduate` within the same call — either short-changing
+    ///         the creator by 250M or reverting with Panic(0x11) on underflow.
+    function test_seedBuy_graduatesInline_creatorGetsFullBuy() public {
+        // At LT_EXCHANGE_RATE = $1/LT, a seed of 13_000 LT = $13K USD crosses
+        // the $12K USD graduation trigger (and exhausts the curve at the same
+        // boundary by construction). Overflow-cap + fee refund are expected.
+        uint256 seedAmount = 13_000 ether;
+        lt.mintDirect(creator, seedAmount);
+        vm.startPrank(creator);
+        lt.approve(address(frouter), seedAmount);
+        lt.approve(address(bonding), seedAmount);
+
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "MegaSeed",
+            ticker: "MEGA",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            purchaseAmount: seedAmount
+        });
+
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+
+        assertTrue(bonding.isGraduated(tokenAddr), "Seed buy should have graduated inline");
+
+        // The two invariants that pin Copilot's bug: creator got real tokens,
+        // and none are stranded in Bonding (pre-fix this would have held the
+        // 250M LP reserve that the old delta math failed to transfer out).
+        assertTrue(FERC20(tokenAddr).balanceOf(creator) > 0, "Creator should receive seed tokens");
+        assertEq(FERC20(tokenAddr).balanceOf(address(bonding)), 0, "Bonding must not retain token dust");
     }
 
     // ─── Multiple Tokens Test ────────────────────────────────────────────
@@ -603,7 +649,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(trader, buyAmount);
         vm.startPrank(trader);
         lt.approve(address(frouter), buyAmount);
-        uint256 tokensOut = bonding.buy(buyAmount, tokenAddr, 0);
+        (uint256 tokensOut,) = bonding.buy(buyAmount, tokenAddr, 0);
         vm.stopPrank();
 
         assertTrue(tokensOut > 0);

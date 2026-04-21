@@ -58,6 +58,7 @@ type token {
   graduatedAt: BigInt
   bondingPair: String
   hyperswapPair: String
+  organicUsdcRaised: BigInt!
   blockNumber: BigInt!
   timestamp: BigInt!
 }
@@ -189,6 +190,14 @@ input tokenFilter {
   hyperswapPair_ends_with: String
   hyperswapPair_not_starts_with: String
   hyperswapPair_not_ends_with: String
+  organicUsdcRaised: BigInt
+  organicUsdcRaised_not: BigInt
+  organicUsdcRaised_in: [BigInt]
+  organicUsdcRaised_not_in: [BigInt]
+  organicUsdcRaised_gt: BigInt
+  organicUsdcRaised_lt: BigInt
+  organicUsdcRaised_gte: BigInt
+  organicUsdcRaised_lte: BigInt
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]
@@ -417,6 +426,9 @@ type graduation {
   tokenAddress: String!
   pairAddress: String!
   liquidity: BigInt!
+  tokensInLP: BigInt!
+  lpBurned: BigInt!
+  unsoldBurned: BigInt!
   blockNumber: BigInt!
   timestamp: BigInt!
 }
@@ -458,6 +470,30 @@ input graduationFilter {
   liquidity_lt: BigInt
   liquidity_gte: BigInt
   liquidity_lte: BigInt
+  tokensInLP: BigInt
+  tokensInLP_not: BigInt
+  tokensInLP_in: [BigInt]
+  tokensInLP_not_in: [BigInt]
+  tokensInLP_gt: BigInt
+  tokensInLP_lt: BigInt
+  tokensInLP_gte: BigInt
+  tokensInLP_lte: BigInt
+  lpBurned: BigInt
+  lpBurned_not: BigInt
+  lpBurned_in: [BigInt]
+  lpBurned_not_in: [BigInt]
+  lpBurned_gt: BigInt
+  lpBurned_lt: BigInt
+  lpBurned_gte: BigInt
+  lpBurned_lte: BigInt
+  unsoldBurned: BigInt
+  unsoldBurned_not: BigInt
+  unsoldBurned_in: [BigInt]
+  unsoldBurned_not_in: [BigInt]
+  unsoldBurned_gt: BigInt
+  unsoldBurned_lt: BigInt
+  unsoldBurned_gte: BigInt
+  unsoldBurned_lte: BigInt
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]

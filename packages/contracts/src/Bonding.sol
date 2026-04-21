@@ -19,8 +19,18 @@ import {LPLock} from "./LPLock.sol";
 /// @notice Constant-product bonding curve for the launchpad.
 /// @dev Each token pairs with a BounceTech Leveraged Token (LT). K is computed per-token
 ///      from the LT's exchange rate so every token opens at ~$4K market cap.
-///      Graduation triggers when LT_reserves * exchangeRate >= $12K.
-///      Upon graduation, unsold tokens are burned and a TOKEN/LT pool is seeded on HyperSwap V2.
+///
+///      Virtual reserves: the pair's `reserve0` is initialised to the *total* supply (1B)
+///      while only the `curveSupply` (75%) of real tokens is transferred. This caps the
+///      sellable supply at 750M and pins the post-sellout virtual reserve at 250M
+///      (= `LP_RESERVE`). This gives:
+///        • A deterministic "supply trigger" (all curve tokens sold).
+///        • A USD trigger at `raisedLT * exchangeRate ≥ $12K`.
+///        • An invariant that `tokensForLP(sold) = sold·(S-sold)/S ≤ S/4 = LP_RESERVE`.
+///
+///      Upon graduation, the LP pool is seeded with exactly the tokens needed to match
+///      the last curve price (`tokensForLP = raisedLT / lastPrice`), with excess burned
+///      from the 250M LP reserve. This guarantees zero LP/curve price gap.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -35,13 +45,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public maxTx;
 
     /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
-    ///      With 75% on curve: opening MC ≈ VIRTUAL_LIQUIDITY_USD * totalSupply / curveSupply
-    uint256 public constant VIRTUAL_LIQUIDITY_USD = 3000 ether;
+    ///      Since virtual reserve0 = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
+    uint256 public constant VIRTUAL_LIQUIDITY_USD = 4000 ether;
 
     /// @dev Graduation fires when real LT reserve * exchangeRate >= this value (18-decimal USD)
     uint256 public constant GRADUATION_THRESHOLD_USD = 12_000 ether;
 
-    /// @dev Curve gets 75% of supply, 25% reserved for graduation LP
+    /// @dev Curve gets 75% of supply (real tokens transferred to pair), 25% reserved for LP
     uint256 public constant CURVE_BPS = 7500;
     uint256 public constant LP_RESERVE_BPS = 2500;
     uint256 public constant BPS_DENOM = 10_000;
@@ -105,7 +115,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 newCurveSupply,
         uint256 newLtReserve
     );
-    event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity);
+    event TokenGraduated(
+        address indexed token,
+        address pairAddress,
+        uint256 liquidity,
+        uint256 tokensInLP,
+        uint256 lpBurned,
+        uint256 unsoldBurned
+    );
     event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
     event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
@@ -185,7 +202,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
-        router.addInitialLiquidity(tokenAddr, curveSupply, virtualLtReserve);
+        // Virtual reserve0 = full totalSupply; only curveSupply (75%) is actually transferred.
+        router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
 
         lpReserve[tokenAddr] = totalSupply - curveSupply;
     }
@@ -199,11 +217,25 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         IERC20(ltAddress).safeTransferFrom(msg.sender, address(this), purchaseAmount);
         IERC20(ltAddress).forceApprove(address(router), purchaseAmount);
 
-        uint256 balBefore = IERC20(tokenAddr).balanceOf(address(this));
-        _executeBuy(address(this), purchaseAmount, tokenAddr);
-        uint256 seedTokens = IERC20(tokenAddr).balanceOf(address(this)) - balBefore;
+        // IMPORTANT: take `seedTokens` from `_executeBuy`'s return value, not from a
+        // `balanceOf(this)` delta. A large seed buy can satisfy the graduation
+        // trigger inline (supply-exhaust, or USD trigger if the LT rate has moved
+        // between launch and this call), and `_graduate` burns `lpBurned` from
+        // `address(this)` and sends `tokensForLP` to HyperSwap — i.e. the full
+        // 250M LP reserve leaves the contract during the same call. A naive
+        // `balanceAfter − balanceBefore` would either short-change the creator
+        // by 250M or underflow-revert if the buy netted fewer than 250M tokens.
+        (uint256 seedTokens, uint256 amountInUsed) = _executeBuy(address(this), purchaseAmount, tokenAddr);
 
         IERC20(tokenAddr).safeTransfer(creator_, seedTokens);
+
+        // If the seed buy was capped (overflow — would have exhausted the curve), return
+        // the unused LT to the creator. We refund only the leftover portion of
+        // `purchaseAmount` to avoid sweeping LT fees that may have accrued to this
+        // contract when it is itself the factory `feeTo`.
+        if (amountInUsed < purchaseAmount) {
+            IERC20(ltAddress).safeTransfer(creator_, purchaseAmount - amountInUsed);
+        }
     }
 
     function _storeTokenInfo(
@@ -231,16 +263,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Buy / Sell ──────────────────────────────────────────────────────
 
+    /// @notice Buy tokens on the curve.
+    /// @param amountIn      Max LT the caller permits to be pulled.
+    /// @param tokenAddress  Token to buy.
+    /// @param amountOutMin  Minimum tokens out (slippage check).
+    /// @return tokensOut    Tokens delivered to caller.
+    /// @return amountInUsed LT actually consumed (≤ amountIn). Any difference remains in caller.
     function buy(
         uint256 amountIn,
         address tokenAddress,
         uint256 amountOutMin
-    ) external nonReentrant returns (uint256) {
+    ) external nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
 
-        uint256 tokensOut = _executeBuy(msg.sender, amountIn, tokenAddress);
+        (tokensOut, amountInUsed) = _executeBuy(msg.sender, amountIn, tokenAddress);
         if (tokensOut < amountOutMin) revert SlippageExceeded();
-        return tokensOut;
     }
 
     function sell(
@@ -305,12 +342,20 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return allTokens.length;
     }
 
+    /// @notice Dual-trigger graduation check.
+    ///         USD trigger: real LT reserve * exchangeRate >= $12K.
+    ///         Supply trigger: all curve tokens sold (pair real token balance == 0).
     function canGraduate(
         address token_
     ) public view returns (bool) {
         if (!_tokenInfo[token_].trading || _tokenInfo[token_].graduated) return false;
         address pair = _tokenInfo[token_].pair;
         address lt = _tokenInfo[token_].ltAddress;
+
+        // Supply trigger: no real tokens left in the pair
+        if (IFPair(pair).tokenBalance() == 0) return true;
+
+        // USD trigger
         uint256 realLtBalance = IFPair(pair).assetBalance();
         uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
         uint256 valueUsd = (realLtBalance * exchangeRate) / 1e18;
@@ -383,11 +428,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address buyer,
         uint256 amountIn,
         address tokenAddress
-    ) internal returns (uint256 tokensOut) {
+    ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
         uint256 netIn;
-        (netIn, tokensOut) = router.buy(amountIn, tokenAddress, buyer);
+        (amountInUsed, netIn, tokensOut) = router.buy(amountIn, tokenAddress, buyer);
 
-        _trackFee(tokenAddress, amountIn, true);
+        _trackFee(tokenAddress, amountInUsed, true);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
         emit Trade(tokenAddress, buyer, true, netIn, tokensOut, newCurveSupply, newLtReserve);
@@ -427,37 +472,74 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         address lt = info.ltAddress;
 
-        // Burn unsold curve tokens from pair
-        address pairAddr = info.pair;
-        uint256 remainingTokens = IERC20(tokenAddress).balanceOf(pairAddr);
-        if (remainingTokens > 0) {
-            FERC20(tokenAddress).burn(pairAddr, remainingTokens);
-        }
-
-        // Collect all real LT from the bonding curve pair
-        uint256 ltFromPair = router.graduate(tokenAddress);
-
-        // Seed HyperSwap V2 pool: LP reserve tokens + collected LT
-        uint256 tokenAmount = lpReserve[tokenAddress];
-        lpReserve[tokenAddress] = 0;
+        // Drain curve, align price via dynamic LP seeding, burn excess.
+        (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
+            _prepareGraduationLiquidity(tokenAddress);
 
         _requirePairEmpty(tokenAddress, lt);
 
-        IERC20(tokenAddress).forceApprove(hyperswapRouter, tokenAmount);
-        IERC20(lt).forceApprove(hyperswapRouter, ltFromPair);
-
-        uint256 tokenMin = (tokenAmount * 99) / 100;
-        uint256 ltMin = (ltFromPair * 99) / 100;
-
-        (,, uint256 liquidity) = IUniswapV2Router02(hyperswapRouter)
-            .addLiquidity(tokenAddress, lt, tokenAmount, ltFromPair, tokenMin, ltMin, lpLock, block.timestamp);
+        uint256 liquidity = _seedHyperswap(tokenAddress, lt, tokensForLP, ltFromPair);
 
         address hyperPair = _getHyperswapPair(tokenAddress, lt);
         graduatedPair[tokenAddress] = hyperPair;
 
         LPLock(lpLock).recordLock(tokenAddress, hyperPair, liquidity);
 
-        emit TokenGraduated(tokenAddress, hyperPair, liquidity);
+        emit TokenGraduated(tokenAddress, hyperPair, liquidity, tokensForLP, lpBurned, unsoldBurned);
+    }
+
+    /// @dev Burns unsold curve tokens, drains LT from the pair, computes the exact
+    ///      `tokensForLP` needed to match the last curve price, and burns the LP excess.
+    ///
+    ///      Price equality: `tokensForLP / ltFromPair = reserve0 / reserve1 = lastPrice`.
+    ///      By construction (V_t_init = totalSupply, curveSupply = 75%), the parabola
+    ///         tokensForLP(sold) = sold · (S − sold) / S
+    ///      peaks at S/4 = LP_RESERVE when sold = S/2, so `tokensForLP ≤ lpReserveTotal`
+    ///      is a mathematical invariant. The cap is a defensive guard.
+    function _prepareGraduationLiquidity(
+        address tokenAddress
+    ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
+        address pairAddr = _tokenInfo[tokenAddress].pair;
+        (uint256 reserve0, uint256 reserve1) = IFPair(pairAddr).getReserves();
+
+        unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
+        if (unsoldBurned > 0) {
+            FERC20(tokenAddress).burn(pairAddr, unsoldBurned);
+        }
+
+        ltFromPair = router.graduate(tokenAddress);
+
+        uint256 lpReserveTotal = lpReserve[tokenAddress];
+        tokensForLP = reserve1 == 0 ? 0 : (ltFromPair * reserve0) / reserve1;
+        if (tokensForLP > lpReserveTotal) tokensForLP = lpReserveTotal;
+
+        lpBurned = lpReserveTotal - tokensForLP;
+        if (lpBurned > 0) {
+            FERC20(tokenAddress).burn(address(this), lpBurned);
+        }
+        lpReserve[tokenAddress] = 0;
+    }
+
+    function _seedHyperswap(
+        address tokenAddress,
+        address lt,
+        uint256 tokensForLP,
+        uint256 ltFromPair
+    ) internal returns (uint256 liquidity) {
+        IERC20(tokenAddress).forceApprove(hyperswapRouter, tokensForLP);
+        IERC20(lt).forceApprove(hyperswapRouter, ltFromPair);
+
+        (,, liquidity) = IUniswapV2Router02(hyperswapRouter)
+            .addLiquidity(
+                tokenAddress,
+                lt,
+                tokensForLP,
+                ltFromPair,
+                (tokensForLP * 99) / 100,
+                (ltFromPair * 99) / 100,
+                lpLock,
+                block.timestamp
+            );
     }
 
     function _getCurveState(

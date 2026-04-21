@@ -58,6 +58,17 @@ export interface ApiToken {
   curveSupply?: string | null;
   ltReserve?: string | null;
   curveFilled?: number | null;
+  /**
+   * Organic USD contribution to `curveFilled` (0–curveFilled). Null while
+   * indexer/BounceTech are degraded or post-graduation. See
+   * `apps/api/src/lib/token-enrich.ts` for the computation.
+   */
+  curveFilledOrganic?: number | null;
+  /**
+   * LT price-appreciation contribution to `curveFilled`. Clamped at 0 — a
+   * negative "boost" is hidden from the UI by product decision.
+   */
+  curveFilledLeverageBoost?: number | null;
   graduated?: boolean;
   graduatedAt?: string | null;
   bondingPair?: string | null;

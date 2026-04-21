@@ -15,6 +15,11 @@ export function createMockDb() {
       const mapKey = JSON.stringify({ table: (table as { _?: { name?: string } })?._?.name ?? "_", key });
       return findResults.get(mapKey) ?? null;
     }),
+    /** Test hook: seed a row so the next `find(table, key)` returns `value`. */
+    _setFindResult: (table: unknown, key: unknown, value: unknown) => {
+      const mapKey = JSON.stringify({ table: (table as { _?: { name?: string } })?._?.name ?? "_", key });
+      findResults.set(mapKey, value);
+    },
     insert: vi.fn((table: unknown) => {
       const entry: (typeof insertCalls)[number] = { table, values: undefined, conflict: "doNothing" };
       insertCalls.push(entry);

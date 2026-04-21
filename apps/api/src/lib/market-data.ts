@@ -13,12 +13,38 @@ export const TOKEN_SUPPLY = 1_000_000_000;
 export interface PonderTokenOnchain {
   address: string;
   ltToken: string;
+  /**
+   * Per-token constant-product invariant set at launch:
+   *   k = TOTAL_SUPPLY_RAW * virtualLtReserveAtLaunch
+   * Needed to recover the virtual LT component at read time so we can subtract
+   * it from `ltReserve` to get the real USD raised. See
+   * `computeCurveFilledBreakdown` in `lib/token-enrich.ts`.
+   */
+  k: string;
+  /**
+   * Virtual AMM reserve0 (the value the pair's constant-product math uses).
+   * Initialised to TOTAL_SUPPLY (1B × 1e18) and floors at LP_RESERVE_RAW
+   * (250M × 1e18) at full sellout — not [0, 750M]. Callers that want "real
+   * remaining curve supply" must subtract LP_RESERVE_RAW.
+   */
   curveSupply: string;
+  /**
+   * Virtual AMM reserve1. Starts at `virtualLtReserveAtLaunch = $4K / rate`
+   * and grows with buys / shrinks with sells. Callers that want "real LT
+   * raised" (== `IFPair.assetBalance()` on-chain) must subtract
+   * `virtualLtReserveAtLaunch = k / TOTAL_SUPPLY_RAW`.
+   */
   ltReserve: string;
   graduated: boolean;
   graduatedAt: string | null;
   bondingPair: string | null;
   hyperswapPair: string | null;
+  /**
+   * Cumulative net USDC (6dp) routed through LaunchpadRouter for this token
+   * (buys minus sells, floored at 0). Used to split the graduation progress
+   * bar into "organic buys" vs "LT price appreciation".
+   */
+  organicUsdcRaised: string;
   timestamp: string;
 }
 
@@ -47,6 +73,12 @@ export interface MarketDataItem {
   mcapUsd: number | null;
   change24h: number | null;
   past24hPriceUsd: number | null;
+  /**
+   * Current LT exchange rate (USD per LT). Needed by `token-enrich` to turn
+   * the curve's `ltReserve` into "USD raised" for the graduation progress
+   * bar split. Null when the rate is unknown or zero.
+   */
+  ltExchangeRate: number | null;
 }
 
 export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
@@ -77,12 +109,14 @@ export async function fetchAllTokensOnchain(
           items {
             address
             ltToken
+            k
             curveSupply
             ltReserve
             graduated
             graduatedAt
             bondingPair
             hyperswapPair
+            organicUsdcRaised
             timestamp
           }
         }
@@ -121,12 +155,14 @@ export async function fetchTokensOnchainByAddresses(
           items {
             address
             ltToken
+            k
             curveSupply
             ltReserve
             graduated
             graduatedAt
             bondingPair
             hyperswapPair
+            organicUsdcRaised
             timestamp
           }
         }
@@ -150,12 +186,14 @@ export async function fetchTokenOnchain(
       token(address: $address) {
         address
         ltToken
+        k
         curveSupply
         ltReserve
         graduated
         graduatedAt
         bondingPair
         hyperswapPair
+        organicUsdcRaised
         timestamp
       }
     }`,
@@ -302,6 +340,7 @@ export function buildMarketDataItem(
     mcapUsd,
     change24h,
     past24hPriceUsd,
+    ltExchangeRate: currentExRate > 0 ? currentExRate : null,
   };
 }
 

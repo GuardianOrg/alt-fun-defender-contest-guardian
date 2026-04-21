@@ -30,13 +30,18 @@ export default function TokenRow({ token }: Props) {
   // Width math renders `null` (unknown) as an empty bar — we can't guess
   // progress, so we show none. The text-only sites use `formatCurveFilled`
   // which renders `—` instead.
+  //
+  // When the API returns the organic/boost split we render the bar as two
+  // segments (organic first, boost layered on top). When `organicFilled` is
+  // null (indexer degraded) we fall back to a single solid fill — the old
+  // behaviour. The split itself is a marketing number showcasing the LT
+  // pump's contribution: negative boosts are hidden server-side (clamped at
+  // 0) so we can just trust the numbers here.
   const filled = token.curveFilled ?? 0;
-  const buyW = Math.min(
-    filled - (token.leverageBoost > 0 ? token.leverageBoost : 0),
-    filled,
-  );
-  const levW = filled - buyW;
-  const isLtMover = token.leverageBoost > 15;
+  const organic = token.organicFilled ?? filled;
+  const buyW = Math.min(organic, filled);
+  const levW = Math.max(filled - buyW, 0);
+  const isLtMover = levW > 15;
 
   const handleNavigate = () => navigate(tokenPath(token.address));
 

@@ -149,7 +149,12 @@ export const BondingAbi = [
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountInUsed",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -966,6 +971,24 @@ export const BondingAbi = [
       },
       {
         "name": "liquidity",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokensInLP",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lpBurned",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "unsoldBurned",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

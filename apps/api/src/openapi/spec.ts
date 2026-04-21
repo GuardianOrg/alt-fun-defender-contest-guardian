@@ -88,9 +88,19 @@ const tokenDetailSchema = {
     {
       type: "object",
       properties: {
-        curveSupply: { type: "string", description: "Remaining token supply on the bonding curve (raw, 18 decimals)" },
-        ltReserve: { type: "string", description: "LT reserve in the bonding curve (raw)" },
-        curveFilled: { type: "number", description: "Percentage of curve filled (0-100)" },
+        curveSupply: {
+          type: "string",
+          description:
+            "Virtual token-side AMM reserve (reserve0) used by the bonding curve's constant-product math, raw 18 decimals. This is NOT the real remaining curve balance: it starts at TOTAL_SUPPLY (1B * 1e18) and floors at LP_RESERVE (250M * 1e18) at full sellout. To derive the real remaining curve supply, subtract LP_RESERVE. Consumers that just want graduation progress should use `curveFilled` instead of recomputing.",
+        },
+        ltReserve: {
+          type: "string",
+          description:
+            "Virtual LT-side AMM reserve (reserve1) used by the bonding curve's constant-product math, raw 18 decimals. This is NOT a real LT balance: it includes the launch-time virtual LT seed (~$4K worth at launch-time LT rate). Consumers that just want graduation progress should use `curveFilled` / `curveFilledOrganic` / `curveFilledLeverageBoost` instead of recomputing.",
+        },
+        curveFilled: { type: "number", description: "Percentage of curve filled (0-100). Max of supply-based and USD-based progress — whichever trigger is closer to firing." },
+        curveFilledOrganic: { type: "number", nullable: true, description: "Portion of `curveFilled` attributable to organic USDC buys. `null` while indexer/BounceTech are degraded or post-graduation." },
+        curveFilledLeverageBoost: { type: "number", nullable: true, description: "Portion of `curveFilled` attributable to LT price appreciation. Clamped at 0 when the LT has dropped (we never surface a negative boost on the UI)." },
       },
     },
   ],

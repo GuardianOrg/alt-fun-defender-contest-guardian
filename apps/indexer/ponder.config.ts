@@ -70,7 +70,7 @@ export default createConfig({
       address: factory({
         address: bondingAddress,
         event: parseAbiItem(
-          "event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity)",
+          "event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity, uint256 tokensInLP, uint256 lpBurned, uint256 unsoldBurned)",
         ),
         parameter: "pairAddress",
       }),

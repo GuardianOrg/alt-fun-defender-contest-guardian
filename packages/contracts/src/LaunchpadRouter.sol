@@ -106,6 +106,20 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
 
+        // Curve buy may be capped if it would have exceeded remaining real supply
+        // (e.g. final buy triggering the supply-based graduation). Return any leftover LT
+        // to the user as USDC if the redeem succeeds, otherwise forward LT directly.
+        uint256 ltLeft = IERC20(lt).balanceOf(address(this));
+        if (ltLeft > 0) {
+            IERC20(lt).forceApprove(lt, ltLeft);
+            try ILeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {
+            // refund delivered as USDC
+            }
+            catch {
+                IERC20(lt).safeTransfer(msg.sender, ltLeft);
+            }
+        }
+
         if (tokensOut < minTokensOut) revert SlippageExceeded();
 
         emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
@@ -152,11 +166,12 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         address tokenAddress,
         address lt,
         uint256 ltAmount,
-        uint256 minOut
+        uint256 /* minOut */
     ) internal returns (uint256 tokensOut) {
         FRouter frouter = bonding.router();
         IERC20(lt).forceApprove(address(frouter), ltAmount);
-        tokensOut = bonding.buy(ltAmount, tokenAddress, minOut);
+        // Slippage is checked in LaunchpadRouter.buy after the refund path, so pass 0 here.
+        (tokensOut,) = bonding.buy(ltAmount, tokenAddress, 0);
     }
 
     function _sellOnCurve(

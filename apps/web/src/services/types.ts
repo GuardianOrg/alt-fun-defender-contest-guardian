@@ -19,7 +19,19 @@ export interface Token {
   /** LT contract address (Postgres-sourced; never requires an RPC lookup). */
   ltAddress: string;
   buyMomentum: number;
+  /**
+   * Share of `curveFilled` (0–100) attributable to LT price appreciation
+   * since the organic buys. `0` when unknown (e.g. indexer degraded) or when
+   * the LT has dropped (product decision: we never show a negative boost).
+   * See `apps/api/src/lib/token-enrich.ts` for the computation.
+   */
   leverageBoost: number;
+  /**
+   * Share of `curveFilled` (0–100) attributable to organic USDC buys. `null`
+   * when unknown — render the bar as a single solid fill in that case rather
+   * than assuming 0 (which would incorrectly imply "all boost, no organic").
+   */
+  organicFilled: number | null;
   /** Bonding curve progress (0–100). Null when the indexer is degraded —
    *  callers must treat null as "unknown" and render a dash, never 0. */
   curveFilled: number | null;

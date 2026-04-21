@@ -24,6 +24,12 @@ Creator calls `Bonding.launch()` with: name, ticker, LT pair address, descriptio
 
 This deploys an `FERC20` (1B supply) and creates an `FPair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
 
+**Virtual token reserve.** The pair's `reserve0` is seeded at `totalSupply` (1B) while only `curveSupply = 75%` (750M) of real tokens are actually transferred. The other 250M are held in `Bonding` as `lpReserve`. This virtual-reserve design:
+
+- Extends the curve beyond the sellable supply.
+- Gives a deterministic supply trigger (curve exhausts at 750M sold).
+- Makes the dynamic-LP-seeding parabola `tokensForLP(sold) = sold·(S−sold)/S` peak at exactly `S/4 = 250M = LP_RESERVE` — so `tokensForLP ≤ lpReserve` is a mathematical invariant, not a runtime guess.
+
 Each token stores: creator, token address, pair address, paired LT address, metadata, trading status, graduation status.
 
 ---
@@ -35,6 +41,8 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 3. If on curve: routes through `Bonding.buy()`. If graduated: swaps on HyperSwap.
 4. 0.5% fee deducted on curve trades (0.4% protocol, 0.1% creator)
 5. Tokens sent to user
+
+**Overflow buy protection.** On the final buy that would empty the curve, `FRouter.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `LaunchpadRouter.buy` then refunds any unused LT to the buyer by calling `ILeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
 
 ## Sell Flow
 
@@ -50,12 +58,40 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 
 ## Graduation
 
-Fires when `LT_reserves × exchangeRate ≥ $12K`.
+Dual trigger — fires on whichever hits first:
 
-1. Curve closes
-2. Unsold curve tokens burned
-3. 250M reserved tokens + all raised LT → `addLiquidity()` on HyperSwap V2
-4. LP tokens sent to `LPLock` contract
+- **USD trigger:** `assetBalance × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold).
+- **Supply trigger:** `IFPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached).
+
+Checked in `Bonding.canGraduate()` on every buy; executed in `Bonding._graduate()` immediately when true.
+
+### Dynamic LP Seeding (zero price gap)
+
+The problem: the reserve asset (LT) has a varying USD price, so the exact number of LP tokens needed to make the DEX pool open at the last curve price is not known ahead of time. Naively seeding the LP with the full 250M reserve would create a large price gap that arbitrage bots would immediately close, transferring value out of the protocol.
+
+Our approach: compute the exact `tokensForLP` at graduation time so the LP opens at **precisely** the last curve price. Burn whatever is left of the 250M reserve.
+
+`_graduate()` performs, in order:
+
+1. Read `(reserve0, reserve1)` from the FPair **before** any state mutation.
+2. Burn any unsold real curve tokens from the pair (`unsoldBurned`).
+3. Drain all real LT from the pair via `FRouter.graduate()` (`ltFromPair`).
+4. Compute `tokensForLP = (ltFromPair × reserve0) / reserve1` — the unique amount that sets the LP price `ltFromPair / tokensForLP` equal to the last curve price `reserve1 / reserve0`. Capped at `lpReserveTotal` as a defensive guard (parabola math proves `tokensForLP ≤ lpReserveTotal` by construction).
+5. Burn `lpReserveTotal − tokensForLP` from `Bonding`'s held reserve (`lpBurned`).
+6. `addLiquidity(tokensForLP, ltFromPair)` on HyperSwap V2 → LP tokens go to `LPLock`.
+
+### Invariants
+
+All enforced by `test/GraduationInvariants.t.sol`:
+
+| # | Invariant | Mechanism |
+|---|---|---|
+| 1 | Zero price gap | `ltFromPair × reserve0End ≈ tokensInLP × reserve1End` within 1 bps |
+| 2 | Conservation | `tokensInLP + lpBurned == LP_RESERVE` (250M) |
+| 3 | Parabola cap | `tokensInLP ≤ LP_RESERVE` always (guaranteed by virtual reserve setup) |
+| 4 | Pair drained | `tokenBalance() == 0` and `assetBalance() == 0` post-graduation |
+| 5 | Both triggers work | Supply trigger fires below `$12K`; USD trigger fires with supply remaining |
+| 6 | Overflow refund | Oversized buys charge only `amountInUsed`, not requested amount |
 
 After graduation, all trades continue through `LaunchpadRouter` via HyperSwap. The pool is TOKEN/LT so leveraged exposure persists.
 
@@ -83,7 +119,7 @@ After graduation, all trades continue through `LaunchpadRouter` via HyperSwap. T
 |---|---|---|
 | `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k`, `index` |
 | `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
-| `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
+| `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity`, `tokensInLP`, `lpBurned`, `unsoldBurned` |
 | `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |
 | `ProtocolFeesClaimed` | Bonding | `lt`, `amount` |
 | `Buy` | LaunchpadRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |

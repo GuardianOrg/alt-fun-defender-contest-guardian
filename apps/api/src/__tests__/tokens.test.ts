@@ -359,16 +359,21 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
       limit: vi.fn().mockResolvedValue([makeDbToken()]),
     });
     // First query: fetchTokenOnchain
+    // `curveSupply` / `ltReserve` are the *virtual* AMM reserves (what
+    // `Bonding.Trade` emits). `k` = TOTAL_SUPPLY × virtualLtAtLaunch; with
+    // virtualLtAtLaunch = 2000 LT (= $4K at $2/LT launch rate) → k = 2e48.
     mockPonderQuery.mockResolvedValueOnce({
       token: {
         address: VALID_ADDRESS.toLowerCase(),
         ltToken: LT_ADDR.toLowerCase(),
+        k: "2000000000000000000000000000000000000000000000000",
         curveSupply: "500000000000000000000000000",
-        ltReserve: "1000000000000000000",
+        ltReserve: "2000000000000000000000",
         graduated: false,
         graduatedAt: null,
         bondingPair: "0xbondingpair",
         hyperswapPair: null,
+        organicUsdcRaised: "0",
         timestamp: "1700000000",
       },
     });
@@ -389,10 +394,233 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.status).toBe("success");
     expect(body.dataSource).toBe("live");
     expect(body.data.curveSupply).toBe("500000000000000000000000000");
-    expect(body.data.ltReserve).toBe("1000000000000000000");
+    expect(body.data.ltReserve).toBe("2000000000000000000000");
     expect(body.data.bondingPair).toBe("0xbondingpair");
     expect(typeof body.data.curveFilled).toBe("number");
+    expect(body.data.curveFilledOrganic).not.toBeNull();
+    expect(body.data.curveFilledLeverageBoost).not.toBeNull();
     expect(body.data.mcapUsd).not.toBeNull();
+  });
+
+  it("splits curveFilled into organic USD vs LT boost", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    // Virtual-reserve math:
+    //   k = 1e48 ⇒ virtualLtAtLaunch = k / TOTAL_SUPPLY = 1000 LT
+    //   reserve1 = 1600 LT ⇒ realLt = 1600 − 1000 = 600 LT
+    //   @ $4/LT ⇒ usdRaised = $2,400 ⇒ usdFilled = 20%
+    //   reserve0 = 850M ⇒ realRemaining = 850M − 250M = 600M ⇒ supplyFilled = 20%
+    //   total = max(20%, 20%) = 20%
+    //   organic = $1,200 / $12K = 10%; boost = total − organic = 10%.
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "850000000000000000000000000",
+        ltReserve: "1600000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "1200000000",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "4000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    expect(body.data.curveFilled).toBeCloseTo(20, 1);
+    expect(body.data.curveFilledOrganic).toBeCloseTo(10, 1);
+    expect(body.data.curveFilledLeverageBoost).toBeCloseTo(10, 1);
+  });
+
+  it("clamps leverageBoost to 0 when the LT has dropped", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    // Token launched at $4/LT (so virtualLtAtLaunch = 1000 LT, k = 1e48),
+    // user put $3,000 organic in → bought ~750 LT worth into reserve1
+    // (reserve1 = 1000 + 750 = 1750 LT). LT then dropped to $2/LT.
+    // Now: realLt = 750 LT @ $2 = $1,500 → usdFilled = 12.5%.
+    // supplyFilled: reserve0 = 950M → realRemaining = 700M → sold = 50M
+    // → supplyFilled ≈ 6.67%. total = max(6.67%, 12.5%) = 12.5%.
+    // organic = $3,000/$12K = 25%, clamped to total = 12.5%; boost = 0.
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "950000000000000000000000000",
+        ltReserve: "1750000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "3000000000",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "2000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    expect(body.data.curveFilled).toBeCloseTo(12.5, 1);
+    expect(body.data.curveFilledOrganic).toBeCloseTo(12.5, 1);
+    expect(body.data.curveFilledLeverageBoost).toBe(0);
+  });
+
+  it("returns null split (not 0) when organicUsdcRaised is missing from indexer", async () => {
+    // Guards against indexer-version skew: a stale indexer response could be
+    // missing `organicUsdcRaised` while every other field is present. Treating
+    // that as `organic=0` would render the bar as 100% leverage boost, which
+    // is a lie. We surface `null` so the frontend falls back to a solid fill.
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "850000000000000000000000000",
+        ltReserve: "1600000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        // organicUsdcRaised intentionally omitted
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "4000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number | null;
+        curveFilledLeverageBoost: number | null;
+      };
+    };
+    // Total still computable from ltReserve × exchangeRate.
+    expect(body.data.curveFilled).toBeCloseTo(20, 1);
+    // ...but the split is "unknown", not "all leverage".
+    expect(body.data.curveFilledOrganic).toBeNull();
+    expect(body.data.curveFilledLeverageBoost).toBeNull();
+  });
+
+  it("reports 0% at launch (virtual reserve0 = TOTAL_SUPPLY)", async () => {
+    // Regression test for the virtual-vs-real-reserves fix. At launch the
+    // indexer persists reserve0 = TOTAL_SUPPLY (1B × 1e18), not 0. Naive
+    // "remaining / CURVE_ALLOCATION" math would report −33% (or silently 0%
+    // only via an early-return). We want a genuine 0% here.
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "1000000000000000000000000000000000000000000000000",
+        // TOTAL_SUPPLY = 1B × 1e18, untouched curve
+        curveSupply: "1000000000000000000000000000",
+        // virtualLtAtLaunch = k / TOTAL_SUPPLY = 1000 × 1e18
+        ltReserve: "1000000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "4000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    expect(body.data.curveFilled).toBe(0);
+    expect(body.data.curveFilledOrganic).toBe(0);
+    expect(body.data.curveFilledLeverageBoost).toBe(0);
+  });
+
+  it("reports 100% at full sellout (virtual reserve0 = LP_RESERVE)", async () => {
+    // Regression test: at full sellout reserve0 floors at LP_RESERVE_RAW
+    // (250M × 1e18), not 0. Pre-fix math reported ~66.67% here.
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "1000000000000000000000000000000000000000000000000",
+        // reserve0 = LP_RESERVE_RAW = 250M × 1e18
+        curveSupply: "250000000000000000000000000",
+        // AMM invariant at sellout: reserve1 = k / reserve0 = 4000 LT
+        ltReserve: "4000000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "4000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    expect(body.data.curveFilled).toBe(100);
   });
 
   it("returns token with degraded data source when market data is unavailable", async () => {
