@@ -7,6 +7,7 @@
 - Add Volume stat, show in token page and profile page
 - Website design updates?
 - Creator claimable on token page should be open by default
+- Testing image validation, does this work and how?
 
 - Is Router the right term?
 - Ability to change graduation threshold (what happens with existing tokens?)

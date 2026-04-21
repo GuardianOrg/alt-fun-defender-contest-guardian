@@ -628,9 +628,9 @@ contract BondingTest is DeployHelper {
         assertEq(FERC20(tokenAddr).totalSupply(), 1_000_000_000 ether);
     }
 
-    function test_ferc20_nameIsPrefixed() public {
+    function test_ferc20_nameMatchesInput() public {
         (address tokenAddr,) = _launchToken();
-        assertEq(FERC20(tokenAddr).name(), "fun TestToken");
+        assertEq(FERC20(tokenAddr).name(), "TestToken");
     }
 
     function test_ferc20_ownerIsBonding() public {

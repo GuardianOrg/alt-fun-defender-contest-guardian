@@ -189,7 +189,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address ltAddress
     ) internal returns (address tokenAddr, address pair) {
         FERC20 token = new FERC20{salt: keccak256(abi.encodePacked(msg.sender, block.timestamp, allTokens.length))}(
-            string.concat("fun ", name_), ticker_, maxTx, address(this)
+            name_, ticker_, maxTx, address(this)
         );
         tokenAddr = address(token);
         uint256 totalSupply = token.totalSupply();
