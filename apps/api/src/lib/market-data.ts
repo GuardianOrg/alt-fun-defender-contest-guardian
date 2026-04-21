@@ -209,9 +209,17 @@ export interface RouterTradeActivity {
  * recency components, and to expose `volume24hUsd` / `lastTradeAt` on the
  * token list response.
  *
- * Returns `null` when Ponder is unreachable. An empty map (returned when
- * `addresses` is empty) is a successful "no tokens to query" result, not
- * a failure — callers should treat `null` as the degraded signal.
+ * Returns `null` when the signal is unreliable — either Ponder is
+ * unreachable, or pagination truncated before we saw every trade in the
+ * window (the paginator caps at MAX_PAGES × PAGE_SIZE; with `timestamp desc`
+ * ordering truncation drops the oldest slice of the window, which would
+ * silently zero out any token whose trades all fall in that tail and
+ * falsely trip the trending dead-token penalty). Downstream,
+ * `buildBatchFromTokens` collapses a `null` return to
+ * `volume24hUsd: null, lastTradeAtSec: null` on every token — the trending
+ * score then drops the volume + recency terms for this request and keeps
+ * sorting on change24h / mcap / freshness, which is the honest "unknown"
+ * behaviour.
  *
  * Tokens with no trades in the window are simply absent from the map;
  * callers substitute `volume24hUsd = 0` / `lastTradeAt = null` for them.
@@ -250,6 +258,15 @@ export async function fetchRouterTradeActivity(
       "routerTrades",
       { addresses: lowered, since: String(sinceSec) },
     );
+
+    if (result.truncated) {
+      console.warn(
+        "[market-data] routerTrade 24h aggregation truncated; " +
+          "returning null so trending falls back to unknown volume/recency. " +
+          `addresses=${addresses.length} items=${result.items.length}`,
+      );
+      return null;
+    }
 
     const activity = new Map<string, RouterTradeActivity>();
     for (const trade of result.items) {

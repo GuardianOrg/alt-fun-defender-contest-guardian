@@ -146,7 +146,14 @@ listRoute.get("/", async (c) => {
 
   const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
   const cache = cachesObj?.default;
-  const cacheKey = new Request(new URL(c.req.url).toString(), { method: "GET" });
+  // Canonicalise the cache key by dropping params the handler ignores for
+  // this request. Prevents `?sort=trending&dir=asc` and `&dir=desc` from
+  // each getting their own cache entry for identical responses (trending
+  // always sorts desc by score). Add further ignored-param strips here if
+  // we grow more "sort-dependent" knobs.
+  const cacheUrl = new URL(c.req.url);
+  if (sort === "trending") cacheUrl.searchParams.delete("dir");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) return cached;
