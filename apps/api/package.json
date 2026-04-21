@@ -23,7 +23,7 @@
     "@neondatabase/serverless": "^1.1.0",
     "drizzle-orm": "^0.45",
     "hono": "^4.12.14",
-    "viem": "^2.48.2",
+    "viem": "^2.47.12",
     "zod": "^4"
   },
   "devDependencies": {

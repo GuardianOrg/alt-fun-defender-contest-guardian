@@ -24,8 +24,8 @@
     "react-dom": "^19",
     "react-redux": "^9",
     "react-router": "^7.14.1",
-    "viem": "^2.48.2",
-    "wagmi": "^3.6.3"
+    "viem": "^2.47.12",
+    "wagmi": "^3.6.1"
   },
   "devDependencies": {
     "@eslint/js": "^10",
