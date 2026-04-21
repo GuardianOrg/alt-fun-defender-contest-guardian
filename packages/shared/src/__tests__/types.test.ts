@@ -3,9 +3,9 @@ import { describe, it, expect } from "vitest";
 import type {
   Token,
   Trade,
+  TradeBroadcast,
   Creator,
   TokenStatus,
-  TradeType,
   ApiResponse,
   PaginatedResponse,
   LeveragedTokenInfo,
@@ -47,16 +47,33 @@ describe("type exports compile correctly", () => {
 
   it("Trade type is assignable", () => {
     const trade: Trade = {
-      txHash: "0xabc",
-      tokenAddress: "0x1",
-      trader: "0x2",
-      type: "buy",
+      id: "0xabc-0",
+      side: "BUY",
       amountUsd: 100,
-      tokenAmount: 1000,
-      priceUsd: 0.1,
-      timestamp: 0,
+      tokensAmount: "1.0M",
+      walletAddress: "0x12…ef",
+      timestamp: "2024-01-01T00:00:00.000Z",
+      tokenAddress: "0x1",
+      tokenName: "Example",
+      curveSupply: "1000000000000000000000000000",
+      ltReserve: "500000000000000000",
     };
     expect(trade).toBeDefined();
+  });
+
+  it("TradeBroadcast type is assignable (WS payload shape)", () => {
+    const broadcast: TradeBroadcast = {
+      id: "0xabc-0",
+      tokenAddress: "0x1",
+      trader: "0x2",
+      isBuy: true,
+      ltAmount: "1000000000000000000",
+      tokenAmount: "1000000000000000000000000",
+      timestamp: "1700000000",
+      curveSupply: "1000000000000000000000000000",
+      ltReserve: "500000000000000000",
+    };
+    expect(broadcast).toBeDefined();
   });
 
   it("Creator type is assignable", () => {
@@ -72,11 +89,6 @@ describe("type exports compile correctly", () => {
   it("TokenStatus literals are valid", () => {
     const statuses: TokenStatus[] = ["curve", "graduating", "graduated"];
     expect(statuses).toHaveLength(3);
-  });
-
-  it("TradeType literals are valid", () => {
-    const types: TradeType[] = ["buy", "sell"];
-    expect(types).toHaveLength(2);
   });
 
   it("ApiResponse generic works", () => {

@@ -1,12 +1,11 @@
 # Unsorted
 
-- Set it up so we can choose the candle width
-- Ability to change graduation threshold (what happens with existing tokens?)
-
 # TODO
 
-- Claimed here but total earned and previously claimed reset
-- Unify client `Trade` interface into `packages/shared` (currently split between `apps/web/src/services/types.ts` and the broadcast payload shape).
+- Implement trending system
+- Implement LT Movers Section
+- Add Volume stat, show in token page and profile page
+- Set it up so we can choose the candle width
 - Implement trending system
 - Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
@@ -15,8 +14,9 @@
 - Creator claimable on token page should be open by default
 
 - Is Router the right term?
+- Ability to change graduation threshold (what happens with existing tokens?)
 - Charge fees only in the router, and then only in USDC
-- Implement creator fees in the zap
+- Claimed here but total earned and previously claimed reset
 - Can we deploy tokens via some proxy template so the deployment is smaller?
 - Add some flow for enabling big blocks.
 - Vanity addresses

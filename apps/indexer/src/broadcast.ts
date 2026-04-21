@@ -11,6 +11,8 @@
  * indexer doesn't replay thousands of stale broadcasts.
  */
 
+import type { TradeBroadcast } from "@launchpad/shared";
+
 const WEBHOOK_TIMEOUT_MS = 1_000;
 /** Blocks older than this (seconds) are considered backfill, not live. */
 const LIVE_WINDOW_SEC = 60;
@@ -21,11 +23,14 @@ const LIVE_WINDOW_SEC = 60;
  */
 const CLOCK_SKEW_TOLERANCE_SEC = 30;
 
-export interface WebhookEvent {
-  event: "trade" | "newToken" | "graduation" | "price" | "stats";
-  data: unknown;
-  tokenAddress?: string;
-}
+/**
+ * Discriminated union for all outgoing webhook events. The `trade` variant
+ * uses the shared `TradeBroadcast` shape so the web client and indexer can
+ * never drift on the WS payload contract.
+ */
+export type WebhookEvent =
+  | { event: "trade"; data: TradeBroadcast; tokenAddress?: string }
+  | { event: "newToken" | "graduation" | "price" | "stats"; data: unknown; tokenAddress?: string };
 
 export function isLiveEvent(blockTimestampSec: bigint | number): boolean {
   const ts = typeof blockTimestampSec === "bigint"

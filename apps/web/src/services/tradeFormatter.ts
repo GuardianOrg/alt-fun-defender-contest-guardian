@@ -1,6 +1,6 @@
 import { formatUnits } from "viem";
 
-import type { Trade } from "./types";
+import type { Trade, TradeBroadcast } from "./types";
 
 const TOKEN_DECIMALS = 10n ** 18n;
 
@@ -17,20 +17,7 @@ export function formatTokenBalance(raw: string): string {
   return formatTenths(amount, TOKEN_DECIMALS, "");
 }
 
-export interface PonderTradeInput {
-  id: string;
-  tokenAddress: string;
-  trader: string;
-  isBuy: boolean;
-  ltAmount: string;
-  tokenAmount: string;
-  timestamp: string;
-  /** Present on WS-sourced trades; absent from Ponder REST polling. */
-  curveSupply?: string;
-  ltReserve?: string;
-}
-
-export function ponderTradeToTrade(pt: PonderTradeInput, exchangeRate: number): Trade {
+export function ponderTradeToTrade(pt: TradeBroadcast, exchangeRate: number): Trade {
   const ltAmountFloat = parseFloat(formatUnits(BigInt(pt.ltAmount), 18));
 
   return {
