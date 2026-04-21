@@ -230,12 +230,16 @@ listRoute.get("/", async (c) => {
       return empty;
     }
 
-    const addresses = onchainPage.map((t) => t.address.toLowerCase());
+    // `tokens.address` is stored checksummed (see `create.ts` — we run
+    // every insert through `getAddress`). Ponder returns addresses
+    // lowercased. Checksum for the DB query, but keep the lowercased form
+    // for map lookups below where we compare against Ponder strings.
+    const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
 
     const dbRowsRaw = await db
       .select()
       .from(tokens)
-      .where(and(eq(tokens.isHidden, false), inArray(tokens.address, addresses)));
+      .where(and(eq(tokens.isHidden, false), inArray(tokens.address, checksummedAddresses)));
 
     const dbByAddress = new Map<string, DbToken>();
     for (const row of dbRowsRaw) {
