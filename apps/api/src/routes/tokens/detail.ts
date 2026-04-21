@@ -82,6 +82,7 @@ function enrich(
     priceUsd: market?.priceUsd ?? null,
     mcapUsd: market?.mcapUsd ?? null,
     change24h: market?.change24h ?? null,
+    ltChange24h: market?.ltChange24h ?? null,
     volume24hUsd: market?.volume24hUsd ?? null,
     lastTradeAt,
   };

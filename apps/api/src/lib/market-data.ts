@@ -89,6 +89,12 @@ export interface MarketDataItem {
    */
   ltExchangeRate: number | null;
   /**
+   * 24h percentage change of the backing LT's exchange rate (independent
+   * of any curve activity). Primary signal for the LT MOVERS tab. Null
+   * when BounceTech has no rate at either end of the window.
+   */
+  ltChange24h: number | null;
+  /**
    * Total USD routed through `LaunchpadRouter` for this token in the last
    * 24h (buys + sells, nominal). `null` when the indexer can't be reached;
    * `0` when the token simply had no trades in the window. See
@@ -196,6 +202,107 @@ export async function fetchTokensOnchainByAddresses(
   } catch {
     return null;
   }
+}
+
+/**
+ * Supply threshold (virtual `reserve0`) at which a token is "graduating".
+ * Mirrors the ≥90% rule in `computeStatus`:
+ *   `virtualReserve0 = LP_RESERVE_RAW + 0.10 × CURVE_ALLOCATION = 325M × 1e18`
+ * Below this threshold, a non-graduated token is in the final 10% stretch.
+ * Note: this catches supply-trigger-only graduating tokens. USD-trigger
+ * graduators (where the $12K line is hit before 90% supply is sold) may
+ * still be below the 90% supply mark here; they'll show up in TRENDING /
+ * NEW / LT MOVERS but not in GRADUATING. Acceptable trade-off for v1 —
+ * keeping this path pure-Postgres-free.
+ */
+export const GRADUATING_CURVE_SUPPLY_THRESHOLD = (325n * 1_000_000n * 10n ** 18n).toString();
+
+/**
+ * Fetch graduated tokens ordered by `graduatedAt desc`, paginated. Used by
+ * the GRADUATED tab: Postgres' `status` column is never flipped to
+ * "graduated" (the indexer is source of truth), so we drive the list off
+ * Ponder and batch-lookup metadata from the API's own DB.
+ */
+export async function fetchGraduatedTokensOnchain(
+  ponderUrl: string | undefined,
+  limit: number,
+  offset: number,
+): Promise<PonderTokenOnchain[] | null> {
+  const queryPonder = createPonderQuery(ponderUrl);
+  const data = await queryPonder<{
+    tokens: { items: PonderTokenOnchain[] };
+  }>(
+    `query ($limit: Int!, $offset: Int!) {
+      tokens(
+        where: { graduated: true }
+        limit: $limit
+        offset: $offset
+        orderBy: "graduatedAt"
+        orderDirection: "desc"
+      ) {
+        items {
+          address
+          ltToken
+          k
+          curveSupply
+          ltReserve
+          graduated
+          graduatedAt
+          bondingPair
+          hyperswapPair
+          organicUsdcRaised
+          timestamp
+        }
+      }
+    }`,
+    { limit, offset },
+  );
+  if (data === null) return null;
+  return data.tokens.items;
+}
+
+/**
+ * Fetch tokens whose virtual reserve0 has dropped below
+ * `GRADUATING_CURVE_SUPPLY_THRESHOLD` (≥90% supply filled) and which haven't
+ * graduated yet, ordered by `curveSupply asc` (fullest / closest to
+ * graduation first). Paginated.
+ */
+export async function fetchGraduatingTokensOnchain(
+  ponderUrl: string | undefined,
+  limit: number,
+  offset: number,
+): Promise<PonderTokenOnchain[] | null> {
+  const queryPonder = createPonderQuery(ponderUrl);
+  const data = await queryPonder<{
+    tokens: { items: PonderTokenOnchain[] };
+  }>(
+    `query ($limit: Int!, $offset: Int!, $threshold: BigInt!) {
+      tokens(
+        where: { graduated: false, curveSupply_lte: $threshold }
+        limit: $limit
+        offset: $offset
+        orderBy: "curveSupply"
+        orderDirection: "asc"
+      ) {
+        items {
+          address
+          ltToken
+          k
+          curveSupply
+          ltReserve
+          graduated
+          graduatedAt
+          bondingPair
+          hyperswapPair
+          organicUsdcRaised
+          timestamp
+        }
+      }
+    }`,
+    { limit, offset, threshold: GRADUATING_CURVE_SUPPLY_THRESHOLD },
+  );
+  if (data === null) return null;
+  return data.tokens.items;
 }
 
 export interface RouterTradeActivity {
@@ -533,6 +640,7 @@ export function buildMarketDataItem(
   currentLtRate: number,
   past: PastPriceInputs | null,
   activity: { volume24hUsd: number | null; lastTradeAtSec: number | null },
+  ltRate24hAgo: number | null,
 ): MarketDataItem {
   const currentCurveSupply = BigInt(token.curveSupply);
   const currentLtReserve = BigInt(token.ltReserve);
@@ -556,12 +664,21 @@ export function buildMarketDataItem(
       ? ((currentPrice - past24hPriceUsd) / past24hPriceUsd) * 100
       : null;
 
+  // LT 24h change is measured at the LT itself, independent of when the
+  // token launched or whether it's graduated. Used as the primary signal
+  // for the LT MOVERS tab.
+  const ltChange24h =
+    ltRate24hAgo !== null && ltRate24hAgo > 0 && currentLtRate > 0
+      ? ((currentLtRate - ltRate24hAgo) / ltRate24hAgo) * 100
+      : null;
+
   return {
     priceUsd,
     mcapUsd,
     change24h,
     past24hPriceUsd,
     ltExchangeRate: currentLtRate > 0 ? currentLtRate : null,
+    ltChange24h,
     volume24hUsd: activity.volume24hUsd,
     lastTradeAtSec: activity.lastTradeAtSec,
   };
@@ -581,7 +698,7 @@ export type MarketDataBatchResult =
  * historical price inputs from BounceTech + Ponder and compute
  * `(priceUsd, mcapUsd, change24h)` keyed by lowercased token address.
  */
-async function buildBatchFromTokens(
+export async function buildBatchFromTokens(
   ponderUrl: string | undefined,
   bouncetechDbUrl: string | undefined,
   tokens: PonderTokenOnchain[],
@@ -606,8 +723,13 @@ async function buildBatchFromTokens(
   const newTokens = tokens.filter((t) => Number(t.timestamp) > cutoffSec);
 
   const oldTokenAddresses = oldTokens.map((t) => t.address.toLowerCase());
-  const oldLtAddresses = Array.from(
-    new Set(oldTokens.map((t) => t.ltToken.toLowerCase())),
+  // Fetch the 24h-ago LT rate for every LT in the batch (not just LTs of
+  // tokens older than 24h). The `ltChange24h` signal on `MarketDataItem` is
+  // defined against the LT's own history, independent of token age, so
+  // young tokens still get a real `ltChange24h` even though their own
+  // `past24hPriceUsd` is reconstructed from launch.
+  const allLtAddresses = Array.from(
+    new Set(tokens.map((t) => t.ltToken.toLowerCase())),
   );
   const newTokenLtInputs = newTokens.map((t) => ({
     tokenAddress: t.address.toLowerCase(),
@@ -624,7 +746,7 @@ async function buildBatchFromTokens(
     routerActivity,
   ] = await Promise.all([
     fetchHistoricalCurveSnapshots(ponderUrl, oldTokenAddresses, cutoffSec),
-    fetchHistoricalLtRates(bouncetechDbUrl, oldLtAddresses, cutoffSec),
+    fetchHistoricalLtRates(bouncetechDbUrl, allLtAddresses, cutoffSec),
     fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
     fetchRouterTradeActivity(ponderUrl, allTokenAddresses, nowSec),
   ]);
@@ -642,7 +764,9 @@ async function buildBatchFromTokens(
   const market: Record<string, MarketDataItem> = {};
   for (const token of tokens) {
     const addr = token.address.toLowerCase();
-    const currentLtRate = liveLtRates.get(token.ltToken.toLowerCase()) ?? 0;
+    const ltAddr = token.ltToken.toLowerCase();
+    const currentLtRate = liveLtRates.get(ltAddr) ?? 0;
+    const ltRate24hAgo = historicalLtRatesAtCutoff.get(ltAddr) ?? null;
     const past = buildPastPriceInputs(
       token,
       cutoffSec,
@@ -664,7 +788,13 @@ async function buildBatchFromTokens(
         ? { volume24hUsd: a.volume24hUsd, lastTradeAtSec: a.lastTradeAtSec }
         : { volume24hUsd: 0, lastTradeAtSec: null };
     }
-    market[addr] = buildMarketDataItem(token, currentLtRate, past, activity);
+    market[addr] = buildMarketDataItem(
+      token,
+      currentLtRate,
+      past,
+      activity,
+      ltRate24hAgo,
+    );
   }
 
   return { ok: true, data: { tokens, market } };

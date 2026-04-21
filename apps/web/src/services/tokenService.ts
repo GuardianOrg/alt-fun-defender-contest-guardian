@@ -1,6 +1,6 @@
 import { API_BASE, fetchToken, fetchTokens } from "./api";
 
-import type { ApiToken } from "./api";
+import type { ApiToken, FetchTokensOptions } from "./api";
 import type { Direction, Token, TokenFilter } from "./types";
 
 export function ltDisplayName(apiToken: ApiToken): string {
@@ -76,48 +76,37 @@ export interface ITokenService {
 }
 
 /**
- * Apply filters that can be computed from the token row alone. The `trending`
- * ordering is computed server-side (see `sort=trending` in
- * `apps/api/src/routes/tokens/list.ts`); the client just consumes the order
- * the API returns.
+ * Map a client-side `TokenFilter` to the right server-side query params.
+ * All filtering + sorting for the landing-page tabs is now done by the
+ * API — the client doesn't reorder or sub-filter the returned list.
  */
-export function applyFilter(
-  tokens: Token[],
+function filterToApiOptions(
   filter: TokenFilter | undefined,
-): Token[] {
+): FetchTokensOptions {
   switch (filter) {
-    case "graduating":
-      return tokens.filter((t) => t.status === "graduating");
-    case "graduated":
-      return tokens.filter((t) => t.status === "graduated");
-    case "new":
-      return [...tokens].sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-      );
-    case "lt-movers":
-      return tokens
-        .filter((t) => t.leverageBoost > 0)
-        .sort((a, b) => b.leverageBoost - a.leverageBoost);
-    case "all":
+    case undefined:
     case "trending":
-    default:
-      return tokens;
+      return { sort: "trending" };
+    case "new":
+      // Default API sort is `createdAt desc` — exactly what NEW wants.
+      return {};
+    case "lt-movers":
+      return { sort: "lt-movers" };
+    case "graduating":
+      return { status: "graduating" };
+    case "graduated":
+      return { status: "graduated" };
   }
 }
 
 async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
-  // `trending` (and the default filter — trending is the default tab) goes
-  // through the server-side scoring path so the ranking isn't capped by the
-  // page of rows the client happened to fetch. Other filters just get the
-  // default chronological listing and filter locally.
-  const apiSort =
-    filter === "trending" || filter === undefined ? "trending" : undefined;
-  const apiTokens = await fetchTokens(100, 0, apiSort).catch(
-    (): ApiToken[] => [],
-  );
+  const apiTokens = await fetchTokens(
+    100,
+    0,
+    filterToApiOptions(filter),
+  ).catch((): ApiToken[] => []);
   if (apiTokens.length === 0) return [];
-  return applyFilter(apiTokens.map(fromApiToken), filter);
+  return apiTokens.map(fromApiToken);
 }
 
 async function liveGetToken(address: string): Promise<Token | undefined> {

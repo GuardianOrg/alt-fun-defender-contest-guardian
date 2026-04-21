@@ -228,7 +228,12 @@ describe("GET /market-data", () => {
     });
     // Current LT rate = 2.0 → current price = 2e-4 × 2.0 = 4e-4.
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    // No old tokens → no historical curve / cutoff-LT-rate queries issued.
+    // No old tokens → no historical curve snapshots are queried.
+    // `fetchHistoricalLtRates` is still called for all LTs (for
+    // `ltChange24h`); we let it return an empty map — this test doesn't
+    // assert on `ltChange24h`, only on `change24h`, which is driven by
+    // `fetchLtRatesAtLaunches` for new tokens.
+    mockNeonQuery.mockResolvedValueOnce([]);
     // New tokens → `fetchLtRatesAtLaunches` returns LT rate at launch = 1.0.
     // Launch price = 1e-6 × 1.0 = 1e-6 → change = (4e-4 - 1e-6) / 1e-6 × 100.
     // Note: this query's `SELECT a.token_address` returns the token address
@@ -266,6 +271,9 @@ describe("GET /market-data", () => {
       ],
     });
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    // fetchHistoricalLtRates (all LTs, cutoff) — empty, LT has no 24h-ago rate.
+    mockNeonQuery.mockResolvedValueOnce([]);
+    // fetchLtRatesAtLaunches — empty, no rate at launch → change24h null.
     mockNeonQuery.mockResolvedValueOnce([]);
 
     const app = createApp();

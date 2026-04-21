@@ -76,6 +76,13 @@ export interface ApiToken {
   priceUsd?: number | null;
   mcapUsd?: number | null;
   change24h?: number | null;
+  /**
+   * 24h percentage change of the backing LT's exchange rate (independent
+   * of any curve activity). Primary signal for the LT MOVERS tab.
+   */
+  ltChange24h?: number | null;
+  volume24hUsd?: number | null;
+  lastTradeAt?: string | null;
   poolAddress?: string | null;
 }
 
@@ -87,18 +94,31 @@ export interface ApiComment {
   createdAt: string;
 }
 
-export type TokenListSort = "createdAt" | "leverage" | "name" | "trending";
+export type TokenListSort =
+  | "createdAt"
+  | "leverage"
+  | "name"
+  | "trending"
+  | "lt-movers";
+
+export type TokenListStatus = "curve" | "graduating" | "graduated";
+
+export interface FetchTokensOptions {
+  sort?: TokenListSort;
+  status?: TokenListStatus;
+}
 
 export function fetchTokens(
   limit = 50,
   offset = 0,
-  sort?: TokenListSort,
+  options: FetchTokensOptions = {},
 ): Promise<ApiToken[]> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   });
-  if (sort) params.set("sort", sort);
+  if (options.sort) params.set("sort", options.sort);
+  if (options.status) params.set("status", options.status);
   return apiFetch(`/api/v1/tokens?${params.toString()}`);
 }
 
