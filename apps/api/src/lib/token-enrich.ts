@@ -199,6 +199,12 @@ export interface EnrichedToken
   mcapUsd: number | null;
   change24h: number | null;
   /**
+   * 24h percentage change of the backing LT's exchange rate. Primary
+   * signal for the LT MOVERS tab on the landing page. `null` when
+   * BounceTech can't give us a rate at either end of the window.
+   */
+  ltChange24h: number | null;
+  /**
    * Sum of USDC (6dp → USD) traded through `LaunchpadRouter` in the last 24h
    * for this token (buys + sells). `null` when the indexer is unavailable,
    * `0` when the token has simply had no trades in the window — callers must
@@ -243,6 +249,39 @@ export interface EnrichedToken
  * "unknown" for any degraded signal would collapse the whole list when
  * BounceTech blips.
  */
+/**
+ * Filter + sort the LT MOVERS list. Primary order is the backing LT's own
+ * 24h % change (descending, so the biggest LT movers come first); ties
+ * break on the token's own 24h change (descending), so among tokens on
+ * the same pumping LT the ones also getting buy-side action win.
+ *
+ * Excluded:
+ *   - null `ltChange24h` or null `change24h` — we need a total order and
+ *     "unknown" shouldn't leapfrog priced entries.
+ *   - non-positive `ltChange24h` — LT MOVERS is a leaderboard, a flat or
+ *     falling LT isn't moving *up*.
+ *   - non-positive `change24h` — the user explicitly asked that a token
+ *     with 24h losses not show in the movers list, however much the LT
+ *     is pumping; protects against stale short LTs etc.
+ */
+export function sortLtMovers<
+  T extends { ltChange24h: number | null; change24h: number | null },
+>(items: T[]): T[] {
+  return items
+    .filter(
+      (t) =>
+        t.ltChange24h !== null &&
+        t.ltChange24h > 0 &&
+        t.change24h !== null &&
+        t.change24h > 0,
+    )
+    .sort((a, b) => {
+      const ltDelta = (b.ltChange24h ?? 0) - (a.ltChange24h ?? 0);
+      if (ltDelta !== 0) return ltDelta;
+      return (b.change24h ?? 0) - (a.change24h ?? 0);
+    });
+}
+
 export function computeTrendingScore(
   inputs: {
     change24h: number | null;

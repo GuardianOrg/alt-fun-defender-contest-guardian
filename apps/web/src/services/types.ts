@@ -97,8 +97,7 @@ export type TokenFilter =
   | "new"
   | "lt-movers"
   | "graduating"
-  | "graduated"
-  | "all";
+  | "graduated";
 
 export interface CreateTokenParams {
   name: string;

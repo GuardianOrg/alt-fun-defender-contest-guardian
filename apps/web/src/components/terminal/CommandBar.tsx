@@ -12,7 +12,6 @@ const TABS: { label: string; filter: TokenFilter }[] = [
   { label: "LT MOVERS", filter: "lt-movers" },
   { label: "GRADUATING", filter: "graduating" },
   { label: "GRADUATED", filter: "graduated" },
-  { label: "ALL", filter: "all" },
 ];
 
 interface Props {
@@ -25,7 +24,6 @@ export default function CommandBar({ tokenCount }: Props) {
 
   return (
     <div className={styles.bar}>
-      <span className={styles.viewLabel}>VIEW</span>
       {TABS.map((tab) => (
         <button
           key={tab.filter}

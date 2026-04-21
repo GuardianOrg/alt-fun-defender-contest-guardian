@@ -2,7 +2,6 @@
 
 # TODO
 
-- Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
 - Website design updates?
 - Creator claimable on token page should be open by default
@@ -11,6 +10,7 @@
 - Add Geoblocking, block UK, Any sanctioned countries
 - Add Terms of Service, Privacy Policy, DMCA Policy
 - Add some report service
+- Settings is hard to see, and should be a cog not a sun
 
 - Is Router the right term?
 - Ability to change graduation threshold (what happens with existing tokens?)

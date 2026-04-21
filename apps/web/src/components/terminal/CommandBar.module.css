@@ -9,14 +9,6 @@
   flex-shrink: 0;
 }
 
-.viewLabel {
-  font-size: 11px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--txt-3);
-  margin-right: 0.75rem;
-}
-
 .tab {
   position: relative;
   font-size: 13px;
