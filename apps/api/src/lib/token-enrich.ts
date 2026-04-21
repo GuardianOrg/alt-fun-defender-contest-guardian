@@ -198,4 +198,98 @@ export interface EnrichedToken
   priceUsd: number | null;
   mcapUsd: number | null;
   change24h: number | null;
+  /**
+   * Sum of USDC (6dp → USD) traded through `LaunchpadRouter` in the last 24h
+   * for this token (buys + sells). `null` when the indexer is unavailable,
+   * `0` when the token has simply had no trades in the window — callers must
+   * distinguish the two (null == unknown, 0 == legitimately quiet).
+   */
+  volume24hUsd: number | null;
+  /**
+   * ISO timestamp of the most recent `LaunchpadRouter` trade for this token
+   * within the 24h lookback window. `null` means either no trades in the
+   * window or indexer unavailable — use in conjunction with
+   * `volume24hUsd` to disambiguate.
+   */
+  lastTradeAt: string | null;
+}
+
+/**
+ * Compute a trending score from the signals every token already exposes.
+ * Deliberately simple and deterministic — no ML, no historical state
+ * outside the 24h change + volume window we already compute. Higher is
+ * more trending. Callers sort descending and tie-break on mcap.
+ *
+ * Components (see README / TODO.md trending entry for the rationale):
+ *
+ *   1. `change24h`  — primary signal (percent, can be negative)
+ *   2. Volume term  — `15 * log10(volume + 1)`. Log-dampened so a single
+ *                     whale buy doesn't drown out broad activity.
+ *   3. Mcap term    — `3 * log10(mcap + 1)`. Small nudge: among two
+ *                     otherwise equivalent tokens, the bigger market wins.
+ *                     Worth ~6 points per order of magnitude.
+ *   4. Freshness    — +20 at launch, decays linearly to 0 at 24h. Gives
+ *                     new tokens oxygen to surface before they've
+ *                     accumulated history.
+ *   5. Recency      — +10 if traded <1h ago, +5 if <6h, else 0. Tokens
+ *                     that are actively trading right now beat tokens
+ *                     that traded a while back with the same 24h stats.
+ *   6. Dead penalty — −1000 if no trade within 24h AND older than 7 days.
+ *                     Prevents ancient quiet tokens from leaking into
+ *                     trending on pure LT-rate drift.
+ *
+ * `null` inputs are treated as 0 / "unknown, assumed quiet" rather than
+ * as missing data — the sort needs a total order and punting a token to
+ * "unknown" for any degraded signal would collapse the whole list when
+ * BounceTech blips.
+ */
+export function computeTrendingScore(
+  inputs: {
+    change24h: number | null;
+    volume24hUsd: number | null;
+    mcapUsd: number | null;
+    /** Unix seconds — token creation / launch timestamp. */
+    createdAtSec: number;
+    /** Unix seconds — most recent router trade, or null if none in window. */
+    lastTradeAtSec: number | null;
+    /** Unix seconds — current time (injected for test determinism). */
+    nowSec: number;
+  },
+): number {
+  const {
+    change24h,
+    volume24hUsd,
+    mcapUsd,
+    createdAtSec,
+    lastTradeAtSec,
+    nowSec,
+  } = inputs;
+
+  const change = change24h ?? 0;
+  const volume = Math.max(0, volume24hUsd ?? 0);
+  const mcap = Math.max(0, mcapUsd ?? 0);
+  const ageHours = Math.max(0, (nowSec - createdAtSec) / 3600);
+  const lastTradeHours = lastTradeAtSec === null
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, (nowSec - lastTradeAtSec) / 3600);
+
+  const volumeTerm = 15 * Math.log10(volume + 1);
+  const mcapTerm = 3 * Math.log10(mcap + 1);
+
+  const freshnessBonus = ageHours < 24 ? 20 * (1 - ageHours / 24) : 0;
+
+  const recencyBonus =
+    lastTradeHours < 1 ? 10 : lastTradeHours < 6 ? 5 : 0;
+
+  const deadPenalty =
+    lastTradeHours > 24 && ageHours > 24 * 7 ? -1000 : 0;
+
+  return (
+    change +
+    volumeTerm +
+    mcapTerm +
+    freshnessBonus +
+    recencyBonus +
+    deadPenalty
+  );
 }

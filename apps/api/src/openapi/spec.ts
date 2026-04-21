@@ -266,7 +266,7 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
           { name: "direction", in: "query", schema: { type: "string", enum: ["long", "short"] }, description: "Filter by LT direction" },
           { name: "leverage", in: "query", schema: { type: "integer", enum: [2, 3, 5] }, description: "Filter by leverage multiplier" },
           { name: "creator", in: "query", schema: { type: "string", pattern: "^0x[a-fA-F0-9]{40}$" }, description: "Filter by creator address" },
-          { name: "sort", in: "query", schema: { type: "string", enum: ["createdAt", "leverage", "name"], default: "createdAt" }, description: "Sort field" },
+          { name: "sort", in: "query", schema: { type: "string", enum: ["createdAt", "leverage", "name", "trending"], default: "createdAt" }, description: "Sort field. `trending` scores tokens by 24h change, volume, mcap, freshness, and trade recency; it ignores `dir` and always returns highest-score first. Scope is capped at the 500 most-recent tokens matching the filters." },
           { name: "dir", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "Sort direction" },
           apiKeyHeader,
         ],

@@ -1,57 +1,30 @@
-import { useMemo } from "react";
-
 import { useQuery } from "@tanstack/react-query";
 
-import { useTokenPrices } from "./useTokenPrices";
 import { tokenService } from "../services/tokenService";
 
-import type { Direction, Token, TokenFilter } from "../services/types";
+import type { Direction, TokenFilter } from "../services/types";
 
 /**
- * Apply the live mcap-aware "trending" ordering when the caller asks for it
- * (explicitly or by default). Other filters already preserve the server order.
+ * Token list for the home page + search modal. The server handles all
+ * sorting — including the trending score — so the client just consumes the
+ * order the API returns. That keeps the ranking honest at any catalogue
+ * size (previously, sorting client-side over a 100-token window would
+ * silently drop out-of-window trending tokens).
  */
-function useMcapSortedTokens(
-  tokens: Token[] | undefined,
-  filter: TokenFilter | undefined,
-): Token[] | undefined {
-  const { prices } = useTokenPrices();
-
-  return useMemo(() => {
-    if (!tokens) return tokens;
-    if (filter !== "trending" && filter !== undefined) return tokens;
-
-    // Tokens with no live price (indexer lag, missing LT rate, etc.) sort to
-    // the bottom rather than being treated as $0 mcap of equal rank.
-    const mcapOf = (t: Token): number =>
-      prices[t.address.toLowerCase()]?.mcapUsd ?? 0;
-
-    const graduated = tokens.filter((t) => t.status === "graduated");
-    const active = tokens.filter((t) => t.status !== "graduated");
-    active.sort((a, b) => mcapOf(b) - mcapOf(a));
-    const king = graduated.sort((a, b) => mcapOf(b) - mcapOf(a))[0];
-    return king ? [king, ...active] : active;
-  }, [tokens, filter, prices]);
-}
-
 export function useTokens(filter?: TokenFilter) {
-  const query = useQuery({
+  return useQuery({
     queryKey: ["tokens", filter],
     queryFn: () => tokenService.getTokens(filter),
   });
-  const sorted = useMcapSortedTokens(query.data, filter);
-  return { ...query, data: sorted };
 }
 
 export function useTokensByDirection(
   direction: Direction,
   filter?: TokenFilter,
 ) {
-  const query = useQuery({
+  return useQuery({
     queryKey: ["tokens", direction, filter],
     queryFn: () => tokenService.getTokensByDirection(direction, filter),
     refetchInterval: 10_000,
   });
-  const sorted = useMcapSortedTokens(query.data, filter);
-  return { ...query, data: sorted };
 }

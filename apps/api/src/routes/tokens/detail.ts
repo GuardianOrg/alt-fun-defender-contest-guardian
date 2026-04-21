@@ -56,6 +56,10 @@ function enrich(
   const curveFilled = breakdown.total ?? computeCurveFilled(curveSupply);
   const status = computeStatus(dbToken.status, graduated, curveFilled);
   const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
+  const lastTradeAt =
+    market?.lastTradeAtSec != null
+      ? new Date(market.lastTradeAtSec * 1000).toISOString()
+      : null;
 
   return {
     ...rest,
@@ -78,6 +82,8 @@ function enrich(
     priceUsd: market?.priceUsd ?? null,
     mcapUsd: market?.mcapUsd ?? null,
     change24h: market?.change24h ?? null,
+    volume24hUsd: market?.volume24hUsd ?? null,
+    lastTradeAt,
   };
 }
 
