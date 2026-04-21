@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@eslint/js": "^10",
-    "eslint": "^10",
-    "typescript-eslint": "^8"
+    "eslint": "^10.2.1",
+    "typescript-eslint": "^8.59.0"
   }
 }

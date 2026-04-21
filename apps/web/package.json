@@ -15,17 +15,17 @@
   },
   "dependencies": {
     "@launchpad/shared": "*",
-    "@privy-io/react-auth": "^3.21.2",
+    "@privy-io/react-auth": "^3.22.1",
     "@privy-io/wagmi": "^4.0.5",
     "@reduxjs/toolkit": "^2",
-    "@tanstack/react-query": "^5.99.0",
+    "@tanstack/react-query": "^5.99.2",
     "lightweight-charts": "^5",
     "react": "^19",
     "react-dom": "^19",
     "react-redux": "^9",
-    "react-router": "^7",
-    "viem": "^2.47.12",
-    "wagmi": "^3"
+    "react-router": "^7.14.1",
+    "viem": "^2.48.2",
+    "wagmi": "^3.6.3"
   },
   "devDependencies": {
     "@eslint/js": "^10",
@@ -34,7 +34,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6",
-    "eslint": "^10",
+    "eslint": "^10.2.1",
     "eslint-import-resolver-typescript": "^4",
     "eslint-plugin-import": "^2",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -42,7 +42,7 @@
     "globals": "^17",
     "prettier": "^3",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8",
+    "typescript-eslint": "^8.59.0",
     "vite": "^8.0.9",
     "vitest": "^4.1.4"
   }
