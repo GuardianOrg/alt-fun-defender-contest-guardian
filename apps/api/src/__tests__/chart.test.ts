@@ -295,4 +295,20 @@ describe("GET /chart/:address", () => {
     const body = (await res.json()) as { status: string; error: string | null };
     expect(body.error).toContain("Invalid interval");
   });
+
+  it("returns 400 for partial-numeric interval values", async () => {
+    const app = createApp();
+
+    // parseInt() would happily accept "60abc" as 60 — strict validation
+    // rejects it so we don't silently coerce user input.
+    const res = await app.request(
+      `/chart/${VALID_ADDRESS}?interval=60abc`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null };
+    expect(body.error).toContain("Invalid interval");
+  });
 });

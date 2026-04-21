@@ -123,7 +123,7 @@ export default function Chart({ token }: Props) {
               isIntervalActive && styles.intervalBtnActive,
             )}
             onClick={() => setIntervalMenuOpen((v) => !v)}
-            aria-haspopup="listbox"
+            aria-haspopup="true"
             aria-expanded={intervalMenuOpen}
           >
             <span>{activeIntervalLabel ?? "Interval"}</span>
@@ -132,15 +132,17 @@ export default function Chart({ token }: Props) {
             </span>
           </button>
           {intervalMenuOpen && (
-            <ul className={styles.intervalMenu} role="listbox">
+            // Plain list of buttons — native button semantics are enough for
+            // keyboard + screen-reader users and we don't claim the full
+            // listbox/menu ARIA contract (no roving focus / arrow-key model).
+            <ul className={styles.intervalMenu}>
               {CHART_INTERVAL_SECONDS.map((seconds) => {
                 const active = isIntervalActive && mode.seconds === seconds;
                 return (
                   <li key={seconds}>
                     <button
                       type="button"
-                      role="option"
-                      aria-selected={active}
+                      aria-current={active ? "true" : undefined}
                       className={cn(
                         styles.intervalMenuItem,
                         active && styles.intervalMenuItemActive,

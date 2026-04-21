@@ -177,9 +177,17 @@ chart.get("/:address", async (c) => {
   let windowSec: number;
   let candleSec: number;
 
+  // Strict integer parser — rejects partial-numeric values like "60abc"
+  // (which `parseInt` would otherwise accept) and non-finite inputs.
+  const parseStrictInt = (raw: string): number | null => {
+    if (!/^\d+$/.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) ? n : null;
+  };
+
   if (rawTimeframe === undefined && rawInterval !== undefined) {
-    const parsed = parseInt(rawInterval, 10);
-    if (Number.isNaN(parsed) || !VALID_INTERVAL_SECONDS.has(parsed)) {
+    const parsed = parseStrictInt(rawInterval);
+    if (parsed === null || !VALID_INTERVAL_SECONDS.has(parsed)) {
       return c.json(
         formatError(
           `Invalid interval. Supported (seconds): ${Array.from(VALID_INTERVAL_SECONDS).join(", ")}`,
@@ -204,8 +212,8 @@ chart.get("/:address", async (c) => {
     windowSec = TIMEFRAME_SECONDS[tf];
     candleSec = DEFAULT_CANDLE_SECONDS[tf];
     if (rawInterval) {
-      const parsed = parseInt(rawInterval, 10);
-      if (!Number.isNaN(parsed) && parsed >= MIN_CANDLE_SECONDS) {
+      const parsed = parseStrictInt(rawInterval);
+      if (parsed !== null && parsed >= MIN_CANDLE_SECONDS) {
         candleSec = Math.max(parsed, Math.ceil(windowSec / MAX_CANDLES));
       }
     }

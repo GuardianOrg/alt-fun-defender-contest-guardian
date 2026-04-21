@@ -114,6 +114,13 @@ export function useChartData(
 
   const { candleSec, key: modeKey } = getChartModeConfig(mode);
 
+  // Hold the latest `mode` in a ref so the fetch effect can depend on the
+  // stable `modeKey` string (which uniquely identifies the mode) rather than
+  // the mode object itself — passing a fresh object each render must not
+  // trigger a refetch, but a real mode change must.
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+
   // Bump to force a resync (initial mount, mode change, WS reconnect).
   const [syncEpoch, setSyncEpoch] = useState(0);
 
@@ -121,7 +128,7 @@ export function useChartData(
     let cancelled = false;
     setLoading(true);
 
-    fetchChart(address, mode)
+    fetchChart(address, modeRef.current)
       .then((snapshot) => {
         if (cancelled) return;
 
@@ -148,9 +155,6 @@ export function useChartData(
     return () => {
       cancelled = true;
     };
-    // `modeKey` captures the full (kind, value) tuple so passing a fresh
-    // mode object each render doesn't refetch — only a real change does.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address, modeKey, syncEpoch]);
 
   useEffect(() => {
