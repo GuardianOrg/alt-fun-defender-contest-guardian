@@ -13,6 +13,7 @@ import {
   computeCurveFilled,
   computeCurveFilledBreakdown,
   computeStatus,
+  computeTrendingScore,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
 import formatError from "../../utils/format-error.js";
@@ -27,6 +28,11 @@ const LIST_CACHE_TTL_SECONDS = 5;
 // bursts so an outage doesn't amplify into load on the already-struggling
 // dependency, while still recovering within ~1s once it comes back.
 const DEGRADED_CACHE_TTL_SECONDS = 1;
+// Cap on how many tokens we'll enrich + score in one trending request. The
+// scoring path is O(N) in BounceTech / Ponder calls, so we don't want it to
+// grow unboundedly with the catalogue. When we outgrow this, the right fix
+// is a precomputed score column refreshed by a cron — not a bigger cap.
+const TRENDING_POOL_SIZE = 500;
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
@@ -56,6 +62,10 @@ function enrich(
   const curveFilled = breakdown.total ?? computeCurveFilled(curveSupply);
   const status = computeStatus(dbToken.status, graduated, curveFilled);
   const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
+  const lastTradeAt =
+    market?.lastTradeAtSec != null
+      ? new Date(market.lastTradeAtSec * 1000).toISOString()
+      : null;
 
   return {
     ...rest,
@@ -78,6 +88,8 @@ function enrich(
     priceUsd: market?.priceUsd ?? null,
     mcapUsd: market?.mcapUsd ?? null,
     change24h: market?.change24h ?? null,
+    volume24hUsd: market?.volume24hUsd ?? null,
+    lastTradeAt,
   };
 }
 
@@ -134,20 +146,42 @@ listRoute.get("/", async (c) => {
 
   const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
   const cache = cachesObj?.default;
-  const cacheKey = new Request(new URL(c.req.url).toString(), { method: "GET" });
+  // Canonicalise the cache key by dropping params the handler ignores for
+  // this request. Prevents `?sort=trending&dir=asc` and `&dir=desc` from
+  // each getting their own cache entry for identical responses (trending
+  // always sorts desc by score). Add further ignored-param strips here if
+  // we grow more "sort-dependent" knobs.
+  const cacheUrl = new URL(c.req.url);
+  if (sort === "trending") cacheUrl.searchParams.delete("dir");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) return cached;
   }
 
   const db = createDb(c.env.DATABASE_URL);
-  const dbTokens = await db
-    .select()
-    .from(tokens)
-    .where(and(...conditions))
-    .orderBy(dir(sortColumn))
-    .limit(limit)
-    .offset(offset);
+
+  // Trending sort needs a full-catalogue score, so we can't push ORDER BY to
+  // Postgres. Pull the most recently launched `TRENDING_POOL_SIZE` tokens
+  // matching the filters, enrich + score them, sort desc by score, then
+  // slice the requested page. "Most recent" is the right candidate window
+  // because trending is dominated by change24h / volume / freshness — a
+  // token that hasn't been touched in months is ~never trending.
+  const dbTokens =
+    sort === "trending"
+      ? await db
+          .select()
+          .from(tokens)
+          .where(and(...conditions))
+          .orderBy(desc(tokens.createdAt))
+          .limit(TRENDING_POOL_SIZE)
+      : await db
+          .select()
+          .from(tokens)
+          .where(and(...conditions))
+          .orderBy(dir(sortColumn))
+          .limit(limit)
+          .offset(offset);
 
   if (dbTokens.length === 0) {
     const empty = c.json(formatSuccess([], "live"));
@@ -158,9 +192,10 @@ listRoute.get("/", async (c) => {
     return empty;
   }
 
-  // Only fetch market data for the addresses on this page, not the whole
-  // catalogue. On a 50-token page this is ~20× less work on Ponder /
-  // BounceTech than `computeMarketDataBatch` would do.
+  // Only fetch market data for the addresses we'll consider, not the whole
+  // catalogue. For a 50-token page (non-trending) this is ~20× less work on
+  // Ponder / BounceTech than `computeMarketDataBatch`; for trending it's
+  // still capped at `TRENDING_POOL_SIZE`.
   const marketResult = await computeMarketDataForAddresses(
     c.env.PONDER_URL,
     c.env.BOUNCETECH_DATABASE_URL,
@@ -178,13 +213,39 @@ listRoute.get("/", async (c) => {
     }
   }
 
-  const enriched = dbTokens.map((t) =>
+  let enriched = dbTokens.map((t) =>
     enrich(
       t,
       onchainByAddress.get(t.address.toLowerCase()),
       marketByAddress.get(t.address.toLowerCase()),
     ),
   );
+
+  if (sort === "trending") {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const scored = enriched.map((t) => {
+      const createdAtSec = Math.floor(new Date(t.createdAt).getTime() / 1000);
+      const lastTradeAtSec = t.lastTradeAt
+        ? Math.floor(new Date(t.lastTradeAt).getTime() / 1000)
+        : null;
+      const score = computeTrendingScore({
+        change24h: t.change24h,
+        volume24hUsd: t.volume24hUsd,
+        mcapUsd: t.mcapUsd,
+        createdAtSec,
+        lastTradeAtSec,
+        nowSec,
+      });
+      return { token: t, score };
+    });
+    // Primary: score desc. Tie-break: mcap desc (treats unknown/null as 0
+    // so quiet tokens don't leapfrog priced ones on ties).
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (b.token.mcapUsd ?? 0) - (a.token.mcapUsd ?? 0);
+    });
+    enriched = scored.slice(offset, offset + limit).map((s) => s.token);
+  }
 
   const response = c.json(
     formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),

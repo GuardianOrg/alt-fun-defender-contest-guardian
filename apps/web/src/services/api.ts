@@ -87,8 +87,19 @@ export interface ApiComment {
   createdAt: string;
 }
 
-export function fetchTokens(limit = 50, offset = 0): Promise<ApiToken[]> {
-  return apiFetch(`/api/v1/tokens?limit=${limit}&offset=${offset}`);
+export type TokenListSort = "createdAt" | "leverage" | "name" | "trending";
+
+export function fetchTokens(
+  limit = 50,
+  offset = 0,
+  sort?: TokenListSort,
+): Promise<ApiToken[]> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (sort) params.set("sort", sort);
+  return apiFetch(`/api/v1/tokens?${params.toString()}`);
 }
 
 export function fetchToken(address: string): Promise<ApiToken> {

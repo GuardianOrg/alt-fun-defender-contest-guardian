@@ -88,6 +88,19 @@ export interface MarketDataItem {
    * bar split. Null when the rate is unknown or zero.
    */
   ltExchangeRate: number | null;
+  /**
+   * Total USD routed through `LaunchpadRouter` for this token in the last
+   * 24h (buys + sells, nominal). `null` when the indexer can't be reached;
+   * `0` when the token simply had no trades in the window. See
+   * `fetchRouterTradeActivity`.
+   */
+  volume24hUsd: number | null;
+  /**
+   * Unix seconds of the most recent router trade within the 24h window, or
+   * `null` when none / indexer unavailable. Used by the trending score's
+   * recency bonus + dead-token penalty.
+   */
+  lastTradeAtSec: number | null;
 }
 
 export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
@@ -180,6 +193,95 @@ export async function fetchTokensOnchainByAddresses(
       { addresses: lowered },
     );
     return result.items;
+  } catch {
+    return null;
+  }
+}
+
+export interface RouterTradeActivity {
+  volume24hUsd: number;
+  lastTradeAtSec: number;
+}
+
+/**
+ * Aggregate `LaunchpadRouter` trades over the last 24h, keyed by token
+ * address (lowercased). Used to power the trending score's volume and
+ * recency components, and to expose `volume24hUsd` / `lastTradeAt` on the
+ * token list response.
+ *
+ * Returns `null` when the signal is unreliable — either Ponder is
+ * unreachable, or pagination truncated before we saw every trade in the
+ * window (the paginator caps at MAX_PAGES × PAGE_SIZE; with `timestamp desc`
+ * ordering truncation drops the oldest slice of the window, which would
+ * silently zero out any token whose trades all fall in that tail and
+ * falsely trip the trending dead-token penalty). Downstream,
+ * `buildBatchFromTokens` collapses a `null` return to
+ * `volume24hUsd: null, lastTradeAtSec: null` on every token — the trending
+ * score then drops the volume + recency terms for this request and keeps
+ * sorting on change24h / mcap / freshness, which is the honest "unknown"
+ * behaviour.
+ *
+ * Tokens with no trades in the window are simply absent from the map;
+ * callers substitute `volume24hUsd = 0` / `lastTradeAt = null` for them.
+ */
+export async function fetchRouterTradeActivity(
+  ponderUrl: string | undefined,
+  addresses: string[],
+  nowSec: number,
+): Promise<Map<string, RouterTradeActivity> | null> {
+  if (addresses.length === 0) return new Map();
+  const queryPonderAll = createPonderPaginatedQuery(ponderUrl);
+  const lowered = addresses.map((a) => a.toLowerCase());
+  const sinceSec = nowSec - 86_400;
+
+  try {
+    const result = await queryPonderAll<{
+      tokenAddress: string;
+      usdcAmount: string;
+      timestamp: string;
+    }>(
+      `query ($addresses: [String!]!, $since: BigInt!, $limit: Int!, $offset: Int!) {
+        routerTrades(
+          where: { tokenAddress_in: $addresses, timestamp_gte: $since }
+          limit: $limit
+          offset: $offset
+          orderBy: "timestamp"
+          orderDirection: "desc"
+        ) {
+          items {
+            tokenAddress
+            usdcAmount
+            timestamp
+          }
+        }
+      }`,
+      "routerTrades",
+      { addresses: lowered, since: String(sinceSec) },
+    );
+
+    if (result.truncated) {
+      console.warn(
+        "[market-data] routerTrade 24h aggregation truncated; " +
+          "returning null so trending falls back to unknown volume/recency. " +
+          `addresses=${addresses.length} items=${result.items.length}`,
+      );
+      return null;
+    }
+
+    const activity = new Map<string, RouterTradeActivity>();
+    for (const trade of result.items) {
+      const addr = trade.tokenAddress.toLowerCase();
+      const usdc = Number(BigInt(trade.usdcAmount)) / 1e6;
+      const ts = Number(trade.timestamp);
+      const existing = activity.get(addr);
+      if (existing) {
+        existing.volume24hUsd += usdc;
+        if (ts > existing.lastTradeAtSec) existing.lastTradeAtSec = ts;
+      } else {
+        activity.set(addr, { volume24hUsd: usdc, lastTradeAtSec: ts });
+      }
+    }
+    return activity;
   } catch {
     return null;
   }
@@ -430,6 +532,7 @@ export function buildMarketDataItem(
   token: PonderTokenOnchain,
   currentLtRate: number,
   past: PastPriceInputs | null,
+  activity: { volume24hUsd: number | null; lastTradeAtSec: number | null },
 ): MarketDataItem {
   const currentCurveSupply = BigInt(token.curveSupply);
   const currentLtReserve = BigInt(token.ltReserve);
@@ -459,6 +562,8 @@ export function buildMarketDataItem(
     change24h,
     past24hPriceUsd,
     ltExchangeRate: currentLtRate > 0 ? currentLtRate : null,
+    volume24hUsd: activity.volume24hUsd,
+    lastTradeAtSec: activity.lastTradeAtSec,
   };
 }
 
@@ -490,7 +595,8 @@ async function buildBatchFromTokens(
     return { ok: false, error: "BounceTech API unavailable", code: 503 };
   }
 
-  const cutoffSec = Math.floor(Date.now() / 1000) - 86_400;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const cutoffSec = nowSec - 86_400;
 
   // Partition tokens by whether they've been live for the full 24h window.
   // Old tokens use the 24h-ago reference; new tokens use their launch state
@@ -509,12 +615,19 @@ async function buildBatchFromTokens(
     launchSec: Number(t.timestamp),
   }));
 
-  const [historicalCurve, historicalLtRatesAtCutoff, historicalLtRatesAtLaunch] =
-    await Promise.all([
-      fetchHistoricalCurveSnapshots(ponderUrl, oldTokenAddresses, cutoffSec),
-      fetchHistoricalLtRates(bouncetechDbUrl, oldLtAddresses, cutoffSec),
-      fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
-    ]);
+  const allTokenAddresses = tokens.map((t) => t.address.toLowerCase());
+
+  const [
+    historicalCurve,
+    historicalLtRatesAtCutoff,
+    historicalLtRatesAtLaunch,
+    routerActivity,
+  ] = await Promise.all([
+    fetchHistoricalCurveSnapshots(ponderUrl, oldTokenAddresses, cutoffSec),
+    fetchHistoricalLtRates(bouncetechDbUrl, oldLtAddresses, cutoffSec),
+    fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
+    fetchRouterTradeActivity(ponderUrl, allTokenAddresses, nowSec),
+  ]);
   if (historicalCurve === null) {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
@@ -537,7 +650,21 @@ async function buildBatchFromTokens(
       historicalLtRatesAtCutoff,
       historicalLtRatesAtLaunch,
     );
-    market[addr] = buildMarketDataItem(token, currentLtRate, past);
+    // `routerActivity === null` means the indexer aggregation failed. We
+    // still serve market data from the other queries (price/mcap/change24h
+    // don't depend on it) — volume/lastTrade surface as `null` ("unknown").
+    // A token simply absent from the map had zero trades in 24h → 0 volume,
+    // no lastTrade.
+    let activity: { volume24hUsd: number | null; lastTradeAtSec: number | null };
+    if (routerActivity === null) {
+      activity = { volume24hUsd: null, lastTradeAtSec: null };
+    } else {
+      const a = routerActivity.get(addr);
+      activity = a
+        ? { volume24hUsd: a.volume24hUsd, lastTradeAtSec: a.lastTradeAtSec }
+        : { volume24hUsd: 0, lastTradeAtSec: null };
+    }
+    market[addr] = buildMarketDataItem(token, currentLtRate, past, activity);
   }
 
   return { ok: true, data: { tokens, market } };

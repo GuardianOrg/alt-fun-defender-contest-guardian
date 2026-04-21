@@ -77,8 +77,9 @@ export interface ITokenService {
 
 /**
  * Apply filters that can be computed from the token row alone. The `trending`
- * mcap-based ordering lives in `useMcapSortedTokens` in `useTokens` because it
- * needs the full token list to sort globally.
+ * ordering is computed server-side (see `sort=trending` in
+ * `apps/api/src/routes/tokens/list.ts`); the client just consumes the order
+ * the API returns.
  */
 export function applyFilter(
   tokens: Token[],
@@ -106,7 +107,15 @@ export function applyFilter(
 }
 
 async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
-  const apiTokens = await fetchTokens(100).catch((): ApiToken[] => []);
+  // `trending` (and the default filter — trending is the default tab) goes
+  // through the server-side scoring path so the ranking isn't capped by the
+  // page of rows the client happened to fetch. Other filters just get the
+  // default chronological listing and filter locally.
+  const apiSort =
+    filter === "trending" || filter === undefined ? "trending" : undefined;
+  const apiTokens = await fetchTokens(100, 0, apiSort).catch(
+    (): ApiToken[] => [],
+  );
   if (apiTokens.length === 0) return [];
   return applyFilter(apiTokens.map(fromApiToken), filter);
 }
