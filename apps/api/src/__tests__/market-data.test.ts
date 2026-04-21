@@ -60,7 +60,7 @@ function mockBounceLtResponse(rates: Record<string, string>) {
 
 describe("GET /market-data", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("returns 503 when the indexer is unreachable", async () => {
@@ -209,13 +209,56 @@ describe("GET /market-data", () => {
     expect(body.data[TOKEN_A.toLowerCase()].change24h).toBeCloseTo(100, 1);
   });
 
-  it("returns change24h=null when the token is newer than the cutoff", async () => {
+  it("computes since-launch change when token is newer than the 24h cutoff", async () => {
+    const recentLaunch = Math.floor(Date.now() / 1000) - 1000;
+    // k = 1e48 → launch supply = TOTAL_SUPPLY_RAW = 1e27, launch reserve = k/1e27 = 1e21.
+    // Launch ratio = 1e21 / 1e27 = 1e-6.
+    // Current curve: supply=1e24, reserve=2e20 → ratio = 2e-4.
+    mockPonderPaginatedQuery.mockResolvedValueOnce({
+      items: [
+        {
+          address: TOKEN_A,
+          ltToken: LT_A,
+          k: "1000000000000000000000000000000000000000000000000",
+          curveSupply: "1000000000000000000000000",
+          ltReserve: "200000000000000000000",
+          timestamp: String(recentLaunch),
+        },
+      ],
+    });
+    // Current LT rate = 2.0 → current price = 2e-4 × 2.0 = 4e-4.
+    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    // No old tokens → no historical curve / cutoff-LT-rate queries issued.
+    // New tokens → `fetchLtRatesAtLaunches` returns LT rate at launch = 1.0.
+    // Launch price = 1e-6 × 1.0 = 1e-6 → change = (4e-4 - 1e-6) / 1e-6 × 100.
+    // Note: this query's `SELECT a.token_address` returns the token address
+    // (not the LT) — the map is keyed by token so tokens sharing an LT but
+    // with different launch timestamps don't collide.
+    mockNeonQuery.mockResolvedValueOnce([
+      { token_address: TOKEN_A, exchange_rate: "1000000000000000000" },
+    ]);
+
+    const app = createApp();
+    const res = await app.request("/market-data", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Record<string, { mcapUsd: number | null; change24h: number | null }>;
+    };
+
+    const entry = body.data[TOKEN_A.toLowerCase()];
+    expect(entry.mcapUsd).toBeGreaterThan(0);
+    expect(entry.change24h).not.toBeNull();
+    expect(entry.change24h!).toBeCloseTo(((4e-4 - 1e-6) / 1e-6) * 100, 1);
+  });
+
+  it("returns change24h=null for a newer-than-cutoff token when BounceTech has no rate at launch", async () => {
     const recentLaunch = Math.floor(Date.now() / 1000) - 1000;
     mockPonderPaginatedQuery.mockResolvedValueOnce({
       items: [
         {
           address: TOKEN_A,
           ltToken: LT_A,
+          k: "1000000000000000000000000000000000000000000000000",
           curveSupply: "1000000000000000000000000",
           ltReserve: "200000000000000000000",
           timestamp: String(recentLaunch),
@@ -223,7 +266,6 @@ describe("GET /market-data", () => {
       ],
     });
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
     mockNeonQuery.mockResolvedValueOnce([]);
 
     const app = createApp();
@@ -266,7 +308,7 @@ describe("GET /market-data", () => {
 
 describe("GET /market-data/:address", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("returns 400 for invalid address", async () => {

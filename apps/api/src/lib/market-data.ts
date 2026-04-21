@@ -10,6 +10,15 @@ import {
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
 export const TOKEN_SUPPLY = 1_000_000_000;
 
+/**
+ * Raw total supply (1B × 1e18) in bigint. Matches the virtual `reserve0`
+ * initialised in `FPair.mint` at launch. Used to analytically reconstruct a
+ * freshly-launched token's curve state (before any trades have produced a
+ * snapshot) when computing "since-launch" price change for tokens younger
+ * than 24h.
+ */
+const TOTAL_SUPPLY_RAW = 1_000_000_000n * 10n ** 18n;
+
 export interface PonderTokenOnchain {
   address: string;
   ltToken: string;
@@ -290,57 +299,166 @@ export async function fetchHistoricalLtRates(
   }
 }
 
-export function buildMarketDataItem(
+/**
+ * Per-token BounceTech LT exchange rate ≤ launch timestamp, used to anchor
+ * "since-launch" change24h for tokens younger than the 24h cutoff. We key
+ * the returned map by token address (not LT address) because two tokens
+ * can share the same LT but have different launch timestamps, so the
+ * relevant historical rate differs per token.
+ */
+export async function fetchLtRatesAtLaunches(
+  databaseUrl: string | undefined,
+  inputs: Array<{
+    /** Lowercase token address. */
+    tokenAddress: string;
+    /** Lowercase LT address. */
+    ltAddress: string;
+    /** Token launch timestamp (unix seconds). */
+    launchSec: number;
+  }>,
+): Promise<Map<string, number> | null> {
+  if (!databaseUrl) return null;
+  if (inputs.length === 0) return new Map();
+
+  const tokenAddrs = inputs.map((i) => i.tokenAddress);
+  const ltAddrsChecksummed = inputs.map((i) => getAddress(i.ltAddress));
+  const launchSecs = inputs.map((i) => i.launchSec);
+  const sql = neon(databaseUrl);
+
+  try {
+    const rows = (await sql`
+      SELECT a.token_address, t.exchange_rate::text AS exchange_rate
+      FROM unnest(
+        ${tokenAddrs}::text[],
+        ${ltAddrsChecksummed}::text[],
+        ${launchSecs}::bigint[]
+      ) AS a(token_address, lt_address, launch_sec)
+      CROSS JOIN LATERAL (
+        SELECT exchange_rate
+        FROM token_snapshots_v1
+        WHERE token_address = a.lt_address
+          AND tick_timestamp <= to_timestamp(a.launch_sec)
+        ORDER BY tick_timestamp DESC
+        LIMIT 1
+      ) t
+    `) as unknown as BounceHistoricalRow[];
+
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      map.set(
+        row.token_address.toLowerCase(),
+        Number(BigInt(row.exchange_rate)) / 1e18,
+      );
+    }
+    return map;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolved price-reference inputs at the start of the change24h window.
+ * For tokens older than 24h this is the curve+LT state at `cutoffSec`. For
+ * tokens younger than 24h it's the curve+LT state at launch (so the UI
+ * shows a since-launch delta instead of hiding the stat entirely).
+ */
+export interface PastPriceInputs {
+  curveSupply: bigint;
+  ltReserve: bigint;
+  /** USD per LT. Must be > 0 for a meaningful past price. */
+  ltRate: number;
+}
+
+/**
+ * Decide whether the reference price for a token should be "24h ago" or
+ * "at launch", and return the curve supply / LT reserve / LT rate needed
+ * to price it. Returns `null` when we don't have enough inputs (e.g.
+ * BounceTech has no historical rate for the LT).
+ *
+ * For fresh tokens we reconstruct the launch curve state analytically from
+ * `k` (the AMM invariant set in `FPair.mint`) rather than querying Ponder —
+ * a just-launched token has no `tokenSnapshot` rows yet, but its initial
+ * state is fully determined by `(TOTAL_SUPPLY_RAW, k / TOTAL_SUPPLY_RAW)`.
+ */
+export function buildPastPriceInputs(
   token: PonderTokenOnchain,
-  liveLtRates: Map<string, number>,
-  historicalCurve: Map<string, PonderTokenSnapshot | null>,
-  historicalLtRates: Map<string, number>,
   cutoffSec: number,
-): MarketDataItem {
+  historicalCurve: Map<string, PonderTokenSnapshot | null>,
+  historicalLtRatesAtCutoff: Map<string, number>,
+  historicalLtRatesAtLaunch: Map<string, number>,
+): PastPriceInputs | null {
   const ltAddr = token.ltToken.toLowerCase();
   const tokenAddr = token.address.toLowerCase();
+  const launchTimestamp = Number(token.timestamp);
+  const tokenIsTooNew = launchTimestamp > cutoffSec;
 
-  const currentExRate = liveLtRates.get(ltAddr) ?? 0;
+  if (tokenIsTooNew) {
+    const ltRate = historicalLtRatesAtLaunch.get(tokenAddr);
+    if (ltRate === undefined || ltRate <= 0) return null;
+
+    let kRaw: bigint;
+    try {
+      kRaw = BigInt(token.k);
+    } catch {
+      return null;
+    }
+    if (kRaw <= 0n) return null;
+
+    return {
+      curveSupply: TOTAL_SUPPLY_RAW,
+      ltReserve: kRaw / TOTAL_SUPPLY_RAW,
+      ltRate,
+    };
+  }
+
+  const ltRate = historicalLtRatesAtCutoff.get(ltAddr);
+  if (ltRate === undefined || ltRate <= 0) return null;
+
+  const snapshot = historicalCurve.get(tokenAddr);
+  return {
+    curveSupply: snapshot
+      ? BigInt(snapshot.curveSupply)
+      : BigInt(token.curveSupply),
+    ltReserve: snapshot
+      ? BigInt(snapshot.ltReserve)
+      : BigInt(token.ltReserve),
+    ltRate,
+  };
+}
+
+export function buildMarketDataItem(
+  token: PonderTokenOnchain,
+  currentLtRate: number,
+  past: PastPriceInputs | null,
+): MarketDataItem {
   const currentCurveSupply = BigInt(token.curveSupply);
   const currentLtReserve = BigInt(token.ltReserve);
 
   const currentPrice = computeTokenPrice(
     currentCurveSupply,
     currentLtReserve,
-    currentExRate,
+    currentLtRate,
   );
   const priceUsd = currentPrice > 0 ? currentPrice : null;
   const mcapUsd = priceUsd !== null ? priceUsd * TOKEN_SUPPLY : null;
 
-  const launchTimestamp = Number(token.timestamp);
-  const tokenIsTooNew = launchTimestamp > cutoffSec;
-
   let past24hPriceUsd: number | null = null;
-  if (!tokenIsTooNew) {
-    const pastRate = historicalLtRates.get(ltAddr);
-    if (pastRate !== undefined && pastRate > 0) {
-      const snapshot = historicalCurve.get(tokenAddr);
-      const supply = snapshot
-        ? BigInt(snapshot.curveSupply)
-        : currentCurveSupply;
-      const reserve = snapshot
-        ? BigInt(snapshot.ltReserve)
-        : currentLtReserve;
-      past24hPriceUsd = computeTokenPrice(supply, reserve, pastRate);
-    }
+  if (past !== null) {
+    const p = computeTokenPrice(past.curveSupply, past.ltReserve, past.ltRate);
+    if (p > 0) past24hPriceUsd = p;
   }
 
-  let change24h: number | null = null;
-  if (past24hPriceUsd !== null && past24hPriceUsd > 0 && currentPrice > 0) {
-    change24h = ((currentPrice - past24hPriceUsd) / past24hPriceUsd) * 100;
-  }
+  const change24h =
+    past24hPriceUsd !== null && past24hPriceUsd > 0 && currentPrice > 0
+      ? ((currentPrice - past24hPriceUsd) / past24hPriceUsd) * 100
+      : null;
 
   return {
     priceUsd,
     mcapUsd,
     change24h,
     past24hPriceUsd,
-    ltExchangeRate: currentExRate > 0 ? currentExRate : null,
+    ltExchangeRate: currentLtRate > 0 ? currentLtRate : null,
   };
 }
 
@@ -373,19 +491,34 @@ async function buildBatchFromTokens(
   }
 
   const cutoffSec = Math.floor(Date.now() / 1000) - 86_400;
-  const tokenAddresses = tokens.map((t) => t.address.toLowerCase());
-  const ltAddresses = Array.from(
-    new Set(tokens.map((t) => t.ltToken.toLowerCase())),
-  );
 
-  const [historicalCurve, historicalLtRates] = await Promise.all([
-    fetchHistoricalCurveSnapshots(ponderUrl, tokenAddresses, cutoffSec),
-    fetchHistoricalLtRates(bouncetechDbUrl, ltAddresses, cutoffSec),
-  ]);
+  // Partition tokens by whether they've been live for the full 24h window.
+  // Old tokens use the 24h-ago reference; new tokens use their launch state
+  // (reconstructed analytically from `k`) + LT rate at launch, so the UI
+  // can render "since-launch" change for tokens <24h old.
+  const oldTokens = tokens.filter((t) => Number(t.timestamp) <= cutoffSec);
+  const newTokens = tokens.filter((t) => Number(t.timestamp) > cutoffSec);
+
+  const oldTokenAddresses = oldTokens.map((t) => t.address.toLowerCase());
+  const oldLtAddresses = Array.from(
+    new Set(oldTokens.map((t) => t.ltToken.toLowerCase())),
+  );
+  const newTokenLtInputs = newTokens.map((t) => ({
+    tokenAddress: t.address.toLowerCase(),
+    ltAddress: t.ltToken.toLowerCase(),
+    launchSec: Number(t.timestamp),
+  }));
+
+  const [historicalCurve, historicalLtRatesAtCutoff, historicalLtRatesAtLaunch] =
+    await Promise.all([
+      fetchHistoricalCurveSnapshots(ponderUrl, oldTokenAddresses, cutoffSec),
+      fetchHistoricalLtRates(bouncetechDbUrl, oldLtAddresses, cutoffSec),
+      fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
+    ]);
   if (historicalCurve === null) {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
-  if (historicalLtRates === null) {
+  if (historicalLtRatesAtCutoff === null || historicalLtRatesAtLaunch === null) {
     return {
       ok: false,
       error: "BounceTech snapshot DB unavailable",
@@ -396,13 +529,15 @@ async function buildBatchFromTokens(
   const market: Record<string, MarketDataItem> = {};
   for (const token of tokens) {
     const addr = token.address.toLowerCase();
-    market[addr] = buildMarketDataItem(
+    const currentLtRate = liveLtRates.get(token.ltToken.toLowerCase()) ?? 0;
+    const past = buildPastPriceInputs(
       token,
-      liveLtRates,
-      historicalCurve,
-      historicalLtRates,
       cutoffSec,
+      historicalCurve,
+      historicalLtRatesAtCutoff,
+      historicalLtRatesAtLaunch,
     );
+    market[addr] = buildMarketDataItem(token, currentLtRate, past);
   }
 
   return { ok: true, data: { tokens, market } };
@@ -466,46 +601,12 @@ export async function computeMarketDataSingle(
     return { ok: false, error: "Token not found", code: 404 };
   }
 
-  const liveLtRates = await fetchLiveLtRates();
-  if (liveLtRates === null) {
-    return { ok: false, error: "BounceTech API unavailable", code: 503 };
-  }
+  const result = await buildBatchFromTokens(ponderUrl, bouncetechDbUrl, [token]);
+  if (!result.ok) return result;
 
-  const cutoffSec = Math.floor(Date.now() / 1000) - 86_400;
-  const [historicalCurve, historicalLtRates] = await Promise.all([
-    fetchHistoricalCurveSnapshots(
-      ponderUrl,
-      [token.address.toLowerCase()],
-      cutoffSec,
-    ),
-    fetchHistoricalLtRates(
-      bouncetechDbUrl,
-      [token.ltToken.toLowerCase()],
-      cutoffSec,
-    ),
-  ]);
-  if (historicalCurve === null) {
+  const market = result.data.market[token.address.toLowerCase()];
+  if (!market) {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
-  if (historicalLtRates === null) {
-    return {
-      ok: false,
-      error: "BounceTech snapshot DB unavailable",
-      code: 503,
-    };
-  }
-
-  return {
-    ok: true,
-    data: {
-      token,
-      market: buildMarketDataItem(
-        token,
-        liveLtRates,
-        historicalCurve,
-        historicalLtRates,
-        cutoffSec,
-      ),
-    },
-  };
+  return { ok: true, data: { token, market } };
 }

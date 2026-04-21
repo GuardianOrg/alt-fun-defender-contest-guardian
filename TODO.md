@@ -2,7 +2,6 @@
 
 # TODO
 
-- If a token hasn't been live for 24hours yet, the 24 hour profit should still show, it should just be since launch.
 - Implement trending system
 - Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
