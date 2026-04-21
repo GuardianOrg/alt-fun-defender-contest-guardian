@@ -243,4 +243,72 @@ describe("GET /chart/:address", () => {
       expect(res.status).toBe(404);
     }
   });
+
+  it("accepts interval-only requests for all supported candle widths", async () => {
+    const app = createApp();
+
+    const supported = [
+      60, 180, 300, 900, 3_600, 7_200, 14_400, 28_800, 43_200, 86_400,
+      259_200, 604_800,
+    ];
+
+    for (const seconds of supported) {
+      mockPonderQuery
+        .mockResolvedValueOnce({ __typename: "Query" })
+        .mockResolvedValueOnce({ token: null });
+
+      const res = await app.request(
+        `/chart/${VALID_ADDRESS}?interval=${seconds}`,
+        {},
+        makeEnv(),
+      );
+      // Passes validation and reaches the token-lookup branch (404 because
+      // `token: null` from the Ponder mock).
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it("returns 400 for unsupported interval values", async () => {
+    const app = createApp();
+
+    const res = await app.request(
+      `/chart/${VALID_ADDRESS}?interval=42`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null };
+    expect(body.error).toContain("Invalid interval");
+  });
+
+  it("returns 400 for non-numeric interval", async () => {
+    const app = createApp();
+
+    const res = await app.request(
+      `/chart/${VALID_ADDRESS}?interval=abc`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null };
+    expect(body.error).toContain("Invalid interval");
+  });
+
+  it("returns 400 for partial-numeric interval values", async () => {
+    const app = createApp();
+
+    // parseInt() would happily accept "60abc" as 60 — strict validation
+    // rejects it so we don't silently coerce user input.
+    const res = await app.request(
+      `/chart/${VALID_ADDRESS}?interval=60abc`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null };
+    expect(body.error).toContain("Invalid interval");
+  });
 });

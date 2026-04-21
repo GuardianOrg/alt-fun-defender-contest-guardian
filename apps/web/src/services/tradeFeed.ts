@@ -3,8 +3,7 @@ import { fetchPonderTrades } from "./ponder";
 import { ponderTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
-import type { PonderTradeInput } from "./tradeFormatter";
-import type { Trade } from "./types";
+import type { Trade, TradeBroadcast } from "./types";
 
 /**
  * Convert a raw WS trade broadcast from the indexer into the client's
@@ -12,7 +11,7 @@ import type { Trade } from "./types";
  * returns `null` if the rate isn't resolvable (caller can retry on next REST
  * poll).
  */
-async function formatWsTrade(raw: PonderTradeInput): Promise<Trade | null> {
+async function formatWsTrade(raw: TradeBroadcast): Promise<Trade | null> {
   const exchangeRate = await resolveExchangeRate(raw.tokenAddress);
   if (!exchangeRate) return null;
   const trade = ponderTradeToTrade(raw, exchangeRate);
@@ -28,7 +27,7 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
 
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
-      const raw = data as PonderTradeInput;
+      const raw = data as TradeBroadcast;
       if (!raw.id || seenIds.has(raw.id) || pendingIds.has(raw.id)) return;
       pendingIds.add(raw.id);
       void formatWsTrade(raw)
@@ -108,7 +107,7 @@ export function subscribeTokenTrades(
   const normalizedAddress = address.toLowerCase();
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
-      const raw = data as PonderTradeInput;
+      const raw = data as TradeBroadcast;
       if (
         !raw.id ||
         seenIds.has(raw.id) ||

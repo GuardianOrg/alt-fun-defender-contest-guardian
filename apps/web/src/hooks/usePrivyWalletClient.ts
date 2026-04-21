@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useWallets } from "@privy-io/react-auth";
 import { createWalletClient, custom } from "viem";
-import { useWalletClient as useWagmiWalletClient } from "wagmi";
-import { useSwitchChain } from "wagmi";
+import { useWalletClient as useWagmiWalletClient, useSwitchChain } from "wagmi";
 
 import { hyperEVM } from "../config/chains";
 

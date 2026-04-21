@@ -3,19 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { computeCurveRatio } from "@launchpad/shared";
 
 import { TOKEN_SUPPLY } from "../config/constants";
-import { fetchChart } from "../services/api";
+import { fetchChart, getChartModeConfig } from "../services/api";
 import { getWebSocketClient } from "../services/websocket";
 
-import type { ChartTimeframe } from "../services/api";
+import type { ChartMode } from "../services/api";
 import type { CandlestickData, Time } from "lightweight-charts";
-
-// Must match DEFAULT_CANDLE_SECONDS in apps/api/src/routes/chart.ts and
-// CANDLE_SECONDS in useChart.ts.
-const CANDLE_SECONDS: Record<ChartTimeframe, number> = {
-  "1d": 300,
-  "5d": 1_800,
-  "1m": 14_400,
-};
 
 /**
  * Pure helper: fold a live `mcap` value into the in-progress candle, rolling
@@ -72,7 +64,7 @@ interface UseChartDataResult {
   loading: boolean;
   /** Current market cap derived from the latest (live) candle close */
   currentMcap: number;
-  /** Percent change over the chart timeframe (first open → last close) */
+  /** Percent change over the chart window (first open → last close) */
   changePercent: number;
 }
 
@@ -103,11 +95,16 @@ interface PriceWsPayload {
  *      folds the result into the in-progress candle. Opens a new candle at
  *      bucket boundaries so time keeps moving even without new inputs.
  *   5. On WS reconnect, refetches the REST snapshot to resync.
+ *
+ * `mode` selects either a fixed timeframe (with per-timeframe default candle
+ * width) or a user-picked candle interval (with an auto-sized window). The
+ * candle bucket used for live-tick bucketing follows `mode` so a 1m interval
+ * rolls candles every minute even though nothing else changes.
  */
 export function useChartData(
   address: string,
   ltAddress: string,
-  timeframe: ChartTimeframe,
+  mode: ChartMode,
 ): UseChartDataResult {
   const [candles, setCandles] = useState<CandlestickData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,14 +112,25 @@ export function useChartData(
   const ratioRef = useRef(0);
   const exchangeRateRef = useRef(0);
 
-  // Bump to force a resync (initial mount, timeframe change, WS reconnect).
+  const { candleSec, key: modeKey } = getChartModeConfig(mode);
+
+  // Hold the latest `mode` in a ref so the fetch effect can depend on the
+  // stable `modeKey` string (which uniquely identifies the mode) rather than
+  // the mode object itself — passing a fresh object each render must not
+  // trigger a refetch, but a real mode change must.
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  // Bump to force a resync (initial mount, mode change, WS reconnect).
   const [syncEpoch, setSyncEpoch] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
 
-    fetchChart(address, timeframe)
+    fetchChart(address, modeRef.current)
       .then((snapshot) => {
         if (cancelled) return;
 
@@ -149,13 +157,11 @@ export function useChartData(
     return () => {
       cancelled = true;
     };
-  }, [address, timeframe, syncEpoch]);
+  }, [address, modeKey, syncEpoch]);
 
   useEffect(() => {
     const ws = getWebSocketClient();
     if (!ws) return;
-
-    const candleSec = CANDLE_SECONDS[timeframe];
 
     // Emit the current price into the in-progress candle, rolling over into a
     // new bucket at interval boundaries. Uses `series.update()` semantics on
@@ -226,7 +232,7 @@ export function useChartData(
       unsubPrice();
       unsubReconnect();
     };
-  }, [address, ltAddress, timeframe]);
+  }, [address, ltAddress, candleSec]);
 
   const currentMcap =
     candles.length > 0 ? (candles[candles.length - 1].close as number) : 0;

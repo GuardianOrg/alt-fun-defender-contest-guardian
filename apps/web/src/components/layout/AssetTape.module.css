@@ -4,8 +4,10 @@
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  background: rgba(10, 30, 27, 0.8);
+  background: #0a1e1b;
   flex-shrink: 0;
+  isolation: isolate;
+  transform: translateZ(0);
 }
 
 .liveTag {
@@ -45,7 +47,8 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  animation: scrolltape 40s linear infinite;
+  animation: scrolltape 55s linear infinite;
+  will-change: transform;
 }
 
 .assetGroup {

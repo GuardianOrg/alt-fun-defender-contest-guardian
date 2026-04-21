@@ -164,6 +164,97 @@ export interface ChartCandle {
 
 export type ChartTimeframe = "1d" | "5d" | "1m";
 
+/**
+ * Allowed candle-width values (seconds) surfaced in the interval picker.
+ * Must stay in sync with `VALID_INTERVAL_SECONDS` in
+ * `apps/api/src/routes/chart.ts`.
+ */
+export const CHART_INTERVAL_SECONDS = [
+  60,       // 1m
+  180,      // 3m
+  300,      // 5m
+  900,      // 15m
+  3_600,    // 1h
+  7_200,    // 2h
+  14_400,   // 4h
+  28_800,   // 8h
+  43_200,   // 12h
+  86_400,   // 1D
+  259_200,  // 3D
+  604_800,  // 1W
+] as const;
+
+export type ChartIntervalSeconds = (typeof CHART_INTERVAL_SECONDS)[number];
+
+export const CHART_INTERVAL_LABELS: Record<ChartIntervalSeconds, string> = {
+  60: "1m",
+  180: "3m",
+  300: "5m",
+  900: "15m",
+  3_600: "1h",
+  7_200: "2h",
+  14_400: "4h",
+  28_800: "8h",
+  43_200: "12h",
+  86_400: "1D",
+  259_200: "3D",
+  604_800: "1W",
+};
+
+/**
+ * Chart mode — either a fixed timeframe (window-centric, default candle width)
+ * or a user-picked candle width (interval-centric, window auto-sizes on the
+ * server). Exactly one is active at a time; selecting one deselects the
+ * other in the UI.
+ */
+export type ChartMode =
+  | { kind: "timeframe"; value: ChartTimeframe }
+  | { kind: "interval"; seconds: ChartIntervalSeconds };
+
+const TIMEFRAME_WINDOW_SECONDS: Record<ChartTimeframe, number> = {
+  "1d": 86_400,
+  "5d": 432_000,
+  "1m": 2_592_000,
+};
+
+const TIMEFRAME_CANDLE_SECONDS: Record<ChartTimeframe, number> = {
+  "1d": 300,
+  "5d": 1_800,
+  "1m": 14_400,
+};
+
+// Matches INTERVAL_MODE_BAR_COUNT in `apps/api/src/routes/chart.ts`.
+const INTERVAL_MODE_BAR_COUNT = 120;
+
+/**
+ * Derives the window (chart viewport, seconds) and candle width (seconds)
+ * for a given `ChartMode`. Used by the chart hooks for live-tick bucketing,
+ * viewport padding, and by `fetchChart` to build the query string. Kept in
+ * one place so API, `useChartData`, and `useChart` never drift.
+ */
+export function getChartModeConfig(mode: ChartMode): {
+  windowSec: number;
+  candleSec: number;
+  query: string;
+  /** Stable key safe to use as a `useEffect` dependency. */
+  key: string;
+} {
+  if (mode.kind === "timeframe") {
+    return {
+      windowSec: TIMEFRAME_WINDOW_SECONDS[mode.value],
+      candleSec: TIMEFRAME_CANDLE_SECONDS[mode.value],
+      query: `timeframe=${mode.value}`,
+      key: `tf:${mode.value}`,
+    };
+  }
+  return {
+    windowSec: mode.seconds * INTERVAL_MODE_BAR_COUNT,
+    candleSec: mode.seconds,
+    query: `interval=${mode.seconds}`,
+    key: `iv:${mode.seconds}`,
+  };
+}
+
 export interface ChartSnapshot {
   candles: ChartCandle[];
   /** Curve ratio (ltReserve / curveSupply) at the latest indexed trade. */
@@ -174,12 +265,10 @@ export interface ChartSnapshot {
 
 export function fetchChart(
   address: string,
-  timeframe: ChartTimeframe = "1d",
-  interval?: number,
+  mode: ChartMode = { kind: "timeframe", value: "1d" },
 ): Promise<ChartSnapshot> {
-  let url = `/api/v1/chart/${address}?timeframe=${timeframe}`;
-  if (interval) url += `&interval=${interval}`;
-  return apiFetch(url);
+  const { query } = getChartModeConfig(mode);
+  return apiFetch(`/api/v1/chart/${address}?${query}`);
 }
 
 export interface MarketDataEntry {
