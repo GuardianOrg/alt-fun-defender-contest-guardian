@@ -8,9 +8,10 @@ import {
 } from "lightweight-charts";
 
 import { COLORS, rgba } from "../config/colors";
+import { getChartModeConfig } from "../services/api";
 import { formatUsd } from "../utils/format";
 
-import type { ChartTimeframe } from "../services/api";
+import type { ChartMode } from "../services/api";
 import type {
   IChartApi,
   ISeriesApi,
@@ -19,47 +20,35 @@ import type {
   Time,
 } from "lightweight-charts";
 
-const TIMEFRAME_SECONDS: Record<ChartTimeframe, number> = {
-  "1d": 86_400,
-  "5d": 432_000,
-  "1m": 2_592_000,
-};
-
-// Must match DEFAULT_CANDLE_SECONDS in apps/api/src/routes/chart.ts so
-// whitespace slots align with real candle buckets returned by the API.
-const CANDLE_SECONDS: Record<ChartTimeframe, number> = {
-  "1d": 300,
-  "5d": 1_800,
-  "1m": 14_400,
-};
-
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   candles: CandlestickData[];
-  timeframe: ChartTimeframe;
+  mode: ChartMode;
   loading: boolean;
 }
 
 export function useChart({
   containerRef,
   candles,
-  timeframe,
+  mode,
   loading,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   // Track the last candle array we applied so we can distinguish a live tick
-  // (last element mutated) from a full resync (timeframe change / refetch).
+  // (last element mutated) from a full resync (mode change / refetch).
   // Live ticks use `series.update()` which is an OHLC merge — dramatically
   // cheaper than `setData()` on every 2s price tick.
   const lastCandlesRef = useRef<CandlestickData[] | null>(null);
-  const lastTimeframeRef = useRef<ChartTimeframe | null>(null);
+  const lastModeKeyRef = useRef<string | null>(null);
   // Wall-clock `to` set by the most recent full resync's setVisibleRange. Live
   // ticks keep this static; once it lags real time by more than a candle's
   // duration we fall through to a full resync to re-pad whitespace on the right
   // and re-anchor the viewport. Without this the chart slowly stops tracking
   // real time as the tab is left open.
   const lastVisibleToRef = useRef<number | null>(null);
+
+  const { windowSec, candleSec, key: modeKey } = getChartModeConfig(mode);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -135,15 +124,14 @@ export function useChart({
     });
 
     const prev = lastCandlesRef.current;
-    const timeframeChanged = lastTimeframeRef.current !== timeframe;
-    lastTimeframeRef.current = timeframe;
+    const modeChanged = lastModeKeyRef.current !== modeKey;
+    lastModeKeyRef.current = modeKey;
 
     // Detect whether this is a live-tick update (same anchor + non-shrinking
-    // tail) vs. a full resync (timeframe change, initial load, reconnect).
+    // tail) vs. a full resync (mode change, initial load, reconnect).
     // On live ticks we call `series.update()` for cheap OHLC merges;
     // otherwise we re-pad and `setData()` from scratch.
     const nowSec = Math.floor(Date.now() / 1000);
-    const candleSec = CANDLE_SECONDS[timeframe];
     // Force a full resync once wall-clock has advanced by a full candle past
     // the viewport set at the last resync — keeps setVisibleRange's `to`
     // tracking real time and ensures fresh right-side whitespace padding.
@@ -151,7 +139,7 @@ export function useChart({
       lastVisibleToRef.current !== null &&
       nowSec - lastVisibleToRef.current >= candleSec;
     const isLiveTick =
-      !timeframeChanged &&
+      !modeChanged &&
       !viewportStale &&
       prev !== null &&
       prev.length > 0 &&
@@ -170,10 +158,9 @@ export function useChart({
       return;
     }
 
-    const windowSec = TIMEFRAME_SECONDS[timeframe];
     const from = Math.floor((nowSec - windowSec) / candleSec) * candleSec;
 
-    // Pad the series with whitespace slots spanning the full timeframe so the
+    // Pad the series with whitespace slots spanning the full window so the
     // candles stay anchored to the right with uniform width even when we have
     // less data than the selected window. Without this, lightweight-charts
     // clamps setVisibleRange to the data range and stretches the candles to
@@ -202,5 +189,5 @@ export function useChart({
       to: nowSec as unknown as CandlestickData["time"],
     });
     lastVisibleToRef.current = nowSec;
-  }, [candles, timeframe, loading]);
+  }, [candles, modeKey, windowSec, candleSec, loading]);
 }
