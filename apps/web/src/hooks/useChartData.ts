@@ -119,7 +119,9 @@ export function useChartData(
   // the mode object itself — passing a fresh object each render must not
   // trigger a refetch, but a real mode change must.
   const modeRef = useRef(mode);
-  modeRef.current = mode;
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   // Bump to force a resync (initial mount, mode change, WS reconnect).
   const [syncEpoch, setSyncEpoch] = useState(0);
