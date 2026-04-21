@@ -12,6 +12,7 @@
 - Implement LT Movers Section
 - Add Volume stat, show in token page and profile page
 - Website design updates?
+- Creator claimable on token page should be open by default
 
 - Is Router the right term?
 - Charge fees only in the router, and then only in USDC
