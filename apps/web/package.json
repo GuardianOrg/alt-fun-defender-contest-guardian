@@ -37,13 +37,13 @@
     "eslint": "^10",
     "eslint-import-resolver-typescript": "^4",
     "eslint-plugin-import": "^2",
-    "eslint-plugin-react-hooks": "^7",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5",
     "globals": "^17",
     "prettier": "^3",
-    "typescript": "~6.0",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8",
-    "vite": "^8.0.8",
+    "vite": "^8.0.9",
     "vitest": "^4.1.4"
   }
 }
