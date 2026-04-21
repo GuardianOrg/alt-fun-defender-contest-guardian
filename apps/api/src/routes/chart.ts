@@ -29,6 +29,29 @@ const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
   "1m": 14_400,
 };
 
+// Allowed candle-width values (seconds) for interval-mode requests.
+// Must stay in sync with CHART_INTERVAL_SECONDS in
+// `apps/web/src/services/api.ts`.
+const VALID_INTERVAL_SECONDS = new Set<number>([
+  60,       // 1m
+  180,      // 3m
+  300,      // 5m
+  900,      // 15m
+  3_600,    // 1h
+  7_200,    // 2h
+  14_400,   // 4h
+  28_800,   // 8h
+  43_200,   // 12h
+  86_400,   // 1D
+  259_200,  // 3D
+  604_800,  // 1W
+]);
+
+// Number of candle buckets rendered when the client picks an interval without
+// a timeframe. 120 keeps the wall of bars reasonable on a typical chart
+// viewport (and well under MAX_CANDLES for the largest interval).
+const INTERVAL_MODE_BAR_COUNT = 120;
+
 const MIN_CANDLE_SECONDS = 60;
 const MAX_CANDLES = 500;
 
@@ -139,26 +162,60 @@ chart.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = rawAddress.toLowerCase();
-  const timeframe = (c.req.query("timeframe") ?? "1d") as string;
 
-  if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
-    return c.json(
-      formatError(
-        `Invalid timeframe. Supported: ${VALID_TIMEFRAMES.join(", ")}`,
-      ),
-      400,
-    );
-  }
-
-  const tf = timeframe as Timeframe;
-  const windowSec = TIMEFRAME_SECONDS[tf];
-
+  // Two request shapes are supported:
+  //   - `?timeframe=1d|5d|1m` (+ optional `?interval=<sec>` override) — window
+  //     is fixed by the timeframe, candle width defaults per-timeframe.
+  //   - `?interval=<sec>` alone — candle width is picked by the client, window
+  //     auto-sizes to INTERVAL_MODE_BAR_COUNT buckets so the chart has a
+  //     sensible default viewport.
+  // Defaults to `timeframe=1d` when neither is provided, matching the
+  // pre-interval-selector behaviour.
+  const rawTimeframe = c.req.query("timeframe");
   const rawInterval = c.req.query("interval");
-  let candleSec = DEFAULT_CANDLE_SECONDS[tf];
-  if (rawInterval) {
-    const parsed = parseInt(rawInterval, 10);
-    if (!Number.isNaN(parsed) && parsed >= MIN_CANDLE_SECONDS) {
-      candleSec = Math.max(parsed, Math.ceil(windowSec / MAX_CANDLES));
+
+  let windowSec: number;
+  let candleSec: number;
+
+  // Strict integer parser — rejects partial-numeric values like "60abc"
+  // (which `parseInt` would otherwise accept) and non-finite inputs.
+  const parseStrictInt = (raw: string): number | null => {
+    if (!/^\d+$/.test(raw)) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) ? n : null;
+  };
+
+  if (rawTimeframe === undefined && rawInterval !== undefined) {
+    const parsed = parseStrictInt(rawInterval);
+    if (parsed === null || !VALID_INTERVAL_SECONDS.has(parsed)) {
+      return c.json(
+        formatError(
+          `Invalid interval. Supported (seconds): ${Array.from(VALID_INTERVAL_SECONDS).join(", ")}`,
+        ),
+        400,
+      );
+    }
+    candleSec = parsed;
+    windowSec = candleSec * INTERVAL_MODE_BAR_COUNT;
+  } else {
+    const timeframe = (rawTimeframe ?? "1d") as string;
+    if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
+      return c.json(
+        formatError(
+          `Invalid timeframe. Supported: ${VALID_TIMEFRAMES.join(", ")}`,
+        ),
+        400,
+      );
+    }
+
+    const tf = timeframe as Timeframe;
+    windowSec = TIMEFRAME_SECONDS[tf];
+    candleSec = DEFAULT_CANDLE_SECONDS[tf];
+    if (rawInterval) {
+      const parsed = parseStrictInt(rawInterval);
+      if (parsed !== null && parsed >= MIN_CANDLE_SECONDS) {
+        candleSec = Math.max(parsed, Math.ceil(windowSec / MAX_CANDLES));
+      }
     }
   }
 

@@ -2,14 +2,10 @@
 
 # TODO
 
-- Implement trending system
-- Implement LT Movers Section
-- Add Volume stat, show in token page and profile page
-- Set it up so we can choose the candle width
-- Implement trending system
-- Implement LT Movers Section
-- Add Volume stat, show in token page and profile page
 - If a token hasn't been live for 24hours yet, the 24 hour profit should still show, it should just be since launch.
+- Implement trending system
+- Implement LT Movers Section
+- Add Volume stat, show in token page and profile page
 - Website design updates?
 - Creator claimable on token page should be open by default
 
