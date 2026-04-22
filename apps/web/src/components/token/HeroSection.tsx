@@ -20,6 +20,7 @@ interface Props {
 
 export default function HeroSection({ token }: Props) {
   const { copied, copy: copyCA } = useCopyState();
+  const { copied: copiedDev, copy: copyDev } = useCopyState();
   const [imgError, setImgError] = useState(false);
   const stats = useTokenMarketStats(token.address);
   const up = (stats.change24h ?? 0) >= 0;
@@ -51,7 +52,23 @@ export default function HeroSection({ token }: Props) {
           <span className={styles.ltBadge}>⚡ {token.ltName}</span>
         </div>
         <div className={styles.metaRow}>
-          <span className={styles.creatorLabel}>by {token.creatorAddress}</span>
+          <div
+            className={styles.addrBlock}
+            onClick={() => copyDev(token.creatorAddress)}
+          >
+            <span className={styles.addrLabel}>dev</span>
+            <span className={styles.addrText}>
+              {`${token.creatorAddress.slice(0, 4)}…${token.creatorAddress.slice(-3)}`}
+            </span>
+            <span
+              className={cn(
+                styles.addrIcon,
+                copiedDev ? styles.addrIconCopied : styles.addrIconDefault,
+              )}
+            >
+              {copiedDev ? "✓" : "⎘"}
+            </span>
+          </div>
           <div className={styles.socialLinks}>
             {token.socialLinks?.twitter && (
               <a
@@ -90,16 +107,21 @@ export default function HeroSection({ token }: Props) {
               </a>
             )}
           </div>
-          <div className={styles.caBlock} onClick={() => copyCA(token.address)}>
+          <div
+            className={styles.addrBlock}
+            onClick={() => copyCA(token.address)}
+          >
+            <span className={styles.addrLabel}>ca</span>
+            <span className={styles.addrText}>
+              {`${token.address.slice(0, 4)}…${token.address.slice(-3)}`}
+            </span>
             <span
               className={cn(
-                styles.caText,
-                copied ? styles.caTextCopied : styles.caTextDefault,
+                styles.addrIcon,
+                copied ? styles.addrIconCopied : styles.addrIconDefault,
               )}
             >
-              {copied
-                ? "✓"
-                : `${token.address.slice(0, 4)}…${token.address.slice(-3)} ⎘`}
+              {copied ? "✓" : "⎘"}
             </span>
           </div>
         </div>

@@ -69,9 +69,51 @@
   margin-top: 0.25rem;
 }
 
-.creatorLabel {
+.addrBlock {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 2px 0.375rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.addrBlock:hover {
+  border-color: var(--mint);
+}
+
+.addrLabel {
   font-size: 11px;
+  font-weight: 600;
   color: var(--txt-4);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.addrText {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--txt-2);
+}
+
+.addrIcon {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.addrIconDefault {
+  color: var(--txt-3);
+}
+
+.addrIconCopied {
+  color: var(--mint);
 }
 
 .socialLinks {
@@ -92,36 +134,6 @@
 }
 
 .socialLink:hover {
-  color: var(--mint);
-}
-
-.caBlock {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0 0.375rem;
-  border-radius: 0.25rem;
-  cursor: pointer;
-  font-size: 11px;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.caBlock:hover {
-  color: var(--mint);
-}
-
-.caText {
-  font-family: var(--font-mono);
-}
-
-.caTextDefault {
-  color: var(--txt-4);
-}
-
-.caTextCopied {
   color: var(--mint);
 }
 

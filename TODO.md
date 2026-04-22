@@ -2,10 +2,6 @@
 
 # TODO
 
-- Settings is hard to see, and should be a cog not a sun
-- First should just be label dev and copiable and is more important and needs to be more prominent. People will copy this and share it so need that way more prominent and easier to copy
-- Asking for weird permissions still in prod
-
 - Can we improve the Approving UX? Infinite approve the USDC, and some permit stuff for the memecoins?
 - Is Router the right term?
 - Ability to change graduation threshold (what happens with existing tokens?)
