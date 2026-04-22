@@ -103,10 +103,6 @@ Single column layouts. Token detail: stacked (chart → trade panel as bottom sh
 
 ---
 
-## Password Gate
-
-Temporary pre-launch gate (`PasswordGate` component). Prompts for a password before allowing access. Will be removed before public launch. Not a security feature — just a casual barrier during testing.
-
 ## Image Upload
 
 Token creation uses file upload (not URL paste). Images are uploaded to the API (`POST /images`), which moderates and stores them in Cloudflare R2. Accepted formats: JPEG, PNG, GIF, WebP. Max size: 5MB.

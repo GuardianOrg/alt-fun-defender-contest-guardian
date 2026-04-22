@@ -213,10 +213,6 @@ No auth required.
 
 Token creators upload images (not URLs). Images are stored in Cloudflare R2 and served via the API Worker. Before storage, images are scanned for illegal content (CSAM, extreme violence). Adult content is permitted as long as it is legal. The moderation check happens server-side before the image is persisted to R2.
 
-## Password Gate
-
-The frontend has a temporary password gate (`PasswordGate` component) for pre-launch testing. This will be removed before public launch. It is NOT a security feature — just a deterrent for casual visitors during development.
-
 ## Admin Authentication
 
 Admin endpoints (`/admin/*`) are authenticated via a shared admin API key passed in the `X-Admin-Key` header. The key is stored as a Cloudflare Worker secret (`ADMIN_API_KEY`). This is a simple v1 approach — wallet-based admin auth can be added later.
