@@ -11,8 +11,8 @@ Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap
 | `TokenGraduated` | Bonding — includes `tokensInLP`, `lpBurned`, `unsoldBurned` (dynamic LP seeding outputs, see `packages/contracts/AGENTS.md`) |
 | `CreatorFeesClaimed` | Bonding |
 | `ProtocolFeesClaimed` | Bonding |
-| `Buy` | LaunchpadRouter — also bumps `token.organicUsdcRaised` |
-| `Sell` | LaunchpadRouter — also decrements `token.organicUsdcRaised` (floored at 0) |
+| `Buy` | LaunchpadRouter — also bumps `token.organicUsdcRaised` and `token.volumeUsd` |
+| `Sell` | LaunchpadRouter — also decrements `token.organicUsdcRaised` (floored at 0) and bumps `token.volumeUsd` |
 | `Referred` | LaunchpadRouter |
 | `Transfer` | FERC20 (factory-registered via `TokenLaunched`) |
 | `Swap` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
@@ -29,6 +29,10 @@ The API (`apps/api/src/lib/token-enrich.ts`) reads this alongside the current `l
 - `curveFilledLeverageBoost` = `max(curveFilled − curveFilledOrganic, 0)` — never surface a negative boost (product decision: this is a marketing number, not an accounting figure).
 
 When you modify `LaunchpadRouter.Buy`/`Sell` handlers, **also keep the organic counter in sync**. The test suite in `apps/indexer/test/bonding.test.ts` asserts both the `routerTrade` insert and the counter bump.
+
+### Lifetime trading volume (`token.volumeUsd`)
+
+Separate gross counter, bumped on **both** `Buy` and `Sell` (never subtracts). Surfaced as `totalVolumeUsd` on the API's token responses — different semantics from `organicUsdcRaised` (net, floored at 0) and from `volume24hUsd` (windowed, indexer-queried per request and can go null on pagination truncation). Sourced from the same `usdcIn` / `usdcOut` event fields as the organic counter, so keep them synced in the same `db.update` call.
 
 ### `curveSupply` / `ltReserve` are VIRTUAL AMM reserves
 

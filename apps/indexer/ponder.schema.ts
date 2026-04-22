@@ -25,6 +25,15 @@ export const token = onchainTable("token", (t) => ({
    * the curve).
    */
   organicUsdcRaised: t.bigint().notNull().default(0n),
+  /**
+   * Cumulative gross USDC (6dp) routed through `LaunchpadRouter` for this
+   * token — buys **and** sells both add to the counter (never subtract). This
+   * is the lifetime trading-volume figure surfaced as `totalVolumeUsd` on
+   * the API's token responses (hero card, creator rewards). Contrast with
+   * `organicUsdcRaised` which is a net counter floored at 0 used for the
+   * graduation-progress split.
+   */
+  volumeUsd: t.bigint().notNull().default(0n),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({

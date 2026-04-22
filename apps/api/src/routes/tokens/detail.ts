@@ -84,6 +84,11 @@ function enrich(
     change24h: market?.change24h ?? null,
     ltChange24h: market?.ltChange24h ?? null,
     volume24hUsd: market?.volume24hUsd ?? null,
+    totalVolumeUsd: onchain?.volumeUsd
+      ? Number(BigInt(onchain.volumeUsd)) / 1e6
+      : onchain
+        ? 0
+        : null,
     lastTradeAt,
   };
 }

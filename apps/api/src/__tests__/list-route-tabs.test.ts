@@ -163,6 +163,7 @@ function makeOnchain(
     bondingPair: null,
     hyperswapPair: null,
     organicUsdcRaised: "0",
+    volumeUsd: "0",
     timestamp: "1700000000",
     ...overrides,
   };

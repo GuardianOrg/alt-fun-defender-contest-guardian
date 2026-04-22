@@ -8,7 +8,6 @@ import {
   copyToClipboard,
   formatCurveFilled,
   formatPercentOrDash,
-  formatUsd,
   formatUsdOrDash,
 } from "../../utils/format";
 import Button from "../shared/Button";
@@ -127,9 +126,9 @@ export default function HeroSection({ token }: Props) {
 
       <div className={styles.statsRow}>
         <span className={styles.statValue}>
-          Vol{" "}
+          Vol 24h{" "}
           <span className={styles.statHighlight}>
-            {formatUsd(token.volume24h)}
+            {formatUsdOrDash(token.volume24h)}
           </span>
         </span>
         <span>

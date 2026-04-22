@@ -212,6 +212,14 @@ export interface EnrichedToken
    */
   volume24hUsd: number | null;
   /**
+   * Lifetime gross USD routed through `LaunchpadRouter` for this token
+   * (buys + sells, never subtracts). Sourced from the indexer's running
+   * counter (`token.volumeUsd`), so it survives pagination truncation that
+   * can force `volume24hUsd` to null. `null` only when the indexer is
+   * completely unreachable; `0` for a token that has never traded.
+   */
+  totalVolumeUsd: number | null;
+  /**
    * ISO timestamp of the most recent `LaunchpadRouter` trade for this token
    * within the 24h lookback window. `null` means either no trades in the
    * window or indexer unavailable — use in conjunction with

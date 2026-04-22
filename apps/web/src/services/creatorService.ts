@@ -61,7 +61,12 @@ const liveCreatorService: ICreatorService = {
           ltAddress: token.ltPair,
           status: "active" as const,
           curveFilled: token.curveFilled ?? null,
-          totalVolumeUsd: 0,
+          // Lifetime gross USDC through `LaunchpadRouter` (buys + sells)
+          // served by the API's per-token enrichment. Falls back to 0 when
+          // the indexer is degraded rather than propagating `null` because
+          // this column ultimately gets `formatUsd`-ed and a `—` here would
+          // look broken next to the live earned/claimable numbers.
+          totalVolumeUsd: token.totalVolumeUsd ?? 0,
           feesEarnedUsd: claimableUsd,
           feesClaimableUsd: claimableUsd,
         };

@@ -54,6 +54,13 @@ export interface PonderTokenOnchain {
    * bar into "organic buys" vs "LT price appreciation".
    */
   organicUsdcRaised: string;
+  /**
+   * Cumulative **gross** USDC (6dp) routed through LaunchpadRouter for this
+   * token (buys + sells, never subtracts). Surfaced as `totalVolumeUsd` on
+   * the API — lifetime trading-volume figure for the hero card and creator
+   * rewards summary. Contrast with `organicUsdcRaised` (net, floored).
+   */
+  volumeUsd: string;
   timestamp: string;
 }
 
@@ -145,6 +152,7 @@ export async function fetchAllTokensOnchain(
             bondingPair
             hyperswapPair
             organicUsdcRaised
+            volumeUsd
             timestamp
           }
         }
@@ -191,6 +199,7 @@ export async function fetchTokensOnchainByAddresses(
             bondingPair
             hyperswapPair
             organicUsdcRaised
+            volumeUsd
             timestamp
           }
         }
@@ -251,6 +260,7 @@ export async function fetchGraduatedTokensOnchain(
           bondingPair
           hyperswapPair
           organicUsdcRaised
+          volumeUsd
           timestamp
         }
       }
@@ -295,6 +305,7 @@ export async function fetchGraduatingTokensOnchain(
           bondingPair
           hyperswapPair
           organicUsdcRaised
+          volumeUsd
           timestamp
         }
       }
@@ -412,6 +423,7 @@ export async function fetchTokenOnchain(
         bondingPair
         hyperswapPair
         organicUsdcRaised
+        volumeUsd
         timestamp
       }
     }`,

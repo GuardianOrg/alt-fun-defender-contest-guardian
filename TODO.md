@@ -2,7 +2,6 @@
 
 # TODO
 
-- Add Volume stat, show in token page and profile page
 - Website design updates?
 - Creator claimable on token page should be open by default
 - Testing image validation, does this work and how? Max image size also etc? some explicit filter
@@ -11,7 +10,9 @@
 - Add Terms of Service, Privacy Policy, DMCA Policy
 - Add some report service
 - Settings is hard to see, and should be a cog not a sun
+- First should just be label dev and copiable and is more important and needs to be more prominent. People will copy this and share it so need that way more prominent and easier to copy
 
+- Can we improve the Approving UX? Infinite approve the USDC, and some permit stuff for the memecoins?
 - Is Router the right term?
 - Ability to change graduation threshold (what happens with existing tokens?)
 - Charge fees only in the router, and then only in USDC
