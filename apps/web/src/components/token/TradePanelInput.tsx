@@ -1,6 +1,7 @@
 import styles from "./TradePanel.module.css";
 import { QUICK_AMOUNTS, SELL_PERCENT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
+import UsdcIcon from "../icons/UsdcIcon";
 
 import type { SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
@@ -52,7 +53,7 @@ export default function TradePanelInput({
             )}
           >
             {mode === "buy" ? (
-              "$"
+              <UsdcIcon className={styles.coinImg} />
             ) : token.image ? (
               <img src={token.image} alt="" className={styles.coinImg} />
             ) : (
