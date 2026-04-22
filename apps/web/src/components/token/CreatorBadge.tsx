@@ -15,7 +15,7 @@ interface Props {
 export default function CreatorBadge({ token }: Props) {
   const { address } = useWallet();
   const { earnings, claiming, claim } = useCreatorEarnings();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
 
   const isCreator =
     !!address && token.creatorAddress.toLowerCase() === address.toLowerCase();
