@@ -302,8 +302,22 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
                 required: ["address", "name", "ticker", "ltPair", "creator", "signature"],
                 properties: {
                   address: { type: "string", description: "Token contract address" },
-                  name: { type: "string", minLength: 1, maxLength: 34 },
-                  ticker: { type: "string", minLength: 1, maxLength: 10 },
+                  name: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 34,
+                    description:
+                      "Token name. Enforced server-side and on-chain as UTF-8 byte length, not JSON Schema character count. Non-ASCII characters (emoji, CJK) consume multiple bytes.",
+                    "x-maxByteLength": 34,
+                  },
+                  ticker: {
+                    type: "string",
+                    minLength: 1,
+                    maxLength: 10,
+                    description:
+                      "Token ticker/symbol. Enforced server-side and on-chain as UTF-8 byte length, not JSON Schema character count. Non-ASCII characters (emoji, CJK) consume multiple bytes.",
+                    "x-maxByteLength": 10,
+                  },
                   description: { type: "string", default: "" },
                   imageUrl: { type: "string", default: "" },
                   ltPair: { type: "string", description: "BounceTech LT address" },
