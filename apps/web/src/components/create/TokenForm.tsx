@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 
+import { MAX_TOKEN_NAME_LENGTH, MAX_TOKEN_SYMBOL_LENGTH, utf8ByteLength } from "@launchpad/shared";
+
 import StepHeader from "./StepHeader";
 import styles from "./TokenForm.module.css";
 import { cn } from "../../utils/format";
@@ -33,6 +35,14 @@ export default function TokenForm({
   const [socialOpen, setSocialOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Enforce UTF-8 byte length, matching the on-chain `bytes(str).length` check.
+  // HTML `maxLength` counts UTF-16 code units, which would let a user type N
+  // emoji (each up to 4 bytes) and still revert on-chain. We reject the
+  // keystroke if it would push the field over the byte limit.
+  const clampByteLength = (next: string, prev: string, maxBytes: number): string => {
+    return utf8ByteLength(next) <= maxBytes ? next : prev;
+  };
+
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -53,25 +63,33 @@ export default function TokenForm({
 
       <div className={styles.fieldGrid}>
         <div>
-          <label className={styles.label}>Token name</label>
+          <label className={styles.label}>
+            Token name
+            <span className={styles.charCount}>
+              {utf8ByteLength(name)}/{MAX_TOKEN_NAME_LENGTH}
+            </span>
+          </label>
           <input
             type="text"
             className={styles.input}
             placeholder="e.g. HYPERBULL"
             value={name}
-            onChange={(e) => onNameChange(e.target.value)}
-            maxLength={32}
+            onChange={(e) => onNameChange(clampByteLength(e.target.value, name, MAX_TOKEN_NAME_LENGTH))}
           />
         </div>
         <div>
-          <label className={styles.label}>Ticker</label>
+          <label className={styles.label}>
+            Ticker
+            <span className={styles.charCount}>
+              {utf8ByteLength(ticker)}/{MAX_TOKEN_SYMBOL_LENGTH}
+            </span>
+          </label>
           <input
             type="text"
             className={styles.input}
             placeholder="e.g. HBULL"
             value={ticker}
-            onChange={(e) => onTickerChange(e.target.value)}
-            maxLength={8}
+            onChange={(e) => onTickerChange(clampByteLength(e.target.value, ticker, MAX_TOKEN_SYMBOL_LENGTH))}
           />
         </div>
       </div>
