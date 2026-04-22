@@ -16,7 +16,6 @@ import AssetTape from "../components/layout/AssetTape";
 import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
 import Header from "../components/layout/Header";
-import PasswordGate from "../components/layout/PasswordGate";
 import SearchModal from "../components/layout/SearchModal";
 import ErrorBoundary from "../components/shared/ErrorBoundary";
 import LeverageBanner from "../components/terminal/LeverageBanner";
@@ -32,17 +31,15 @@ const Layout = () => {
   const isTokenPage = location.pathname.startsWith("/token/");
 
   return (
-    <PasswordGate>
-      <div className={cn(styles.app, isTokenPage && styles.ambpulse)}>
-        <DegradedBanner />
-        <LeverageBanner />
-        <Header />
-        <AssetTape />
-        <Outlet />
-        <SearchModal />
-        <EarningsPanel />
-      </div>
-    </PasswordGate>
+    <div className={cn(styles.app, isTokenPage && styles.ambpulse)}>
+      <DegradedBanner />
+      <LeverageBanner />
+      <Header />
+      <AssetTape />
+      <Outlet />
+      <SearchModal />
+      <EarningsPanel />
+    </div>
   );
 };
 
@@ -93,6 +90,26 @@ if (!privyAppId) {
   throw new Error("VITE_PRIVY_APP_ID is not set — add it to .env.local");
 }
 
+// Chrome 140+ shows a "Sites can ask to access other apps and services on this
+// device" prompt (a.k.a. Local Network Access / Apps on device) whenever a page
+// tries to open a wallet via a native-app deep link (cbwallet://, phantom://,
+// metamask://, wc://, …) or invoke a device capability like WebAuthn/passkeys.
+// Privy's default modal surfaces every external wallet + Coinbase Smart Wallet
+// (passkey) + Solana connectors + the WalletConnect mobile launcher, which
+// triggers that dialog even though this app only targets HyperEVM. We keep the
+// injected-wallet path (MetaMask, Rabby, and anything else exposed via
+// EIP-6963) because that's how most users actually connect, and trim the
+// connectors that rely on launching another app:
+//   - `walletChainType: "ethereum-only"` drops Phantom/Solflare/Backpack/OKX
+//     Solana entries and their `phantom://` style deep links.
+//   - `walletConnect.enabled: false` skips the WalletConnect mobile relay,
+//     which is the biggest source of the prompt on mobile Chrome.
+//   - `coinbaseWallet.preference.options: "eoaOnly"` disables the Coinbase
+//     Smart Wallet passkey/WebAuthn flow (keys.coinbase.com), which is the
+//     biggest source of the prompt on desktop Chrome.
+// MetaMask/Rabby/etc. are detected purely via EIP-6963 window events, so they
+// keep working on every platform without any prompt.
+
 const App = () => {
   return (
     <ErrorBoundary>
@@ -105,11 +122,19 @@ const App = () => {
             appearance: {
               theme: "dark",
               accentColor: "#00ff88",
+              walletChainType: "ethereum-only",
             },
+            loginMethods: ["email", "wallet"],
             embeddedWallets: {
               ethereum: {
                 createOnLogin: "users-without-wallets",
               },
+            },
+            externalWallets: {
+              coinbaseWallet: {
+                config: { preference: { options: "eoaOnly" } },
+              },
+              walletConnect: { enabled: false },
             },
           }}
         >
