@@ -374,6 +374,7 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
         bondingPair: "0xbondingpair",
         hyperswapPair: null,
         organicUsdcRaised: "0",
+        volumeUsd: "12500000",
         timestamp: "1700000000",
       },
     });
@@ -400,6 +401,38 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.curveFilledOrganic).not.toBeNull();
     expect(body.data.curveFilledLeverageBoost).not.toBeNull();
     expect(body.data.mcapUsd).not.toBeNull();
+    expect(body.data.totalVolumeUsd).toBe(12.5);
+  });
+
+  it("returns totalVolumeUsd = 0 when the token has been indexed but never traded", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "2000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000000",
+        ltReserve: "2000000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "2000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as { data: { totalVolumeUsd: number | null } };
+    expect(body.data.totalVolumeUsd).toBe(0);
   });
 
   it("splits curveFilled into organic USD vs LT boost", async () => {
@@ -642,6 +675,7 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.curveSupply).toBeNull();
     expect(body.data.ltReserve).toBeNull();
     expect(body.data.curveFilled).toBeNull();
+    expect(body.data.totalVolumeUsd).toBeNull();
     expect(body.data.status).toBe("curve");
   });
 });

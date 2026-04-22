@@ -505,3 +505,59 @@ describe("GET /tokens?sort=lt-movers", () => {
     expect(body.data.map((t) => t.ticker)).toEqual(["CCC"]);
   });
 });
+
+describe("GET /tokens — totalVolumeUsd enrichment", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Three cases that match the docstring semantics on `totalVolumeUsd`:
+  //   1. indexer has a non-zero counter → USDC (6dp) → USD float
+  //   2. indexer row exists but the token has never traded → 0
+  //   3. indexer is unreachable (no onchain row at all) → null
+  it("converts the indexer's volumeUsd counter (6dp USDC) into a USD float", async () => {
+    // 7_500_123 (6dp) = $7.500123.
+    const onchain = makeOnchain(ADDR_A, { volumeUsd: "7500123" });
+    currentDbRows.rows = [makeDbRow(ADDR_A, { ticker: "AAA" })];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([{ address: ADDR_A, onchain, market: makeMarket() }]),
+    );
+
+    const res = await createApp().request("/tokens", {}, makeEnv());
+    const body = (await res.json()) as {
+      data: Array<{ totalVolumeUsd: number | null }>;
+    };
+    expect(body.data[0].totalVolumeUsd).toBeCloseTo(7.500123, 5);
+  });
+
+  it("returns 0 when the token has been indexed but never traded", async () => {
+    // Distinguishes "quiet but present" from "indexer unreachable". The
+    // `makeOnchain` helper already defaults `volumeUsd` to "0".
+    const onchain = makeOnchain(ADDR_A);
+    currentDbRows.rows = [makeDbRow(ADDR_A, { ticker: "AAA" })];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([{ address: ADDR_A, onchain, market: makeMarket() }]),
+    );
+
+    const res = await createApp().request("/tokens", {}, makeEnv());
+    const body = (await res.json()) as {
+      data: Array<{ totalVolumeUsd: number | null }>;
+    };
+    expect(body.data[0].totalVolumeUsd).toBe(0);
+  });
+
+  it("returns null when the indexer has no row for the token", async () => {
+    // `computeMarketDataForAddresses` returning ok with no entries is how the
+    // route surfaces "DB has this token, but Ponder hasn't caught up / is
+    // down". Enrichment should mark on-chain fields (including
+    // `totalVolumeUsd`) as null rather than silently showing 0.
+    currentDbRows.rows = [makeDbRow(ADDR_A, { ticker: "AAA" })];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(marketBatchOk([]));
+
+    const res = await createApp().request("/tokens", {}, makeEnv());
+    const body = (await res.json()) as {
+      data: Array<{ totalVolumeUsd: number | null }>;
+    };
+    expect(body.data[0].totalVolumeUsd).toBeNull();
+  });
+});

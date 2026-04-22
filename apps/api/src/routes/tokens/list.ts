@@ -18,6 +18,7 @@ import {
   computeStatus,
   computeTrendingScore,
   sortLtMovers,
+  usdcRawToUsd,
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
@@ -99,11 +100,13 @@ function enrich(
     change24h: market?.change24h ?? null,
     ltChange24h: market?.ltChange24h ?? null,
     volume24hUsd: market?.volume24hUsd ?? null,
-    totalVolumeUsd: onchain?.volumeUsd
-      ? Number(BigInt(onchain.volumeUsd)) / 1e6
-      : onchain
-        ? 0
-        : null,
+    // `onchain == null` ⇒ indexer unreachable for this token: return `null`
+    // so clients can disambiguate from a legitimately-zero counter. When the
+    // row exists but the indexer is an older build missing the `volumeUsd`
+    // column, `usdcRawToUsd` returns null and we fall through to `0` — which
+    // matches the documented "row exists ⇒ 0, not null" semantics.
+    totalVolumeUsd:
+      onchain == null ? null : (usdcRawToUsd(onchain.volumeUsd) ?? 0),
     lastTradeAt,
   };
 }
