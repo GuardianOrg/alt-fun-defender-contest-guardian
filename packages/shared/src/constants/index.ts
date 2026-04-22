@@ -13,3 +13,9 @@ export {
   findLT,
 } from "./bouncetech.js";
 export type { LeveragedTokenInfo, LiveLeveragedToken, SupportedAsset, SupportedLeverage } from "./bouncetech.js";
+export {
+  MIN_TOKEN_NAME_LENGTH,
+  MAX_TOKEN_NAME_LENGTH,
+  MIN_TOKEN_SYMBOL_LENGTH,
+  MAX_TOKEN_SYMBOL_LENGTH,
+} from "./validation.js";

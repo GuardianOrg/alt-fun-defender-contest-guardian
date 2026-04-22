@@ -1,5 +1,7 @@
 import { useState, useRef } from "react";
 
+import { MAX_TOKEN_NAME_LENGTH, MAX_TOKEN_SYMBOL_LENGTH } from "@launchpad/shared";
+
 import StepHeader from "./StepHeader";
 import styles from "./TokenForm.module.css";
 import { cn } from "../../utils/format";
@@ -53,25 +55,35 @@ export default function TokenForm({
 
       <div className={styles.fieldGrid}>
         <div>
-          <label className={styles.label}>Token name</label>
+          <label className={styles.label}>
+            Token name
+            <span className={styles.charCount}>
+              {name.length}/{MAX_TOKEN_NAME_LENGTH}
+            </span>
+          </label>
           <input
             type="text"
             className={styles.input}
             placeholder="e.g. HYPERBULL"
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
-            maxLength={32}
+            maxLength={MAX_TOKEN_NAME_LENGTH}
           />
         </div>
         <div>
-          <label className={styles.label}>Ticker</label>
+          <label className={styles.label}>
+            Ticker
+            <span className={styles.charCount}>
+              {ticker.length}/{MAX_TOKEN_SYMBOL_LENGTH}
+            </span>
+          </label>
           <input
             type="text"
             className={styles.input}
             placeholder="e.g. HBULL"
             value={ticker}
             onChange={(e) => onTickerChange(e.target.value)}
-            maxLength={8}
+            maxLength={MAX_TOKEN_SYMBOL_LENGTH}
           />
         </div>
       </div>

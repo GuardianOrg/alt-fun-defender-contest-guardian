@@ -151,6 +151,78 @@ describe("POST /tokens — token creation", () => {
     expect(body.error).toContain("Invalid address");
   });
 
+  it("returns 400 when name is too long", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: VALID_ADDRESS,
+          name: "A".repeat(35),
+          ticker: "TST",
+          ltPair: VALID_ADDRESS,
+          creator: VALID_CREATOR,
+          signature: "0xabc",
+        }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toContain("Name too long");
+  });
+
+  it("returns 400 when ticker is too long", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: VALID_ADDRESS,
+          name: "Test",
+          ticker: "A".repeat(11),
+          ltPair: VALID_ADDRESS,
+          creator: VALID_CREATOR,
+          signature: "0xabc",
+        }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toContain("Ticker too long");
+  });
+
+  it("returns 400 when name is empty", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: VALID_ADDRESS,
+          name: "",
+          ticker: "TST",
+          ltPair: VALID_ADDRESS,
+          creator: VALID_CREATOR,
+          signature: "0xabc",
+        }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toContain("Name is required");
+  });
+
   it("returns 400 when ltPair is not a valid address", async () => {
     const app = createApp();
     const res = await app.request(

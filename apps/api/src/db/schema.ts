@@ -3,7 +3,7 @@ import { pgTable, text, timestamp, boolean, integer, numeric, varchar, index } f
 export const tokens = pgTable("tokens", {
   address: varchar("address", { length: 42 }).primaryKey(),
   name: text("name").notNull(),
-  ticker: varchar("ticker", { length: 8 }).notNull(),
+  ticker: varchar("ticker", { length: 10 }).notNull(),
   description: text("description").notNull().default(""),
   imageUrl: text("image_url").notNull().default(""),
   ltPair: varchar("lt_pair", { length: 42 }).notNull(),

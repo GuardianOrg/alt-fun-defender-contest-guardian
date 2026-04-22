@@ -2,10 +2,6 @@
 
 # TODO
 
-- Name or symbol validation? (min 1 char for each, max 34 name, max 10 symbol)
-- Add Geoblocking, block UK, Any sanctioned countries
-- Add Terms of Service, Privacy Policy, DMCA Policy
-- Add some report service
 - Settings is hard to see, and should be a cog not a sun
 - First should just be label dev and copiable and is more important and needs to be more prominent. People will copy this and share it so need that way more prominent and easier to copy
 - Asking for weird permissions still in prod
@@ -23,6 +19,9 @@
 # Post Audit
 
 - Testing image validation, does this work and how? Max image size also etc? some explicit filter
+- Add Geoblocking, block UK, Any sanctioned countries
+- Add Terms of Service, Privacy Policy, DMCA Policy
+- Add some report feature where users can report tokens that are in breach of something
 
 # Post graduation
 

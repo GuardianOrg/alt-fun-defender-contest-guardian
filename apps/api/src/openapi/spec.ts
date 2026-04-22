@@ -302,7 +302,7 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
                 required: ["address", "name", "ticker", "ltPair", "creator", "signature"],
                 properties: {
                   address: { type: "string", description: "Token contract address" },
-                  name: { type: "string", minLength: 1, maxLength: 32 },
+                  name: { type: "string", minLength: 1, maxLength: 34 },
                   ticker: { type: "string", minLength: 1, maxLength: 10 },
                   description: { type: "string", default: "" },
                   imageUrl: { type: "string", default: "" },

@@ -1,4 +1,10 @@
-import { buildTokenCreationMessage } from "@launchpad/shared";
+import {
+  MAX_TOKEN_NAME_LENGTH,
+  MAX_TOKEN_SYMBOL_LENGTH,
+  MIN_TOKEN_NAME_LENGTH,
+  MIN_TOKEN_SYMBOL_LENGTH,
+  buildTokenCreationMessage,
+} from "@launchpad/shared";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
 import { z } from "zod";
@@ -14,8 +20,14 @@ import type { AppBindings } from "../../lib/types.js";
 
 const createTokenSchema = z.object({
   address: z.string().refine(isAddress, "Invalid address"),
-  name: z.string().min(1, "Name is required").max(32, "Name too long (max 32 chars)"),
-  ticker: z.string().min(1, "Ticker is required").max(10, "Ticker too long (max 10 chars)"),
+  name: z
+    .string()
+    .min(MIN_TOKEN_NAME_LENGTH, "Name is required")
+    .max(MAX_TOKEN_NAME_LENGTH, `Name too long (max ${MAX_TOKEN_NAME_LENGTH} chars)`),
+  ticker: z
+    .string()
+    .min(MIN_TOKEN_SYMBOL_LENGTH, "Ticker is required")
+    .max(MAX_TOKEN_SYMBOL_LENGTH, `Ticker too long (max ${MAX_TOKEN_SYMBOL_LENGTH} chars)`),
   description: z.string().optional().default(""),
   imageUrl: z.string().optional().default(""),
   ltPair: z.string().refine(isAddress, "Invalid LT pair address"),

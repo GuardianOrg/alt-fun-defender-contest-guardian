@@ -214,6 +214,85 @@ contract BondingTest is DeployHelper {
         vm.stopPrank();
     }
 
+    // ─── Name/Ticker Length Validation ──────────────────────────────────
+
+    function _launchParamsWithNameTicker(
+        string memory name_,
+        string memory ticker_
+    ) internal view returns (Bonding.LaunchParams memory) {
+        return Bonding.LaunchParams({
+            name: name_,
+            ticker: ticker_,
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            purchaseAmount: 0
+        });
+    }
+
+    function test_launch_revertsOnEmptyName() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("", "TEST");
+        vm.expectRevert(Bonding.InvalidNameLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_revertsOnNameTooLong() public {
+        vm.startPrank(creator);
+        // 35 chars (max is 34)
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TEST");
+        vm.expectRevert(Bonding.InvalidNameLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_acceptsNameAtMaxLength() public {
+        vm.startPrank(creator);
+        // exactly 34 chars
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TEST");
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+        assertEq(FERC20(tokenAddr).name(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    }
+
+    function test_launch_revertsOnEmptyTicker() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("Valid", "");
+        vm.expectRevert(Bonding.InvalidTickerLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_revertsOnTickerTooLong() public {
+        vm.startPrank(creator);
+        // 11 chars (max is 10)
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("Valid", "AAAAAAAAAAA");
+        vm.expectRevert(Bonding.InvalidTickerLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_acceptsTickerAtMaxLength() public {
+        vm.startPrank(creator);
+        // exactly 10 chars
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("Valid", "AAAAAAAAAA");
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+        assertEq(FERC20(tokenAddr).symbol(), "AAAAAAAAAA");
+    }
+
+    function test_launch_acceptsMinLengthNameAndTicker() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsWithNameTicker("A", "B");
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
     // ─── Buy Tests ───────────────────────────────────────────────────────
 
     function test_buy_givesTokensToTrader() public {

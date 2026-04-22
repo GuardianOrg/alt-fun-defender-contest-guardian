@@ -59,6 +59,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev Creator gets 20% of trade fees (0.1% of 0.5%)
     uint256 public constant CREATOR_FEE_BPS = 2000;
 
+    /// @dev Name/ticker length bounds. Hard-enforced at launch; webapp and API
+    ///      replicate these limits. Changing them requires a contract redeploy.
+    uint256 public constant MIN_NAME_LENGTH = 1;
+    uint256 public constant MAX_NAME_LENGTH = 34;
+    uint256 public constant MIN_TICKER_LENGTH = 1;
+    uint256 public constant MAX_TICKER_LENGTH = 10;
+
     struct TokenInfo {
         address creator;
         address token;
@@ -139,6 +146,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error ZeroExchangeRate();
     error PairAlreadySeeded();
     error PairLookupFailed();
+    error InvalidNameLength();
+    error InvalidTickerLength();
 
     constructor() {
         _disableInitializers();
@@ -170,6 +179,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external nonReentrant returns (address tokenAddr, address pair, uint256 index) {
         if (msg.sender != launchpadRouter) revert NotLaunchpadRouter();
         if (params.ltAddress == address(0)) revert InvalidInput();
+
+        uint256 nameLen = bytes(params.name).length;
+        if (nameLen < MIN_NAME_LENGTH || nameLen > MAX_NAME_LENGTH) revert InvalidNameLength();
+        uint256 tickerLen = bytes(params.ticker).length;
+        if (tickerLen < MIN_TICKER_LENGTH || tickerLen > MAX_TICKER_LENGTH) revert InvalidTickerLength();
 
         (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress);
         index = allTokens.length;
