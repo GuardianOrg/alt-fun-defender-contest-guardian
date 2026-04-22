@@ -2,15 +2,13 @@
 
 # TODO
 
-- Website design updates?
-- Creator claimable on token page should be open by default
-- Testing image validation, does this work and how? Max image size also etc? some explicit filter
 - Name or symbol validation? (min 1 char for each, max 34 name, max 10 symbol)
 - Add Geoblocking, block UK, Any sanctioned countries
 - Add Terms of Service, Privacy Policy, DMCA Policy
 - Add some report service
 - Settings is hard to see, and should be a cog not a sun
 - First should just be label dev and copiable and is more important and needs to be more prominent. People will copy this and share it so need that way more prominent and easier to copy
+- Asking for weird permissions still in prod
 
 - Can we improve the Approving UX? Infinite approve the USDC, and some permit stuff for the memecoins?
 - Is Router the right term?
@@ -21,6 +19,10 @@
 - Add some flow for enabling big blocks.
 - Vanity addresses
 - Test graduating
+
+# Post Audit
+
+- Testing image validation, does this work and how? Max image size also etc? some explicit filter
 
 # Post graduation
 

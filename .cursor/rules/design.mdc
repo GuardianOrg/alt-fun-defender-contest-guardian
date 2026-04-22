@@ -1,0 +1,89 @@
+---
+description: Visual design conventions for the Alt Fun webapp. Apply whenever styling, adding components, or editing CSS in apps/web.
+globs: "apps/web/**/*.{tsx,css,module.css}"
+---
+
+# Design Rules
+
+Alt Fun has a committed aesthetic: a **Bloomberg-terminal / retro CRT** feel, dense information, monospace-forward, low-saturation except for the mint accent. The goal of these rules is to keep future edits on that identity and stop AI from reverting to the generic "vibe-coded SaaS" look (Inter + rounded-xl + purple gradients).
+
+## Aesthetic direction (non-negotiable)
+
+Committed tone: **industrial / terminal / trading-floor**, not friendly SaaS.
+
+- Dense, not airy. Information per screen beats whitespace.
+- Monospace-forward. Numbers are first-class, text is second.
+- Color is restricted: mint (positive / primary), red (negative / short), amber (warning / LT movers), plus the text scale. No other hues.
+- Text uppercases liberally for labels, section headers, tabs. Mixed case for sentences and descriptive copy.
+
+## Never do these (AI slop tells)
+
+- **Do not** introduce a new font. We use JetBrains Mono (`--font-mono`) everywhere, Oswald (`--font-display`) only for display-scale headings. Never Inter, Roboto, Arial, Poppins, Space Grotesk, or system-ui.
+- **Do not** use purple, indigo, blue-500, or any gradient that goes purple → blue / pink → orange. Our accents are mint and amber only.
+- **Do not** set `border-radius` above `4px`. Most elements use `2px` or `3px`. Zero is fine. Pill / rounded-full is reserved for status dots and the live indicator.
+- **Do not** add rounded card shadows (`0 4px 12px rgba(0,0,0,0.1)` etc). Our surfaces are separated by 1px `--border` / `--border-2` lines, not elevation.
+- **Do not** add large centered hero sections, testimonial carousels, three-up feature grids, or "[headline] [sub] [two CTAs]" marketing shapes. Every page is a working panel.
+- **Do not** use `lucide-react` / Heroicons with the default stroke weight at cute 24×24. We favor small inline SVGs and ASCII-style glyphs (`▲`, `▼`, `◉`, `×`).
+
+## Color tokens
+
+**Always** read from `apps/web/src/index.css`. Hex codes and raw `rgba(...)` literals in component CSS are a bug.
+
+| Token                                | Use                                                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `--bg`, `--bg-1`, `--bg-2`, `--bg-3` | Surfaces. `--bg` is the canvas, `--bg-1` header/sidebar, `--bg-2` table heads, `--bg-3` hover and active cells. |
+| `--mint`                             | Positive P/L, primary CTA background, LONG tab, live indicator. Text on solid mint uses `var(--bg)`.            |
+| `--mint-dim`                         | Positive numbers when they need to sit quieter than a CTA.                                                      |
+| `--red`                              | Negative P/L, SHORT tab, destructive confirmations only.                                                        |
+| `--amber`                            | LT-mover highlight, warnings, degraded-state banners.                                                           |
+| `--txt`                              | Primary text. Titles, table cell values, input text.                                                            |
+| `--txt-2`                            | Secondary text. Labels, column headers, tab names, body copy.                                                   |
+| `--txt-3`                            | Tertiary. Placeholder, muted metadata, inactive tab text.                                                       |
+| `--txt-4`                            | Barely-there. Watermarks, decorative separators. Do not use for anything a user needs to read.                  |
+| `--border`, `--border-2`             | Panel divisions. `--border` for internal grids, `--border-2` for major panel boundaries.                        |
+
+Do not invent a new shade by writing `rgba(234, 250, 244, 0.x)`. If you need something between `--txt-2` and `--txt-3`, the design is wrong — fix the layout, not the token.
+
+## Typography
+
+- Body, tables, forms, buttons: `var(--font-mono)`.
+- Display-scale numeric/poster headings (launch flow step headers, hero numerics): `var(--font-display)`.
+- Numbers always get `font-variant-numeric: tabular-nums` so columns align. The global `font-feature-settings` in `index.css` already enables `tnum`; do not override.
+- Uppercase section labels: `text-transform: uppercase; letter-spacing: 0.08em–0.14em;`. Do not uppercase sentences.
+- `text-wrap: balance` is applied to headings globally. Do not add it per-component.
+
+## Spacing, borders, radii
+
+- Border radius: `0`, `2px`, or `3px`. Pills (`9999px`) only for dots/indicators.
+- Spacing scale is `0.125rem` / `0.25rem` / `0.375rem` / `0.5rem` / `0.625rem` / `0.75rem` / `1rem` / `1.25rem`. Don't introduce `1.5rem` or `2rem` just because it "feels airier" — the density is intentional.
+- Panel separators are 1px solid `var(--border)` / `var(--border-2)`. Do not use `box-shadow` for separation.
+
+## Motion
+
+- Transitions: `0.15s ease` on color / background / border. That's it.
+- Keyframe animations are centralized in `index.css` (`livep`, `ambpulse`, `shimmer`, `fire-sweep`, etc.). Reuse them; don't define component-local variants.
+- Never add page-entrance animations, staggered reveals, scroll-triggered effects, or bounce easings. This is a trading terminal, not a marketing page.
+- Respect `prefers-reduced-motion` for anything that loops (scanline drift, pulses).
+
+## Component patterns
+
+- All styling goes in `ComponentName.module.css` next to `ComponentName.tsx`. No `style={{...}}` except for values that are computed at runtime (bar widths from percentages, dynamic chart colors).
+- When adding a button, extend `shared/Button` rather than rolling a new one. If the existing Button doesn't fit the use case, say so in the PR and add a variant.
+- Tables use the `TokenTable` grid pattern: fixed pixel columns for symbols/metadata, `1fr` for the stretch column, right-aligned numeric columns with `justify-content: flex-end`.
+- Placeholders are centrally styled in `index.css`. Don't override with a component-local `::placeholder` rule.
+
+## Accessibility
+
+- Anything text-like must hit **WCAG AA (4.5:1)** against its background. `--txt-2` on `--bg` is ~5.8:1; `--txt-3` on `--bg` is ~3.6:1 (borderline — tertiary only, never body). If you put text on `--bg-2` or `--bg-3`, re-check.
+- Interactive hit targets are minimum `22px` tall. Smaller is a bug.
+- Focus rings must be visible. Don't `outline: none` without replacing it.
+
+## Quick checklist before shipping a UI change
+
+1. Reads from design tokens only? (no hex, no raw rgba)
+2. No new fonts, no radius > 4px, no new color hues?
+3. Numbers use `tabular-nums` and align in columns?
+4. Uppercase labels use a letter-spacing in the 0.08–0.14em range?
+5. Panel separators are 1px borders, not shadows?
+6. Transitions capped at 0.15s, no bounce?
+7. If text is on a non-`--bg` surface, contrast still passes AA?
