@@ -1,9 +1,8 @@
 import {
   MAX_TOKEN_NAME_LENGTH,
   MAX_TOKEN_SYMBOL_LENGTH,
-  MIN_TOKEN_NAME_LENGTH,
-  MIN_TOKEN_SYMBOL_LENGTH,
   buildTokenCreationMessage,
+  utf8ByteLength,
 } from "@launchpad/shared";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -20,14 +19,24 @@ import type { AppBindings } from "../../lib/types.js";
 
 const createTokenSchema = z.object({
   address: z.string().refine(isAddress, "Invalid address"),
+  // Byte-length checks match the on-chain `bytes(str).length` validation.
+  // Using `.min/.max` on zod would count UTF-16 code units, which diverges
+  // from Solidity for non-ASCII input (emoji, CJK) and could let the API
+  // accept a name that later reverts on-chain.
   name: z
     .string()
-    .min(MIN_TOKEN_NAME_LENGTH, "Name is required")
-    .max(MAX_TOKEN_NAME_LENGTH, `Name too long (max ${MAX_TOKEN_NAME_LENGTH} chars)`),
+    .refine((v) => utf8ByteLength(v) >= 1, "Name is required")
+    .refine(
+      (v) => utf8ByteLength(v) <= MAX_TOKEN_NAME_LENGTH,
+      `Name too long (max ${MAX_TOKEN_NAME_LENGTH} bytes)`,
+    ),
   ticker: z
     .string()
-    .min(MIN_TOKEN_SYMBOL_LENGTH, "Ticker is required")
-    .max(MAX_TOKEN_SYMBOL_LENGTH, `Ticker too long (max ${MAX_TOKEN_SYMBOL_LENGTH} chars)`),
+    .refine((v) => utf8ByteLength(v) >= 1, "Ticker is required")
+    .refine(
+      (v) => utf8ByteLength(v) <= MAX_TOKEN_SYMBOL_LENGTH,
+      `Ticker too long (max ${MAX_TOKEN_SYMBOL_LENGTH} bytes)`,
+    ),
   description: z.string().optional().default(""),
   imageUrl: z.string().optional().default(""),
   ltPair: z.string().refine(isAddress, "Invalid LT pair address"),

@@ -151,7 +151,7 @@ describe("POST /tokens — token creation", () => {
     expect(body.error).toContain("Invalid address");
   });
 
-  it("returns 400 when name is too long", async () => {
+  it("returns 400 when name is too long (byte length)", async () => {
     const app = createApp();
     const res = await app.request(
       "/tokens",
@@ -175,7 +175,7 @@ describe("POST /tokens — token creation", () => {
     expect(body.error).toContain("Name too long");
   });
 
-  it("returns 400 when ticker is too long", async () => {
+  it("returns 400 when ticker is too long (byte length)", async () => {
     const app = createApp();
     const res = await app.request(
       "/tokens",
@@ -186,6 +186,33 @@ describe("POST /tokens — token creation", () => {
           address: VALID_ADDRESS,
           name: "Test",
           ticker: "A".repeat(11),
+          ltPair: VALID_ADDRESS,
+          creator: VALID_CREATOR,
+          signature: "0xabc",
+        }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toContain("Ticker too long");
+  });
+
+  it("rejects multi-byte symbols that exceed the on-chain byte limit", async () => {
+    // 4 emojis = 16 UTF-8 bytes (> 10 byte ticker cap), but only 8 UTF-16
+    // code units, so a plain `.max(10)` on JS string length would let this
+    // through and it would revert on-chain.
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: VALID_ADDRESS,
+          name: "Test",
+          ticker: "🚀🚀🚀🚀",
           ltPair: VALID_ADDRESS,
           creator: VALID_CREATOR,
           signature: "0xabc",
