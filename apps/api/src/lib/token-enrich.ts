@@ -18,6 +18,34 @@ export type DbToken = typeof tokens.$inferSelect;
 export type TokenStatus = "curve" | "graduating" | "graduated";
 
 /**
+ * Convert a raw USDC amount (6dp fixed-point, as the indexer persists it)
+ * into a USD float.
+ *
+ * Naive `Number(BigInt(raw)) / 1e6` silently loses precision once `raw`
+ * exceeds `Number.MAX_SAFE_INTEGER` (= 2^53 − 1 ≈ 9.0e15), which for a 6dp
+ * USDC counter corresponds to ~$9 trillion of lifetime volume. That's well
+ * outside anything we'd realistically see, but `volumeUsd` is an
+ * ever-increasing lifetime counter, so defending against it is cheap
+ * insurance.
+ *
+ * We split the fixed-point value into a whole-dollar `bigint` and a
+ * sub-dollar remainder before casting, which pushes the precision ceiling
+ * to 2^53 *dollars* (~$9 quadrillion) — enough that the number will always
+ * fit long before the counter ever got there. The `remainder` branch is
+ * always < 1e6 and always safe.
+ *
+ * Returns `null` for null/undefined inputs so callers can distinguish
+ * "indexer said 0" from "indexer had no value to report".
+ */
+export function usdcRawToUsd(raw: string | null | undefined): number | null {
+  if (raw === null || raw === undefined) return null;
+  const raw6dp = BigInt(raw);
+  const dollars = raw6dp / 1_000_000n;
+  const micros = raw6dp % 1_000_000n;
+  return Number(dollars) + Number(micros) / 1e6;
+}
+
+/**
  * Compute curve-filled percentage (0–100) from the **virtual** `reserve0` that
  * the indexer persists (= `IFPair.getReserves()[0]` from `Bonding.Trade`).
  *
@@ -211,6 +239,14 @@ export interface EnrichedToken
    * distinguish the two (null == unknown, 0 == legitimately quiet).
    */
   volume24hUsd: number | null;
+  /**
+   * Lifetime gross USD routed through `LaunchpadRouter` for this token
+   * (buys + sells, never subtracts). Sourced from the indexer's running
+   * counter (`token.volumeUsd`), so it survives pagination truncation that
+   * can force `volume24hUsd` to null. `null` only when the indexer is
+   * completely unreachable; `0` for a token that has never traded.
+   */
+  totalVolumeUsd: number | null;
   /**
    * ISO timestamp of the most recent `LaunchpadRouter` trade for this token
    * within the 24h lookback window. `null` means either no trades in the

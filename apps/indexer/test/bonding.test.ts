@@ -408,10 +408,11 @@ describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
     db = createMockDb();
   });
 
-  it("bumps organicUsdcRaised on Buy", async () => {
+  it("bumps organicUsdcRaised and volumeUsd on Buy", async () => {
     db._setFindResult(token, { address: "0xtoken1" }, {
       address: "0xtoken1",
       organicUsdcRaised: 1_000_000n, // 1 USDC
+      volumeUsd: 4_000_000n, // 4 USDC lifetime so far
     });
 
     const handler = getHandler("LaunchpadRouter:Buy");
@@ -428,13 +429,17 @@ describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
 
     const tokenUpdate = db._updateCalls.find((c) => c.table === token);
     expect(tokenUpdate).toBeDefined();
-    expect(tokenUpdate!.values).toEqual({ organicUsdcRaised: 6_000_000n });
+    expect(tokenUpdate!.values).toEqual({
+      organicUsdcRaised: 6_000_000n,
+      volumeUsd: 9_000_000n,
+    });
   });
 
-  it("subtracts on Sell and floors at zero", async () => {
+  it("subtracts organicUsdcRaised on Sell (floored at zero) while volumeUsd still grows", async () => {
     db._setFindResult(token, { address: "0xtoken1" }, {
       address: "0xtoken1",
       organicUsdcRaised: 1_000_000n,
+      volumeUsd: 7_000_000n,
     });
 
     const handler = getHandler("LaunchpadRouter:Sell");
@@ -451,7 +456,10 @@ describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
 
     const tokenUpdate = db._updateCalls.find((c) => c.table === token);
     expect(tokenUpdate).toBeDefined();
-    expect(tokenUpdate!.values).toEqual({ organicUsdcRaised: 0n });
+    expect(tokenUpdate!.values).toEqual({
+      organicUsdcRaised: 0n,
+      volumeUsd: 10_000_000n,
+    });
   });
 
   it("skips the counter update when the token row is missing", async () => {

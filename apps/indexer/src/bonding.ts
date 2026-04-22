@@ -223,10 +223,15 @@ ponder.on("LaunchpadRouter:Buy", async ({ event, context }) => {
   // minus organic). We update unconditionally — if the LT rallied mid-buy and
   // graduation fires in the same tx, this event still represents real user
   // capital and should count toward the organic bucket.
+  //
+  // `volumeUsd` is a lifetime gross counter (both buys and sells add, never
+  // subtract) surfaced as `totalVolumeUsd` on the API — different semantics
+  // from the net `organicUsdcRaised`, so we bump both in the same write.
   const current = await db.find(token, { address: event.args.token });
   if (current) {
     await db.update(token, { address: event.args.token }).set({
       organicUsdcRaised: current.organicUsdcRaised + event.args.usdcIn,
+      volumeUsd: current.volumeUsd + event.args.usdcIn,
     });
   }
 });
@@ -253,11 +258,15 @@ ponder.on("LaunchpadRouter:Sell", async ({ event, context }) => {
   // bucket. Floor at zero: if a user sells more USDC than the cumulative buys
   // (e.g. post-graduation sells on a token with very thin curve history), we
   // don't want a negative organic number bleeding into the UI.
+  //
+  // `volumeUsd` tracks *gross* lifetime turnover (not net capital in), so a
+  // sell adds to it just like a buy does. Never floors.
   const current = await db.find(token, { address: event.args.token });
   if (current) {
     const next = current.organicUsdcRaised - event.args.usdcOut;
     await db.update(token, { address: event.args.token }).set({
       organicUsdcRaised: next > 0n ? next : 0n,
+      volumeUsd: current.volumeUsd + event.args.usdcOut,
     });
   }
 });

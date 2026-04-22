@@ -59,6 +59,7 @@ type token {
   bondingPair: String
   hyperswapPair: String
   organicUsdcRaised: BigInt!
+  volumeUsd: BigInt!
   blockNumber: BigInt!
   timestamp: BigInt!
 }
@@ -198,6 +199,14 @@ input tokenFilter {
   organicUsdcRaised_lt: BigInt
   organicUsdcRaised_gte: BigInt
   organicUsdcRaised_lte: BigInt
+  volumeUsd: BigInt
+  volumeUsd_not: BigInt
+  volumeUsd_in: [BigInt]
+  volumeUsd_not_in: [BigInt]
+  volumeUsd_gt: BigInt
+  volumeUsd_lt: BigInt
+  volumeUsd_gte: BigInt
+  volumeUsd_lte: BigInt
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]

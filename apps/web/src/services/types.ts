@@ -38,7 +38,18 @@ export interface Token {
    *  callers must treat null as "unknown" and render a dash, never 0. */
   curveFilled: number | null;
   curveRaisedUsd: number;
-  volume24h: number;
+  /**
+   * 24h USD trading volume (buys + sells through `LaunchpadRouter`). `null`
+   * while the indexer aggregation is degraded — render as `—`, never `$0`.
+   */
+  volume24h: number | null;
+  /**
+   * Lifetime gross USD traded through `LaunchpadRouter` for this token
+   * (buys + sells, never subtracts). Tracked as a running counter on the
+   * indexer so it survives pagination truncation. `null` only when the
+   * indexer is unreachable.
+   */
+  totalVolumeUsd: number | null;
   athUsd: number;
   /** Current price/mcap/24h change served by the API. Null while indexer or
    *  BounceTech is degraded — callers must treat null as "unknown", never 0. */
