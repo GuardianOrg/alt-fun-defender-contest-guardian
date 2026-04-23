@@ -10,6 +10,7 @@ import {
   type MarketDataItem,
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
+import { getGraduationThresholdUsd } from "../../lib/protocol-config.js";
 import {
   computeCurveFilled,
   computeCurveFilledBreakdown,
@@ -41,6 +42,7 @@ function enrich(
   dbToken: DbToken,
   onchain: PonderTokenOnchain | null | undefined,
   market: MarketDataItem | null | undefined,
+  graduationThresholdUsd: number,
 ): EnrichedToken {
   const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
   const curveSupply = onchain?.curveSupply ?? null;
@@ -53,6 +55,7 @@ function enrich(
     onchain?.organicUsdcRaised ?? null,
     market?.ltExchangeRate ?? null,
     graduated,
+    graduationThresholdUsd,
   );
   const curveFilled = breakdown.total ?? computeCurveFilled(curveSupply);
   const status = computeStatus(dbToken.status, graduated, curveFilled);
@@ -146,8 +149,14 @@ detailRoute.get("/:address", async (c) => {
   const onchain = marketResult.ok ? marketResult.data.token : null;
   const market = marketResult.ok ? marketResult.data.market : null;
 
+  const graduationThresholdUsd = await getGraduationThresholdUsd(
+    c.env.PONDER_URL,
+  );
   const response = c.json(
-    formatSuccess(enrich(dbToken, onchain, market), dataSource),
+    formatSuccess(
+      enrich(dbToken, onchain, market, graduationThresholdUsd),
+      dataSource,
+    ),
   );
 
   const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;

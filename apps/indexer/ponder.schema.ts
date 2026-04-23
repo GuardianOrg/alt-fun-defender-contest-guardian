@@ -150,6 +150,26 @@ export const tokenBalance = onchainTable("token_balance", (t) => ({
 }));
 
 /**
+ * Singleton row mirroring mutable Bonding owner-controlled parameters that
+ * the API + frontend need to read frequently. Currently just the graduation
+ * threshold; structured as a singleton (PK = `"global"`) so additional
+ * tunables can be added as columns without schema churn.
+ *
+ * Bootstrapped lazily: written on the first `Bonding:GraduationThresholdUpdated`
+ * event the indexer sees AND on the first `Bonding:TokenLaunched` (defensive
+ * — covers the case where no admin update has fired yet but the deployed
+ * contract is already trading at its initialise-time default). API reads
+ * fall back to the compile-time default (12_000) when the row is missing,
+ * so a fresh indexer is never load-bearing for the curve-filled progress bar.
+ */
+export const protocolConfig = onchainTable("protocol_config", (t) => ({
+  id: t.text().primaryKey(),
+  graduationThresholdUsd: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}));
+
+/**
  * Post-trade curve state, written on every Bonding:Trade. Used to look up a
  * token's curve ratio at a past timestamp for 24h change deltas. The LT
  * exchange rate at the same cutoff is fetched from BounceTech's `token_snapshots_v1`

@@ -10,8 +10,6 @@ const CURVE_ALLOCATION = (TOTAL_SUPPLY * 75n) / 100n;
  * See `packages/contracts/src/Bonding.sol` natspec on virtual reserves.
  */
 const LP_RESERVE_RAW = TOTAL_SUPPLY - CURVE_ALLOCATION;
-/** USD trigger for graduation (matches `Bonding.GRADUATION_THRESHOLD_USD`). */
-const GRADUATION_THRESHOLD_USD = 12_000;
 
 export type DbToken = typeof tokens.$inferSelect;
 
@@ -91,9 +89,12 @@ export interface CurveFilledBreakdown {
 
 /**
  * Decompose the graduation progress bar into "organic USD raised" vs "LT
- * price appreciation". Both are percentages of the $12K USD graduation
- * threshold and always sum to ≤ `total`. Used by the tokens list + detail
- * endpoints to power the split progress bar on the landing page.
+ * price appreciation". Both are percentages of the live USD graduation
+ * threshold (owner-tunable via `Bonding.setGraduationThresholdUsd` — read by
+ * the route handler from `protocol-config.getGraduationThresholdUsd` and
+ * threaded in here as `graduationThresholdUsd`) and always sum to ≤ `total`.
+ * Used by the tokens list + detail endpoints to power the split progress bar
+ * on the landing page.
  *
  * The `total` we return is `max(supplyFilled, usdFilled)` — whichever trigger
  * is closer to firing — since graduation happens on whichever hits first. For
@@ -105,7 +106,7 @@ export interface CurveFilledBreakdown {
  * **virtual** reserves (what the constant-product math uses, needed unmodified
  * for chart pricing). For USD raised we need the **real** LT balance that
  * matches `IFPair.assetBalance()` on-chain — i.e. what `Bonding.canGraduate`
- * compares against the $12K threshold. We recover it by subtracting the
+ * compares against `graduationThresholdUsd`. We recover it by subtracting the
  * launch-time virtual LT reserve (`virtualLtAtLaunch = k / TOTAL_SUPPLY`)
  * from the current virtual `reserve1`. Without `k` we can't do that subtraction
  * and would overcount by the initial $4K virtual liquidity, so we degrade
@@ -118,6 +119,7 @@ export function computeCurveFilledBreakdown(
   organicUsdcRaisedRaw: string | null | undefined,
   ltExchangeRate: number | null | undefined,
   graduated: boolean,
+  graduationThresholdUsd: number,
 ): CurveFilledBreakdown {
   const supplyFilled = computeCurveFilled(curveSupplyRaw);
 
@@ -158,7 +160,7 @@ export function computeCurveFilledBreakdown(
       : 0n;
   const realLt = Number(realLtRaw) / 1e18;
   const usdRaisedNow = realLt * ltExchangeRate;
-  const usdFilled = (usdRaisedNow / GRADUATION_THRESHOLD_USD) * 100;
+  const usdFilled = (usdRaisedNow / graduationThresholdUsd) * 100;
 
   const total = Math.min(Math.max(supplyFilled, usdFilled), 100);
 
@@ -171,7 +173,7 @@ export function computeCurveFilledBreakdown(
   }
 
   const organicUsd = Number(BigInt(organicUsdcRaisedRaw)) / 1e6;
-  const organicPct = (organicUsd / GRADUATION_THRESHOLD_USD) * 100;
+  const organicPct = (organicUsd / graduationThresholdUsd) * 100;
 
   const organic = Math.min(Math.max(organicPct, 0), total);
   const leverageBoost = Math.max(total - organic, 0);
@@ -207,15 +209,17 @@ export interface EnrichedToken
   ltReserve: string | null;
   curveFilled: number | null;
   /**
-   * Percent of the $12K graduation threshold that came from organic USDC
-   * buys (clamped at `curveFilled`). `null` when the indexer/BounceTech are
-   * degraded or the token is graduated.
+   * Percent of the live USD graduation threshold (owner-tunable —
+   * `Bonding.graduationThresholdUsd`, defaults to $12K) that came from
+   * organic USDC buys (clamped at `curveFilled`). `null` when the
+   * indexer/BounceTech are degraded or the token is graduated.
    */
   curveFilledOrganic: number | null;
   /**
-   * Percent of the $12K graduation threshold that came from LT price
-   * appreciation since those buys. `null` when unknown, clamped at 0 when
-   * the LT has dropped (marketing number — we don't surface a negative
+   * Percent of the live USD graduation threshold (owner-tunable —
+   * `Bonding.graduationThresholdUsd`, defaults to $12K) that came from LT
+   * price appreciation since those buys. `null` when unknown, clamped at 0
+   * when the LT has dropped (marketing number — we don't surface a negative
    * contribution).
    */
   curveFilledLeverageBoost: number | null;

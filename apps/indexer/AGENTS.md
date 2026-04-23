@@ -6,9 +6,10 @@ Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap
 
 | Event | Contract |
 |---|---|
-| `TokenLaunched` | Bonding |
+| `TokenLaunched` | Bonding — also defensively bootstraps the `protocolConfig` singleton on first sight |
 | `Trade` | Bonding (unified buy/sell with `isBuy` flag) |
 | `TokenGraduated` | Bonding — includes `tokensInLP`, `lpBurned`, `unsoldBurned` (dynamic LP seeding outputs, see `packages/contracts/AGENTS.md`) |
+| `GraduationThresholdUpdated` | Bonding — owner tweaked `graduationThresholdUsd`; upserts the `protocolConfig` singleton |
 | `CreatorFeesClaimed` | Bonding |
 | `ProtocolFeesClaimed` | Bonding |
 | `Buy` | LaunchpadRouter — also bumps `token.organicUsdcRaised` and `token.volumeUsd` |
@@ -25,10 +26,21 @@ Powers the "organic buys vs LT price appreciation" split on the landing-page pro
 The API (`apps/api/src/lib/token-enrich.ts`) reads this alongside the current `ltReserve × exchangeRate` value and derives:
 
 - `curveFilled` = `max(supplyFilled, usdFilled)` (whichever trigger is closer to firing).
-- `curveFilledOrganic` = `min(organicUsdcRaised / $12K × 100, curveFilled)`.
+- `curveFilledOrganic` = `min(organicUsdcRaised / graduationThresholdUsd × 100, curveFilled)`.
 - `curveFilledLeverageBoost` = `max(curveFilled − curveFilledOrganic, 0)` — never surface a negative boost (product decision: this is a marketing number, not an accounting figure).
 
+`graduationThresholdUsd` is read from the `protocolConfig` singleton (see below). The API caches it per-isolate for 60s and falls back to the compile-time `12_000` if the row is missing — so an indexer outage just means the curve bar uses the launch-time default, not "unknown".
+
 When you modify `LaunchpadRouter.Buy`/`Sell` handlers, **also keep the organic counter in sync**. The test suite in `apps/indexer/test/bonding.test.ts` asserts both the `routerTrade` insert and the counter bump.
+
+### Protocol config singleton (`protocolConfig`)
+
+Mirror of owner-tunable `Bonding` parameters. Currently a single column (`graduationThresholdUsd`, 18-dp wei); structured as a singleton row keyed `id = "global"` so additional tunables can be added without schema churn. Two write paths:
+
+- `Bonding:GraduationThresholdUpdated` handler: `onConflictDoUpdate` — admin tweaks always overwrite.
+- `Bonding:TokenLaunched` handler: `onConflictDoNothing` — defensive bootstrap to seed the row on a fresh indexer DB pointed at a freshly-deployed contract that hasn't yet emitted a threshold update. **Must stay no-op-on-conflict** so a subsequent launch doesn't clobber a real admin tweak.
+
+Consumers (the API) treat a missing row as "use the compile-time default" rather than "unknown", which keeps the curve-filled progress bar populated during indexer outages and on cold starts before the bootstrap fires.
 
 ### Lifetime trading volume (`token.volumeUsd`)
 

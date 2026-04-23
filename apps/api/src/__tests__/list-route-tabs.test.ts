@@ -69,6 +69,14 @@ vi.mock("../lib/market-data.js", () => ({
   buildBatchFromTokens: mockBuildBatchFromTokens,
 }));
 
+// Stub the threshold lookup so tests don't fan out to a non-existent
+// indexer (which would hang the per-test 5s deadline). Routes are agnostic
+// to the value — we just need the call to resolve quickly with a number.
+vi.mock("../lib/protocol-config.js", () => ({
+  getGraduationThresholdUsd: vi.fn(async () => 12_000),
+  _resetGraduationThresholdCache: vi.fn(),
+}));
+
 vi.stubGlobal("caches", undefined);
 
 const { default: listRoute } = await import("../routes/tokens/list.js");

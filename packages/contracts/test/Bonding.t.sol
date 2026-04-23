@@ -770,4 +770,103 @@ contract BondingTest is DeployHelper {
         assertEq(bonding.maxTx(), 50);
         assertEq(bonding.feeTo(), trader);
     }
+
+    // ─── Graduation Threshold Admin Tests ────────────────────────────────
+
+    function test_setGraduationThresholdUsd_initialisesToDefault() public view {
+        assertEq(bonding.graduationThresholdUsd(), bonding.DEFAULT_GRADUATION_THRESHOLD_USD());
+        assertEq(bonding.graduationThresholdUsd(), 12_000 ether);
+    }
+
+    function test_setGraduationThresholdUsd_onlyOwner() public {
+        vm.prank(trader);
+        vm.expectRevert();
+        bonding.setGraduationThresholdUsd(20_000 ether);
+    }
+
+    function test_setGraduationThresholdUsd_updatesValue() public {
+        bonding.setGraduationThresholdUsd(20_000 ether);
+        assertEq(bonding.graduationThresholdUsd(), 20_000 ether);
+    }
+
+    function test_setGraduationThresholdUsd_emitsEvent() public {
+        uint256 oldValue = bonding.graduationThresholdUsd();
+        vm.expectEmit(false, false, false, true);
+        emit Bonding.GraduationThresholdUpdated(oldValue, 25_000 ether);
+        bonding.setGraduationThresholdUsd(25_000 ether);
+    }
+
+    function test_setGraduationThresholdUsd_revertsBelowFloor() public {
+        // Floor pegged to VIRTUAL_LIQUIDITY_USD ($4K) — anything below would
+        // let an admin pre-graduate freshly-launched curves.
+        // Cache the floor before `vm.expectRevert` so it isn't the
+        // intercepted "next call".
+        uint256 floor = bonding.MIN_GRADUATION_THRESHOLD_USD();
+        vm.expectRevert(Bonding.InvalidThreshold.selector);
+        bonding.setGraduationThresholdUsd(floor - 1);
+    }
+
+    function test_setGraduationThresholdUsd_acceptsExactFloor() public {
+        uint256 floor = bonding.MIN_GRADUATION_THRESHOLD_USD();
+        bonding.setGraduationThresholdUsd(floor);
+        assertEq(bonding.graduationThresholdUsd(), floor);
+    }
+
+    function test_setGraduationThresholdUsd_revertsAboveCeiling() public {
+        uint256 ceiling = bonding.MAX_GRADUATION_THRESHOLD_USD();
+        vm.expectRevert(Bonding.InvalidThreshold.selector);
+        bonding.setGraduationThresholdUsd(ceiling + 1);
+    }
+
+    function test_setGraduationThresholdUsd_acceptsExactCeiling() public {
+        uint256 ceiling = bonding.MAX_GRADUATION_THRESHOLD_USD();
+        bonding.setGraduationThresholdUsd(ceiling);
+        assertEq(bonding.graduationThresholdUsd(), ceiling);
+    }
+
+    /// @notice Lowering the threshold mid-flight makes a token whose real LT
+    ///         reserve already exceeds the new value graduate on its next
+    ///         trade. This is the explicit design choice (see `Bonding.sol`
+    ///         natspec on `graduationThresholdUsd`) — the simplest semantic
+    ///         for an admin tuning the dial. Verified by parking a token at
+    ///         ~$8K of value and dropping the threshold to $5K.
+    function test_loweringThreshold_graduatesOnNextTrade() public {
+        (address tokenAddr,) = _launchToken();
+
+        // Park real LT reserve at ~$7K (well below the $12K default but
+        // comfortably above the $5K threshold we'll lower to). Note `_buyTokens`
+        // gross-input gets 0.5% taxed before settling, so we buy a bit more
+        // than the target net.
+        _buyTokens(tokenAddr, trader, 7000 ether);
+        assertFalse(bonding.canGraduate(tokenAddr), "Should not be graduatable at default $12K threshold");
+
+        // Lower threshold below current value → next-trade graduation arms.
+        bonding.setGraduationThresholdUsd(5000 ether);
+        assertTrue(bonding.canGraduate(tokenAddr), "Lowering the threshold below current value arms graduation");
+
+        // The next buy — even a tiny one — actually fires `_graduate`.
+        _buyTokens(tokenAddr, trader2, 50 ether);
+        assertTrue(bonding.isGraduated(tokenAddr), "Next trade after lowering threshold should graduate");
+    }
+
+    /// @notice Raising the threshold above a token's current real LT value
+    ///         disarms graduation — the token continues trading, no funds
+    ///         at risk, just needs more buys. Mirror of the lowering test.
+    function test_raisingThreshold_defersGraduation() public {
+        (address tokenAddr,) = _launchToken();
+
+        // Get the token close to graduating: real LT * rate above default
+        // $12K but below a hypothetical $30K.
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether); // ~$15K of LT value, would graduate
+        assertTrue(bonding.canGraduate(tokenAddr), "Should be at-threshold under default $12K");
+
+        // Owner raises the bar — graduation disarms.
+        bonding.setGraduationThresholdUsd(30_000 ether);
+        assertFalse(bonding.canGraduate(tokenAddr), "Raising above current value should disarm graduation");
+
+        // Confirm the next buy doesn't fire graduation.
+        _buyTokens(tokenAddr, trader2, 100 ether);
+        assertFalse(bonding.isGraduated(tokenAddr), "Token should still be trading after a buy under the higher bar");
+    }
 }

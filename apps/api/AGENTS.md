@@ -29,6 +29,16 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 
+### Graduation threshold (mutable, read from indexer)
+
+`computeCurveFilledBreakdown` takes `graduationThresholdUsd` as a required arg — it's the denominator for the USD trigger. Route handlers read it via `getGraduationThresholdUsd(env.PONDER_URL)` in `src/lib/protocol-config.ts`, which:
+
+- Queries the indexer's `protocolConfig(id: "global")` row over GraphQL.
+- Caches the result per Worker isolate for 60s — threshold changes are extremely rare and stale-by-60s is fine for a marketing %.
+- Falls back to the compile-time `DEFAULT_GRADUATION_THRESHOLD_USD` (`12_000`) from `@launchpad/shared` if the indexer is unreachable or the row is missing — keeps the curve bar visible during indexer outages and on cold isolates before the bootstrap fires.
+
+**Don't hardcode `12_000` in enrichment logic.** Threading the threshold through `computeCurveFilledBreakdown` keeps the function pure / unit-testable; the I/O lives in the route handler.
+
 ### Virtual vs real reserves (important)
 
 The indexer persists `curveSupply` and `ltReserve` verbatim from `Bonding.Trade.newCurveSupply` / `newLtReserve`, which are the **virtual AMM reserves** (`IFPair.getReserves()`). These are the right values for chart pricing (`ratio = reserve1 / reserve0` *is* the on-curve price) but are **not** the real token/LT balances in the pair:

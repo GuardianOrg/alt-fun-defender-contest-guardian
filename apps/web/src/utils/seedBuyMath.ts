@@ -21,7 +21,6 @@ const CURVE_BPS = 7500;
 const BPS_DENOM = 10_000;
 const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real sellable cap
 const VIRTUAL_LIQUIDITY_USD = 4_000;
-const GRADUATION_THRESHOLD_USD = 12_000;
 const BUY_FEE_BPS = 50; // 0.5%
 
 export interface SeedBuyStats {
@@ -38,8 +37,17 @@ export interface SeedBuyStats {
  *                  (then clamped to curveSupply — on-chain `FRouter.buy` caps at real balance)
  *   supplyPct    = tokensOut / totalSupply × 100
  *   curveFilled  = usdcAfterFee / graduationThreshold × 100
+ *
+ * `graduationThresholdUsd` is the live owner-tunable
+ * `Bonding.graduationThresholdUsd` (read via `useGraduationThreshold`) — pass
+ * the hook's `fallback` while loading so the preview renders something
+ * sensible instead of `Infinity` (which would surface as `0%` in the UI but
+ * NaN-poison any downstream math).
  */
-export function seedBuyStats(usdcAmount: number): SeedBuyStats {
+export function seedBuyStats(
+  usdcAmount: number,
+  graduationThresholdUsd: number,
+): SeedBuyStats {
   if (!Number.isFinite(usdcAmount) || usdcAmount <= 0) {
     return { tokensReceived: 0, supplyPct: 0, curveFilled: 0 };
   }
@@ -49,7 +57,10 @@ export function seedBuyStats(usdcAmount: number): SeedBuyStats {
     (TOTAL_SUPPLY * usdcAfterFee) / (VIRTUAL_LIQUIDITY_USD + usdcAfterFee);
   const tokensReceived = Math.min(rawTokens, CURVE_SUPPLY);
   const supplyPct = (tokensReceived / TOTAL_SUPPLY) * 100;
-  const curveFilled = (usdcAfterFee / GRADUATION_THRESHOLD_USD) * 100;
+  const curveFilled =
+    graduationThresholdUsd > 0
+      ? (usdcAfterFee / graduationThresholdUsd) * 100
+      : 0;
 
   return { tokensReceived, supplyPct, curveFilled };
 }

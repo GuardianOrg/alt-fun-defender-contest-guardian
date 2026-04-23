@@ -26,7 +26,8 @@ import {LPLock} from "./LPLock.sol";
 ///      sellable supply at 750M and pins the post-sellout virtual reserve at 250M
 ///      (= `LP_RESERVE`). This gives:
 ///        • A deterministic "supply trigger" (all curve tokens sold).
-///        • A USD trigger at `raisedLT * exchangeRate ≥ $12K`.
+///        • A USD trigger at `raisedLT * exchangeRate ≥ graduationThresholdUsd`
+///          (defaults to $12K, mutable by the owner via `setGraduationThresholdUsd`).
 ///        • An invariant that `tokensForLP(sold) = sold·(S-sold)/S ≤ S/4 = LP_RESERVE`.
 ///
 ///      Upon graduation, the LP pool is seeded with exactly the tokens needed to match
@@ -57,8 +58,26 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      Since virtual reserve0 = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 4000 ether;
 
-    /// @dev Graduation fires when real LT reserve * exchangeRate >= this value (18-decimal USD)
-    uint256 public constant GRADUATION_THRESHOLD_USD = 12_000 ether;
+    /// @dev Default graduation threshold seeded at deploy / upgrade. Mutable
+    ///      via `setGraduationThresholdUsd`. See `graduationThresholdUsd`.
+    uint256 public constant DEFAULT_GRADUATION_THRESHOLD_USD = 12_000 ether;
+
+    /// @dev Lower bound on `graduationThresholdUsd`. Pegged to the opening
+    ///      virtual liquidity so a freshly-launched curve can never be
+    ///      pre-graduated by an admin setting an absurdly low threshold.
+    uint256 public constant MIN_GRADUATION_THRESHOLD_USD = VIRTUAL_LIQUIDITY_USD;
+
+    /// @dev Upper bound on `graduationThresholdUsd`. Defensive against fat-finger
+    ///      input — well above any realistic launchpad threshold.
+    uint256 public constant MAX_GRADUATION_THRESHOLD_USD = 1_000_000 ether;
+
+    /// @dev Graduation fires when real LT reserve * exchangeRate >= this value
+    ///      (18-decimal USD). Globally applied — a change re-scores every
+    ///      currently-trading token on its next `buy`/`sell`. This is
+    ///      deliberate: lowering the dial mid-flight is the *only* way to
+    ///      affect the long tail of stale tokens. Bounded by
+    ///      `MIN_GRADUATION_THRESHOLD_USD` / `MAX_GRADUATION_THRESHOLD_USD`.
+    uint256 public graduationThresholdUsd;
 
     /// @dev Curve gets 75% of supply (real tokens transferred to pair), 25% reserved for LP
     uint256 public constant CURVE_BPS = 7500;
@@ -144,6 +163,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
+    event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
 
     error TokenNotTrading();
     error ZeroAddress();
@@ -160,6 +180,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error PairLookupFailed();
     error InvalidNameLength();
     error InvalidTickerLength();
+    error InvalidThreshold();
 
     modifier onlyRouter() {
         if (!_routers.contains(msg.sender)) revert NotRouter();
@@ -186,6 +207,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         maxTx = maxTx_;
         hyperswapRouter = hyperswapRouter_;
         lpLock = lpLock_;
+        graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
+    }
+
+    /// @notice Re-initializer for the v2 upgrade that introduces a mutable
+    ///         graduation threshold. Seeds `graduationThresholdUsd` to the
+    ///         pre-upgrade compile-time value so behaviour is bit-identical
+    ///         until the owner explicitly tunes it. Idempotent: `reinitializer(2)`
+    ///         can only run once across the proxy's lifetime.
+    function reinitV2() external reinitializer(2) {
+        graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
     }
 
     // ─── Launch ──────────────────────────────────────────────────────────
@@ -391,7 +422,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     /// @notice Dual-trigger graduation check.
-    ///         USD trigger: real LT reserve * exchangeRate >= $12K.
+    ///         USD trigger: real LT reserve * exchangeRate >= `graduationThresholdUsd`.
     ///         Supply trigger: all curve tokens sold (pair real token balance == 0).
     function canGraduate(
         address token_
@@ -407,7 +438,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 realLtBalance = IFPair(pair).assetBalance();
         uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
         uint256 valueUsd = (realLtBalance * exchangeRate) / 1e18;
-        return valueUsd >= GRADUATION_THRESHOLD_USD;
+        return valueUsd >= graduationThresholdUsd;
     }
 
     // ─── Creator Fees ────────────────────────────────────────────────────
@@ -460,6 +491,24 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external onlyOwner {
         hyperswapRouter = newRouter;
         lpLock = newLpLock;
+    }
+
+    /// @notice Update the global graduation threshold (18-dp USD).
+    /// @dev Applies to ALL currently-trading tokens — the new value is read
+    ///      on the next `buy`/`sell` via `canGraduate`. Tokens whose real LT
+    ///      reserve already values above the new threshold will graduate on
+    ///      their next trade. Bounded by `MIN_GRADUATION_THRESHOLD_USD` (so
+    ///      a freshly-launched curve can't be pre-graduated) and
+    ///      `MAX_GRADUATION_THRESHOLD_USD` (defensive fat-finger guard).
+    function setGraduationThresholdUsd(
+        uint256 newValue
+    ) external onlyOwner {
+        if (newValue < MIN_GRADUATION_THRESHOLD_USD || newValue > MAX_GRADUATION_THRESHOLD_USD) {
+            revert InvalidThreshold();
+        }
+        uint256 old = graduationThresholdUsd;
+        graduationThresholdUsd = newValue;
+        emit GraduationThresholdUpdated(old, newValue);
     }
 
     /// @notice Authorise a router to call `launch`, `buy`, and `sell`. Multiple
