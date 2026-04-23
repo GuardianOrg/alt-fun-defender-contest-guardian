@@ -148,13 +148,14 @@ export default function TradePanel({ token }: Props) {
     }
   }, [step, reset, loadBalance]);
 
-  const isBusy = step === "approving" || step === "executing";
+  const isBusy = step === "approving" || step === "signing" || step === "executing";
 
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
     if (belowMinimum) return `MINIMUM $${MIN_USDC_BUY_AMOUNT} USDC`;
     if (sellBelowMinimum) return `MINIMUM $${MIN_USDC_SELL_AMOUNT} USDC`;
     if (sellExceedsBuffer) return "EXCEEDS AVAILABLE LIQUIDITY";
+    if (step === "signing") return "SIGN IN WALLET…";
     if (step === "approving") return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
     if (step === "confirmed") return "CONFIRMED";
@@ -330,11 +331,13 @@ export default function TradePanel({ token }: Props) {
         {isBusy && (
           <div className={styles.busyHint}>
             <div className={styles.liveDot} />
-            {step === "approving"
-              ? mode === "sell"
-                ? "Waiting for token approval in wallet…"
-                : "Waiting for USDC approval in wallet…"
-              : "Confirm transaction in wallet…"}
+            {step === "signing"
+              ? "Sign the permit in your wallet…"
+              : step === "approving"
+                ? mode === "sell"
+                  ? "Waiting for token approval in wallet…"
+                  : "Waiting for USDC approval in wallet…"
+                : "Confirm transaction in wallet…"}
           </div>
         )}
       </div>

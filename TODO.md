@@ -2,7 +2,6 @@
 
 # TODO
 
-- Can we improve the Approving UX? Infinite approve the USDC, and some permit stuff for the memecoins?
 - Is Router the right term?
 - Ability to change graduation threshold (what happens with existing tokens?)
 - Charge fees only in the router, and then only in USDC

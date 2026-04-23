@@ -11,7 +11,7 @@ const publicClient = createPublicClient({
   transport: http(HYPER_EVM_RPC),
 });
 
-export type TransactionStep = "idle" | "approving" | "confirmed" | "error";
+export type TransactionStep = "idle" | "approving" | "signing" | "confirmed" | "error";
 export type TxStep = TransactionStep | "executing";
 export type LaunchStep = TransactionStep | "deploying";
 
