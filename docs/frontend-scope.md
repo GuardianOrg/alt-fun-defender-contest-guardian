@@ -66,7 +66,7 @@ Two-column: left (form) | right (live preview card).
 
 **Balances tab:** total portfolio value, list of held tokens (icon, name, amount, USD value, 24h change). Data: `GET /portfolio/:wallet`.
 
-**Creator Rewards tab:** single claimable USDC figure + claim button (`FeeVault.claim()`). Balance is pooled across every token the creator has launched. Per-token `earned` column is sourced from `GET /api/v1/tokens/:address/earnings` (indexer-backed aggregation of `FeeVault.FeeAccrued` events).
+**Creator Rewards tab:** single claimable USDC figure + claim button (`FeeVault.claim()`). Balance is pooled across every token the creator has launched. Per-token `earned` column is sourced from `ApiToken.creatorFeesUsd`, a running counter on the indexer's `token` row bumped on every `FeeVault:FeeAccrued` event (no per-token API round-trip).
 
 ---
 

@@ -34,6 +34,21 @@ export const token = onchainTable("token", (t) => ({
    * graduation-progress split.
    */
   volumeUsd: t.bigint().notNull().default(0n),
+  /**
+   * Cumulative USDC (6dp) accrued to this token's creator via
+   * `FeeVault:FeeAccrued` (curve + post-grad, never subtracts on claim —
+   * this is "earned per token" not "currently claimable"). Surfaced on
+   * `ApiToken.creatorFeesUsd` for the Rewards-tab "earned" column. The
+   * vault doesn't itself attribute balances back to individual tokens,
+   * so the indexer is the only place this per-token decomposition lives.
+   */
+  creatorFeesUsd: t.bigint().notNull().default(0n),
+  /**
+   * Mirror counter for the protocol cut. Same lifetime semantics as
+   * `creatorFeesUsd` (never decreases on protocol claim). Surfaced for
+   * symmetry with the admin dashboard.
+   */
+  protocolFeesUsd: t.bigint().notNull().default(0n),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({

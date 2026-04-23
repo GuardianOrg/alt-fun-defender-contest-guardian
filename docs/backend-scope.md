@@ -11,7 +11,7 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 | `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k`, `index` |
 | `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
 | `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
-| `FeeAccrued` | FeeVault | `token`, `creator`, `creatorAmount`, `protocolAmount`, `isBuy` — drives `feeAccrual` table, revenue dashboard, per-token earnings |
+| `FeeAccrued` | FeeVault | `token`, `creator`, `creatorAmount`, `protocolAmount`, `isBuy` — appends to `feeAccrual` for the daily revenue dashboard AND bumps running `creatorFeesUsd` / `protocolFeesUsd` counters on the `token` row for per-token earnings |
 | `CreatorFeesClaimed` | FeeVault | `creator`, `amount` (USDC) |
 | `ProtocolFeesClaimed` | FeeVault | `feeTo`, `amount` (USDC) |
 | `Buy` | LaunchpadRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
@@ -54,8 +54,7 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 
 | Endpoint | Description |
 |---|---|
-| `GET /creator/:wallet` | All tokens launched + aggregate stats (volume, fees earned, fees claimable). Claimable is a single pooled USDC figure sourced from `FeeVault.creatorBalance(wallet)`. |
-| `GET /tokens/:address/earnings` | Per-token USDC fee accrual totals (creator + protocol). Backed by the `feeAccrual` indexer table. |
+| `GET /creator/:wallet` | All tokens launched + aggregate stats (volume, fees earned, fees claimable). Claimable is a single pooled USDC figure sourced from `FeeVault.creatorBalance(wallet)`. Per-token `creatorFeesUsd` rides along on the existing `/tokens` response — sourced from a running counter on the indexer's `token` row, bumped on every `FeeVault:FeeAccrued`. |
 | `GET /portfolio/:wallet` | Token holdings with current USD values. Only Alt Fun tokens. |
 | `GET /stats` | Platform-wide: `tokensLive`, `tokensGraduating`, `tokensGraduated`, `volume24h`. |
 | `GET /assets` | Underlying asset prices + LT exchange rates for all supported pairs. |

@@ -1,6 +1,6 @@
 import { ponder } from "ponder:registry";
 
-import { feeAccrual, feeClaim } from "ponder:schema";
+import { feeAccrual, feeClaim, token } from "ponder:schema";
 
 ponder.on("FeeVault:FeeAccrued", async ({ event, context }) => {
   const { db } = context;
@@ -19,6 +19,21 @@ ponder.on("FeeVault:FeeAccrued", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoNothing();
+
+  // Bump the per-token lifetime fee counters so the API can serve
+  // `ApiToken.creatorFeesUsd` / `protocolFeesUsd` in O(1) without
+  // paginating every accrual for the token. Mirrors the
+  // `volumeUsd` / `organicUsdcRaised` pattern in `bonding.ts`. Defensive
+  // skip when the token row is missing (shouldn't happen — the router
+  // can only fire `FeeAccrued` for tokens registered via Bonding — but
+  // protects against handler ordering quirks during a backfill).
+  const current = await db.find(token, { address: event.args.token });
+  if (current) {
+    await db.update(token, { address: event.args.token }).set({
+      creatorFeesUsd: current.creatorFeesUsd + event.args.creatorAmount,
+      protocolFeesUsd: current.protocolFeesUsd + event.args.protocolAmount,
+    });
+  }
 });
 
 ponder.on("FeeVault:CreatorFeesClaimed", async ({ event, context }) => {

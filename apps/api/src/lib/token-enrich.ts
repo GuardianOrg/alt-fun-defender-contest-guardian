@@ -252,6 +252,20 @@ export interface EnrichedToken
    */
   totalVolumeUsd: number | null;
   /**
+   * Lifetime USD accrued to this token's creator via `FeeVault:FeeAccrued`.
+   * Sourced from a running counter on the indexer's `token` row — collapses
+   * what was previously a per-token paginated GraphQL fetch (one round-trip
+   * per token shown on the Rewards tab) into a single column on the existing
+   * tokens response. `null` when the indexer is unreachable; `0` for a
+   * token that has never accrued fees. Lifetime, never resets on claim.
+   */
+  creatorFeesUsd: number | null;
+  /**
+   * Mirror of `creatorFeesUsd` for the protocol cut. Same lifetime
+   * semantics. Surfaced for symmetry with the admin dashboard.
+   */
+  protocolFeesUsd: number | null;
+  /**
    * ISO timestamp of the most recent `LaunchpadRouter` trade for this token
    * within the 24h lookback window. `null` means either no trades in the
    * window or indexer unavailable — use in conjunction with

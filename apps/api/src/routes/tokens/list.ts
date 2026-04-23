@@ -110,6 +110,11 @@ function enrich(
     // matches the documented "row exists ⇒ 0, not null" semantics.
     totalVolumeUsd:
       onchain == null ? null : (usdcRawToUsd(onchain.volumeUsd) ?? 0),
+    // Same null-vs-zero semantics as `totalVolumeUsd` — see comment above.
+    creatorFeesUsd:
+      onchain == null ? null : (usdcRawToUsd(onchain.creatorFeesUsd) ?? 0),
+    protocolFeesUsd:
+      onchain == null ? null : (usdcRawToUsd(onchain.protocolFeesUsd) ?? 0),
     lastTradeAt,
   };
 }

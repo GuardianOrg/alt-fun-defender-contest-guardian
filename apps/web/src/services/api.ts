@@ -90,6 +90,20 @@ export interface ApiToken {
    * `0` when the token has never traded.
    */
   totalVolumeUsd?: number | null;
+  /**
+   * Lifetime USD accrued to this token's creator via `FeeVault:FeeAccrued`.
+   * Lifetime counter — never decreases on claim. Sourced from a running
+   * counter on the indexer's `token` row, so the Rewards tab can show
+   * per-token earned figures in O(1) without a per-token round-trip.
+   * `null` when the indexer is unreachable; `0` when the token has never
+   * accrued fees.
+   */
+  creatorFeesUsd?: number | null;
+  /**
+   * Mirror of `creatorFeesUsd` for the protocol cut. Same lifetime
+   * semantics. Surfaced for symmetry with the admin dashboard.
+   */
+  protocolFeesUsd?: number | null;
   lastTradeAt?: string | null;
   poolAddress?: string | null;
 }
@@ -132,22 +146,6 @@ export function fetchTokens(
 
 export function fetchToken(address: string): Promise<ApiToken> {
   return apiFetch(`/api/v1/tokens/${address}`);
-}
-
-/** Fee-accrual totals for a single token, served by `/tokens/:address/earnings`. */
-export interface ApiTokenEarnings {
-  tokenAddress: string;
-  creatorFeesUsd: number;
-  protocolFeesUsd: number;
-  totalFeesUsd: number;
-  accrualCount: number;
-  truncated: boolean;
-}
-
-export function fetchTokenEarnings(
-  address: string,
-): Promise<ApiTokenEarnings> {
-  return apiFetch(`/api/v1/tokens/${address}/earnings`);
 }
 
 export function searchTokens(query: string): Promise<ApiToken[]> {

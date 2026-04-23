@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { createPonderPaginatedQuery } from "../../lib/ponder-client.js";
+import { usdcRawToUsd } from "../../lib/token-enrich.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
@@ -101,9 +102,12 @@ analytics.get("/volume", async (c) => {
     dayMicroMap.set(day, (dayMicroMap.get(day) ?? 0n) + BigInt(t.usdcAmount));
   }
 
+  // `usdcRawToUsd` splits the bigint into whole-dollar + sub-dollar halves
+  // before casting to Number, pushing the precision ceiling well past
+  // anything we'd see in a single day's USDC volume.
   const dayMap = new Map<string, number>();
   for (const [day, microUsdc] of dayMicroMap) {
-    dayMap.set(day, Number(microUsdc) / 1e6);
+    dayMap.set(day, usdcRawToUsd(microUsdc.toString()) ?? 0);
   }
 
   return c.json(formatSuccess({ series: buildDaySeries(dayMap, days), truncated }));
@@ -226,14 +230,16 @@ analytics.get("/revenue", async (c) => {
     }
   }
 
-  // USDC has 6 decimal places.
+  // `usdcRawToUsd` splits the bigint into whole-dollar + sub-dollar halves
+  // before casting to Number, pushing the precision ceiling well past
+  // anything we'd see in a single day's fee revenue.
   const protocolDayMap = new Map<string, number>();
   for (const [day, raw] of protocolDayRaw) {
-    protocolDayMap.set(day, Number(raw) / 1e6);
+    protocolDayMap.set(day, usdcRawToUsd(raw.toString()) ?? 0);
   }
   const creatorDayMap = new Map<string, number>();
   for (const [day, raw] of creatorDayRaw) {
-    creatorDayMap.set(day, Number(raw) / 1e6);
+    creatorDayMap.set(day, usdcRawToUsd(raw.toString()) ?? 0);
   }
 
   return c.json(

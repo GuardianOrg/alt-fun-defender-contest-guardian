@@ -1,7 +1,7 @@
 import { FeeVaultAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
-import { API_BASE, fetchTokenEarnings, fetchTokens } from "./api";
+import { API_BASE, fetchTokens } from "./api";
 import { hyperEVM } from "../config/chains";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 
@@ -55,42 +55,32 @@ const liveCreatorService: ICreatorService = {
           : null;
       }
 
-      // Per-token earned figures come from the indexer (aggregated
-      // `FeeAccrued.creatorAmount`), since the vault doesn't itself
-      // attribute balances back to individual tokens.
-      const perTokenEarnings = await Promise.all(
-        createdTokens.map(async (token) => {
-          try {
-            return await fetchTokenEarnings(token.address);
-          } catch {
-            return null;
-          }
-        }),
-      );
-
-      const tokenEarnings = createdTokens.map((token, i) => {
-        const feesEarnedUsd = perTokenEarnings[i]?.creatorFeesUsd ?? 0;
-        return {
-          address: token.address,
-          name: token.name,
-          imageUrl: token.imageUrl
-            ? new URL(token.imageUrl, API_BASE).toString()
-            : undefined,
-          ltName: `${token.ltPair} ${token.leverage}×`,
-          ltAddress: token.ltPair,
-          status: "active" as const,
-          curveFilled: token.curveFilled ?? null,
-          // See docs on `ApiToken.totalVolumeUsd`: `null` means indexer is
-          // degraded, `0` means the column exists but the token has never
-          // traded. `formatUsd` needs a number, so coerce to 0 here.
-          totalVolumeUsd: token.totalVolumeUsd ?? 0,
-          feesEarnedUsd,
-          // Per-token "claimable" is not meaningful in the pooled model —
-          // creators always claim the whole vault balance. Kept for UI
-          // compatibility but zero; the page uses `totalClaimable` instead.
-          feesClaimableUsd: 0,
-        };
-      });
+      // Per-token earned figures ride along on the existing tokens response
+      // (the API derives them from a running counter on the indexer's
+      // `token` row, bumped on every `FeeVault:FeeAccrued`). One API call
+      // for the whole list — no per-token fan-out, no pagination ceiling
+      // on the per-token sum.
+      const tokenEarnings = createdTokens.map((token) => ({
+        address: token.address,
+        name: token.name,
+        imageUrl: token.imageUrl
+          ? new URL(token.imageUrl, API_BASE).toString()
+          : undefined,
+        ltName: `${token.ltPair} ${token.leverage}×`,
+        ltAddress: token.ltPair,
+        status: "active" as const,
+        curveFilled: token.curveFilled ?? null,
+        // See docs on `ApiToken.totalVolumeUsd` / `creatorFeesUsd`: `null`
+        // means indexer is degraded, `0` means the column exists but the
+        // token has never traded / accrued. `formatUsd` needs a number, so
+        // coerce to 0 here for both.
+        totalVolumeUsd: token.totalVolumeUsd ?? 0,
+        feesEarnedUsd: token.creatorFeesUsd ?? 0,
+        // Per-token "claimable" is not meaningful in the pooled model —
+        // creators always claim the whole vault balance. Kept for UI
+        // compatibility but zero; the page uses `totalClaimable` instead.
+        feesClaimableUsd: 0,
+      }));
 
       return {
         totalEarned,
