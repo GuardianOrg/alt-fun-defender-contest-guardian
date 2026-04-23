@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @title FERC20
@@ -9,7 +10,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 /// @dev Forked from Virtuals Protocol FERC20.sol. Fixed 1B supply, owner-only burn,
 ///      and configurable maxTx limit (percentage of total supply).
 ///      Owner is the Bonding contract — only it can burn or adjust maxTx.
-contract FERC20 is ERC20, Ownable {
+///      EIP-2612 permit is supported so `LaunchpadRouter` can pull tokens via a
+///      signed message — killing the pre-approve tx on the first sell of any
+///      newly-launched token. Domain: name = token name, version = "1".
+contract FERC20 is ERC20Permit, Ownable {
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 ether;
 
     uint256 public maxTxPercent;
@@ -24,7 +28,7 @@ contract FERC20 is ERC20, Ownable {
         string memory symbol_,
         uint256 maxTxPercent_,
         address owner_
-    ) ERC20(name_, symbol_) Ownable(owner_) {
+    ) ERC20(name_, symbol_) ERC20Permit(name_) Ownable(owner_) {
         _mint(owner_, TOTAL_SUPPLY);
         isExcludedFromMaxTx[owner_] = true;
         isExcludedFromMaxTx[address(this)] = true;

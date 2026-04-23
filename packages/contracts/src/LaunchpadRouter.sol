@@ -5,6 +5,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Bonding} from "./Bonding.sol";
 import {FRouter} from "./FRouter.sol";
@@ -15,12 +16,28 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 /// @notice Single entry point for users: pay USDC, receive tokens (and vice versa).
 /// @dev Handles USDC -> LT mint -> bonding curve buy (or HyperSwap swap post-graduation).
 ///      Sell path: token -> curve sell or HyperSwap swap -> LT redeem -> USDC.
+///
+///      EIP-2612 permit variants (`buyWithPermit`, `sellWithPermit`,
+///      `createTokenWithPermit`) let a first-time user skip the pre-approve tx:
+///      they sign an off-chain permit and the router applies it before pulling
+///      funds. Permits are wrapped in `try/catch` to defuse the standard
+///      permit-front-run DoS (if someone else submits the sig first, the nonce
+///      is consumed but the allowance is already in place).
 contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     Bonding public bonding;
     IERC20 public usdc;
     IUniswapV2Router02 public hyperswapRouter;
+
+    /// @notice Permit signature payload (EIP-2612).
+    struct PermitData {
+        uint256 value;
+        uint256 deadline;
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
 
     event Buy(address indexed token, address indexed buyer, uint256 usdcIn, uint256 tokensOut);
     event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 usdcOut);
@@ -53,6 +70,79 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         Bonding.LaunchParams calldata params,
         uint256 seedUsdcAmount
     ) external nonReentrant returns (address tokenAddr) {
+        return _createTokenInternal(params, seedUsdcAmount);
+    }
+
+    /// @notice Create a new token, applying an EIP-2612 permit on USDC first.
+    /// @dev Permit is only consumed if a seed buy is requested. For a pure
+    ///      create (no seed buy) the router needs no USDC, so any provided
+    ///      permit is ignored.
+    function createTokenWithPermit(
+        Bonding.LaunchParams calldata params,
+        uint256 seedUsdcAmount,
+        PermitData calldata p
+    ) external nonReentrant returns (address tokenAddr) {
+        if (seedUsdcAmount > 0) _tryPermit(address(usdc), msg.sender, p);
+        return _createTokenInternal(params, seedUsdcAmount);
+    }
+
+    /// @notice Buy tokens with USDC
+    /// @param tokenAddress Token to buy
+    /// @param usdcAmount USDC to spend
+    /// @param minTokensOut Minimum tokens to receive
+    /// @param referrer Referrer address (address(0) if none)
+    function buy(
+        address tokenAddress,
+        uint256 usdcAmount,
+        uint256 minTokensOut,
+        address referrer
+    ) external nonReentrant returns (uint256 tokensOut) {
+        return _buyInternal(tokenAddress, usdcAmount, minTokensOut, referrer);
+    }
+
+    /// @notice Buy tokens with USDC, applying an EIP-2612 permit on USDC first.
+    function buyWithPermit(
+        address tokenAddress,
+        uint256 usdcAmount,
+        uint256 minTokensOut,
+        address referrer,
+        PermitData calldata p
+    ) external nonReentrant returns (uint256 tokensOut) {
+        _tryPermit(address(usdc), msg.sender, p);
+        return _buyInternal(tokenAddress, usdcAmount, minTokensOut, referrer);
+    }
+
+    /// @notice Sell tokens for USDC
+    /// @param tokenAddress Token to sell
+    /// @param tokenAmount Amount of tokens to sell
+    /// @param minUsdcOut Minimum USDC to receive
+    function sell(
+        address tokenAddress,
+        uint256 tokenAmount,
+        uint256 minUsdcOut
+    ) external nonReentrant returns (uint256 usdcOut) {
+        return _sellInternal(tokenAddress, tokenAmount, minUsdcOut);
+    }
+
+    /// @notice Sell tokens for USDC, applying an EIP-2612 permit on the token first.
+    /// @dev Requires the token to support EIP-2612 (all FERC20s launched by
+    ///      this protocol do). For legacy tokens without permit, use `sell`.
+    function sellWithPermit(
+        address tokenAddress,
+        uint256 tokenAmount,
+        uint256 minUsdcOut,
+        PermitData calldata p
+    ) external nonReentrant returns (uint256 usdcOut) {
+        _tryPermit(tokenAddress, msg.sender, p);
+        return _sellInternal(tokenAddress, tokenAmount, minUsdcOut);
+    }
+
+    // ─── Internal: Core Flows ────────────────────────────────────────────
+
+    function _createTokenInternal(
+        Bonding.LaunchParams calldata params,
+        uint256 seedUsdcAmount
+    ) internal returns (address tokenAddr) {
         address lt = params.ltAddress;
         if (lt == address(0)) revert InvalidInput();
 
@@ -78,17 +168,12 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         emit TokenCreated(tokenAddr, msg.sender, lt);
     }
 
-    /// @notice Buy tokens with USDC
-    /// @param tokenAddress Token to buy
-    /// @param usdcAmount USDC to spend
-    /// @param minTokensOut Minimum tokens to receive
-    /// @param referrer Referrer address (address(0) if none)
-    function buy(
+    function _buyInternal(
         address tokenAddress,
         uint256 usdcAmount,
         uint256 minTokensOut,
         address referrer
-    ) external nonReentrant returns (uint256 tokensOut) {
+    ) internal returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
 
         (,,, address lt,,,,) = bonding.tokenInfo(tokenAddress);
@@ -129,15 +214,11 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         }
     }
 
-    /// @notice Sell tokens for USDC
-    /// @param tokenAddress Token to sell
-    /// @param tokenAmount Amount of tokens to sell
-    /// @param minUsdcOut Minimum USDC to receive
-    function sell(
+    function _sellInternal(
         address tokenAddress,
         uint256 tokenAmount,
         uint256 minUsdcOut
-    ) external nonReentrant returns (uint256 usdcOut) {
+    ) internal returns (uint256 usdcOut) {
         if (tokenAmount == 0) revert InvalidInput();
 
         (,,, address lt,,,,) = bonding.tokenInfo(tokenAddress);
@@ -158,6 +239,26 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (usdcOut < minUsdcOut) revert SlippageExceeded();
 
         emit Sell(tokenAddress, msg.sender, tokenAmount, usdcOut);
+    }
+
+    // ─── Internal: Permit ────────────────────────────────────────────────
+
+    /// @dev Apply an EIP-2612 permit from `owner_` to this router. Swallows
+    ///      reverts to defuse the standard permit-front-run DoS: if an
+    ///      attacker observes the mempool and submits the same sig first,
+    ///      the nonce is consumed but the allowance is already set, so the
+    ///      follow-on `transferFrom` still succeeds. If the permit was never
+    ///      applied (e.g. bad sig), the subsequent transfer will revert,
+    ///      which is the correct behaviour.
+    function _tryPermit(
+        address token,
+        address owner_,
+        PermitData calldata p
+    ) internal {
+        try IERC20Permit(token).permit(owner_, address(this), p.value, p.deadline, p.v, p.r, p.s) {}
+            catch {
+            // intentional: see natspec
+        }
     }
 
     // ─── Internal: Curve Trades ──────────────────────────────────────────

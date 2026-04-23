@@ -7,6 +7,7 @@ import {
 import { createPublicClient, getAddress, http, maxUint256, parseEventLogs, parseUnits } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
+import { useTokenPermit, type PermitData } from "./useTokenPermit";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import { erc20Abi, LaunchpadRouterAbi } from "../contracts/abis";
@@ -27,9 +28,13 @@ async function fetchLTs() {
   return fetchLeveragedTokens();
 }
 
+/// See `useTradeRouter` — same deadline window for the create-with-seed-buy path.
+const PERMIT_DEADLINE_SECONDS = 30n * 60n;
+
 export function useCreateToken() {
   const { address, isConnected } = useWallet();
   const walletClient = usePrivyWalletClient();
+  const { signPermit } = useTokenPermit();
   const [step, setStep] = useState<LaunchStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -45,7 +50,6 @@ export function useCreateToken() {
       try {
         setError(null);
         setWarning(null);
-        setStep("approving");
 
         const lts = await fetchLTs();
         const isLong = params.direction === "long";
@@ -56,6 +60,10 @@ export function useCreateToken() {
           );
         }
 
+        // Prefer `createTokenWithPermit` (1 tx) when a seed buy is needed and
+        // USDC isn't already approved. Falls back to approve+createToken if
+        // the wallet refuses to sign typed data.
+        let permit: PermitData | null = null;
         if (params.seedBuyUsd > 0) {
           const usdcAmount = parseUnits(
             params.seedBuyUsd.toString(),
@@ -69,15 +77,30 @@ export function useCreateToken() {
           })) as bigint;
 
           if (allowance < usdcAmount) {
-            const approveTx = await walletClient.writeContract({
-              address: ADDRESSES.usdc,
-              abi: erc20Abi,
-              functionName: "approve",
-              args: [ADDRESSES.launchpadRouter, maxUint256],
-            });
-            const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
-            if (approveReceipt.status === "reverted") {
-              throw new Error("USDC approval transaction reverted");
+            try {
+              setStep("signing");
+              const deadline = BigInt(Math.floor(Date.now() / 1000)) + PERMIT_DEADLINE_SECONDS;
+              permit = await signPermit({
+                token: ADDRESSES.usdc,
+                owner: address as `0x${string}`,
+                spender: ADDRESSES.launchpadRouter,
+                value: maxUint256,
+                deadline,
+                publicClient: hyperEvmClient,
+                walletClient,
+              });
+            } catch {
+              setStep("approving");
+              const approveTx = await walletClient.writeContract({
+                address: ADDRESSES.usdc,
+                abi: erc20Abi,
+                functionName: "approve",
+                args: [ADDRESSES.launchpadRouter, maxUint256],
+              });
+              const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
+              if (approveReceipt.status === "reverted") {
+                throw new Error("USDC approval transaction reverted");
+              }
             }
           }
         }
@@ -104,22 +127,44 @@ export function useCreateToken() {
           ? parseUnits(params.seedBuyUsd.toString(), USDC_DECIMALS)
           : 0n;
 
-        const gasEstimate = await hyperEvmClient.estimateContractGas({
-          address: ADDRESSES.launchpadRouter,
-          abi: LaunchpadRouterAbi,
-          functionName: "createToken",
-          args: [launchParams, seedUsdcAmount],
-          account: address,
-        });
-        const gasLimit = (gasEstimate * 130n) / 100n;
-
-        const tx = await walletClient.writeContract({
-          address: ADDRESSES.launchpadRouter,
-          abi: LaunchpadRouterAbi,
-          functionName: "createToken",
-          args: [launchParams, seedUsdcAmount],
-          gas: gasLimit,
-        });
+        // `eth_estimateGas` is stateless on the node, so the permit nonce
+        // isn't actually consumed when estimating `createTokenWithPermit` —
+        // we estimate + bump on both paths to reduce out-of-gas surprises.
+        const tx = permit
+          ? await (async () => {
+              const gasEstimate = await hyperEvmClient.estimateContractGas({
+                address: ADDRESSES.launchpadRouter,
+                abi: LaunchpadRouterAbi,
+                functionName: "createTokenWithPermit",
+                args: [launchParams, seedUsdcAmount, permit],
+                account: address,
+              });
+              const gasLimit = (gasEstimate * 130n) / 100n;
+              return walletClient.writeContract({
+                address: ADDRESSES.launchpadRouter,
+                abi: LaunchpadRouterAbi,
+                functionName: "createTokenWithPermit",
+                args: [launchParams, seedUsdcAmount, permit],
+                gas: gasLimit,
+              });
+            })()
+          : await (async () => {
+              const gasEstimate = await hyperEvmClient.estimateContractGas({
+                address: ADDRESSES.launchpadRouter,
+                abi: LaunchpadRouterAbi,
+                functionName: "createToken",
+                args: [launchParams, seedUsdcAmount],
+                account: address,
+              });
+              const gasLimit = (gasEstimate * 130n) / 100n;
+              return walletClient.writeContract({
+                address: ADDRESSES.launchpadRouter,
+                abi: LaunchpadRouterAbi,
+                functionName: "createToken",
+                args: [launchParams, seedUsdcAmount],
+                gas: gasLimit,
+              });
+            })();
 
         const receipt = await hyperEvmClient.waitForTransactionReceipt({
           hash: tx,
@@ -193,7 +238,7 @@ export function useCreateToken() {
         setStep("error");
       }
     },
-    [isConnected, address, walletClient],
+    [isConnected, address, walletClient, signPermit],
   );
 
   const reset = useCallback(() => {

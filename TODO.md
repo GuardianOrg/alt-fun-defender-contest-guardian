@@ -2,7 +2,6 @@
 
 # TODO
 
-- Can we improve the Approving UX? Infinite approve the USDC, and some permit stuff for the memecoins?
 - Is Router the right term?
 - Ability to change graduation threshold (what happens with existing tokens?)
 - Charge fees only in the router, and then only in USDC
@@ -14,6 +13,8 @@
 
 # Post Audit
 
+- We should pass through slippage checks
+- Landing page
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
 - Testing image validation, does this work and how? Max image size also etc? some explicit filter
 - Add Geoblocking, block UK, Any sanctioned countries

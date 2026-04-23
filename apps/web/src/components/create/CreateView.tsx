@@ -31,7 +31,8 @@ export default function CreateView() {
   const { isConnected, connect } = useWallet();
   const { step: launchStep, error: launchError, warning: launchWarning, tokenAddress, create } = useCreateToken();
   const seedAmt = parseFloat(seedAmount) || 0;
-  const isBusy = launchStep === "approving" || launchStep === "deploying";
+  const isBusy =
+    launchStep === "approving" || launchStep === "signing" || launchStep === "deploying";
 
   useEffect(() => {
     if (launchStep !== "confirmed") return;
@@ -64,6 +65,7 @@ export default function CreateView() {
 
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET TO LAUNCH";
+    if (launchStep === "signing") return "SIGN IN WALLET…";
     if (launchStep === "approving") return "APPROVING USDC…";
     if (launchStep === "deploying") return "DEPLOYING…";
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
@@ -152,16 +154,18 @@ export default function CreateView() {
             {isBusy && (
               <div className={styles.busyRow}>
                 <div className={styles.busyDot} />
-                {launchStep === "approving"
-                  ? "Approve USDC spend in your wallet…"
-                  : "Confirm deployment in your wallet…"}
+                {launchStep === "signing"
+                  ? "Sign the USDC permit in your wallet…"
+                  : launchStep === "approving"
+                    ? "Approve USDC spend in your wallet…"
+                    : "Confirm deployment in your wallet…"}
               </div>
             )}
 
             {launchStep === "idle" && (
               <div className={styles.idleHint}>
                 {seedAmt > 0
-                  ? `You will approve $${seedAmt.toFixed(2)} USDC, then confirm deployment`
+                  ? `Sign a permit for $${seedAmt.toFixed(2)} USDC, then your token deploys in one tx`
                   : "You will be asked to confirm in your wallet"}
               </div>
             )}
