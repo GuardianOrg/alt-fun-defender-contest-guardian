@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {FERC20} from "../src/FERC20.sol";
+import {FeeVault} from "../src/FeeVault.sol";
 import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
@@ -496,6 +497,25 @@ contract LaunchpadRouterTest is DeployHelper {
     function test_setFeeVault_revertsZeroAddress() public {
         vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
         launchpadRouter.setFeeVault(address(0));
+    }
+
+    function test_setFeeVault_revertsIfRouterNotDepositor() public {
+        FeeVault impl = new FeeVault();
+        bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
+        FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
+
+        vm.expectRevert(LaunchpadRouter.VaultNotConfigured.selector);
+        launchpadRouter.setFeeVault(address(freshVault));
+    }
+
+    function test_setFeeVault_succeedsWhenDepositorAllowlisted() public {
+        FeeVault impl = new FeeVault();
+        bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
+        FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
+        freshVault.addDepositor(address(launchpadRouter));
+
+        launchpadRouter.setFeeVault(address(freshVault));
+        assertEq(address(launchpadRouter.feeVault()), address(freshVault));
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────

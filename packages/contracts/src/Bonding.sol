@@ -340,6 +340,15 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return _tokenInfo[token_];
     }
 
+    /// @notice Lightweight creator lookup. Hot-path callers (e.g. `LaunchpadRouter`'s
+    ///         per-trade fee accrual) should use this instead of `getTokenInfo` /
+    ///         `tokenInfo` to avoid ABI-copying the dynamic strings & URL array.
+    function creatorOf(
+        address token_
+    ) external view returns (address) {
+        return _tokenInfo[token_].creator;
+    }
+
     function isTrading(
         address token_
     ) external view returns (bool) {

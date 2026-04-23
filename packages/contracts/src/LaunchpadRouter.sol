@@ -71,6 +71,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     error SlippageExceeded();
     error ZeroAddress();
     error InvalidFee();
+    error VaultNotConfigured();
 
     function initialize(
         address bonding_,
@@ -208,7 +209,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (tokensOut < minTokensOut) revert SlippageExceeded();
 
         if (actualFee > 0) {
-            _accrueFee(tokenAddress, bonding.getTokenInfo(tokenAddress).creator, actualFee, true);
+            _accrueFee(tokenAddress, bonding.creatorOf(tokenAddress), actualFee, true);
         }
 
         emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
@@ -301,7 +302,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         usdc.safeTransfer(msg.sender, usdcOut);
 
         if (fee > 0) {
-            _accrueFee(tokenAddress, bonding.getTokenInfo(tokenAddress).creator, fee, false);
+            _accrueFee(tokenAddress, bonding.creatorOf(tokenAddress), fee, false);
         }
 
         emit Sell(tokenAddress, msg.sender, tokenAmount, usdcOut);
@@ -420,10 +421,16 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         emit HyperswapRouterUpdated(hyperswapRouter_);
     }
 
+    /// @notice Hot-swap the FeeVault. Reverts if the new vault hasn't already
+    ///         allowlisted this router as a depositor — without that, the very
+    ///         next buy/sell would revert in `FeeVault.accrue` and brick
+    ///         trading. Owners must `feeVault.addDepositor(router)` on the new
+    ///         vault first, then call this.
     function setFeeVault(
         address feeVault_
     ) external onlyOwner {
         if (feeVault_ == address(0)) revert ZeroAddress();
+        if (!FeeVault(feeVault_).isDepositor(address(this))) revert VaultNotConfigured();
         feeVault = FeeVault(feeVault_);
         emit FeeVaultUpdated(feeVault_);
     }

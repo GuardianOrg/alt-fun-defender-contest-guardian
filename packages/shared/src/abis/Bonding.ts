@@ -265,6 +265,25 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "creatorOf",
+    "inputs": [
+      {
+        "name": "token_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "creatorTokens",
     "inputs": [
       {

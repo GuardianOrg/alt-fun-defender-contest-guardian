@@ -972,6 +972,11 @@ export const LaunchpadRouterAbi = [
   },
   {
     "type": "error",
+    "name": "VaultNotConfigured",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   }
