@@ -66,7 +66,7 @@ Two-column: left (form) | right (live preview card).
 
 **Balances tab:** total portfolio value, list of held tokens (icon, name, amount, USD value, 24h change). Data: `GET /portfolio/:wallet`.
 
-**Creator Rewards tab:** claimable amount + claim button (`claimCreatorFees()`). Created tokens list with volume, earned, claimable. Data: `GET /creator/:wallet`.
+**Creator Rewards tab:** single claimable USDC figure + claim button (`FeeVault.claim()`). Balance is pooled across every token the creator has launched. Per-token `earned` column is sourced from `GET /api/v1/tokens/:address/earnings` (indexer-backed aggregation of `FeeVault.FeeAccrued` events).
 
 ---
 
@@ -85,7 +85,7 @@ Two-column: left (form) | right (live preview card).
 | Buy | `LaunchpadRouter.buy(token, usdcAmount, minOut, referrer)` |
 | Sell | `LaunchpadRouter.sell(token, tokenAmount, minUsdcOut)` |
 | Launch token | `Bonding.launch(name, ticker, ltAddress, desc, img, urls, purchaseAmount)` |
-| Claim creator fees | `Bonding.claimCreatorFees()` |
+| Claim creator fees | `FeeVault.claim()` (USDC, pooled across all of the creator's tokens) |
 | USDC approval | `USDC.approve(launchpadRouter, amount)` |
 | Token approval | `FERC20.approve(launchpadRouter, amount)` |
 

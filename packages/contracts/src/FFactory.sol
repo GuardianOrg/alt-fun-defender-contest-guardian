@@ -6,8 +6,9 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {FPair} from "./FPair.sol";
 
 /// @title FFactory
-/// @notice Registry of bonding curve pairs. Manages fee configuration and per-token LT mapping.
+/// @notice Registry of bonding curve pairs. Creates `FPair` instances and tracks per-token LT mapping.
 /// @dev Forked from Virtuals Protocol FFactory.sol. Uses AccessControl for role-gated pair creation.
+///      Fees are NOT collected at this layer — `LaunchpadRouter` collects USDC fees into `FeeVault`.
 contract FFactory is Initializable, AccessControlUpgradeable {
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
 
@@ -20,25 +21,16 @@ contract FFactory is Initializable, AccessControlUpgradeable {
     mapping(address => address) public ltFor;
 
     address public router;
-    address public feeTo;
-    uint256 public buyTax; // basis points (e.g. 50 = 0.5%)
-    uint256 public sellTax; // basis points
 
     event PairCreated(address indexed tokenA, address indexed tokenB, address pair, uint256 index);
+    event RouterUpdated(address indexed router);
 
     error ZeroAddress();
     error NoRouter();
 
-    function initialize(
-        address feeTo_,
-        uint256 buyTax_,
-        uint256 sellTax_
-    ) external initializer {
+    function initialize() external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        feeTo = feeTo_;
-        buyTax = buyTax_;
-        sellTax = sellTax_;
     }
 
     function createPair(
@@ -74,17 +66,8 @@ contract FFactory is Initializable, AccessControlUpgradeable {
     function setRouter(
         address router_
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (router_ == address(0)) revert ZeroAddress();
         router = router_;
-    }
-
-    function setFeeParams(
-        address feeTo_,
-        uint256 buyTax_,
-        uint256 sellTax_
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (feeTo_ == address(0)) revert ZeroAddress();
-        feeTo = feeTo_;
-        buyTax = buyTax_;
-        sellTax = sellTax_;
+        emit RouterUpdated(router_);
     }
 }

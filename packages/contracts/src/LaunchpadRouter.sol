@@ -9,6 +9,7 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Bonding} from "./Bonding.sol";
 import {FRouter} from "./FRouter.sol";
+import {FeeVault} from "./FeeVault.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
@@ -16,6 +17,10 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 /// @notice Single entry point for users: pay USDC, receive tokens (and vice versa).
 /// @dev Handles USDC -> LT mint -> bonding curve buy (or HyperSwap swap post-graduation).
 ///      Sell path: token -> curve sell or HyperSwap swap -> LT redeem -> USDC.
+///
+///      This router is the fee layer. On every buy and sell, a USDC fee is collected
+///      from the user and forwarded to `FeeVault`, which handles creator/protocol
+///      accruals and claims. No fees live on `Bonding`, `FRouter`, or `FFactory`.
 ///
 ///      EIP-2612 permit variants (`buyWithPermit`, `sellWithPermit`,
 ///      `createTokenWithPermit`) let a first-time user skip the pre-approve tx:
@@ -26,9 +31,23 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// @dev Basis-points denominator. 10_000 = 100%.
+    uint256 public constant BPS_DENOM = 10_000;
+
+    /// @dev Hard upper bound on buy/sell fees (2%). Prevents an owner-driven fat-finger.
+    uint256 public constant MAX_FEE_BPS = 200;
+
     Bonding public bonding;
     IERC20 public usdc;
     IUniswapV2Router02 public hyperswapRouter;
+    FeeVault public feeVault;
+
+    /// @notice Fee charged on the USDC side of every buy (bps of gross USDC in).
+    uint256 public buyFeeBps;
+    /// @notice Fee charged on the USDC side of every sell (bps of gross USDC out).
+    uint256 public sellFeeBps;
+    /// @notice Share of the total fee routed to the creator (bps; remainder goes to protocol).
+    uint256 public creatorFeeBps;
 
     /// @notice Permit signature payload (EIP-2612).
     struct PermitData {
@@ -43,24 +62,35 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 usdcOut);
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address ltAddress);
+    event BondingUpdated(address indexed bonding);
+    event HyperswapRouterUpdated(address indexed hyperswapRouter);
+    event FeeVaultUpdated(address indexed feeVault);
+    event FeesUpdated(uint256 buyFeeBps, uint256 sellFeeBps, uint256 creatorFeeBps);
 
     error InvalidInput();
     error SlippageExceeded();
     error ZeroAddress();
-
-    event BondingUpdated(address indexed bonding);
-    event HyperswapRouterUpdated(address indexed hyperswapRouter);
+    error InvalidFee();
 
     function initialize(
         address bonding_,
         address usdc_,
-        address hyperswapRouter_
+        address hyperswapRouter_,
+        address feeVault_,
+        uint256 buyFeeBps_,
+        uint256 sellFeeBps_,
+        uint256 creatorFeeBps_
     ) external initializer {
-        if (bonding_ == address(0) || usdc_ == address(0) || hyperswapRouter_ == address(0)) revert ZeroAddress();
+        if (bonding_ == address(0) || usdc_ == address(0) || hyperswapRouter_ == address(0) || feeVault_ == address(0)) revert ZeroAddress();
+        if (buyFeeBps_ > MAX_FEE_BPS || sellFeeBps_ > MAX_FEE_BPS || creatorFeeBps_ > BPS_DENOM) revert InvalidFee();
         __Ownable_init(msg.sender);
         bonding = Bonding(bonding_);
         usdc = IERC20(usdc_);
         hyperswapRouter = IUniswapV2Router02(hyperswapRouter_);
+        feeVault = FeeVault(feeVault_);
+        buyFeeBps = buyFeeBps_;
+        sellFeeBps = sellFeeBps_;
+        creatorFeeBps = creatorFeeBps_;
     }
 
     /// @notice Create a new token on the bonding curve
@@ -147,10 +177,13 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (lt == address(0)) revert InvalidInput();
 
         uint256 ltForSeed = 0;
+        uint256 feeOnGross = 0;
         if (seedUsdcAmount > 0) {
             usdc.safeTransferFrom(msg.sender, address(this), seedUsdcAmount);
-            usdc.forceApprove(lt, seedUsdcAmount);
-            ltForSeed = ILeveragedToken(lt).mint(address(this), seedUsdcAmount, 0);
+            feeOnGross = (seedUsdcAmount * buyFeeBps) / BPS_DENOM;
+            uint256 netUsdc = seedUsdcAmount - feeOnGross;
+            usdc.forceApprove(lt, netUsdc);
+            ltForSeed = ILeveragedToken(lt).mint(address(this), netUsdc, 0);
             IERC20(lt).forceApprove(address(bonding), ltForSeed);
         }
 
@@ -166,6 +199,14 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
         (tokenAddr,,) = bonding.launch(launchParams, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, lt);
+
+        // The entire seed buy path is atomic — a supply-cap refund from
+        // `Bonding._seedBuy` only fires at absurd seed amounts (the just-launched
+        // curve couldn't have been exhausted before the seed buy itself), so we
+        // don't bother pro-rating the fee on seeds. The full fee accrues.
+        if (feeOnGross > 0) {
+            _accrueFee(tokenAddr, msg.sender, feeOnGross, true);
+        }
     }
 
     function _buyInternal(
@@ -176,42 +217,77 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ) internal returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
 
-        (,,, address lt,,,,) = bonding.tokenInfo(tokenAddress);
-
-        // USDC -> LT
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
-        usdc.forceApprove(lt, usdcAmount);
-        uint256 ltAmount = ILeveragedToken(lt).mint(address(this), usdcAmount, 0);
-
-        if (bonding.isGraduated(tokenAddress)) {
-            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltAmount, minTokensOut);
-        } else {
-            tokensOut = _buyOnCurve(tokenAddress, lt, ltAmount, minTokensOut);
-        }
-
-        IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
-
-        // Curve buy may be capped if it would have exceeded remaining real supply
-        // (e.g. final buy triggering the supply-based graduation). Return any leftover LT
-        // to the user as USDC if the redeem succeeds, otherwise forward LT directly.
-        uint256 ltLeft = IERC20(lt).balanceOf(address(this));
-        if (ltLeft > 0) {
-            IERC20(lt).forceApprove(lt, ltLeft);
-            try ILeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {
-            // refund delivered as USDC
-            }
-            catch {
-                IERC20(lt).safeTransfer(msg.sender, ltLeft);
-            }
-        }
+        uint256 amountInUsed;
+        uint256 actualFee;
+        (tokensOut, amountInUsed, actualFee) = _executeBuy(tokenAddress, usdcAmount);
 
         if (tokensOut < minTokensOut) revert SlippageExceeded();
+
+        if (actualFee > 0) {
+            _accrueFee(tokenAddress, bonding.getTokenInfo(tokenAddress).creator, actualFee, true);
+        }
 
         emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
 
         if (referrer != address(0) && referrer != msg.sender) {
             emit Referred(tokenAddress, msg.sender, referrer, usdcAmount);
         }
+    }
+
+    /// @dev Core buy cash-flow: pull USDC, mint LT on the net portion, execute
+    ///      the curve/HyperSwap buy, refund any leftover (LT and pro-rata fee),
+    ///      and deliver tokens. Returned `actualFee` is USDC sitting in the
+    ///      router awaiting `_accrueFee`; `feeRefund` has already been paid out.
+    function _executeBuy(
+        address tokenAddress,
+        uint256 usdcAmount
+    ) internal returns (uint256 tokensOut, uint256 amountInUsed, uint256 actualFee) {
+        address lt = _ltOf(tokenAddress);
+
+        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+
+        uint256 feeOnGross = (usdcAmount * buyFeeBps) / BPS_DENOM;
+        uint256 netUsdc = usdcAmount - feeOnGross;
+
+        // USDC -> LT on the net amount (fee stays in the router as USDC).
+        usdc.forceApprove(lt, netUsdc);
+        uint256 ltMinted = ILeveragedToken(lt).mint(address(this), netUsdc, 0);
+
+        if (bonding.isGraduated(tokenAddress)) {
+            // HyperSwap consumes the full LT amount (no supply cap).
+            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltMinted, 0);
+            amountInUsed = ltMinted;
+        } else {
+            (tokensOut, amountInUsed) = _buyOnCurve(tokenAddress, lt, ltMinted);
+        }
+
+        IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
+
+        // Pro-rate the fee by the fraction of LT actually consumed. The remainder
+        // (leftover LT + unused fee in USDC) is refunded to the user as USDC.
+        actualFee = ltMinted == 0 ? 0 : (feeOnGross * amountInUsed) / ltMinted;
+        uint256 feeRefund = feeOnGross - actualFee;
+
+        // Refund leftover LT -> USDC to the user. Fall back to LT if redeem reverts.
+        uint256 ltLeft = ltMinted - amountInUsed;
+        if (ltLeft > 0) {
+            IERC20(lt).forceApprove(lt, ltLeft);
+            try ILeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {
+            // delivered as USDC
+            }
+            catch {
+                IERC20(lt).safeTransfer(msg.sender, ltLeft);
+            }
+        }
+        if (feeRefund > 0) {
+            usdc.safeTransfer(msg.sender, feeRefund);
+        }
+    }
+
+    function _ltOf(
+        address tokenAddress
+    ) internal view returns (address lt) {
+        (,,, lt,,,,) = bonding.tokenInfo(tokenAddress);
     }
 
     function _sellInternal(
@@ -221,24 +297,47 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ) internal returns (uint256 usdcOut) {
         if (tokenAmount == 0) revert InvalidInput();
 
-        (,,, address lt,,,,) = bonding.tokenInfo(tokenAddress);
+        address lt = _ltOf(tokenAddress);
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
-        uint256 ltReceived;
-        if (bonding.isGraduated(tokenAddress)) {
-            ltReceived = _sellOnHyperswap(tokenAddress, lt, tokenAmount);
-        } else {
-            ltReceived = _sellOnCurve(tokenAddress, tokenAmount);
-        }
+        uint256 ltReceived = bonding.isGraduated(tokenAddress)
+            ? _sellOnHyperswap(tokenAddress, lt, tokenAmount)
+            : _sellOnCurve(tokenAddress, tokenAmount);
 
-        // LT -> USDC
+        // LT -> USDC into this router (not the user) so we can deduct the fee.
         IERC20(lt).forceApprove(lt, ltReceived);
-        usdcOut = ILeveragedToken(lt).redeem(msg.sender, ltReceived, minUsdcOut);
+        uint256 grossUsdc = ILeveragedToken(lt).redeem(address(this), ltReceived, 0);
+
+        uint256 fee = (grossUsdc * sellFeeBps) / BPS_DENOM;
+        usdcOut = grossUsdc - fee;
 
         if (usdcOut < minUsdcOut) revert SlippageExceeded();
 
+        usdc.safeTransfer(msg.sender, usdcOut);
+
+        if (fee > 0) {
+            _accrueFee(tokenAddress, bonding.getTokenInfo(tokenAddress).creator, fee, false);
+        }
+
         emit Sell(tokenAddress, msg.sender, tokenAmount, usdcOut);
+    }
+
+    // ─── Internal: Fee Accrual ───────────────────────────────────────────
+
+    /// @dev Split `feeAmount` USDC into creator / protocol shares, forward to
+    ///      `FeeVault` via a `transfer` + `accrue` call. The vault trusts
+    ///      allowlisted depositors to pass truthful amounts.
+    function _accrueFee(
+        address token,
+        address creator,
+        uint256 feeAmount,
+        bool isBuy
+    ) internal {
+        uint256 creatorShare = (feeAmount * creatorFeeBps) / BPS_DENOM;
+        uint256 protocolShare = feeAmount - creatorShare;
+        usdc.safeTransfer(address(feeVault), feeAmount);
+        feeVault.accrue(token, creator, creatorShare, protocolShare, isBuy);
     }
 
     // ─── Internal: Permit ────────────────────────────────────────────────
@@ -266,9 +365,8 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     function _buyOnCurve(
         address tokenAddress,
         address lt,
-        uint256 ltAmount,
-        uint256 /* minOut */
-    ) internal returns (uint256 tokensOut) {
+        uint256 ltAmount
+    ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
         FRouter frouter = bonding.router();
         IERC20(lt).forceApprove(address(frouter), ltAmount);
         // Slippage is checked in LaunchpadRouter.buy after the refund path, so pass 0 here.
@@ -277,7 +375,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         // `trader` for the emitted `Trade` event. Router is trusted by Bonding
         // (it's on the `isRouter` allowlist), so this attribution is not
         // spoofable by any other caller.
-        (tokensOut,) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
+        (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
     }
 
     function _sellOnCurve(
@@ -336,6 +434,28 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         if (hyperswapRouter_ == address(0)) revert ZeroAddress();
         hyperswapRouter = IUniswapV2Router02(hyperswapRouter_);
         emit HyperswapRouterUpdated(hyperswapRouter_);
+    }
+
+    function setFeeVault(
+        address feeVault_
+    ) external onlyOwner {
+        if (feeVault_ == address(0)) revert ZeroAddress();
+        feeVault = FeeVault(feeVault_);
+        emit FeeVaultUpdated(feeVault_);
+    }
+
+    /// @notice Update fee parameters. Bounded by `MAX_FEE_BPS` on each side and
+    ///         `BPS_DENOM` on the creator split.
+    function setFees(
+        uint256 buyFeeBps_,
+        uint256 sellFeeBps_,
+        uint256 creatorFeeBps_
+    ) external onlyOwner {
+        if (buyFeeBps_ > MAX_FEE_BPS || sellFeeBps_ > MAX_FEE_BPS || creatorFeeBps_ > BPS_DENOM) revert InvalidFee();
+        buyFeeBps = buyFeeBps_;
+        sellFeeBps = sellFeeBps_;
+        creatorFeeBps = creatorFeeBps_;
+        emit FeesUpdated(buyFeeBps_, sellFeeBps_, creatorFeeBps_);
     }
 
     function _authorizeUpgrade(

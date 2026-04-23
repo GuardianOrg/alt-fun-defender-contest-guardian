@@ -87,8 +87,6 @@ contract BondingTest is DeployHelper {
 
     function test_setUp_paramsCorrect() public view {
         assertEq(bonding.maxTx(), MAX_TX);
-        assertEq(factory.buyTax(), BUY_TAX_BPS);
-        assertEq(factory.sellTax(), SELL_TAX_BPS);
     }
 
     // ─── Launch Tests ────────────────────────────────────────────────────
@@ -325,16 +323,15 @@ contract BondingTest is DeployHelper {
         assertEq(lt.balanceOf(trader), 0, "All LT should be spent");
     }
 
-    function test_buy_feeGoesToBonding() public {
+    function test_buy_noFeeHeldInBonding() public {
         (address tokenAddr,) = _launchToken();
         uint256 bondingBalBefore = lt.balanceOf(address(bonding));
 
-        uint256 buyAmount = 1000 ether;
-        _buyTokens(tokenAddr, trader, buyAmount);
+        _buyTokens(tokenAddr, trader, 1000 ether);
 
-        uint256 expectedFee = (BUY_TAX_BPS * buyAmount) / 10_000;
-        uint256 bondingBalAfter = lt.balanceOf(address(bonding));
-        assertEq(bondingBalAfter - bondingBalBefore, expectedFee, "Fee should go to bonding");
+        // Fees have moved to LaunchpadRouter + FeeVault — Bonding no longer
+        // retains any LT from trade fees.
+        assertEq(lt.balanceOf(address(bonding)), bondingBalBefore, "Bonding should not accumulate trade fees");
     }
 
     function test_buy_priceIncreasesWithSuccessiveBuys() public {
@@ -413,7 +410,10 @@ contract BondingTest is DeployHelper {
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
 
-    function test_buyThenSell_traderLosesToFees() public {
+    /// @notice With fees moved to LaunchpadRouter, a pure-Bonding round trip
+    ///         is now lossless (ignoring rounding). The fee layer is exercised
+    ///         end-to-end in `LaunchpadRouter.t.sol`.
+    function test_buyThenSell_lossless() public {
         (address tokenAddr,) = _launchToken();
 
         uint256 buyAmount = 1000 ether;
@@ -424,45 +424,7 @@ contract BondingTest is DeployHelper {
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
 
-        assertTrue(ltBack < buyAmount, "Trader loses to fees on round trip");
-    }
-
-    // ─── Creator Fee Tests ───────────────────────────────────────────────
-
-    function test_creatorFees_accrue() public {
-        (address tokenAddr,) = _launchTokenNoSeed();
-
-        uint256 buyAmount = 1000 ether;
-        _buyTokens(tokenAddr, trader, buyAmount);
-
-        uint256 creatorFee = bonding.creatorFees(creator, address(lt));
-        assertTrue(creatorFee > 0, "Creator should have accrued fees");
-
-        uint256 totalFee = (BUY_TAX_BPS * buyAmount) / 10_000;
-        uint256 expectedCreatorShare = (totalFee * 2000) / 10_000; // 20% of total fee
-        assertEq(creatorFee, expectedCreatorShare, "Creator fee should be 20% of total fee");
-    }
-
-    function test_creatorFees_claimable() public {
-        (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 1000 ether);
-
-        uint256 accrued = bonding.creatorFees(creator, address(lt));
-        assertTrue(accrued > 0);
-
-        vm.prank(creator);
-        bonding.claimCreatorFees(address(lt));
-
-        assertEq(lt.balanceOf(creator), accrued, "Creator should receive claimed fees");
-        assertEq(bonding.creatorFees(creator, address(lt)), 0, "Accrued should be zero after claim");
-    }
-
-    function test_protocolFees_accrue() public {
-        (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 1000 ether);
-
-        uint256 protocolFee = bonding.protocolFees(address(lt));
-        assertTrue(protocolFee > 0, "Protocol should have accrued fees");
+        assertApproxEqRel(ltBack, buyAmount, 0.001e18, "Round trip should be approximately lossless");
     }
 
     function test_transferCreator() public {
@@ -758,17 +720,15 @@ contract BondingTest is DeployHelper {
 
     // ─── Admin Tests ─────────────────────────────────────────────────────
 
-    function test_setParams_onlyOwner() public {
+    function test_setMaxTx_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        bonding.setParams(100, feeReceiver);
+        bonding.setMaxTx(100);
     }
 
-    function test_setParams_updatesValues() public {
-        bonding.setParams(50, trader);
-
+    function test_setMaxTx_updatesValue() public {
+        bonding.setMaxTx(50);
         assertEq(bonding.maxTx(), 50);
-        assertEq(bonding.feeTo(), trader);
     }
 
     // ─── Graduation Threshold Admin Tests ────────────────────────────────

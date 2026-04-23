@@ -1,11 +1,26 @@
 export const FEES = {
-  /** 0.5% on buy — split 0.4% protocol / 0.1% creator */
+  /**
+   * 0.5% on every buy — split 0.4% protocol / 0.1% creator. Charged at the
+   * `LaunchpadRouter` layer in USDC, accrued into `FeeVault`. Applies on
+   * both the bonding curve and post-graduation HyperSwap paths. See also
+   * `apps/web/src/services/tradeRouter.ts`.
+   */
   curveBuy: 0.005,
-  /** 0.5% on sell — split 0.4% protocol / 0.1% creator */
+  /**
+   * 0.5% on every sell — split 0.4% protocol / 0.1% creator. Same router
+   * layer, same USDC vault as `curveBuy` — the "curve" prefix is retained
+   * for UI continuity but the fee now covers post-grad trades too.
+   */
   curveSell: 0.005,
-  /** 0.3% on notional (USD × leverage) — sells only, 100% protocol */
+  /**
+   * 0.3% on notional (USD × leverage) — BounceTech LT redemption fee
+   * applied on sells only, 100% to BounceTech protocol (not ours).
+   * Independent of our router-level fee.
+   */
   ltRedemption: 0.003,
+  /** Protocol share of the 0.5% fee (0.4% of trade notional). */
   protocolSplit: 0.004,
+  /** Creator share of the 0.5% fee (0.1% of trade notional). */
   creatorSplit: 0.001,
 } as const;
 

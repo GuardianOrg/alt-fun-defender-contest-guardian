@@ -3,8 +3,6 @@
 # TODO
 
 - Is Router the right term?
-- Charge fees only in the router, and then only in USDC
-- Claimed here but total earned and previously claimed reset
 - Can we deploy tokens via some proxy template so the deployment is smaller?
 - Add some flow for enabling big blocks.
 - Vanity addresses

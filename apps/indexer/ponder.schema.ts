@@ -100,16 +100,42 @@ export const referral = onchainTable("referral", (t) => ({
   referrerIdx: index().on(table.referrer),
 }));
 
+/**
+ * USDC fee claim event from `FeeVault`. Covers both creator claims
+ * (`CreatorFeesClaimed`) and protocol claims (`ProtocolFeesClaimed`).
+ * Amounts are denominated in USDC (6dp) — the legacy per-LT accounting
+ * is gone with the router-level fee migration.
+ */
 export const feeClaim = onchainTable("fee_claim", (t) => ({
   id: t.text().primaryKey(),
   claimer: t.hex().notNull(),
-  ltAddress: t.hex().notNull(),
   amount: t.bigint().notNull(),
   isCreator: t.boolean().notNull(),
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({
   claimerIdx: index().on(table.claimer),
+}));
+
+/**
+ * Per-trade USDC fee accrual from `FeeVault:FeeAccrued`. Emitted by the
+ * router on every buy/sell (curve + post-grad) plus the seed-buy on
+ * `createToken`. Used by the admin revenue dashboard and per-token
+ * creator-earnings views — both of which care about earned fees rather
+ * than claim timing, so we keep accruals separate from `feeClaim`.
+ */
+export const feeAccrual = onchainTable("fee_accrual", (t) => ({
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  creator: t.hex().notNull(),
+  creatorAmount: t.bigint().notNull(),
+  protocolAmount: t.bigint().notNull(),
+  isBuy: t.boolean().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  tokenIdx: index().on(table.tokenAddress),
+  creatorIdx: index().on(table.creator),
 }));
 
 /** HyperSwap V2 Pair swaps (post-graduation DEX trades). */

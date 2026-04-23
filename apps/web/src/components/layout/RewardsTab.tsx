@@ -10,7 +10,12 @@ const EXPLORER_BASE = "https://hyperevmscan.io/address";
 interface Props {
   earnings: CreatorEarnings | undefined;
   claiming: boolean;
-  claim: (tokenAddress?: string) => void;
+  /**
+   * Claim the caller's pooled USDC fees from `FeeVault`. Always drains the
+   * full balance — per-token targeting no longer exists in the router-fee
+   * model (fees are pooled across all of a creator's tokens).
+   */
+  claim: () => void;
   onTokenClick: (addr: string) => void;
   onLaunch: () => void;
 }
@@ -166,12 +171,6 @@ export default function RewardsTab({
                   <div className={styles.tokenCardStatLabel}>earned</div>
                   <div className={styles.tokenCardStatValue}>
                     ${t.feesEarnedUsd.toFixed(2)}
-                  </div>
-                </div>
-                <div>
-                  <div className={styles.tokenCardStatLabel}>claimable</div>
-                  <div className={styles.tokenCardStatValueMint}>
-                    ${t.feesClaimableUsd.toFixed(2)}
                   </div>
                 </div>
               </div>

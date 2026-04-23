@@ -4,7 +4,12 @@ import { createPonderPaginatedQuery } from "../../lib/ponder-client.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
-import type { PonderRouterTrade, PonderGraduation, PonderToken, PonderFeeClaim } from "../../lib/ponder-types.js";
+import type {
+  PonderRouterTrade,
+  PonderGraduation,
+  PonderToken,
+  PonderFeeAccrual,
+} from "../../lib/ponder-types.js";
 
 function parseDays(raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
@@ -187,41 +192,48 @@ analytics.get("/revenue", async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: claims, truncated } = await queryAll<PonderFeeClaim>(
+  // Accrual-based (earned, not paid-out). Fees are charged by `LaunchpadRouter`
+  // and recorded in `FeeVault` regardless of claim timing, so revenue tracking
+  // reads accruals directly — this decouples the dashboard from creators
+  // forgetting to claim.
+  const { items: accruals, truncated } = await queryAll<PonderFeeAccrual>(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
-      feeClaims(
+      feeAccruals(
         where: { timestamp_gte: $cutoff }
         limit: $limit, offset: $offset,
         orderBy: "timestamp", orderDirection: "desc"
       ) {
-        items { amount isCreator timestamp }
+        items { creatorAmount protocolAmount timestamp }
       }
     }`,
-    "feeClaims",
+    "feeAccruals",
     { cutoff: String(cutoff) },
   );
 
   const protocolDayRaw = new Map<string, bigint>();
   const creatorDayRaw = new Map<string, bigint>();
 
-  for (const claim of claims) {
-    const day = toDayKey(Number(claim.timestamp));
-    const raw = BigInt(claim.amount);
+  for (const accrual of accruals) {
+    const day = toDayKey(Number(accrual.timestamp));
+    const creatorRaw = BigInt(accrual.creatorAmount);
+    const protocolRaw = BigInt(accrual.protocolAmount);
 
-    if (claim.isCreator) {
-      creatorDayRaw.set(day, (creatorDayRaw.get(day) ?? 0n) + raw);
-    } else {
-      protocolDayRaw.set(day, (protocolDayRaw.get(day) ?? 0n) + raw);
+    if (creatorRaw > 0n) {
+      creatorDayRaw.set(day, (creatorDayRaw.get(day) ?? 0n) + creatorRaw);
+    }
+    if (protocolRaw > 0n) {
+      protocolDayRaw.set(day, (protocolDayRaw.get(day) ?? 0n) + protocolRaw);
     }
   }
 
+  // USDC has 6 decimal places.
   const protocolDayMap = new Map<string, number>();
   for (const [day, raw] of protocolDayRaw) {
-    protocolDayMap.set(day, Number(raw) / 1e18);
+    protocolDayMap.set(day, Number(raw) / 1e6);
   }
   const creatorDayMap = new Map<string, number>();
   for (const [day, raw] of creatorDayRaw) {
-    creatorDayMap.set(day, Number(raw) / 1e18);
+    creatorDayMap.set(day, Number(raw) / 1e6);
   }
 
   return c.json(

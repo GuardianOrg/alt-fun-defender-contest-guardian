@@ -59,19 +59,6 @@ export const FFactoryAbi = [
   },
   {
     "type": "function",
-    "name": "buyTax",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "createPair",
     "inputs": [
       {
@@ -93,19 +80,6 @@ export const FFactoryAbi = [
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "feeTo",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -195,23 +169,7 @@ export const FFactoryAbi = [
   {
     "type": "function",
     "name": "initialize",
-    "inputs": [
-      {
-        "name": "feeTo_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "buyTax_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "sellTax_",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
+    "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -301,42 +259,6 @@ export const FFactoryAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "sellTax",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "setFeeParams",
-    "inputs": [
-      {
-        "name": "feeTo_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "buyTax_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "sellTax_",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -482,6 +404,19 @@ export const FFactoryAbi = [
       },
       {
         "name": "sender",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouterUpdated",
+    "inputs": [
+      {
+        "name": "router",
         "type": "address",
         "indexed": true,
         "internalType": "address"

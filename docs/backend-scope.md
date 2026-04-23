@@ -11,8 +11,9 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 | `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k`, `index` |
 | `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
 | `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity` |
-| `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |
-| `ProtocolFeesClaimed` | Bonding | `lt`, `amount` |
+| `FeeAccrued` | FeeVault | `token`, `creator`, `creatorAmount`, `protocolAmount`, `isBuy` — drives `feeAccrual` table, revenue dashboard, per-token earnings |
+| `CreatorFeesClaimed` | FeeVault | `creator`, `amount` (USDC) |
+| `ProtocolFeesClaimed` | FeeVault | `feeTo`, `amount` (USDC) |
 | `Buy` | LaunchpadRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
 | `Sell` | LaunchpadRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
 | `Referred` | LaunchpadRouter | `trader`, `referrer`, `token`, `usdcAmount` |
@@ -53,7 +54,8 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 
 | Endpoint | Description |
 |---|---|
-| `GET /creator/:wallet` | All tokens launched + aggregate stats (volume, fees earned, fees claimable). |
+| `GET /creator/:wallet` | All tokens launched + aggregate stats (volume, fees earned, fees claimable). Claimable is a single pooled USDC figure sourced from `FeeVault.creatorBalance(wallet)`. |
+| `GET /tokens/:address/earnings` | Per-token USDC fee accrual totals (creator + protocol). Backed by the `feeAccrual` indexer table. |
 | `GET /portfolio/:wallet` | Token holdings with current USD values. Only Alt Fun tokens. |
 | `GET /stats` | Platform-wide: `tokensLive`, `tokensGraduating`, `tokensGraduated`, `volume24h`. |
 | `GET /assets` | Underlying asset prices + LT exchange rates for all supported pairs. |
@@ -66,7 +68,7 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 | `GET /admin/analytics/dau` | Unique wallets per day |
 | `GET /admin/analytics/volume` | Curve + pool volume per day |
 | `GET /admin/analytics/graduations` | Launches, graduations, rate, avg time |
-| `GET /admin/analytics/revenue` | Fee breakdown per day |
+| `GET /admin/analytics/revenue` | USDC fee breakdown per day (accrual-based, sourced from `FeeVault.FeeAccrued`) |
 | `POST /admin/tokens/:address/hide` | Content moderation — hide from feeds |
 | `POST /admin/tokens/:address/unhide` | Reverse hide |
 

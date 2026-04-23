@@ -91,7 +91,7 @@ contract UUPSUpgradeTest is DeployHelper {
         assertEq(bonding.allTokensLength(), 1);
     }
 
-    function test_bonding_preservesFeesAfterUpgrade() public {
+    function test_bonding_preservesTokenListAfterUpgrade() public {
         address tokenAddr = _launchToken();
 
         lt.mintDirect(trader, 1000 ether);
@@ -100,14 +100,14 @@ contract UUPSUpgradeTest is DeployHelper {
         bonding.buy(1000 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
-        uint256 creatorFeesBefore = bonding.creatorFees(creator, address(lt));
-        uint256 protocolFeesBefore = bonding.protocolFees(address(lt));
+        uint256 tokensBefore = bonding.allTokensLength();
+        uint256 lpReserveBefore = bonding.lpReserve(tokenAddr);
 
         BondingV2 newImpl = new BondingV2();
         bonding.upgradeToAndCall(address(newImpl), "");
 
-        assertEq(bonding.creatorFees(creator, address(lt)), creatorFeesBefore);
-        assertEq(bonding.protocolFees(address(lt)), protocolFeesBefore);
+        assertEq(bonding.allTokensLength(), tokensBefore);
+        assertEq(bonding.lpReserve(tokenAddr), lpReserveBefore);
     }
 
     function test_bonding_canTradeAfterUpgrade() public {
@@ -136,6 +136,6 @@ contract UUPSUpgradeTest is DeployHelper {
     function test_bonding_implementationCannotBeInitialized() public {
         Bonding impl = new Bonding();
         vm.expectRevert();
-        impl.initialize(address(1), address(2), address(3), 100, address(4), address(5));
+        impl.initialize(address(1), address(2), 100, address(3), address(4));
     }
 }

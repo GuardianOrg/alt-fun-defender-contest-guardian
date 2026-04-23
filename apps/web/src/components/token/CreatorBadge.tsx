@@ -24,6 +24,11 @@ export default function CreatorBadge({ token }: Props) {
   const tokenData = earnings?.tokens.find(
     (t) => t.address.toLowerCase() === token.address.toLowerCase(),
   );
+  // Claimable is pooled across every token the creator has launched — the
+  // vault exposes a single balance, not per-token splits. The badge shows
+  // the pooled figure so the claim button reflects exactly what a click will
+  // pay out.
+  const totalClaimableUsd = earnings?.totalClaimable ?? 0;
 
   return (
     <div className={styles.wrapper}>
@@ -31,8 +36,8 @@ export default function CreatorBadge({ token }: Props) {
         <div className={styles.headerLeft}>
           <span className={styles.badge}>creator</span>
           <span className={styles.claimable}>
-            {tokenData
-              ? `$${tokenData.feesClaimableUsd.toFixed(2)} claimable`
+            {earnings
+              ? `$${totalClaimableUsd.toFixed(2)} claimable`
               : "Your token"}
           </span>
         </div>
@@ -57,7 +62,7 @@ export default function CreatorBadge({ token }: Props) {
             <div>
               <div className={styles.statLabel}>claimable</div>
               <div className={styles.statMint}>
-                ${tokenData.feesClaimableUsd.toFixed(2)}
+                ${totalClaimableUsd.toFixed(2)}
               </div>
             </div>
           </div>
@@ -66,13 +71,13 @@ export default function CreatorBadge({ token }: Props) {
             variant="primary"
             fullWidth
             busy={claiming}
-            disabled={tokenData.feesClaimableUsd <= 0}
-            onClick={() => claim(token.address)}
+            disabled={totalClaimableUsd <= 0}
+            onClick={() => claim()}
           >
             {claiming
               ? "Claiming…"
-              : tokenData.feesClaimableUsd > 0
-                ? `Claim $${tokenData.feesClaimableUsd.toFixed(2)}`
+              : totalClaimableUsd > 0
+                ? `Claim $${totalClaimableUsd.toFixed(2)}`
                 : "Nothing to claim"}
           </Button>
 

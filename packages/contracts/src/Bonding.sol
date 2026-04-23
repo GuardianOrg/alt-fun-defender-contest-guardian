@@ -39,7 +39,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     FFactory public factory;
     FRouter public router;
-    address public feeTo;
 
     address public hyperswapRouter;
     address public lpLock;
@@ -84,9 +83,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public constant LP_RESERVE_BPS = 2500;
     uint256 public constant BPS_DENOM = 10_000;
 
-    /// @dev Creator gets 20% of trade fees (0.1% of 0.5%)
-    uint256 public constant CREATOR_FEE_BPS = 2000;
-
     /// @dev Name/ticker length bounds. Hard-enforced at launch; webapp and API
     ///      replicate these limits. Changing them requires a contract redeploy.
     uint256 public constant MIN_NAME_LENGTH = 1;
@@ -127,11 +123,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
 
-    /// @dev Creator fee accrual: creator => LT => amount
-    mapping(address => mapping(address => uint256)) public creatorFees;
-    /// @dev Protocol fee accrual: LT => amount
-    mapping(address => uint256) public protocolFees;
-
     event TokenLaunched(
         address indexed token,
         address indexed creator,
@@ -158,8 +149,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 lpBurned,
         uint256 unsoldBurned
     );
-    event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
-    event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
@@ -170,7 +159,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error TokenAlreadyGraduated();
     error InvalidInput();
     error SlippageExceeded();
-    error NothingToClaim();
     error NotCreator();
     error NotRouter();
     error RouterAlreadyAdded();
@@ -194,7 +182,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function initialize(
         address factory_,
         address router_,
-        address feeTo_,
         uint256 maxTx_,
         address hyperswapRouter_,
         address lpLock_
@@ -203,19 +190,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         factory = FFactory(factory_);
         router = FRouter(router_);
-        feeTo = feeTo_;
         maxTx = maxTx_;
         hyperswapRouter = hyperswapRouter_;
         lpLock = lpLock_;
-        graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
-    }
-
-    /// @notice Re-initializer for the v2 upgrade that introduces a mutable
-    ///         graduation threshold. Seeds `graduationThresholdUsd` to the
-    ///         pre-upgrade compile-time value so behaviour is bit-identical
-    ///         until the owner explicitly tunes it. Idempotent: `reinitializer(2)`
-    ///         can only run once across the proxy's lifetime.
-    function reinitV2() external reinitializer(2) {
         graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
     }
 
@@ -366,14 +343,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         // Router holds the tokens and receives LT (`msg.sender` here = router).
         // `trader` is purely informational — emitted in the `Trade` event.
-        (, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
-        if (netAssetOut < amountOutMin) revert SlippageExceeded();
-
-        _trackFee(tokenAddress, grossAssetOut, false);
+        (, uint256 assetOut) = router.sell(amountIn, tokenAddress, msg.sender);
+        if (assetOut < amountOutMin) revert SlippageExceeded();
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
-        emit Trade(tokenAddress, trader, false, netAssetOut, amountIn, newCurveSupply, newLtReserve);
-        return netAssetOut;
+        emit Trade(tokenAddress, trader, false, assetOut, amountIn, newCurveSupply, newLtReserve);
+        return assetOut;
     }
 
     // ─── Views ───────────────────────────────────────────────────────────
@@ -441,28 +416,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return valueUsd >= graduationThresholdUsd;
     }
 
-    // ─── Creator Fees ────────────────────────────────────────────────────
-
-    function claimCreatorFees(
-        address lt
-    ) external nonReentrant {
-        uint256 amount = creatorFees[msg.sender][lt];
-        if (amount == 0) revert NothingToClaim();
-        creatorFees[msg.sender][lt] = 0;
-        IERC20(lt).safeTransfer(msg.sender, amount);
-        emit CreatorFeesClaimed(msg.sender, lt, amount);
-    }
-
-    function claimProtocolFees(
-        address lt
-    ) external onlyOwner nonReentrant {
-        uint256 amount = protocolFees[lt];
-        if (amount == 0) revert NothingToClaim();
-        protocolFees[lt] = 0;
-        IERC20(lt).safeTransfer(feeTo, amount);
-        emit ProtocolFeesClaimed(lt, amount);
-    }
-
     function transferCreator(
         address tokenAddress,
         address newCreator
@@ -477,12 +430,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Admin ───────────────────────────────────────────────────────────
 
-    function setParams(
-        uint256 newMaxTx,
-        address newFeeTo
+    function setMaxTx(
+        uint256 newMaxTx
     ) external onlyOwner {
         maxTx = newMaxTx;
-        feeTo = newFeeTo;
     }
 
     function setHyperswap(
@@ -558,36 +509,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 amountIn,
         address tokenAddress
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
-        uint256 netIn;
-        (amountInUsed, netIn, tokensOut) = router.buy(amountIn, tokenAddress, tokenHolder);
-
-        _trackFee(tokenAddress, amountInUsed, true);
+        (amountInUsed, tokensOut) = router.buy(amountIn, tokenAddress, tokenHolder);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
-        emit Trade(tokenAddress, trader, true, netIn, tokensOut, newCurveSupply, newLtReserve);
+        emit Trade(tokenAddress, trader, true, amountInUsed, tokensOut, newCurveSupply, newLtReserve);
 
         if (_tokenInfo[tokenAddress].trading && canGraduate(tokenAddress)) {
             _graduate(tokenAddress);
         }
-    }
-
-    function _trackFee(
-        address tokenAddress,
-        uint256 tradeAmount,
-        bool isBuy
-    ) internal {
-        uint256 taxBps = isBuy ? factory.buyTax() : factory.sellTax();
-        uint256 totalFee = (taxBps * tradeAmount) / BPS_DENOM;
-        if (totalFee == 0) return;
-
-        uint256 creatorShare = (totalFee * CREATOR_FEE_BPS) / BPS_DENOM;
-        uint256 protocolShare = totalFee - creatorShare;
-
-        address lt = _tokenInfo[tokenAddress].ltAddress;
-        address creator_ = _tokenInfo[tokenAddress].creator;
-
-        creatorFees[creator_][lt] += creatorShare;
-        protocolFees[lt] += protocolShare;
     }
 
     function _graduate(

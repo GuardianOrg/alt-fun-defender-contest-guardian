@@ -134,6 +134,22 @@ export function fetchToken(address: string): Promise<ApiToken> {
   return apiFetch(`/api/v1/tokens/${address}`);
 }
 
+/** Fee-accrual totals for a single token, served by `/tokens/:address/earnings`. */
+export interface ApiTokenEarnings {
+  tokenAddress: string;
+  creatorFeesUsd: number;
+  protocolFeesUsd: number;
+  totalFeesUsd: number;
+  accrualCount: number;
+  truncated: boolean;
+}
+
+export function fetchTokenEarnings(
+  address: string,
+): Promise<ApiTokenEarnings> {
+  return apiFetch(`/api/v1/tokens/${address}/earnings`);
+}
+
 export function searchTokens(query: string): Promise<ApiToken[]> {
   return apiFetch(`/api/v1/tokens/search?q=${encodeURIComponent(query)}`);
 }

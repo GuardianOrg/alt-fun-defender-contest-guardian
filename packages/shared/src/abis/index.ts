@@ -5,5 +5,6 @@ export { FPairAbi } from "./FPair.js";
 export { FERC20Abi } from "./FERC20.js";
 export { LaunchpadRouterAbi } from "./LaunchpadRouter.js";
 export { LPLockAbi } from "./LPLock.js";
+export { FeeVaultAbi } from "./FeeVault.js";
 export { UniswapV2PairAbi } from "./UniswapV2Pair.js";
 export { LeveragedTokenAbi } from "./LeveragedToken.js";
