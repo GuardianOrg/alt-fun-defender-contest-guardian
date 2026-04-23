@@ -71,6 +71,58 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_NAME_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_TICKER_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_NAME_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_TICKER_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "UPGRADE_INTERFACE_VERSION",
     "inputs": [],
     "outputs": [
@@ -94,6 +146,19 @@ export const BondingAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "addRouter",
+    "inputs": [
+      {
+        "name": "router_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -145,6 +210,11 @@ export const BondingAbi = [
         "name": "amountOutMin",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "trader",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
@@ -276,6 +346,19 @@ export const BondingAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getRouters",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
       }
     ],
     "stateMutability": "view"
@@ -447,6 +530,25 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "isRouter",
+    "inputs": [
+      {
+        "name": "router_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "isTrading",
     "inputs": [
       {
@@ -534,19 +636,6 @@ export const BondingAbi = [
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "launchpadRouter",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -640,6 +729,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "removeRouter",
+    "inputs": [
+      {
+        "name": "router_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
@@ -676,6 +778,11 @@ export const BondingAbi = [
         "name": "amountOutMin",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "trader",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
@@ -698,19 +805,6 @@ export const BondingAbi = [
       },
       {
         "name": "newLpLock",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setLaunchpadRouter",
-    "inputs": [
-      {
-        "name": "newLaunchpadRouter",
         "type": "address",
         "internalType": "address"
       }
@@ -904,19 +998,6 @@ export const BondingAbi = [
   },
   {
     "type": "event",
-    "name": "LaunchpadRouterUpdated",
-    "inputs": [
-      {
-        "name": "newLaunchpadRouter",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "OwnershipTransferred",
     "inputs": [
       {
@@ -949,6 +1030,32 @@ export const BondingAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouterAdded",
+    "inputs": [
+      {
+        "name": "router",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RouterRemoved",
+    "inputs": [
+      {
+        "name": "router",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -1151,6 +1258,16 @@ export const BondingAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidNameLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidTickerLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotCreator",
     "inputs": []
   },
@@ -1161,7 +1278,7 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "NotLaunchpadRouter",
+    "name": "NotRouter",
     "inputs": []
   },
   {
@@ -1204,6 +1321,16 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RouterAlreadyAdded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RouterNotFound",
     "inputs": []
   },
   {

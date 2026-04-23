@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {FFactory} from "./FFactory.sol";
 import {FRouter} from "./FRouter.sol";
 import {FERC20} from "./FERC20.sol";
@@ -33,6 +34,7 @@ import {LPLock} from "./LPLock.sol";
 ///      from the 250M LP reserve. This guarantees zero LP/curve price gap.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     FFactory public factory;
     FRouter public router;
@@ -40,7 +42,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     address public hyperswapRouter;
     address public lpLock;
-    address public launchpadRouter;
+
+    /// @dev Authorised routers. Only addresses in this set may call `launch`,
+    ///      `buy`, or `sell`. Managed via `addRouter` / `removeRouter`. The
+    ///      set model (vs. a single `launchpadRouter` address) allows seamless
+    ///      router upgrades: deploy the new router, `addRouter(newRouter)`,
+    ///      flip the frontend's canonical address, then `removeRouter(old)`
+    ///      with no window in which users can't trade.
+    EnumerableSet.AddressSet private _routers;
 
     uint256 public maxTx;
 
@@ -133,7 +142,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
     event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
-    event LaunchpadRouterUpdated(address indexed newLaunchpadRouter);
+    event RouterAdded(address indexed router);
+    event RouterRemoved(address indexed router);
 
     error TokenNotTrading();
     error ZeroAddress();
@@ -142,12 +152,19 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error SlippageExceeded();
     error NothingToClaim();
     error NotCreator();
-    error NotLaunchpadRouter();
+    error NotRouter();
+    error RouterAlreadyAdded();
+    error RouterNotFound();
     error ZeroExchangeRate();
     error PairAlreadySeeded();
     error PairLookupFailed();
     error InvalidNameLength();
     error InvalidTickerLength();
+
+    modifier onlyRouter() {
+        if (!_routers.contains(msg.sender)) revert NotRouter();
+        _;
+    }
 
     constructor() {
         _disableInitializers();
@@ -176,8 +193,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function launch(
         LaunchParams calldata params,
         address creator_
-    ) external nonReentrant returns (address tokenAddr, address pair, uint256 index) {
-        if (msg.sender != launchpadRouter) revert NotLaunchpadRouter();
+    ) external onlyRouter nonReentrant returns (address tokenAddr, address pair, uint256 index) {
         if (params.ltAddress == address(0)) revert InvalidInput();
 
         uint256 nameLen = bytes(params.name).length;
@@ -239,7 +255,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         // 250M LP reserve leaves the contract during the same call. A naive
         // `balanceAfter − balanceBefore` would either short-change the creator
         // by 250M or underflow-revert if the buy netted fewer than 250M tokens.
-        (uint256 seedTokens, uint256 amountInUsed) = _executeBuy(address(this), purchaseAmount, tokenAddr);
+        //
+        // `tokenHolder = address(this)` because LT was just pulled from the caller
+        // into this contract and tokens are delivered here before being forwarded
+        // to the creator. `trader = creator_` so the emitted `Trade` event
+        // attributes the seed buy to the actual creator, not the Bonding contract.
+        (uint256 seedTokens, uint256 amountInUsed) = _executeBuy(address(this), creator_, purchaseAmount, tokenAddr);
 
         IERC20(tokenAddr).safeTransfer(creator_, seedTokens);
 
@@ -277,37 +298,50 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Buy / Sell ──────────────────────────────────────────────────────
 
-    /// @notice Buy tokens on the curve.
+    /// @notice Buy tokens on the curve. Router-only.
     /// @param amountIn      Max LT the caller permits to be pulled.
     /// @param tokenAddress  Token to buy.
     /// @param amountOutMin  Minimum tokens out (slippage check).
-    /// @return tokensOut    Tokens delivered to caller.
+    /// @param trader        The ultimate user attributed in the emitted `Trade`
+    ///                      event. The calling router passes its own caller
+    ///                      (`msg.sender` at the router level) — trusted because
+    ///                      only allowlisted routers can reach this function.
+    /// @return tokensOut    Tokens delivered to the calling router (which then
+    ///                      forwards them to the user).
     /// @return amountInUsed LT actually consumed (≤ amountIn). Any difference remains in caller.
     function buy(
         uint256 amountIn,
         address tokenAddress,
-        uint256 amountOutMin
-    ) external nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
+        uint256 amountOutMin,
+        address trader
+    ) external onlyRouter nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
 
-        (tokensOut, amountInUsed) = _executeBuy(msg.sender, amountIn, tokenAddress);
+        // `msg.sender` (the router) holds LT and receives tokens; `trader` is the
+        // user whose identity is recorded in the `Trade` event.
+        (tokensOut, amountInUsed) = _executeBuy(msg.sender, trader, amountIn, tokenAddress);
         if (tokensOut < amountOutMin) revert SlippageExceeded();
     }
 
+    /// @notice Sell tokens on the curve. Router-only.
+    /// @param trader The ultimate user attributed in the emitted `Trade` event.
     function sell(
         uint256 amountIn,
         address tokenAddress,
-        uint256 amountOutMin
-    ) external nonReentrant returns (uint256) {
+        uint256 amountOutMin,
+        address trader
+    ) external onlyRouter nonReentrant returns (uint256) {
         if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
 
+        // Router holds the tokens and receives LT (`msg.sender` here = router).
+        // `trader` is purely informational — emitted in the `Trade` event.
         (, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
         if (netAssetOut < amountOutMin) revert SlippageExceeded();
 
         _trackFee(tokenAddress, grossAssetOut, false);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
-        emit Trade(tokenAddress, msg.sender, false, netAssetOut, amountIn, newCurveSupply, newLtReserve);
+        emit Trade(tokenAddress, trader, false, netAssetOut, amountIn, newCurveSupply, newLtReserve);
         return netAssetOut;
     }
 
@@ -428,28 +462,60 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         lpLock = newLpLock;
     }
 
-    function setLaunchpadRouter(
-        address newLaunchpadRouter
+    /// @notice Authorise a router to call `launch`, `buy`, and `sell`. Multiple
+    ///         routers may be active simultaneously. Reverts if `router` is
+    ///         zero or already allowlisted.
+    function addRouter(
+        address router_
     ) external onlyOwner {
-        if (newLaunchpadRouter == address(0)) revert ZeroAddress();
-        launchpadRouter = newLaunchpadRouter;
-        emit LaunchpadRouterUpdated(newLaunchpadRouter);
+        if (router_ == address(0)) revert ZeroAddress();
+        if (!_routers.add(router_)) revert RouterAlreadyAdded();
+        emit RouterAdded(router_);
+    }
+
+    /// @notice Revoke a router's authorisation. Reverts if not previously
+    ///         allowlisted.
+    function removeRouter(
+        address router_
+    ) external onlyOwner {
+        if (!_routers.remove(router_)) revert RouterNotFound();
+        emit RouterRemoved(router_);
+    }
+
+    /// @notice Check whether an address is an authorised router.
+    function isRouter(
+        address router_
+    ) external view returns (bool) {
+        return _routers.contains(router_);
+    }
+
+    /// @notice Enumerate all currently-authorised routers. Intended for admin
+    ///         tooling / off-chain introspection; on-chain callers should
+    ///         prefer `isRouter` for O(1) membership checks.
+    function getRouters() external view returns (address[] memory) {
+        return _routers.values();
     }
 
     // ─── Internals ───────────────────────────────────────────────────────
 
+    /// @dev `tokenHolder` is the address FRouter pulls LT from and delivers
+    ///      tokens to — the router for user flows, or `address(this)` for seed
+    ///      buys (where Bonding itself temporarily holds LT before forwarding
+    ///      tokens to the creator). `trader` is the event-only attribution
+    ///      (the user EOA or the creator) and has no effect on token flow.
     function _executeBuy(
-        address buyer,
+        address tokenHolder,
+        address trader,
         uint256 amountIn,
         address tokenAddress
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
         uint256 netIn;
-        (amountInUsed, netIn, tokensOut) = router.buy(amountIn, tokenAddress, buyer);
+        (amountInUsed, netIn, tokensOut) = router.buy(amountIn, tokenAddress, tokenHolder);
 
         _trackFee(tokenAddress, amountInUsed, true);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
-        emit Trade(tokenAddress, buyer, true, netIn, tokensOut, newCurveSupply, newLtReserve);
+        emit Trade(tokenAddress, trader, true, netIn, tokensOut, newCurveSupply, newLtReserve);
 
         if (_tokenInfo[tokenAddress].trading && canGraduate(tokenAddress)) {
             _graduate(tokenAddress);

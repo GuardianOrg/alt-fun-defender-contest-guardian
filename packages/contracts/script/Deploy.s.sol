@@ -65,7 +65,7 @@ contract Deploy is Script {
         factory.grantRole(factory.BONDING_ROLE(), bondingProxy);
         router.grantRole(router.BONDING_ROLE(), bondingProxy);
         LPLock(lpLockProxy).setLocker(bondingProxy, true);
-        Bonding(bondingProxy).setLaunchpadRouter(rrProxy);
+        Bonding(bondingProxy).addRouter(rrProxy);
 
         // Set feeTo = Bonding so trade fees accumulate there
         factory.setFeeParams(bondingProxy, BUY_TAX_BPS, SELL_TAX_BPS);

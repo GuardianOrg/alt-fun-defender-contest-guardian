@@ -31,7 +31,10 @@ contract GraduationInvariantsTest is DeployHelper {
 
     function setUp() public {
         _deployCore();
-        bonding.setLaunchpadRouter(creator);
+        // Every pranked address that calls Bonding directly must be on the router allowlist.
+        bonding.addRouter(creator);
+        bonding.addRouter(trader);
+        bonding.addRouter(trader2);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -78,9 +81,10 @@ contract GraduationInvariantsTest is DeployHelper {
         uint256 ltAmount
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
         lt.mintDirect(buyer, ltAmount);
+        if (!bonding.isRouter(buyer)) bonding.addRouter(buyer);
         vm.startPrank(buyer);
         lt.approve(address(frouter), ltAmount);
-        (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddr, 0);
+        (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddr, 0, buyer);
         vm.stopPrank();
     }
 
@@ -108,11 +112,12 @@ contract GraduationInvariantsTest is DeployHelper {
         uint256 ltBalPre = IFPair(pairAddr).assetBalance();
 
         lt.mintDirect(buyer, ltAmount);
+        if (!bonding.isRouter(buyer)) bonding.addRouter(buyer);
         vm.startPrank(buyer);
         lt.approve(address(frouter), ltAmount);
 
         vm.recordLogs();
-        bonding.buy(ltAmount, tokenAddr, 0);
+        bonding.buy(ltAmount, tokenAddr, 0, buyer);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         vm.stopPrank();
 

@@ -7,9 +7,23 @@ Forked from Virtuals Protocol `contracts/fun`. Solidity 0.8.x, Foundry.
 Bonding curve system where the reserve asset is a BounceTech Leveraged Token (LT) instead of USDC. Users interact via `LaunchpadRouter` which abstracts LT — they only see USDC in/out.
 
 ```
-User → USDC → LaunchpadRouter → mint LT → Bonding.buy() → FPair (token/LT) → token
+User → USDC → LaunchpadRouter → mint LT → Bonding.buy(..., trader=user) → FPair (token/LT) → token
 Graduation → Bonding._graduate() → HyperSwap V2 pool (token/LT) → LP locked
 ```
+
+## Router allowlist (`Bonding.isRouter`)
+
+`Bonding.launch`, `Bonding.buy`, and `Bonding.sell` are gated on an allowlist:
+only addresses in `_routers` (OZ `EnumerableSet.AddressSet`) may call them.
+Manage via owner-only `addRouter` / `removeRouter`; query via `isRouter` or
+`getRouters`. This (a) makes `LaunchpadRouter` the only trust-surface for
+curve interactions, and (b) lets us hot-swap routers without downtime —
+`addRouter(newRouter)` → flip the frontend constant → `removeRouter(oldRouter)`.
+
+`Bonding.buy/sell` take a `trader` address which is emitted in `Bonding.Trade`
+and used by the indexer / UI. Because only allowlisted routers can reach the
+function, `trader` is trusted — `LaunchpadRouter` forwards `msg.sender` (the
+real user EOA). Seed buys via `createToken` attribute to the creator.
 
 ## Contracts
 
