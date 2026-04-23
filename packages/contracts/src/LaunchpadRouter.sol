@@ -171,7 +171,12 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         FRouter frouter = bonding.router();
         IERC20(lt).forceApprove(address(frouter), ltAmount);
         // Slippage is checked in LaunchpadRouter.buy after the refund path, so pass 0 here.
-        (tokensOut,) = bonding.buy(ltAmount, tokenAddress, 0);
+        // `msg.sender` is preserved across the internal call, so it's the user
+        // who invoked `LaunchpadRouter.buy` — passed through to Bonding as the
+        // `trader` for the emitted `Trade` event. Router is trusted by Bonding
+        // (it's on the `isRouter` allowlist), so this attribution is not
+        // spoofable by any other caller.
+        (tokensOut,) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
     }
 
     function _sellOnCurve(
@@ -180,7 +185,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ) internal returns (uint256 ltReceived) {
         FRouter frouter = bonding.router();
         IERC20(tokenAddress).forceApprove(address(frouter), tokenAmount);
-        ltReceived = bonding.sell(tokenAmount, tokenAddress, 0);
+        ltReceived = bonding.sell(tokenAmount, tokenAddress, 0, msg.sender);
     }
 
     // ─── Internal: HyperSwap Trades ─────────────────────────────────────

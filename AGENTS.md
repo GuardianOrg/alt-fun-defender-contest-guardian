@@ -108,7 +108,7 @@ Off-chain writes (token creation, comments, profile updates) require a wallet si
 |---|---|---|
 | Home page token list | PostgreSQL (`GET /api/v1/tokens`) | Ponder (curve state merged client-side) |
 | Token detail page | PostgreSQL (`GET /api/v1/tokens/:address`) | Ponder (curve supply, LT reserve, graduation) |
-| Trade history | Ponder (`routerTrades` GraphQL) | — |
+| Trade history | Ponder (`trades` GraphQL, from `Bonding.Trade` events) | — |
 | Holders | On-chain RPC (`balanceOf` multicall) | — |
 | Asset prices | Hyperliquid API | — |
 

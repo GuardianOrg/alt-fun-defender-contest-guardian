@@ -28,7 +28,7 @@ contract LaunchpadRouterTest is DeployHelper {
             abi.encodeCall(LaunchpadRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
         launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
 
-        bonding.setLaunchpadRouter(address(launchpadRouter));
+        bonding.addRouter(address(launchpadRouter));
 
         usdc.mint(address(lt), 1_000_000 ether);
     }

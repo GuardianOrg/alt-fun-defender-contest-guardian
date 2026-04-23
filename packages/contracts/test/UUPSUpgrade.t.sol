@@ -24,7 +24,8 @@ contract UUPSUpgradeTest is DeployHelper {
 
     function setUp() public {
         _deployCore();
-        bonding.setLaunchpadRouter(creator);
+        bonding.addRouter(creator);
+        bonding.addRouter(trader);
     }
 
     function _launchToken() internal returns (address tokenAddr) {
@@ -96,7 +97,7 @@ contract UUPSUpgradeTest is DeployHelper {
         lt.mintDirect(trader, 1000 ether);
         vm.startPrank(trader);
         lt.approve(address(frouter), 1000 ether);
-        bonding.buy(1000 ether, tokenAddr, 0);
+        bonding.buy(1000 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
         uint256 creatorFeesBefore = bonding.creatorFees(creator, address(lt));
@@ -118,7 +119,7 @@ contract UUPSUpgradeTest is DeployHelper {
         lt.mintDirect(trader, 500 ether);
         vm.startPrank(trader);
         lt.approve(address(frouter), 500 ether);
-        (uint256 tokensOut,) = bonding.buy(500 ether, tokenAddr, 0);
+        (uint256 tokensOut,) = bonding.buy(500 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
         assertTrue(tokensOut > 0, "Should be able to trade after upgrade");
