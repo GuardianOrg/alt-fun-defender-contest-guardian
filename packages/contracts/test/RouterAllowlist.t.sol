@@ -134,13 +134,7 @@ contract RouterAllowlistTest is DeployHelper {
 
     function test_bondingLaunch_revertsForUnauthorizedCaller() public {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "X",
-            ticker: "X",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: "X", ticker: "X", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
 
         vm.prank(trader);
@@ -214,8 +208,7 @@ contract RouterAllowlistTest is DeployHelper {
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
 
         vm.startPrank(creator);
@@ -245,13 +238,7 @@ contract RouterAllowlistTest is DeployHelper {
 
     function _createBasicToken() internal returns (address tokenAddr) {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Tok",
-            ticker: "TOK",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: "Tok", ticker: "TOK", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
         vm.prank(creator);
         tokenAddr = launchpadRouter.createToken(params, 0);

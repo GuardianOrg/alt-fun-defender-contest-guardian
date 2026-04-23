@@ -27,8 +27,7 @@ contract E2ETest is Script {
             description: "End-to-end test",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: HYPE2L,
-            purchaseAmount: 0
+            ltAddress: HYPE2L
         });
 
         address tokenAddr = router.createToken(params, 0);

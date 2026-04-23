@@ -21,7 +21,7 @@ Forked from Virtuals Protocol `contracts/fun` — a bonding curve system. We rep
 
 ## Token Launch
 
-Creator calls `Bonding.launch()` with: name, ticker, LT pair address, description, image URL, social URLs, optional seed buy amount.
+Creator calls `LaunchpadRouter.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)`. The router calls `Bonding.launch()` to deploy the curve, then — if `seedUsdcAmount > 0` — performs the seed buy via the standard `LaunchpadRouter.buy` path so it inherits the same pro-rata fee handling and leftover refund as any other buy.
 
 This deploys an `FERC20` (1B supply) and creates an `FPair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
 

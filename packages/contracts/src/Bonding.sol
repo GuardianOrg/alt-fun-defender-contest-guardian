@@ -111,7 +111,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string image;
         string[4] urls;
         address ltAddress;
-        uint256 purchaseAmount; // LT amount for seed buy (0 = no seed buy)
     }
 
     mapping(address => TokenInfo) internal _tokenInfo;
@@ -215,10 +214,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         uint256 k = IFPair(pair).kLast();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
-
-        if (params.purchaseAmount > 0) {
-            _seedBuy(tokenAddr, params.ltAddress, params.purchaseAmount, creator_);
-        }
     }
 
     function _deployAndSeed(
@@ -244,41 +239,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
 
         lpReserve[tokenAddr] = totalSupply - curveSupply;
-    }
-
-    function _seedBuy(
-        address tokenAddr,
-        address ltAddress,
-        uint256 purchaseAmount,
-        address creator_
-    ) internal {
-        IERC20(ltAddress).safeTransferFrom(msg.sender, address(this), purchaseAmount);
-        IERC20(ltAddress).forceApprove(address(router), purchaseAmount);
-
-        // IMPORTANT: take `seedTokens` from `_executeBuy`'s return value, not from a
-        // `balanceOf(this)` delta. A large seed buy can satisfy the graduation
-        // trigger inline (supply-exhaust, or USD trigger if the LT rate has moved
-        // between launch and this call), and `_graduate` burns `lpBurned` from
-        // `address(this)` and sends `tokensForLP` to HyperSwap — i.e. the full
-        // 250M LP reserve leaves the contract during the same call. A naive
-        // `balanceAfter − balanceBefore` would either short-change the creator
-        // by 250M or underflow-revert if the buy netted fewer than 250M tokens.
-        //
-        // `tokenHolder = address(this)` because LT was just pulled from the caller
-        // into this contract and tokens are delivered here before being forwarded
-        // to the creator. `trader = creator_` so the emitted `Trade` event
-        // attributes the seed buy to the actual creator, not the Bonding contract.
-        (uint256 seedTokens, uint256 amountInUsed) = _executeBuy(address(this), creator_, purchaseAmount, tokenAddr);
-
-        IERC20(tokenAddr).safeTransfer(creator_, seedTokens);
-
-        // If the seed buy was capped (overflow — would have exhausted the curve), return
-        // the unused LT to the creator. We refund only the leftover portion of
-        // `purchaseAmount` to avoid sweeping LT fees that may have accrued to this
-        // contract when it is itself the factory `feeTo`.
-        if (amountInUsed < purchaseAmount) {
-            IERC20(ltAddress).safeTransfer(creator_, purchaseAmount - amountInUsed);
-        }
     }
 
     function _storeTokenInfo(
@@ -499,10 +459,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     // ─── Internals ───────────────────────────────────────────────────────
 
     /// @dev `tokenHolder` is the address FRouter pulls LT from and delivers
-    ///      tokens to — the router for user flows, or `address(this)` for seed
-    ///      buys (where Bonding itself temporarily holds LT before forwarding
-    ///      tokens to the creator). `trader` is the event-only attribution
-    ///      (the user EOA or the creator) and has no effect on token flow.
+    ///      tokens to — always the calling LaunchpadRouter (which then forwards
+    ///      tokens to the user). `trader` is the event-only attribution
+    ///      (the user EOA) and has no effect on token flow.
     function _executeBuy(
         address tokenHolder,
         address trader,

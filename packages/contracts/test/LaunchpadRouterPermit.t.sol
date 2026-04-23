@@ -64,8 +64,7 @@ contract LaunchpadRouterPermitTest is DeployHelper {
             description: "Permit UX test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
     }
 

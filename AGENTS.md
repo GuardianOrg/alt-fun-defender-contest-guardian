@@ -81,7 +81,7 @@ Creating a token is a **two-phase process**. Both phases must succeed for the to
 
 ### Phase 1 — On-Chain
 
-Frontend calls `LaunchpadRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 token, creates the bonding curve pair via `Bonding.launch()`, and optionally executes a seed buy. Two key events are emitted: `TokenLaunched` (from Bonding) and `TokenCreated` (from LaunchpadRouter). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+Frontend calls `LaunchpadRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 token, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `LaunchpadRouter.buy` path (so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as any other buy). Three key events fire: `TokenLaunched` (Bonding), `TokenCreated` (LaunchpadRouter), and `Buy` (LaunchpadRouter, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
 
 ### Phase 2 — Off-Chain API Registration
 
@@ -233,7 +233,7 @@ See `TODO.md` in the repo root for outstanding work items. This is the single so
 
 ## ⚠️ Pending Deploy: Router Fee Migration (one-off — delete this section once done)
 
-The router-fee migration introduced a new `FeeVault` contract and reshaped `LaunchpadRouter`/`Bonding`/`FRouter`/`FFactory` initialisers. Until the migration is deployed to HyperEVM, `feeVault` in `packages/shared/src/constants/addresses.ts` is the placeholder `0x…0001`, and the indexer/API will read empty data for fee accruals.
+The router-fee migration introduced a new `FeeVault` contract and reshaped `LaunchpadRouter`/`Bonding`/`FRouter`/`FFactory` initialisers. It also moved seed buys out of `Bonding` entirely — `Bonding.LaunchParams.purchaseAmount` is gone, and `LaunchpadRouter.createToken` now performs any seed buy via the standard buy path so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as a regular buy. Until the migration is deployed to HyperEVM, `feeVault` in `packages/shared/src/constants/addresses.ts` is the placeholder `0x…0001`, and the indexer/API will read empty data for fee accruals.
 
 **Steps:**
 

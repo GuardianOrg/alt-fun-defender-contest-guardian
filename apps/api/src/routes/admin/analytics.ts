@@ -200,7 +200,9 @@ analytics.get("/revenue", async (c) => {
   // and recorded in `FeeVault` regardless of claim timing, so revenue tracking
   // reads accruals directly — this decouples the dashboard from creators
   // forgetting to claim.
-  const { items: accruals, truncated } = await queryAll<PonderFeeAccrual>(
+  const { items: accruals, truncated } = await queryAll<
+    Pick<PonderFeeAccrual, "creatorAmount" | "protocolAmount" | "timestamp">
+  >(
     `query ($limit: Int!, $offset: Int!, $cutoff: BigInt!) {
       feeAccruals(
         where: { timestamp_gte: $cutoff }

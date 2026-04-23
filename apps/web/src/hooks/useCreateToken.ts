@@ -120,7 +120,6 @@ export function useCreateToken() {
             socials[3] ?? "",
           ] as [string, string, string, string],
           ltAddress: lt.address,
-          purchaseAmount: 0n,
         };
 
         const seedUsdcAmount = params.seedBuyUsd > 0

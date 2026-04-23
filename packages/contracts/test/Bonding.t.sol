@@ -27,22 +27,24 @@ contract BondingTest is DeployHelper {
     function _launchToken(
         uint256 seedLtAmount
     ) internal returns (address tokenAddr, address pairAddr) {
-        lt.mintDirect(creator, seedLtAmount);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), seedLtAmount);
-        lt.approve(address(bonding), seedLtAmount);
-
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "TestToken",
             ticker: "TEST",
             description: "A test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt),
-            purchaseAmount: seedLtAmount
+            ltAddress: address(lt)
         });
+        vm.prank(creator);
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
-        vm.stopPrank();
+
+        // Seed buys no longer happen inside `Bonding.launch` — they're now a
+        // post-launch step in the LaunchpadRouter. To preserve the seeded curve
+        // state these Bonding-level tests rely on, perform an equivalent seed
+        // buy via `bonding.buy` (creator is already on the router allowlist).
+        if (seedLtAmount > 0) {
+            _buyTokens(tokenAddr, creator, seedLtAmount);
+        }
     }
 
     function _launchTokenNoSeed() internal returns (address tokenAddr, address pairAddr) {
@@ -53,8 +55,7 @@ contract BondingTest is DeployHelper {
             description: "No seed buy",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
@@ -197,19 +198,10 @@ contract BondingTest is DeployHelper {
     }
 
     function test_launch_emitsEvent() public {
-        lt.mintDirect(creator, 200 ether);
         vm.startPrank(creator);
-        lt.approve(address(frouter), 200 ether);
-        lt.approve(address(bonding), 200 ether);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "EventTest",
-            ticker: "EVT",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 200 ether
+            name: "EventTest", ticker: "EVT", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
 
         vm.expectEmit(false, true, false, false);
@@ -225,13 +217,7 @@ contract BondingTest is DeployHelper {
         string memory ticker_
     ) internal view returns (Bonding.LaunchParams memory) {
         return Bonding.LaunchParams({
-            name: name_,
-            ticker: ticker_,
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: name_, ticker: ticker_, description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
     }
 
@@ -576,45 +562,6 @@ contract BondingTest is DeployHelper {
         address hyperPair = bonding.graduatedPair(tokenAddr);
         uint256 lpBalance = IERC20(hyperPair).balanceOf(address(lpLockContract));
         assertTrue(lpBalance > 0, "LPLock should hold LP tokens");
-    }
-
-    /// @notice Regression: a seed buy large enough to trigger graduation inline
-    ///         must still deliver the full `tokensOut` to the creator with no
-    ///         token dust stuck in the Bonding contract. Pre-fix, `_seedBuy`
-    ///         used `balanceOf(this)` deltas to compute `seedTokens`, which
-    ///         understated by the full 250M LP reserve burned/transferred
-    ///         during `_graduate` within the same call — either short-changing
-    ///         the creator by 250M or reverting with Panic(0x11) on underflow.
-    function test_seedBuy_graduatesInline_creatorGetsFullBuy() public {
-        // At LT_EXCHANGE_RATE = $1/LT, a seed of 13_000 LT = $13K USD crosses
-        // the $12K USD graduation trigger (and exhausts the curve at the same
-        // boundary by construction). Overflow-cap + fee refund are expected.
-        uint256 seedAmount = 13_000 ether;
-        lt.mintDirect(creator, seedAmount);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), seedAmount);
-        lt.approve(address(bonding), seedAmount);
-
-        Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "MegaSeed",
-            ticker: "MEGA",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: seedAmount
-        });
-
-        (address tokenAddr,,) = bonding.launch(params, creator);
-        vm.stopPrank();
-
-        assertTrue(bonding.isGraduated(tokenAddr), "Seed buy should have graduated inline");
-
-        // The two invariants that pin Copilot's bug: creator got real tokens,
-        // and none are stranded in Bonding (pre-fix this would have held the
-        // 250M LP reserve that the old delta math failed to transfer out).
-        assertTrue(FERC20(tokenAddr).balanceOf(creator) > 0, "Creator should receive seed tokens");
-        assertEq(FERC20(tokenAddr).balanceOf(address(bonding)), 0, "Bonding must not retain token dust");
     }
 
     // ─── Multiple Tokens Test ────────────────────────────────────────────

@@ -562,11 +562,6 @@ export const BondingAbi = [
             "name": "ltAddress",
             "type": "address",
             "internalType": "address"
-          },
-          {
-            "name": "purchaseAmount",
-            "type": "uint256",
-            "internalType": "uint256"
           }
         ]
       },

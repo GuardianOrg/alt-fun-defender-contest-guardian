@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract BondingV2 is Bonding {
@@ -29,21 +28,24 @@ contract UUPSUpgradeTest is DeployHelper {
     }
 
     function _launchToken() internal returns (address tokenAddr) {
-        lt.mintDirect(creator, 200 ether);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), 200 ether);
-        lt.approve(address(bonding), 200 ether);
-
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "UpgradeTest",
             ticker: "UPG",
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 200 ether
+            ltAddress: address(lt)
         });
+        vm.prank(creator);
         (tokenAddr,,) = bonding.launch(params, creator);
+
+        // Seed buy now happens via the standard buy path (no longer inside
+        // `Bonding.launch`). Drive it directly through `bonding.buy` since
+        // these tests bypass the LaunchpadRouter.
+        lt.mintDirect(creator, 200 ether);
+        vm.startPrank(creator);
+        lt.approve(address(frouter), 200 ether);
+        bonding.buy(200 ether, tokenAddr, 0, creator);
         vm.stopPrank();
     }
 

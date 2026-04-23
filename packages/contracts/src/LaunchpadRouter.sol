@@ -94,8 +94,11 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     }
 
     /// @notice Create a new token on the bonding curve
-    /// @param params Launch parameters (name, ticker, description, image, urls, ltAddress, purchaseAmount=0)
-    /// @param seedUsdcAmount USDC amount for seed buy (0 = no seed buy)
+    /// @param params Launch parameters (name, ticker, description, image, urls, ltAddress)
+    /// @param seedUsdcAmount USDC amount for seed buy (0 = no seed buy). Routed
+    ///                       through the standard buy path so it gets the same
+    ///                       pro-rata fee handling, leftover-LT-to-USDC refund,
+    ///                       and `Buy` event as a regular post-launch buy.
     function createToken(
         Bonding.LaunchParams calldata params,
         uint256 seedUsdcAmount
@@ -173,39 +176,20 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         Bonding.LaunchParams calldata params,
         uint256 seedUsdcAmount
     ) internal returns (address tokenAddr) {
-        address lt = params.ltAddress;
-        if (lt == address(0)) revert InvalidInput();
+        if (params.ltAddress == address(0)) revert InvalidInput();
 
-        uint256 ltForSeed = 0;
-        uint256 feeOnGross = 0;
+        (tokenAddr,,) = bonding.launch(params, msg.sender);
+        emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
+
+        // Seed buys reuse the standard buy path so they inherit the same
+        // pro-rata fee accrual and leftover-LT-to-USDC refund logic. This
+        // matters when the curve graduates inline (USD trigger) and `Bonding`
+        // caps the LT actually consumed — the fee is then charged only on the
+        // portion of USDC that was really spent. `referrer = address(0)` and
+        // `minTokensOut = 0` because seed buys are user-driven from the same
+        // tx that launched the token; slippage here is meaningless.
         if (seedUsdcAmount > 0) {
-            usdc.safeTransferFrom(msg.sender, address(this), seedUsdcAmount);
-            feeOnGross = (seedUsdcAmount * buyFeeBps) / BPS_DENOM;
-            uint256 netUsdc = seedUsdcAmount - feeOnGross;
-            usdc.forceApprove(lt, netUsdc);
-            ltForSeed = ILeveragedToken(lt).mint(address(this), netUsdc, 0);
-            IERC20(lt).forceApprove(address(bonding), ltForSeed);
-        }
-
-        Bonding.LaunchParams memory launchParams = Bonding.LaunchParams({
-            name: params.name,
-            ticker: params.ticker,
-            description: params.description,
-            image: params.image,
-            urls: params.urls,
-            ltAddress: lt,
-            purchaseAmount: ltForSeed
-        });
-
-        (tokenAddr,,) = bonding.launch(launchParams, msg.sender);
-        emit TokenCreated(tokenAddr, msg.sender, lt);
-
-        // The entire seed buy path is atomic — a supply-cap refund from
-        // `Bonding._seedBuy` only fires at absurd seed amounts (the just-launched
-        // curve couldn't have been exhausted before the seed buy itself), so we
-        // don't bother pro-rating the fee on seeds. The full fee accrues.
-        if (feeOnGross > 0) {
-            _accrueFee(tokenAddr, msg.sender, feeOnGross, true);
+            _buyInternal(tokenAddr, seedUsdcAmount, 0, address(0));
         }
     }
 

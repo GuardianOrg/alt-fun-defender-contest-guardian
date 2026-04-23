@@ -84,7 +84,7 @@ Two-column: left (form) | right (live preview card).
 |---|---|
 | Buy | `LaunchpadRouter.buy(token, usdcAmount, minOut, referrer)` |
 | Sell | `LaunchpadRouter.sell(token, tokenAmount, minUsdcOut)` |
-| Launch token | `Bonding.launch(name, ticker, ltAddress, desc, img, urls, purchaseAmount)` |
+| Launch token | `LaunchpadRouter.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)` |
 | Claim creator fees | `FeeVault.claim()` (USDC, pooled across all of the creator's tokens) |
 | USDC approval | `USDC.approve(launchpadRouter, amount)` |
 | Token approval | `FERC20.approve(launchpadRouter, amount)` |
