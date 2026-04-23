@@ -3,6 +3,7 @@ import { useState } from "react";
 import styles from "./SeedBuy.module.css";
 import StepHeader from "./StepHeader";
 import { SEED_PCT_OPTIONS } from "../../config/constants";
+import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { cn } from "../../utils/format";
 import { seedBuyStats, usdcForSupplyPct } from "../../utils/seedBuyMath";
 
@@ -15,7 +16,12 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
   const [activePct, setActivePct] = useState<number | null>(null);
   const amt = parseFloat(seedAmount) || 0;
 
-  const stats = seedBuyStats(amt);
+  // Use the compile-time fallback while loading so the curve-filled %
+  // renders something sensible immediately instead of `Infinity`/skeleton.
+  // The hook resolves in <100ms for warm wallets — if the admin has tuned
+  // the dial the value will swap in a tick later.
+  const { data: graduationThresholdUsd, fallback } = useGraduationThreshold();
+  const stats = seedBuyStats(amt, graduationThresholdUsd ?? fallback);
 
   const tokensReceived =
     amt > 0 ? `${(stats.tokensReceived / 1e6).toFixed(1)}M` : "—";

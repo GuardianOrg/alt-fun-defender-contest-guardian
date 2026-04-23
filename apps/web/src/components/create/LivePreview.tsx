@@ -3,11 +3,11 @@ import { useEffect, useRef } from "react";
 import styles from "./LivePreview.module.css";
 import { COLORS, rgba } from "../../config/colors";
 import {
-  GRADUATION_THRESHOLD_USD,
   type UnderlyingAsset,
   type Leverage,
 } from "../../config/constants";
 import { useAssetCandles, useAssetChange } from "../../hooks/useAssets";
+import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { cn, formatUsd, getLtDisplayName } from "../../utils/format";
 
 import type { Direction } from "../../services/types";
@@ -41,6 +41,11 @@ export default function LivePreview({
   const hasChgData = rawAssetChg != null;
   const isUp = assetChg >= 0;
   const { data: candles } = useAssetCandles(asset);
+  // Live owner-tunable threshold; fall back to compile-time default while
+  // the RPC read is in flight so the "graduates at $X" copy isn't blank.
+  const { data: graduationThresholdUsd, fallback: thresholdFallback } =
+    useGraduationThreshold();
+  const thresholdDisplay = graduationThresholdUsd ?? thresholdFallback;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -206,7 +211,7 @@ export default function LivePreview({
           {[
             { icon: "1", text: "Token deploys to bonding curve" },
             { icon: "2", text: "Users buy/sell with USDC atomically" },
-            { icon: "3", text: `At ${formatUsd(GRADUATION_THRESHOLD_USD)} MCAP, token graduates to DEX` },
+            { icon: "3", text: `At ${formatUsd(thresholdDisplay)} MCAP, token graduates to DEX` },
           ].map((step) => (
             <div key={step.icon} className={styles.howStep}>
               <div className={styles.howStepIcon}>{step.icon}</div>

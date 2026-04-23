@@ -12,6 +12,7 @@ import {
   type MarketDataItem,
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
+import { getGraduationThresholdUsd } from "../../lib/protocol-config.js";
 import {
   computeCurveFilled,
   computeCurveFilledBreakdown,
@@ -56,6 +57,7 @@ function enrich(
   dbToken: DbToken,
   onchain: PonderTokenOnchain | undefined,
   market: MarketDataItem | undefined,
+  graduationThresholdUsd: number,
 ): EnrichedToken {
   const { graduatedAt: dbGraduatedAt, createdAt, ...rest } = dbToken;
   const curveSupply = onchain?.curveSupply ?? null;
@@ -68,6 +70,7 @@ function enrich(
     onchain?.organicUsdcRaised ?? null,
     market?.ltExchangeRate ?? null,
     graduated,
+    graduationThresholdUsd,
   );
   const curveFilled = breakdown.total ?? computeCurveFilled(curveSupply);
   const status = computeStatus(dbToken.status, graduated, curveFilled);
@@ -302,11 +305,15 @@ listRoute.get("/", async (c) => {
       }
     }
 
+    const graduationThresholdUsd = await getGraduationThresholdUsd(
+      c.env.PONDER_URL,
+    );
     const enriched = paged.map((t) =>
       enrich(
         t,
         onchainByAddress.get(t.address.toLowerCase()),
         marketByAddress.get(t.address.toLowerCase()),
+        graduationThresholdUsd,
       ),
     );
 
@@ -385,11 +392,15 @@ listRoute.get("/", async (c) => {
     }
   }
 
+  const graduationThresholdUsd = await getGraduationThresholdUsd(
+    c.env.PONDER_URL,
+  );
   let enriched = dbTokens.map((t) =>
     enrich(
       t,
       onchainByAddress.get(t.address.toLowerCase()),
       marketByAddress.get(t.address.toLowerCase()),
+      graduationThresholdUsd,
     ),
   );
 

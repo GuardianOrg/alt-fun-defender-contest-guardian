@@ -45,7 +45,7 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "GRADUATION_THRESHOLD_USD",
+    "name": "DEFAULT_GRADUATION_THRESHOLD_USD",
     "inputs": [],
     "outputs": [
       {
@@ -59,6 +59,19 @@ export const BondingAbi = [
   {
     "type": "function",
     "name": "LP_RESERVE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_GRADUATION_THRESHOLD_USD",
     "inputs": [],
     "outputs": [
       {
@@ -85,6 +98,19 @@ export const BondingAbi = [
   {
     "type": "function",
     "name": "MAX_TICKER_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_GRADUATION_THRESHOLD_USD",
     "inputs": [],
     "outputs": [
       {
@@ -460,6 +486,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "graduationThresholdUsd",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "hyperswapRouter",
     "inputs": [],
     "outputs": [
@@ -729,6 +768,13 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "reinitV2",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "removeRouter",
     "inputs": [
       {
@@ -792,6 +838,19 @@ export const BondingAbi = [
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setGraduationThresholdUsd",
+    "inputs": [
+      {
+        "name": "newValue",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -979,6 +1038,25 @@ export const BondingAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "GraduationThresholdUpdated",
+    "inputs": [
+      {
+        "name": "oldValue",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newValue",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1259,6 +1337,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "InvalidNameLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidThreshold",
     "inputs": []
   },
   {

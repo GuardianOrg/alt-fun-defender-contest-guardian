@@ -3,7 +3,6 @@
 # TODO
 
 - Is Router the right term?
-- Ability to change graduation threshold (what happens with existing tokens?)
 - Charge fees only in the router, and then only in USDC
 - Claimed here but total earned and previously claimed reset
 - Can we deploy tokens via some proxy template so the deployment is smaller?
@@ -13,6 +12,7 @@
 
 # Post Audit
 
+- 1s chart
 - We should pass through slippage checks
 - Landing page
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L

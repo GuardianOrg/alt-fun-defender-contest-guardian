@@ -5,7 +5,7 @@ import Chart from "./Chart";
 import HeroSection from "./HeroSection";
 import styles from "./TokenDetailView.module.css";
 import TradePanel from "./TradePanel";
-import { GRADUATION_THRESHOLD_USD } from "../../config/constants";
+import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
 import { formatUsd } from "../../utils/format";
@@ -15,6 +15,10 @@ import ProgressBar from "../shared/ProgressBar";
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
   const { data: token, isLoading, isError } = useToken(address);
+  // Live owner-tunable threshold; fall back to the compile-time default
+  // while the RPC read is in flight so the curve strip never flashes "$0".
+  const { data: graduationThresholdUsd, fallback: thresholdFallback } =
+    useGraduationThreshold();
   useTrackRecentlyViewed(token?.address);
 
   if (isLoading) {
@@ -73,7 +77,7 @@ export default function TokenDetailView() {
               />
             </div>
             <span className={styles.curveThreshold}>
-              {formatUsd(GRADUATION_THRESHOLD_USD)}
+              {formatUsd(graduationThresholdUsd ?? thresholdFallback)}
             </span>
             {token.status === "graduating" && (
               <span className={styles.graduatingBadge}>graduating</span>
