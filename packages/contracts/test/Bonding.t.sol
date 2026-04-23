@@ -837,11 +837,11 @@ contract BondingTest is DeployHelper {
         // comfortably above the $5K threshold we'll lower to). Note `_buyTokens`
         // gross-input gets 0.5% taxed before settling, so we buy a bit more
         // than the target net.
-        _buyTokens(tokenAddr, trader, 7_000 ether);
+        _buyTokens(tokenAddr, trader, 7000 ether);
         assertFalse(bonding.canGraduate(tokenAddr), "Should not be graduatable at default $12K threshold");
 
         // Lower threshold below current value → next-trade graduation arms.
-        bonding.setGraduationThresholdUsd(5_000 ether);
+        bonding.setGraduationThresholdUsd(5000 ether);
         assertTrue(bonding.canGraduate(tokenAddr), "Lowering the threshold below current value arms graduation");
 
         // The next buy — even a tiny one — actually fires `_graduate`.

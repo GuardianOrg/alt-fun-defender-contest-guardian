@@ -1,11 +1,10 @@
+import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, http } from "viem";
 
 import { hyperEVM } from "../config/chains";
 import { BondingAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
-
-import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
 
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
