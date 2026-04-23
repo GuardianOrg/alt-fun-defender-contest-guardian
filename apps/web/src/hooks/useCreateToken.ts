@@ -127,16 +127,27 @@ export function useCreateToken() {
           ? parseUnits(params.seedBuyUsd.toString(), USDC_DECIMALS)
           : 0n;
 
-        // Permit path can't be gas-estimated against a read RPC because the
-        // permit nonce would be consumed on the simulation. For the non-
-        // permit path we still estimate + bump to reduce out-of-gas surprises.
+        // `eth_estimateGas` is stateless on the node, so the permit nonce
+        // isn't actually consumed when estimating `createTokenWithPermit` —
+        // we estimate + bump on both paths to reduce out-of-gas surprises.
         const tx = permit
-          ? await walletClient.writeContract({
-              address: ADDRESSES.launchpadRouter,
-              abi: LaunchpadRouterAbi,
-              functionName: "createTokenWithPermit",
-              args: [launchParams, seedUsdcAmount, permit],
-            })
+          ? await (async () => {
+              const gasEstimate = await hyperEvmClient.estimateContractGas({
+                address: ADDRESSES.launchpadRouter,
+                abi: LaunchpadRouterAbi,
+                functionName: "createTokenWithPermit",
+                args: [launchParams, seedUsdcAmount, permit],
+                account: address,
+              });
+              const gasLimit = (gasEstimate * 130n) / 100n;
+              return walletClient.writeContract({
+                address: ADDRESSES.launchpadRouter,
+                abi: LaunchpadRouterAbi,
+                functionName: "createTokenWithPermit",
+                args: [launchParams, seedUsdcAmount, permit],
+                gas: gasLimit,
+              });
+            })()
           : await (async () => {
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: ADDRESSES.launchpadRouter,

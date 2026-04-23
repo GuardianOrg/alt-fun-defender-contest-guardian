@@ -95,38 +95,50 @@ export function useTradeRouter() {
 
         const slippageBps = slippageToBps(slippage);
 
-        // Quote via a dry-run `buy` simulation. We skip this when using the
-        // permit path because simulating `buyWithPermit` consumes the permit
-        // nonce — a real-world simulator attempt would fail on the second
-        // call. Instead, we trust the AMM math: pricing is deterministic
-        // over a single block and slippage is enforced on-chain anyway.
-        let minTokensOut: bigint;
-        if (permit) {
-          minTokensOut = 0n;
-        } else {
-          const { result: quotedTokensOut } = await hyperEvmClient.simulateContract({
-            address: routerAddr,
-            abi: LaunchpadRouterAbi,
-            functionName: "buy",
-            args: [tokenAddress as `0x${string}`, usdcAmountWei, 0n, referrerAddr],
-            account: address,
-          });
-          minTokensOut = ((quotedTokensOut as bigint) * BigInt(10_000 - slippageBps)) / 10_000n;
-        }
-
-        const buyTx = permit
-          ? await walletClient.writeContract({
+        // Quote via a dry-run simulation. `eth_call` is stateless on the node
+        // side, so simulating the permit path doesn't consume the signature's
+        // nonce — it's safe to run on both paths and get accurate slippage.
+        const { result: quotedTokensOut } = permit
+          ? await hyperEvmClient.simulateContract({
               address: routerAddr,
               abi: LaunchpadRouterAbi,
               functionName: "buyWithPermit",
-              args: [
+              args: [tokenAddress as `0x${string}`, usdcAmountWei, 0n, referrerAddr, permit],
+              account: address,
+            })
+          : await hyperEvmClient.simulateContract({
+              address: routerAddr,
+              abi: LaunchpadRouterAbi,
+              functionName: "buy",
+              args: [tokenAddress as `0x${string}`, usdcAmountWei, 0n, referrerAddr],
+              account: address,
+            });
+        const minTokensOut = ((quotedTokensOut as bigint) * BigInt(10_000 - slippageBps)) / 10_000n;
+
+        const buyTx = permit
+          ? await (async () => {
+              const permitArgs = [
                 tokenAddress as `0x${string}`,
                 usdcAmountWei,
                 minTokensOut,
                 referrerAddr,
                 permit,
-              ],
-            })
+              ] as const;
+              const gasEstimate = await hyperEvmClient.estimateContractGas({
+                address: routerAddr,
+                abi: LaunchpadRouterAbi,
+                functionName: "buyWithPermit",
+                args: permitArgs,
+                account: address,
+              });
+              return walletClient.writeContract({
+                address: routerAddr,
+                abi: LaunchpadRouterAbi,
+                functionName: "buyWithPermit",
+                args: permitArgs,
+                gas: (gasEstimate * 130n) / 100n,
+              });
+            })()
           : await (async () => {
               const finalArgs = [
                 tokenAddress as `0x${string}`,
@@ -217,12 +229,23 @@ export function useTradeRouter() {
         setStep("executing");
 
         const sellTx = permit
-          ? await walletClient.writeContract({
-              address: routerAddr,
-              abi: LaunchpadRouterAbi,
-              functionName: "sellWithPermit",
-              args: [tokenAddress as `0x${string}`, tokenAmount, 0n, permit],
-            })
+          ? await (async () => {
+              const permitArgs = [tokenAddress as `0x${string}`, tokenAmount, 0n, permit] as const;
+              const gasEstimate = await hyperEvmClient.estimateContractGas({
+                address: routerAddr,
+                abi: LaunchpadRouterAbi,
+                functionName: "sellWithPermit",
+                args: permitArgs,
+                account: address,
+              });
+              return walletClient.writeContract({
+                address: routerAddr,
+                abi: LaunchpadRouterAbi,
+                functionName: "sellWithPermit",
+                args: permitArgs,
+                gas: (gasEstimate * 130n) / 100n,
+              });
+            })()
           : await (async () => {
               const sellArgs = [tokenAddress as `0x${string}`, tokenAmount, 0n] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({

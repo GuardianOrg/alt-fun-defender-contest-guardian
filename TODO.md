@@ -13,6 +13,7 @@
 
 # Post Audit
 
+- We should pass through slippage checks
 - Landing page
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
 - Testing image validation, does this work and how? Max image size also etc? some explicit filter
