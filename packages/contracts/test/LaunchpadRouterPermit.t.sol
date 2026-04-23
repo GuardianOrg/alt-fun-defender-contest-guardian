@@ -47,9 +47,8 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         uint256 value,
         uint256 deadline
     ) internal view returns (LaunchpadRouter.PermitData memory p) {
-        bytes32 structHash = keccak256(
-            abi.encode(PERMIT_TYPEHASH, owner_, spender, value, token.nonces(owner_), deadline)
-        );
+        bytes32 structHash =
+            keccak256(abi.encode(PERMIT_TYPEHASH, owner_, spender, value, token.nonces(owner_), deadline));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privKey, digest);
         p = LaunchpadRouter.PermitData({value: value, deadline: deadline, v: v, r: r, s: s});
@@ -80,8 +79,14 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         uint256 amount = 50 ether;
         usdc.mint(signer.addr, amount);
 
-        LaunchpadRouter.PermitData memory p =
-            _signPermit(IERC20Permit(address(usdc)), signer.addr, signer.privateKey, address(launchpadRouter), amount, block.timestamp + 1 hours);
+        LaunchpadRouter.PermitData memory p = _signPermit(
+            IERC20Permit(address(usdc)),
+            signer.addr,
+            signer.privateKey,
+            address(launchpadRouter),
+            amount,
+            block.timestamp + 1 hours
+        );
 
         assertEq(usdc.allowance(signer.addr, address(launchpadRouter)), 0, "pre: zero allowance");
 
@@ -123,8 +128,14 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         uint256 amount = 50 ether;
         usdc.mint(signer.addr, amount);
 
-        LaunchpadRouter.PermitData memory p =
-            _signPermit(IERC20Permit(address(usdc)), signer.addr, signer.privateKey, address(launchpadRouter), amount, block.timestamp + 1 hours);
+        LaunchpadRouter.PermitData memory p = _signPermit(
+            IERC20Permit(address(usdc)),
+            signer.addr,
+            signer.privateKey,
+            address(launchpadRouter),
+            amount,
+            block.timestamp + 1 hours
+        );
 
         // Attacker front-runs the permit directly against the USDC token. This
         // consumes the nonce but applies the allowance — the exact DoS the
@@ -147,8 +158,9 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         usdc.mint(signer.addr, amount);
 
         uint256 deadline = block.timestamp - 1;
-        LaunchpadRouter.PermitData memory p =
-            _signPermit(IERC20Permit(address(usdc)), signer.addr, signer.privateKey, address(launchpadRouter), amount, deadline);
+        LaunchpadRouter.PermitData memory p = _signPermit(
+            IERC20Permit(address(usdc)), signer.addr, signer.privateKey, address(launchpadRouter), amount, deadline
+        );
 
         // Permit reverts (expired), try/catch absorbs it. Allowance remains
         // zero, so the subsequent `safeTransferFrom` inside `_buyInternal`
@@ -218,13 +230,8 @@ contract LaunchpadRouterPermitTest is DeployHelper {
     function test_createTokenWithPermit_noSeedBuy_ignoresPermit() public {
         // Permit with bogus values — since seed amount is 0, permit is never
         // invoked, so this must still succeed.
-        LaunchpadRouter.PermitData memory p = LaunchpadRouter.PermitData({
-            value: 0,
-            deadline: 0,
-            v: 0,
-            r: bytes32(0),
-            s: bytes32(0)
-        });
+        LaunchpadRouter.PermitData memory p =
+            LaunchpadRouter.PermitData({value: 0, deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
 
         vm.prank(creator);
         address tokenAddr = launchpadRouter.createTokenWithPermit(_launchParams(), 0, p);

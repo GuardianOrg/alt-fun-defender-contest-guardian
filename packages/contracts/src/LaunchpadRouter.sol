@@ -250,9 +250,13 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     ///      follow-on `transferFrom` still succeeds. If the permit was never
     ///      applied (e.g. bad sig), the subsequent transfer will revert,
     ///      which is the correct behaviour.
-    function _tryPermit(address token, address owner_, PermitData calldata p) internal {
+    function _tryPermit(
+        address token,
+        address owner_,
+        PermitData calldata p
+    ) internal {
         try IERC20Permit(token).permit(owner_, address(this), p.value, p.deadline, p.v, p.r, p.s) {}
-        catch {
+            catch {
             // intentional: see natspec
         }
     }
