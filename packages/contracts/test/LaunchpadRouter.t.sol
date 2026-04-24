@@ -48,7 +48,8 @@ contract LaunchpadRouterTest is DeployHelper {
             description: "A test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
 
         if (seedUsdc > 0) {
@@ -111,7 +112,8 @@ contract LaunchpadRouterTest is DeployHelper {
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
 
         vm.expectEmit(false, true, false, false);
@@ -123,7 +125,13 @@ contract LaunchpadRouterTest is DeployHelper {
 
     function test_createToken_revertsZeroLt() public {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Bad", ticker: "BAD", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(0)
+            name: "Bad",
+            ticker: "BAD",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(0),
+            salt: _mineVanitySalt(creator)
         });
 
         vm.prank(creator);

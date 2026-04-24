@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-client.js";
+import {
+  checkPonderHealth,
+  createPonderQuery,
+  createPonderPaginatedQuery,
+} from "../lib/ponder-client.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -152,6 +156,79 @@ describe("createPonderPaginatedQuery", () => {
 
     expect(result.items).toEqual([]);
     expect(result.truncated).toBe(false);
+  });
+
+});
+
+describe("checkPonderHealth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("queries protocolConfig (a real table) — not just { __typename }", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ data: { protocolConfig: { id: "global" } } }),
+    });
+
+    const healthy = await checkPonderHealth("http://test-ponder");
+    expect(healthy).toBe(true);
+
+    // The probe MUST hit the database, otherwise a Ponder with a closed
+    // PGlite (stale dev process) passes the check while real queries hang.
+    // See `apps/indexer/scripts/dev.mjs` for the indexer-side guard that
+    // backs this contract up.
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.body).toContain("protocolConfig");
+    expect(init.body).not.toContain("__typename");
+  });
+
+  it("returns true when protocolConfig row is missing (fresh indexer)", async () => {
+    // A freshly-deployed contract that hasn't yet emitted
+    // GraduationThresholdUpdated has a null protocolConfig — but Ponder
+    // is still healthy and able to serve queries. We must not flap to
+    // unhealthy in this case or `/health` would lie on every cold start.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { protocolConfig: null } }),
+    });
+
+    expect(await checkPonderHealth("http://test-ponder")).toBe(true);
+  });
+
+  it("returns false when GraphQL responds with errors", async () => {
+    // PGlite-closed errors surface as GraphQL `errors`, not HTTP 5xx.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({ errors: [{ message: "PGlite is closed" }] }),
+    });
+
+    expect(await checkPonderHealth("http://test-ponder")).toBe(false);
+  });
+
+  it("returns false when fetch rejects", async () => {
+    mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    expect(await checkPonderHealth("http://test-ponder")).toBe(false);
+  });
+
+  it("returns false when response is missing the protocolConfig field", async () => {
+    // Defensive: catches the case where `PONDER_URL` points at an unrelated
+    // GraphQL endpoint that happens to accept POSTs but doesn't expose our
+    // schema.
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ data: { somethingElse: 1 } }),
+    });
+
+    expect(await checkPonderHealth("http://test-ponder")).toBe(false);
+  });
+});
+
+describe("createPonderPaginatedQuery — early termination", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it("stops when a page returns fewer items than PAGE_SIZE", async () => {

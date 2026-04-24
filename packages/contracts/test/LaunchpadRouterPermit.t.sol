@@ -57,20 +57,29 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         p = LaunchpadRouter.PermitData({value: value, deadline: deadline, v: v, r: r, s: s});
     }
 
-    function _launchParams() internal view returns (Bonding.LaunchParams memory) {
+    function _launchParams(
+        address launchCreator
+    ) internal returns (Bonding.LaunchParams memory) {
         return Bonding.LaunchParams({
             name: "TestToken",
             ticker: "TEST",
             description: "Permit UX test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            // Salt must be mined for the *actual* creator that will end up
+            // as `msg.sender` when `LaunchpadRouter` calls `Bonding.launch`,
+            // because `_mixSalt(creator, salt)` is what determines the final
+            // CREATE2 address. Using a salt mined for the wrong creator
+            // trips the on-chain `NotVanityAddress` check.
+            salt: _mineVanitySalt(launchCreator)
         });
     }
 
     function _createTokenNoSeed() internal returns (address tokenAddr) {
+        Bonding.LaunchParams memory params = _launchParams(creator);
         vm.prank(creator);
-        tokenAddr = launchpadRouter.createToken(_launchParams(), 0);
+        tokenAddr = launchpadRouter.createToken(params, 0);
     }
 
     // ─── buyWithPermit ───────────────────────────────────────────────────
@@ -221,8 +230,9 @@ contract LaunchpadRouterPermitTest is DeployHelper {
             block.timestamp + 1 hours
         );
 
+        Bonding.LaunchParams memory params = _launchParams(signer.addr);
         vm.prank(signer.addr);
-        address tokenAddr = launchpadRouter.createTokenWithPermit(_launchParams(), seedUsdc, p);
+        address tokenAddr = launchpadRouter.createTokenWithPermit(params, seedUsdc, p);
 
         assertTrue(tokenAddr != address(0), "token deployed");
         assertGt(IERC20(tokenAddr).balanceOf(signer.addr), 0, "creator received seed tokens");
@@ -235,8 +245,9 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         LaunchpadRouter.PermitData memory p =
             LaunchpadRouter.PermitData({value: 0, deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
 
+        Bonding.LaunchParams memory params = _launchParams(creator);
         vm.prank(creator);
-        address tokenAddr = launchpadRouter.createTokenWithPermit(_launchParams(), 0, p);
+        address tokenAddr = launchpadRouter.createTokenWithPermit(params, 0, p);
         assertTrue(tokenAddr != address(0), "token deployed without seed");
     }
 }

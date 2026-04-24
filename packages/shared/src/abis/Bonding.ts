@@ -149,6 +149,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "VANITY_SUFFIX",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes2",
+        "internalType": "bytes2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "VIRTUAL_LIQUIDITY_USD",
     "inputs": [],
     "outputs": [
@@ -481,6 +494,11 @@ export const BondingAbi = [
         "name": "lpLock_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "tokenImplementation_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -581,6 +599,11 @@ export const BondingAbi = [
             "name": "ltAddress",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "salt",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -658,6 +681,30 @@ export const BondingAbi = [
     "type": "function",
     "name": "owner",
     "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "predictTokenAddress",
+    "inputs": [
+      {
+        "name": "creator_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "userSalt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
     "outputs": [
       {
         "name": "",
@@ -790,6 +837,32 @@ export const BondingAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setTokenImplementation",
+    "inputs": [
+      {
+        "name": "newImpl",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "tokenImplementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1041,6 +1114,25 @@ export const BondingAbi = [
   },
   {
     "type": "event",
+    "name": "TokenImplementationUpdated",
+    "inputs": [
+      {
+        "name": "oldImpl",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newImpl",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TokenLaunched",
     "inputs": [
       {
@@ -1184,6 +1276,27 @@ export const BondingAbi = [
   },
   {
     "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
   },
@@ -1221,6 +1334,17 @@ export const BondingAbi = [
     "type": "error",
     "name": "NotRouter",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotVanityAddress",
+    "inputs": [
+      {
+        "name": "tokenAddr",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",

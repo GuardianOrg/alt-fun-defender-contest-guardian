@@ -134,7 +134,15 @@ contract RouterAllowlistTest is DeployHelper {
 
     function test_bondingLaunch_revertsForUnauthorizedCaller() public {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "X", ticker: "X", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
+            name: "X",
+            ticker: "X",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            // `onlyRouter` reverts before the vanity check ever runs, so no
+            // need to mine a real suffix here.
+            salt: bytes32(0)
         });
 
         vm.prank(trader);
@@ -208,7 +216,8 @@ contract RouterAllowlistTest is DeployHelper {
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
 
         vm.startPrank(creator);
@@ -238,7 +247,13 @@ contract RouterAllowlistTest is DeployHelper {
 
     function _createBasicToken() internal returns (address tokenAddr) {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Tok", ticker: "TOK", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
+            name: "Tok",
+            ticker: "TOK",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
         tokenAddr = launchpadRouter.createToken(params, 0);

@@ -30,8 +30,18 @@ export function createPonderQuery(ponderUrl?: string) {
 }
 
 /**
- * Check if the Ponder GraphQL API is reachable and responding.
- * Returns true if healthy, false otherwise.
+ * Check if the Ponder GraphQL API is reachable and actually able to serve
+ * queries from its database.
+ *
+ * We deliberately do **not** probe with `{ __typename }` — that's resolved
+ * from the schema in-process and a Ponder whose PGlite has crashed (e.g. a
+ * stale `ponder dev` left over from a previous session) will still answer
+ * it "successfully", masking the real outage. Instead we query the
+ * `protocolConfig` singleton: it's the lightest table-touching query in the
+ * codebase (single row by primary key), so it forces a DB round-trip
+ * without adding meaningful load. A missing row is fine — that's still a
+ * healthy indexer that simply hasn't observed a `GraduationThresholdUpdated`
+ * yet, and the bootstrap path covers freshly-deployed contracts.
  */
 export async function checkPonderHealth(ponderUrl?: string): Promise<boolean> {
   const url = ponderUrl || FALLBACK_URL;
@@ -42,7 +52,9 @@ export async function checkPonderHealth(ponderUrl?: string): Promise<boolean> {
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: "{ __typename }" }),
+      body: JSON.stringify({
+        query: `query { protocolConfig(id: "global") { id } }`,
+      }),
       signal: controller.signal,
     });
 
@@ -50,8 +62,16 @@ export async function checkPonderHealth(ponderUrl?: string): Promise<boolean> {
 
     if (!res.ok) return false;
 
-    const json = (await res.json()) as { data?: unknown; errors?: unknown[] };
-    return !!json.data && !json.errors;
+    const json = (await res.json()) as {
+      data?: { protocolConfig: unknown } | null;
+      errors?: unknown[];
+    };
+    if (json.errors) return false;
+    // `data` must be present (well-formed GraphQL response) and the
+    // `protocolConfig` field must have actually resolved — even to `null`.
+    // A response missing the key entirely indicates a schema mismatch or a
+    // Ponder serving an unrelated GraphQL endpoint.
+    return !!json.data && "protocolConfig" in json.data;
   } catch {
     return false;
   }

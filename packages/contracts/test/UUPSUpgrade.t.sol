@@ -34,7 +34,8 @@ contract UUPSUpgradeTest is DeployHelper {
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
         (tokenAddr,,) = bonding.launch(params, creator);
@@ -138,6 +139,6 @@ contract UUPSUpgradeTest is DeployHelper {
     function test_bonding_implementationCannotBeInitialized() public {
         Bonding impl = new Bonding();
         vm.expectRevert();
-        impl.initialize(address(1), address(2), 100, address(3), address(4));
+        impl.initialize(address(1), address(2), 100, address(3), address(4), address(5));
     }
 }

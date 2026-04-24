@@ -9,6 +9,7 @@ import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
 import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
+import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
 import Button from "../shared/Button";
 
@@ -30,6 +31,13 @@ export default function CreateView() {
 
   const { isConnected, connect } = useWallet();
   const { step: launchStep, error: launchError, warning: launchWarning, tokenAddress, create } = useCreateToken();
+  // Mining starts as soon as the wallet is connected — by the time the user
+  // has filled in name/ticker, a vanity salt is usually already in hand.
+  // `ensureSalt` waits indefinitely for the miner: the contract enforces
+  // the vanity suffix on-chain, so there is no random-salt fallback.
+  const vanity = useVanityAddress();
+  const [waitingForVanity, setWaitingForVanity] = useState(false);
+  const [vanityError, setVanityError] = useState<string | null>(null);
   const seedAmt = parseFloat(seedAmount) || 0;
   const isBusy =
     launchStep === "approving" || launchStep === "signing" || launchStep === "deploying";
@@ -49,27 +57,54 @@ export default function CreateView() {
       return;
     }
     if (!name.trim() || !ticker.trim()) return;
+    if (vanity.status === "error") {
+      setVanityError(
+        "Vanity address miner failed to start. Please refresh and try again.",
+      );
+      return;
+    }
 
-    await create({
-      name: name.trim(),
-      ticker: ticker.trim(),
-      description: description.trim(),
-      direction,
-      underlying: asset as "HYPE" | "ETH" | "BTC" | "SOL",
-      leverage,
-      imageFile,
-      seedBuyUsd: seedAmt,
-      socialLinks: [socialLinks.twitter, socialLinks.telegram, socialLinks.website].filter(Boolean),
-    });
+    // Wait for the miner. With a worker pool this almost always returns
+    // immediately (mining starts at wallet connect and finishes in
+    // 50-300ms); on slow devices it may take a few seconds. The contract
+    // requires a vanity salt — there is no fallback.
+    setWaitingForVanity(true);
+    setVanityError(null);
+    let vanityResult;
+    try {
+      vanityResult = await vanity.ensureSalt();
+    } catch (err) {
+      setVanityError(err instanceof Error ? err.message : "Mining failed");
+      setWaitingForVanity(false);
+      return;
+    }
+    setWaitingForVanity(false);
+
+    await create(
+      {
+        name: name.trim(),
+        ticker: ticker.trim(),
+        description: description.trim(),
+        direction,
+        underlying: asset as "HYPE" | "ETH" | "BTC" | "SOL",
+        leverage,
+        imageFile,
+        seedBuyUsd: seedAmt,
+        socialLinks: [socialLinks.twitter, socialLinks.telegram, socialLinks.website].filter(Boolean),
+      },
+      vanityResult.salt,
+    );
   };
 
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET TO LAUNCH";
+    if (waitingForVanity) return "FINDING YOUR ADDRESS…";
     if (launchStep === "signing") return "SIGN IN WALLET…";
     if (launchStep === "approving") return "APPROVING USDC…";
     if (launchStep === "deploying") return "DEPLOYING…";
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "⚡ RETRY LAUNCH";
+    if (vanity.status === "error") return "MINER FAILED — REFRESH";
     return "⚡ LAUNCH TOKEN";
   };
 
@@ -125,6 +160,13 @@ export default function CreateView() {
               </div>
             )}
 
+            {vanityError && (
+              <div className={styles.errorBanner}>
+                <span className={styles.errorIcon}>⚠</span>
+                {vanityError}
+              </div>
+            )}
+
             {launchStep === "confirmed" && launchWarning && (
               <div className={styles.warningBanner}>
                 <span className={styles.warningIcon}>⚠</span>
@@ -143,8 +185,8 @@ export default function CreateView() {
               variant="primary"
               size="lg"
               fullWidth
-              busy={isBusy}
-              disabled={launchStep === "confirmed"}
+              busy={isBusy || waitingForVanity}
+              disabled={launchStep === "confirmed" || vanity.status === "error"}
               className={launchStep === "confirmed" ? styles.launchButtonConfirmed : undefined}
               onClick={handleSubmit}
             >
@@ -191,6 +233,8 @@ export default function CreateView() {
         asset={asset}
         leverage={leverage}
         imagePreview={imagePreview}
+        predictedAddress={vanity.result?.address ?? null}
+        vanityStatus={vanity.status}
       />
     </div>
   );

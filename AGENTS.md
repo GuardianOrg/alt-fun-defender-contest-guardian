@@ -228,28 +228,3 @@ v1 tracks referrals only (no on-chain fee split). The `buy()` function accepts a
 ## Open Tasks
 
 See `TODO.md` in the repo root for outstanding work items. This is the single source of truth for open tasks. When completing a task, remove it from `TODO.md`. When discovering new work, add it there.
-
----
-
-## ⚠️ Pending Deploy: Router Fee Migration (one-off — delete this section once done)
-
-The router-fee migration introduced a new `FeeVault` contract and reshaped `LaunchpadRouter`/`Bonding`/`FRouter`/`FFactory` initialisers. It also moved seed buys out of `Bonding` entirely — `Bonding.LaunchParams.purchaseAmount` is gone, and `LaunchpadRouter.createToken` now performs any seed buy via the standard buy path so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as a regular buy. Until the migration is deployed to HyperEVM, `feeVault` in `packages/shared/src/constants/addresses.ts` is the placeholder `0x…0001`, and the indexer/API will read empty data for fee accruals.
-
-**Steps:**
-
-1. From repo root: `cd packages/contracts && forge fmt && forge test` — confirm 246+ tests still pass.
-2. Deploy: `source .env && forge script script/Deploy.s.sol --rpc-url "$HYPEREVM_RPC_URL" --broadcast`. The script deploys `FFactory`, `FRouter`, `LPLock`, `Bonding`, **`FeeVault`**, and `LaunchpadRouter` (proxies for the upgradeable ones), and wires:
-   - `factory.grantRole(BONDING_ROLE, bonding)`
-   - `router.grantRole(BONDING_ROLE, bonding)`
-   - `lpLock.setLocker(bonding, true)`
-   - `bonding.addRouter(launchpadRouter)`
-   - `feeVault.addDepositor(launchpadRouter)`
-3. From `packages/contracts/`: `npm run export-abi` (regenerates `FeeVaultAbi` and friends in `packages/shared/src/abis/`).
-4. Open `packages/shared/src/constants/addresses.ts` and replace **all six** addresses (`bonding`, `factory`, `router`, `launchpadRouter`, `lpLock`, `feeVault`) with the values from the broadcast output. Drop the placeholder comment on `feeVault`.
-5. Update `BONDING_START_BLOCK` in `packages/shared/src/constants/chains.ts` to the deploy block.
-6. Update hardcoded addresses in `packages/contracts/script/E2ETest.s.sol` if you plan to rerun it against the new deployment.
-7. From repo root: `npm run ci`.
-
-**Indexer redeploy** (Railway): the `feeAccrual` table is new and the `feeClaim` schema changed (dropped `ltAddress`, amount is now USDC 6dp). Drop the existing Ponder database before restarting so the indexer reseeds from the deploy block — there is no compatible migration path from the LT-denominated claim history.
-
-**Once the deploy is complete and `npm run ci` is green, delete this entire "Pending Deploy" section from `AGENTS.md`.**

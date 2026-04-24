@@ -2,14 +2,12 @@
 
 # TODO
 
-- Is Router the right term?
-- Can we deploy tokens via some proxy template so the deployment is smaller?
-- Add some flow for enabling big blocks.
-- Vanity addresses
 - Test graduating
+- What is the `F` prefix pattern for? And do we need `Launchpad` prefix before router? It's a bit inconsistant
 
 # Post Audit
 
+- AVIF image didn't work
 - 1s chart
 - We should pass through slippage checks
 - Landing page

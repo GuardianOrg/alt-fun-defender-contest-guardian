@@ -1,10 +1,7 @@
 import { useState, useCallback } from "react";
 
-import {
-  buildTokenCreationMessage,
-  findLT,
-} from "@launchpad/shared";
-import { createPublicClient, getAddress, http, maxUint256, parseEventLogs, parseUnits } from "viem";
+import { buildTokenCreationMessage, findLT } from "@launchpad/shared";
+import { createPublicClient, getAddress, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPermit, type PermitData } from "./useTokenPermit";
@@ -41,7 +38,7 @@ export function useCreateToken() {
   const [tokenAddress, setTokenAddress] = useState<string | null>(null);
 
   const create = useCallback(
-    async (params: CreateTokenParams) => {
+    async (params: CreateTokenParams, userSalt: Hex) => {
       if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
@@ -108,6 +105,12 @@ export function useCreateToken() {
         setStep("deploying");
 
         const socials = params.socialLinks ?? [];
+        // Vanity salt fed by the worker pool in `useVanityAddress`. The
+        // contract enforces the suffix on-chain (`Bonding.NotVanityAddress`),
+        // so we hard-require a mined salt here — the caller (`CreateView`)
+        // awaits `vanity.ensureSalt()` before calling us. Passing a random
+        // salt would just revert.
+        const salt: Hex = userSalt;
         const launchParams = {
           name: params.name,
           ticker: params.ticker,
@@ -120,6 +123,7 @@ export function useCreateToken() {
             socials[3] ?? "",
           ] as [string, string, string, string],
           ltAddress: lt.address,
+          salt,
         };
 
         const seedUsdcAmount = params.seedBuyUsd > 0
