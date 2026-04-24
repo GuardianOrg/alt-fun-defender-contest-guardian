@@ -11,9 +11,8 @@ import {IFPair} from "./interfaces/IFPair.sol";
 
 /// @title FRouter
 /// @notice Executes buy/sell trades on bonding curve pairs using constant-product AMM math.
-/// @dev Supports per-token LT pairing. Fees in basis points (1 bp = 0.01%).
-///      Buy: deducts fee from amountIn, sends net to pair, returns tokens.
-///      Sell: takes tokens into pair, deducts fee from amountOut, returns net LT.
+/// @dev Supports per-token LT pairing. No fees are charged at this layer — protocol fees
+///      are collected in USDC by `LaunchpadRouter` and routed to `FeeVault`.
 ///
 ///      Supports "virtual" token reserves, where `reserve0` in the pair can exceed the
 ///      amount of real tokens held. This is used by the launchpad so the curve extends
@@ -89,58 +88,43 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         IFPair(pairAddr).mint(virtualReserveToken, reserveAsset);
     }
 
-    /// @notice Execute a buy: LT in -> tokens out. Fee deducted from input.
+    /// @notice Execute a buy: LT in -> tokens out. No fee at this layer.
     /// @dev If the computed `tokensOut` would exceed the pair's real token balance, the buy is
     ///      capped at the real balance and `amountInUsed` is back-calculated. The caller's
     ///      approval covers `amountIn`, but only `amountInUsed` worth of LT is pulled.
-    /// @return amountInUsed The gross LT actually consumed (≤ `amountIn`).
-    /// @return netAssetIn   The LT amount that entered the curve (after fee)
-    /// @return tokensOut    The tokens sent to the buyer
+    /// @return amountInUsed The LT actually consumed (≤ `amountIn`).
+    /// @return tokensOut    The tokens sent to the buyer.
     function buy(
         uint256 amountIn,
         address token,
         address to
-    )
-        external
-        onlyRole(BONDING_ROLE)
-        nonReentrant
-        returns (uint256 amountInUsed, uint256 netAssetIn, uint256 tokensOut)
-    {
+    ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 amountInUsed, uint256 tokensOut) {
         if (amountIn == 0) revert ZeroAmount();
 
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
-        uint256 taxBps = factory.buyTax();
 
-        (amountInUsed, netAssetIn, tokensOut) = _computeBuy(pairAddr, amountIn, taxBps);
+        (amountInUsed, tokensOut) = _computeBuy(pairAddr, amountIn);
 
-        uint256 fee = amountInUsed - netAssetIn;
-        IERC20(asset).safeTransferFrom(to, pairAddr, netAssetIn);
-        if (fee > 0) {
-            IERC20(asset).safeTransferFrom(to, factory.feeTo(), fee);
-        }
+        IERC20(asset).safeTransferFrom(to, pairAddr, amountInUsed);
 
         IFPair(pairAddr).transferToken(to, tokensOut);
-        IFPair(pairAddr).swap(0, tokensOut, netAssetIn, 0);
+        IFPair(pairAddr).swap(0, tokensOut, amountInUsed, 0);
     }
 
     /// @dev Compute buy amounts, capping `tokensOut` at the pair's real token balance.
-    ///      When capped, `netAssetIn` is back-calculated from the invariant (rounded up)
-    ///      and the fee is grossed up proportionally.
+    ///      When capped, `amountInUsed` is back-calculated from the invariant (rounded up).
     function _computeBuy(
         address pairAddr,
-        uint256 amountIn,
-        uint256 taxBps
-    ) internal view returns (uint256 amountInUsed, uint256 netAssetIn, uint256 tokensOut) {
+        uint256 amountIn
+    ) internal view returns (uint256 amountInUsed, uint256 tokensOut) {
         IFPair pair = IFPair(pairAddr);
         (uint256 r0, uint256 r1) = pair.getReserves();
         uint256 k = pair.kLast();
 
-        uint256 fee = (taxBps * amountIn) / 10_000;
-        netAssetIn = amountIn - fee;
         amountInUsed = amountIn;
 
-        uint256 newR1 = r1 + netAssetIn;
+        uint256 newR1 = r1 + amountInUsed;
         tokensOut = r0 - (k / newR1);
 
         uint256 realBalance = pair.tokenBalance();
@@ -148,27 +132,18 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
             tokensOut = realBalance;
             uint256 cappedR0 = r0 - tokensOut;
             uint256 cappedR1 = cappedR0 == 0 ? newR1 : (k + cappedR0 - 1) / cappedR0;
-            netAssetIn = cappedR1 - r1;
-
-            uint256 denom = 10_000 - taxBps;
-            amountInUsed = denom == 0 ? netAssetIn : (netAssetIn * 10_000 + denom - 1) / denom;
+            amountInUsed = cappedR1 - r1;
         }
     }
 
-    /// @notice Execute a sell: tokens in -> LT out. Fee deducted from output.
+    /// @notice Execute a sell: tokens in -> LT out. No fee at this layer.
     /// @return tokensIn The tokens that entered the curve
-    /// @return netAssetOut The LT amount sent to the seller (after fee)
-    /// @return grossAssetOut The LT amount before fee deduction (for fee accounting)
+    /// @return assetOut The LT amount sent to the seller
     function sell(
         uint256 amountIn,
         address token,
         address to
-    )
-        external
-        onlyRole(BONDING_ROLE)
-        nonReentrant
-        returns (uint256 tokensIn, uint256 netAssetOut, uint256 grossAssetOut)
-    {
+    ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 tokensIn, uint256 assetOut) {
         if (amountIn == 0) revert ZeroAmount();
 
         address asset = assetTokenFor(token);
@@ -177,17 +152,11 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
 
         IERC20(token).safeTransferFrom(to, pairAddr, amountIn);
 
-        grossAssetOut = getAmountOut(token, false, amountIn);
-        uint256 fee = (factory.sellTax() * grossAssetOut) / 10_000;
-        netAssetOut = grossAssetOut - fee;
-        address feeTo = factory.feeTo();
+        assetOut = getAmountOut(token, false, amountIn);
 
-        IFPair(pairAddr).transferAsset(to, netAssetOut);
-        if (fee > 0) {
-            IFPair(pairAddr).transferAsset(feeTo, fee);
-        }
+        IFPair(pairAddr).transferAsset(to, assetOut);
 
-        IFPair(pairAddr).swap(amountIn, 0, 0, grossAssetOut);
+        IFPair(pairAddr).swap(amountIn, 0, 0, assetOut);
     }
 
     /// @notice Drain real LT balance from a pair (called during graduation).

@@ -99,11 +99,6 @@ export const FRouterAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "netAssetIn",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "tokensOut",
         "type": "uint256",
         "internalType": "uint256"
@@ -309,12 +304,7 @@ export const FRouterAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "netAssetOut",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "grossAssetOut",
+        "name": "assetOut",
         "type": "uint256",
         "internalType": "uint256"
       }

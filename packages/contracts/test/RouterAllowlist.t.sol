@@ -20,11 +20,14 @@ contract RouterAllowlistTest is DeployHelper {
         _deployCore();
 
         LaunchpadRouter routerImpl = new LaunchpadRouter();
-        bytes memory routerInit =
-            abi.encodeCall(LaunchpadRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
+        bytes memory routerInit = abi.encodeCall(
+            LaunchpadRouter.initialize,
+            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+        );
         launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
 
         bonding.addRouter(address(launchpadRouter));
+        feeVault.addDepositor(address(launchpadRouter));
         usdc.mint(address(lt), 1_000_000 ether);
     }
 
@@ -131,13 +134,7 @@ contract RouterAllowlistTest is DeployHelper {
 
     function test_bondingLaunch_revertsForUnauthorizedCaller() public {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "X",
-            ticker: "X",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: "X", ticker: "X", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
 
         vm.prank(trader);
@@ -211,8 +208,7 @@ contract RouterAllowlistTest is DeployHelper {
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
 
         vm.startPrank(creator);
@@ -242,13 +238,7 @@ contract RouterAllowlistTest is DeployHelper {
 
     function _createBasicToken() internal returns (address tokenAddr) {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Tok",
-            ticker: "TOK",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: "Tok", ticker: "TOK", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
         vm.prank(creator);
         tokenAddr = launchpadRouter.createToken(params, 0);
@@ -277,8 +267,11 @@ contract RouterAllowlistTest is DeployHelper {
 
     function _deploySecondaryRouter() internal returns (LaunchpadRouter secondary) {
         LaunchpadRouter impl = new LaunchpadRouter();
-        bytes memory init =
-            abi.encodeCall(LaunchpadRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
+        bytes memory init = abi.encodeCall(
+            LaunchpadRouter.initialize,
+            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+        );
         secondary = LaunchpadRouter(address(new ERC1967Proxy(address(impl), init)));
+        feeVault.addDepositor(address(secondary));
     }
 }

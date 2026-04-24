@@ -5,6 +5,11 @@ import { createPublicClient, formatUnits, http } from "viem";
 import { FEES } from "../config/constants";
 import { ADDRESSES } from "../contracts/addresses";
 
+// Router-level USDC fee applied to every trade (curve and post-grad). The
+// `LaunchpadRouter` charges this same 0.5% on both paths and forwards it to
+// `FeeVault`, so quotes don't need to special-case graduated tokens — the
+// fee math here mirrors the on-chain deduction regardless of execution venue.
+
 const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 
 const publicClient = createPublicClient({

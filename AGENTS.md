@@ -54,12 +54,14 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 ## Fees
 
-| Fee | Rate | Split |
-|---|---|---|
-| Curve buy | 0.5% | 0.4% protocol / 0.1% creator |
-| Curve sell | 0.5% | 0.4% protocol / 0.1% creator |
-| HyperSwap swap (post-grad) | 0.3% | LPs (Alt Fun takes 0%) |
-| LT redemption | BounceTech internal | No additional Alt Fun fee |
+Fees are charged by `LaunchpadRouter` in USDC on every buy/sell — curve **and** post-graduation — and forwarded to the dedicated `FeeVault` contract. Creators and the protocol each claim their pooled USDC balance directly from the vault; the router holds no fee state, so it can be upgraded/swapped without affecting outstanding balances (the vault keeps a depositor allowlist).
+
+| Fee | Rate | Split | Charged where |
+|---|---|---|---|
+| Router buy | 0.5% | 0.4% protocol / 0.1% creator | `LaunchpadRouter` (USDC → `FeeVault`) |
+| Router sell | 0.5% | 0.4% protocol / 0.1% creator | `LaunchpadRouter` (USDC → `FeeVault`) |
+| HyperSwap swap (post-grad) | 0.3% | HyperSwap LPs (Alt Fun takes 0%) | HyperSwap V2 pair |
+| LT redemption | BounceTech internal | No additional Alt Fun fee | BounceTech LT |
 
 ---
 
@@ -79,7 +81,7 @@ Creating a token is a **two-phase process**. Both phases must succeed for the to
 
 ### Phase 1 — On-Chain
 
-Frontend calls `LaunchpadRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 token, creates the bonding curve pair via `Bonding.launch()`, and optionally executes a seed buy. Two key events are emitted: `TokenLaunched` (from Bonding) and `TokenCreated` (from LaunchpadRouter). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+Frontend calls `LaunchpadRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 token, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `LaunchpadRouter.buy` path (so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as any other buy). Three key events fire: `TokenLaunched` (Bonding), `TokenCreated` (LaunchpadRouter), and `Buy` (LaunchpadRouter, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
 
 ### Phase 2 — Off-Chain API Registration
 
@@ -170,6 +172,8 @@ No auth required.
 | HyperSwap V2 Factory | `0x724412C00059bf7d6ee7d4a1d0D5cd4de3ea1C48` |
 | HyperSwap V2 Router | `0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A` |
 
+Our own contract addresses (`LaunchpadRouter`, `Bonding`, `FFactory`, `FRouter`, `LPLock`, `FeeVault`) live in `packages/shared/src/constants/addresses.ts` and are regenerated on every deploy via `forge script` + `npm run export-abi`.
+
 ### Infrastructure
 
 | Service | Provider | Details |
@@ -224,3 +228,28 @@ v1 tracks referrals only (no on-chain fee split). The `buy()` function accepts a
 ## Open Tasks
 
 See `TODO.md` in the repo root for outstanding work items. This is the single source of truth for open tasks. When completing a task, remove it from `TODO.md`. When discovering new work, add it there.
+
+---
+
+## ⚠️ Pending Deploy: Router Fee Migration (one-off — delete this section once done)
+
+The router-fee migration introduced a new `FeeVault` contract and reshaped `LaunchpadRouter`/`Bonding`/`FRouter`/`FFactory` initialisers. It also moved seed buys out of `Bonding` entirely — `Bonding.LaunchParams.purchaseAmount` is gone, and `LaunchpadRouter.createToken` now performs any seed buy via the standard buy path so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as a regular buy. Until the migration is deployed to HyperEVM, `feeVault` in `packages/shared/src/constants/addresses.ts` is the placeholder `0x…0001`, and the indexer/API will read empty data for fee accruals.
+
+**Steps:**
+
+1. From repo root: `cd packages/contracts && forge fmt && forge test` — confirm 246+ tests still pass.
+2. Deploy: `source .env && forge script script/Deploy.s.sol --rpc-url "$HYPEREVM_RPC_URL" --broadcast`. The script deploys `FFactory`, `FRouter`, `LPLock`, `Bonding`, **`FeeVault`**, and `LaunchpadRouter` (proxies for the upgradeable ones), and wires:
+   - `factory.grantRole(BONDING_ROLE, bonding)`
+   - `router.grantRole(BONDING_ROLE, bonding)`
+   - `lpLock.setLocker(bonding, true)`
+   - `bonding.addRouter(launchpadRouter)`
+   - `feeVault.addDepositor(launchpadRouter)`
+3. From `packages/contracts/`: `npm run export-abi` (regenerates `FeeVaultAbi` and friends in `packages/shared/src/abis/`).
+4. Open `packages/shared/src/constants/addresses.ts` and replace **all six** addresses (`bonding`, `factory`, `router`, `launchpadRouter`, `lpLock`, `feeVault`) with the values from the broadcast output. Drop the placeholder comment on `feeVault`.
+5. Update `BONDING_START_BLOCK` in `packages/shared/src/constants/chains.ts` to the deploy block.
+6. Update hardcoded addresses in `packages/contracts/script/E2ETest.s.sol` if you plan to rerun it against the new deployment.
+7. From repo root: `npm run ci`.
+
+**Indexer redeploy** (Railway): the `feeAccrual` table is new and the `feeClaim` schema changed (dropped `ltAddress`, amount is now USDC 6dp). Drop the existing Ponder database before restarting so the indexer reseeds from the deploy block — there is no compatible migration path from the LT-denominated claim history.
+
+**Once the deploy is complete and `npm run ci` is green, delete this entire "Pending Deploy" section from `AGENTS.md`.**

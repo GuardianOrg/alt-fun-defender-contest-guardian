@@ -8,19 +8,20 @@ Forked from Virtuals Protocol `contracts/fun` — a bonding curve system. We rep
 
 | Contract | Description |
 |---|---|
-| `Bonding.sol` | Main entry — launch, buy, sell, graduation, fee collection |
-| `FFactory.sol` | Pair registry and fee config |
-| `FRouter.sol` | AMM math, buy/sell execution |
+| `Bonding.sol` | Main entry — launch, buy, sell, graduation (no fee logic — moved to the router) |
+| `FFactory.sol` | Pair registry |
+| `FRouter.sol` | AMM math, buy/sell execution (returns gross amounts; no fee deduction) |
 | `FPair.sol` | Per-token pair: reserves, k-constant |
 | `FERC20.sol` | ERC20 token with burn |
-| `LaunchpadRouter.sol` | User-facing entry point — USDC in/out, LT abstraction |
+| `LaunchpadRouter.sol` | User-facing entry point — USDC in/out, LT abstraction, **fee layer** |
+| `FeeVault.sol` | Holds accrued protocol + creator USDC fees; creators claim here |
 | `LPLock.sol` | Holds graduated LP tokens (no withdraw in v1) |
 
 ---
 
 ## Token Launch
 
-Creator calls `Bonding.launch()` with: name, ticker, LT pair address, description, image URL, social URLs, optional seed buy amount.
+Creator calls `LaunchpadRouter.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)`. The router calls `Bonding.launch()` to deploy the curve, then — if `seedUsdcAmount > 0` — performs the seed buy via the standard `LaunchpadRouter.buy` path so it inherits the same pro-rata fee handling and leftover refund as any other buy.
 
 This deploys an `FERC20` (1B supply) and creates an `FPair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
 
@@ -37,19 +38,19 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 ## Buy Flow
 
 1. `LaunchpadRouter.buy(tokenAddress, usdcAmount, minTokensOut, referrer)`
-2. Router takes USDC from user → mints LT
-3. If on curve: routes through `Bonding.buy()`. If graduated: swaps on HyperSwap.
-4. 0.5% fee deducted on curve trades (0.4% protocol, 0.1% creator)
-5. Tokens sent to user
+2. Router pulls `usdcAmount` USDC and deducts the 0.5% fee up-front (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator)
+3. Net USDC is minted to LT
+4. If on curve: routes through `Bonding.buy()`. If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). Fee is charged on both paths — symmetric with sells.
+5. Tokens sent to user; any leftover LT (capped-buy case) is redeemed back to USDC and refunded along with the pro-rata fee refund
 
 **Overflow buy protection.** On the final buy that would empty the curve, `FRouter.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `LaunchpadRouter.buy` then refunds any unused LT to the buyer by calling `ILeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
 
 ## Sell Flow
 
 1. `LaunchpadRouter.sell(tokenAddress, tokenAmount, minUsdcOut)`
-2. If on curve: routes through `Bonding.sell()`. If graduated: swaps on HyperSwap.
-3. 0.5% fee deducted on curve trades
-4. LT redeemed atomically via `redeem()` → USDC sent to user in single tx
+2. If on curve: routes through `Bonding.sell()`. If graduated: swaps on HyperSwap V2.
+3. LT redeemed atomically via `redeem()` → gross USDC into the router
+4. Router deducts the 0.5% fee (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator); net USDC sent to user in the same tx
    - Sell amount is limited by the LT's idle USDC buffer (`baseAssetBalance()`)
    - Frontend checks buffer and caps sell amounts; users sell in chunks if needed
    - BounceTech automation replenishes the buffer in ~10s after each redeem
@@ -97,11 +98,16 @@ After graduation, all trades continue through `LaunchpadRouter` via HyperSwap. T
 
 ---
 
-## Creator Fees
+## Fees & FeeVault
 
-- Fees accrue per-creator in a claimable mapping
-- `claimCreatorFees()` — creator withdraws
-- `transferCreator(tokenAddress, newCreator)` — transfers role and future fees
+All fees are charged by `LaunchpadRouter` in USDC and forwarded into `FeeVault`. The router holds no fee state — the vault is where balances live and where creators and the protocol claim.
+
+- **Rate:** 0.5% on every buy/sell (curve **and** post-grad), split 0.4% protocol / 0.1% creator.
+- **Accrual:** `LaunchpadRouter` transfers the fee USDC to `FeeVault`, then calls `FeeVault.accrue(token, creator, creatorAmount, protocolAmount, isBuy)`. Creator attribution comes from `Bonding.tokenInfo(token).creator` (set at launch, updatable via `transferCreator`).
+- **Claims:** `FeeVault.claim()` pays the caller their pooled USDC balance across every token they've launched. `FeeVault.claimProtocol()` is owner-only and pays the configured `feeTo`.
+- **Lifetime counters:** `lifetimeCreatorEarned(creator)` / `lifetimeProtocolEarned` never decrement on claim, so the UI can render "total earned / claimed / claimable" consistently.
+- **Router swapability:** The vault has an owner-controlled depositor allowlist. A new router is whitelisted, the old router removed, and creator balances are untouched during the transition.
+- `transferCreator(tokenAddress, newCreator)` (on `Bonding`) — transfers role and future fee attribution.
 
 ---
 
@@ -120,8 +126,9 @@ After graduation, all trades continue through `LaunchpadRouter` via HyperSwap. T
 | `TokenLaunched` | Bonding | `token`, `creator`, `ltAddress`, `name`, `ticker`, `k`, `index` |
 | `Trade` | Bonding | `token`, `trader`, `isBuy`, `ltAmount`, `tokenAmount`, `newCurveSupply`, `newLtReserve` |
 | `TokenGraduated` | Bonding | `token`, `pairAddress`, `liquidity`, `tokensInLP`, `lpBurned`, `unsoldBurned` |
-| `CreatorFeesClaimed` | Bonding | `creator`, `lt`, `amount` |
-| `ProtocolFeesClaimed` | Bonding | `lt`, `amount` |
+| `FeeAccrued` | FeeVault | `token`, `creator`, `creatorAmount`, `protocolAmount`, `isBuy` |
+| `CreatorFeesClaimed` | FeeVault | `creator`, `amount` (USDC) |
+| `ProtocolFeesClaimed` | FeeVault | `feeTo`, `amount` (USDC) |
 | `Buy` | LaunchpadRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
 | `Sell` | LaunchpadRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
 | `Referred` | LaunchpadRouter | `trader`, `referrer`, `token`, `usdcAmount` |

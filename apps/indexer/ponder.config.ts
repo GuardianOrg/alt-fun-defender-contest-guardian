@@ -3,6 +3,7 @@ import { parseAbiItem } from "viem";
 
 import {
   BondingAbi,
+  FeeVaultAbi,
   FERC20Abi,
   FFactoryAbi,
   LaunchpadRouterAbi,
@@ -17,6 +18,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
 const factoryAddress = CONTRACT_ADDRESSES.factory as `0x${string}`;
 const launchpadRouterAddress = CONTRACT_ADDRESSES.launchpadRouter as `0x${string}`;
+const feeVaultAddress = CONTRACT_ADDRESSES.feeVault as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
 
 if (bondingAddress === ZERO_ADDRESS) {
@@ -50,6 +52,12 @@ export default createConfig({
       chain: "hyperevm",
       abi: LaunchpadRouterAbi,
       address: launchpadRouterAddress,
+      startBlock,
+    },
+    FeeVault: {
+      chain: "hyperevm",
+      abi: FeeVaultAbi,
+      address: feeVaultAddress,
       startBlock,
     },
     FERC20Token: {

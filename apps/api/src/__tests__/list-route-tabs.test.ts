@@ -172,6 +172,8 @@ function makeOnchain(
     hyperswapPair: null,
     organicUsdcRaised: "0",
     volumeUsd: "0",
+    creatorFeesUsd: "0",
+    protocolFeesUsd: "0",
     timestamp: "1700000000",
     ...overrides,
   };

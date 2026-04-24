@@ -8,7 +8,6 @@ import {
   routerTrade,
   graduation,
   referral,
-  feeClaim,
   tokenBalance,
   tokenSnapshot,
   protocolConfig,
@@ -202,42 +201,6 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
       graduatedAt: BigInt(event.block.timestamp),
       hyperswapPair: event.args.pairAddress,
     });
-});
-
-ponder.on("Bonding:CreatorFeesClaimed", async ({ event, context }) => {
-  const { db } = context;
-  const claimId = `${event.transaction.hash}-${event.log.logIndex}`;
-
-  await db
-    .insert(feeClaim)
-    .values({
-      id: claimId,
-      claimer: event.args.creator,
-      ltAddress: event.args.lt,
-      amount: event.args.amount,
-      isCreator: true,
-      blockNumber: BigInt(event.block.number),
-      timestamp: BigInt(event.block.timestamp),
-    })
-    .onConflictDoNothing();
-});
-
-ponder.on("Bonding:ProtocolFeesClaimed", async ({ event, context }) => {
-  const { db } = context;
-  const claimId = `${event.transaction.hash}-${event.log.logIndex}`;
-
-  await db
-    .insert(feeClaim)
-    .values({
-      id: claimId,
-      claimer: event.transaction.from,
-      ltAddress: event.args.lt,
-      amount: event.args.amount,
-      isCreator: false,
-      blockNumber: BigInt(event.block.number),
-      timestamp: BigInt(event.block.timestamp),
-    })
-    .onConflictDoNothing();
 });
 
 ponder.on("LaunchpadRouter:Buy", async ({ event, context }) => {

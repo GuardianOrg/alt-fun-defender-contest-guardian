@@ -24,6 +24,11 @@ export default function CreatorBadge({ token }: Props) {
   const tokenData = earnings?.tokens.find(
     (t) => t.address.toLowerCase() === token.address.toLowerCase(),
   );
+  // Claimable is pooled across every token the creator has launched — the
+  // vault exposes a single balance, not per-token splits. The badge shows
+  // the pooled figure so the claim button reflects exactly what a click will
+  // pay out.
+  const totalClaimableUsd = earnings?.totalClaimable ?? 0;
 
   return (
     <div className={styles.wrapper}>
@@ -31,48 +36,61 @@ export default function CreatorBadge({ token }: Props) {
         <div className={styles.headerLeft}>
           <span className={styles.badge}>creator</span>
           <span className={styles.claimable}>
-            {tokenData
-              ? `$${tokenData.feesClaimableUsd.toFixed(2)} claimable`
+            {earnings
+              ? `$${totalClaimableUsd.toFixed(2)} claimable`
               : "Your token"}
           </span>
         </div>
         <span className={styles.chevron}>{expanded ? "▴" : "▾"}</span>
       </button>
 
-      {expanded && tokenData && (
+      {expanded && earnings && (
         <div className={styles.details}>
-          <div className={styles.statsGrid}>
-            <div>
-              <div className={styles.statLabel}>volume</div>
-              <div className={styles.statValue}>
-                ${tokenData.totalVolumeUsd.toLocaleString()}
+          {/*
+            Per-token stats are conditional on `tokenData` because the
+            creator service caps `fetchTokens(100)` and per-token volume/
+            earned live on the token row. The pooled claim action, by
+            contrast, reads `earnings.totalClaimable` straight off
+            `FeeVault.creatorBalance(wallet)` — so we still want to show
+            the claim button even when this specific token didn't make
+            the 100-token slice (otherwise the header would promise a
+            claimable balance that the user has no way to action from
+            this page).
+          */}
+          {tokenData && (
+            <div className={styles.statsGrid}>
+              <div>
+                <div className={styles.statLabel}>volume</div>
+                <div className={styles.statValue}>
+                  ${tokenData.totalVolumeUsd.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className={styles.statLabel}>earned</div>
+                <div className={styles.statValue}>
+                  ${tokenData.feesEarnedUsd.toFixed(2)}
+                </div>
+              </div>
+              <div>
+                <div className={styles.statLabel}>claimable</div>
+                <div className={styles.statMint}>
+                  ${totalClaimableUsd.toFixed(2)}
+                </div>
               </div>
             </div>
-            <div>
-              <div className={styles.statLabel}>earned</div>
-              <div className={styles.statValue}>
-                ${tokenData.feesEarnedUsd.toFixed(2)}
-              </div>
-            </div>
-            <div>
-              <div className={styles.statLabel}>claimable</div>
-              <div className={styles.statMint}>
-                ${tokenData.feesClaimableUsd.toFixed(2)}
-              </div>
-            </div>
-          </div>
+          )}
 
           <Button
             variant="primary"
             fullWidth
             busy={claiming}
-            disabled={tokenData.feesClaimableUsd <= 0}
-            onClick={() => claim(token.address)}
+            disabled={totalClaimableUsd <= 0}
+            onClick={() => claim()}
           >
             {claiming
               ? "Claiming…"
-              : tokenData.feesClaimableUsd > 0
-                ? `Claim $${tokenData.feesClaimableUsd.toFixed(2)}`
+              : totalClaimableUsd > 0
+                ? `Claim $${totalClaimableUsd.toFixed(2)}`
                 : "Nothing to claim"}
           </Button>
 

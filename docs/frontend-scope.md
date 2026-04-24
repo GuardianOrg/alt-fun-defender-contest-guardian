@@ -66,7 +66,7 @@ Two-column: left (form) | right (live preview card).
 
 **Balances tab:** total portfolio value, list of held tokens (icon, name, amount, USD value, 24h change). Data: `GET /portfolio/:wallet`.
 
-**Creator Rewards tab:** claimable amount + claim button (`claimCreatorFees()`). Created tokens list with volume, earned, claimable. Data: `GET /creator/:wallet`.
+**Creator Rewards tab:** single claimable USDC figure + claim button (`FeeVault.claim()`). Balance is pooled across every token the creator has launched. Per-token `earned` column is sourced from `ApiToken.creatorFeesUsd`, a running counter on the indexer's `token` row bumped on every `FeeVault:FeeAccrued` event (no per-token API round-trip).
 
 ---
 
@@ -84,8 +84,8 @@ Two-column: left (form) | right (live preview card).
 |---|---|
 | Buy | `LaunchpadRouter.buy(token, usdcAmount, minOut, referrer)` |
 | Sell | `LaunchpadRouter.sell(token, tokenAmount, minUsdcOut)` |
-| Launch token | `Bonding.launch(name, ticker, ltAddress, desc, img, urls, purchaseAmount)` |
-| Claim creator fees | `Bonding.claimCreatorFees()` |
+| Launch token | `LaunchpadRouter.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)` |
+| Claim creator fees | `FeeVault.claim()` (USDC, pooled across all of the creator's tokens) |
 | USDC approval | `USDC.approve(launchpadRouter, amount)` |
 | Token approval | `FERC20.approve(launchpadRouter, amount)` |
 

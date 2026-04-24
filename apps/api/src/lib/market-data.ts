@@ -61,6 +61,19 @@ export interface PonderTokenOnchain {
    * rewards summary. Contrast with `organicUsdcRaised` (net, floored).
    */
   volumeUsd: string;
+  /**
+   * Cumulative USDC (6dp) accrued to this token's creator via
+   * `FeeVault:FeeAccrued`. Surfaced as `ApiToken.creatorFeesUsd` for the
+   * Rewards-tab "earned" column. Lifetime counter — never decreases when
+   * the creator claims (claims pool across every token they've launched
+   * and reset the vault's `creatorBalance`, not this per-token counter).
+   */
+  creatorFeesUsd: string;
+  /**
+   * Mirror counter for the protocol cut. Same lifetime semantics as
+   * `creatorFeesUsd`. Surfaced for symmetry with the admin dashboard.
+   */
+  protocolFeesUsd: string;
   timestamp: string;
 }
 
@@ -153,6 +166,8 @@ export async function fetchAllTokensOnchain(
             hyperswapPair
             organicUsdcRaised
             volumeUsd
+            creatorFeesUsd
+            protocolFeesUsd
             timestamp
           }
         }
@@ -200,6 +215,8 @@ export async function fetchTokensOnchainByAddresses(
             hyperswapPair
             organicUsdcRaised
             volumeUsd
+            creatorFeesUsd
+            protocolFeesUsd
             timestamp
           }
         }
@@ -261,6 +278,8 @@ export async function fetchGraduatedTokensOnchain(
           hyperswapPair
           organicUsdcRaised
           volumeUsd
+          creatorFeesUsd
+          protocolFeesUsd
           timestamp
         }
       }
@@ -306,6 +325,8 @@ export async function fetchGraduatingTokensOnchain(
           hyperswapPair
           organicUsdcRaised
           volumeUsd
+          creatorFeesUsd
+          protocolFeesUsd
           timestamp
         }
       }
@@ -424,6 +445,8 @@ export async function fetchTokenOnchain(
         hyperswapPair
         organicUsdcRaised
         volumeUsd
+        creatorFeesUsd
+        protocolFeesUsd
         timestamp
       }
     }`,

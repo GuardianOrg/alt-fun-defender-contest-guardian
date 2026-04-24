@@ -26,9 +26,21 @@ export interface PonderToken {
   timestamp: string;
 }
 
-/** Shape returned by the `feeClaims` query. */
+/** Shape returned by the `feeClaims` query. USDC-denominated (6dp). */
 export interface PonderFeeClaim {
   amount: string;
   isCreator: boolean;
+  timestamp: string;
+}
+
+/** Shape returned by the `feeAccruals` query. USDC-denominated (6dp). */
+export interface PonderFeeAccrual {
+  id: string;
+  tokenAddress: string;
+  creator: string;
+  creatorAmount: string;
+  protocolAmount: string;
+  isBuy: boolean;
+  blockNumber: string;
   timestamp: string;
 }

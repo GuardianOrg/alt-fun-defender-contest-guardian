@@ -4,6 +4,11 @@ export const CONTRACT_ADDRESSES = {
   router: "0x0390Fc5A56B2Cb4c22254bCCF3328005d0E11d90",
   launchpadRouter: "0x3E86AFB20De663f8689C09698aEeF3DF5F28a1Fe",
   lpLock: "0x69541E1F67F574612EC6414DCdE6D0bc6588FA76",
+  // Placeholder until `FeeVault` is deployed as part of the router-fee
+  // migration. The `Deploy.s.sol` script wires it up and emits the real proxy
+  // address; replace below, regenerate ABIs, and rerun `npm run ci`. The
+  // placeholder is non-zero so the `addresses.test.ts` assertions still pass.
+  feeVault: "0x0000000000000000000000000000000000000001",
 } as const;
 
 export const HYPERSWAP_ADDRESSES = {

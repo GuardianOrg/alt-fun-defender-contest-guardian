@@ -10,7 +10,6 @@ contract FFactoryTest is Test {
     FFactory public factory;
 
     address public owner = address(this);
-    address public feeReceiver = makeAddr("feeReceiver");
     address public routerAddr = makeAddr("router");
     address public bondingRole = makeAddr("bonding");
     address public stranger = makeAddr("stranger");
@@ -18,12 +17,9 @@ contract FFactoryTest is Test {
     MockERC20 public tokenA;
     MockERC20 public tokenB;
 
-    uint256 constant BUY_TAX_BPS = 50;
-    uint256 constant SELL_TAX_BPS = 50;
-
     function setUp() public {
         factory = new FFactory();
-        factory.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
+        factory.initialize();
         factory.setRouter(routerAddr);
         factory.grantRole(factory.BONDING_ROLE(), bondingRole);
 
@@ -32,12 +28,6 @@ contract FFactoryTest is Test {
     }
 
     // ─── Initialize Tests ─────────────────────────────────────────────────
-
-    function test_initialize_setsParams() public view {
-        assertEq(factory.feeTo(), feeReceiver);
-        assertEq(factory.buyTax(), BUY_TAX_BPS);
-        assertEq(factory.sellTax(), SELL_TAX_BPS);
-    }
 
     function test_initialize_grantsAdminRole() public view {
         assertTrue(factory.hasRole(factory.DEFAULT_ADMIN_ROLE(), owner));
@@ -97,7 +87,7 @@ contract FFactoryTest is Test {
 
     function test_createPair_revertsWithoutRouter() public {
         FFactory factory2 = new FFactory();
-        factory2.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
+        factory2.initialize();
         factory2.grantRole(factory2.BONDING_ROLE(), bondingRole);
         // No setRouter call
 
@@ -160,33 +150,5 @@ contract FFactoryTest is Test {
         vm.prank(stranger);
         vm.expectRevert();
         factory.setRouter(makeAddr("newRouter"));
-    }
-
-    // ─── setFeeParams Tests ──────────────────────────────────────────────
-
-    function test_setFeeParams_updatesAll() public {
-        address newFeeTo = makeAddr("newFeeTo");
-        factory.setFeeParams(newFeeTo, 100, 200);
-
-        assertEq(factory.feeTo(), newFeeTo);
-        assertEq(factory.buyTax(), 100);
-        assertEq(factory.sellTax(), 200);
-    }
-
-    function test_setFeeParams_revertsForZeroAddress() public {
-        vm.expectRevert(FFactory.ZeroAddress.selector);
-        factory.setFeeParams(address(0), 100, 200);
-    }
-
-    function test_setFeeParams_revertsWithoutAdmin() public {
-        vm.prank(stranger);
-        vm.expectRevert();
-        factory.setFeeParams(feeReceiver, 100, 200);
-    }
-
-    function test_setFeeParams_allowsZeroTax() public {
-        factory.setFeeParams(feeReceiver, 0, 0);
-        assertEq(factory.buyTax(), 0);
-        assertEq(factory.sellTax(), 0);
     }
 }

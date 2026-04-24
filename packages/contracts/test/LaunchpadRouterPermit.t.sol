@@ -26,11 +26,14 @@ contract LaunchpadRouterPermitTest is DeployHelper {
         _deployCore();
 
         LaunchpadRouter routerImpl = new LaunchpadRouter();
-        bytes memory routerInit =
-            abi.encodeCall(LaunchpadRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
+        bytes memory routerInit = abi.encodeCall(
+            LaunchpadRouter.initialize,
+            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+        );
         launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
 
         bonding.addRouter(address(launchpadRouter));
+        feeVault.addDepositor(address(launchpadRouter));
 
         usdc.mint(address(lt), 1_000_000 ether);
 
@@ -61,8 +64,7 @@ contract LaunchpadRouterPermitTest is DeployHelper {
             description: "Permit UX test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
     }
 

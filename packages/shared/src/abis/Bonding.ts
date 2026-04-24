@@ -19,19 +19,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "CREATOR_FEE_BPS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "CURVE_BPS",
     "inputs": [],
     "outputs": [
@@ -278,41 +265,10 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "claimCreatorFees",
+    "name": "creatorOf",
     "inputs": [
       {
-        "name": "lt",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "claimProtocolFees",
-    "inputs": [
-      {
-        "name": "lt",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "creatorFees",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "",
+        "name": "token_",
         "type": "address",
         "internalType": "address"
       }
@@ -320,8 +276,8 @@ export const BondingAbi = [
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -359,19 +315,6 @@ export const BondingAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract FFactory"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "feeTo",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -525,11 +468,6 @@ export const BondingAbi = [
         "internalType": "address"
       },
       {
-        "name": "feeTo_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "maxTx_",
         "type": "uint256",
         "internalType": "uint256"
@@ -643,11 +581,6 @@ export const BondingAbi = [
             "name": "ltAddress",
             "type": "address",
             "internalType": "address"
-          },
-          {
-            "name": "purchaseAmount",
-            "type": "uint256",
-            "internalType": "uint256"
           }
         ]
       },
@@ -736,25 +669,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "protocolFees",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "proxiableUUID",
     "inputs": [],
     "outputs": [
@@ -765,13 +679,6 @@ export const BondingAbi = [
       }
     ],
     "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "reinitV2",
-    "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -873,17 +780,12 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setParams",
+    "name": "setMaxTx",
     "inputs": [
       {
         "name": "newMaxTx",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "newFeeTo",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -994,31 +896,6 @@ export const BondingAbi = [
   },
   {
     "type": "event",
-    "name": "CreatorFeesClaimed",
-    "inputs": [
-      {
-        "name": "creator",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "lt",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "CreatorTransferred",
     "inputs": [
       {
@@ -1089,25 +966,6 @@ export const BondingAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "ProtocolFeesClaimed",
-    "inputs": [
-      {
-        "name": "lt",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1362,11 +1220,6 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "NotRouter",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NothingToClaim",
     "inputs": []
   },
   {

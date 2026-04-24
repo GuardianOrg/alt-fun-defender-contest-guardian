@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {FERC20} from "../src/FERC20.sol";
+import {FeeVault} from "../src/FeeVault.sol";
 import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
@@ -24,11 +25,14 @@ contract LaunchpadRouterTest is DeployHelper {
         _deployCore();
 
         LaunchpadRouter routerImpl = new LaunchpadRouter();
-        bytes memory routerInit =
-            abi.encodeCall(LaunchpadRouter.initialize, (address(bonding), address(usdc), address(hyperswapRouter)));
+        bytes memory routerInit = abi.encodeCall(
+            LaunchpadRouter.initialize,
+            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+        );
         launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
 
         bonding.addRouter(address(launchpadRouter));
+        feeVault.addDepositor(address(launchpadRouter));
 
         usdc.mint(address(lt), 1_000_000 ether);
     }
@@ -44,8 +48,7 @@ contract LaunchpadRouterTest is DeployHelper {
             description: "A test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
 
         if (seedUsdc > 0) {
@@ -108,8 +111,7 @@ contract LaunchpadRouterTest is DeployHelper {
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
 
         vm.expectEmit(false, true, false, false);
@@ -121,13 +123,7 @@ contract LaunchpadRouterTest is DeployHelper {
 
     function test_createToken_revertsZeroLt() public {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Bad",
-            ticker: "BAD",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(0),
-            purchaseAmount: 0
+            name: "Bad", ticker: "BAD", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(0)
         });
 
         vm.prank(creator);
@@ -384,6 +380,142 @@ contract LaunchpadRouterTest is DeployHelper {
         assertEq(address(launchpadRouter.bonding()), address(bonding));
         assertEq(address(launchpadRouter.usdc()), address(usdc));
         assertEq(launchpadRouter.owner(), owner);
+    }
+
+    // ─── Fee Tests ───────────────────────────────────────────────────────
+
+    function test_buy_feeAccruesToVault() public {
+        address tokenAddr = _createToken(0);
+        uint256 usdcIn = 1000 ether;
+        uint256 vaultBefore = usdc.balanceOf(address(feeVault));
+
+        _buyViaRouter(tokenAddr, trader, usdcIn);
+
+        uint256 expectedFee = (usdcIn * 50) / 10_000; // 0.5%
+        uint256 vaultAfter = usdc.balanceOf(address(feeVault));
+        assertEq(vaultAfter - vaultBefore, expectedFee, "FeeVault should hold the buy fee");
+
+        uint256 creatorAccrual = feeVault.creatorBalance(creator);
+        uint256 expectedCreator = (expectedFee * 2000) / 10_000; // 20% of fee
+        assertEq(creatorAccrual, expectedCreator, "Creator share should be 20% of fee");
+        assertEq(feeVault.protocolBalance(), expectedFee - expectedCreator, "Protocol share should be the remainder");
+    }
+
+    function test_sell_feeAccruesToVault() public {
+        address tokenAddr = _createToken(0);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 1000 ether);
+
+        uint256 vaultBefore = usdc.balanceOf(address(feeVault));
+
+        vm.startPrank(trader);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+
+        // Fee is 0.5% of grossUsdc. usdcOut = grossUsdc - fee → fee = usdcOut * 50 / 9950.
+        uint256 fee = (usdcOut * 50) / 9950;
+        assertApproxEqAbs(usdc.balanceOf(address(feeVault)) - vaultBefore, fee, 1, "FeeVault should receive sell fee");
+    }
+
+    function test_createToken_seedBuy_feeAccruesToCreator() public {
+        uint256 seedUsdc = 1000 ether;
+        address tokenAddr = _createToken(seedUsdc);
+
+        // Creator gets their own creator-share of the seed-buy fee back.
+        uint256 expectedFee = (seedUsdc * 50) / 10_000;
+        uint256 expectedCreator = (expectedFee * 2000) / 10_000;
+        assertEq(feeVault.creatorBalance(creator), expectedCreator, "Seed buy should accrue creator-share to creator");
+        assertEq(feeVault.lifetimeCreatorEarned(creator), expectedCreator, "Lifetime should match");
+        assertEq(usdc.balanceOf(address(feeVault)), expectedFee, "Vault should hold full seed buy fee");
+        assertTrue(tokenAddr != address(0));
+    }
+
+    function test_buy_postGrad_feeAccrues() public {
+        address tokenAddr = _createToken(0);
+        _graduateToken(tokenAddr);
+
+        uint256 vaultBefore = usdc.balanceOf(address(feeVault));
+        uint256 usdcIn = 100 ether;
+        _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), usdcIn);
+
+        uint256 expectedFee = (usdcIn * 50) / 10_000;
+        assertEq(
+            usdc.balanceOf(address(feeVault)) - vaultBefore,
+            expectedFee,
+            "Post-grad buys must still accrue the same fee"
+        );
+    }
+
+    function test_sell_postGrad_feeAccrues() public {
+        address tokenAddr = _createToken(0);
+        _graduateToken(tokenAddr);
+
+        address seller = makeAddr("postGradSeller");
+        uint256 tokensOut = _buyViaRouter(tokenAddr, seller, 100 ether);
+        uint256 vaultBefore = usdc.balanceOf(address(feeVault));
+
+        vm.startPrank(seller);
+        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+
+        uint256 fee = (usdcOut * 50) / 9950;
+        assertApproxEqAbs(
+            usdc.balanceOf(address(feeVault)) - vaultBefore, fee, 1, "Post-grad sells must still accrue the same fee"
+        );
+    }
+
+    function test_setFees_onlyOwner() public {
+        vm.prank(trader);
+        vm.expectRevert();
+        launchpadRouter.setFees(100, 100, 3000);
+    }
+
+    function test_setFees_updatesValues() public {
+        launchpadRouter.setFees(30, 70, 1500);
+        assertEq(launchpadRouter.buyFeeBps(), 30);
+        assertEq(launchpadRouter.sellFeeBps(), 70);
+        assertEq(launchpadRouter.creatorFeeBps(), 1500);
+    }
+
+    function test_setFees_revertsAboveCap() public {
+        vm.expectRevert(LaunchpadRouter.InvalidFee.selector);
+        launchpadRouter.setFees(201, 50, 2000);
+    }
+
+    function test_setFees_revertsCreatorAboveDenom() public {
+        vm.expectRevert(LaunchpadRouter.InvalidFee.selector);
+        launchpadRouter.setFees(50, 50, 10_001);
+    }
+
+    function test_setFeeVault_onlyOwner() public {
+        vm.prank(trader);
+        vm.expectRevert();
+        launchpadRouter.setFeeVault(makeAddr("new"));
+    }
+
+    function test_setFeeVault_revertsZeroAddress() public {
+        vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
+        launchpadRouter.setFeeVault(address(0));
+    }
+
+    function test_setFeeVault_revertsIfRouterNotDepositor() public {
+        FeeVault impl = new FeeVault();
+        bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
+        FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
+
+        vm.expectRevert(LaunchpadRouter.VaultNotConfigured.selector);
+        launchpadRouter.setFeeVault(address(freshVault));
+    }
+
+    function test_setFeeVault_succeedsWhenDepositorAllowlisted() public {
+        FeeVault impl = new FeeVault();
+        bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
+        FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
+        freshVault.addDepositor(address(launchpadRouter));
+
+        launchpadRouter.setFeeVault(address(freshVault));
+        assertEq(address(launchpadRouter.feeVault()), address(freshVault));
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────

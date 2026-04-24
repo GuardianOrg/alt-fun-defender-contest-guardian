@@ -42,34 +42,24 @@ contract GraduationInvariantsTest is DeployHelper {
     function _launchToken(
         uint256 seedLtAmount
     ) internal returns (address tokenAddr, address pairAddr) {
-        lt.mintDirect(creator, seedLtAmount);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), seedLtAmount);
-        lt.approve(address(bonding), seedLtAmount);
-
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Inv",
-            ticker: "INV",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: seedLtAmount
+            name: "Inv", ticker: "INV", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
+        vm.prank(creator);
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
-        vm.stopPrank();
+
+        // Seed buys are no longer part of `Bonding.launch`. These invariant
+        // tests rely on a seeded curve, so reproduce it via `bonding.buy`
+        // (creator is allowlisted in `setUp`).
+        if (seedLtAmount > 0) {
+            _buy(tokenAddr, creator, seedLtAmount);
+        }
     }
 
     function _launchNoSeed() internal returns (address tokenAddr, address pairAddr) {
         vm.startPrank(creator);
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Inv",
-            ticker: "INV",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: "Inv", ticker: "INV", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
         vm.stopPrank();

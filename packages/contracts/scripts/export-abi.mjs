@@ -14,6 +14,7 @@ const contracts = [
   "FERC20",
   "LaunchpadRouter",
   "LPLock",
+  "FeeVault",
 ];
 
 if (!existsSync(abiDir)) {

@@ -16,13 +16,9 @@ contract FRouterTest is Test {
     MockERC20 public asset;
 
     address public owner = address(this);
-    address public feeReceiver = makeAddr("feeReceiver");
     address public bondingRole = makeAddr("bonding");
     address public trader = makeAddr("trader");
     address public stranger = makeAddr("stranger");
-
-    uint256 constant BUY_TAX_BPS = 50; // 0.5%
-    uint256 constant SELL_TAX_BPS = 50; // 0.5%
 
     uint256 constant TOKEN_SUPPLY = 750_000_000 ether;
     uint256 constant ASSET_RESERVE = 4000 ether;
@@ -34,7 +30,7 @@ contract FRouterTest is Test {
         asset = new MockERC20("Asset", "LT");
 
         factory = new FFactory();
-        factory.initialize(feeReceiver, BUY_TAX_BPS, SELL_TAX_BPS);
+        factory.initialize();
 
         router = new FRouter();
         router.initialize(address(factory));
@@ -68,19 +64,19 @@ contract FRouterTest is Test {
         vm.stopPrank();
 
         vm.prank(bondingRole);
-        (,, tokensOut) = router.buy(amountIn, address(token), buyer);
+        (, tokensOut) = router.buy(amountIn, address(token), buyer);
     }
 
     function _doSell(
         address seller,
         uint256 tokenAmount
-    ) internal returns (uint256 netAssetOut) {
+    ) internal returns (uint256 assetOut) {
         vm.startPrank(seller);
         token.approve(address(router), tokenAmount);
         vm.stopPrank();
 
         vm.prank(bondingRole);
-        (, netAssetOut,) = router.sell(tokenAmount, address(token), seller);
+        (, assetOut) = router.sell(tokenAmount, address(token), seller);
     }
 
     // ─── getAmountOut Tests ──────────────────────────────────────────────
@@ -148,20 +144,8 @@ contract FRouterTest is Test {
         assertTrue(tokensOut > 0);
     }
 
-    function test_buy_deductsFeeFromInput() public {
+    function test_buy_fullAmountEntersPair() public {
         uint256 amountIn = 1000 ether;
-        uint256 expectedFee = (BUY_TAX_BPS * amountIn) / 10_000; // 5 ether
-        uint256 feeReceiverBefore = asset.balanceOf(feeReceiver);
-
-        _doBuy(trader, amountIn);
-
-        uint256 feeReceiverAfter = asset.balanceOf(feeReceiver);
-        assertEq(feeReceiverAfter - feeReceiverBefore, expectedFee, "Fee should go to feeReceiver");
-    }
-
-    function test_buy_netAmountEntersPair() public {
-        uint256 amountIn = 1000 ether;
-        uint256 expectedNet = amountIn - (BUY_TAX_BPS * amountIn) / 10_000;
 
         IFPair pair = IFPair(pairAddr);
         (, uint256 r1Before) = pair.getReserves();
@@ -169,23 +153,20 @@ contract FRouterTest is Test {
         _doBuy(trader, amountIn);
 
         (, uint256 r1After) = pair.getReserves();
-        assertEq(r1After - r1Before, expectedNet, "Net amount should increase asset reserve");
+        assertEq(r1After - r1Before, amountIn, "Full amount should increase asset reserve (no FRouter-layer fee)");
     }
 
     function test_buy_returnsCorrectValues() public {
         uint256 amountIn = 500 ether;
-        uint256 expectedFee = (BUY_TAX_BPS * amountIn) / 10_000;
-        uint256 expectedNet = amountIn - expectedFee;
 
         asset.mint(trader, amountIn);
         vm.prank(trader);
         asset.approve(address(router), amountIn);
 
         vm.prank(bondingRole);
-        (uint256 amountInUsed, uint256 netAssetIn, uint256 tokensOut) = router.buy(amountIn, address(token), trader);
+        (uint256 amountInUsed, uint256 tokensOut) = router.buy(amountIn, address(token), trader);
 
         assertEq(amountInUsed, amountIn, "No overflow expected, amountInUsed should equal amountIn");
-        assertEq(netAssetIn, expectedNet, "netAssetIn should be amountIn minus fee");
         assertTrue(tokensOut > 0, "tokensOut should be positive");
     }
 
@@ -235,28 +216,19 @@ contract FRouterTest is Test {
         assertTrue(assetAfter > assetBefore, "Trader should receive asset");
     }
 
-    function test_sell_deductsFeeFromOutput() public {
+    function test_sell_returnsGrossOutput() public {
         uint256 tokensOut = _doBuy(trader, 500 ether);
 
-        // Calculate expected gross output
-        uint256 grossOut = router.getAmountOut(address(token), false, tokensOut);
-        uint256 expectedFee = (SELL_TAX_BPS * grossOut) / 10_000;
-        uint256 expectedNet = grossOut - expectedFee;
-
-        uint256 feeReceiverBefore = asset.balanceOf(feeReceiver);
+        uint256 expectedGross = router.getAmountOut(address(token), false, tokensOut);
 
         vm.prank(trader);
         token.approve(address(router), tokensOut);
 
         vm.prank(bondingRole);
-        (uint256 tokensIn, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(tokensOut, address(token), trader);
+        (uint256 tokensIn, uint256 assetOut) = router.sell(tokensOut, address(token), trader);
 
         assertEq(tokensIn, tokensOut);
-        assertEq(grossAssetOut, grossOut, "Gross output should match getAmountOut");
-        assertEq(netAssetOut, expectedNet, "Net output should be gross minus fee");
-
-        uint256 feeReceiverAfter = asset.balanceOf(feeReceiver);
-        assertEq(feeReceiverAfter - feeReceiverBefore, expectedFee, "Fee should go to feeReceiver");
+        assertEq(assetOut, expectedGross, "FRouter should return full gross; fee applies at LaunchpadRouter");
     }
 
     function test_sell_revertsOnZeroAmount() public {
@@ -287,12 +259,15 @@ contract FRouterTest is Test {
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
 
-    function test_roundTrip_traderLosesToFees() public {
+    /// @notice Round trips through FRouter (no fee layer) are approximately
+    ///         lossless — within rounding. Fee-induced loss is exercised in
+    ///         `LaunchpadRouter.t.sol`.
+    function test_roundTrip_lossless() public {
         uint256 buyAmount = 1000 ether;
         uint256 tokensOut = _doBuy(trader, buyAmount);
-        uint256 netAssetOut = _doSell(trader, tokensOut);
+        uint256 assetOut = _doSell(trader, tokensOut);
 
-        assertTrue(netAssetOut < buyAmount, "Trader should lose to fees on round trip");
+        assertApproxEqRel(assetOut, buyAmount, 0.001e18, "FRouter round trip should be approximately lossless");
     }
 
     // ─── addInitialLiquidity Tests ───────────────────────────────────────
@@ -377,7 +352,7 @@ contract FRouterTest is Test {
     ) public {
         buyAmount = bound(buyAmount, 1 ether, 3000 ether);
         uint256 tokensOut = _doBuy(trader, buyAmount);
-        uint256 netAssetOut = _doSell(trader, tokensOut);
-        assertTrue(netAssetOut <= buyAmount, "Should never profit on round trip");
+        uint256 assetOut = _doSell(trader, tokensOut);
+        assertTrue(assetOut <= buyAmount + 1, "Should never profit on round trip (rounding only)");
     }
 }

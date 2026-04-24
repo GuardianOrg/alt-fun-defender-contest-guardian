@@ -3,6 +3,7 @@ export {
   LaunchpadRouterAbi,
   FFactoryAbi,
   FERC20Abi,
+  FeeVaultAbi,
   LPLockAbi,
   LeveragedTokenAbi,
 } from "@launchpad/shared";

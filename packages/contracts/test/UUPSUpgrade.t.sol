@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract BondingV2 is Bonding {
@@ -29,21 +28,24 @@ contract UUPSUpgradeTest is DeployHelper {
     }
 
     function _launchToken() internal returns (address tokenAddr) {
-        lt.mintDirect(creator, 200 ether);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), 200 ether);
-        lt.approve(address(bonding), 200 ether);
-
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "UpgradeTest",
             ticker: "UPG",
             description: "",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 200 ether
+            ltAddress: address(lt)
         });
+        vm.prank(creator);
         (tokenAddr,,) = bonding.launch(params, creator);
+
+        // Seed buy now happens via the standard buy path (no longer inside
+        // `Bonding.launch`). Drive it directly through `bonding.buy` since
+        // these tests bypass the LaunchpadRouter.
+        lt.mintDirect(creator, 200 ether);
+        vm.startPrank(creator);
+        lt.approve(address(frouter), 200 ether);
+        bonding.buy(200 ether, tokenAddr, 0, creator);
         vm.stopPrank();
     }
 
@@ -91,7 +93,7 @@ contract UUPSUpgradeTest is DeployHelper {
         assertEq(bonding.allTokensLength(), 1);
     }
 
-    function test_bonding_preservesFeesAfterUpgrade() public {
+    function test_bonding_preservesTokenListAfterUpgrade() public {
         address tokenAddr = _launchToken();
 
         lt.mintDirect(trader, 1000 ether);
@@ -100,14 +102,14 @@ contract UUPSUpgradeTest is DeployHelper {
         bonding.buy(1000 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
-        uint256 creatorFeesBefore = bonding.creatorFees(creator, address(lt));
-        uint256 protocolFeesBefore = bonding.protocolFees(address(lt));
+        uint256 tokensBefore = bonding.allTokensLength();
+        uint256 lpReserveBefore = bonding.lpReserve(tokenAddr);
 
         BondingV2 newImpl = new BondingV2();
         bonding.upgradeToAndCall(address(newImpl), "");
 
-        assertEq(bonding.creatorFees(creator, address(lt)), creatorFeesBefore);
-        assertEq(bonding.protocolFees(address(lt)), protocolFeesBefore);
+        assertEq(bonding.allTokensLength(), tokensBefore);
+        assertEq(bonding.lpReserve(tokenAddr), lpReserveBefore);
     }
 
     function test_bonding_canTradeAfterUpgrade() public {
@@ -136,6 +138,6 @@ contract UUPSUpgradeTest is DeployHelper {
     function test_bonding_implementationCannotBeInitialized() public {
         Bonding impl = new Bonding();
         vm.expectRevert();
-        impl.initialize(address(1), address(2), address(3), 100, address(4), address(5));
+        impl.initialize(address(1), address(2), 100, address(3), address(4));
     }
 }

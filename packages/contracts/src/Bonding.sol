@@ -39,7 +39,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     FFactory public factory;
     FRouter public router;
-    address public feeTo;
 
     address public hyperswapRouter;
     address public lpLock;
@@ -84,9 +83,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public constant LP_RESERVE_BPS = 2500;
     uint256 public constant BPS_DENOM = 10_000;
 
-    /// @dev Creator gets 20% of trade fees (0.1% of 0.5%)
-    uint256 public constant CREATOR_FEE_BPS = 2000;
-
     /// @dev Name/ticker length bounds. Hard-enforced at launch; webapp and API
     ///      replicate these limits. Changing them requires a contract redeploy.
     uint256 public constant MIN_NAME_LENGTH = 1;
@@ -115,7 +111,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string image;
         string[4] urls;
         address ltAddress;
-        uint256 purchaseAmount; // LT amount for seed buy (0 = no seed buy)
     }
 
     mapping(address => TokenInfo) internal _tokenInfo;
@@ -126,11 +121,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     mapping(address => uint256) public lpReserve;
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
-
-    /// @dev Creator fee accrual: creator => LT => amount
-    mapping(address => mapping(address => uint256)) public creatorFees;
-    /// @dev Protocol fee accrual: LT => amount
-    mapping(address => uint256) public protocolFees;
 
     event TokenLaunched(
         address indexed token,
@@ -158,8 +148,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 lpBurned,
         uint256 unsoldBurned
     );
-    event CreatorFeesClaimed(address indexed creator, address indexed lt, uint256 amount);
-    event ProtocolFeesClaimed(address indexed lt, uint256 amount);
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
@@ -170,7 +158,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error TokenAlreadyGraduated();
     error InvalidInput();
     error SlippageExceeded();
-    error NothingToClaim();
     error NotCreator();
     error NotRouter();
     error RouterAlreadyAdded();
@@ -194,7 +181,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function initialize(
         address factory_,
         address router_,
-        address feeTo_,
         uint256 maxTx_,
         address hyperswapRouter_,
         address lpLock_
@@ -203,19 +189,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         factory = FFactory(factory_);
         router = FRouter(router_);
-        feeTo = feeTo_;
         maxTx = maxTx_;
         hyperswapRouter = hyperswapRouter_;
         lpLock = lpLock_;
-        graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
-    }
-
-    /// @notice Re-initializer for the v2 upgrade that introduces a mutable
-    ///         graduation threshold. Seeds `graduationThresholdUsd` to the
-    ///         pre-upgrade compile-time value so behaviour is bit-identical
-    ///         until the owner explicitly tunes it. Idempotent: `reinitializer(2)`
-    ///         can only run once across the proxy's lifetime.
-    function reinitV2() external reinitializer(2) {
         graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
     }
 
@@ -238,10 +214,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         uint256 k = IFPair(pair).kLast();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
-
-        if (params.purchaseAmount > 0) {
-            _seedBuy(tokenAddr, params.ltAddress, params.purchaseAmount, creator_);
-        }
     }
 
     function _deployAndSeed(
@@ -267,41 +239,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
 
         lpReserve[tokenAddr] = totalSupply - curveSupply;
-    }
-
-    function _seedBuy(
-        address tokenAddr,
-        address ltAddress,
-        uint256 purchaseAmount,
-        address creator_
-    ) internal {
-        IERC20(ltAddress).safeTransferFrom(msg.sender, address(this), purchaseAmount);
-        IERC20(ltAddress).forceApprove(address(router), purchaseAmount);
-
-        // IMPORTANT: take `seedTokens` from `_executeBuy`'s return value, not from a
-        // `balanceOf(this)` delta. A large seed buy can satisfy the graduation
-        // trigger inline (supply-exhaust, or USD trigger if the LT rate has moved
-        // between launch and this call), and `_graduate` burns `lpBurned` from
-        // `address(this)` and sends `tokensForLP` to HyperSwap — i.e. the full
-        // 250M LP reserve leaves the contract during the same call. A naive
-        // `balanceAfter − balanceBefore` would either short-change the creator
-        // by 250M or underflow-revert if the buy netted fewer than 250M tokens.
-        //
-        // `tokenHolder = address(this)` because LT was just pulled from the caller
-        // into this contract and tokens are delivered here before being forwarded
-        // to the creator. `trader = creator_` so the emitted `Trade` event
-        // attributes the seed buy to the actual creator, not the Bonding contract.
-        (uint256 seedTokens, uint256 amountInUsed) = _executeBuy(address(this), creator_, purchaseAmount, tokenAddr);
-
-        IERC20(tokenAddr).safeTransfer(creator_, seedTokens);
-
-        // If the seed buy was capped (overflow — would have exhausted the curve), return
-        // the unused LT to the creator. We refund only the leftover portion of
-        // `purchaseAmount` to avoid sweeping LT fees that may have accrued to this
-        // contract when it is itself the factory `feeTo`.
-        if (amountInUsed < purchaseAmount) {
-            IERC20(ltAddress).safeTransfer(creator_, purchaseAmount - amountInUsed);
-        }
     }
 
     function _storeTokenInfo(
@@ -366,14 +303,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         // Router holds the tokens and receives LT (`msg.sender` here = router).
         // `trader` is purely informational — emitted in the `Trade` event.
-        (, uint256 netAssetOut, uint256 grossAssetOut) = router.sell(amountIn, tokenAddress, msg.sender);
-        if (netAssetOut < amountOutMin) revert SlippageExceeded();
-
-        _trackFee(tokenAddress, grossAssetOut, false);
+        (, uint256 assetOut) = router.sell(amountIn, tokenAddress, msg.sender);
+        if (assetOut < amountOutMin) revert SlippageExceeded();
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
-        emit Trade(tokenAddress, trader, false, netAssetOut, amountIn, newCurveSupply, newLtReserve);
-        return netAssetOut;
+        emit Trade(tokenAddress, trader, false, assetOut, amountIn, newCurveSupply, newLtReserve);
+        return assetOut;
     }
 
     // ─── Views ───────────────────────────────────────────────────────────
@@ -403,6 +338,15 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address token_
     ) external view returns (TokenInfo memory) {
         return _tokenInfo[token_];
+    }
+
+    /// @notice Lightweight creator lookup. Hot-path callers (e.g. `LaunchpadRouter`'s
+    ///         per-trade fee accrual) should use this instead of `getTokenInfo` /
+    ///         `tokenInfo` to avoid ABI-copying the dynamic strings & URL array.
+    function creatorOf(
+        address token_
+    ) external view returns (address) {
+        return _tokenInfo[token_].creator;
     }
 
     function isTrading(
@@ -441,28 +385,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return valueUsd >= graduationThresholdUsd;
     }
 
-    // ─── Creator Fees ────────────────────────────────────────────────────
-
-    function claimCreatorFees(
-        address lt
-    ) external nonReentrant {
-        uint256 amount = creatorFees[msg.sender][lt];
-        if (amount == 0) revert NothingToClaim();
-        creatorFees[msg.sender][lt] = 0;
-        IERC20(lt).safeTransfer(msg.sender, amount);
-        emit CreatorFeesClaimed(msg.sender, lt, amount);
-    }
-
-    function claimProtocolFees(
-        address lt
-    ) external onlyOwner nonReentrant {
-        uint256 amount = protocolFees[lt];
-        if (amount == 0) revert NothingToClaim();
-        protocolFees[lt] = 0;
-        IERC20(lt).safeTransfer(feeTo, amount);
-        emit ProtocolFeesClaimed(lt, amount);
-    }
-
     function transferCreator(
         address tokenAddress,
         address newCreator
@@ -477,12 +399,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Admin ───────────────────────────────────────────────────────────
 
-    function setParams(
-        uint256 newMaxTx,
-        address newFeeTo
+    function setMaxTx(
+        uint256 newMaxTx
     ) external onlyOwner {
         maxTx = newMaxTx;
-        feeTo = newFeeTo;
     }
 
     function setHyperswap(
@@ -548,46 +468,23 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     // ─── Internals ───────────────────────────────────────────────────────
 
     /// @dev `tokenHolder` is the address FRouter pulls LT from and delivers
-    ///      tokens to — the router for user flows, or `address(this)` for seed
-    ///      buys (where Bonding itself temporarily holds LT before forwarding
-    ///      tokens to the creator). `trader` is the event-only attribution
-    ///      (the user EOA or the creator) and has no effect on token flow.
+    ///      tokens to — always the calling LaunchpadRouter (which then forwards
+    ///      tokens to the user). `trader` is the event-only attribution
+    ///      (the user EOA) and has no effect on token flow.
     function _executeBuy(
         address tokenHolder,
         address trader,
         uint256 amountIn,
         address tokenAddress
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
-        uint256 netIn;
-        (amountInUsed, netIn, tokensOut) = router.buy(amountIn, tokenAddress, tokenHolder);
-
-        _trackFee(tokenAddress, amountInUsed, true);
+        (amountInUsed, tokensOut) = router.buy(amountIn, tokenAddress, tokenHolder);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
-        emit Trade(tokenAddress, trader, true, netIn, tokensOut, newCurveSupply, newLtReserve);
+        emit Trade(tokenAddress, trader, true, amountInUsed, tokensOut, newCurveSupply, newLtReserve);
 
         if (_tokenInfo[tokenAddress].trading && canGraduate(tokenAddress)) {
             _graduate(tokenAddress);
         }
-    }
-
-    function _trackFee(
-        address tokenAddress,
-        uint256 tradeAmount,
-        bool isBuy
-    ) internal {
-        uint256 taxBps = isBuy ? factory.buyTax() : factory.sellTax();
-        uint256 totalFee = (taxBps * tradeAmount) / BPS_DENOM;
-        if (totalFee == 0) return;
-
-        uint256 creatorShare = (totalFee * CREATOR_FEE_BPS) / BPS_DENOM;
-        uint256 protocolShare = totalFee - creatorShare;
-
-        address lt = _tokenInfo[tokenAddress].ltAddress;
-        address creator_ = _tokenInfo[tokenAddress].creator;
-
-        creatorFees[creator_][lt] += creatorShare;
-        protocolFees[lt] += protocolShare;
     }
 
     function _graduate(

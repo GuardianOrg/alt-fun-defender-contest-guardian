@@ -27,22 +27,24 @@ contract BondingTest is DeployHelper {
     function _launchToken(
         uint256 seedLtAmount
     ) internal returns (address tokenAddr, address pairAddr) {
-        lt.mintDirect(creator, seedLtAmount);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), seedLtAmount);
-        lt.approve(address(bonding), seedLtAmount);
-
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "TestToken",
             ticker: "TEST",
             description: "A test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt),
-            purchaseAmount: seedLtAmount
+            ltAddress: address(lt)
         });
+        vm.prank(creator);
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
-        vm.stopPrank();
+
+        // Seed buys no longer happen inside `Bonding.launch` — they're now a
+        // post-launch step in the LaunchpadRouter. To preserve the seeded curve
+        // state these Bonding-level tests rely on, perform an equivalent seed
+        // buy via `bonding.buy` (creator is already on the router allowlist).
+        if (seedLtAmount > 0) {
+            _buyTokens(tokenAddr, creator, seedLtAmount);
+        }
     }
 
     function _launchTokenNoSeed() internal returns (address tokenAddr, address pairAddr) {
@@ -53,8 +55,7 @@ contract BondingTest is DeployHelper {
             description: "No seed buy",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            ltAddress: address(lt)
         });
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
@@ -87,8 +88,6 @@ contract BondingTest is DeployHelper {
 
     function test_setUp_paramsCorrect() public view {
         assertEq(bonding.maxTx(), MAX_TX);
-        assertEq(factory.buyTax(), BUY_TAX_BPS);
-        assertEq(factory.sellTax(), SELL_TAX_BPS);
     }
 
     // ─── Launch Tests ────────────────────────────────────────────────────
@@ -199,19 +198,10 @@ contract BondingTest is DeployHelper {
     }
 
     function test_launch_emitsEvent() public {
-        lt.mintDirect(creator, 200 ether);
         vm.startPrank(creator);
-        lt.approve(address(frouter), 200 ether);
-        lt.approve(address(bonding), 200 ether);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "EventTest",
-            ticker: "EVT",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 200 ether
+            name: "EventTest", ticker: "EVT", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
 
         vm.expectEmit(false, true, false, false);
@@ -227,13 +217,7 @@ contract BondingTest is DeployHelper {
         string memory ticker_
     ) internal view returns (Bonding.LaunchParams memory) {
         return Bonding.LaunchParams({
-            name: name_,
-            ticker: ticker_,
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: 0
+            name: name_, ticker: ticker_, description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
         });
     }
 
@@ -325,16 +309,15 @@ contract BondingTest is DeployHelper {
         assertEq(lt.balanceOf(trader), 0, "All LT should be spent");
     }
 
-    function test_buy_feeGoesToBonding() public {
+    function test_buy_noFeeHeldInBonding() public {
         (address tokenAddr,) = _launchToken();
         uint256 bondingBalBefore = lt.balanceOf(address(bonding));
 
-        uint256 buyAmount = 1000 ether;
-        _buyTokens(tokenAddr, trader, buyAmount);
+        _buyTokens(tokenAddr, trader, 1000 ether);
 
-        uint256 expectedFee = (BUY_TAX_BPS * buyAmount) / 10_000;
-        uint256 bondingBalAfter = lt.balanceOf(address(bonding));
-        assertEq(bondingBalAfter - bondingBalBefore, expectedFee, "Fee should go to bonding");
+        // Fees have moved to LaunchpadRouter + FeeVault — Bonding no longer
+        // retains any LT from trade fees.
+        assertEq(lt.balanceOf(address(bonding)), bondingBalBefore, "Bonding should not accumulate trade fees");
     }
 
     function test_buy_priceIncreasesWithSuccessiveBuys() public {
@@ -413,7 +396,10 @@ contract BondingTest is DeployHelper {
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
 
-    function test_buyThenSell_traderLosesToFees() public {
+    /// @notice With fees moved to LaunchpadRouter, a pure-Bonding round trip
+    ///         is now lossless (ignoring rounding). The fee layer is exercised
+    ///         end-to-end in `LaunchpadRouter.t.sol`.
+    function test_buyThenSell_lossless() public {
         (address tokenAddr,) = _launchToken();
 
         uint256 buyAmount = 1000 ether;
@@ -424,45 +410,7 @@ contract BondingTest is DeployHelper {
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
 
-        assertTrue(ltBack < buyAmount, "Trader loses to fees on round trip");
-    }
-
-    // ─── Creator Fee Tests ───────────────────────────────────────────────
-
-    function test_creatorFees_accrue() public {
-        (address tokenAddr,) = _launchTokenNoSeed();
-
-        uint256 buyAmount = 1000 ether;
-        _buyTokens(tokenAddr, trader, buyAmount);
-
-        uint256 creatorFee = bonding.creatorFees(creator, address(lt));
-        assertTrue(creatorFee > 0, "Creator should have accrued fees");
-
-        uint256 totalFee = (BUY_TAX_BPS * buyAmount) / 10_000;
-        uint256 expectedCreatorShare = (totalFee * 2000) / 10_000; // 20% of total fee
-        assertEq(creatorFee, expectedCreatorShare, "Creator fee should be 20% of total fee");
-    }
-
-    function test_creatorFees_claimable() public {
-        (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 1000 ether);
-
-        uint256 accrued = bonding.creatorFees(creator, address(lt));
-        assertTrue(accrued > 0);
-
-        vm.prank(creator);
-        bonding.claimCreatorFees(address(lt));
-
-        assertEq(lt.balanceOf(creator), accrued, "Creator should receive claimed fees");
-        assertEq(bonding.creatorFees(creator, address(lt)), 0, "Accrued should be zero after claim");
-    }
-
-    function test_protocolFees_accrue() public {
-        (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 1000 ether);
-
-        uint256 protocolFee = bonding.protocolFees(address(lt));
-        assertTrue(protocolFee > 0, "Protocol should have accrued fees");
+        assertApproxEqRel(ltBack, buyAmount, 0.001e18, "Round trip should be approximately lossless");
     }
 
     function test_transferCreator() public {
@@ -616,45 +564,6 @@ contract BondingTest is DeployHelper {
         assertTrue(lpBalance > 0, "LPLock should hold LP tokens");
     }
 
-    /// @notice Regression: a seed buy large enough to trigger graduation inline
-    ///         must still deliver the full `tokensOut` to the creator with no
-    ///         token dust stuck in the Bonding contract. Pre-fix, `_seedBuy`
-    ///         used `balanceOf(this)` deltas to compute `seedTokens`, which
-    ///         understated by the full 250M LP reserve burned/transferred
-    ///         during `_graduate` within the same call — either short-changing
-    ///         the creator by 250M or reverting with Panic(0x11) on underflow.
-    function test_seedBuy_graduatesInline_creatorGetsFullBuy() public {
-        // At LT_EXCHANGE_RATE = $1/LT, a seed of 13_000 LT = $13K USD crosses
-        // the $12K USD graduation trigger (and exhausts the curve at the same
-        // boundary by construction). Overflow-cap + fee refund are expected.
-        uint256 seedAmount = 13_000 ether;
-        lt.mintDirect(creator, seedAmount);
-        vm.startPrank(creator);
-        lt.approve(address(frouter), seedAmount);
-        lt.approve(address(bonding), seedAmount);
-
-        Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "MegaSeed",
-            ticker: "MEGA",
-            description: "",
-            image: "",
-            urls: ["", "", "", ""],
-            ltAddress: address(lt),
-            purchaseAmount: seedAmount
-        });
-
-        (address tokenAddr,,) = bonding.launch(params, creator);
-        vm.stopPrank();
-
-        assertTrue(bonding.isGraduated(tokenAddr), "Seed buy should have graduated inline");
-
-        // The two invariants that pin Copilot's bug: creator got real tokens,
-        // and none are stranded in Bonding (pre-fix this would have held the
-        // 250M LP reserve that the old delta math failed to transfer out).
-        assertTrue(FERC20(tokenAddr).balanceOf(creator) > 0, "Creator should receive seed tokens");
-        assertEq(FERC20(tokenAddr).balanceOf(address(bonding)), 0, "Bonding must not retain token dust");
-    }
-
     // ─── Multiple Tokens Test ────────────────────────────────────────────
 
     function test_multipleTokens_independentCurves() public {
@@ -758,17 +667,15 @@ contract BondingTest is DeployHelper {
 
     // ─── Admin Tests ─────────────────────────────────────────────────────
 
-    function test_setParams_onlyOwner() public {
+    function test_setMaxTx_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        bonding.setParams(100, feeReceiver);
+        bonding.setMaxTx(100);
     }
 
-    function test_setParams_updatesValues() public {
-        bonding.setParams(50, trader);
-
+    function test_setMaxTx_updatesValue() public {
+        bonding.setMaxTx(50);
         assertEq(bonding.maxTx(), 50);
-        assertEq(bonding.feeTo(), trader);
     }
 
     // ─── Graduation Threshold Admin Tests ────────────────────────────────

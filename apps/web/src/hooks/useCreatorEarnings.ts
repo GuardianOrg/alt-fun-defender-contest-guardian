@@ -6,7 +6,7 @@ import { createPublicClient, http } from "viem";
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
-import { BondingAbi } from "../contracts/abis";
+import { FeeVaultAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 import { creatorService } from "../services/creatorService";
 
@@ -30,37 +30,31 @@ export function useCreatorEarnings() {
     enabled: !!address,
   });
 
-  const claim = useCallback(
-    async (tokenAddress?: string) => {
-      if (!address || !walletClient) return;
-      setClaiming(true);
-      try {
-        const tokensList = earningsQuery.data?.tokens ?? [];
-        const target = tokenAddress
-          ? tokensList.find(
-              (t) => t.address.toLowerCase() === tokenAddress.toLowerCase(),
-            )
-          : tokensList.find((t) => t.feesClaimableUsd > 0);
-        if (!target) return;
-
-        const ltAddress = target.ltAddress as `0x${string}`;
-        const hash = await walletClient.writeContract({
-          address: ADDRESSES.bonding,
-          abi: BondingAbi,
-          functionName: "claimCreatorFees",
-          args: [ltAddress],
-        });
-        const receipt = await hyperEvmClient.waitForTransactionReceipt({ hash });
-        if (receipt.status === "reverted") {
-          throw new Error("Claim transaction reverted on-chain");
-        }
-        earningsQuery.refetch();
-      } finally {
-        setClaiming(false);
+  // Fees are pooled in `FeeVault`, so `claim()` drains the caller's entire
+  // USDC balance in one call — no per-token targeting needed. The old
+  // `tokenAddress` arg is gone; every button in the UI performs the same
+  // single vault claim.
+  const claim = useCallback(async () => {
+    if (!address || !walletClient) return;
+    const claimable = earningsQuery.data?.totalClaimable ?? 0;
+    if (claimable <= 0) return;
+    setClaiming(true);
+    try {
+      const hash = await walletClient.writeContract({
+        address: ADDRESSES.feeVault,
+        abi: FeeVaultAbi,
+        functionName: "claim",
+        args: [],
+      });
+      const receipt = await hyperEvmClient.waitForTransactionReceipt({ hash });
+      if (receipt.status === "reverted") {
+        throw new Error("Claim transaction reverted on-chain");
       }
-    },
-    [address, walletClient, earningsQuery],
-  );
+      earningsQuery.refetch();
+    } finally {
+      setClaiming(false);
+    }
+  }, [address, walletClient, earningsQuery]);
 
   return {
     earnings: earningsQuery.data,
