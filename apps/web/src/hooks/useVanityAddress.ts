@@ -63,8 +63,15 @@ export function useVanityAddress(): UseVanityAddressReturn {
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Pending listeners waiting on `ensureSalt`. We keep a list so multiple
   // simultaneous awaiters (rare, but possible if a user double-clicks
-  // Launch) all resolve from the same `found` event.
-  const pendingResolversRef = useRef<Array<(r: VanityResult) => void>>([]);
+  // Launch) all settle from the same terminal event. Each entry holds both
+  // halves of the promise so a `teardown` (wallet disconnect, restart,
+  // unmount) can reject them instead of leaving callers hanging.
+  const pendingResolversRef = useRef<
+    Array<{
+      resolve: (r: VanityResult) => void;
+      reject: (err: Error) => void;
+    }>
+  >([]);
 
   const teardown = useCallback(() => {
     workersRef.current.forEach((w) => {
@@ -79,6 +86,19 @@ export function useVanityAddress(): UseVanityAddressReturn {
     if (tickIntervalRef.current) {
       clearInterval(tickIntervalRef.current);
       tickIntervalRef.current = null;
+    }
+    // Cancel any in-flight `ensureSalt` awaiters. If the user disconnects
+    // their wallet (or the component unmounts) while Launch is pending,
+    // the caller's `await` would otherwise never settle — the miner is
+    // gone but no `found` event is ever going to arrive. On `found` the
+    // resolvers array is drained *before* teardown, so this is a no-op
+    // in the happy path.
+    if (pendingResolversRef.current.length > 0) {
+      const pending = pendingResolversRef.current;
+      pendingResolversRef.current = [];
+      pending.forEach(({ reject }) =>
+        reject(new Error("Vanity mining was cancelled.")),
+      );
     }
   }, []);
 
@@ -135,8 +155,11 @@ export function useVanityAddress(): UseVanityAddressReturn {
                 };
                 setResult(winning);
                 setStatus("found");
-                pendingResolversRef.current.forEach((r) => r(winning));
+                // Drain resolvers *before* teardown so the cancel-on-teardown
+                // path doesn't turn a legitimate `found` into a rejection.
+                const pending = pendingResolversRef.current;
                 pendingResolversRef.current = [];
+                pending.forEach(({ resolve }) => resolve(winning));
                 teardown();
               }
             },
@@ -198,7 +221,7 @@ export function useVanityAddress(): UseVanityAddressReturn {
         );
         return;
       }
-      pendingResolversRef.current.push(resolve);
+      pendingResolversRef.current.push({ resolve, reject });
     });
   }, [result, status]);
 

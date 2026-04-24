@@ -7,9 +7,19 @@ import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
 import {IFPair} from "../src/interfaces/IFPair.sol";
 
 contract E2ETest is Script {
+    /// @dev Pinned LT on HyperEVM mainnet — same `HYPE2L` used by the test
+    ///      suite in `DeployHelper.sol`. Not deployed by us, so it stays a
+    ///      constant rather than a per-deploy env var.
     address constant HYPE2L = 0x0f8db745e9C28275F8B6e2BAF6BAA8eE7431b557;
-    address constant BONDING = 0x1944710C55ac3Dcbf36ED9B80f289418B26c032a;
-    address constant LAUNCHPAD_ROUTER = 0x3E86AFB20De663f8689C09698aEeF3DF5F28a1Fe;
+
+    /// @dev Defaults track the currently-live deployment recorded in
+    ///      `packages/shared/src/constants/addresses.ts`. Override via
+    ///      `BONDING_ADDRESS` / `LAUNCHPAD_ROUTER_ADDRESS` env vars when
+    ///      pointing the script at a different deployment (staging, fork,
+    ///      next mainnet rev, etc.) so the script stays runnable without a
+    ///      recompile after every upgrade.
+    address constant DEFAULT_BONDING = 0xFBC97b7Ed983fe9F9Fd0b608F9dfaD6F838E6Fdc;
+    address constant DEFAULT_LAUNCHPAD_ROUTER = 0x7d5f08cc215BD1C5a3bEA6a27f91b88d740a5Bdc;
 
     /// @dev Same EIP-1167 v5 layout as `DeployHelper._EIP1167_*` and
     ///      `packages/shared/src/vanity.ts`. Kept inline here so the script
@@ -22,14 +32,21 @@ contract E2ETest is Script {
         address deployer = vm.addr(pk);
         console.log("Deployer:", deployer);
 
-        Bonding bonding = Bonding(BONDING);
-        LaunchpadRouter router = LaunchpadRouter(LAUNCHPAD_ROUTER);
+        address bondingAddr = vm.envOr("BONDING_ADDRESS", DEFAULT_BONDING);
+        address routerAddr = vm.envOr("LAUNCHPAD_ROUTER_ADDRESS", DEFAULT_LAUNCHPAD_ROUTER);
+        console.log("Bonding:", bondingAddr);
+        console.log("LaunchpadRouter:", routerAddr);
+
+        Bonding bonding = Bonding(bondingAddr);
+        LaunchpadRouter router = LaunchpadRouter(routerAddr);
 
         // Mine a vanity salt off-broadcast — `Bonding._deployAndSeed` reverts
         // with `NotVanityAddress` unless the resulting address ends in
-        // `Bonding.VANITY_SUFFIX` (`0xa1fa`).
+        // `Bonding.VANITY_SUFFIX` (`0xa1fa`). Pulling `tokenImplementation()`
+        // from the live Bonding (rather than hardcoding) means a future
+        // FERC20 implementation upgrade doesn't break the script.
         bytes32 vanitySalt =
-            _mineVanitySalt(deployer, bonding.tokenImplementation(), BONDING, keccak256(abi.encode(block.timestamp)));
+            _mineVanitySalt(deployer, bonding.tokenImplementation(), bondingAddr, keccak256(abi.encode(block.timestamp)));
         console.log("Mined vanity salt:");
         console.logBytes32(vanitySalt);
 
