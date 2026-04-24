@@ -1,12 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VANITY_SUFFIX } from "@launchpad/shared";
-import { getAddress, type Address, type Hex } from "viem";
+import { useQuery } from "@tanstack/react-query";
+import { createPublicClient, getAddress, http, type Address, type Hex } from "viem";
 
 import { useWallet } from "./useWallet";
+import { hyperEVM } from "../config/chains";
+import { BondingAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 
 import type { WorkerOutbound } from "../workers/vanity.worker";
+
+// Dedicated read-only client for the impl lookup. Mirrors the per-hook
+// pattern in `useGraduationThreshold` etc. — the read is infrequent and
+// doesn't justify a shared client.
+const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const hyperEvmClient = createPublicClient({
+  chain: hyperEVM,
+  transport: http(rpcUrl),
+});
+
+// `Bonding.tokenImplementation` is owner-rotatable via `setTokenImplementation`
+// (see `Bonding.sol:497`) — explicitly designed to be hot-swapped to ship a
+// new FERC20 without disturbing already-launched tokens. If we hardcoded the
+// impl into worker init, every launch would silently revert with
+// `NotVanityAddress` after a rotation (the miner would compute salts against
+// the stale `initCodeHash`) until every user refreshed against a redeployed
+// frontend. Reading it from chain on hook init closes that gap.
+//
+// We deliberately *don't* read `VANITY_SUFFIX()` from chain — it's a
+// `bytes2 public constant` baked into bytecode (`Bonding.sol:110`), so the
+// only way it changes is a Bonding redeploy, which already requires bumping
+// the `@launchpad/shared` constant.
+const IMPL_STALE_MS = 5 * 60 * 1000;
+const IMPL_GC_MS = 30 * 60 * 1000;
 
 export type VanityStatus =
   | "idle" // no wallet connected, no mining
@@ -61,6 +88,31 @@ const MINER_ERROR_MESSAGE =
 export function useVanityAddress(): UseVanityAddressReturn {
   const { address } = useWallet();
 
+  // Live `Bonding.tokenImplementation`. On RPC failure (`isError`) we fall
+  // back to the compile-time address rather than refusing to mine — that's
+  // strictly better than blocking, since the only thing the user loses is
+  // resilience against a *concurrent* impl rotation. The pre-existing
+  // hardcoded behaviour was the same fallback; we're only adding the
+  // happy-path read.
+  const implQuery = useQuery({
+    queryKey: ["bondingTokenImplementation", ADDRESSES.bonding],
+    queryFn: async (): Promise<Address> => {
+      const impl = (await hyperEvmClient.readContract({
+        address: ADDRESSES.bonding,
+        abi: BondingAbi,
+        functionName: "tokenImplementation",
+      })) as Address;
+      return getAddress(impl);
+    },
+    staleTime: IMPL_STALE_MS,
+    gcTime: IMPL_GC_MS,
+  });
+  const effectiveImpl: Address | undefined = implQuery.data
+    ? implQuery.data
+    : implQuery.isError
+      ? getAddress(ADDRESSES.ferc20Implementation)
+      : undefined;
+
   const [status, setStatus] = useState<VanityStatus>("idle");
   const [result, setResult] = useState<VanityResult | null>(null);
   const [attempts, setAttempts] = useState(0);
@@ -69,6 +121,12 @@ export function useVanityAddress(): UseVanityAddressReturn {
   const workersRef = useRef<Worker[]>([]);
   const startTimeRef = useRef<number>(0);
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracks the (creator, impl) pair that the currently-running pool was
+  // spawned for. Lets the auto-start effect skip spurious re-spawns when
+  // TanStack Query refetches and returns an unchanged impl — without this
+  // guard, the periodic refetch could discard a `found` result and force
+  // the user to wait for re-mining for no reason.
+  const lastSpawnRef = useRef<{ creator: Address; impl: Address } | null>(null);
   // Pending listeners waiting on `ensureSalt`. We keep a list so multiple
   // simultaneous awaiters (rare, but possible if a user double-clicks
   // Launch) all settle from the same terminal event. Each entry holds both
@@ -111,7 +169,7 @@ export function useVanityAddress(): UseVanityAddressReturn {
   }, []);
 
   const start = useCallback(
-    (creator: Address) => {
+    (creator: Address, implementation: Address) => {
       teardown();
       setStatus("mining");
       setResult(null);
@@ -215,7 +273,7 @@ export function useVanityAddress(): UseVanityAddressReturn {
           });
           worker.postMessage({
             type: "init",
-            implementation: ADDRESSES.ferc20Implementation,
+            implementation,
             bondingProxy: ADDRESSES.bonding,
             creator,
             suffix: VANITY_SUFFIX,
@@ -235,24 +293,63 @@ export function useVanityAddress(): UseVanityAddressReturn {
     [teardown],
   );
 
+  const refetchImpl = implQuery.refetch;
+  // Manual restart bypasses the TanStack `staleTime` cache by forcing a
+  // refetch — the whole point of `restart` is "I think state may be stale,
+  // give me a clean slate". Without the refetch, a user hitting Restart
+  // within 5min of a previous read would still spawn against a potentially
+  // outdated impl, defeating the rotation safety we're adding here.
   const restart = useCallback(() => {
     if (!address) return;
-    start(getAddress(address));
-  }, [address, start]);
+    setStatus("mining");
+    void (async () => {
+      let fresh: Address;
+      try {
+        const result = await refetchImpl();
+        fresh = result.data ?? getAddress(ADDRESSES.ferc20Implementation);
+      } catch {
+        fresh = getAddress(ADDRESSES.ferc20Implementation);
+      }
+      const creator = getAddress(address);
+      lastSpawnRef.current = { creator, impl: fresh };
+      start(creator, fresh);
+    })();
+  }, [address, refetchImpl, start]);
 
   // Auto-start on wallet connect, auto-tear-down on disconnect or unmount.
+  // Also re-spawns if the on-chain impl rotates mid-session (TanStack
+  // refetches every 5min) — `lastSpawnRef` ensures we only restart when
+  // (creator, impl) actually changed, so a refetch returning the same impl
+  // doesn't discard an in-progress mine or a `found` result.
   useEffect(() => {
     if (!address) {
       teardown();
       setStatus("idle");
       setResult(null);
+      lastSpawnRef.current = null;
       return;
     }
-    start(getAddress(address));
+    // Show "mining" eagerly so the LivePreview spinner doesn't blip back to
+    // the idle "—" placeholder during the (sub-second) impl read on first
+    // wallet connect. The timer / attempt counter still only start when
+    // workers actually spawn, which keeps the displayed hashrate accurate.
+    if (!effectiveImpl) {
+      setStatus((prev) => (prev === "found" ? prev : "mining"));
+      return;
+    }
+
+    const creator = getAddress(address);
+    const last = lastSpawnRef.current;
+    if (last && last.creator === creator && last.impl === effectiveImpl) {
+      return;
+    }
+
+    lastSpawnRef.current = { creator, impl: effectiveImpl };
+    start(creator, effectiveImpl);
     return () => {
       teardown();
     };
-  }, [address, start, teardown]);
+  }, [address, effectiveImpl, start, teardown]);
 
   const ensureSalt = useCallback((): Promise<VanityResult> => {
     if (result) {
