@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@launchpad/shared": "*",
+    "@noble/hashes": "^1.4.0",
     "@privy-io/react-auth": "^3.22.1",
     "@privy-io/wagmi": "^4.0.5",
     "@reduxjs/toolkit": "^2",

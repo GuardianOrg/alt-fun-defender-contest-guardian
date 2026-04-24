@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {
+    ERC20PermitUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 /// @title FERC20
 /// @notice ERC20 token created by the bonding curve launchpad.
@@ -13,7 +16,14 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 ///      EIP-2612 permit is supported so `LaunchpadRouter` can pull tokens via a
 ///      signed message — killing the pre-approve tx on the first sell of any
 ///      newly-launched token. Domain: name = token name, version = "1".
-contract FERC20 is ERC20Permit, Ownable {
+///
+///      This contract is initializer-based (not constructor-based) so it can be
+///      cloned via EIP-1167 minimal proxies. Each launch deploys a 45-byte
+///      proxy that delegatecalls into a single deployed implementation, slashing
+///      per-token deployment gas (~1.15M → ~280k for clone + initialize). The
+///      implementation itself is `_disableInitializers()`-locked in the
+///      constructor so it cannot be initialised directly.
+contract FERC20 is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, OwnableUpgradeable {
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 ether;
 
     uint256 public maxTxPercent;
@@ -23,12 +33,20 @@ contract FERC20 is ERC20Permit, Ownable {
 
     error ExceedsMaxTx();
 
-    constructor(
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
         string memory name_,
         string memory symbol_,
         uint256 maxTxPercent_,
         address owner_
-    ) ERC20(name_, symbol_) ERC20Permit(name_) Ownable(owner_) {
+    ) external initializer {
+        __ERC20_init(name_, symbol_);
+        __ERC20Permit_init(name_);
+        __Ownable_init(owner_);
+
         _mint(owner_, TOTAL_SUPPLY);
         isExcludedFromMaxTx[owner_] = true;
         isExcludedFromMaxTx[address(this)] = true;

@@ -43,7 +43,13 @@ contract GraduationInvariantsTest is DeployHelper {
         uint256 seedLtAmount
     ) internal returns (address tokenAddr, address pairAddr) {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Inv", ticker: "INV", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
+            name: "Inv",
+            ticker: "INV",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
@@ -59,7 +65,13 @@ contract GraduationInvariantsTest is DeployHelper {
     function _launchNoSeed() internal returns (address tokenAddr, address pairAddr) {
         vm.startPrank(creator);
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "Inv", ticker: "INV", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
+            name: "Inv",
+            ticker: "INV",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
         vm.stopPrank();

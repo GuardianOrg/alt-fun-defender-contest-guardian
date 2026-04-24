@@ -33,7 +33,8 @@ contract BondingTest is DeployHelper {
             description: "A test token",
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "", "https://test.com"],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
@@ -55,7 +56,8 @@ contract BondingTest is DeployHelper {
             description: "No seed buy",
             image: "",
             urls: ["", "", "", ""],
-            ltAddress: address(lt)
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
@@ -201,7 +203,13 @@ contract BondingTest is DeployHelper {
         vm.startPrank(creator);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "EventTest", ticker: "EVT", description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
+            name: "EventTest",
+            ticker: "EVT",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
 
         vm.expectEmit(false, true, false, false);
@@ -215,9 +223,15 @@ contract BondingTest is DeployHelper {
     function _launchParamsWithNameTicker(
         string memory name_,
         string memory ticker_
-    ) internal view returns (Bonding.LaunchParams memory) {
+    ) internal returns (Bonding.LaunchParams memory) {
         return Bonding.LaunchParams({
-            name: name_, ticker: ticker_, description: "", image: "", urls: ["", "", "", ""], ltAddress: address(lt)
+            name: name_,
+            ticker: ticker_,
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
         });
     }
 

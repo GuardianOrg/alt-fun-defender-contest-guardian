@@ -8,7 +8,8 @@ import {
 } from "../../config/constants";
 import { useAssetCandles, useAssetChange } from "../../hooks/useAssets";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
-import { cn, formatUsd, getLtDisplayName } from "../../utils/format";
+import { type VanityStatus } from "../../hooks/useVanityAddress";
+import { cn, formatUsd, getLtDisplayName, shortenAddress } from "../../utils/format";
 
 import type { Direction } from "../../services/types";
 
@@ -20,6 +21,8 @@ interface Props {
   asset: UnderlyingAsset;
   leverage: Leverage;
   imagePreview: string | null;
+  predictedAddress: string | null;
+  vanityStatus: VanityStatus;
 }
 
 export default function LivePreview({
@@ -29,6 +32,8 @@ export default function LivePreview({
   asset,
   leverage,
   imagePreview,
+  predictedAddress,
+  vanityStatus,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isLong = direction === "long";
@@ -154,6 +159,29 @@ export default function LivePreview({
               </div>
               <div className={styles.miniStatLabel}>direction</div>
             </div>
+          </div>
+
+          <div className={styles.addressRow}>
+            <div className={styles.addressLabel}>address</div>
+            {predictedAddress ? (
+              // `predictedAddress` is only populated once a vanity salt has
+              // been mined, so we always apply the vanity styling here.
+              <div
+                className={cn(styles.addressValue, styles.addressValueVanity)}
+                title={predictedAddress}
+              >
+                {shortenAddress(predictedAddress)}
+              </div>
+            ) : vanityStatus === "mining" ? (
+              <div className={styles.addressMining}>
+                <span className={styles.miningDot} />
+                finding a memorable address…
+              </div>
+            ) : vanityStatus === "error" ? (
+              <div className={styles.addressValue}>miner failed</div>
+            ) : (
+              <div className={styles.addressValue}>—</div>
+            )}
           </div>
         </div>
 

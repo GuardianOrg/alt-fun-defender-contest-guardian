@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
+import {FERC20} from "../src/FERC20.sol";
 import {FFactory} from "../src/FFactory.sol";
 import {FRouter} from "../src/FRouter.sol";
 import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
@@ -51,8 +52,17 @@ contract Deploy is Script {
         address lpLockProxy = address(new ERC1967Proxy(address(lpLockImpl), lpLockInit));
         console.log("LPLock (proxy):", lpLockProxy);
 
-        // 4. Deploy Bonding (proxy)
-        address bondingProxy = _deployBonding(address(factory), address(router), MAX_TX, HYPERSWAP_ROUTER, lpLockProxy);
+        // 4a. Deploy FERC20 implementation. This is the singleton that every
+        //     launched token clones via EIP-1167. The constructor calls
+        //     `_disableInitializers()` so this address itself can never be
+        //     initialised — it exists only to host the runtime bytecode.
+        FERC20 ferc20Impl = new FERC20();
+        console.log("FERC20 (impl):", address(ferc20Impl));
+
+        // 4b. Deploy Bonding (proxy)
+        address bondingProxy = _deployBonding(
+            address(factory), address(router), MAX_TX, HYPERSWAP_ROUTER, lpLockProxy, address(ferc20Impl)
+        );
         console.log("Bonding (proxy):", bondingProxy);
 
         // 5. Deploy FeeVault (proxy). `feeTo = deployer` initially — rotate via
@@ -89,11 +99,13 @@ contract Deploy is Script {
         address router_,
         uint256 maxTx_,
         address hyperswapRouter_,
-        address lpLock_
+        address lpLock_,
+        address tokenImplementation_
     ) internal returns (address) {
         Bonding impl = new Bonding();
-        bytes memory initData =
-            abi.encodeCall(Bonding.initialize, (factory_, router_, maxTx_, hyperswapRouter_, lpLock_));
+        bytes memory initData = abi.encodeCall(
+            Bonding.initialize, (factory_, router_, maxTx_, hyperswapRouter_, lpLock_, tokenImplementation_)
+        );
         return address(new ERC1967Proxy(address(impl), initData));
     }
 }

@@ -202,6 +202,11 @@ export const LaunchpadRouterAbi = [
             "name": "ltAddress",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "salt",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },
@@ -258,6 +263,11 @@ export const LaunchpadRouterAbi = [
             "name": "ltAddress",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "salt",
+            "type": "bytes32",
+            "internalType": "bytes32"
           }
         ]
       },

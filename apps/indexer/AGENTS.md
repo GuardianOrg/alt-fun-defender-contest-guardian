@@ -68,6 +68,28 @@ See `apps/api/AGENTS.md` and `apps/api/src/lib/token-enrich.ts` for the conversi
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
 
+## Local dev port discipline
+
+`ponder dev` defaults to port `42069` and **silently falls back** to the next
+free port (`42070`, …) if it's taken. The API reads
+`PONDER_URL=http://localhost:42069` from `apps/api/.dev.vars`, so a fallback
+means the API talks to whatever was on `42069` — usually a stale `ponder dev`
+from a previous session whose PGlite has since closed — producing a silent
+"loading forever" UX with no obvious error.
+
+To prevent this we wrap `ponder dev` with `scripts/dev.mjs`, which fails fast
+(non-zero exit, surfaced by turbo) when `42069` is already bound and prints
+the offending PID. If you ever see the wrapper bail, kill the squatter:
+
+```sh
+lsof -ti :42069 | xargs kill -9
+```
+
+The API side has a matching guard: `checkPonderHealth` queries an actual
+table (`protocolConfig`) rather than `{ __typename }`, so a Ponder with a
+crashed DB is reported `degraded` instead of `healthy`. Keep both guards in
+lockstep — bypassing one lets the failure mode return.
+
 ## Hosting
 
 Hosted on Railway (persistent process). Dockerfile in this directory. Railway auto-deploys from `main` via GitHub integration (with "Wait for CI" enabled). Railway env vars:

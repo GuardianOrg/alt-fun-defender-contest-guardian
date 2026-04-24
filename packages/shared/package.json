@@ -17,6 +17,9 @@
     "lint": "eslint .",
     "test": "vitest run"
   },
+  "dependencies": {
+    "viem": "^2.47.12"
+  },
   "devDependencies": {
     "@launchpad/config": "*",
     "tsup": "^8",

@@ -8,6 +8,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {FFactory} from "./FFactory.sol";
 import {FRouter} from "./FRouter.sol";
 import {FERC20} from "./FERC20.sol";
@@ -42,6 +43,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     address public hyperswapRouter;
     address public lpLock;
+
+    /// @notice EIP-1167 minimal-proxy implementation. Each `launch()` deploys a
+    ///         45-byte clone that delegatecalls into this address. Set at
+    ///         `initialize()` time and hot-swappable by the owner via
+    ///         `setTokenImplementation` (affects future launches only —
+    ///         already-deployed clones hard-code their impl in bytecode).
+    address public tokenImplementation;
 
     /// @dev Authorised routers. Only addresses in this set may call `launch`,
     ///      `buy`, or `sell`. Managed via `addRouter` / `removeRouter`. The
@@ -90,6 +98,17 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public constant MIN_TICKER_LENGTH = 1;
     uint256 public constant MAX_TICKER_LENGTH = 10;
 
+    /// @notice Required low-order suffix on every launched token's address.
+    ///         Every clone must end in `0xa1fa` (4 hex chars). The frontend
+    ///         mines a CREATE2 salt that produces a qualifying address (~65k
+    ///         attempts, <300 ms in a Web Worker pool); the contract enforces
+    ///         the suffix as a backstop so launches are guaranteed-consistent
+    ///         and no random fallback can sneak through.
+    /// @dev    Must stay in sync with `VANITY_SUFFIX` in
+    ///         `packages/shared/src/vanity.ts` (frontend miner) — diverging
+    ///         the two would brick token creation.
+    bytes2 public constant VANITY_SUFFIX = 0xa1fa;
+
     struct TokenInfo {
         address creator;
         address token;
@@ -111,6 +130,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string image;
         string[4] urls;
         address ltAddress;
+        /// @dev User-supplied vanity salt for CREATE2 clone deployment. Mixed
+        ///      with the creator address (`_mixSalt`) before being passed to
+        ///      `Clones.cloneDeterministic`, so two creators using the same
+        ///      `userSalt` cannot collide and a mined salt cannot be
+        ///      front-run by another launcher.
+        bytes32 salt;
     }
 
     mapping(address => TokenInfo) internal _tokenInfo;
@@ -152,6 +177,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
     event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
+    event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
 
     error TokenNotTrading();
     error ZeroAddress();
@@ -168,6 +194,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error InvalidNameLength();
     error InvalidTickerLength();
     error InvalidThreshold();
+    /// @dev Thrown when a launch's CREATE2 salt resolves to an address that
+    ///      doesn't end in `VANITY_SUFFIX`. This is the on-chain backstop
+    ///      enforcing the "every launched token has an `a1fa` suffix"
+    ///      product invariant — the frontend miner must always produce a
+    ///      qualifying salt (no random fallbacks).
+    error NotVanityAddress(address tokenAddr);
 
     modifier onlyRouter() {
         if (!_routers.contains(msg.sender)) revert NotRouter();
@@ -183,8 +215,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address router_,
         uint256 maxTx_,
         address hyperswapRouter_,
-        address lpLock_
+        address lpLock_,
+        address tokenImplementation_
     ) external initializer {
+        if (tokenImplementation_ == address(0)) revert ZeroAddress();
         __Ownable_init(msg.sender);
 
         factory = FFactory(factory_);
@@ -192,6 +226,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         maxTx = maxTx_;
         hyperswapRouter = hyperswapRouter_;
         lpLock = lpLock_;
+        tokenImplementation = tokenImplementation_;
         graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
     }
 
@@ -208,7 +243,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 tickerLen = bytes(params.ticker).length;
         if (tickerLen < MIN_TICKER_LENGTH || tickerLen > MAX_TICKER_LENGTH) revert InvalidTickerLength();
 
-        (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress);
+        (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress, creator_, params.salt);
         index = allTokens.length;
         _storeTokenInfo(tokenAddr, pair, params, creator_);
 
@@ -219,13 +254,28 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function _deployAndSeed(
         string calldata name_,
         string calldata ticker_,
-        address ltAddress
+        address ltAddress,
+        address creator_,
+        bytes32 userSalt
     ) internal returns (address tokenAddr, address pair) {
-        FERC20 token = new FERC20{salt: keccak256(abi.encodePacked(msg.sender, block.timestamp, allTokens.length))}(
-            name_, ticker_, maxTx, address(this)
-        );
-        tokenAddr = address(token);
-        uint256 totalSupply = token.totalSupply();
+        // EIP-1167 clone of `tokenImplementation`. `Clones.cloneDeterministic`
+        // reverts with `ERC1167FailedCreateClone` on address collision; the
+        // creator-mixed salt makes that astronomically unlikely.
+        tokenAddr = Clones.cloneDeterministic(tokenImplementation, _mixSalt(creator_, userSalt));
+
+        // Enforce the vanity suffix invariant. The frontend mines a salt
+        // off-chain so this should always pass for legitimate launches; we
+        // check on-chain anyway so a misbehaving client (or any future
+        // alternative router) can't bypass it. The truncating cast is
+        // deliberate — we *want* only the last 2 bytes of the address.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        if (bytes2(uint16(uint160(tokenAddr))) != VANITY_SUFFIX) {
+            revert NotVanityAddress(tokenAddr);
+        }
+
+        FERC20(tokenAddr).initialize(name_, ticker_, maxTx, address(this));
+
+        uint256 totalSupply = FERC20(tokenAddr).TOTAL_SUPPLY();
         uint256 curveSupply = (totalSupply * CURVE_BPS) / BPS_DENOM;
 
         pair = factory.createPair(tokenAddr, ltAddress);
@@ -239,6 +289,31 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
 
         lpReserve[tokenAddr] = totalSupply - curveSupply;
+    }
+
+    /// @notice Predict the clone address for `(creator_, userSalt)`. Mirrors
+    ///         the address that `launch()` would deploy, without state changes.
+    ///         Used by the frontend vanity-mining UI to (a) pre-display the
+    ///         address before the user signs the launch tx and (b) verify
+    ///         on-chain that a mined salt still resolves to the expected
+    ///         address (e.g. after an impl rotation).
+    function predictTokenAddress(
+        address creator_,
+        bytes32 userSalt
+    ) external view returns (address) {
+        return Clones.predictDeterministicAddress(tokenImplementation, _mixSalt(creator_, userSalt), address(this));
+    }
+
+    /// @dev Combine the creator address into the user-supplied salt so that:
+    ///      1. Two creators using the same `userSalt` deploy to different
+    ///         addresses (no accidental collision).
+    ///      2. A mined `userSalt` cannot be front-run by another launcher —
+    ///         their tx would resolve to a different clone address.
+    function _mixSalt(
+        address creator_,
+        bytes32 userSalt
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encode(creator_, userSalt));
     }
 
     function _storeTokenInfo(
@@ -411,6 +486,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external onlyOwner {
         hyperswapRouter = newRouter;
         lpLock = newLpLock;
+    }
+
+    /// @notice Hot-swap the FERC20 implementation cloned by future launches.
+    /// @dev Already-deployed clones are unaffected — EIP-1167 hard-codes the
+    ///      impl address into the proxy bytecode at deploy time, so existing
+    ///      tokens keep delegating into whichever impl was current when they
+    ///      were launched. Use this for shipping a new FERC20 (e.g. bug fix
+    ///      surfaces in the impl) without disturbing already-issued tokens.
+    function setTokenImplementation(
+        address newImpl
+    ) external onlyOwner {
+        if (newImpl == address(0)) revert ZeroAddress();
+        address old = tokenImplementation;
+        tokenImplementation = newImpl;
+        emit TokenImplementationUpdated(old, newImpl);
     }
 
     /// @notice Update the global graduation threshold (18-dp USD).

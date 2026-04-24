@@ -7,6 +7,7 @@ export const ADDRESSES = {
   launchpadRouter: CONTRACT_ADDRESSES.launchpadRouter as `0x${string}`,
   lpLock: CONTRACT_ADDRESSES.lpLock as `0x${string}`,
   feeVault: CONTRACT_ADDRESSES.feeVault as `0x${string}`,
+  ferc20Implementation: CONTRACT_ADDRESSES.ferc20Implementation as `0x${string}`,
   usdc: USDC_ADDRESS as `0x${string}`,
 } as const;
 

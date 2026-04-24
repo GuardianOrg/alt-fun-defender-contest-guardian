@@ -34,12 +34,16 @@ type Query {
   referrals(where: referralFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): referralPage!
   feeClaim(id: String!): feeClaim
   feeClaims(where: feeClaimFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): feeClaimPage!
+  feeAccrual(id: String!): feeAccrual
+  feeAccruals(where: feeAccrualFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): feeAccrualPage!
   swap(id: String!): swap
   swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): swapPage!
   pairReserve(pairAddress: String!): pairReserve
   pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): pairReservePage!
   tokenBalance(id: String!): tokenBalance
   tokenBalances(where: tokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenBalancePage!
+  protocolConfig(id: String!): protocolConfig
+  protocolConfigs(where: protocolConfigFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): protocolConfigPage!
   tokenSnapshot(id: String!): tokenSnapshot
   tokenSnapshots(where: tokenSnapshotFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenSnapshotPage!
   _meta: Meta
@@ -60,6 +64,8 @@ type token {
   hyperswapPair: String
   organicUsdcRaised: BigInt!
   volumeUsd: BigInt!
+  creatorFeesUsd: BigInt!
+  protocolFeesUsd: BigInt!
   blockNumber: BigInt!
   timestamp: BigInt!
 }
@@ -207,6 +213,22 @@ input tokenFilter {
   volumeUsd_lt: BigInt
   volumeUsd_gte: BigInt
   volumeUsd_lte: BigInt
+  creatorFeesUsd: BigInt
+  creatorFeesUsd_not: BigInt
+  creatorFeesUsd_in: [BigInt]
+  creatorFeesUsd_not_in: [BigInt]
+  creatorFeesUsd_gt: BigInt
+  creatorFeesUsd_lt: BigInt
+  creatorFeesUsd_gte: BigInt
+  creatorFeesUsd_lte: BigInt
+  protocolFeesUsd: BigInt
+  protocolFeesUsd_not: BigInt
+  protocolFeesUsd_in: [BigInt]
+  protocolFeesUsd_not_in: [BigInt]
+  protocolFeesUsd_gt: BigInt
+  protocolFeesUsd_lt: BigInt
+  protocolFeesUsd_gte: BigInt
+  protocolFeesUsd_lte: BigInt
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]
@@ -615,7 +637,6 @@ input referralFilter {
 type feeClaim {
   id: String!
   claimer: String!
-  ltAddress: String!
   amount: BigInt!
   isCreator: Boolean!
   blockNumber: BigInt!
@@ -657,16 +678,6 @@ input feeClaimFilter {
   claimer_ends_with: String
   claimer_not_starts_with: String
   claimer_not_ends_with: String
-  ltAddress: String
-  ltAddress_not: String
-  ltAddress_in: [String]
-  ltAddress_not_in: [String]
-  ltAddress_contains: String
-  ltAddress_not_contains: String
-  ltAddress_starts_with: String
-  ltAddress_ends_with: String
-  ltAddress_not_starts_with: String
-  ltAddress_not_ends_with: String
   amount: BigInt
   amount_not: BigInt
   amount_in: [BigInt]
@@ -679,6 +690,100 @@ input feeClaimFilter {
   isCreator_not: Boolean
   isCreator_in: [Boolean]
   isCreator_not_in: [Boolean]
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
+}
+
+type feeAccrual {
+  id: String!
+  tokenAddress: String!
+  creator: String!
+  creatorAmount: BigInt!
+  protocolAmount: BigInt!
+  isBuy: Boolean!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type feeAccrualPage {
+  items: [feeAccrual!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input feeAccrualFilter {
+  AND: [feeAccrualFilter]
+  OR: [feeAccrualFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  creator: String
+  creator_not: String
+  creator_in: [String]
+  creator_not_in: [String]
+  creator_contains: String
+  creator_not_contains: String
+  creator_starts_with: String
+  creator_ends_with: String
+  creator_not_starts_with: String
+  creator_not_ends_with: String
+  creatorAmount: BigInt
+  creatorAmount_not: BigInt
+  creatorAmount_in: [BigInt]
+  creatorAmount_not_in: [BigInt]
+  creatorAmount_gt: BigInt
+  creatorAmount_lt: BigInt
+  creatorAmount_gte: BigInt
+  creatorAmount_lte: BigInt
+  protocolAmount: BigInt
+  protocolAmount_not: BigInt
+  protocolAmount_in: [BigInt]
+  protocolAmount_not_in: [BigInt]
+  protocolAmount_gt: BigInt
+  protocolAmount_lt: BigInt
+  protocolAmount_gte: BigInt
+  protocolAmount_lte: BigInt
+  isBuy: Boolean
+  isBuy_not: Boolean
+  isBuy_in: [Boolean]
+  isBuy_not_in: [Boolean]
   blockNumber: BigInt
   blockNumber_not: BigInt
   blockNumber_in: [BigInt]
@@ -936,6 +1041,64 @@ input tokenBalanceFilter {
   balance_lt: BigInt
   balance_gte: BigInt
   balance_lte: BigInt
+}
+
+type protocolConfig {
+  id: String!
+  graduationThresholdUsd: BigInt!
+  blockNumber: BigInt!
+  timestamp: BigInt!
+}
+
+type protocolConfigPage {
+  items: [protocolConfig!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input protocolConfigFilter {
+  AND: [protocolConfigFilter]
+  OR: [protocolConfigFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  graduationThresholdUsd: BigInt
+  graduationThresholdUsd_not: BigInt
+  graduationThresholdUsd_in: [BigInt]
+  graduationThresholdUsd_not_in: [BigInt]
+  graduationThresholdUsd_gt: BigInt
+  graduationThresholdUsd_lt: BigInt
+  graduationThresholdUsd_gte: BigInt
+  graduationThresholdUsd_lte: BigInt
+  blockNumber: BigInt
+  blockNumber_not: BigInt
+  blockNumber_in: [BigInt]
+  blockNumber_not_in: [BigInt]
+  blockNumber_gt: BigInt
+  blockNumber_lt: BigInt
+  blockNumber_gte: BigInt
+  blockNumber_lte: BigInt
+  timestamp: BigInt
+  timestamp_not: BigInt
+  timestamp_in: [BigInt]
+  timestamp_not_in: [BigInt]
+  timestamp_gt: BigInt
+  timestamp_lt: BigInt
+  timestamp_gte: BigInt
+  timestamp_lte: BigInt
 }
 
 type tokenSnapshot {

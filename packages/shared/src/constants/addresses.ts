@@ -1,14 +1,11 @@
 export const CONTRACT_ADDRESSES = {
-  bonding: "0x1944710C55ac3Dcbf36ED9B80f289418B26c032a",
-  factory: "0x6EC795a7Ba9987FF32458019Ce1F5D83Aa4dbA22",
-  router: "0x0390Fc5A56B2Cb4c22254bCCF3328005d0E11d90",
-  launchpadRouter: "0x3E86AFB20De663f8689C09698aEeF3DF5F28a1Fe",
-  lpLock: "0x69541E1F67F574612EC6414DCdE6D0bc6588FA76",
-  // Placeholder until `FeeVault` is deployed as part of the router-fee
-  // migration. The `Deploy.s.sol` script wires it up and emits the real proxy
-  // address; replace below, regenerate ABIs, and rerun `npm run ci`. The
-  // placeholder is non-zero so the `addresses.test.ts` assertions still pass.
-  feeVault: "0x0000000000000000000000000000000000000001",
+  bonding: "0xFBC97b7Ed983fe9F9Fd0b608F9dfaD6F838E6Fdc",
+  factory: "0x1A3BBB7430ed278d3B2e30F99eb9D80f7B58f389",
+  router: "0x0fd97d6F4aCa27c06bb60DBe84F2e268Fa37E817",
+  launchpadRouter: "0x7d5f08cc215BD1C5a3bEA6a27f91b88d740a5Bdc",
+  lpLock: "0x1AD08b4CC1792Fd6E0B405506B2B0B962984962C",
+  feeVault: "0xA3F530AD6BbC0A2fc7E709ebb316De1911e9FC08",
+  ferc20Implementation: "0x147b7b7Add10e45B4Cf94d0899dacd9Bd5B1a98E",
 } as const;
 
 export const HYPERSWAP_ADDRESSES = {
