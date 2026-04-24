@@ -50,6 +50,14 @@ export interface UseVanityAddressReturn {
  * by the time the user clicks Launch, `ensureSalt` waits — the UI surfaces
  * a "FINDING YOUR ADDRESS…" state for as long as that takes.
  */
+// Single user-facing message for any miner failure (spawn-time or runtime).
+// Both paths land the hook in `status === "error"` and pending callers see
+// the same message — distinguishing between "couldn't construct Worker" and
+// "Worker threw at runtime" doesn't help the user, the remediation is the
+// same.
+const MINER_ERROR_MESSAGE =
+  "Vanity address miner failed. Please refresh and try again.";
+
 export function useVanityAddress(): UseVanityAddressReturn {
   const { address } = useWallet();
 
@@ -115,6 +123,30 @@ export function useVanityAddress(): UseVanityAddressReturn {
         setElapsedMs(performance.now() - startTimeRef.current);
       }, 100);
 
+      // Shared failure path for any worker crash *after* spawn (uncaught
+      // exception in the hot loop, missing `crypto.getRandomValues`, CSP
+      // killing module load, structured-clone failure on postMessage, …).
+      // Without this the hook would stay in "mining" forever and any
+      // pending `ensureSalt` await would never settle, leaving the UI
+      // stuck on "FINDING YOUR ADDRESS…".
+      //
+      // Guarded by `workersRef.current.length` so a late stray error from
+      // a sibling worker — fired *after* a successful `found` already
+      // tore down the pool — can't clobber `status: "found"` back to
+      // "error". Teardown is the canonical "we're done" signal.
+      const handlePoolFailure = (err: unknown) => {
+        if (workersRef.current.length === 0) return;
+        console.error("[useVanityAddress] worker failed at runtime", err);
+        setStatus("error");
+        // Drain *before* teardown so awaiters get the specific runtime
+        // error rather than the generic "cancelled" message teardown
+        // emits when it finds resolvers still pending.
+        const pending = pendingResolversRef.current;
+        pendingResolversRef.current = [];
+        pending.forEach(({ reject }) => reject(new Error(MINER_ERROR_MESSAGE)));
+        teardown();
+      };
+
       // `Web Worker` constructor support: we wrap in try/catch because some
       // restricted browser contexts (sandboxed iframes, very old browsers)
       // can't spawn workers. In that case we transition to "error" — the
@@ -164,6 +196,23 @@ export function useVanityAddress(): UseVanityAddressReturn {
               }
             },
           );
+          // `error` fires for uncaught exceptions inside the worker
+          // (including module-load failures). `messageerror` fires when a
+          // posted message can't be deserialized — vanishingly rare for
+          // our plain-object protocol, but listening costs nothing and
+          // closes a hang vector.
+          worker.addEventListener("error", (event) => {
+            // Stop the event from bubbling to `window.onerror` — we've
+            // already handled it and don't want it surfacing as an
+            // uncaught error in the host page.
+            event.preventDefault();
+            handlePoolFailure(event.error ?? event.message ?? event);
+          });
+          worker.addEventListener("messageerror", () => {
+            handlePoolFailure(
+              new Error("Vanity worker posted an undeserializable message"),
+            );
+          });
           worker.postMessage({
             type: "init",
             implementation: ADDRESSES.ferc20Implementation,
@@ -211,14 +260,11 @@ export function useVanityAddress(): UseVanityAddressReturn {
     }
 
     return new Promise<VanityResult>((resolve, reject) => {
-      // If mining errored (worker spawn failed), reject immediately so the
-      // UI can surface the error rather than hang forever.
+      // If mining errored (spawn failure or runtime crash in a worker),
+      // reject immediately so the UI can surface the error rather than
+      // hang forever waiting on a `found` event that's never coming.
       if (status === "error") {
-        reject(
-          new Error(
-            "Vanity address miner failed to start. Please refresh and try again.",
-          ),
-        );
+        reject(new Error(MINER_ERROR_MESSAGE));
         return;
       }
       pendingResolversRef.current.push({ resolve, reject });

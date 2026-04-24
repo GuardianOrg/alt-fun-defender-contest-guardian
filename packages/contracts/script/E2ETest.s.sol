@@ -45,8 +45,9 @@ contract E2ETest is Script {
         // `Bonding.VANITY_SUFFIX` (`0xa1fa`). Pulling `tokenImplementation()`
         // from the live Bonding (rather than hardcoding) means a future
         // FERC20 implementation upgrade doesn't break the script.
-        bytes32 vanitySalt =
-            _mineVanitySalt(deployer, bonding.tokenImplementation(), bondingAddr, keccak256(abi.encode(block.timestamp)));
+        bytes32 vanitySalt = _mineVanitySalt(
+            deployer, bonding.tokenImplementation(), bondingAddr, keccak256(abi.encode(block.timestamp))
+        );
         console.log("Mined vanity salt:");
         console.logBytes32(vanitySalt);
 
