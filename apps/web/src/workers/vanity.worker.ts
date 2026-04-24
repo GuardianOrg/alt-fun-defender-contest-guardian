@@ -37,16 +37,29 @@ interface StopMessage {
 
 type WorkerInbound = InitMessage | StopMessage;
 
+/**
+ * Periodic progress tick. `attemptsDelta` is the number of attempts this
+ * worker has tried since its previous `progress` message — *never* a
+ * cumulative count. The hook sums deltas across all workers to display a
+ * pool-wide total. Sending a delta (rather than cumulative) is what makes
+ * the consumer aggregation correct without it needing to track per-worker
+ * state.
+ */
 interface ProgressMessage {
   type: "progress";
-  attempts: number;
+  attemptsDelta: number;
 }
 
+/**
+ * Winner notification. `attemptsDelta` here covers attempts since this
+ * worker's last `progress` tick (i.e. the partial bucket up to the hit), so
+ * the consumer can fold it into the total just like a normal progress event.
+ */
 interface FoundMessage {
   type: "found";
   salt: `0x${string}`;
   address: `0x${string}`;
-  attempts: number;
+  attemptsDelta: number;
 }
 
 export type WorkerOutbound = ProgressMessage | FoundMessage;
@@ -129,30 +142,35 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
   predictBuf.set(deployerBytes, 1);
   predictBuf.set(initCodeHash, 1 + 20 + 32);
 
-  // Random 32-byte starting salt. Each worker strides by workerCount so two
-  // workers never test the same value. We treat the salt as a big number
-  // and increment its low 8 bytes — collisions across workers are bounded
-  // by `workerCount` differences in the starting seeds.
+  // Salt layout: 28 random bytes (high) || 4-byte counter (low).
+  //
+  // The 28 high bytes are seeded once per worker via `crypto.getRandomValues`,
+  // and they're what give each worker a disjoint search region in 256-bit
+  // salt space (collision probability across workers is ~2^-224 — for all
+  // practical purposes, zero). The counter then walks the low 4 bytes.
+  //
+  // We additionally start the counter at `workerIndex` and step by
+  // `workerCount` so even if two workers happened to draw identical random
+  // seeds (broken RNG, cosmic ray, etc.) they'd still test different salts.
+  // Pure defense-in-depth — the random seeds already do the real work.
   const saltBuf = new Uint8Array(32);
   crypto.getRandomValues(saltBuf);
-  // Mark the worker index in the lowest byte so concurrent workers never
-  // produce identical salts even after wrap-around in the inner counter.
-  saltBuf[31] = (saltBuf[31] & 0xfe) | (msg.workerIndex & 0x01);
-  // Use the last 8 bytes as a counter for the inner loop.
 
-  let attempts = 0;
+  // `attemptsSinceTick` accumulates between progress reports and resets to 0
+  // every PROGRESS_INTERVAL iterations (or on `found`). The hook only ever
+  // sees deltas, never cumulative totals — see `ProgressMessage` docs.
+  let attemptsSinceTick = 0;
   const PROGRESS_INTERVAL = 5000;
 
-  // Stride: bump bytes 24..31 (uint64) by `workerCount` each iteration so we
-  // explore disjoint salt subspaces. We keep this in plain JS numbers since
-  // BigInt math is meaningfully slower in a hot loop and 2^53 attempts is
-  // never going to happen.
-  let counterLo = 0;
+  // Counter lives in bytes 28..31. Plain JS number rather than BigInt — the
+  // hot loop ran ~2x slower with BigInt and 2^32 attempts is never going to
+  // happen in practice (4-hex vanity converges in ~65k).
+  let counterLo = msg.workerIndex >>> 0;
   const stride = Math.max(msg.workerCount, 1);
 
   while (!stopped) {
-    // Write counter into bytes 28..31 (low 32 bits of the salt). High bits
-    // come from the random seed and never change — that's our entropy.
+    // Overwrite the low 4 bytes with the current counter. Bytes 0..27 stay
+    // pinned to this worker's random seed.
     saltBuf[28] = (counterLo >>> 24) & 0xff;
     saltBuf[29] = (counterLo >>> 16) & 0xff;
     saltBuf[30] = (counterLo >>> 8) & 0xff;
@@ -181,19 +199,26 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
         type: "found",
         salt: fullSalt,
         address: fullAddr,
-        attempts: attempts + 1,
+        // +1 for the winning attempt itself, on top of whatever's accumulated
+        // since the last progress tick. Combined with prior progress deltas
+        // this gives the consumer an exact per-worker total.
+        attemptsDelta: attemptsSinceTick + 1,
       };
       (self as DedicatedWorkerGlobalScope).postMessage(found);
       stopped = true;
       return;
     }
 
-    attempts++;
+    attemptsSinceTick++;
     counterLo = (counterLo + stride) >>> 0;
 
-    if (attempts % PROGRESS_INTERVAL === 0) {
-      const progress: ProgressMessage = { type: "progress", attempts };
+    if (attemptsSinceTick >= PROGRESS_INTERVAL) {
+      const progress: ProgressMessage = {
+        type: "progress",
+        attemptsDelta: attemptsSinceTick,
+      };
       (self as DedicatedWorkerGlobalScope).postMessage(progress);
+      attemptsSinceTick = 0;
     }
   }
 });

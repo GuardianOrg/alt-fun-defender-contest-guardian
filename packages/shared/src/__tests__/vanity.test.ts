@@ -98,11 +98,14 @@ describe("vanity", () => {
   });
 
   it("eip1167InitCodeHash matches OZ Clones v5 (golden value)", () => {
-    // Hardcoded golden hash for `implementation = 0x...dead`. Computed from
-    // OZ v5's `Clones.cloneDeterministic` init code:
-    //   <prefix 20b>3d602d80600a3d3981f3363d3d373d3d3d363d73
-    //   <impl 20b>00000000000000000000000000000000000000ad
-    //   <suffix 15b>5af43d82803e903d91602b57fd5bf3
+    // Golden init-code layout for `IMPL = 0x000000000000000000000000000000000000dead`,
+    // per OZ v5's `Clones.cloneDeterministic`:
+    //   <prefix 20b> 3d602d80600a3d3981f3363d3d373d3d3d363d73
+    //   <impl   20b> 000000000000000000000000000000000000dead
+    //   <suffix 15b> 5af43d82803e903d91602b57fd5bf3
+    // Keep the impl bytes here in lockstep with the `IMPL` constant above —
+    // the test itself uses `IMPL.slice(2)` so it stays correct, but a stale
+    // comment will mislead the next person trying to recompute by hand.
     // If this fails after a vanity.ts edit, the on-chain JS↔Solidity
     // address derivation has drifted and the worker would mine garbage
     // salts that revert with `NotVanityAddress`.

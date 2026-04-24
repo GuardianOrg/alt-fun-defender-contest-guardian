@@ -120,9 +120,15 @@ export function useVanityAddress(): UseVanityAddressReturn {
             "message",
             (event: MessageEvent<WorkerOutbound>) => {
               const msg = event.data;
+              // Both `progress` and `found` carry `attemptsDelta` (work done
+              // since this worker's previous tick). Summing the deltas across
+              // every worker's events gives a correct pool-wide total without
+              // the hook needing per-worker state. The worker contract
+              // guarantees deltas never overlap.
               if (msg.type === "progress") {
-                setAttempts((prev) => prev + msg.attempts);
+                setAttempts((prev) => prev + msg.attemptsDelta);
               } else if (msg.type === "found") {
+                setAttempts((prev) => prev + msg.attemptsDelta);
                 const winning: VanityResult = {
                   salt: msg.salt,
                   address: getAddress(msg.address),
