@@ -327,7 +327,7 @@ export const BondingAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract FFactory"
+        "internalType": "contract Factory"
       }
     ],
     "stateMutability": "view"
@@ -755,7 +755,7 @@ export const BondingAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract FRouter"
+        "internalType": "contract Router"
       }
     ],
     "stateMutability": "view"

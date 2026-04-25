@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {FFactory} from "../src/FFactory.sol";
-import {FPair} from "../src/FPair.sol";
+import {Factory} from "../src/Factory.sol";
+import {Pair} from "../src/Pair.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
-contract FFactoryTest is Test {
-    FFactory public factory;
+contract FactoryTest is Test {
+    Factory public factory;
 
     address public owner = address(this);
     address public routerAddr = makeAddr("router");
@@ -18,7 +18,7 @@ contract FFactoryTest is Test {
     MockERC20 public tokenB;
 
     function setUp() public {
-        factory = new FFactory();
+        factory = new Factory();
         factory.initialize();
         factory.setRouter(routerAddr);
         factory.grantRole(factory.BONDING_ROLE(), bondingRole);
@@ -59,14 +59,14 @@ contract FFactoryTest is Test {
     function test_createPair_emitsPairCreated() public {
         vm.prank(bondingRole);
         vm.expectEmit(true, true, false, false);
-        emit FFactory.PairCreated(address(tokenA), address(tokenB), address(0), 1);
+        emit Factory.PairCreated(address(tokenA), address(tokenB), address(0), 1);
         factory.createPair(address(tokenA), address(tokenB));
     }
 
     function test_createPair_pairHasCorrectImmutables() public {
         vm.prank(bondingRole);
         address pairAddr = factory.createPair(address(tokenA), address(tokenB));
-        FPair pair = FPair(pairAddr);
+        Pair pair = Pair(pairAddr);
 
         assertEq(pair.router(), routerAddr);
         assertEq(pair.tokenA(), address(tokenA));
@@ -75,24 +75,24 @@ contract FFactoryTest is Test {
 
     function test_createPair_revertsForZeroTokenA() public {
         vm.prank(bondingRole);
-        vm.expectRevert(FFactory.ZeroAddress.selector);
+        vm.expectRevert(Factory.ZeroAddress.selector);
         factory.createPair(address(0), address(tokenB));
     }
 
     function test_createPair_revertsForZeroTokenB() public {
         vm.prank(bondingRole);
-        vm.expectRevert(FFactory.ZeroAddress.selector);
+        vm.expectRevert(Factory.ZeroAddress.selector);
         factory.createPair(address(tokenA), address(0));
     }
 
     function test_createPair_revertsWithoutRouter() public {
-        FFactory factory2 = new FFactory();
+        Factory factory2 = new Factory();
         factory2.initialize();
         factory2.grantRole(factory2.BONDING_ROLE(), bondingRole);
         // No setRouter call
 
         vm.prank(bondingRole);
-        vm.expectRevert(FFactory.NoRouter.selector);
+        vm.expectRevert(Factory.NoRouter.selector);
         factory2.createPair(address(tokenA), address(tokenB));
     }
 

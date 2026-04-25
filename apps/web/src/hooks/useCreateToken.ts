@@ -7,7 +7,7 @@ import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPermit, type PermitData } from "./useTokenPermit";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
-import { erc20Abi, LaunchpadRouterAbi } from "../contracts/abis";
+import { erc20Abi, ZapAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { createTokenApi, fetchLeveragedTokens, uploadImage } from "../services/api";
 import { getErrorMessage } from "../utils/format";
@@ -70,7 +70,7 @@ export function useCreateToken() {
             address: ADDRESSES.usdc,
             abi: erc20Abi,
             functionName: "allowance",
-            args: [address, ADDRESSES.launchpadRouter],
+            args: [address, ADDRESSES.zap],
           })) as bigint;
 
           if (allowance < usdcAmount) {
@@ -80,7 +80,7 @@ export function useCreateToken() {
               permit = await signPermit({
                 token: ADDRESSES.usdc,
                 owner: address as `0x${string}`,
-                spender: ADDRESSES.launchpadRouter,
+                spender: ADDRESSES.zap,
                 value: maxUint256,
                 deadline,
                 publicClient: hyperEvmClient,
@@ -92,7 +92,7 @@ export function useCreateToken() {
                 address: ADDRESSES.usdc,
                 abi: erc20Abi,
                 functionName: "approve",
-                args: [ADDRESSES.launchpadRouter, maxUint256],
+                args: [ADDRESSES.zap, maxUint256],
               });
               const approveReceipt = await hyperEvmClient.waitForTransactionReceipt({ hash: approveTx });
               if (approveReceipt.status === "reverted") {
@@ -136,16 +136,16 @@ export function useCreateToken() {
         const tx = permit
           ? await (async () => {
               const gasEstimate = await hyperEvmClient.estimateContractGas({
-                address: ADDRESSES.launchpadRouter,
-                abi: LaunchpadRouterAbi,
+                address: ADDRESSES.zap,
+                abi: ZapAbi,
                 functionName: "createTokenWithPermit",
                 args: [launchParams, seedUsdcAmount, permit],
                 account: address,
               });
               const gasLimit = (gasEstimate * 130n) / 100n;
               return walletClient.writeContract({
-                address: ADDRESSES.launchpadRouter,
-                abi: LaunchpadRouterAbi,
+                address: ADDRESSES.zap,
+                abi: ZapAbi,
                 functionName: "createTokenWithPermit",
                 args: [launchParams, seedUsdcAmount, permit],
                 gas: gasLimit,
@@ -153,16 +153,16 @@ export function useCreateToken() {
             })()
           : await (async () => {
               const gasEstimate = await hyperEvmClient.estimateContractGas({
-                address: ADDRESSES.launchpadRouter,
-                abi: LaunchpadRouterAbi,
+                address: ADDRESSES.zap,
+                abi: ZapAbi,
                 functionName: "createToken",
                 args: [launchParams, seedUsdcAmount],
                 account: address,
               });
               const gasLimit = (gasEstimate * 130n) / 100n;
               return walletClient.writeContract({
-                address: ADDRESSES.launchpadRouter,
-                abi: LaunchpadRouterAbi,
+                address: ADDRESSES.zap,
+                abi: ZapAbi,
                 functionName: "createToken",
                 args: [launchParams, seedUsdcAmount],
                 gas: gasLimit,
@@ -178,7 +178,7 @@ export function useCreateToken() {
         }
 
         const tokenCreatedEvents = parseEventLogs({
-          abi: LaunchpadRouterAbi,
+          abi: ZapAbi,
           eventName: "TokenCreated",
           logs: receipt.logs,
           strict: false,

@@ -6,7 +6,7 @@ import { hyperEVM } from "../config/chains";
 import { erc20Abi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 
-/// Shape matching the `LaunchpadRouter.PermitData` struct on-chain.
+/// Shape matching the `Zap.PermitData` struct on-chain.
 export interface PermitData {
   value: bigint;
   deadline: bigint;
@@ -26,7 +26,7 @@ interface SignPermitArgs {
 }
 
 /// USDC on HyperEVM is a `FiatTokenV2_2` — its EIP-712 domain uses
-/// `version: "2"`. OZ's `ERC20Permit` (used by every FERC20 token this
+/// `version: "2"`. OZ's `ERC20Permit` (used by every Token clone this
 /// protocol launches) hardcodes `version: "1"`. We pick the right one per
 /// token. If USDC is ever re-implemented we fall back to `"1"` and rely on
 /// the `DOMAIN_SEPARATOR` sanity check below to catch drift.
@@ -36,7 +36,7 @@ function permitVersionFor(token: `0x${string}`): string {
 
 /// Build the EIP-712 typed data for an ERC-2612 `Permit`. Matches the
 /// `PERMIT_TYPEHASH` used by both FiatTokenV2_2 (USDC) and OpenZeppelin's
-/// `ERC20Permit` (our FERC20s).
+/// `ERC20Permit` (our Token clones).
 function buildPermitTypedData(args: {
   name: string;
   version: string;

@@ -22,7 +22,7 @@ const hyperEvmClient = createPublicClient({
 
 // `Bonding.tokenImplementation` is owner-rotatable via `setTokenImplementation`
 // (see `Bonding.sol:497`) — explicitly designed to be hot-swapped to ship a
-// new FERC20 without disturbing already-launched tokens. If we hardcoded the
+// new Token impl without disturbing already-launched tokens. If we hardcoded the
 // impl into worker init, every launch would silently revert with
 // `NotVanityAddress` after a rotation (the miner would compute salts against
 // the stale `initCodeHash`) until every user refreshed against a redeployed
@@ -67,7 +67,7 @@ export interface UseVanityAddressReturn {
 
 /**
  * Spawns one Web Worker per CPU core and races them to find a salt that
- * deploys the user's FERC20 clone to a vanity address ending in
+ * deploys the user's Token clone to a vanity address ending in
  * `VANITY_SUFFIX`. Starts as soon as the wallet is connected so by the
  * time the user clicks "Launch" the salt is usually already mined
  * (~50-300ms with a worker pool).
@@ -110,7 +110,7 @@ export function useVanityAddress(): UseVanityAddressReturn {
   const effectiveImpl: Address | undefined = implQuery.data
     ? implQuery.data
     : implQuery.isError
-      ? getAddress(ADDRESSES.ferc20Implementation)
+      ? getAddress(ADDRESSES.tokenImplementation)
       : undefined;
 
   const [status, setStatus] = useState<VanityStatus>("idle");
@@ -306,9 +306,9 @@ export function useVanityAddress(): UseVanityAddressReturn {
       let fresh: Address;
       try {
         const result = await refetchImpl();
-        fresh = result.data ?? getAddress(ADDRESSES.ferc20Implementation);
+        fresh = result.data ?? getAddress(ADDRESSES.tokenImplementation);
       } catch {
-        fresh = getAddress(ADDRESSES.ferc20Implementation);
+        fresh = getAddress(ADDRESSES.tokenImplementation);
       }
       const creator = getAddress(address);
       lastSpawnRef.current = { creator, impl: fresh };

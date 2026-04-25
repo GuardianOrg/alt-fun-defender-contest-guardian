@@ -1,4 +1,4 @@
-export const FFactoryAbi = [
+export const FactoryAbi = [
   {
     "type": "function",
     "name": "BONDING_ROLE",

@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
-import {IFPair} from "../src/interfaces/IFPair.sol";
+import {Token} from "../src/Token.sol";
+import {IPair} from "../src/interfaces/IPair.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 /// @notice Strict invariants for the dynamic LP seeding / zero-gap graduation mechanism.
@@ -13,7 +13,7 @@ import {DeployHelper} from "./DeployHelper.sol";
 ///      1. Zero price gap  — Hyperswap LP opens at exactly the last curve price.
 ///      2. Conservation    — `tokensForLP + lpBurned = LP_RESERVE`.
 ///      3. Parabola cap    — `tokensForLP ≤ LP_RESERVE` always (mathematical invariant).
-///      4. Pair drained    — Zero real tokens & zero real LT remain in FPair after graduation.
+///      4. Pair drained    — Zero real tokens & zero real LT remain in Pair after graduation.
 ///      5. Supply trigger  — Exhausting curve supply graduates even below $12K.
 ///      6. USD trigger     — Raised-value ≥ $12K graduates even with supply remaining.
 ///      7. Overflow cap    — Buy capped at real balance; excess LT refunded to buyer.
@@ -85,13 +85,13 @@ contract GraduationInvariantsTest is DeployHelper {
         lt.mintDirect(buyer, ltAmount);
         if (!bonding.isRouter(buyer)) bonding.addRouter(buyer);
         vm.startPrank(buyer);
-        lt.approve(address(frouter), ltAmount);
+        lt.approve(address(curveRouter), ltAmount);
         (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddr, 0, buyer);
         vm.stopPrank();
     }
 
     struct GraduationSnapshot {
-        /// Post-final-trade curve reserves (FPair does not mutate `_pool.reserve0/1` on
+        /// Post-final-trade curve reserves (Pair does not mutate `_pool.reserve0/1` on
         /// `transferAsset` / `transferToken` / `burn`, so these remain readable after graduation).
         uint256 reserve0End;
         uint256 reserve1End;
@@ -111,12 +111,12 @@ contract GraduationInvariantsTest is DeployHelper {
     ) internal returns (GraduationSnapshot memory snap) {
         // LT balance captured BEFORE the buy; the graduating buy contributes its net LT to the
         // pair and the router subsequently drains the full real balance as `ltFromPair`.
-        uint256 ltBalPre = IFPair(pairAddr).assetBalance();
+        uint256 ltBalPre = IPair(pairAddr).assetBalance();
 
         lt.mintDirect(buyer, ltAmount);
         if (!bonding.isRouter(buyer)) bonding.addRouter(buyer);
         vm.startPrank(buyer);
-        lt.approve(address(frouter), ltAmount);
+        lt.approve(address(curveRouter), ltAmount);
 
         vm.recordLogs();
         bonding.buy(ltAmount, tokenAddr, 0, buyer);
@@ -139,10 +139,10 @@ contract GraduationInvariantsTest is DeployHelper {
         }
         require(found, "graduation event not emitted");
 
-        // Post-graduation read: FPair `_pool.reserve0/1` reflect the state after the final
+        // Post-graduation read: Pair `_pool.reserve0/1` reflect the state after the final
         // trade's `swap(...)` but before the balance sweeps (graduate/burn). This is exactly
         // what `_prepareGraduationLiquidity` used to compute `tokensForLP`.
-        (snap.reserve0End, snap.reserve1End) = IFPair(pairAddr).getReserves();
+        (snap.reserve0End, snap.reserve1End) = IPair(pairAddr).getReserves();
 
         // `ltFromPair` must equal the full LT balance of the pair right before graduation
         // drain. We reconstruct it from the Hyperswap pool's LT balance (mock holds it).
@@ -153,13 +153,13 @@ contract GraduationInvariantsTest is DeployHelper {
     function _reserve0(
         address pairAddr
     ) internal view returns (uint256 r0) {
-        (r0,) = IFPair(pairAddr).getReserves();
+        (r0,) = IPair(pairAddr).getReserves();
     }
 
     function _reserve1(
         address pairAddr
     ) internal view returns (uint256 r1) {
-        (, r1) = IFPair(pairAddr).getReserves();
+        (, r1) = IPair(pairAddr).getReserves();
     }
 
     // ─── 1. Zero price gap ───────────────────────────────────────────────
@@ -196,8 +196,8 @@ contract GraduationInvariantsTest is DeployHelper {
         // Fetch graduation snapshot from the emitted event on a fresh graduation isn't
         // possible here (already past). Instead, verify the key invariant directly on state:
         // no real tokens left in the pair, no real LT left, and the hyperswap pair was seeded.
-        assertEq(IFPair(pairAddr).tokenBalance(), 0, "curve should be drained of tokens");
-        assertEq(IFPair(pairAddr).assetBalance(), 0, "curve should be drained of LT");
+        assertEq(IPair(pairAddr).tokenBalance(), 0, "curve should be drained of tokens");
+        assertEq(IPair(pairAddr).assetBalance(), 0, "curve should be drained of LT");
         assertTrue(bonding.graduatedPair(tokenAddr) != address(0), "hyperswap pair seeded");
     }
 
@@ -228,8 +228,8 @@ contract GraduationInvariantsTest is DeployHelper {
             assertTrue(bonding.isGraduated(tokenAddr), "did not graduate");
 
             // Strict invariant: pair has zero real balances and a hyperswap pair was created.
-            assertEq(IFPair(pairAddr).tokenBalance(), 0);
-            assertEq(IFPair(pairAddr).assetBalance(), 0);
+            assertEq(IPair(pairAddr).tokenBalance(), 0);
+            assertEq(IPair(pairAddr).assetBalance(), 0);
             assertTrue(bonding.graduatedPair(tokenAddr) != address(0));
 
             // Reset exchange rate for the next iteration.
@@ -282,7 +282,7 @@ contract GraduationInvariantsTest is DeployHelper {
         }
 
         assertTrue(bonding.isGraduated(tokenAddr), "graduated via supply");
-        assertEq(IFPair(pairAddr).tokenBalance(), 0);
+        assertEq(IPair(pairAddr).tokenBalance(), 0);
 
         // lpReserve cleared
         assertEq(bonding.lpReserve(tokenAddr), 0);
@@ -295,7 +295,7 @@ contract GraduationInvariantsTest is DeployHelper {
         _buy(tokenAddr, trader, 5000 ether);
 
         // Before triggering: some real tokens still in the pair.
-        assertTrue(IFPair(pairAddr).tokenBalance() > 0, "real tokens still on curve");
+        assertTrue(IPair(pairAddr).tokenBalance() > 0, "real tokens still on curve");
 
         lt.setExchangeRate(3 ether); // pumps → USD trigger fires on next buy
         _buy(tokenAddr, trader2, 100 ether);
@@ -303,7 +303,7 @@ contract GraduationInvariantsTest is DeployHelper {
         assertTrue(bonding.isGraduated(tokenAddr), "graduated via USD");
 
         // Unsold tokens were burned in `_graduate` (pair token balance is zero).
-        assertEq(IFPair(pairAddr).tokenBalance(), 0, "unsold burned on graduation");
+        assertEq(IPair(pairAddr).tokenBalance(), 0, "unsold burned on graduation");
     }
 
     // ─── 7. Overflow cap & refund ────────────────────────────────────────
@@ -316,7 +316,7 @@ contract GraduationInvariantsTest is DeployHelper {
 
         uint256 balancePre = lt.balanceOf(trader2);
         // Grossly oversized buy that would attempt to absorb >1B tokens on the curve.
-        // Real balance is 750M, so `FRouter.buy` must cap at 750M and back-calc the LT used.
+        // Real balance is 750M, so `Router.buy` must cap at 750M and back-calc the LT used.
         uint256 oversizedBuy = 1_000_000_000 ether;
 
         (uint256 tokensOut, uint256 amountInUsed) = _buy(tokenAddr, trader2, oversizedBuy);
@@ -325,7 +325,7 @@ contract GraduationInvariantsTest is DeployHelper {
         assertTrue(amountInUsed < oversizedBuy, "buy must be capped below oversized request");
         assertEq(tokensOut, CURVE_SUPPLY, "tokensOut must equal remaining real supply");
 
-        // `bonding.buy` pulls only `amountInUsed` from trader2 (via FRouter → pair + fees).
+        // `bonding.buy` pulls only `amountInUsed` from trader2 (via Router → pair + fees).
         uint256 balancePost = lt.balanceOf(trader2);
         uint256 ltConsumed = balancePre + oversizedBuy - balancePost;
         assertEq(ltConsumed, amountInUsed, "trader should only pay `amountInUsed`, not the requested amount");
@@ -367,8 +367,8 @@ contract GraduationInvariantsTest is DeployHelper {
         }
 
         assertTrue(bonding.isGraduated(tokenAddr), "should graduate eventually");
-        assertEq(IFPair(pairAddr).tokenBalance(), 0, "pair drained of tokens");
-        assertEq(IFPair(pairAddr).assetBalance(), 0, "pair drained of LT");
+        assertEq(IPair(pairAddr).tokenBalance(), 0, "pair drained of tokens");
+        assertEq(IPair(pairAddr).assetBalance(), 0, "pair drained of LT");
         assertEq(bonding.lpReserve(tokenAddr), 0, "lpReserve cleared");
         assertTrue(bonding.graduatedPair(tokenAddr) != address(0), "hyperswap pair created");
 

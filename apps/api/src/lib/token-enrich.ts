@@ -45,12 +45,12 @@ export function usdcRawToUsd(raw: string | null | undefined): number | null {
 
 /**
  * Compute curve-filled percentage (0–100) from the **virtual** `reserve0` that
- * the indexer persists (= `IFPair.getReserves()[0]` from `Bonding.Trade`).
+ * the indexer persists (= `IPair.getReserves()[0]` from `Bonding.Trade`).
  *
  * Under the dynamic-LP design, virtual `reserve0` is initialised to the full
  * `TOTAL_SUPPLY` (1B) while only `CURVE_ALLOCATION` (750M) real tokens are
  * transferred to the pair. As curve tokens are sold, `reserve0` drops 1:1 with
- * the real balance (FPair.swap is symmetric on virtual vs real amounts), so
+ * the real balance (Pair.swap is symmetric on virtual vs real amounts), so
  * `reserve0` floors at `LP_RESERVE_RAW = 250M` at full sellout. We can recover
  * the real on-curve supply as `max(0, reserve0 − LP_RESERVE_RAW)`.
  *
@@ -74,7 +74,7 @@ export interface CurveFilledBreakdown {
   total: number | null;
   /**
    * Share of `total` attributable to real USDC the curve has received via
-   * `LaunchpadRouter`. `null` when the breakdown can't be computed (indexer
+   * `Zap`. `null` when the breakdown can't be computed (indexer
    * down or no exchange-rate data).
    */
   organic: number | null;
@@ -105,7 +105,7 @@ export interface CurveFilledBreakdown {
  * Virtual vs real reserves: `curveSupplyRaw` and `ltReserveRaw` are the AMM's
  * **virtual** reserves (what the constant-product math uses, needed unmodified
  * for chart pricing). For USD raised we need the **real** LT balance that
- * matches `IFPair.assetBalance()` on-chain — i.e. what `Bonding.canGraduate`
+ * matches `IPair.assetBalance()` on-chain — i.e. what `Bonding.canGraduate`
  * compares against `graduationThresholdUsd`. We recover it by subtracting the
  * launch-time virtual LT reserve (`virtualLtAtLaunch = k / TOTAL_SUPPLY`)
  * from the current virtual `reserve1`. Without `k` we can't do that subtraction
@@ -146,7 +146,7 @@ export function computeCurveFilledBreakdown(
   }
 
   // Recover real LT balance from the virtual reserve1. At mint,
-  //   k = TOTAL_SUPPLY × virtualLtAtLaunch   (`FPair.mint`, see Bonding.sol)
+  //   k = TOTAL_SUPPLY × virtualLtAtLaunch   (`Pair.mint`, see Bonding.sol)
   // so `virtualLtAtLaunch = k / TOTAL_SUPPLY`. Real LT flowing in via buys
   // bumps both reserve1 and assetBalance() by the same amount, so
   //   realLt = reserve1 − virtualLtAtLaunch.
@@ -237,14 +237,14 @@ export interface EnrichedToken
    */
   ltChange24h: number | null;
   /**
-   * Sum of USDC (6dp → USD) traded through `LaunchpadRouter` in the last 24h
+   * Sum of USDC (6dp → USD) traded through `Zap` in the last 24h
    * for this token (buys + sells). `null` when the indexer is unavailable,
    * `0` when the token has simply had no trades in the window — callers must
    * distinguish the two (null == unknown, 0 == legitimately quiet).
    */
   volume24hUsd: number | null;
   /**
-   * Lifetime gross USD routed through `LaunchpadRouter` for this token
+   * Lifetime gross USD routed through `Zap` for this token
    * (buys + sells, never subtracts). Sourced from the indexer's running
    * counter (`token.volumeUsd`), so it survives pagination truncation that
    * can force `volume24hUsd` to null. `null` only when the indexer is
@@ -266,7 +266,7 @@ export interface EnrichedToken
    */
   protocolFeesUsd: number | null;
   /**
-   * ISO timestamp of the most recent `LaunchpadRouter` trade for this token
+   * ISO timestamp of the most recent `Zap` trade for this token
    * within the 24h lookback window. `null` means either no trades in the
    * window or indexer unavailable — use in conjunction with
    * `volume24hUsd` to disambiguate.

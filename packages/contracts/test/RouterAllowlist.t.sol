@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Vm} from "forge-std/Test.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
-import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
+import {Token} from "../src/Token.sol";
+import {Zap} from "../src/Zap.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 /// @notice Coverage for the router allowlist + trader-attribution contract
@@ -14,20 +14,19 @@ import {DeployHelper} from "./DeployHelper.sol";
 /// must record the real user, and only allowlisted routers may drive the
 /// curve.
 contract RouterAllowlistTest is DeployHelper {
-    LaunchpadRouter public launchpadRouter;
+    Zap public zap;
 
     function setUp() public {
         _deployCore();
 
-        LaunchpadRouter routerImpl = new LaunchpadRouter();
-        bytes memory routerInit = abi.encodeCall(
-            LaunchpadRouter.initialize,
-            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+        Zap zapImpl = new Zap();
+        bytes memory zapInit = abi.encodeCall(
+            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
         );
-        launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
+        zap = Zap(address(new ERC1967Proxy(address(zapImpl), zapInit)));
 
-        bonding.addRouter(address(launchpadRouter));
-        feeVault.addDepositor(address(launchpadRouter));
+        bonding.addRouter(address(zap));
+        feeVault.addDepositor(address(zap));
         usdc.mint(address(lt), 1_000_000 ether);
     }
 
@@ -63,24 +62,24 @@ contract RouterAllowlistTest is DeployHelper {
 
     function test_addRouter_revertsOnDuplicate() public {
         vm.expectRevert(Bonding.RouterAlreadyAdded.selector);
-        bonding.addRouter(address(launchpadRouter));
+        bonding.addRouter(address(zap));
     }
 
     function test_removeRouter_ownerCanRemove() public {
-        bonding.removeRouter(address(launchpadRouter));
-        assertFalse(bonding.isRouter(address(launchpadRouter)));
+        bonding.removeRouter(address(zap));
+        assertFalse(bonding.isRouter(address(zap)));
     }
 
     function test_removeRouter_emitsEvent() public {
         vm.expectEmit(true, false, false, false);
-        emit Bonding.RouterRemoved(address(launchpadRouter));
-        bonding.removeRouter(address(launchpadRouter));
+        emit Bonding.RouterRemoved(address(zap));
+        bonding.removeRouter(address(zap));
     }
 
     function test_removeRouter_revertsForNonOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        bonding.removeRouter(address(launchpadRouter));
+        bonding.removeRouter(address(zap));
     }
 
     function test_removeRouter_revertsWhenNotAdded() public {
@@ -97,13 +96,13 @@ contract RouterAllowlistTest is DeployHelper {
         address[] memory routers = bonding.getRouters();
         assertEq(routers.length, 3);
         // Order is insertion-order minus swap-on-removal; just assert membership.
-        assertTrue(bonding.isRouter(address(launchpadRouter)));
+        assertTrue(bonding.isRouter(address(zap)));
         assertTrue(bonding.isRouter(r1));
         assertTrue(bonding.isRouter(r2));
     }
 
     function test_removeRouter_shrinksEnumeration() public {
-        bonding.removeRouter(address(launchpadRouter));
+        bonding.removeRouter(address(zap));
         assertEq(bonding.getRouters().length, 0);
     }
 
@@ -114,7 +113,7 @@ contract RouterAllowlistTest is DeployHelper {
         lt.mintDirect(trader, 100 ether);
 
         vm.startPrank(trader);
-        lt.approve(address(frouter), 100 ether);
+        lt.approve(address(curveRouter), 100 ether);
         vm.expectRevert(Bonding.NotRouter.selector);
         bonding.buy(100 ether, tokenAddr, 0, trader);
         vm.stopPrank();
@@ -124,9 +123,9 @@ contract RouterAllowlistTest is DeployHelper {
         address tokenAddr = _createBasicToken();
         _buyViaRouter(tokenAddr, trader, 500 ether);
 
-        uint256 balance = FERC20(tokenAddr).balanceOf(trader);
+        uint256 balance = Token(tokenAddr).balanceOf(trader);
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), balance);
+        Token(tokenAddr).approve(address(curveRouter), balance);
         vm.expectRevert(Bonding.NotRouter.selector);
         bonding.sell(balance, tokenAddr, 0, trader);
         vm.stopPrank();
@@ -152,7 +151,7 @@ contract RouterAllowlistTest is DeployHelper {
 
     function test_removedRouter_canNoLongerBuy() public {
         // Deploy a second router, use it, then remove it and check further calls revert.
-        LaunchpadRouter secondary = _deploySecondaryRouter();
+        Zap secondary = _deploySecondaryRouter();
         bonding.addRouter(address(secondary));
 
         address tokenAddr = _createBasicToken();
@@ -171,21 +170,21 @@ contract RouterAllowlistTest is DeployHelper {
     // ─── Trader attribution in Trade event ───────────────────────────────
 
     /// @notice The central invariant this refactor exists to enforce: a buy
-    ///         routed through LaunchpadRouter must emit `Bonding.Trade` with
+    ///         routed through Zap must emit `Bonding.Trade` with
     ///         the user's EOA as `trader`, not the router's address.
     function test_traderAttribution_routerBuy_emitsUserAddress() public {
         address tokenAddr = _createBasicToken();
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 100 ether);
+        usdc.approve(address(zap), 100 ether);
 
         // `Bonding.Trade(tokenAddr, trader, isBuy=true, ...)` — indexed topics
         // `token` and `trader` must match. Data fields are not asserted (the
         // exact LT/token/reserve values aren't the point of this test).
         vm.expectEmit(true, true, false, false, address(bonding));
         emit Bonding.Trade(tokenAddr, trader, true, 0, 0, 0, 0);
-        launchpadRouter.buy(tokenAddr, 100 ether, 0, address(0));
+        zap.buy(tokenAddr, 100 ether, 0, address(0));
         vm.stopPrank();
     }
 
@@ -193,13 +192,13 @@ contract RouterAllowlistTest is DeployHelper {
         address tokenAddr = _createBasicToken();
         _buyViaRouter(tokenAddr, trader, 500 ether);
 
-        uint256 balance = FERC20(tokenAddr).balanceOf(trader);
+        uint256 balance = Token(tokenAddr).balanceOf(trader);
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), balance);
+        Token(tokenAddr).approve(address(zap), balance);
 
         vm.expectEmit(true, true, false, false, address(bonding));
         emit Bonding.Trade(tokenAddr, trader, false, 0, 0, 0, 0);
-        launchpadRouter.sell(tokenAddr, balance, 0);
+        zap.sell(tokenAddr, balance, 0);
         vm.stopPrank();
     }
 
@@ -221,12 +220,12 @@ contract RouterAllowlistTest is DeployHelper {
         });
 
         vm.startPrank(creator);
-        usdc.approve(address(launchpadRouter), 200 ether);
+        usdc.approve(address(zap), 200 ether);
 
         // The seed-buy's `Bonding.Trade` event, emitted mid-`createToken`,
         // must carry `creator` (not `address(bonding)` or the router).
         vm.recordLogs();
-        launchpadRouter.createToken(params, 200 ether);
+        zap.createToken(params, 200 ether);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         vm.stopPrank();
 
@@ -256,7 +255,7 @@ contract RouterAllowlistTest is DeployHelper {
             salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
-        tokenAddr = launchpadRouter.createToken(params, 0);
+        tokenAddr = zap.createToken(params, 0);
     }
 
     function _buyViaRouter(
@@ -264,11 +263,11 @@ contract RouterAllowlistTest is DeployHelper {
         address buyer,
         uint256 usdcAmount
     ) internal returns (uint256 tokensOut) {
-        return _buyVia(launchpadRouter, tokenAddr, buyer, usdcAmount);
+        return _buyVia(zap, tokenAddr, buyer, usdcAmount);
     }
 
     function _buyVia(
-        LaunchpadRouter r,
+        Zap r,
         address tokenAddr,
         address buyer,
         uint256 usdcAmount
@@ -280,13 +279,12 @@ contract RouterAllowlistTest is DeployHelper {
         vm.stopPrank();
     }
 
-    function _deploySecondaryRouter() internal returns (LaunchpadRouter secondary) {
-        LaunchpadRouter impl = new LaunchpadRouter();
+    function _deploySecondaryRouter() internal returns (Zap secondary) {
+        Zap impl = new Zap();
         bytes memory init = abi.encodeCall(
-            LaunchpadRouter.initialize,
-            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
         );
-        secondary = LaunchpadRouter(address(new ERC1967Proxy(address(impl), init)));
+        secondary = Zap(address(new ERC1967Proxy(address(impl), init)));
         feeVault.addDepositor(address(secondary));
     }
 }

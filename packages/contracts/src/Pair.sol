@@ -4,13 +4,13 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IFPair} from "./interfaces/IFPair.sol";
+import {IPair} from "./interfaces/IPair.sol";
 
-/// @title FPair
+/// @title Pair
 /// @notice Per-token bonding curve pair. Tracks reserves and holds tokens.
-/// @dev Forked from Virtuals Protocol FPair.sol. Only the router may mutate state.
+/// @dev Forked from Virtuals Protocol's `FPair.sol`. Only the router may mutate state.
 ///      reserve0 = token (tokenA), reserve1 = asset (tokenB, virtual at init).
-contract FPair is IFPair, ReentrancyGuard {
+contract Pair is IPair, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     address public immutable router;

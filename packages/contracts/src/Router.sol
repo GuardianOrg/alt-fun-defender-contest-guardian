@@ -6,23 +6,23 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {FFactory} from "./FFactory.sol";
-import {IFPair} from "./interfaces/IFPair.sol";
+import {Factory} from "./Factory.sol";
+import {IPair} from "./interfaces/IPair.sol";
 
-/// @title FRouter
+/// @title Router
 /// @notice Executes buy/sell trades on bonding curve pairs using constant-product AMM math.
 /// @dev Supports per-token LT pairing. No fees are charged at this layer — protocol fees
-///      are collected in USDC by `LaunchpadRouter` and routed to `FeeVault`.
+///      are collected in USDC by `Zap` and routed to `FeeVault`.
 ///
 ///      Supports "virtual" token reserves, where `reserve0` in the pair can exceed the
 ///      amount of real tokens held. This is used by the launchpad so the curve extends
 ///      beyond the sellable supply, enabling dynamic LP seeding at graduation.
-contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
+contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
 
-    FFactory public factory;
+    Factory public factory;
 
     error ZeroAddress();
     error ZeroAmount();
@@ -33,7 +33,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     ) external initializer {
         __AccessControl_init();
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        factory = FFactory(factory_);
+        factory = Factory(factory_);
     }
 
     /// @notice Resolve the LT address for a given token
@@ -53,7 +53,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         address pairAddr = factory.getPair(token, asset);
         if (pairAddr == address(0)) revert PairNotFound();
 
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
         uint256 k = pair.kLast();
 
@@ -85,7 +85,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         if (pairAddr == address(0)) revert PairNotFound();
 
         IERC20(token).safeTransferFrom(msg.sender, pairAddr, realTokenAmount);
-        IFPair(pairAddr).mint(virtualReserveToken, reserveAsset);
+        IPair(pairAddr).mint(virtualReserveToken, reserveAsset);
     }
 
     /// @notice Execute a buy: LT in -> tokens out. No fee at this layer.
@@ -108,8 +108,8 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
 
         IERC20(asset).safeTransferFrom(to, pairAddr, amountInUsed);
 
-        IFPair(pairAddr).transferToken(to, tokensOut);
-        IFPair(pairAddr).swap(0, tokensOut, amountInUsed, 0);
+        IPair(pairAddr).transferToken(to, tokensOut);
+        IPair(pairAddr).swap(0, tokensOut, amountInUsed, 0);
     }
 
     /// @dev Compute buy amounts, capping `tokensOut` at the pair's real token balance.
@@ -118,7 +118,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         address pairAddr,
         uint256 amountIn
     ) internal view returns (uint256 amountInUsed, uint256 tokensOut) {
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         (uint256 r0, uint256 r1) = pair.getReserves();
         uint256 k = pair.kLast();
 
@@ -154,9 +154,9 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
 
         assetOut = getAmountOut(token, false, amountIn);
 
-        IFPair(pairAddr).transferAsset(to, assetOut);
+        IPair(pairAddr).transferAsset(to, assetOut);
 
-        IFPair(pairAddr).swap(amountIn, 0, 0, assetOut);
+        IPair(pairAddr).swap(amountIn, 0, 0, assetOut);
     }
 
     /// @notice Drain real LT balance from a pair (called during graduation).
@@ -166,7 +166,7 @@ contract FRouter is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 amount) {
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
-        amount = IFPair(pairAddr).assetBalance();
-        IFPair(pairAddr).transferAsset(msg.sender, amount);
+        amount = IPair(pairAddr).assetBalance();
+        IPair(pairAddr).transferAsset(msg.sender, amount);
     }
 }

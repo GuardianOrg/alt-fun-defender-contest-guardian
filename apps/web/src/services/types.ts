@@ -39,12 +39,12 @@ export interface Token {
   curveFilled: number | null;
   curveRaisedUsd: number;
   /**
-   * 24h USD trading volume (buys + sells through `LaunchpadRouter`). `null`
+   * 24h USD trading volume (buys + sells through `Zap`). `null`
    * while the indexer aggregation is degraded — render as `—`, never `$0`.
    */
   volume24h: number | null;
   /**
-   * Lifetime gross USD traded through `LaunchpadRouter` for this token
+   * Lifetime gross USD traded through `Zap` for this token
    * (buys + sells, never subtracts). Tracked as a running counter on the
    * indexer so it survives pagination truncation. `null` only when the
    * indexer is unreachable.

@@ -41,16 +41,16 @@ The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExc
 
 ### Virtual vs real reserves (important)
 
-The indexer persists `curveSupply` and `ltReserve` verbatim from `Bonding.Trade.newCurveSupply` / `newLtReserve`, which are the **virtual AMM reserves** (`IFPair.getReserves()`). These are the right values for chart pricing (`ratio = reserve1 / reserve0` *is* the on-curve price) but are **not** the real token/LT balances in the pair:
+The indexer persists `curveSupply` and `ltReserve` verbatim from `Bonding.Trade.newCurveSupply` / `newLtReserve`, which are the **virtual AMM reserves** (`IPair.getReserves()`). These are the right values for chart pricing (`ratio = reserve1 / reserve0` *is* the on-curve price) but are **not** the real token/LT balances in the pair:
 
 - `reserve0` is initialised to `TOTAL_SUPPLY` (1B × 1e18) and floors at `LP_RESERVE_RAW` (250M × 1e18) at full sellout — range [250M, 1B], not [0, 750M].
 - `reserve1` is initialised to `virtualLtAtLaunch = $4K / rate_at_launch` and grows with buys — not 0 at launch.
 
 `token-enrich.ts` converts virtual → real before computing graduation progress:
 
-- `realRemaining = max(0, reserve0 − LP_RESERVE_RAW)` — matches `IFPair.tokenBalance()`.
-- `virtualLtAtLaunch = k / TOTAL_SUPPLY` (from `FPair.mint` where `k = totalSupply × virtualLtReserve`).
-- `realLt = max(0, reserve1 − virtualLtAtLaunch)` — matches `IFPair.assetBalance()` and therefore `Bonding.canGraduate`'s USD trigger.
+- `realRemaining = max(0, reserve0 − LP_RESERVE_RAW)` — matches `IPair.tokenBalance()`.
+- `virtualLtAtLaunch = k / TOTAL_SUPPLY` (from `Pair.mint` where `k = totalSupply × virtualLtReserve`).
+- `realLt = max(0, reserve1 − virtualLtAtLaunch)` — matches `IPair.assetBalance()` and therefore `Bonding.canGraduate`'s USD trigger.
 
 This means every API query that feeds graduation-progress math **must include `k`** — it's required for the virtual-LT subtraction. Without it the USD fill silently overcounts by the initial $4K virtual liquidity, so the enricher degrades cleanly to supply-only progress when `k` is missing.
 

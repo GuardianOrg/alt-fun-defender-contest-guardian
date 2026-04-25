@@ -1,4 +1,4 @@
-export const FPairAbi = [
+export const PairAbi = [
   {
     "type": "constructor",
     "inputs": [

@@ -12,7 +12,7 @@ export const TOKEN_SUPPLY = 1_000_000_000;
 
 /**
  * Raw total supply (1B × 1e18) in bigint. Matches the virtual `reserve0`
- * initialised in `FPair.mint` at launch. Used to analytically reconstruct a
+ * initialised in `Pair.mint` at launch. Used to analytically reconstruct a
  * freshly-launched token's curve state (before any trades have produced a
  * snapshot) when computing "since-launch" price change for tokens younger
  * than 24h.
@@ -40,7 +40,7 @@ export interface PonderTokenOnchain {
   /**
    * Virtual AMM reserve1. Starts at `virtualLtReserveAtLaunch = $4K / rate`
    * and grows with buys / shrinks with sells. Callers that want "real LT
-   * raised" (== `IFPair.assetBalance()` on-chain) must subtract
+   * raised" (== `IPair.assetBalance()` on-chain) must subtract
    * `virtualLtReserveAtLaunch = k / TOTAL_SUPPLY_RAW`.
    */
   ltReserve: string;
@@ -49,13 +49,13 @@ export interface PonderTokenOnchain {
   bondingPair: string | null;
   hyperswapPair: string | null;
   /**
-   * Cumulative net USDC (6dp) routed through LaunchpadRouter for this token
+   * Cumulative net USDC (6dp) routed through Zap for this token
    * (buys minus sells, floored at 0). Used to split the graduation progress
    * bar into "organic buys" vs "LT price appreciation".
    */
   organicUsdcRaised: string;
   /**
-   * Cumulative **gross** USDC (6dp) routed through LaunchpadRouter for this
+   * Cumulative **gross** USDC (6dp) routed through Zap for this
    * token (buys + sells, never subtracts). Surfaced as `totalVolumeUsd` on
    * the API — lifetime trading-volume figure for the hero card and creator
    * rewards summary. Contrast with `organicUsdcRaised` (net, floored).
@@ -115,7 +115,7 @@ export interface MarketDataItem {
    */
   ltChange24h: number | null;
   /**
-   * Total USD routed through `LaunchpadRouter` for this token in the last
+   * Total USD routed through `Zap` for this token in the last
    * 24h (buys + sells, nominal). `null` when the indexer can't be reached;
    * `0` when the token simply had no trades in the window. See
    * `fetchRouterTradeActivity`.
@@ -343,7 +343,7 @@ export interface RouterTradeActivity {
 }
 
 /**
- * Aggregate `LaunchpadRouter` trades over the last 24h, keyed by token
+ * Aggregate `Zap` trades over the last 24h, keyed by token
  * address (lowercased). Used to power the trending score's volume and
  * recency components, and to expose `volume24hUsd` / `lastTradeAt` on the
  * token list response.
@@ -620,7 +620,7 @@ export interface PastPriceInputs {
  * BounceTech has no historical rate for the LT).
  *
  * For fresh tokens we reconstruct the launch curve state analytically from
- * `k` (the AMM invariant set in `FPair.mint`) rather than querying Ponder —
+ * `k` (the AMM invariant set in `Pair.mint`) rather than querying Ponder —
  * a just-launched token has no `tokenSnapshot` rows yet, but its initial
  * state is fully determined by `(TOTAL_SUPPLY_RAW, k / TOTAL_SUPPLY_RAW)`.
  */

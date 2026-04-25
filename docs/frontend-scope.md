@@ -72,9 +72,9 @@ Two-column: left (form) | right (live preview card).
 
 ## Trade Flows
 
-**Buy:** enter USDC → see estimated tokens → BUY → Privy login if needed → USDC approve if first buy → `LaunchpadRouter.buy()` → confirmation.
+**Buy:** enter USDC → see estimated tokens → BUY → Privy login if needed → USDC approve if first buy → `Zap.buy()` → confirmation.
 
-**Sell:** enter token amount → see estimated USDC → SELL → FERC20 approve if first sell → `LaunchpadRouter.sell()` → USDC arrives atomically. If sell exceeds the LT's idle USDC buffer (`baseAssetBalance()`), the trade panel shows a warning with the max sellable amount and advises selling in smaller chunks. The buffer replenishes in ~10s after each sell.
+**Sell:** enter token amount → see estimated USDC → SELL → Token approve if first sell → `Zap.sell()` → USDC arrives atomically. If sell exceeds the LT's idle USDC buffer (`baseAssetBalance()`), the trade panel shows a warning with the max sellable amount and advises selling in smaller chunks. The buffer replenishes in ~10s after each sell.
 
 ---
 
@@ -82,12 +82,12 @@ Two-column: left (form) | right (live preview card).
 
 | Action | Function |
 |---|---|
-| Buy | `LaunchpadRouter.buy(token, usdcAmount, minOut, referrer)` |
-| Sell | `LaunchpadRouter.sell(token, tokenAmount, minUsdcOut)` |
-| Launch token | `LaunchpadRouter.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)` |
+| Buy | `Zap.buy(token, usdcAmount, minOut, referrer)` |
+| Sell | `Zap.sell(token, tokenAmount, minUsdcOut)` |
+| Launch token | `Zap.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)` |
 | Claim creator fees | `FeeVault.claim()` (USDC, pooled across all of the creator's tokens) |
-| USDC approval | `USDC.approve(launchpadRouter, amount)` |
-| Token approval | `FERC20.approve(launchpadRouter, amount)` |
+| USDC approval | `USDC.approve(zap, amount)` |
+| Token approval | `Token.approve(zap, amount)` |
 
 ---
 

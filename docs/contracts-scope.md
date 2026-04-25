@@ -9,11 +9,11 @@ Forked from Virtuals Protocol `contracts/fun` — a bonding curve system. We rep
 | Contract | Description |
 |---|---|
 | `Bonding.sol` | Main entry — launch, buy, sell, graduation (no fee logic — moved to the router) |
-| `FFactory.sol` | Pair registry |
-| `FRouter.sol` | AMM math, buy/sell execution (returns gross amounts; no fee deduction) |
-| `FPair.sol` | Per-token pair: reserves, k-constant |
-| `FERC20.sol` | ERC20 token with burn |
-| `LaunchpadRouter.sol` | User-facing entry point — USDC in/out, LT abstraction, **fee layer** |
+| `Factory.sol` | Pair registry |
+| `Router.sol` | AMM math, buy/sell execution (returns gross amounts; no fee deduction) |
+| `Pair.sol` | Per-token pair: reserves, k-constant |
+| `Token.sol` | ERC20 token with burn |
+| `Zap.sol` | User-facing entry point — USDC in/out, LT abstraction, **fee layer** |
 | `FeeVault.sol` | Holds accrued protocol + creator USDC fees; creators claim here |
 | `LPLock.sol` | Holds graduated LP tokens (no withdraw in v1) |
 
@@ -21,9 +21,9 @@ Forked from Virtuals Protocol `contracts/fun` — a bonding curve system. We rep
 
 ## Token Launch
 
-Creator calls `LaunchpadRouter.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)`. The router calls `Bonding.launch()` to deploy the curve, then — if `seedUsdcAmount > 0` — performs the seed buy via the standard `LaunchpadRouter.buy` path so it inherits the same pro-rata fee handling and leftover refund as any other buy.
+Creator calls `Zap.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)`. The router calls `Bonding.launch()` to deploy the curve, then — if `seedUsdcAmount > 0` — performs the seed buy via the standard `Zap.buy` path so it inherits the same pro-rata fee handling and leftover refund as any other buy.
 
-This deploys an `FERC20` (1B supply) and creates an `FPair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
+This deploys a `Token` clone (1B supply) and creates a `Pair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
 
 **Virtual token reserve.** The pair's `reserve0` is seeded at `totalSupply` (1B) while only `curveSupply = 75%` (750M) of real tokens are actually transferred. The other 250M are held in `Bonding` as `lpReserve`. This virtual-reserve design:
 
@@ -37,17 +37,17 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 
 ## Buy Flow
 
-1. `LaunchpadRouter.buy(tokenAddress, usdcAmount, minTokensOut, referrer)`
+1. `Zap.buy(tokenAddress, usdcAmount, minTokensOut, referrer)`
 2. Router pulls `usdcAmount` USDC and deducts the 0.5% fee up-front (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator)
 3. Net USDC is minted to LT
 4. If on curve: routes through `Bonding.buy()`. If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). Fee is charged on both paths — symmetric with sells.
 5. Tokens sent to user; any leftover LT (capped-buy case) is redeemed back to USDC and refunded along with the pro-rata fee refund
 
-**Overflow buy protection.** On the final buy that would empty the curve, `FRouter.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `LaunchpadRouter.buy` then refunds any unused LT to the buyer by calling `ILeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
+**Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` then refunds any unused LT to the buyer by calling `ILeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
 
 ## Sell Flow
 
-1. `LaunchpadRouter.sell(tokenAddress, tokenAmount, minUsdcOut)`
+1. `Zap.sell(tokenAddress, tokenAmount, minUsdcOut)`
 2. If on curve: routes through `Bonding.sell()`. If graduated: swaps on HyperSwap V2.
 3. LT redeemed atomically via `redeem()` → gross USDC into the router
 4. Router deducts the 0.5% fee (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator); net USDC sent to user in the same tx
@@ -62,7 +62,7 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 Dual trigger — fires on whichever hits first:
 
 - **USD trigger:** `assetBalance × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold).
-- **Supply trigger:** `IFPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached).
+- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached).
 
 Checked in `Bonding.canGraduate()` on every buy; executed in `Bonding._graduate()` immediately when true.
 
@@ -74,9 +74,9 @@ Our approach: compute the exact `tokensForLP` at graduation time so the LP opens
 
 `_graduate()` performs, in order:
 
-1. Read `(reserve0, reserve1)` from the FPair **before** any state mutation.
+1. Read `(reserve0, reserve1)` from the Pair **before** any state mutation.
 2. Burn any unsold real curve tokens from the pair (`unsoldBurned`).
-3. Drain all real LT from the pair via `FRouter.graduate()` (`ltFromPair`).
+3. Drain all real LT from the pair via `Router.graduate()` (`ltFromPair`).
 4. Compute `tokensForLP = (ltFromPair × reserve0) / reserve1` — the unique amount that sets the LP price `ltFromPair / tokensForLP` equal to the last curve price `reserve1 / reserve0`. Capped at `lpReserveTotal` as a defensive guard (parabola math proves `tokensForLP ≤ lpReserveTotal` by construction).
 5. Burn `lpReserveTotal − tokensForLP` from `Bonding`'s held reserve (`lpBurned`).
 6. `addLiquidity(tokensForLP, ltFromPair)` on HyperSwap V2 → LP tokens go to `LPLock`.
@@ -94,16 +94,16 @@ All enforced by `test/GraduationInvariants.t.sol`:
 | 5 | Both triggers work | Supply trigger fires below `$12K`; USD trigger fires with supply remaining |
 | 6 | Overflow refund | Oversized buys charge only `amountInUsed`, not requested amount |
 
-After graduation, all trades continue through `LaunchpadRouter` via HyperSwap. The pool is TOKEN/LT so leveraged exposure persists.
+After graduation, all trades continue through `Zap` via HyperSwap. The pool is TOKEN/LT so leveraged exposure persists.
 
 ---
 
 ## Fees & FeeVault
 
-All fees are charged by `LaunchpadRouter` in USDC and forwarded into `FeeVault`. The router holds no fee state — the vault is where balances live and where creators and the protocol claim.
+All fees are charged by `Zap` in USDC and forwarded into `FeeVault`. The router holds no fee state — the vault is where balances live and where creators and the protocol claim.
 
 - **Rate:** 0.5% on every buy/sell (curve **and** post-grad), split 0.4% protocol / 0.1% creator.
-- **Accrual:** `LaunchpadRouter` transfers the fee USDC to `FeeVault`, then calls `FeeVault.accrue(token, creator, creatorAmount, protocolAmount, isBuy)`. Creator attribution comes from `Bonding.tokenInfo(token).creator` (set at launch, updatable via `transferCreator`).
+- **Accrual:** `Zap` transfers the fee USDC to `FeeVault`, then calls `FeeVault.accrue(token, creator, creatorAmount, protocolAmount, isBuy)`. Creator attribution comes from `Bonding.tokenInfo(token).creator` (set at launch, updatable via `transferCreator`).
 - **Claims:** `FeeVault.claim()` pays the caller their pooled USDC balance across every token they've launched. `FeeVault.claimProtocol()` is owner-only and pays the configured `feeTo`.
 - **Lifetime counters:** `lifetimeCreatorEarned(creator)` / `lifetimeProtocolEarned` never decrement on claim, so the UI can render "total earned / claimed / claimable" consistently.
 - **Router swapability:** The vault has an owner-controlled depositor allowlist. A new router is whitelisted, the old router removed, and creator balances are untouched during the transition.
@@ -129,10 +129,10 @@ All fees are charged by `LaunchpadRouter` in USDC and forwarded into `FeeVault`.
 | `FeeAccrued` | FeeVault | `token`, `creator`, `creatorAmount`, `protocolAmount`, `isBuy` |
 | `CreatorFeesClaimed` | FeeVault | `creator`, `amount` (USDC) |
 | `ProtocolFeesClaimed` | FeeVault | `feeTo`, `amount` (USDC) |
-| `Buy` | LaunchpadRouter | `token`, `buyer`, `usdcIn`, `tokensOut` |
-| `Sell` | LaunchpadRouter | `token`, `seller`, `tokensIn`, `usdcOut` |
-| `Referred` | LaunchpadRouter | `trader`, `referrer`, `token`, `usdcAmount` |
-| `TokenCreated` | LaunchpadRouter | `token`, `creator`, `ltAddress` |
+| `Buy` | Zap | `token`, `buyer`, `usdcIn`, `tokensOut` |
+| `Sell` | Zap | `token`, `seller`, `tokensIn`, `usdcOut` |
+| `Referred` | Zap | `trader`, `referrer`, `token`, `usdcAmount` |
+| `TokenCreated` | Zap | `token`, `creator`, `ltAddress` |
 
 ---
 

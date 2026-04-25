@@ -2,15 +2,15 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {FFactory} from "../src/FFactory.sol";
-import {FRouter} from "../src/FRouter.sol";
-import {FPair} from "../src/FPair.sol";
-import {IFPair} from "../src/interfaces/IFPair.sol";
+import {Factory} from "../src/Factory.sol";
+import {Router} from "../src/Router.sol";
+import {Pair} from "../src/Pair.sol";
+import {IPair} from "../src/interfaces/IPair.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
-contract FRouterTest is Test {
-    FFactory public factory;
-    FRouter public router;
+contract RouterTest is Test {
+    Factory public factory;
+    Router public router;
 
     MockERC20 public token;
     MockERC20 public asset;
@@ -29,10 +29,10 @@ contract FRouterTest is Test {
         token = new MockERC20("Token", "TKN");
         asset = new MockERC20("Asset", "LT");
 
-        factory = new FFactory();
+        factory = new Factory();
         factory.initialize();
 
-        router = new FRouter();
+        router = new Router();
         router.initialize(address(factory));
 
         factory.setRouter(address(router));
@@ -47,7 +47,7 @@ contract FRouterTest is Test {
         token.mint(bondingRole, TOKEN_SUPPLY);
         vm.startPrank(bondingRole);
         token.approve(address(router), TOKEN_SUPPLY);
-        // For FRouter unit tests, use matching virtual/real reserves (no overflow scenario).
+        // For Router unit tests, use matching virtual/real reserves (no overflow scenario).
         router.addInitialLiquidity(address(token), TOKEN_SUPPLY, TOKEN_SUPPLY, ASSET_RESERVE);
         vm.stopPrank();
     }
@@ -109,7 +109,7 @@ contract FRouterTest is Test {
 
     function test_getAmountOut_revertsForUnknownPair() public {
         address fakeToken = makeAddr("fakeToken");
-        vm.expectRevert(FRouter.PairNotFound.selector);
+        vm.expectRevert(Router.PairNotFound.selector);
         router.getAmountOut(fakeToken, true, 100 ether);
     }
 
@@ -119,7 +119,7 @@ contract FRouterTest is Test {
         uint256 amountIn = 500 ether;
         uint256 tokensOut = router.getAmountOut(address(token), true, amountIn);
 
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         (uint256 r0, uint256 r1) = pair.getReserves();
         uint256 k = pair.kLast();
 
@@ -147,13 +147,13 @@ contract FRouterTest is Test {
     function test_buy_fullAmountEntersPair() public {
         uint256 amountIn = 1000 ether;
 
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         (, uint256 r1Before) = pair.getReserves();
 
         _doBuy(trader, amountIn);
 
         (, uint256 r1After) = pair.getReserves();
-        assertEq(r1After - r1Before, amountIn, "Full amount should increase asset reserve (no FRouter-layer fee)");
+        assertEq(r1After - r1Before, amountIn, "Full amount should increase asset reserve (no Router-layer fee)");
     }
 
     function test_buy_returnsCorrectValues() public {
@@ -172,7 +172,7 @@ contract FRouterTest is Test {
 
     function test_buy_revertsOnZeroAmount() public {
         vm.prank(bondingRole);
-        vm.expectRevert(FRouter.ZeroAmount.selector);
+        vm.expectRevert(Router.ZeroAmount.selector);
         router.buy(0, address(token), trader);
     }
 
@@ -196,7 +196,7 @@ contract FRouterTest is Test {
     }
 
     function test_buy_kUnchanged() public {
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         uint256 kBefore = pair.kLast();
 
         _doBuy(trader, 500 ether);
@@ -228,12 +228,12 @@ contract FRouterTest is Test {
         (uint256 tokensIn, uint256 assetOut) = router.sell(tokensOut, address(token), trader);
 
         assertEq(tokensIn, tokensOut);
-        assertEq(assetOut, expectedGross, "FRouter should return full gross; fee applies at LaunchpadRouter");
+        assertEq(assetOut, expectedGross, "Router should return full gross; fee applies at Zap");
     }
 
     function test_sell_revertsOnZeroAmount() public {
         vm.prank(bondingRole);
-        vm.expectRevert(FRouter.ZeroAmount.selector);
+        vm.expectRevert(Router.ZeroAmount.selector);
         router.sell(0, address(token), trader);
     }
 
@@ -249,7 +249,7 @@ contract FRouterTest is Test {
 
     function test_sell_kUnchanged() public {
         uint256 tokensOut = _doBuy(trader, 500 ether);
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         uint256 kBefore = pair.kLast();
 
         _doSell(trader, tokensOut);
@@ -259,15 +259,15 @@ contract FRouterTest is Test {
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
 
-    /// @notice Round trips through FRouter (no fee layer) are approximately
+    /// @notice Round trips through Router (no fee layer) are approximately
     ///         lossless — within rounding. Fee-induced loss is exercised in
-    ///         `LaunchpadRouter.t.sol`.
+    ///         `Zap.t.sol`.
     function test_roundTrip_lossless() public {
         uint256 buyAmount = 1000 ether;
         uint256 tokensOut = _doBuy(trader, buyAmount);
         uint256 assetOut = _doSell(trader, tokensOut);
 
-        assertApproxEqRel(assetOut, buyAmount, 0.001e18, "FRouter round trip should be approximately lossless");
+        assertApproxEqRel(assetOut, buyAmount, 0.001e18, "Router round trip should be approximately lossless");
     }
 
     // ─── addInitialLiquidity Tests ───────────────────────────────────────
@@ -289,7 +289,7 @@ contract FRouterTest is Test {
     function test_addInitialLiquidity_revertsForUnknownPair() public {
         address fakeToken = makeAddr("fakeToken");
         vm.prank(bondingRole);
-        vm.expectRevert(FRouter.PairNotFound.selector);
+        vm.expectRevert(Router.PairNotFound.selector);
         router.addInitialLiquidity(fakeToken, 1000 ether, 1000 ether, 100 ether);
     }
 
@@ -299,7 +299,7 @@ contract FRouterTest is Test {
         // Fund the pair with real asset tokens (simulating buys)
         asset.mint(pairAddr, 5000 ether);
 
-        uint256 pairBalance = IFPair(pairAddr).assetBalance();
+        uint256 pairBalance = IPair(pairAddr).assetBalance();
         assertTrue(pairBalance > 0, "Pair should have asset balance");
 
         vm.prank(bondingRole);
@@ -307,7 +307,7 @@ contract FRouterTest is Test {
 
         assertEq(amount, pairBalance, "Should drain full asset balance");
         assertEq(asset.balanceOf(bondingRole), amount, "Assets should go to caller");
-        assertEq(IFPair(pairAddr).assetBalance(), 0, "Pair should have no assets left");
+        assertEq(IPair(pairAddr).assetBalance(), 0, "Pair should have no assets left");
     }
 
     function test_graduate_revertsWithoutBondingRole() public {

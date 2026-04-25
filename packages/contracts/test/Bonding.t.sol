@@ -3,14 +3,14 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
-import {IFPair} from "../src/interfaces/IFPair.sol";
+import {Token} from "../src/Token.sol";
+import {IPair} from "../src/interfaces/IPair.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract BondingTest is DeployHelper {
     function setUp() public {
         _deployCore();
-        // Tests drive Bonding directly (bypassing LaunchpadRouter) by pranking
+        // Tests drive Bonding directly (bypassing Zap) by pranking
         // as each actor. Allowlist every pranked address so `onlyRouter`-gated
         // functions accept their calls.
         bonding.addRouter(creator);
@@ -40,7 +40,7 @@ contract BondingTest is DeployHelper {
         (tokenAddr, pairAddr,) = bonding.launch(params, creator);
 
         // Seed buys no longer happen inside `Bonding.launch` — they're now a
-        // post-launch step in the LaunchpadRouter. To preserve the seeded curve
+        // post-launch step in the Zap. To preserve the seeded curve
         // state these Bonding-level tests rely on, perform an equivalent seed
         // buy via `bonding.buy` (creator is already on the router allowlist).
         if (seedLtAmount > 0) {
@@ -71,7 +71,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(buyer, ltAmount);
         if (!bonding.isRouter(buyer)) bonding.addRouter(buyer);
         vm.startPrank(buyer);
-        lt.approve(address(frouter), ltAmount);
+        lt.approve(address(curveRouter), ltAmount);
         (tokensOut,) = bonding.buy(ltAmount, tokenAddr, 0, buyer);
         vm.stopPrank();
     }
@@ -84,8 +84,8 @@ contract BondingTest is DeployHelper {
 
     function test_setUp_factoryAndRouterLinked() public view {
         assertEq(address(bonding.factory()), address(factory));
-        assertEq(address(bonding.router()), address(frouter));
-        assertEq(factory.router(), address(frouter));
+        assertEq(address(bonding.router()), address(curveRouter));
+        assertEq(factory.router(), address(curveRouter));
     }
 
     function test_setUp_paramsCorrect() public view {
@@ -96,7 +96,7 @@ contract BondingTest is DeployHelper {
 
     function test_launch_createsToken() public {
         (address tokenAddr,) = _launchToken();
-        FERC20 token = FERC20(tokenAddr);
+        Token token = Token(tokenAddr);
 
         assertEq(token.symbol(), "TEST");
         assertTrue(bytes(token.name()).length > 0);
@@ -126,7 +126,7 @@ contract BondingTest is DeployHelper {
 
     function test_launch_creatorReceivesInitialTokens() public {
         (address tokenAddr,) = _launchToken();
-        FERC20 token = FERC20(tokenAddr);
+        Token token = Token(tokenAddr);
 
         uint256 creatorBalance = token.balanceOf(creator);
         assertTrue(creatorBalance > 0, "Creator should have tokens from seed buy");
@@ -134,9 +134,9 @@ contract BondingTest is DeployHelper {
 
     function test_launch_75percentOnCurveSellable() public {
         (address tokenAddr, address pairAddr) = _launchToken();
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
 
-        uint256 totalSupply = FERC20(tokenAddr).totalSupply();
+        uint256 totalSupply = Token(tokenAddr).totalSupply();
         uint256 expected75 = (totalSupply * 7500) / 10_000;
 
         // Real tokens in pair (sellable) should be slightly less than 75% after seed buy
@@ -152,33 +152,33 @@ contract BondingTest is DeployHelper {
     function test_launch_reservesLPTokens() public {
         (address tokenAddr,) = _launchToken();
 
-        uint256 totalSupply = FERC20(tokenAddr).totalSupply();
+        uint256 totalSupply = Token(tokenAddr).totalSupply();
         uint256 expected25 = (totalSupply * 2500) / 10_000;
 
         // lpReserve returns the tokens minus what was bought in seed
-        uint256 bondingBalance = FERC20(tokenAddr).balanceOf(address(bonding));
+        uint256 bondingBalance = Token(tokenAddr).balanceOf(address(bonding));
         assertEq(bondingBalance, expected25, "Bonding should hold 25% for LP reserve");
     }
 
     function test_launch_noSeedBuy() public {
         (address tokenAddr, address pairAddr) = _launchTokenNoSeed();
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         (uint256 reserveToken,) = pair.getReserves();
 
-        uint256 totalSupply = FERC20(tokenAddr).totalSupply();
+        uint256 totalSupply = Token(tokenAddr).totalSupply();
         uint256 expected75 = (totalSupply * 7500) / 10_000;
 
         // Virtual reserve0 equals totalSupply; real balance equals curveSupply (75%)
         assertEq(reserveToken, totalSupply, "Virtual reserve0 should equal totalSupply");
         assertEq(pair.tokenBalance(), expected75, "Real token balance should equal 75%");
 
-        uint256 creatorBalance = FERC20(tokenAddr).balanceOf(creator);
+        uint256 creatorBalance = Token(tokenAddr).balanceOf(creator);
         assertEq(creatorBalance, 0, "Creator should have no tokens without seed buy");
     }
 
     function test_launch_pairHasVirtualLiquidity() public {
         (, address pairAddr) = _launchToken();
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
 
         (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
         uint256 k = pair.kLast();
@@ -259,7 +259,7 @@ contract BondingTest is DeployHelper {
         (address tokenAddr,,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
-        assertEq(FERC20(tokenAddr).name(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        assertEq(Token(tokenAddr).name(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
     }
 
     function test_launch_revertsOnEmptyTicker() public {
@@ -286,7 +286,7 @@ contract BondingTest is DeployHelper {
         (address tokenAddr,,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
-        assertEq(FERC20(tokenAddr).symbol(), "AAAAAAAAAA");
+        assertEq(Token(tokenAddr).symbol(), "AAAAAAAAAA");
     }
 
     function test_launch_acceptsMinLengthNameAndTicker() public {
@@ -305,7 +305,7 @@ contract BondingTest is DeployHelper {
         uint256 buyAmount = 500 ether;
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
-        assertEq(FERC20(tokenAddr).balanceOf(trader), tokensOut);
+        assertEq(Token(tokenAddr).balanceOf(trader), tokensOut);
         assertTrue(tokensOut > 0, "Should receive tokens");
     }
 
@@ -316,7 +316,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
-        lt.approve(address(frouter), buyAmount);
+        lt.approve(address(curveRouter), buyAmount);
         bonding.buy(buyAmount, tokenAddr, 0, trader);
         vm.stopPrank();
 
@@ -329,7 +329,7 @@ contract BondingTest is DeployHelper {
 
         _buyTokens(tokenAddr, trader, 1000 ether);
 
-        // Fees have moved to LaunchpadRouter + FeeVault — Bonding no longer
+        // Fees have moved to Zap + FeeVault — Bonding no longer
         // retains any LT from trade fees.
         assertEq(lt.balanceOf(address(bonding)), bondingBalBefore, "Bonding should not accumulate trade fees");
     }
@@ -351,7 +351,7 @@ contract BondingTest is DeployHelper {
         lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
-        lt.approve(address(frouter), buyAmount);
+        lt.approve(address(curveRouter), buyAmount);
 
         vm.expectEmit(true, true, false, false);
         emit Bonding.Trade(tokenAddr, trader, true, 0, 0, 0, 0);
@@ -364,7 +364,7 @@ contract BondingTest is DeployHelper {
 
         lt.mintDirect(trader, 100 ether);
         vm.startPrank(trader);
-        lt.approve(address(frouter), 100 ether);
+        lt.approve(address(curveRouter), 100 ether);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
         bonding.buy(100 ether, tokenAddr, type(uint256).max, trader);
         vm.stopPrank();
@@ -377,7 +377,7 @@ contract BondingTest is DeployHelper {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), tokensOut);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
 
@@ -390,11 +390,11 @@ contract BondingTest is DeployHelper {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), tokensOut);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
         bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
 
-        assertEq(FERC20(tokenAddr).balanceOf(trader), 0, "All tokens should be sold");
+        assertEq(Token(tokenAddr).balanceOf(trader), 0, "All tokens should be sold");
     }
 
     function test_sell_revertsOnSlippage() public {
@@ -402,7 +402,7 @@ contract BondingTest is DeployHelper {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), tokensOut);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
         bonding.sell(tokensOut, tokenAddr, type(uint256).max, trader);
         vm.stopPrank();
@@ -410,9 +410,9 @@ contract BondingTest is DeployHelper {
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
 
-    /// @notice With fees moved to LaunchpadRouter, a pure-Bonding round trip
+    /// @notice With fees moved to Zap, a pure-Bonding round trip
     ///         is now lossless (ignoring rounding). The fee layer is exercised
-    ///         end-to-end in `LaunchpadRouter.t.sol`.
+    ///         end-to-end in `Zap.t.sol`.
     function test_buyThenSell_lossless() public {
         (address tokenAddr,) = _launchToken();
 
@@ -420,7 +420,7 @@ contract BondingTest is DeployHelper {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), tokensOut);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
 
@@ -486,7 +486,7 @@ contract BondingTest is DeployHelper {
         // Buying on graduated token should revert
         lt.mintDirect(trader, 100 ether);
         vm.startPrank(trader);
-        lt.approve(address(frouter), 100 ether);
+        lt.approve(address(curveRouter), 100 ether);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
         bonding.buy(100 ether, tokenAddr, 0, trader);
         vm.stopPrank();
@@ -512,7 +512,7 @@ contract BondingTest is DeployHelper {
         assertTrue(bonding.isGraduated(tokenAddr));
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), tokensOut);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
         bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
@@ -525,7 +525,7 @@ contract BondingTest is DeployHelper {
 
         lt.mintDirect(trader2, 100 ether);
         vm.startPrank(trader2);
-        lt.approve(address(frouter), 100 ether);
+        lt.approve(address(curveRouter), 100 ether);
 
         vm.expectEmit(true, false, false, false);
         emit Bonding.TokenGraduated(tokenAddr, address(0), 0, 0, 0, 0);
@@ -595,7 +595,7 @@ contract BondingTest is DeployHelper {
 
     function test_amm_kRemainsConstant() public {
         (address tokenAddr, address pairAddr2) = _launchToken();
-        IFPair pair = IFPair(pairAddr2);
+        IPair pair = IPair(pairAddr2);
 
         uint256 kBefore = pair.kLast();
         _buyTokens(tokenAddr, trader, 500 ether);
@@ -606,7 +606,7 @@ contract BondingTest is DeployHelper {
 
     function test_amm_reservesUpdateCorrectly() public {
         (address tokenAddr, address pairAddr) = _launchToken();
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
 
         (uint256 r0Before, uint256 r1Before) = pair.getReserves();
 
@@ -622,28 +622,28 @@ contract BondingTest is DeployHelper {
         (address tokenAddr,) = _launchTokenNoSeed();
 
         uint256 netBuyIn = 100 ether;
-        uint256 tokensOut = frouter.getAmountOut(tokenAddr, true, netBuyIn);
+        uint256 tokensOut = curveRouter.getAmountOut(tokenAddr, true, netBuyIn);
         assertTrue(tokensOut > 0, "getAmountOut should return > 0 for buy");
 
-        uint256 assetBack = frouter.getAmountOut(tokenAddr, false, tokensOut);
+        uint256 assetBack = curveRouter.getAmountOut(tokenAddr, false, tokensOut);
         assertApproxEqRel(assetBack, netBuyIn, 0.1e18, "Sell should approximately return what was put in");
     }
 
-    // ─── FERC20 Tests ────────────────────────────────────────────────────
+    // ─── Token Tests ────────────────────────────────────────────────────
 
-    function test_ferc20_hasCorrectSupply() public {
+    function test_token_hasCorrectSupply() public {
         (address tokenAddr,) = _launchToken();
-        assertEq(FERC20(tokenAddr).totalSupply(), 1_000_000_000 ether);
+        assertEq(Token(tokenAddr).totalSupply(), 1_000_000_000 ether);
     }
 
-    function test_ferc20_nameMatchesInput() public {
+    function test_token_nameMatchesInput() public {
         (address tokenAddr,) = _launchToken();
-        assertEq(FERC20(tokenAddr).name(), "TestToken");
+        assertEq(Token(tokenAddr).name(), "TestToken");
     }
 
-    function test_ferc20_ownerIsBonding() public {
+    function test_token_ownerIsBonding() public {
         (address tokenAddr,) = _launchToken();
-        assertEq(FERC20(tokenAddr).owner(), address(bonding));
+        assertEq(Token(tokenAddr).owner(), address(bonding));
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────
@@ -656,7 +656,7 @@ contract BondingTest is DeployHelper {
 
         lt.mintDirect(trader, buyAmount);
         vm.startPrank(trader);
-        lt.approve(address(frouter), buyAmount);
+        lt.approve(address(curveRouter), buyAmount);
         (uint256 tokensOut,) = bonding.buy(buyAmount, tokenAddr, 0, trader);
         vm.stopPrank();
 
@@ -672,7 +672,7 @@ contract BondingTest is DeployHelper {
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(frouter), tokensOut);
+        Token(tokenAddr).approve(address(curveRouter), tokensOut);
         uint256 ltBack = bonding.sell(tokensOut, tokenAddr, 0, trader);
         vm.stopPrank();
 

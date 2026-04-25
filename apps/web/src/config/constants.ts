@@ -1,7 +1,7 @@
 export const FEES = {
   /**
    * 0.5% on every buy — split 0.4% protocol / 0.1% creator. Charged at the
-   * `LaunchpadRouter` layer in USDC, accrued into `FeeVault`. Applies on
+   * `Zap` layer in USDC, accrued into `FeeVault`. Applies on
    * both the bonding curve and post-graduation HyperSwap paths. See also
    * `apps/web/src/services/tradeRouter.ts`.
    */
