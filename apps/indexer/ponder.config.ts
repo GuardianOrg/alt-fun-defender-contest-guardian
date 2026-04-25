@@ -4,9 +4,9 @@ import { parseAbiItem } from "viem";
 import {
   BondingAbi,
   FeeVaultAbi,
-  FERC20Abi,
-  FFactoryAbi,
-  LaunchpadRouterAbi,
+  TokenAbi,
+  FactoryAbi,
+  ZapAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
@@ -17,7 +17,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
 const factoryAddress = CONTRACT_ADDRESSES.factory as `0x${string}`;
-const launchpadRouterAddress = CONTRACT_ADDRESSES.launchpadRouter as `0x${string}`;
+const zapAddress = CONTRACT_ADDRESSES.zap as `0x${string}`;
 const feeVaultAddress = CONTRACT_ADDRESSES.feeVault as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
 
@@ -42,16 +42,16 @@ export default createConfig({
       address: bondingAddress,
       startBlock,
     },
-    FFactory: {
+    Factory: {
       chain: "hyperevm",
-      abi: FFactoryAbi,
+      abi: FactoryAbi,
       address: factoryAddress,
       startBlock,
     },
-    LaunchpadRouter: {
+    Zap: {
       chain: "hyperevm",
-      abi: LaunchpadRouterAbi,
-      address: launchpadRouterAddress,
+      abi: ZapAbi,
+      address: zapAddress,
       startBlock,
     },
     FeeVault: {
@@ -60,9 +60,9 @@ export default createConfig({
       address: feeVaultAddress,
       startBlock,
     },
-    FERC20Token: {
+    Token: {
       chain: "hyperevm",
-      abi: FERC20Abi,
+      abi: TokenAbi,
       address: factory({
         address: bondingAddress,
         event: parseAbiItem(

@@ -6,7 +6,7 @@ import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPermit, type PermitData } from "./useTokenPermit";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
-import { erc20Abi, LaunchpadRouterAbi } from "../contracts/abis";
+import { erc20Abi, ZapAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { type TxStep } from "../services/tradeRouter";
 import { getErrorMessage } from "../utils/format";
@@ -45,7 +45,7 @@ export function useTradeRouter() {
         setError(null);
 
         const usdcAmountWei = parseUnits(usdcAmount.toString(), USDC_DECIMALS);
-        const routerAddr = ADDRESSES.launchpadRouter;
+        const routerAddr = ADDRESSES.zap;
 
         const allowance = await hyperEvmClient.readContract({
           address: ADDRESSES.usdc,
@@ -101,14 +101,14 @@ export function useTradeRouter() {
         const { result: quotedTokensOut } = permit
           ? await hyperEvmClient.simulateContract({
               address: routerAddr,
-              abi: LaunchpadRouterAbi,
+              abi: ZapAbi,
               functionName: "buyWithPermit",
               args: [tokenAddress as `0x${string}`, usdcAmountWei, 0n, referrerAddr, permit],
               account: address,
             })
           : await hyperEvmClient.simulateContract({
               address: routerAddr,
-              abi: LaunchpadRouterAbi,
+              abi: ZapAbi,
               functionName: "buy",
               args: [tokenAddress as `0x${string}`, usdcAmountWei, 0n, referrerAddr],
               account: address,
@@ -126,14 +126,14 @@ export function useTradeRouter() {
               ] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "buyWithPermit",
                 args: permitArgs,
                 account: address,
               });
               return walletClient.writeContract({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "buyWithPermit",
                 args: permitArgs,
                 gas: (gasEstimate * 130n) / 100n,
@@ -148,14 +148,14 @@ export function useTradeRouter() {
               ] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "buy",
                 args: finalArgs,
                 account: address,
               });
               return walletClient.writeContract({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "buy",
                 args: finalArgs,
                 gas: (gasEstimate * 130n) / 100n,
@@ -186,7 +186,7 @@ export function useTradeRouter() {
       try {
         setError(null);
 
-        const routerAddr = ADDRESSES.launchpadRouter;
+        const routerAddr = ADDRESSES.zap;
 
         const allowance = await hyperEvmClient.readContract({
           address: tokenAddress as `0x${string}`,
@@ -210,7 +210,7 @@ export function useTradeRouter() {
               walletClient,
             });
           } catch {
-            // Token is probably pre-permit (launched before the FERC20 permit
+            // Token is probably pre-permit (launched before the Token permit
             // upgrade). Fall back to the legacy approve flow.
             setStep("approving");
             const approveTx = await walletClient.writeContract({
@@ -233,14 +233,14 @@ export function useTradeRouter() {
               const permitArgs = [tokenAddress as `0x${string}`, tokenAmount, 0n, permit] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "sellWithPermit",
                 args: permitArgs,
                 account: address,
               });
               return walletClient.writeContract({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "sellWithPermit",
                 args: permitArgs,
                 gas: (gasEstimate * 130n) / 100n,
@@ -250,14 +250,14 @@ export function useTradeRouter() {
               const sellArgs = [tokenAddress as `0x${string}`, tokenAmount, 0n] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "sell",
                 args: sellArgs,
                 account: address,
               });
               return walletClient.writeContract({
                 address: routerAddr,
-                abi: LaunchpadRouterAbi,
+                abi: ZapAbi,
                 functionName: "sell",
                 args: sellArgs,
                 gas: (gasEstimate * 130n) / 100n,

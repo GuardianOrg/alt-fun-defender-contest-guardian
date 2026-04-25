@@ -1,4 +1,4 @@
-export const FERC20Abi = [
+export const TokenAbi = [
   {
     "type": "constructor",
     "inputs": [],

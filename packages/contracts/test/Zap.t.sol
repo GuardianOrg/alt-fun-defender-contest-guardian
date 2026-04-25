@@ -5,34 +5,33 @@ import {Vm} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
+import {Token} from "../src/Token.sol";
 import {FeeVault} from "../src/FeeVault.sol";
-import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
+import {Zap} from "../src/Zap.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
-contract LaunchpadRouterV2 is LaunchpadRouter {
+contract ZapV2 is Zap {
     function version() external pure returns (uint256) {
         return 2;
     }
 }
 
-contract LaunchpadRouterTest is DeployHelper {
-    LaunchpadRouter public launchpadRouter;
+contract ZapTest is DeployHelper {
+    Zap public zap;
 
     address public referrer = makeAddr("referrer");
 
     function setUp() public {
         _deployCore();
 
-        LaunchpadRouter routerImpl = new LaunchpadRouter();
-        bytes memory routerInit = abi.encodeCall(
-            LaunchpadRouter.initialize,
-            (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+        Zap zapImpl = new Zap();
+        bytes memory zapInit = abi.encodeCall(
+            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
         );
-        launchpadRouter = LaunchpadRouter(address(new ERC1967Proxy(address(routerImpl), routerInit)));
+        zap = Zap(address(new ERC1967Proxy(address(zapImpl), zapInit)));
 
-        bonding.addRouter(address(launchpadRouter));
-        feeVault.addDepositor(address(launchpadRouter));
+        bonding.addRouter(address(zap));
+        feeVault.addDepositor(address(zap));
 
         usdc.mint(address(lt), 1_000_000 ether);
     }
@@ -55,12 +54,12 @@ contract LaunchpadRouterTest is DeployHelper {
         if (seedUsdc > 0) {
             usdc.mint(creator, seedUsdc);
             vm.startPrank(creator);
-            usdc.approve(address(launchpadRouter), seedUsdc);
-            tokenAddr = launchpadRouter.createToken(params, seedUsdc);
+            usdc.approve(address(zap), seedUsdc);
+            tokenAddr = zap.createToken(params, seedUsdc);
             vm.stopPrank();
         } else {
             vm.prank(creator);
-            tokenAddr = launchpadRouter.createToken(params, 0);
+            tokenAddr = zap.createToken(params, 0);
         }
     }
 
@@ -71,8 +70,8 @@ contract LaunchpadRouterTest is DeployHelper {
     ) internal returns (uint256 tokensOut) {
         usdc.mint(buyer, usdcAmount);
         vm.startPrank(buyer);
-        usdc.approve(address(launchpadRouter), usdcAmount);
-        tokensOut = launchpadRouter.buy(tokenAddr, usdcAmount, 0, address(0));
+        usdc.approve(address(zap), usdcAmount);
+        tokensOut = zap.buy(tokenAddr, usdcAmount, 0, address(0));
         vm.stopPrank();
     }
 
@@ -101,7 +100,7 @@ contract LaunchpadRouterTest is DeployHelper {
         address tokenAddr = _createToken(200 ether);
         assertTrue(tokenAddr != address(0));
 
-        uint256 creatorBalance = FERC20(tokenAddr).balanceOf(creator);
+        uint256 creatorBalance = Token(tokenAddr).balanceOf(creator);
         assertTrue(creatorBalance > 0, "Creator should have tokens from seed buy");
     }
 
@@ -117,10 +116,10 @@ contract LaunchpadRouterTest is DeployHelper {
         });
 
         vm.expectEmit(false, true, false, false);
-        emit LaunchpadRouter.TokenCreated(address(0), creator, address(lt));
+        emit Zap.TokenCreated(address(0), creator, address(lt));
 
         vm.prank(creator);
-        launchpadRouter.createToken(params, 0);
+        zap.createToken(params, 0);
     }
 
     function test_createToken_revertsZeroLt() public {
@@ -135,8 +134,8 @@ contract LaunchpadRouterTest is DeployHelper {
         });
 
         vm.prank(creator);
-        vm.expectRevert(LaunchpadRouter.InvalidInput.selector);
-        launchpadRouter.createToken(params, 0);
+        vm.expectRevert(Zap.InvalidInput.selector);
+        zap.createToken(params, 0);
     }
 
     // ─── Buy Tests (Curve) ───────────────────────────────────────────────
@@ -145,7 +144,7 @@ contract LaunchpadRouterTest is DeployHelper {
         address tokenAddr = _createToken(0);
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
-        assertEq(FERC20(tokenAddr).balanceOf(trader), tokensOut);
+        assertEq(Token(tokenAddr).balanceOf(trader), tokensOut);
         assertTrue(tokensOut > 0);
     }
 
@@ -154,8 +153,8 @@ contract LaunchpadRouterTest is DeployHelper {
         usdc.mint(trader, 500 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 500 ether);
-        launchpadRouter.buy(tokenAddr, 500 ether, 0, address(0));
+        usdc.approve(address(zap), 500 ether);
+        zap.buy(tokenAddr, 500 ether, 0, address(0));
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(trader), 0, "All USDC should be spent");
@@ -166,11 +165,11 @@ contract LaunchpadRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 100 ether);
+        usdc.approve(address(zap), 100 ether);
 
         vm.expectEmit(true, true, false, false);
-        emit LaunchpadRouter.Buy(tokenAddr, trader, 100 ether, 0);
-        launchpadRouter.buy(tokenAddr, 100 ether, 0, address(0));
+        emit Zap.Buy(tokenAddr, trader, 100 ether, 0);
+        zap.buy(tokenAddr, 100 ether, 0, address(0));
         vm.stopPrank();
     }
 
@@ -178,8 +177,8 @@ contract LaunchpadRouterTest is DeployHelper {
         address tokenAddr = _createToken(0);
 
         vm.prank(trader);
-        vm.expectRevert(LaunchpadRouter.InvalidInput.selector);
-        launchpadRouter.buy(tokenAddr, 0, 0, address(0));
+        vm.expectRevert(Zap.InvalidInput.selector);
+        zap.buy(tokenAddr, 0, 0, address(0));
     }
 
     function test_buy_revertsOnSlippage() public {
@@ -187,9 +186,9 @@ contract LaunchpadRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 100 ether);
-        vm.expectRevert(LaunchpadRouter.SlippageExceeded.selector);
-        launchpadRouter.buy(tokenAddr, 100 ether, type(uint256).max, address(0));
+        usdc.approve(address(zap), 100 ether);
+        vm.expectRevert(Zap.SlippageExceeded.selector);
+        zap.buy(tokenAddr, 100 ether, type(uint256).max, address(0));
         vm.stopPrank();
     }
 
@@ -200,11 +199,11 @@ contract LaunchpadRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 100 ether);
+        usdc.approve(address(zap), 100 ether);
 
         vm.expectEmit(true, true, true, true);
-        emit LaunchpadRouter.Referred(tokenAddr, trader, referrer, 100 ether);
-        launchpadRouter.buy(tokenAddr, 100 ether, 0, referrer);
+        emit Zap.Referred(tokenAddr, trader, referrer, 100 ether);
+        zap.buy(tokenAddr, 100 ether, 0, referrer);
         vm.stopPrank();
     }
 
@@ -213,10 +212,10 @@ contract LaunchpadRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 100 ether);
+        usdc.approve(address(zap), 100 ether);
 
         vm.recordLogs();
-        launchpadRouter.buy(tokenAddr, 100 ether, 0, address(0));
+        zap.buy(tokenAddr, 100 ether, 0, address(0));
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -231,10 +230,10 @@ contract LaunchpadRouterTest is DeployHelper {
         usdc.mint(trader, 100 ether);
 
         vm.startPrank(trader);
-        usdc.approve(address(launchpadRouter), 100 ether);
+        usdc.approve(address(zap), 100 ether);
 
         vm.recordLogs();
-        launchpadRouter.buy(tokenAddr, 100 ether, 0, trader);
+        zap.buy(tokenAddr, 100 ether, 0, trader);
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -251,8 +250,8 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut > 0, "Should receive USDC back");
@@ -264,11 +263,11 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
-        assertEq(FERC20(tokenAddr).balanceOf(trader), 0, "All tokens should be sold");
+        assertEq(Token(tokenAddr).balanceOf(trader), 0, "All tokens should be sold");
     }
 
     function test_sell_emitsSellEvent() public {
@@ -276,11 +275,11 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
+        Token(tokenAddr).approve(address(zap), tokensOut);
 
         vm.expectEmit(true, true, false, false);
-        emit LaunchpadRouter.Sell(tokenAddr, trader, tokensOut, 0);
-        launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        emit Zap.Sell(tokenAddr, trader, tokensOut, 0);
+        zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
     }
 
@@ -288,8 +287,8 @@ contract LaunchpadRouterTest is DeployHelper {
         address tokenAddr = _createToken(0);
 
         vm.prank(trader);
-        vm.expectRevert(LaunchpadRouter.InvalidInput.selector);
-        launchpadRouter.sell(tokenAddr, 0, 0);
+        vm.expectRevert(Zap.InvalidInput.selector);
+        zap.sell(tokenAddr, 0, 0);
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
@@ -300,8 +299,8 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcIn);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut < usdcIn, "Round trip should cost fees");
@@ -325,8 +324,8 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, seller, 100 ether);
 
         vm.startPrank(seller);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut > 0, "Post-grad sell should return USDC");
@@ -337,57 +336,57 @@ contract LaunchpadRouterTest is DeployHelper {
     function test_setBonding_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        launchpadRouter.setBonding(address(1));
+        zap.setBonding(address(1));
     }
 
     function test_setBonding_updatesValue() public {
         address newBonding = makeAddr("newBonding");
-        launchpadRouter.setBonding(newBonding);
-        assertEq(address(launchpadRouter.bonding()), newBonding);
+        zap.setBonding(newBonding);
+        assertEq(address(zap.bonding()), newBonding);
     }
 
     function test_setBonding_revertsZeroAddress() public {
-        vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
-        launchpadRouter.setBonding(address(0));
+        vm.expectRevert(Zap.ZeroAddress.selector);
+        zap.setBonding(address(0));
     }
 
     function test_setHyperswapRouter_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        launchpadRouter.setHyperswapRouter(address(1));
+        zap.setHyperswapRouter(address(1));
     }
 
     function test_setHyperswapRouter_revertsZeroAddress() public {
-        vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
-        launchpadRouter.setHyperswapRouter(address(0));
+        vm.expectRevert(Zap.ZeroAddress.selector);
+        zap.setHyperswapRouter(address(0));
     }
 
     // ─── UUPS Upgrade ────────────────────────────────────────────────────
 
     function test_upgrade_ownerCanUpgrade() public {
-        LaunchpadRouterV2 newImpl = new LaunchpadRouterV2();
-        launchpadRouter.upgradeToAndCall(address(newImpl), "");
-        assertEq(LaunchpadRouterV2(address(launchpadRouter)).version(), 2);
+        ZapV2 newImpl = new ZapV2();
+        zap.upgradeToAndCall(address(newImpl), "");
+        assertEq(ZapV2(address(zap)).version(), 2);
     }
 
     function test_upgrade_nonOwnerCannotUpgrade() public {
-        LaunchpadRouterV2 newImpl = new LaunchpadRouterV2();
+        ZapV2 newImpl = new ZapV2();
 
         vm.prank(trader);
         vm.expectRevert();
-        launchpadRouter.upgradeToAndCall(address(newImpl), "");
+        zap.upgradeToAndCall(address(newImpl), "");
     }
 
     function test_upgrade_preservesState() public {
         address tokenAddr = _createToken(0);
         _buyViaRouter(tokenAddr, trader, 100 ether);
 
-        LaunchpadRouterV2 newImpl = new LaunchpadRouterV2();
-        launchpadRouter.upgradeToAndCall(address(newImpl), "");
+        ZapV2 newImpl = new ZapV2();
+        zap.upgradeToAndCall(address(newImpl), "");
 
-        assertEq(address(launchpadRouter.bonding()), address(bonding));
-        assertEq(address(launchpadRouter.usdc()), address(usdc));
-        assertEq(launchpadRouter.owner(), owner);
+        assertEq(address(zap.bonding()), address(bonding));
+        assertEq(address(zap.usdc()), address(usdc));
+        assertEq(zap.owner(), owner);
     }
 
     // ─── Fee Tests ───────────────────────────────────────────────────────
@@ -416,8 +415,8 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         // Fee is 0.5% of grossUsdc. usdcOut = grossUsdc - fee → fee = usdcOut * 50 / 9950.
@@ -463,8 +462,8 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
 
         vm.startPrank(seller);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         uint256 fee = (usdcOut * 50) / 9950;
@@ -476,35 +475,35 @@ contract LaunchpadRouterTest is DeployHelper {
     function test_setFees_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        launchpadRouter.setFees(100, 100, 3000);
+        zap.setFees(100, 100, 3000);
     }
 
     function test_setFees_updatesValues() public {
-        launchpadRouter.setFees(30, 70, 1500);
-        assertEq(launchpadRouter.buyFeeBps(), 30);
-        assertEq(launchpadRouter.sellFeeBps(), 70);
-        assertEq(launchpadRouter.creatorFeeBps(), 1500);
+        zap.setFees(30, 70, 1500);
+        assertEq(zap.buyFeeBps(), 30);
+        assertEq(zap.sellFeeBps(), 70);
+        assertEq(zap.creatorFeeBps(), 1500);
     }
 
     function test_setFees_revertsAboveCap() public {
-        vm.expectRevert(LaunchpadRouter.InvalidFee.selector);
-        launchpadRouter.setFees(201, 50, 2000);
+        vm.expectRevert(Zap.InvalidFee.selector);
+        zap.setFees(201, 50, 2000);
     }
 
     function test_setFees_revertsCreatorAboveDenom() public {
-        vm.expectRevert(LaunchpadRouter.InvalidFee.selector);
-        launchpadRouter.setFees(50, 50, 10_001);
+        vm.expectRevert(Zap.InvalidFee.selector);
+        zap.setFees(50, 50, 10_001);
     }
 
     function test_setFeeVault_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        launchpadRouter.setFeeVault(makeAddr("new"));
+        zap.setFeeVault(makeAddr("new"));
     }
 
     function test_setFeeVault_revertsZeroAddress() public {
-        vm.expectRevert(LaunchpadRouter.ZeroAddress.selector);
-        launchpadRouter.setFeeVault(address(0));
+        vm.expectRevert(Zap.ZeroAddress.selector);
+        zap.setFeeVault(address(0));
     }
 
     function test_setFeeVault_revertsIfRouterNotDepositor() public {
@@ -512,18 +511,18 @@ contract LaunchpadRouterTest is DeployHelper {
         bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
         FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
 
-        vm.expectRevert(LaunchpadRouter.VaultNotConfigured.selector);
-        launchpadRouter.setFeeVault(address(freshVault));
+        vm.expectRevert(Zap.VaultNotConfigured.selector);
+        zap.setFeeVault(address(freshVault));
     }
 
     function test_setFeeVault_succeedsWhenDepositorAllowlisted() public {
         FeeVault impl = new FeeVault();
         bytes memory init = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
         FeeVault freshVault = FeeVault(address(new ERC1967Proxy(address(impl), init)));
-        freshVault.addDepositor(address(launchpadRouter));
+        freshVault.addDepositor(address(zap));
 
-        launchpadRouter.setFeeVault(address(freshVault));
-        assertEq(address(launchpadRouter.feeVault()), address(freshVault));
+        zap.setFeeVault(address(freshVault));
+        assertEq(address(zap.feeVault()), address(freshVault));
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────
@@ -547,8 +546,8 @@ contract LaunchpadRouterTest is DeployHelper {
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcAmount);
 
         vm.startPrank(trader);
-        FERC20(tokenAddr).approve(address(launchpadRouter), tokensOut);
-        uint256 usdcOut = launchpadRouter.sell(tokenAddr, tokensOut, 0);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
         assertTrue(usdcOut <= usdcAmount, "Should never profit on round trip through router");

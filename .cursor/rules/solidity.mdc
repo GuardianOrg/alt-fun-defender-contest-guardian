@@ -42,11 +42,24 @@ Before any PR, verify:
 - Scripts go in `script/`, named `Deploy<Contract>.s.sol`
 - Never hardcode private keys — use `cast wallet import` encrypted keystores
 - **Redeploy when contracts change:** Whenever `.sol` source files in `src/` are modified, the contracts MUST be redeployed so on-chain bytecode matches the repo. The deployed contracts must always match the source code.
+- **HyperEVM big blocks (read this — fresh deploys WILL fail otherwise):** HyperEVM uses dual-block dispatch. Small blocks (~2M gas, ~1s) are the default; deploys exceed 2M gas and only fit in big blocks (~30M gas, ~60s). The setting is **per-wallet, persists**, and lives on the Hyperliquid L1 (NOT EVM) — `cast send` cannot toggle it. Use the helper:
+  ```bash
+  node scripts/toggle-big-blocks.mjs status   # check current state for the deployer
+  node scripts/toggle-big-blocks.mjs on       # required before broadcasting Deploy.s.sol
+  node scripts/toggle-big-blocks.mjs off      # optional, restore 1s confirms after deploy
+  ```
+  Symptom if you skip this: forge fails with `error code -32603: exceeds block gas limit` on the first deploy tx.
+- **`--slow` is mandatory** for `Deploy.s.sol` because subsequent txs depend on prior contract state (factory.setRouter, role grants, addRouter, addDepositor). Without it forge will hit nonce/state mismatches.
+- **Expect 15–20 minutes** for a full deploy with big blocks on (~14–19 sequential txs × ~60s).
 - **Deployment steps:**
   1. Run tests: `forge test`
-  2. Deploy: `source .env && forge script script/Deploy.s.sol --rpc-url "$HYPEREVM_RPC_URL" --broadcast`
-  3. Export ABIs: `npm run export-abi --workspace=packages/contracts`
-  4. Update addresses in `packages/shared/src/constants/addresses.ts` with new proxy/contract addresses
-  5. Update `BONDING_START_BLOCK` in `packages/shared/src/constants/chains.ts` to the deployment block
-  6. Update hardcoded addresses in `packages/contracts/script/E2ETest.s.sol`
-  7. Run `npm run ci` from repo root to verify everything compiles
+  2. Enable big blocks (one-time per wallet): `node scripts/toggle-big-blocks.mjs on`
+  3. `forge clean && forge build` (avoid stale artifacts after rename/refactor commits)
+  4. Deploy: `source .env && forge script script/Deploy.s.sol:Deploy --rpc-url "$HYPEREVM_RPC_URL" --broadcast --slow`
+  5. Export ABIs: `npm run export-abi --workspace @launchpad/contracts`
+  6. Update addresses in `packages/shared/src/constants/addresses.ts` with new proxy/contract addresses
+  7. Update `BONDING_START_BLOCK` in `packages/shared/src/constants/chains.ts` to the **lowest** receipt block from `broadcast/Deploy.s.sol/999/run-latest.json`
+  8. Update hardcoded `DEFAULT_BONDING` / `DEFAULT_ZAP` addresses in `packages/contracts/script/E2ETest.s.sol`
+  9. Rebuild shared so consumers see new addresses: `npm run build --workspace @launchpad/shared`
+  10. Run `npm run ci` from repo root to verify everything compiles
+  11. Sanity-check on-chain wiring (`Bonding.tokenImplementation`, `Bonding.factory`, `Bonding.router`, `Bonding.isRouter(zap)`, `Zap.bonding`, `Factory.router`) — see [`packages/contracts/AGENTS.md`](mdc:packages/contracts/AGENTS.md#post-deploy-sanity-checks).

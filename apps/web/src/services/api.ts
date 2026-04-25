@@ -83,7 +83,7 @@ export interface ApiToken {
   ltChange24h?: number | null;
   volume24hUsd?: number | null;
   /**
-   * Lifetime gross USD traded through `LaunchpadRouter` for this token
+   * Lifetime gross USD traded through `Zap` for this token
    * (buys + sells). Sourced from a running counter on the indexer's
    * `token` row, so — unlike `volume24hUsd` — it doesn't go null on
    * pagination truncation. `null` only when the indexer is unreachable;

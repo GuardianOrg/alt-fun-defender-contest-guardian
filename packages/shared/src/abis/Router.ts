@@ -1,4 +1,4 @@
-export const FRouterAbi = [
+export const RouterAbi = [
   {
     "type": "function",
     "name": "BONDING_ROLE",
@@ -114,7 +114,7 @@ export const FRouterAbi = [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract FFactory"
+        "internalType": "contract Factory"
       }
     ],
     "stateMutability": "view"

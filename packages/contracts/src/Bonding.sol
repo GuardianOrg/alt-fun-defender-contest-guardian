@@ -9,10 +9,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {FFactory} from "./FFactory.sol";
-import {FRouter} from "./FRouter.sol";
-import {FERC20} from "./FERC20.sol";
-import {IFPair} from "./interfaces/IFPair.sol";
+import {Factory} from "./Factory.sol";
+import {Router} from "./Router.sol";
+import {Token} from "./Token.sol";
+import {IPair} from "./interfaces/IPair.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 import {LPLock} from "./LPLock.sol";
@@ -34,12 +34,14 @@ import {LPLock} from "./LPLock.sol";
 ///      Upon graduation, the LP pool is seeded with exactly the tokens needed to match
 ///      the last curve price (`tokensForLP = raisedLT / lastPrice`), with excess burned
 ///      from the 250M LP reserve. This guarantees zero LP/curve price gap.
+///
+///      Forked from Virtuals Protocol Bonding.sol.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    FFactory public factory;
-    FRouter public router;
+    Factory public factory;
+    Router public router;
 
     address public hyperswapRouter;
     address public lpLock;
@@ -53,8 +55,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     /// @dev Authorised routers. Only addresses in this set may call `launch`,
     ///      `buy`, or `sell`. Managed via `addRouter` / `removeRouter`. The
-    ///      set model (vs. a single `launchpadRouter` address) allows seamless
-    ///      router upgrades: deploy the new router, `addRouter(newRouter)`,
+    ///      set model (vs. a single `zap` address) allows seamless
+    ///      router upgrades: deploy the new zap, `addRouter(newZap)`,
     ///      flip the frontend's canonical address, then `removeRouter(old)`
     ///      with no window in which users can't trade.
     EnumerableSet.AddressSet private _routers;
@@ -221,8 +223,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (tokenImplementation_ == address(0)) revert ZeroAddress();
         __Ownable_init(msg.sender);
 
-        factory = FFactory(factory_);
-        router = FRouter(router_);
+        factory = Factory(factory_);
+        router = Router(router_);
         maxTx = maxTx_;
         hyperswapRouter = hyperswapRouter_;
         lpLock = lpLock_;
@@ -247,7 +249,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         index = allTokens.length;
         _storeTokenInfo(tokenAddr, pair, params, creator_);
 
-        uint256 k = IFPair(pair).kLast();
+        uint256 k = IPair(pair).kLast();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
     }
 
@@ -273,9 +275,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             revert NotVanityAddress(tokenAddr);
         }
 
-        FERC20(tokenAddr).initialize(name_, ticker_, maxTx, address(this));
+        Token(tokenAddr).initialize(name_, ticker_, maxTx, address(this));
 
-        uint256 totalSupply = FERC20(tokenAddr).TOTAL_SUPPLY();
+        uint256 totalSupply = Token(tokenAddr).TOTAL_SUPPLY();
         uint256 curveSupply = (totalSupply * CURVE_BPS) / BPS_DENOM;
 
         pair = factory.createPair(tokenAddr, ltAddress);
@@ -415,7 +417,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return _tokenInfo[token_];
     }
 
-    /// @notice Lightweight creator lookup. Hot-path callers (e.g. `LaunchpadRouter`'s
+    /// @notice Lightweight creator lookup. Hot-path callers (e.g. `Zap`'s
     ///         per-trade fee accrual) should use this instead of `getTokenInfo` /
     ///         `tokenInfo` to avoid ABI-copying the dynamic strings & URL array.
     function creatorOf(
@@ -451,10 +453,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address lt = _tokenInfo[token_].ltAddress;
 
         // Supply trigger: no real tokens left in the pair
-        if (IFPair(pair).tokenBalance() == 0) return true;
+        if (IPair(pair).tokenBalance() == 0) return true;
 
         // USD trigger
-        uint256 realLtBalance = IFPair(pair).assetBalance();
+        uint256 realLtBalance = IPair(pair).assetBalance();
         uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
         uint256 valueUsd = (realLtBalance * exchangeRate) / 1e18;
         return valueUsd >= graduationThresholdUsd;
@@ -488,11 +490,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         lpLock = newLpLock;
     }
 
-    /// @notice Hot-swap the FERC20 implementation cloned by future launches.
+    /// @notice Hot-swap the `Token` implementation cloned by future launches.
     /// @dev Already-deployed clones are unaffected — EIP-1167 hard-codes the
     ///      impl address into the proxy bytecode at deploy time, so existing
     ///      tokens keep delegating into whichever impl was current when they
-    ///      were launched. Use this for shipping a new FERC20 (e.g. bug fix
+    ///      were launched. Use this for shipping a new `Token` (e.g. bug fix
     ///      surfaces in the impl) without disturbing already-issued tokens.
     function setTokenImplementation(
         address newImpl
@@ -557,8 +559,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Internals ───────────────────────────────────────────────────────
 
-    /// @dev `tokenHolder` is the address FRouter pulls LT from and delivers
-    ///      tokens to — always the calling LaunchpadRouter (which then forwards
+    /// @dev `tokenHolder` is the address `Router` pulls LT from and delivers
+    ///      tokens to — always the calling `Zap` (which then forwards
     ///      tokens to the user). `trader` is the event-only attribution
     ///      (the user EOA) and has no effect on token flow.
     function _executeBuy(
@@ -616,11 +618,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenAddress
     ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
         address pairAddr = _tokenInfo[tokenAddress].pair;
-        (uint256 reserve0, uint256 reserve1) = IFPair(pairAddr).getReserves();
+        (uint256 reserve0, uint256 reserve1) = IPair(pairAddr).getReserves();
 
         unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
         if (unsoldBurned > 0) {
-            FERC20(tokenAddress).burn(pairAddr, unsoldBurned);
+            Token(tokenAddress).burn(pairAddr, unsoldBurned);
         }
 
         ltFromPair = router.graduate(tokenAddress);
@@ -631,7 +633,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         lpBurned = lpReserveTotal - tokensForLP;
         if (lpBurned > 0) {
-            FERC20(tokenAddress).burn(address(this), lpBurned);
+            Token(tokenAddress).burn(address(this), lpBurned);
         }
         lpReserve[tokenAddress] = 0;
     }
@@ -662,7 +664,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenAddress
     ) internal view returns (uint256 curveSupply, uint256 ltReserve) {
         address pair = _tokenInfo[tokenAddress].pair;
-        (curveSupply, ltReserve) = IFPair(pair).getReserves();
+        (curveSupply, ltReserve) = IPair(pair).getReserves();
     }
 
     /// @dev Reverts if the HyperSwap pair already has reserves (prevents front-running graduation)

@@ -34,7 +34,7 @@ export interface SeedBuyStats {
  *
  *   usdcAfterFee = usdcAmount × (1 − buyFee)
  *   tokensOut    = totalSupply × usdcAfterFee / (virtualLiquidity + usdcAfterFee)
- *                  (then clamped to curveSupply — on-chain `FRouter.buy` caps at real balance)
+ *                  (then clamped to curveSupply — on-chain `Router.buy` caps at real balance)
  *   supplyPct    = tokensOut / totalSupply × 100
  *   curveFilled  = usdcAfterFee / graduationThreshold × 100
  *

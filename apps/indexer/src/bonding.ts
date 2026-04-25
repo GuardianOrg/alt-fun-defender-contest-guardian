@@ -35,7 +35,7 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     })
-    // FFactory:PairCreated fires earlier in the same tx and may have inserted a
+    // Factory:PairCreated fires earlier in the same tx and may have inserted a
     // placeholder row carrying `bondingPair`. Overwrite the metadata fields but
     // preserve `bondingPair` / `hyperswapPair`.
     .onConflictDoUpdate({
@@ -85,7 +85,7 @@ ponder.on(
   },
 );
 
-ponder.on("FFactory:PairCreated", async ({ event, context }) => {
+ponder.on("Factory:PairCreated", async ({ event, context }) => {
   const { db } = context;
   const tokenAddr = event.args.tokenA;
   const ltAddr = event.args.tokenB;
@@ -203,7 +203,7 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
     });
 });
 
-ponder.on("LaunchpadRouter:Buy", async ({ event, context }) => {
+ponder.on("Zap:Buy", async ({ event, context }) => {
   const { db } = context;
   const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -239,7 +239,7 @@ ponder.on("LaunchpadRouter:Buy", async ({ event, context }) => {
   }
 });
 
-ponder.on("LaunchpadRouter:Sell", async ({ event, context }) => {
+ponder.on("Zap:Sell", async ({ event, context }) => {
   const { db } = context;
   const tradeId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -274,7 +274,7 @@ ponder.on("LaunchpadRouter:Sell", async ({ event, context }) => {
   }
 });
 
-ponder.on("LaunchpadRouter:Referred", async ({ event, context }) => {
+ponder.on("Zap:Referred", async ({ event, context }) => {
   const { db } = context;
   const refId = `${event.transaction.hash}-${event.log.logIndex}`;
 
@@ -292,7 +292,7 @@ ponder.on("LaunchpadRouter:Referred", async ({ event, context }) => {
     .onConflictDoNothing();
 });
 
-ponder.on("FERC20Token:Transfer", async ({ event, context }) => {
+ponder.on("Token:Transfer", async ({ event, context }) => {
   const { db } = context;
   const tokenAddr = event.log.address;
   const from = event.args.from;

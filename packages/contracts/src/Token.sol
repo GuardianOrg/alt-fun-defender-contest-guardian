@@ -8,12 +8,12 @@ import {
 } from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
-/// @title FERC20
+/// @title Token
 /// @notice ERC20 token created by the bonding curve launchpad.
-/// @dev Forked from Virtuals Protocol FERC20.sol. Fixed 1B supply, owner-only burn,
+/// @dev Forked from Virtuals Protocol's `FERC20.sol`. Fixed 1B supply, owner-only burn,
 ///      and configurable maxTx limit (percentage of total supply).
 ///      Owner is the Bonding contract — only it can burn or adjust maxTx.
-///      EIP-2612 permit is supported so `LaunchpadRouter` can pull tokens via a
+///      EIP-2612 permit is supported so `Zap` can pull tokens via a
 ///      signed message — killing the pre-approve tx on the first sell of any
 ///      newly-launched token. Domain: name = token name, version = "1".
 ///
@@ -23,7 +23,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 ///      per-token deployment gas (~1.15M → ~280k for clone + initialize). The
 ///      implementation itself is `_disableInitializers()`-locked in the
 ///      constructor so it cannot be initialised directly.
-contract FERC20 is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, OwnableUpgradeable {
+contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, OwnableUpgradeable {
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 ether;
 
     uint256 public maxTxPercent;

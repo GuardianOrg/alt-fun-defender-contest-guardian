@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {LaunchpadRouter} from "../src/LaunchpadRouter.sol";
-import {IFPair} from "../src/interfaces/IFPair.sol";
+import {Zap} from "../src/Zap.sol";
+import {IPair} from "../src/interfaces/IPair.sol";
 
 contract E2ETest is Script {
     /// @dev Pinned LT on HyperEVM mainnet — same `HYPE2L` used by the test
@@ -14,12 +14,12 @@ contract E2ETest is Script {
 
     /// @dev Defaults track the currently-live deployment recorded in
     ///      `packages/shared/src/constants/addresses.ts`. Override via
-    ///      `BONDING_ADDRESS` / `LAUNCHPAD_ROUTER_ADDRESS` env vars when
+    ///      `BONDING_ADDRESS` / `ZAP_ADDRESS` env vars when
     ///      pointing the script at a different deployment (staging, fork,
     ///      next mainnet rev, etc.) so the script stays runnable without a
     ///      recompile after every upgrade.
-    address constant DEFAULT_BONDING = 0xFBC97b7Ed983fe9F9Fd0b608F9dfaD6F838E6Fdc;
-    address constant DEFAULT_LAUNCHPAD_ROUTER = 0x7d5f08cc215BD1C5a3bEA6a27f91b88d740a5Bdc;
+    address constant DEFAULT_BONDING = 0x5c67bab7307E6F25981DFbeD850477068c39a224;
+    address constant DEFAULT_ZAP = 0xE93D94f6da464EfDa721b9F6d16a0DABE0683389;
 
     /// @dev Same EIP-1167 v5 layout as `DeployHelper._EIP1167_*` and
     ///      `packages/shared/src/vanity.ts`. Kept inline here so the script
@@ -33,18 +33,18 @@ contract E2ETest is Script {
         console.log("Deployer:", deployer);
 
         address bondingAddr = vm.envOr("BONDING_ADDRESS", DEFAULT_BONDING);
-        address routerAddr = vm.envOr("LAUNCHPAD_ROUTER_ADDRESS", DEFAULT_LAUNCHPAD_ROUTER);
+        address zapAddr = vm.envOr("ZAP_ADDRESS", DEFAULT_ZAP);
         console.log("Bonding:", bondingAddr);
-        console.log("LaunchpadRouter:", routerAddr);
+        console.log("Zap:", zapAddr);
 
         Bonding bonding = Bonding(bondingAddr);
-        LaunchpadRouter router = LaunchpadRouter(routerAddr);
+        Zap zap = Zap(zapAddr);
 
         // Mine a vanity salt off-broadcast — `Bonding._deployAndSeed` reverts
         // with `NotVanityAddress` unless the resulting address ends in
         // `Bonding.VANITY_SUFFIX` (`0xa1fa`). Pulling `tokenImplementation()`
         // from the live Bonding (rather than hardcoding) means a future
-        // FERC20 implementation upgrade doesn't break the script.
+        // `Token` implementation upgrade doesn't break the script.
         bytes32 vanitySalt = _mineVanitySalt(
             deployer, bonding.tokenImplementation(), bondingAddr, keccak256(abi.encode(block.timestamp))
         );
@@ -63,7 +63,7 @@ contract E2ETest is Script {
             salt: vanitySalt
         });
 
-        address tokenAddr = router.createToken(params, 0);
+        address tokenAddr = zap.createToken(params, 0);
         console.log("Token:", tokenAddr);
 
         vm.stopBroadcast();
@@ -72,7 +72,7 @@ contract E2ETest is Script {
         address pairAddr = info.pair;
         console.log("Pair:", pairAddr);
 
-        IFPair pair = IFPair(pairAddr);
+        IPair pair = IPair(pairAddr);
         (uint256 rt, uint256 ra) = pair.getReserves();
         console.log("Reserve token:", rt);
         console.log("Reserve asset:", ra);

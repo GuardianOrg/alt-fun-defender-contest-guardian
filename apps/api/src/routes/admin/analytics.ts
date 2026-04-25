@@ -196,7 +196,7 @@ analytics.get("/revenue", async (c) => {
   const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
 
   const queryAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  // Accrual-based (earned, not paid-out). Fees are charged by `LaunchpadRouter`
+  // Accrual-based (earned, not paid-out). Fees are charged by `Zap`
   // and recorded in `FeeVault` regardless of claim timing, so revenue tracking
   // reads accruals directly — this decouples the dashboard from creators
   // forgetting to claim.

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
+import {Token} from "../src/Token.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
@@ -101,7 +101,7 @@ contract ClonesTest is DeployHelper {
         // must revert (OZ Initializable). This protects against a malicious
         // re-init wiping the maxTx config or owner.
         vm.expectRevert();
-        FERC20(tokenAddr).initialize("Evil", "EVL", 100, address(this));
+        Token(tokenAddr).initialize("Evil", "EVL", 100, address(this));
     }
 
     function test_implementation_isLocked() public {
@@ -110,7 +110,7 @@ contract ClonesTest is DeployHelper {
         // anyone could call initialize() on the impl and grief future clones
         // (in OZ <5 this matters more, but the lock is still good hygiene).
         bool reverted;
-        try FERC20(address(ferc20Impl)).initialize("X", "X", 100, address(this)) {
+        try Token(address(tokenImpl)).initialize("X", "X", 100, address(this)) {
             reverted = false;
         } catch {
             reverted = true;
@@ -119,7 +119,7 @@ contract ClonesTest is DeployHelper {
     }
 
     function test_setTokenImplementation_onlyOwner() public {
-        FERC20 newImpl = new FERC20();
+        Token newImpl = new Token();
 
         vm.prank(creator);
         vm.expectRevert();
@@ -127,17 +127,17 @@ contract ClonesTest is DeployHelper {
     }
 
     function test_setTokenImplementation_updatesAndAffectsFutureLaunches() public {
-        FERC20 newImpl = new FERC20();
+        Token newImpl = new Token();
 
         // Mine against the OLD impl, capture predicted address.
-        bytes32 oldSalt = _mineVanitySaltForImpl(creator, address(ferc20Impl));
+        bytes32 oldSalt = _mineVanitySaltForImpl(creator, address(tokenImpl));
         address predOld = bonding.predictTokenAddress(creator, oldSalt);
 
         // Rotate. Existing predictions become stale by design — the frontend
         // re-reads `predictTokenAddress` (and re-mines if needed) after any
         // owner action that could change the impl.
         vm.expectEmit(true, true, false, false);
-        emit Bonding.TokenImplementationUpdated(address(ferc20Impl), address(newImpl));
+        emit Bonding.TokenImplementationUpdated(address(tokenImpl), address(newImpl));
         bonding.setTokenImplementation(address(newImpl));
 
         // The old salt now resolves to a different predicted address (because
@@ -166,7 +166,7 @@ contract ClonesTest is DeployHelper {
         // If this ever diverges, the frontend vanity miner is broken.
         bytes32 userSalt = keccak256("oz-check");
         bytes32 mixed = keccak256(abi.encode(creator, userSalt));
-        address ozPred = Clones.predictDeterministicAddress(address(ferc20Impl), mixed, address(bonding));
+        address ozPred = Clones.predictDeterministicAddress(address(tokenImpl), mixed, address(bonding));
         assertEq(bonding.predictTokenAddress(creator, userSalt), ozPred);
     }
 

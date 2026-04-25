@@ -1,4 +1,4 @@
-import { FFactoryAbi, LeveragedTokenAbi } from "@launchpad/shared";
+import { FactoryAbi, LeveragedTokenAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
 
@@ -6,7 +6,7 @@ import { FEES } from "../config/constants";
 import { ADDRESSES } from "../contracts/addresses";
 
 // Router-level USDC fee applied to every trade (curve and post-grad). The
-// `LaunchpadRouter` charges this same 0.5% on both paths and forwards it to
+// `Zap` charges this same 0.5% on both paths and forwards it to
 // `FeeVault`, so quotes don't need to special-case graduated tokens — the
 // fee math here mirrors the on-chain deduction regardless of execution venue.
 
@@ -58,13 +58,13 @@ async function getTokenPair(
   const [pairAddress, ltAddress] = await Promise.all([
     publicClient.readContract({
       address: ADDRESSES.factory,
-      abi: FFactoryAbi,
+      abi: FactoryAbi,
       functionName: "pairFor",
       args: [tokenAddress],
     }) as Promise<`0x${string}`>,
     publicClient.readContract({
       address: ADDRESSES.factory,
-      abi: FFactoryAbi,
+      abi: FactoryAbi,
       functionName: "ltFor",
       args: [tokenAddress],
     }) as Promise<`0x${string}`>,
@@ -72,7 +72,7 @@ async function getTokenPair(
   return { pairAddress, ltAddress };
 }
 
-const FPairAbi = [
+const PairAbi = [
   {
     name: "getReserves",
     type: "function",
@@ -94,7 +94,7 @@ const liveTradeRouter: ITradeRouterService = {
       const [reserves, exchangeRate] = await Promise.all([
         publicClient.readContract({
           address: pairAddress,
-          abi: FPairAbi,
+          abi: PairAbi,
           functionName: "getReserves",
         }) as Promise<[bigint, bigint]>,
         publicClient.readContract({
@@ -140,7 +140,7 @@ const liveTradeRouter: ITradeRouterService = {
       const [reserves, exchangeRate, baseAssetBal] = await Promise.all([
         publicClient.readContract({
           address: pairAddress,
-          abi: FPairAbi,
+          abi: PairAbi,
           functionName: "getReserves",
         }) as Promise<[bigint, bigint]>,
         publicClient.readContract({

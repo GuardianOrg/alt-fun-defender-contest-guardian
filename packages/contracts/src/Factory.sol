@@ -3,13 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {FPair} from "./FPair.sol";
+import {Pair} from "./Pair.sol";
 
-/// @title FFactory
-/// @notice Registry of bonding curve pairs. Creates `FPair` instances and tracks per-token LT mapping.
-/// @dev Forked from Virtuals Protocol FFactory.sol. Uses AccessControl for role-gated pair creation.
-///      Fees are NOT collected at this layer — `LaunchpadRouter` collects USDC fees into `FeeVault`.
-contract FFactory is Initializable, AccessControlUpgradeable {
+/// @title Factory
+/// @notice Registry of bonding curve pairs. Creates `Pair` instances and tracks per-token LT mapping.
+/// @dev Forked from Virtuals Protocol's `FFactory.sol`. Uses AccessControl for role-gated pair creation.
+///      Fees are NOT collected at this layer — `Zap` collects USDC fees into `FeeVault`.
+contract Factory is Initializable, AccessControlUpgradeable {
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
 
     mapping(address => mapping(address => address)) private _pairs;
@@ -40,7 +40,7 @@ contract FFactory is Initializable, AccessControlUpgradeable {
         if (tokenA == address(0) || tokenB == address(0)) revert ZeroAddress();
         if (router == address(0)) revert NoRouter();
 
-        FPair pair = new FPair(router, tokenA, tokenB);
+        Pair pair = new Pair(router, tokenA, tokenB);
         _pairs[tokenA][tokenB] = address(pair);
         _pairs[tokenB][tokenA] = address(pair);
         allPairs.push(address(pair));

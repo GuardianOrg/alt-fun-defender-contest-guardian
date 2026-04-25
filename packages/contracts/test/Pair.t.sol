@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {FPair} from "../src/FPair.sol";
+import {Pair} from "../src/Pair.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
-contract FPairTest is Test {
-    FPair public pair;
+contract PairTest is Test {
+    Pair public pair;
     MockERC20 public token;
     MockERC20 public asset;
 
@@ -21,7 +21,7 @@ contract FPairTest is Test {
         token = new MockERC20("Token", "TKN");
         asset = new MockERC20("Asset", "LT");
 
-        pair = new FPair(routerAddr, address(token), address(asset));
+        pair = new Pair(routerAddr, address(token), address(asset));
 
         // Fund pair with tokens for testing
         token.mint(address(pair), INITIAL_TOKEN_RESERVE);
@@ -52,7 +52,7 @@ contract FPairTest is Test {
     function test_mint_emitsEvent() public {
         vm.prank(routerAddr);
         vm.expectEmit(false, false, false, true);
-        emit FPair.Mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
+        emit Pair.Mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
     }
 
@@ -60,14 +60,14 @@ contract FPairTest is Test {
         vm.startPrank(routerAddr);
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
 
-        vm.expectRevert(FPair.AlreadyMinted.selector);
+        vm.expectRevert(Pair.AlreadyMinted.selector);
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
         vm.stopPrank();
     }
 
     function test_mint_revertsForNonRouter() public {
         vm.prank(stranger);
-        vm.expectRevert(FPair.OnlyRouter.selector);
+        vm.expectRevert(Pair.OnlyRouter.selector);
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
     }
 
@@ -93,7 +93,7 @@ contract FPairTest is Test {
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
 
         vm.expectEmit(false, false, false, true);
-        emit FPair.Swap(0, 50_000 ether, 100 ether, 0);
+        emit Pair.Swap(0, 50_000 ether, 100 ether, 0);
         pair.swap(0, 50_000 ether, 100 ether, 0);
         vm.stopPrank();
     }
@@ -103,7 +103,7 @@ contract FPairTest is Test {
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
 
         vm.prank(stranger);
-        vm.expectRevert(FPair.OnlyRouter.selector);
+        vm.expectRevert(Pair.OnlyRouter.selector);
         pair.swap(0, 100 ether, 50 ether, 0);
     }
 
@@ -134,7 +134,7 @@ contract FPairTest is Test {
 
     function test_transferToken_revertsForNonRouter() public {
         vm.prank(stranger);
-        vm.expectRevert(FPair.OnlyRouter.selector);
+        vm.expectRevert(Pair.OnlyRouter.selector);
         pair.transferToken(recipient, 1000 ether);
     }
 
@@ -148,7 +148,7 @@ contract FPairTest is Test {
 
     function test_transferAsset_revertsForNonRouter() public {
         vm.prank(stranger);
-        vm.expectRevert(FPair.OnlyRouter.selector);
+        vm.expectRevert(Pair.OnlyRouter.selector);
         pair.transferAsset(recipient, 100 ether);
     }
 

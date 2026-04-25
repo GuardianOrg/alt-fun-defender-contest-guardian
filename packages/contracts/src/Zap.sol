@@ -8,27 +8,27 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Bonding} from "./Bonding.sol";
-import {FRouter} from "./FRouter.sol";
+import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
-/// @title LaunchpadRouter
+/// @title Zap
 /// @notice Single entry point for users: pay USDC, receive tokens (and vice versa).
 /// @dev Handles USDC -> LT mint -> bonding curve buy (or HyperSwap swap post-graduation).
 ///      Sell path: token -> curve sell or HyperSwap swap -> LT redeem -> USDC.
 ///
-///      This router is the fee layer. On every buy and sell, a USDC fee is collected
+///      This zap is the fee layer. On every buy and sell, a USDC fee is collected
 ///      from the user and forwarded to `FeeVault`, which handles creator/protocol
-///      accruals and claims. No fees live on `Bonding`, `FRouter`, or `FFactory`.
+///      accruals and claims. No fees live on `Bonding`, `Router`, or `Factory`.
 ///
 ///      EIP-2612 permit variants (`buyWithPermit`, `sellWithPermit`,
 ///      `createTokenWithPermit`) let a first-time user skip the pre-approve tx:
-///      they sign an off-chain permit and the router applies it before pulling
+///      they sign an off-chain permit and the zap applies it before pulling
 ///      funds. Permits are wrapped in `try/catch` to defuse the standard
 ///      permit-front-run DoS (if someone else submits the sig first, the nonce
 ///      is consumed but the allowance is already in place).
-contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @dev Basis-points denominator. 10_000 = 100%.
@@ -109,7 +109,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     /// @notice Create a new token, applying an EIP-2612 permit on USDC first.
     /// @dev Permit is only consumed if a seed buy is requested. For a pure
-    ///      create (no seed buy) the router needs no USDC, so any provided
+    ///      create (no seed buy) the zap needs no USDC, so any provided
     ///      permit is ignored.
     function createTokenWithPermit(
         Bonding.LaunchParams calldata params,
@@ -159,7 +159,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     }
 
     /// @notice Sell tokens for USDC, applying an EIP-2612 permit on the token first.
-    /// @dev Requires the token to support EIP-2612 (all FERC20s launched by
+    /// @dev Requires the token to support EIP-2612 (all `Token`s launched by
     ///      this protocol do). For legacy tokens without permit, use `sell`.
     function sellWithPermit(
         address tokenAddress,
@@ -222,7 +222,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     /// @dev Core buy cash-flow: pull USDC, mint LT on the net portion, execute
     ///      the curve/HyperSwap buy, refund any leftover (LT and pro-rata fee),
     ///      and deliver tokens. Returned `actualFee` is USDC sitting in the
-    ///      router awaiting `_accrueFee`; `feeRefund` has already been paid out.
+    ///      zap awaiting `_accrueFee`; `feeRefund` has already been paid out.
     function _executeBuy(
         address tokenAddress,
         uint256 usdcAmount
@@ -234,7 +234,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         uint256 feeOnGross = (usdcAmount * buyFeeBps) / BPS_DENOM;
         uint256 netUsdc = usdcAmount - feeOnGross;
 
-        // USDC -> LT on the net amount (fee stays in the router as USDC).
+        // USDC -> LT on the net amount (fee stays in the zap as USDC).
         usdc.forceApprove(lt, netUsdc);
         uint256 ltMinted = ILeveragedToken(lt).mint(address(this), netUsdc, 0);
 
@@ -290,7 +290,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
             ? _sellOnHyperswap(tokenAddress, lt, tokenAmount)
             : _sellOnCurve(tokenAddress, tokenAmount);
 
-        // LT -> USDC into this router (not the user) so we can deduct the fee.
+        // LT -> USDC into this zap (not the user) so we can deduct the fee.
         IERC20(lt).forceApprove(lt, ltReceived);
         uint256 grossUsdc = ILeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
@@ -327,7 +327,7 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
 
     // ─── Internal: Permit ────────────────────────────────────────────────
 
-    /// @dev Apply an EIP-2612 permit from `owner_` to this router. Swallows
+    /// @dev Apply an EIP-2612 permit from `owner_` to this zap. Swallows
     ///      reverts to defuse the standard permit-front-run DoS: if an
     ///      attacker observes the mempool and submits the same sig first,
     ///      the nonce is consumed but the allowance is already set, so the
@@ -352,12 +352,12 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         address lt,
         uint256 ltAmount
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
-        FRouter frouter = bonding.router();
-        IERC20(lt).forceApprove(address(frouter), ltAmount);
-        // Slippage is checked in LaunchpadRouter.buy after the refund path, so pass 0 here.
+        Router curveRouter = bonding.router();
+        IERC20(lt).forceApprove(address(curveRouter), ltAmount);
+        // Slippage is checked in Zap.buy after the refund path, so pass 0 here.
         // `msg.sender` is preserved across the internal call, so it's the user
-        // who invoked `LaunchpadRouter.buy` — passed through to Bonding as the
-        // `trader` for the emitted `Trade` event. Router is trusted by Bonding
+        // who invoked `Zap.buy` — passed through to Bonding as the
+        // `trader` for the emitted `Trade` event. Zap is trusted by Bonding
         // (it's on the `isRouter` allowlist), so this attribution is not
         // spoofable by any other caller.
         (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
@@ -367,8 +367,8 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
         address tokenAddress,
         uint256 tokenAmount
     ) internal returns (uint256 ltReceived) {
-        FRouter frouter = bonding.router();
-        IERC20(tokenAddress).forceApprove(address(frouter), tokenAmount);
+        Router curveRouter = bonding.router();
+        IERC20(tokenAddress).forceApprove(address(curveRouter), tokenAmount);
         ltReceived = bonding.sell(tokenAmount, tokenAddress, 0, msg.sender);
     }
 
@@ -422,9 +422,9 @@ contract LaunchpadRouter is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard
     }
 
     /// @notice Hot-swap the FeeVault. Reverts if the new vault hasn't already
-    ///         allowlisted this router as a depositor — without that, the very
+    ///         allowlisted this zap as a depositor — without that, the very
     ///         next buy/sell would revert in `FeeVault.accrue` and brick
-    ///         trading. Owners must `feeVault.addDepositor(router)` on the new
+    ///         trading. Owners must `feeVault.addDepositor(zap)` on the new
     ///         vault first, then call this.
     function setFeeVault(
         address feeVault_

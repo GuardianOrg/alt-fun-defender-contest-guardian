@@ -11,12 +11,12 @@ export const token = onchainTable("token", (t) => ({
   ltReserve: t.bigint().notNull(),
   graduated: t.boolean().notNull().default(false),
   graduatedAt: t.bigint(),
-  /** Bonding curve pair address (from FFactory.PairCreated). Set once at launch. */
+  /** Bonding curve pair address (from Factory.PairCreated). Set once at launch. */
   bondingPair: t.hex(),
   /** HyperSwap V2 pair address (from Bonding.TokenGraduated). Set at graduation. */
   hyperswapPair: t.hex(),
   /**
-   * Net USDC (6dp) put into this token via `LaunchpadRouter` — buys add
+   * Net USDC (6dp) put into this token via `Zap` — buys add
    * `usdcIn`, sells subtract `usdcOut` (floored at 0). Used to decompose the
    * graduation progress bar into "organic buys" vs "LT price appreciation":
    * we expose the organic USD contribution, and derive the boost as
@@ -26,7 +26,7 @@ export const token = onchainTable("token", (t) => ({
    */
   organicUsdcRaised: t.bigint().notNull().default(0n),
   /**
-   * Cumulative gross USDC (6dp) routed through `LaunchpadRouter` for this
+   * Cumulative gross USDC (6dp) routed through `Zap` for this
    * token — buys **and** sells both add to the counter (never subtract). This
    * is the lifetime trading-volume figure surfaced as `totalVolumeUsd` on
    * the API's token responses (hero card, creator rewards). Contrast with
@@ -73,7 +73,7 @@ export const trade = onchainTable("trade", (t) => ({
   timestampIdx: index().on(table.timestamp),
 }));
 
-/** USDC-denominated trades from LaunchpadRouter (covers both curve and post-graduation). */
+/** USDC-denominated trades from Zap (covers both curve and post-graduation). */
 export const routerTrade = onchainTable("router_trade", (t) => ({
   id: t.text().primaryKey(),
   tokenAddress: t.hex().notNull(),

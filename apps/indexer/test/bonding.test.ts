@@ -104,7 +104,7 @@ describe("Bonding:TokenLaunched", () => {
     expect(values.graduated).toBe(false);
   });
 
-  it("uses onConflictDoUpdate to overwrite FFactory:PairCreated placeholder", async () => {
+  it("uses onConflictDoUpdate to overwrite Factory:PairCreated placeholder", async () => {
     const handler = getHandler("Bonding:TokenLaunched");
     const event = createMockEvent({
       args: {
@@ -175,7 +175,7 @@ describe("Bonding:GraduationThresholdUpdated", () => {
   });
 });
 
-describe("FFactory:PairCreated", () => {
+describe("Factory:PairCreated", () => {
   let db: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
@@ -183,7 +183,7 @@ describe("FFactory:PairCreated", () => {
   });
 
   it("inserts a placeholder row carrying bondingPair", async () => {
-    const handler = getHandler("FFactory:PairCreated");
+    const handler = getHandler("Factory:PairCreated");
     const event = createMockEvent({
       args: {
         tokenA: "0xtoken1",
@@ -477,7 +477,7 @@ describe("Bonding:TokenGraduated", () => {
   });
 });
 
-describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
+describe("Zap:Buy / Sell — organic USDC accumulator", () => {
   let db: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
@@ -491,7 +491,7 @@ describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
       volumeUsd: 4_000_000n, // 4 USDC lifetime so far
     });
 
-    const handler = getHandler("LaunchpadRouter:Buy");
+    const handler = getHandler("Zap:Buy");
     const event = createMockEvent({
       args: {
         token: "0xtoken1",
@@ -518,7 +518,7 @@ describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
       volumeUsd: 7_000_000n,
     });
 
-    const handler = getHandler("LaunchpadRouter:Sell");
+    const handler = getHandler("Zap:Sell");
     const event = createMockEvent({
       args: {
         token: "0xtoken1",
@@ -542,7 +542,7 @@ describe("LaunchpadRouter:Buy / Sell — organic USDC accumulator", () => {
     // No `_setFindResult` — simulates a webhook event arriving for a token
     // that hasn't been indexed yet (shouldn't happen in practice, but the
     // handler must not crash).
-    const handler = getHandler("LaunchpadRouter:Buy");
+    const handler = getHandler("Zap:Buy");
     const event = createMockEvent({
       args: {
         token: "0xunknown",

@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {FERC20} from "../src/FERC20.sol";
-import {FFactory} from "../src/FFactory.sol";
-import {FRouter} from "../src/FRouter.sol";
+import {Token} from "../src/Token.sol";
+import {Factory} from "../src/Factory.sol";
+import {Router} from "../src/Router.sol";
 import {LPLock} from "../src/LPLock.sol";
 import {FeeVault} from "../src/FeeVault.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -20,12 +20,12 @@ abstract contract DeployHelper is Test {
     MockERC20 public usdc;
     MockLeveragedToken public lt;
     MockHyperswapRouter public hyperswapRouter;
-    FFactory public factory;
-    FRouter public frouter;
+    Factory public factory;
+    Router public curveRouter;
     Bonding public bonding;
     LPLock public lpLockContract;
     FeeVault public feeVault;
-    FERC20 public ferc20Impl;
+    Token public tokenImpl;
 
     address public owner = address(this);
     address public feeReceiver = makeAddr("feeReceiver");
@@ -54,7 +54,7 @@ abstract contract DeployHelper is Test {
     bytes constant _EIP1167_SUFFIX = hex"5af43d82803e903d91602b57fd5bf3";
 
     /// @dev Brute-force a `userSalt` such that
-    ///      `Clones.cloneDeterministic(ferc20Impl, _mixSalt(creator_, userSalt))`
+    ///      `Clones.cloneDeterministic(tokenImpl, _mixSalt(creator_, userSalt))`
     ///      deploys to an address ending in `Bonding.VANITY_SUFFIX`
     ///      (`0xa1fa`). Mirrors the off-chain Web Worker miner used by the
     ///      frontend. ~65k attempts on average — Foundry's revm runs this
@@ -69,10 +69,10 @@ abstract contract DeployHelper is Test {
         // IMPORTANT: this helper must NOT make any external calls — the
         // calling test commonly does `vm.prank(creator); doStuff(_mineVanitySalt(...))`,
         // and any call here would consume the prank before `doStuff` runs.
-        // We use the cached `ferc20Impl` set at deploy time. Tests that
+        // We use the cached `tokenImpl` set at deploy time. Tests that
         // rotate `tokenImplementation` mid-test must call
         // `_mineVanitySaltForImpl(creator_, newImpl)` explicitly.
-        return _mineVanitySaltForImpl(creator_, address(ferc20Impl));
+        return _mineVanitySaltForImpl(creator_, address(tokenImpl));
     }
 
     function _mineVanitySaltForImpl(
@@ -146,28 +146,28 @@ abstract contract DeployHelper is Test {
         lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));
         hyperswapRouter = new MockHyperswapRouter();
 
-        factory = new FFactory();
+        factory = new Factory();
         factory.initialize();
 
-        frouter = new FRouter();
-        frouter.initialize(address(factory));
+        curveRouter = new Router();
+        curveRouter.initialize(address(factory));
 
         LPLock lpLockImpl = new LPLock();
         bytes memory lpLockInit = abi.encodeCall(LPLock.initialize, (owner));
         lpLockContract = LPLock(address(new ERC1967Proxy(address(lpLockImpl), lpLockInit)));
 
-        ferc20Impl = new FERC20();
+        tokenImpl = new Token();
 
         Bonding bondingImpl = new Bonding();
         bytes memory bondingInit = abi.encodeCall(
             Bonding.initialize,
             (
                 address(factory),
-                address(frouter),
+                address(curveRouter),
                 MAX_TX,
                 address(hyperswapRouter),
                 address(lpLockContract),
-                address(ferc20Impl)
+                address(tokenImpl)
             )
         );
         bonding = Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
@@ -176,9 +176,9 @@ abstract contract DeployHelper is Test {
         bytes memory feeVaultInit = abi.encodeCall(FeeVault.initialize, (address(usdc), feeReceiver));
         feeVault = FeeVault(address(new ERC1967Proxy(address(feeVaultImpl), feeVaultInit)));
 
-        factory.setRouter(address(frouter));
+        factory.setRouter(address(curveRouter));
         factory.grantRole(factory.BONDING_ROLE(), address(bonding));
-        frouter.grantRole(frouter.BONDING_ROLE(), address(bonding));
+        curveRouter.grantRole(curveRouter.BONDING_ROLE(), address(bonding));
         lpLockContract.setLocker(address(bonding), true);
     }
 }

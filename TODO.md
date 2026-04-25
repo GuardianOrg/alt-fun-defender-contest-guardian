@@ -3,12 +3,14 @@
 # TODO
 
 - Test graduating
-- What is the `F` prefix pattern for? And do we need `Launchpad` prefix before router? It's a bit inconsistant
 
 # Post Audit
 
+- No extra signing when creating token
 - AVIF image didn't work
 - 1s chart
+- Default to 1m chart (not 1 day)
+- Option to enlarge token icon when clicked
 - We should pass through slippage checks
 - Landing page
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L

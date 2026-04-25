@@ -8,11 +8,11 @@ const abiDir = join(__dirname, "..", "..", "shared", "src", "abis");
 
 const contracts = [
   "Bonding",
-  "FFactory",
-  "FRouter",
-  "FPair",
-  "FERC20",
-  "LaunchpadRouter",
+  "Factory",
+  "Router",
+  "Pair",
+  "Token",
+  "Zap",
   "LPLock",
   "FeeVault",
 ];

@@ -42,10 +42,10 @@ contract UUPSUpgradeTest is DeployHelper {
 
         // Seed buy now happens via the standard buy path (no longer inside
         // `Bonding.launch`). Drive it directly through `bonding.buy` since
-        // these tests bypass the LaunchpadRouter.
+        // these tests bypass the Zap.
         lt.mintDirect(creator, 200 ether);
         vm.startPrank(creator);
-        lt.approve(address(frouter), 200 ether);
+        lt.approve(address(curveRouter), 200 ether);
         bonding.buy(200 ether, tokenAddr, 0, creator);
         vm.stopPrank();
     }
@@ -79,7 +79,7 @@ contract UUPSUpgradeTest is DeployHelper {
         bonding.upgradeToAndCall(address(newImpl), "");
 
         assertEq(address(bonding.factory()), address(factory));
-        assertEq(address(bonding.router()), address(frouter));
+        assertEq(address(bonding.router()), address(curveRouter));
     }
 
     function test_bonding_preservesTokensAfterUpgrade() public {
@@ -99,7 +99,7 @@ contract UUPSUpgradeTest is DeployHelper {
 
         lt.mintDirect(trader, 1000 ether);
         vm.startPrank(trader);
-        lt.approve(address(frouter), 1000 ether);
+        lt.approve(address(curveRouter), 1000 ether);
         bonding.buy(1000 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
@@ -121,7 +121,7 @@ contract UUPSUpgradeTest is DeployHelper {
 
         lt.mintDirect(trader, 500 ether);
         vm.startPrank(trader);
-        lt.approve(address(frouter), 500 ether);
+        lt.approve(address(curveRouter), 500 ether);
         (uint256 tokensOut,) = bonding.buy(500 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 

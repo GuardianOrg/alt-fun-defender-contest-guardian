@@ -41,7 +41,7 @@ describe("seedBuyStats", () => {
 
   it("caps at 75% (CURVE_SUPPLY) for very large amounts — matches on-chain cap", () => {
     // The uncapped parabola approaches 100% (TOTAL_SUPPLY) asymptotically, but the
-    // on-chain `FRouter.buy` caps `tokensOut` at the pair's real balance (CURVE_SUPPLY),
+    // on-chain `Router.buy` caps `tokensOut` at the pair's real balance (CURVE_SUPPLY),
     // so the UI mirrors that.
     const stats = seedBuyStats(1_000_000, THRESHOLD);
     expect(stats.supplyPct).toBeLessThanOrEqual(75);

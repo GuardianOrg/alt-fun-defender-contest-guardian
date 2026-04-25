@@ -12,7 +12,7 @@ Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leve
 4. **Graduate:** Dual trigger — curve closes when **either** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (default `$12K`, owner-tunable via `setGraduationThresholdUsd`) **or** all 750M curve tokens sold. LP is seeded with exactly the tokens needed to match the last curve price ("dynamic LP seeding" → zero price gap between curve and DEX). Excess LP-reserve tokens and any unsold curve tokens are burned. LP is locked.
 5. **Post-grad:** Trading continues through Router on HyperSwap. Leveraged exposure persists.
 
-The `LaunchpadRouter` is the only user-facing entry point. Users always pay and receive USDC.
+The `Zap` contract is the only user-facing entry point. Users always pay and receive USDC.
 
 ---
 
@@ -54,12 +54,12 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 ## Fees
 
-Fees are charged by `LaunchpadRouter` in USDC on every buy/sell — curve **and** post-graduation — and forwarded to the dedicated `FeeVault` contract. Creators and the protocol each claim their pooled USDC balance directly from the vault; the router holds no fee state, so it can be upgraded/swapped without affecting outstanding balances (the vault keeps a depositor allowlist).
+Fees are charged by `Zap` in USDC on every buy/sell — curve **and** post-graduation — and forwarded to the dedicated `FeeVault` contract. Creators and the protocol each claim their pooled USDC balance directly from the vault; the router holds no fee state, so it can be upgraded/swapped without affecting outstanding balances (the vault keeps a depositor allowlist).
 
 | Fee | Rate | Split | Charged where |
 |---|---|---|---|
-| Router buy | 0.5% | 0.4% protocol / 0.1% creator | `LaunchpadRouter` (USDC → `FeeVault`) |
-| Router sell | 0.5% | 0.4% protocol / 0.1% creator | `LaunchpadRouter` (USDC → `FeeVault`) |
+| Router buy | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
+| Router sell | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
 | HyperSwap swap (post-grad) | 0.3% | HyperSwap LPs (Alt Fun takes 0%) | HyperSwap V2 pair |
 | LT redemption | BounceTech internal | No additional Alt Fun fee | BounceTech LT |
 
@@ -67,11 +67,11 @@ Fees are charged by `LaunchpadRouter` in USDC on every buy/sell — curve **and*
 
 ## Token Lifecycle
 
-**Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through LaunchpadRouter. Curve reserve is LT. FPair holds virtual `reserve0 = totalSupply` and 750M real tokens (25% is held back in `Bonding` as `lpReserve` for graduation).
+**Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through Zap. Curve reserve is LT. Pair holds virtual `reserve0 = totalSupply` and 750M real tokens (25% is held back in `Bonding` as `lpReserve` for graduation).
 
 **Phase 2 — Graduation (dynamic LP seeding):** Either trigger fires → unsold real tokens burned from the pair → all real LT drained → `tokensForLP = raisedLT × reserve0 / reserve1` is computed (the exact amount that makes the LP open at the last curve price) → remainder of the 250M `lpReserve` is burned → `addLiquidity()` on HyperSwap with `(tokensForLP, raisedLT)` → LP locked → curve closed. Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in `test/GraduationInvariants.t.sol`.
 
-**Phase 3 — Open Trading:** TOKEN/LT pool on HyperSwap. All trades still go through LaunchpadRouter (USDC in/out).
+**Phase 3 — Open Trading:** TOKEN/LT pool on HyperSwap. All trades still go through Zap (USDC in/out).
 
 ---
 
@@ -81,7 +81,7 @@ Creating a token is a **two-phase process**. Both phases must succeed for the to
 
 ### Phase 1 — On-Chain
 
-Frontend calls `LaunchpadRouter.createToken(LaunchParams, seedUsdcAmount)`. This deploys the FERC20 token, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `LaunchpadRouter.buy` path (so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as any other buy). Three key events fire: `TokenLaunched` (Bonding), `TokenCreated` (LaunchpadRouter), and `Buy` (LaunchpadRouter, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+Frontend calls `Zap.createToken(LaunchParams, seedUsdcAmount)`. This deploys the Token clone, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `Zap.buy` path (so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as any other buy). Three key events fire: `TokenLaunched` (Bonding), `TokenCreated` (Zap), and `Buy` (Zap, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
 
 ### Phase 2 — Off-Chain API Registration
 
@@ -172,7 +172,7 @@ No auth required.
 | HyperSwap V2 Factory | `0x724412C00059bf7d6ee7d4a1d0D5cd4de3ea1C48` |
 | HyperSwap V2 Router | `0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A` |
 
-Our own contract addresses (`LaunchpadRouter`, `Bonding`, `FFactory`, `FRouter`, `LPLock`, `FeeVault`) live in `packages/shared/src/constants/addresses.ts` and are regenerated on every deploy via `forge script` + `npm run export-abi`.
+Our own contract addresses (`Zap`, `Bonding`, `Factory`, `Router`, `LPLock`, `FeeVault`) live in `packages/shared/src/constants/addresses.ts` and are regenerated on every deploy via `forge script` + `npm run export-abi`. Full deploy procedure (including the HyperEVM big-blocks gotcha that will silently break a fresh deploy): see [`packages/contracts/AGENTS.md`](packages/contracts/AGENTS.md#deploying-to-hyperevm).
 
 ### Infrastructure
 

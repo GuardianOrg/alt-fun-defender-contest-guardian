@@ -1,4 +1,4 @@
-export const LaunchpadRouterAbi = [
+export const ZapAbi = [
   {
     "type": "function",
     "name": "BPS_DENOM",
@@ -125,7 +125,7 @@ export const LaunchpadRouterAbi = [
       {
         "name": "p",
         "type": "tuple",
-        "internalType": "struct LaunchpadRouter.PermitData",
+        "internalType": "struct Zap.PermitData",
         "components": [
           {
             "name": "value",
@@ -279,7 +279,7 @@ export const LaunchpadRouterAbi = [
       {
         "name": "p",
         "type": "tuple",
-        "internalType": "struct LaunchpadRouter.PermitData",
+        "internalType": "struct Zap.PermitData",
         "components": [
           {
             "name": "value",
@@ -497,7 +497,7 @@ export const LaunchpadRouterAbi = [
       {
         "name": "p",
         "type": "tuple",
-        "internalType": "struct LaunchpadRouter.PermitData",
+        "internalType": "struct Zap.PermitData",
         "components": [
           {
             "name": "value",
