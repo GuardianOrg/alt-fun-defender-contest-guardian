@@ -54,6 +54,16 @@ The indexer persists `curveSupply` and `ltReserve` verbatim from `Bonding.Trade.
 
 This means every API query that feeds graduation-progress math **must include `k`** — it's required for the virtual-LT subtraction. Without it the USD fill silently overcounts by the initial $4K virtual liquidity, so the enricher degrades cleanly to supply-only progress when `k` is missing.
 
+### Post-graduation: the same columns mirror HyperSwap reserves
+
+Once a token graduates, `Bonding.Trade` stops firing and the curve pair drains to zero. The indexer's `HyperSwapPair:Sync` handler then takes over: every Sync rewrites `token.curveSupply` / `token.ltReserve` with the live HyperSwap V2 pair reserves (mapped via the cached `hyperswapPairIndex.tokenIsToken0`) and appends a `tokenSnapshot` row. This keeps the same `computeTokenPrice(curveSupply, ltReserve, rate)` formula working post-graduation without graduation special-casing — price/mcap/change24h all keep moving with DEX activity.
+
+The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdown` short-circuits on `graduated === true` (returns `total: 100`, organic/boost null), so the [250M, 1B] virtual range no longer applies — safe to overwrite the columns with HyperSwap's *real* reserves once the token has graduated.
+
+### Chart route post-graduation
+
+`GET /api/v1/chart/:address` builds the ratio timeline from the `tokenSnapshot` table — written by both `Bonding:Trade` (curve) and `HyperSwapPair:Sync` (post-grad). One paginated query covers both phases; no special-casing needed in the route handler. The `currentRatio` returned alongside the candles is the latest snapshot's `ltReserve / curveSupply`, which the frontend folds with the live LT rate from the `price` WS channel to keep the in-progress candle moving. See `apps/indexer/AGENTS.md → Post-graduation reserve mirror` for the source-of-truth side.
+
 ## Durable Objects
 
 - `WebSocketDO` — fans out WS messages to subscribed clients. Supports global and per-subject routing (keyed by token or LT address).

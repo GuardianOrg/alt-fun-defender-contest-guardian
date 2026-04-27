@@ -1,5 +1,6 @@
 import { formatUnits } from "viem";
 
+import type { ApiRouterTrade } from "./api";
 import type { Trade, TradeBroadcast } from "./types";
 
 const TOKEN_DECIMALS = 10n ** 18n;
@@ -31,5 +32,32 @@ export function ponderTradeToTrade(pt: TradeBroadcast, exchangeRate: number): Tr
     tokenName: "",
     curveSupply: pt.curveSupply,
     ltReserve: pt.ltReserve,
+  };
+}
+
+/**
+ * Convert an `ApiRouterTrade` (USDC-denominated, sourced from `Zap.Buy/Sell`)
+ * into the client `Trade` shape. Used by the REST polling path for both the
+ * global feed and per-token feed — covers curve **and** post-graduation
+ * trades since `routerTrade` is written for both phases.
+ *
+ * Unlike `ponderTradeToTrade`, this needs no LT exchange rate lookup: the
+ * indexer already records USDC-on-the-wire, so `amountUsd` is a direct
+ * conversion. `curveSupply` / `ltReserve` aren't returned by the trades
+ * route (post-grad they're DEX reserves and the chart aggregator pulls
+ * them from `useChartData` via the `trade` WS channel + REST chart route),
+ * so they stay undefined here.
+ */
+export function routerTradeToTrade(rt: ApiRouterTrade): Trade {
+  const usdcAmountFloat = Number(BigInt(rt.usdcAmount)) / 1e6;
+  return {
+    id: rt.id,
+    side: rt.isBuy ? "BUY" : "SELL",
+    amountUsd: usdcAmountFloat,
+    tokensAmount: formatTokenBalance(rt.tokenAmount),
+    walletAddress: `${rt.trader.slice(0, 4)}…${rt.trader.slice(-2)}`,
+    timestamp: new Date(Number(rt.timestamp) * 1000).toISOString(),
+    tokenAddress: rt.tokenAddress,
+    tokenName: "",
   };
 }

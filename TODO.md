@@ -6,6 +6,8 @@
 
 # Post Audit
 
+- Get our own privy id
+- Get our own ponder indexing rpc
 - No extra signing when creating token
 - AVIF image didn't work
 - 1s chart
@@ -19,10 +21,6 @@
 - Add Terms of Service, Privacy Policy, DMCA Policy
 - Add some report feature where users can report tokens that are in breach of something
 - Right now DEV and CA are equal-weight buttons. CA is the primary action (traders copy CAs constantly to paste into terminals, wallets, etc.). DEV is secondary context. Can we make CA larger, more prominent, possibly even as the only copy-button and relegate DEV to a smaller info icon that expands on hover, or a smaller pill below. The CA should be the most copy-worthy thing on the page. (https://www.printr.money/)
-
-# Post graduation
-
-- **Post-graduation chart pricing**: The chart currently uses bonding curve trades (Ponder `trade` table) to derive token/LT ratios. For graduated tokens trading on HyperSwap, swap events are not yet indexed. When HyperSwap `Swap`/`Sync` indexing is added, update `GET /api/v1/chart/:address` to incorporate post-grad DEX reserve changes for continuous pricing.
 
 # Post testing
 

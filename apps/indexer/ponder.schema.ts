@@ -179,6 +179,24 @@ export const pairReserve = onchainTable("pair_reserve", (t) => ({
   timestamp: t.bigint().notNull(),
 }));
 
+/**
+ * Reverse map: HyperSwap V2 pair address → token address. Populated on
+ * `Bonding:TokenGraduated` so the `HyperSwapPair:Sync` handler can resolve
+ * the token (and its LT) from the pair without an O(n) scan or an extra
+ * RPC read of `token0`/`token1`.
+ *
+ * `tokenIsToken0` is cached at graduation time (HyperSwap V2 sorts pair
+ * tokens by ascending address, so it's deterministic from the addresses)
+ * and used to map `(reserve0, reserve1)` → `(tokenReserve, ltReserve)` on
+ * every Sync event without re-comparing strings each time.
+ */
+export const hyperswapPairIndex = onchainTable("hyperswap_pair_index", (t) => ({
+  pairAddress: t.hex().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  ltAddress: t.hex().notNull(),
+  tokenIsToken0: t.boolean().notNull(),
+}));
+
 /** Per-wallet token balances, updated on every ERC-20 Transfer. */
 export const tokenBalance = onchainTable("token_balance", (t) => ({
   id: t.text().primaryKey(),

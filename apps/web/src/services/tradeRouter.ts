@@ -1,14 +1,58 @@
-import { FactoryAbi, LeveragedTokenAbi } from "@launchpad/shared";
+import {
+  BondingAbi,
+  FactoryAbi,
+  LeveragedTokenAbi,
+} from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
 
 import { FEES } from "../config/constants";
+import { UniswapV2FactoryAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
+
+/**
+ * Bonding curve `Pair.getReserves()` returns `(uint256, uint256)` — no
+ * `blockTimestampLast` (cf. `packages/contracts/src/Pair.sol`). HyperSwap
+ * V2 returns `(uint112, uint112, uint32)`. viem decodes outputs strictly,
+ * so we keep distinct ABIs for the two venues to avoid decode errors.
+ */
+const CurvePairAbi = [
+  {
+    name: "getReserves",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "reserve0", type: "uint256" },
+      { name: "reserve1", type: "uint256" },
+    ],
+  },
+] as const;
+
+const HyperswapPairAbi = [
+  {
+    name: "getReserves",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [
+      { name: "reserve0", type: "uint112" },
+      { name: "reserve1", type: "uint112" },
+      { name: "blockTimestampLast", type: "uint32" },
+    ],
+  },
+] as const;
 
 // Router-level USDC fee applied to every trade (curve and post-grad). The
 // `Zap` charges this same 0.5% on both paths and forwards it to
 // `FeeVault`, so quotes don't need to special-case graduated tokens — the
 // fee math here mirrors the on-chain deduction regardless of execution venue.
+//
+// HyperSwap V2 takes its own 0.3% on the LT-side input (post-grad path).
+// Mirrored here so post-grad quotes match what `Zap._buyOnHyperswap` /
+// `_sellOnHyperswap` actually receives back from the DEX.
+const HYPERSWAP_FEE_BPS = 30; // 0.30% — UniswapV2-style "fee on input"
+const BPS_DENOM = 10_000;
 
 const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 
@@ -52,10 +96,31 @@ export interface ITradeRouterService {
   ): Promise<SellQuote | null>;
 }
 
-async function getTokenPair(
+interface PairContext {
+  /**
+   * Active AMM pair that holds `(token, lt)` reserves we should price
+   * against. Curve phase: bonding curve pair from `Factory.pairFor`.
+   * Post-graduation: HyperSwap V2 pair (`Zap` routes trades there). Quoting
+   * the wrong pair returns garbage (the bonding pair's LT reserve drains
+   * to zero on graduation), so this resolution must be graduation-aware.
+   */
+  pairAddress: `0x${string}`;
+  ltAddress: `0x${string}`;
+  graduated: boolean;
+  /**
+   * `true` when the HyperSwap pair sorts the token as `token0`. UniswapV2
+   * pairs sort token addresses ascending at creation, so this flips the
+   * `(reserve0, reserve1)` → `(tokenReserve, ltReserve)` mapping the
+   * caller uses. Curve pairs always have token = reserve0 (Bonding mints
+   * with `(token, lt)` order), so this is fixed `true` on the curve.
+   */
+  tokenIsToken0: boolean;
+}
+
+async function getPairContext(
   tokenAddress: `0x${string}`,
-): Promise<{ pairAddress: `0x${string}`; ltAddress: `0x${string}` }> {
-  const [pairAddress, ltAddress] = await Promise.all([
+): Promise<PairContext> {
+  const [bondingPair, ltAddress, graduated] = await Promise.all([
     publicClient.readContract({
       address: ADDRESSES.factory,
       abi: FactoryAbi,
@@ -68,35 +133,84 @@ async function getTokenPair(
       functionName: "ltFor",
       args: [tokenAddress],
     }) as Promise<`0x${string}`>,
+    publicClient.readContract({
+      address: ADDRESSES.bonding,
+      abi: BondingAbi,
+      functionName: "isGraduated",
+      args: [tokenAddress],
+    }) as Promise<boolean>,
   ]);
-  return { pairAddress, ltAddress };
-}
 
-const PairAbi = [
-  {
-    name: "getReserves",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [
-      { name: "reserve0", type: "uint256" },
-      { name: "reserve1", type: "uint256" },
-    ],
-  },
-] as const;
+  if (!graduated) {
+    return {
+      pairAddress: bondingPair,
+      ltAddress,
+      graduated: false,
+      tokenIsToken0: true,
+    };
+  }
+
+  const hyperswapPair = (await publicClient.readContract({
+    address: ADDRESSES.hyperswapFactory,
+    abi: UniswapV2FactoryAbi,
+    functionName: "getPair",
+    args: [tokenAddress, ltAddress],
+  })) as `0x${string}`;
+
+  // Defensive guard. `Bonding._seedHyperswap` creates and seeds the pair
+  // atomically with the graduation flag flip, so a graduated token *should*
+  // always have a pair. But if the HyperSwap factory address is stale (e.g.
+  // pointed at the wrong chain on a fork/devnet) `getPair` silently returns
+  // the zero address — calling `getReserves` on `0x000…000` then fails
+  // deep inside viem with an opaque "method not found"/revert and the
+  // caller's catch swallows it as a null quote with no diagnostic signal.
+  // Throw a descriptive error so the failure is at least visible in the
+  // console; the outer try/catch in `getQuoteBuy` / `getQuoteSell` still
+  // collapses it to `null` for the UI ("no estimate"), but a developer
+  // looking at the network tab will see the real cause.
+  if (
+    hyperswapPair === "0x0000000000000000000000000000000000000000"
+  ) {
+    throw new Error(
+      `HyperSwap pair missing for graduated token ${tokenAddress} ` +
+        `(factory=${ADDRESSES.hyperswapFactory}, lt=${ltAddress}). ` +
+        `Check HYPERSWAP_ADDRESSES.factory matches the active chain.`,
+    );
+  }
+
+  // V2 sorts pair tokens by ascending address at creation time (cf.
+  // `IUniswapV2Library.sortTokens`); cache the comparison so callers can
+  // map reserves without re-fetching `token0()`.
+  const tokenIsToken0 =
+    tokenAddress.toLowerCase() < ltAddress.toLowerCase();
+
+  return {
+    pairAddress: hyperswapPair,
+    ltAddress,
+    graduated: true,
+    tokenIsToken0,
+  };
+}
 
 const liveTradeRouter: ITradeRouterService = {
   async getQuoteBuy(curveAddress, usdcAmount) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
-      const { pairAddress, ltAddress } = await getTokenPair(tokenAddr);
+      const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
+        await getPairContext(tokenAddr);
 
       const [reserves, exchangeRate] = await Promise.all([
-        publicClient.readContract({
-          address: pairAddress,
-          abi: PairAbi,
-          functionName: "getReserves",
-        }) as Promise<[bigint, bigint]>,
+        graduated
+          ? (publicClient.readContract({
+              address: pairAddress,
+              abi: HyperswapPairAbi,
+              functionName: "getReserves",
+            }) as Promise<readonly [bigint, bigint, number]>)
+          : (publicClient.readContract({
+              address: pairAddress,
+              abi: CurvePairAbi,
+              functionName: "getReserves",
+            }) as Promise<readonly [bigint, bigint]>),
         publicClient.readContract({
           address: ltAddress,
           abi: LeveragedTokenAbi,
@@ -104,7 +218,10 @@ const liveTradeRouter: ITradeRouterService = {
         }) as Promise<bigint>,
       ]);
 
-      const [tokenReserve, ltReserve] = reserves;
+      const [reserve0, reserve1] = reserves;
+      const tokenReserve = tokenIsToken0 ? reserve0 : reserve1;
+      const ltReserve = tokenIsToken0 ? reserve1 : reserve0;
+
       const exRate = parseFloat(formatUnits(exchangeRate, 18));
       const ltReserveFloat = parseFloat(formatUnits(ltReserve, 18));
       const tokenReserveFloat = parseFloat(formatUnits(tokenReserve, 18));
@@ -112,8 +229,19 @@ const liveTradeRouter: ITradeRouterService = {
       const curveFee = usdcAmount * FEES.curveBuy;
       const netUsdc = usdcAmount - curveFee;
       const ltIn = netUsdc / exRate;
+
+      // `Pair.swap` (curve) and HyperSwap V2 use the same constant-product
+      // math; the only difference post-graduation is the V2 0.30% fee on
+      // input. Apply it as an effective input shrink so the same formula
+      // works for both venues.
+      const effectiveLtIn = graduated
+        ? (ltIn * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM
+        : ltIn;
       const tokensOut =
-        (tokenReserveFloat * ltIn) / (ltReserveFloat + ltIn);
+        ltReserveFloat > 0
+          ? (tokenReserveFloat * effectiveLtIn) /
+            (ltReserveFloat + effectiveLtIn)
+          : 0;
       const priceImpact =
         ltReserveFloat > 0 ? (ltIn / ltReserveFloat) * 100 : 0;
 
@@ -135,14 +263,21 @@ const liveTradeRouter: ITradeRouterService = {
   async getQuoteSell(curveAddress, tokenAmount) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
-      const { pairAddress, ltAddress } = await getTokenPair(tokenAddr);
+      const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
+        await getPairContext(tokenAddr);
 
       const [reserves, exchangeRate, baseAssetBal] = await Promise.all([
-        publicClient.readContract({
-          address: pairAddress,
-          abi: PairAbi,
-          functionName: "getReserves",
-        }) as Promise<[bigint, bigint]>,
+        graduated
+          ? (publicClient.readContract({
+              address: pairAddress,
+              abi: HyperswapPairAbi,
+              functionName: "getReserves",
+            }) as Promise<readonly [bigint, bigint, number]>)
+          : (publicClient.readContract({
+              address: pairAddress,
+              abi: CurvePairAbi,
+              functionName: "getReserves",
+            }) as Promise<readonly [bigint, bigint]>),
         publicClient.readContract({
           address: ltAddress,
           abi: LeveragedTokenAbi,
@@ -155,14 +290,24 @@ const liveTradeRouter: ITradeRouterService = {
         }) as Promise<bigint>,
       ]);
 
-      const [tokenReserve, ltReserve] = reserves;
+      const [reserve0, reserve1] = reserves;
+      const tokenReserve = tokenIsToken0 ? reserve0 : reserve1;
+      const ltReserve = tokenIsToken0 ? reserve1 : reserve0;
+
       const exRate = parseFloat(formatUnits(exchangeRate, 18));
       const ltReserveFloat = parseFloat(formatUnits(ltReserve, 18));
       const tokenReserveFloat = parseFloat(formatUnits(tokenReserve, 18));
       const bufferUsdc = parseFloat(formatUnits(baseAssetBal, 6));
 
+      // V2 0.30% fee taken on input (token side here for sells).
+      const effectiveTokenIn = graduated
+        ? (tokenAmount * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM
+        : tokenAmount;
       const ltOut =
-        (ltReserveFloat * tokenAmount) / (tokenReserveFloat + tokenAmount);
+        tokenReserveFloat > 0
+          ? (ltReserveFloat * effectiveTokenIn) /
+            (tokenReserveFloat + effectiveTokenIn)
+          : 0;
       const grossUsdc = ltOut * exRate;
       const curveFee = grossUsdc * FEES.curveSell;
       const ltRedemptionFee = grossUsdc * FEES.ltRedemption * 2;

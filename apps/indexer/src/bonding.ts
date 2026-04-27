@@ -11,6 +11,7 @@ import {
   tokenBalance,
   tokenSnapshot,
   protocolConfig,
+  hyperswapPairIndex,
 } from "ponder:schema";
 
 import { broadcastEvent, isLiveEvent } from "./broadcast.js";
@@ -201,6 +202,27 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
       graduatedAt: BigInt(event.block.timestamp),
       hyperswapPair: event.args.pairAddress,
     });
+
+  // Populate the reverse pair → token index so the HyperSwap Sync handler
+  // can resolve the token in O(1) on every post-graduation reserve update.
+  // We need the LT address to cache the token0/token1 ordering: HyperSwap V2
+  // sorts pair tokens by ascending address, so `tokenIsToken0` is fixed at
+  // pair creation. Caching it here avoids re-comparing strings on every
+  // Sync event over the lifetime of the pair.
+  const tokenRow = await db.find(token, { address: event.args.token });
+  if (tokenRow) {
+    const tokenAddrLower = event.args.token.toLowerCase();
+    const ltAddrLower = tokenRow.ltToken.toLowerCase();
+    await db
+      .insert(hyperswapPairIndex)
+      .values({
+        pairAddress: event.args.pairAddress,
+        tokenAddress: event.args.token,
+        ltAddress: tokenRow.ltToken,
+        tokenIsToken0: tokenAddrLower < ltAddrLower,
+      })
+      .onConflictDoNothing();
+  }
 });
 
 ponder.on("Zap:Buy", async ({ event, context }) => {

@@ -365,6 +365,57 @@ export function fetchSparkline(
   return apiFetch(`/api/v1/trades/sparkline/${address}?points=${points}`);
 }
 
+/**
+ * Shape returned by `GET /api/v1/trades` and `GET /api/v1/trades/:address`.
+ * Sourced from the indexer's `routerTrade` table (Zap `Buy`/`Sell` events),
+ * so the same endpoint covers **both** bonding-curve and post-graduation
+ * trades — no special-casing for graduated tokens.
+ *
+ * Contrast with `PonderTrade` from `services/ponder.ts` (Bonding-only,
+ * LT-denominated): keep this one out of `services/ponder.ts` so a
+ * graduation regression there doesn't pull the ponder-trades polling
+ * path back into use.
+ */
+export interface ApiRouterTrade {
+  id: string;
+  tokenAddress: string;
+  trader: string;
+  isBuy: boolean;
+  /** USDC amount in/out, 6dp decimal string (matches indexer storage). */
+  usdcAmount: string;
+  /** Token amount in/out, 1e18-scaled decimal string. */
+  tokenAmount: string;
+  blockNumber: string;
+  /** Unix seconds (decimal string, NOT 1e18-scaled). */
+  timestamp: string;
+}
+
+/**
+ * Fetch the global feed of router-routed trades. Used by the home-page
+ * trade ticker. Crucially graduation-aware (unlike Ponder's `trades`
+ * GraphQL which only sees `Bonding.Trade`).
+ */
+export function fetchRouterTradesGlobal(limit = 20): Promise<ApiRouterTrade[]> {
+  return apiFetch(`/api/v1/trades?limit=${limit}`);
+}
+
+/**
+ * Fetch per-token router trade history (paginated). The same endpoint
+ * powers the token detail page's "trades" tab and the per-token live feed
+ * REST fallback.
+ */
+export function fetchRouterTradesByToken(
+  address: string,
+  limit = 30,
+  offset = 0,
+): Promise<ApiRouterTrade[]> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return apiFetch(`/api/v1/trades/${address}?${params.toString()}`);
+}
+
 export interface HolderInfo {
   wallet: string;
   balance: string;
