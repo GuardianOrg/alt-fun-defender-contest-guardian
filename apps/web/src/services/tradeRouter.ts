@@ -157,6 +157,27 @@ async function getPairContext(
     args: [tokenAddress, ltAddress],
   })) as `0x${string}`;
 
+  // Defensive guard. `Bonding._seedHyperswap` creates and seeds the pair
+  // atomically with the graduation flag flip, so a graduated token *should*
+  // always have a pair. But if the HyperSwap factory address is stale (e.g.
+  // pointed at the wrong chain on a fork/devnet) `getPair` silently returns
+  // the zero address — calling `getReserves` on `0x000…000` then fails
+  // deep inside viem with an opaque "method not found"/revert and the
+  // caller's catch swallows it as a null quote with no diagnostic signal.
+  // Throw a descriptive error so the failure is at least visible in the
+  // console; the outer try/catch in `getQuoteBuy` / `getQuoteSell` still
+  // collapses it to `null` for the UI ("no estimate"), but a developer
+  // looking at the network tab will see the real cause.
+  if (
+    hyperswapPair === "0x0000000000000000000000000000000000000000"
+  ) {
+    throw new Error(
+      `HyperSwap pair missing for graduated token ${tokenAddress} ` +
+        `(factory=${ADDRESSES.hyperswapFactory}, lt=${ltAddress}). ` +
+        `Check HYPERSWAP_ADDRESSES.factory matches the active chain.`,
+    );
+  }
+
   // V2 sorts pair tokens by ascending address at creation time (cf.
   // `IUniswapV2Library.sortTokens`); cache the comparison so callers can
   // map reserves without re-fetching `token0()`.

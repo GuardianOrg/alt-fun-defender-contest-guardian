@@ -434,17 +434,14 @@ describe("Bonding:TokenGraduated", () => {
   });
 
   it("inserts graduation record with dynamic-LP-seeding fields and updates token status", async () => {
-    // Seed the token row so the handler can look up the LT address to
-    // compute `tokenIsToken0` for the pair index.
-    db._setFindResult(token, { address: "0xtoken1" }, {
-      address: "0xtoken1",
-      ltToken: "0xff0000000000000000000000000000000000ffff",
-    });
-
+    // Scoped to the graduation row + token-row update only. Pair-index
+    // population is exercised by the next three tests (which seed a
+    // matching token row so the handler's `db.find(token, ...)` lookup
+    // resolves), so we deliberately don't seed here.
     const handler = getHandler("Bonding:TokenGraduated");
     const event = createMockEvent({
       args: {
-        token: "0x0011000000000000000000000000000000001100",
+        token: "0xtoken1",
         pairAddress: "0xpair1",
         liquidity: 50000n,
         tokensInLP: 250_000_000n * 10n ** 18n,
@@ -460,7 +457,7 @@ describe("Bonding:TokenGraduated", () => {
     const graduationInsert = db._insertCalls.find((c) => c.table === graduation);
     expect(graduationInsert).toBeDefined();
     expect(graduationInsert!.values).toEqual({
-      tokenAddress: "0x0011000000000000000000000000000000001100",
+      tokenAddress: "0xtoken1",
       pairAddress: "0xpair1",
       liquidity: 50000n,
       tokensInLP: 250_000_000n * 10n ** 18n,
@@ -474,9 +471,7 @@ describe("Bonding:TokenGraduated", () => {
     expect(db._updateCalls).toHaveLength(1);
     const updateCall = db._updateCalls[0];
     expect(updateCall.table).toBe(token);
-    expect(updateCall.key).toEqual({
-      address: "0x0011000000000000000000000000000000001100",
-    });
+    expect(updateCall.key).toEqual({ address: "0xtoken1" });
     expect(updateCall.values).toEqual({
       graduated: true,
       graduatedAt: 1700100000n,

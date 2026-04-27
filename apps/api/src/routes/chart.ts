@@ -109,8 +109,12 @@ function buildRatioTimeline(
   launchTimestamp: number,
   snapshots: PonderTokenSnapshot[],
 ): RatioSnapshot[] {
-  const initialLtReserve =
-    (k * RATIO_PRECISION) / CURVE_RESERVE0_AT_LAUNCH;
+  // `k` from `Pair.mint` is `reserve0 × reserve1` with NO fixed-point
+  // factor (`packages/contracts/src/Pair.sol`), so the launch-time virtual
+  // LT reserve is plain integer division. `bigintRatio` already applies
+  // `RATIO_PRECISION` internally — pre-scaling here inflates the anchor
+  // ratio by 1e18 and produces a phantom price spike at launch.
+  const initialLtReserve = k / CURVE_RESERVE0_AT_LAUNCH;
   const initialRatio = bigintRatio(initialLtReserve, CURVE_RESERVE0_AT_LAUNCH);
 
   const out: RatioSnapshot[] = [

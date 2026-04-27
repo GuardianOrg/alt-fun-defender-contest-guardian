@@ -226,6 +226,61 @@ describe("GET /chart/:address", () => {
     expect(candle.open as number).toBeGreaterThan(0);
   });
 
+  it("anchors prices with k / reserve0_at_launch (no double-scaling)", async () => {
+    // Regression: `bigintRatio` already applies RATIO_PRECISION internally,
+    // so the launch-anchor `initialLtReserve` must be plain `k / reserve0`
+    // — pre-scaling by RATIO_PRECISION here used to inflate every fresh
+    // token's anchor ratio by 1e18 (visible only when there are no indexed
+    // trades yet, so the launch anchor is what gets priced against the LT
+    // rows).
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          // k = reserve0 × reserve1 with no fixed-point factor (Pair.sol).
+          // 1B × 1e18 reserve0 with virtualLt = 1.0 (1e18 wei) → k = 1e45.
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          timestamp: String(nowSec - 600),
+        },
+      });
+
+    // LT rate constant at 2.0 across the window.
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 300), exchange_rate: "2000000000000000000" },
+      { ts: String(nowSec - 100), exchange_rate: "2000000000000000000" },
+    ]);
+
+    // No indexed trades yet → ratio timeline = just the launch anchor.
+    mockPonderPaginatedQuery.mockResolvedValue({ items: [], truncated: false });
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      data: {
+        candles: { open: number; close: number }[];
+        currentRatio: number;
+        currentExchangeRate: number;
+      };
+    };
+
+    // launchRatio = (k / reserve0_at_launch) / reserve0_at_launch
+    //             = (1e45 / 1e27) / 1e27 = 1e-9
+    // priceUsd   = launchRatio × exRate = 1e-9 × 2 = 2e-9
+    expect(body.data.currentRatio).toBeCloseTo(1e-9, 18);
+    for (const candle of body.data.candles) {
+      expect(candle.open).toBeGreaterThan(1e-9);
+      expect(candle.open).toBeLessThan(1e-8);
+    }
+  });
+
   it("accepts all valid timeframes", async () => {
     mockPonderQuery
       .mockResolvedValue({ __typename: "Query" });
