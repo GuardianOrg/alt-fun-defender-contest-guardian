@@ -34,6 +34,13 @@ contract ZapTest is DeployHelper {
         feeVault.addDepositor(address(zap));
 
         usdc.mint(address(lt), 1_000_000 ether);
+
+        // Align graduation threshold to virtual liquidity so:
+        //   1) USD-based graduation is reachable on the test curve
+        //   2) "small/medium" buys sized off `VIRTUAL_LIQUIDITY_USD` stay
+        //      well below the graduation point.
+        // See DeployHelper for full rationale.
+        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -80,12 +87,16 @@ contract ZapTest is DeployHelper {
         if (bonding.isGraduating(tokenAddr)) bonding.finalizeGraduation(tokenAddr);
     }
 
+    /// @dev Drives a token through phase-1 + phase-2 graduation using
+    ///      USD-sized stages so it stays valid as the threshold/virtual
+    ///      liquidity dial moves. `_buyViaRouter` auto-finalizes whenever a
+    ///      buy crosses the graduation trigger.
     function _graduateToken(
         address tokenAddr
     ) internal {
-        _buyViaRouter(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyViaRouter(tokenAddr, trader2, 100 ether);
+        _buyViaRouter(tokenAddr, trader, _usdcStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyViaRouter(tokenAddr, trader2, _usdcGraduationTrigger());
         assertTrue(bonding.isGraduated(tokenAddr), "Token should be graduated");
     }
 
@@ -101,7 +112,7 @@ contract ZapTest is DeployHelper {
     }
 
     function test_createToken_withSeedBuy() public {
-        address tokenAddr = _createToken(200 ether);
+        address tokenAddr = _createToken(_defaultSeedUsdc());
         assertTrue(tokenAddr != address(0));
 
         uint256 creatorBalance = Token(tokenAddr).balanceOf(creator);
@@ -146,7 +157,7 @@ contract ZapTest is DeployHelper {
 
     function test_buy_curvePath_givesTokens() public {
         address tokenAddr = _createToken(0);
-        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         assertEq(Token(tokenAddr).balanceOf(trader), tokensOut);
         assertTrue(tokensOut > 0);
@@ -154,11 +165,12 @@ contract ZapTest is DeployHelper {
 
     function test_buy_curvePath_deductsUsdc() public {
         address tokenAddr = _createToken(0);
-        usdc.mint(trader, 500 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 500 ether);
-        zap.buy(tokenAddr, 500 ether, 0, address(0));
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(trader), 0, "All USDC should be spent");
@@ -166,14 +178,15 @@ contract ZapTest is DeployHelper {
 
     function test_buy_emitsBuyEvent() public {
         address tokenAddr = _createToken(0);
-        usdc.mint(trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 100 ether);
+        usdc.approve(address(zap), buyAmount);
 
         vm.expectEmit(true, true, false, false);
-        emit Zap.Buy(tokenAddr, trader, 100 ether, 0);
-        zap.buy(tokenAddr, 100 ether, 0, address(0));
+        emit Zap.Buy(tokenAddr, trader, buyAmount, 0);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
     }
 
@@ -187,12 +200,13 @@ contract ZapTest is DeployHelper {
 
     function test_buy_revertsOnSlippage() public {
         address tokenAddr = _createToken(0);
-        usdc.mint(trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 100 ether);
+        usdc.approve(address(zap), buyAmount);
         vm.expectRevert(Zap.SlippageExceeded.selector);
-        zap.buy(tokenAddr, 100 ether, type(uint256).max, address(0));
+        zap.buy(tokenAddr, buyAmount, type(uint256).max, address(0));
         vm.stopPrank();
     }
 
@@ -200,26 +214,28 @@ contract ZapTest is DeployHelper {
 
     function test_buy_emitsReferralEvent() public {
         address tokenAddr = _createToken(0);
-        usdc.mint(trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 100 ether);
+        usdc.approve(address(zap), buyAmount);
 
         vm.expectEmit(true, true, true, true);
-        emit Zap.Referred(tokenAddr, trader, referrer, 100 ether);
-        zap.buy(tokenAddr, 100 ether, 0, referrer);
+        emit Zap.Referred(tokenAddr, trader, referrer, buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, referrer);
         vm.stopPrank();
     }
 
     function test_buy_noReferralEventForZeroAddress() public {
         address tokenAddr = _createToken(0);
-        usdc.mint(trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 100 ether);
+        usdc.approve(address(zap), buyAmount);
 
         vm.recordLogs();
-        zap.buy(tokenAddr, 100 ether, 0, address(0));
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -231,13 +247,14 @@ contract ZapTest is DeployHelper {
 
     function test_buy_noReferralForSelfReferral() public {
         address tokenAddr = _createToken(0);
-        usdc.mint(trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 100 ether);
+        usdc.approve(address(zap), buyAmount);
 
         vm.recordLogs();
-        zap.buy(tokenAddr, 100 ether, 0, trader);
+        zap.buy(tokenAddr, buyAmount, 0, trader);
         vm.stopPrank();
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -251,7 +268,7 @@ contract ZapTest is DeployHelper {
 
     function test_sell_curvePath_returnsUsdc() public {
         address tokenAddr = _createToken(0);
-        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         vm.startPrank(trader);
         Token(tokenAddr).approve(address(zap), tokensOut);
@@ -264,7 +281,7 @@ contract ZapTest is DeployHelper {
 
     function test_sell_curvePath_burnsTokens() public {
         address tokenAddr = _createToken(0);
-        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         vm.startPrank(trader);
         Token(tokenAddr).approve(address(zap), tokensOut);
@@ -276,7 +293,7 @@ contract ZapTest is DeployHelper {
 
     function test_sell_emitsSellEvent() public {
         address tokenAddr = _createToken(0);
-        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         vm.startPrank(trader);
         Token(tokenAddr).approve(address(zap), tokensOut);
@@ -299,7 +316,7 @@ contract ZapTest is DeployHelper {
 
     function test_roundTrip_traderLosesToFees() public {
         address tokenAddr = _createToken(0);
-        uint256 usdcIn = 1000 ether;
+        uint256 usdcIn = _smallBuyUsdc();
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcIn);
 
         vm.startPrank(trader);
@@ -316,7 +333,7 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(0);
         _graduateToken(tokenAddr);
 
-        uint256 tokensOut = _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), 100 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), _smallBuyUsdc());
         assertTrue(tokensOut > 0, "Post-grad buy should return tokens");
     }
 
@@ -325,7 +342,7 @@ contract ZapTest is DeployHelper {
         _graduateToken(tokenAddr);
 
         address seller = makeAddr("postGradSeller");
-        uint256 tokensOut = _buyViaRouter(tokenAddr, seller, 100 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, seller, _smallBuyUsdc());
 
         vm.startPrank(seller);
         Token(tokenAddr).approve(address(zap), tokensOut);
@@ -383,7 +400,7 @@ contract ZapTest is DeployHelper {
 
     function test_upgrade_preservesState() public {
         address tokenAddr = _createToken(0);
-        _buyViaRouter(tokenAddr, trader, 100 ether);
+        _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         ZapV2 newImpl = new ZapV2();
         zap.upgradeToAndCall(address(newImpl), "");
@@ -397,7 +414,9 @@ contract ZapTest is DeployHelper {
 
     function test_buy_feeAccruesToVault() public {
         address tokenAddr = _createToken(0);
-        uint256 usdcIn = 1000 ether;
+        // Sized so all USDC clears the curve without refund (else fees would
+        // accrue only on the consumed portion and the equality check fails).
+        uint256 usdcIn = _smallBuyUsdc();
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
 
         _buyViaRouter(tokenAddr, trader, usdcIn);
@@ -414,7 +433,7 @@ contract ZapTest is DeployHelper {
 
     function test_sell_feeAccruesToVault() public {
         address tokenAddr = _createToken(0);
-        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, 1000 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
 
@@ -429,7 +448,9 @@ contract ZapTest is DeployHelper {
     }
 
     function test_createToken_seedBuy_feeAccruesToCreator() public {
-        uint256 seedUsdc = 1000 ether;
+        // Must be small enough that the seed buy consumes all USDC on the
+        // curve (no refund), otherwise the fee assertions miscount.
+        uint256 seedUsdc = _defaultSeedUsdc();
         address tokenAddr = _createToken(seedUsdc);
 
         // Creator gets their own creator-share of the seed-buy fee back.
@@ -446,7 +467,7 @@ contract ZapTest is DeployHelper {
         _graduateToken(tokenAddr);
 
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
-        uint256 usdcIn = 100 ether;
+        uint256 usdcIn = _smallBuyUsdc();
         _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), usdcIn);
 
         uint256 expectedFee = (usdcIn * 50) / 10_000;
@@ -462,7 +483,7 @@ contract ZapTest is DeployHelper {
         _graduateToken(tokenAddr);
 
         address seller = makeAddr("postGradSeller");
-        uint256 tokensOut = _buyViaRouter(tokenAddr, seller, 100 ether);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, seller, _smallBuyUsdc());
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
 
         vm.startPrank(seller);
@@ -534,7 +555,11 @@ contract ZapTest is DeployHelper {
     function testFuzz_buy_curvePath(
         uint256 usdcAmount
     ) public {
-        usdcAmount = bound(usdcAmount, 10 ether, 5000 ether);
+        // Bound below the graduation threshold so all USDC clears the curve
+        // without a refund — `_buyViaRouter` would otherwise swallow the
+        // refund and the assertion still holds, but bounding keeps the
+        // intent of the test ("ordinary curve buy") clear.
+        usdcAmount = bound(usdcAmount, 1 ether, _mediumBuyUsdc());
         address tokenAddr = _createToken(0);
 
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcAmount);
@@ -544,7 +569,7 @@ contract ZapTest is DeployHelper {
     function testFuzz_roundTrip_neverProfits(
         uint256 usdcAmount
     ) public {
-        usdcAmount = bound(usdcAmount, 10 ether, 3000 ether);
+        usdcAmount = bound(usdcAmount, 1 ether, _mediumBuyUsdc());
         address tokenAddr = _createToken(0);
 
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcAmount);

@@ -28,6 +28,10 @@ contract TwoPhaseGraduationTest is DeployHelper {
         bonding.addRouter(creator);
         bonding.addRouter(trader);
         bonding.addRouter(trader2);
+        // Align the graduation threshold to virtual liquidity so the USD
+        // trigger is reachable on the test curve. See
+        // `DeployHelper._alignThresholdToVirtualLiquidity`.
+        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -63,12 +67,17 @@ contract TwoPhaseGraduationTest is DeployHelper {
     }
 
     /// @dev Drive a token to the `Graduating` state without finalizing.
+    ///      Stages 80% of `graduationThresholdUsd` worth of LT, doubles the
+    ///      exchange rate (→ ≥160% of threshold), then nudges with a tiny
+    ///      trigger trade. Sized off live config via `DeployHelper`
+    ///      helpers so this remains valid as `VIRTUAL_LIQUIDITY_USD` and
+    ///      the threshold are retuned.
     function _enterGraduating(
         address tokenAddr
     ) internal {
-        _buyNoFinalize(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether); // pumps real LT value above $12K threshold
-        _buyNoFinalize(tokenAddr, trader2, 100 ether);
+        _buyNoFinalize(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyNoFinalize(tokenAddr, trader2, _ltGraduationTrigger());
         require(bonding.isGraduating(tokenAddr), "test setup: phase 1 did not fire");
     }
 
@@ -76,20 +85,21 @@ contract TwoPhaseGraduationTest is DeployHelper {
 
     function test_phase1_fires_TokenGraduating_event() public {
         (address tokenAddr,) = _launchToken();
-        _buyNoFinalize(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
+        _buyNoFinalize(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
 
         // Set up the prank stack manually so `vm.expectEmit` lands directly
         // before the call that should emit (an `_buyNoFinalize` wrapper does
         // transfers in between, which would match the topic-less expect).
-        lt.mintDirect(trader2, 100 ether);
+        uint256 trigger = _ltGraduationTrigger();
+        lt.mintDirect(trader2, trigger);
         vm.startPrank(trader2);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), trigger);
 
-        // The buy that crosses $12K USD trigger emits `TokenGraduating`.
+        // The buy that crosses the USD trigger emits `TokenGraduating`.
         vm.expectEmit(true, false, false, false);
         emit Bonding.TokenGraduating(tokenAddr, 0, 0, 0, 0);
-        bonding.buy(100 ether, tokenAddr, 0, trader2);
+        bonding.buy(trigger, tokenAddr, 0, trader2);
         vm.stopPrank();
 
         assertTrue(bonding.isGraduating(tokenAddr));
@@ -114,24 +124,25 @@ contract TwoPhaseGraduationTest is DeployHelper {
         (address tokenAddr,) = _launchToken();
         _enterGraduating(tokenAddr);
 
-        lt.mintDirect(trader, 100 ether);
+        uint256 attempt = _ltGraduationTrigger();
+        lt.mintDirect(trader, attempt);
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), attempt);
         vm.expectRevert(Bonding.TokenIsGraduating.selector);
-        bonding.buy(100 ether, tokenAddr, 0, trader);
+        bonding.buy(attempt, tokenAddr, 0, trader);
         vm.stopPrank();
     }
 
     function test_phase1_sell_during_pending_reverts() public {
         // Seed a holder before graduating so they have something to try to sell.
         (address tokenAddr,) = _launchToken();
-        _buyNoFinalize(tokenAddr, trader, 5000 ether);
+        _buyNoFinalize(tokenAddr, trader, _ltStageBeforeGraduation());
         uint256 holderBalance = Token(tokenAddr).balanceOf(trader);
         assertTrue(holderBalance > 0);
 
-        // Now graduate.
-        lt.setExchangeRate(3 ether);
-        _buyNoFinalize(tokenAddr, trader2, 100 ether);
+        // Now graduate via the standard rate-pump pattern.
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyNoFinalize(tokenAddr, trader2, _ltGraduationTrigger());
         assertTrue(bonding.isGraduating(tokenAddr));
 
         vm.startPrank(trader);
@@ -205,11 +216,12 @@ contract TwoPhaseGraduationTest is DeployHelper {
     ///         `trading == false` was the default.
     function test_unknownToken_buy_reverts_with_TokenNotTrading() public {
         address bogus = makeAddr("not-a-launched-token");
-        lt.mintDirect(trader, 100 ether);
+        uint256 attempt = _smallBuyLt();
+        lt.mintDirect(trader, attempt);
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), attempt);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
-        bonding.buy(100 ether, bogus, 0, trader);
+        bonding.buy(attempt, bogus, 0, trader);
         vm.stopPrank();
     }
 
@@ -234,10 +246,11 @@ contract TwoPhaseGraduationTest is DeployHelper {
         // dust-seed attack later. Modest amount so they remain a holder
         // without graduating the curve themselves.
         if (!bonding.isRouter(griefer)) bonding.addRouter(griefer);
-        lt.mintDirect(griefer, 50 ether);
+        uint256 grieferBuy = _smallBuyLt();
+        lt.mintDirect(griefer, grieferBuy);
         vm.startPrank(griefer);
-        lt.approve(address(curveRouter), 50 ether);
-        bonding.buy(50 ether, tokenAddr, 0, griefer);
+        lt.approve(address(curveRouter), grieferBuy);
+        bonding.buy(grieferBuy, tokenAddr, 0, griefer);
         vm.stopPrank();
         uint256 grieferTokens = Token(tokenAddr).balanceOf(griefer);
         assertTrue(grieferTokens > 0);
@@ -299,16 +312,17 @@ contract TwoPhaseGraduationTest is DeployHelper {
     ///         exactly what we shipped this feature to prevent.
     function test_phase1_fits_in_small_block() public {
         (address tokenAddr,) = _launchToken();
-        _buyNoFinalize(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
+        _buyNoFinalize(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
 
         // Measure JUST the graduating buy. The earlier `_buyNoFinalize` calls
         // are warm-up to put the token in graduating range.
-        lt.mintDirect(trader2, 100 ether);
+        uint256 trigger = _ltGraduationTrigger();
+        lt.mintDirect(trader2, trigger);
         vm.startPrank(trader2);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), trigger);
         uint256 gasBefore = gasleft();
-        bonding.buy(100 ether, tokenAddr, 0, trader2);
+        bonding.buy(trigger, tokenAddr, 0, trader2);
         uint256 gasUsed = gasBefore - gasleft();
         vm.stopPrank();
 

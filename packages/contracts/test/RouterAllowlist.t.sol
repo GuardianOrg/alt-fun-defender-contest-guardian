@@ -28,6 +28,14 @@ contract RouterAllowlistTest is DeployHelper {
         bonding.addRouter(address(zap));
         feeVault.addDepositor(address(zap));
         usdc.mint(address(lt), 1_000_000 ether);
+
+        // Align graduation threshold to virtual liquidity so:
+        //   1) buys sized off `_smallBuyUsdc()` never accidentally graduate
+        //      and reroute trader-attribution events through Hyperswap.
+        //   2) USD-trigger graduation tests in this suite (none today, but
+        //      future ones) remain reachable.
+        // See DeployHelper for the rationale behind this fixed multiple.
+        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Allowlist management ────────────────────────────────────────────
@@ -110,18 +118,19 @@ contract RouterAllowlistTest is DeployHelper {
 
     function test_bondingBuy_revertsForUnauthorizedCaller() public {
         address tokenAddr = _createBasicToken();
-        lt.mintDirect(trader, 100 ether);
+        uint256 buyAmount = _smallBuyLt();
+        lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), buyAmount);
         vm.expectRevert(Bonding.NotRouter.selector);
-        bonding.buy(100 ether, tokenAddr, 0, trader);
+        bonding.buy(buyAmount, tokenAddr, 0, trader);
         vm.stopPrank();
     }
 
     function test_bondingSell_revertsForUnauthorizedCaller() public {
         address tokenAddr = _createBasicToken();
-        _buyViaRouter(tokenAddr, trader, 500 ether);
+        _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         uint256 balance = Token(tokenAddr).balanceOf(trader);
         vm.startPrank(trader);
@@ -155,15 +164,16 @@ contract RouterAllowlistTest is DeployHelper {
         bonding.addRouter(address(secondary));
 
         address tokenAddr = _createBasicToken();
-        _buyVia(secondary, tokenAddr, trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        _buyVia(secondary, tokenAddr, trader, buyAmount);
 
         bonding.removeRouter(address(secondary));
 
-        usdc.mint(trader, 100 ether);
+        usdc.mint(trader, buyAmount);
         vm.startPrank(trader);
-        usdc.approve(address(secondary), 100 ether);
+        usdc.approve(address(secondary), buyAmount);
         vm.expectRevert();
-        secondary.buy(tokenAddr, 100 ether, 0, address(0));
+        secondary.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
     }
 
@@ -174,23 +184,27 @@ contract RouterAllowlistTest is DeployHelper {
     ///         the user's EOA as `trader`, not the router's address.
     function test_traderAttribution_routerBuy_emitsUserAddress() public {
         address tokenAddr = _createBasicToken();
-        usdc.mint(trader, 100 ether);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
 
         vm.startPrank(trader);
-        usdc.approve(address(zap), 100 ether);
+        usdc.approve(address(zap), buyAmount);
 
         // `Bonding.Trade(tokenAddr, trader, isBuy=true, ...)` — indexed topics
         // `token` and `trader` must match. Data fields are not asserted (the
         // exact LT/token/reserve values aren't the point of this test).
         vm.expectEmit(true, true, false, false, address(bonding));
         emit Bonding.Trade(tokenAddr, trader, true, 0, 0, 0, 0);
-        zap.buy(tokenAddr, 100 ether, 0, address(0));
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
     }
 
     function test_traderAttribution_routerSell_emitsUserAddress() public {
         address tokenAddr = _createBasicToken();
-        _buyViaRouter(tokenAddr, trader, 500 ether);
+        // Sized below the graduation point so the sell stays on the curve
+        // (post-grad sells route through Hyperswap and do NOT emit the
+        // `Bonding.Trade` topic this test asserts on).
+        _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
 
         uint256 balance = Token(tokenAddr).balanceOf(trader);
         vm.startPrank(trader);
@@ -207,7 +221,8 @@ contract RouterAllowlistTest is DeployHelper {
     ///         that caused the UI to show the contract address on the very
     ///         first trade of every token).
     function test_traderAttribution_seedBuy_emitsCreatorAddress() public {
-        usdc.mint(creator, 200 ether);
+        uint256 seedAmount = _defaultSeedUsdc();
+        usdc.mint(creator, seedAmount);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "SeedAttrib",
@@ -220,12 +235,12 @@ contract RouterAllowlistTest is DeployHelper {
         });
 
         vm.startPrank(creator);
-        usdc.approve(address(zap), 200 ether);
+        usdc.approve(address(zap), seedAmount);
 
         // The seed-buy's `Bonding.Trade` event, emitted mid-`createToken`,
         // must carry `creator` (not `address(bonding)` or the router).
         vm.recordLogs();
-        zap.createToken(params, 200 ether);
+        zap.createToken(params, seedAmount);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         vm.stopPrank();
 

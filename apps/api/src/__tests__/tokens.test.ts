@@ -45,6 +45,19 @@ vi.mock("../lib/broadcast.js", () => ({
   broadcastToChannel: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Pin the graduation threshold to a fixed test value so the curve-fill
+// percentage assertions below stay valid as the production default
+// (`DEFAULT_GRADUATION_THRESHOLD_USD` in `@launchpad/shared`) is retuned.
+// The fixture math throughout this file is sized for $12K — we don't want
+// these unit tests to keep migrating each time the dial moves on-chain.
+// `protocol-config.getGraduationThresholdUsd` is route-level concern, so
+// mocking it at the module boundary is the cleanest way to isolate the
+// curve math from external config drift.
+vi.mock("../lib/protocol-config.js", () => ({
+  getGraduationThresholdUsd: vi.fn(async () => 12_000),
+  _resetGraduationThresholdCache: vi.fn(),
+}));
+
 // --- Signature mock ---
 vi.mock("viem", async () => {
   const actual = await vi.importActual("viem");

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
@@ -16,12 +17,17 @@ contract BondingTest is DeployHelper {
         bonding.addRouter(creator);
         bonding.addRouter(trader);
         bonding.addRouter(trader2);
+        // Keep `graduationThresholdUsd` at a constant multiple of
+        // `VIRTUAL_LIQUIDITY_USD` so the curve dynamics tested below stay
+        // valid as the production config is retuned. See
+        // `DeployHelper._alignThresholdToVirtualLiquidity`.
+        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
 
     function _launchToken() internal returns (address tokenAddr, address pairAddr) {
-        return _launchToken(200 ether);
+        return _launchToken(_defaultSeedLt());
     }
 
     function _launchToken(
@@ -306,7 +312,7 @@ contract BondingTest is DeployHelper {
     function test_buy_givesTokensToTrader() public {
         (address tokenAddr,) = _launchToken();
 
-        uint256 buyAmount = 500 ether;
+        uint256 buyAmount = _smallBuyLt();
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
         assertEq(Token(tokenAddr).balanceOf(trader), tokensOut);
@@ -316,7 +322,7 @@ contract BondingTest is DeployHelper {
     function test_buy_deductsLtFromTrader() public {
         (address tokenAddr,) = _launchToken();
 
-        uint256 buyAmount = 500 ether;
+        uint256 buyAmount = _smallBuyLt();
         lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
@@ -331,7 +337,7 @@ contract BondingTest is DeployHelper {
         (address tokenAddr,) = _launchToken();
         uint256 bondingBalBefore = lt.balanceOf(address(bonding));
 
-        _buyTokens(tokenAddr, trader, 1000 ether);
+        _buyTokens(tokenAddr, trader, _smallBuyLt());
 
         // Fees have moved to Zap + FeeVault — Bonding no longer
         // retains any LT from trade fees.
@@ -341,7 +347,7 @@ contract BondingTest is DeployHelper {
     function test_buy_priceIncreasesWithSuccessiveBuys() public {
         (address tokenAddr,) = _launchToken();
 
-        uint256 buyAmount = 100 ether;
+        uint256 buyAmount = _smallBuyLt();
         uint256 tokensOut1 = _buyTokens(tokenAddr, trader, buyAmount);
         uint256 tokensOut2 = _buyTokens(tokenAddr, trader2, buyAmount);
 
@@ -351,7 +357,7 @@ contract BondingTest is DeployHelper {
     function test_buy_emitsTradeEvent() public {
         (address tokenAddr,) = _launchToken();
 
-        uint256 buyAmount = 100 ether;
+        uint256 buyAmount = _smallBuyLt();
         lt.mintDirect(trader, buyAmount);
 
         vm.startPrank(trader);
@@ -366,11 +372,12 @@ contract BondingTest is DeployHelper {
     function test_buy_revertsOnSlippage() public {
         (address tokenAddr,) = _launchToken();
 
-        lt.mintDirect(trader, 100 ether);
+        uint256 buyAmount = _smallBuyLt();
+        lt.mintDirect(trader, buyAmount);
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), buyAmount);
         vm.expectRevert(Bonding.SlippageExceeded.selector);
-        bonding.buy(100 ether, tokenAddr, type(uint256).max, trader);
+        bonding.buy(buyAmount, tokenAddr, type(uint256).max, trader);
         vm.stopPrank();
     }
 
@@ -378,7 +385,7 @@ contract BondingTest is DeployHelper {
 
     function test_sell_returnsLtToTrader() public {
         (address tokenAddr,) = _launchToken();
-        uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, _smallBuyLt());
 
         vm.startPrank(trader);
         Token(tokenAddr).approve(address(curveRouter), tokensOut);
@@ -391,7 +398,7 @@ contract BondingTest is DeployHelper {
 
     function test_sell_burnsTokensFromTrader() public {
         (address tokenAddr,) = _launchToken();
-        uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, _smallBuyLt());
 
         vm.startPrank(trader);
         Token(tokenAddr).approve(address(curveRouter), tokensOut);
@@ -403,7 +410,7 @@ contract BondingTest is DeployHelper {
 
     function test_sell_revertsOnSlippage() public {
         (address tokenAddr,) = _launchToken();
-        uint256 tokensOut = _buyTokens(tokenAddr, trader, 500 ether);
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, _smallBuyLt());
 
         vm.startPrank(trader);
         Token(tokenAddr).approve(address(curveRouter), tokensOut);
@@ -420,7 +427,7 @@ contract BondingTest is DeployHelper {
     function test_buyThenSell_lossless() public {
         (address tokenAddr,) = _launchToken();
 
-        uint256 buyAmount = 1000 ether;
+        uint256 buyAmount = _mediumBuyLt();
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
 
         vm.startPrank(trader);
@@ -461,12 +468,13 @@ contract BondingTest is DeployHelper {
     function test_canGraduate_returnsTrueWhenThresholdMet() public {
         (address tokenAddr,) = _launchToken();
 
-        // Buy a moderate amount at $1/LT (below threshold)
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        assertFalse(bonding.canGraduate(tokenAddr), "Should not graduate yet at $1/LT");
+        // Stage real LT below threshold at the current exchange rate.
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        assertFalse(bonding.canGraduate(tokenAddr), "Should not graduate yet at base rate");
 
-        // Increase exchange rate so existing LT crosses $12K threshold
-        lt.setExchangeRate(3 ether); // $3/LT -> ~$15K value
+        // Pump the rate so the staged LT value crosses the threshold —
+        // graduation should now be armed without any further trade.
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
         assertTrue(bonding.canGraduate(tokenAddr), "Should be graduatable after exchange rate increase");
     }
 
@@ -475,24 +483,24 @@ contract BondingTest is DeployHelper {
     function test_postGraduation_buyReverts() public {
         (address tokenAddr,) = _launchToken();
 
-        // Buy enough LT to build up reserves
-        _buyTokens(tokenAddr, trader, 5000 ether);
+        // Stage just below threshold, then pump rate to arm graduation.
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
         assertFalse(bonding.isGraduated(tokenAddr));
 
-        // Increase exchange rate so LT value crosses $12K threshold
-        lt.setExchangeRate(3 ether);
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
         assertTrue(bonding.canGraduate(tokenAddr));
 
-        // Next buy triggers graduation
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        // The next buy — even a tiny one — fires `_graduate`.
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
         assertTrue(bonding.isGraduated(tokenAddr));
 
         // Buying on graduated token should revert
-        lt.mintDirect(trader, 100 ether);
+        uint256 attemptedBuy = _smallBuyLt();
+        lt.mintDirect(trader, attemptedBuy);
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), attemptedBuy);
         vm.expectRevert(Bonding.TokenNotTrading.selector);
-        bonding.buy(100 ether, tokenAddr, 0, trader);
+        bonding.buy(attemptedBuy, tokenAddr, 0, trader);
         vm.stopPrank();
     }
 
@@ -500,9 +508,9 @@ contract BondingTest is DeployHelper {
 
     function test_graduation_setsGraduatedFlag() public {
         (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
 
         assertTrue(bonding.isGraduated(tokenAddr));
         assertFalse(bonding.isTrading(tokenAddr));
@@ -510,9 +518,9 @@ contract BondingTest is DeployHelper {
 
     function test_graduation_sellAlsoReverts() public {
         (address tokenAddr,) = _launchToken();
-        uint256 tokensOut = _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        uint256 tokensOut = _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
         assertTrue(bonding.isGraduated(tokenAddr));
 
         vm.startPrank(trader);
@@ -524,30 +532,32 @@ contract BondingTest is DeployHelper {
 
     function test_graduation_emitsTokenGraduating() public {
         (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
 
-        lt.mintDirect(trader2, 100 ether);
+        uint256 trigger = _ltGraduationTrigger();
+        lt.mintDirect(trader2, trigger);
         vm.startPrank(trader2);
-        lt.approve(address(curveRouter), 100 ether);
+        lt.approve(address(curveRouter), trigger);
 
         // Phase 1 of graduation now fires inline on the threshold-crossing buy
         // — `TokenGraduating` is the new event for that boundary.
         vm.expectEmit(true, false, false, false);
         emit Bonding.TokenGraduating(tokenAddr, 0, 0, 0, 0);
-        bonding.buy(100 ether, tokenAddr, 0, trader2);
+        bonding.buy(trigger, tokenAddr, 0, trader2);
         vm.stopPrank();
     }
 
     function test_graduation_emitsTokenGraduated() public {
         (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
 
-        lt.mintDirect(trader2, 100 ether);
+        uint256 trigger = _ltGraduationTrigger();
+        lt.mintDirect(trader2, trigger);
         vm.startPrank(trader2);
-        lt.approve(address(curveRouter), 100 ether);
-        bonding.buy(100 ether, tokenAddr, 0, trader2);
+        lt.approve(address(curveRouter), trigger);
+        bonding.buy(trigger, tokenAddr, 0, trader2);
         vm.stopPrank();
 
         // Phase 2: anyone can call `finalizeGraduation` to seed the HyperSwap LP.
@@ -558,9 +568,9 @@ contract BondingTest is DeployHelper {
 
     function test_graduation_createsLpLock() public {
         (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
 
         (address lpPair, uint256 lockedAmount, uint256 lockedAt) = lpLockContract.getLock(tokenAddr);
         assertTrue(lpPair != address(0), "LP pair should be recorded");
@@ -570,9 +580,9 @@ contract BondingTest is DeployHelper {
 
     function test_graduation_setsGraduatedPair() public {
         (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
 
         address hyperPair = bonding.graduatedPair(tokenAddr);
         assertTrue(hyperPair != address(0), "HyperSwap pair should be set");
@@ -583,18 +593,18 @@ contract BondingTest is DeployHelper {
         uint256 lpBefore = bonding.lpReserve(tokenAddr);
         assertTrue(lpBefore > 0, "LP reserve should be set before graduation");
 
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
 
         assertEq(bonding.lpReserve(tokenAddr), 0, "LP reserve should be cleared after graduation");
     }
 
     function test_graduation_lpTokensSentToLpLock() public {
         (address tokenAddr,) = _launchToken();
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether);
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
 
         address hyperPair = bonding.graduatedPair(tokenAddr);
         uint256 lpBalance = IERC20(hyperPair).balanceOf(address(lpLockContract));
@@ -608,8 +618,9 @@ contract BondingTest is DeployHelper {
         vm.warp(block.timestamp + 1);
         (address token2,) = _launchToken();
 
-        uint256 tokensOut1 = _buyTokens(token1, trader, 500 ether);
-        uint256 tokensOut2 = _buyTokens(token2, trader, 500 ether);
+        uint256 buyAmount = _smallBuyLt();
+        uint256 tokensOut1 = _buyTokens(token1, trader, buyAmount);
+        uint256 tokensOut2 = _buyTokens(token2, trader, buyAmount);
 
         assertApproxEqRel(tokensOut1, tokensOut2, 0.01e18, "Same buy amount should give similar tokens on fresh curves");
     }
@@ -621,7 +632,7 @@ contract BondingTest is DeployHelper {
         IPair pair = IPair(pairAddr2);
 
         uint256 kBefore = pair.kLast();
-        _buyTokens(tokenAddr, trader, 500 ether);
+        _buyTokens(tokenAddr, trader, _smallBuyLt());
         uint256 kAfter = pair.kLast();
 
         assertEq(kBefore, kAfter, "k should not change after trades");
@@ -633,7 +644,7 @@ contract BondingTest is DeployHelper {
 
         (uint256 r0Before, uint256 r1Before) = pair.getReserves();
 
-        _buyTokens(tokenAddr, trader, 500 ether);
+        _buyTokens(tokenAddr, trader, _smallBuyLt());
 
         (uint256 r0After, uint256 r1After) = pair.getReserves();
 
@@ -644,7 +655,13 @@ contract BondingTest is DeployHelper {
     function test_amm_getAmountOut_buyAndSell() public {
         (address tokenAddr,) = _launchTokenNoSeed();
 
-        uint256 netBuyIn = 100 ether;
+        // `getAmountOut` is a *stateless* quote — calling it twice in opposite
+        // directions doesn't actually move the curve, so the round-trip
+        // asymmetry scales with `tradeSize / virtualLiquidity`. Keep the test
+        // trade tiny relative to the opening virtual liquidity so the
+        // mathematical asymmetry stays well inside the 10% tolerance below
+        // regardless of the configured `VIRTUAL_LIQUIDITY_USD`.
+        uint256 netBuyIn = _initialVirtualLt() / 100; // 1% of virtual liquidity
         uint256 tokensOut = curveRouter.getAmountOut(tokenAddr, true, netBuyIn);
         assertTrue(tokensOut > 0, "getAmountOut should return > 0 for buy");
 
@@ -674,7 +691,11 @@ contract BondingTest is DeployHelper {
     function testFuzz_buy_doesNotRevert(
         uint256 buyAmount
     ) public {
-        buyAmount = bound(buyAmount, 1 ether, 10_000 ether);
+        // Bound the fuzz range to LT amounts that always succeed regardless
+        // of the configured `VIRTUAL_LIQUIDITY_USD`. A buy capped at one
+        // initial-virtual-LT-worth (post-seed) is well shy of both the supply
+        // trigger and the (aligned) USD trigger.
+        buyAmount = bound(buyAmount, 1, _initialVirtualLt());
         (address tokenAddr,) = _launchToken();
 
         lt.mintDirect(trader, buyAmount);
@@ -689,7 +710,10 @@ contract BondingTest is DeployHelper {
     function testFuzz_buyThenSell_noProfit(
         uint256 buyAmount
     ) public {
-        buyAmount = bound(buyAmount, 10 ether, 5000 ether);
+        // Same bound rationale as `testFuzz_buy_doesNotRevert`: keep the buy
+        // small enough that the curve doesn't graduate (which would block
+        // the follow-up sell).
+        buyAmount = bound(buyAmount, _ltForUsd(0.1 ether), _initialVirtualLt());
         (address tokenAddr,) = _launchToken();
 
         uint256 tokensOut = _buyTokens(tokenAddr, trader, buyAmount);
@@ -717,9 +741,25 @@ contract BondingTest is DeployHelper {
 
     // ─── Graduation Threshold Admin Tests ────────────────────────────────
 
-    function test_setGraduationThresholdUsd_initialisesToDefault() public view {
-        assertEq(bonding.graduationThresholdUsd(), bonding.DEFAULT_GRADUATION_THRESHOLD_USD());
-        assertEq(bonding.graduationThresholdUsd(), 12_000 ether);
+    function test_setGraduationThresholdUsd_initialisesToDefault() public {
+        // Re-deploy a fresh Bonding proxy so the threshold reflects the
+        // initialise-time default — the suite-level `setUp` aligns the
+        // running proxy to a virt-liquidity-pegged value, masking the default.
+        Bonding freshImpl = new Bonding();
+        bytes memory init = abi.encodeCall(
+            Bonding.initialize,
+            (
+                address(factory),
+                address(curveRouter),
+                MAX_TX,
+                address(hyperswapRouter),
+                address(lpLockContract),
+                address(tokenImpl)
+            )
+        );
+        Bonding fresh = Bonding(address(new ERC1967Proxy(address(freshImpl), init)));
+
+        assertEq(fresh.graduationThresholdUsd(), fresh.DEFAULT_GRADUATION_THRESHOLD_USD());
     }
 
     function test_setGraduationThresholdUsd_onlyOwner() public {
@@ -773,23 +813,31 @@ contract BondingTest is DeployHelper {
     ///         trade. This is the explicit design choice (see `Bonding.sol`
     ///         natspec on `graduationThresholdUsd`) — the simplest semantic
     ///         for an admin tuning the dial. Verified by parking a token at
-    ///         ~$8K of value and dropping the threshold to $5K.
+    ///         ~70% of threshold and dropping the threshold below it.
     function test_loweringThreshold_graduatesOnNextTrade() public {
         (address tokenAddr,) = _launchToken();
+        uint256 originalThreshold = bonding.graduationThresholdUsd();
 
-        // Park real LT reserve at ~$7K (well below the $12K default but
-        // comfortably above the $5K threshold we'll lower to). Note `_buyTokens`
-        // gross-input gets 0.5% taxed before settling, so we buy a bit more
-        // than the target net.
-        _buyTokens(tokenAddr, trader, 7000 ether);
-        assertFalse(bonding.canGraduate(tokenAddr), "Should not be graduatable at default $12K threshold");
+        // Park real LT value at ~70% of the current threshold — comfortably
+        // below it, so graduation isn't yet armed. The exact LT amount
+        // scales with `lt.exchangeRate()` so this works regardless of the
+        // configured `VIRTUAL_LIQUIDITY_USD`.
+        uint256 stageLt = _ltForUsd((originalThreshold * 70) / 100);
+        _buyTokens(tokenAddr, trader, stageLt);
+        assertFalse(bonding.canGraduate(tokenAddr), "Should not be graduatable at original threshold");
 
-        // Lower threshold below current value → next-trade graduation arms.
-        bonding.setGraduationThresholdUsd(5000 ether);
+        // Lower threshold below current real-LT-value → next-trade graduation arms.
+        // Use 50% of original (well below the 70% we staked) and clamp to the
+        // protocol's `MIN_GRADUATION_THRESHOLD_USD` floor in case original/2
+        // would underflow it.
+        uint256 newThreshold = originalThreshold / 2;
+        uint256 floor = bonding.MIN_GRADUATION_THRESHOLD_USD();
+        if (newThreshold < floor) newThreshold = floor;
+        bonding.setGraduationThresholdUsd(newThreshold);
         assertTrue(bonding.canGraduate(tokenAddr), "Lowering the threshold below current value arms graduation");
 
         // The next buy — even a tiny one — actually fires `_graduate`.
-        _buyTokens(tokenAddr, trader2, 50 ether);
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
         assertTrue(bonding.isGraduated(tokenAddr), "Next trade after lowering threshold should graduate");
     }
 
@@ -798,19 +846,27 @@ contract BondingTest is DeployHelper {
     ///         at risk, just needs more buys. Mirror of the lowering test.
     function test_raisingThreshold_defersGraduation() public {
         (address tokenAddr,) = _launchToken();
+        uint256 originalThreshold = bonding.graduationThresholdUsd();
 
-        // Get the token close to graduating: real LT * rate above default
-        // $12K but below a hypothetical $30K.
-        _buyTokens(tokenAddr, trader, 5000 ether);
-        lt.setExchangeRate(3 ether); // ~$15K of LT value, would graduate
-        assertTrue(bonding.canGraduate(tokenAddr), "Should be at-threshold under default $12K");
+        // Get the token close to graduating via the standard rate-pump
+        // pattern (stage 80% of threshold + 2× rate bump = 160% threshold).
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr), "Should be at-threshold under original");
 
-        // Owner raises the bar — graduation disarms.
-        bonding.setGraduationThresholdUsd(30_000 ether);
+        // Owner raises the bar — graduation disarms. We need a value above
+        // the current real-LT-value (≈ 1.6× original) but below the
+        // protocol ceiling. 3× original is comfortable on both sides.
+        uint256 newThreshold = originalThreshold * 3;
+        uint256 ceiling = bonding.MAX_GRADUATION_THRESHOLD_USD();
+        if (newThreshold > ceiling) newThreshold = ceiling;
+        bonding.setGraduationThresholdUsd(newThreshold);
         assertFalse(bonding.canGraduate(tokenAddr), "Raising above current value should disarm graduation");
 
-        // Confirm the next buy doesn't fire graduation.
-        _buyTokens(tokenAddr, trader2, 100 ether);
+        // Confirm the next buy doesn't fire graduation. Use a tiny trigger
+        // so we don't accidentally drain the curve via the supply trigger
+        // when the staged 80% has already consumed most of it.
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
         assertFalse(bonding.isGraduated(tokenAddr), "Token should still be trading after a buy under the higher bar");
     }
 }

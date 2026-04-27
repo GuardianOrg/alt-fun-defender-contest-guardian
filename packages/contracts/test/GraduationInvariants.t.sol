@@ -35,6 +35,13 @@ contract GraduationInvariantsTest is DeployHelper {
         bonding.addRouter(creator);
         bonding.addRouter(trader);
         bonding.addRouter(trader2);
+        // Align the graduation threshold to virtual liquidity so the USD
+        // trigger is reachable on the test curve. Without this, the
+        // contract-default $12K threshold cannot be hit on a $100-virt-
+        // liquidity curve before the supply trigger fires, making the
+        // USD-trigger invariants untestable. See DeployHelper for full
+        // rationale.
+        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -173,12 +180,15 @@ contract GraduationInvariantsTest is DeployHelper {
     // ─── 1. Zero price gap ───────────────────────────────────────────────
 
     function test_inv_zeroGap_usdTrigger() public {
-        (address tokenAddr, address pairAddr) = _launchToken(200 ether);
-        _buy(tokenAddr, trader, 5000 ether);
+        // Seed a small launch buy, stage close to the threshold, pump the
+        // exchange rate to push the staged value over, then trigger
+        // graduation with a tiny follow-up trade. Sized off live config so
+        // it survives `VIRTUAL_LIQUIDITY_USD` / threshold retunes.
+        (address tokenAddr, address pairAddr) = _launchToken(_defaultSeedLt());
+        _buy(tokenAddr, trader, _ltStageBeforeGraduation());
 
-        // HYPE rallies → $12K USD threshold crossed on next buy.
-        lt.setExchangeRate(3 ether);
-        GraduationSnapshot memory s = _graduateAndCapture(tokenAddr, pairAddr, trader2, 100 ether);
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        GraduationSnapshot memory s = _graduateAndCapture(tokenAddr, pairAddr, trader2, _ltGraduationTrigger());
 
         _assertZeroGap(s);
         _assertParabolaCap(s);
@@ -299,14 +309,16 @@ contract GraduationInvariantsTest is DeployHelper {
     // ─── 6. USD trigger fires with supply remaining ──────────────────────
 
     function test_inv_usdTrigger_supplyRemaining() public {
-        (address tokenAddr, address pairAddr) = _launchToken(200 ether);
-        _buy(tokenAddr, trader, 5000 ether);
+        (address tokenAddr, address pairAddr) = _launchToken(_defaultSeedLt());
+        _buy(tokenAddr, trader, _ltStageBeforeGraduation());
 
         // Before triggering: some real tokens still in the pair.
         assertTrue(IPair(pairAddr).tokenBalance() > 0, "real tokens still on curve");
 
-        lt.setExchangeRate(3 ether); // pumps → USD trigger fires on next buy
-        _buy(tokenAddr, trader2, 100 ether);
+        // Pump the rate so the *next* trade trips the USD trigger before the
+        // supply trigger possibly could.
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        _buy(tokenAddr, trader2, _ltGraduationTrigger());
 
         assertTrue(bonding.isGraduated(tokenAddr), "graduated via USD");
 
