@@ -9,8 +9,8 @@
  * `Bonding.MIN_GRADUATION_THRESHOLD_USD` / `Bonding.MAX_GRADUATION_THRESHOLD_USD`.
  */
 
-/** USD denominated as a plain integer (no decimals). Matches `12_000 ether` in 18-dp. */
-export const DEFAULT_GRADUATION_THRESHOLD_USD = 12_000;
+/** USD denominated as a plain integer (no decimals). Matches `300 ether` in 18-dp. */
+export const DEFAULT_GRADUATION_THRESHOLD_USD = 300;
 
 /** 18-dp wei representation. Used by the indexer when seeding `protocolConfig`. */
-export const DEFAULT_GRADUATION_THRESHOLD_USD_WEI = 12_000n * 10n ** 18n;
+export const DEFAULT_GRADUATION_THRESHOLD_USD_WEI = 300n * 10n ** 18n;

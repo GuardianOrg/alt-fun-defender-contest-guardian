@@ -6,6 +6,7 @@
 
 # Post Audit
 
+- CI is slow
 - Market cap doesn't update when our threshold params update
 - Buy trade is duplicated when it triggers graduation
 - Get our own privy id

@@ -79,7 +79,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
     ///      Since virtual reserve0 = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
-    uint256 public constant VIRTUAL_LIQUIDITY_USD = 4000 ether;
+    uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
 
     /// @dev Default graduation threshold seeded at deploy / upgrade. Mutable
     ///      via `setGraduationThresholdUsd`. See `graduationThresholdUsd`.

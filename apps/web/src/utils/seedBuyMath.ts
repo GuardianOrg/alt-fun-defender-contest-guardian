@@ -20,7 +20,7 @@ const TOTAL_SUPPLY = 1_000_000_000;
 const CURVE_BPS = 7500;
 const BPS_DENOM = 10_000;
 const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real sellable cap
-const VIRTUAL_LIQUIDITY_USD = 4_000;
+const VIRTUAL_LIQUIDITY_USD = 100;
 const BUY_FEE_BPS = 50; // 0.5%
 
 export interface SeedBuyStats {
