@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
-import { token, trade, graduation, tokenSnapshot, protocolConfig } from "../ponder.schema";
+import { token, trade, graduation, tokenSnapshot, protocolConfig, hyperswapPairIndex } from "../ponder.schema";
 import { DEFAULT_GRADUATION_THRESHOLD_USD_WEI } from "@launchpad/shared";
 
 await import("../src/bonding");
@@ -434,10 +434,17 @@ describe("Bonding:TokenGraduated", () => {
   });
 
   it("inserts graduation record with dynamic-LP-seeding fields and updates token status", async () => {
+    // Seed the token row so the handler can look up the LT address to
+    // compute `tokenIsToken0` for the pair index.
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      ltToken: "0xff0000000000000000000000000000000000ffff",
+    });
+
     const handler = getHandler("Bonding:TokenGraduated");
     const event = createMockEvent({
       args: {
-        token: "0xtoken1",
+        token: "0x0011000000000000000000000000000000001100",
         pairAddress: "0xpair1",
         liquidity: 50000n,
         tokensInLP: 250_000_000n * 10n ** 18n,
@@ -450,11 +457,10 @@ describe("Bonding:TokenGraduated", () => {
 
     await handler({ event, context: { db } });
 
-    expect(db._insertCalls).toHaveLength(1);
-    const insertCall = db._insertCalls[0];
-    expect(insertCall.table).toBe(graduation);
-    expect(insertCall.values).toEqual({
-      tokenAddress: "0xtoken1",
+    const graduationInsert = db._insertCalls.find((c) => c.table === graduation);
+    expect(graduationInsert).toBeDefined();
+    expect(graduationInsert!.values).toEqual({
+      tokenAddress: "0x0011000000000000000000000000000000001100",
       pairAddress: "0xpair1",
       liquidity: 50000n,
       tokensInLP: 250_000_000n * 10n ** 18n,
@@ -463,17 +469,102 @@ describe("Bonding:TokenGraduated", () => {
       blockNumber: 200n,
       timestamp: 1700100000n,
     });
-    expect(insertCall.conflict).toBe("doNothing");
+    expect(graduationInsert!.conflict).toBe("doNothing");
 
     expect(db._updateCalls).toHaveLength(1);
     const updateCall = db._updateCalls[0];
     expect(updateCall.table).toBe(token);
-    expect(updateCall.key).toEqual({ address: "0xtoken1" });
+    expect(updateCall.key).toEqual({
+      address: "0x0011000000000000000000000000000000001100",
+    });
     expect(updateCall.values).toEqual({
       graduated: true,
       graduatedAt: 1700100000n,
       hyperswapPair: "0xpair1",
     });
+  });
+
+  it("populates the hyperswapPairIndex with token0 ordering cached", async () => {
+    // Token address sorts BELOW the LT address → token is token0.
+    db._setFindResult(token, { address: "0x0011000000000000000000000000000000001100" }, {
+      address: "0x0011000000000000000000000000000000001100",
+      ltToken: "0xff0000000000000000000000000000000000ffff",
+    });
+
+    const handler = getHandler("Bonding:TokenGraduated");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0x0011000000000000000000000000000000001100",
+          pairAddress: "0xpair_low",
+          liquidity: 1n,
+          tokensInLP: 1n,
+          lpBurned: 0n,
+          unsoldBurned: 0n,
+        },
+      }),
+      context: { db },
+    });
+
+    const idxInsert = db._insertCalls.find((c) => c.table === hyperswapPairIndex);
+    expect(idxInsert).toBeDefined();
+    expect(idxInsert!.values).toEqual({
+      pairAddress: "0xpair_low",
+      tokenAddress: "0x0011000000000000000000000000000000001100",
+      ltAddress: "0xff0000000000000000000000000000000000ffff",
+      tokenIsToken0: true,
+    });
+    // `doNothing` so a hypothetical replay of TokenGraduated never clobbers
+    // the cached ordering — pair addresses don't change after creation.
+    expect(idxInsert!.conflict).toBe("doNothing");
+  });
+
+  it("flips tokenIsToken0 to false when the LT sorts below the token", async () => {
+    db._setFindResult(token, { address: "0xff0000000000000000000000000000000000ffff" }, {
+      address: "0xff0000000000000000000000000000000000ffff",
+      ltToken: "0x0011000000000000000000000000000000001100",
+    });
+
+    const handler = getHandler("Bonding:TokenGraduated");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xff0000000000000000000000000000000000ffff",
+          pairAddress: "0xpair_high",
+          liquidity: 1n,
+          tokensInLP: 1n,
+          lpBurned: 0n,
+          unsoldBurned: 0n,
+        },
+      }),
+      context: { db },
+    });
+
+    const idxInsert = db._insertCalls.find((c) => c.table === hyperswapPairIndex);
+    expect(idxInsert!.values).toMatchObject({ tokenIsToken0: false });
+  });
+
+  it("skips the pair index when the token row is missing", async () => {
+    // No `_setFindResult` — simulates an out-of-order event (shouldn't
+    // happen in production since TokenLaunched is always indexed first,
+    // but the handler must not throw).
+    const handler = getHandler("Bonding:TokenGraduated");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xunknown",
+          pairAddress: "0xpair",
+          liquidity: 1n,
+          tokensInLP: 1n,
+          lpBurned: 0n,
+          unsoldBurned: 0n,
+        },
+      }),
+      context: { db },
+    });
+
+    const idxInsert = db._insertCalls.find((c) => c.table === hyperswapPairIndex);
+    expect(idxInsert).toBeUndefined();
   });
 });
 

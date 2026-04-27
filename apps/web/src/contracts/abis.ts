@@ -6,7 +6,27 @@ export {
   FeeVaultAbi,
   LPLockAbi,
   LeveragedTokenAbi,
+  UniswapV2PairAbi,
 } from "@launchpad/shared";
+
+/**
+ * Minimal HyperSwap V2 factory ABI exposing `getPair`. The DEX uses the
+ * UniswapV2 ABI verbatim; we only need the pair lookup on the read path
+ * (post-graduation quoting in `tradeRouter.ts`), so we don't import the
+ * whole thing.
+ */
+export const UniswapV2FactoryAbi = [
+  {
+    name: "getPair",
+    type: "function",
+    stateMutability: "view",
+    inputs: [
+      { name: "tokenA", type: "address" },
+      { name: "tokenB", type: "address" },
+    ],
+    outputs: [{ name: "", type: "address" }],
+  },
+] as const;
 
 export const erc20Abi = [
   {

@@ -1,6 +1,9 @@
+import {
+  fetchRouterTradesByToken,
+  fetchRouterTradesGlobal,
+} from "./api";
 import { resolveExchangeRate, resolveTokenName } from "./exchangeRates";
-import { fetchPonderTrades } from "./ponder";
-import { ponderTradeToTrade } from "./tradeFormatter";
+import { ponderTradeToTrade, routerTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
 import type { Trade, TradeBroadcast } from "./types";
@@ -10,8 +13,16 @@ import type { Trade, TradeBroadcast } from "./types";
  * formatted `Trade` type. Looks up the LT exchange rate to compute `amountUsd`;
  * returns `null` if the rate isn't resolvable (caller can retry on next REST
  * poll).
+ *
+ * The WS broadcast is keyed on `Bonding.Trade` (curve phase) — post-graduation
+ * trades come through REST polling of `routerTrade` since that source carries
+ * USDC amounts directly without an LT-rate lookup. The Sync handler does emit
+ * a synthetic `trade` WS message for chart ratio updates, but it has zero
+ * `ltAmount` / zero-address `trader`, so we filter those out here so the
+ * trade-feed never shows phantom "$0 from 0x000…" entries.
  */
 async function formatWsTrade(raw: TradeBroadcast): Promise<Trade | null> {
+  if (BigInt(raw.ltAmount ?? "0") === 0n) return null;
   const exchangeRate = await resolveExchangeRate(raw.tokenAddress);
   if (!exchangeRate) return null;
   const trade = ponderTradeToTrade(raw, exchangeRate);
@@ -52,21 +63,19 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
     if (cancelled || polling) return;
     polling = true;
     try {
-      const trades = await fetchPonderTrades(undefined, 20);
+      // `routerTrade` covers both curve and post-graduation trades (any
+      // `Zap.buy/sell` regardless of execution venue), so a single poll
+      // catches everything. The previous Ponder `trades` GraphQL path was
+      // bonding-only and silently dropped post-grad activity from the feed.
+      const trades = await fetchRouterTradesGlobal(20);
       if (cancelled) return;
-
-      const uniqueTokens = [...new Set(trades.map((t) => t.tokenAddress))];
-      const rateEntries = await Promise.all(
-        uniqueTokens.map(async (addr) => [addr, await resolveExchangeRate(addr)] as const),
-      );
-      const rateMap = new Map(rateEntries);
 
       const batchIds = new Set<string>();
       for (const t of trades) batchIds.add(t.id);
       for (let i = trades.length - 1; i >= 0; i--) {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
-        const mapped = ponderTradeToTrade(t, rateMap.get(t.tokenAddress) ?? 1);
+        const mapped = routerTradeToTrade(t);
         mapped.tokenName = resolveTokenName(t.tokenAddress);
         cb(mapped);
       }
@@ -135,17 +144,18 @@ export function subscribeTokenTrades(
     if (cancelled || polling) return;
     polling = true;
     try {
-      const [trades, exchangeRate] = await Promise.all([
-        fetchPonderTrades(address, 30),
-        resolveExchangeRate(address),
-      ]);
+      // Same rationale as `subscribeFeed`: `routerTrade` is the only
+      // graduation-aware trade source. Curve-phase trades still live there
+      // (Zap also wraps on-curve buys/sells), so a single fetch path covers
+      // both phases.
+      const trades = await fetchRouterTradesByToken(address, 30);
       if (cancelled) return;
       const batchIds = new Set<string>();
       for (const t of trades) batchIds.add(t.id);
       for (let i = trades.length - 1; i >= 0; i--) {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
-        const mapped = ponderTradeToTrade(t, exchangeRate);
+        const mapped = routerTradeToTrade(t);
         mapped.tokenName = resolveTokenName(t.tokenAddress);
         cb(mapped);
       }

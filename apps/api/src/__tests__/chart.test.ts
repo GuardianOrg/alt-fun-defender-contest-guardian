@@ -171,7 +171,9 @@ describe("GET /chart/:address", () => {
       .mockResolvedValueOnce({ __typename: "Query" })
       .mockResolvedValueOnce({
         token: {
-          k: "750000000000000000000000000000000000000000000",
+          // k = TOTAL_SUPPLY × virtualLtAtLaunch, with TOTAL_SUPPLY = 1B × 1e18
+          // and a virtualLtAtLaunch of 1e18 → k = 1e45.
+          k: "1000000000000000000000000000000000000000000000",
           ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
           graduated: false,
           graduatedAt: null,

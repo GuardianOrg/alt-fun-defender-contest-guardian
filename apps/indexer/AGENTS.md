@@ -68,6 +68,20 @@ See `apps/api/AGENTS.md` and `apps/api/src/lib/token-enrich.ts` for the conversi
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
 
+### Post-graduation reserve mirror (`HyperSwapPair:Sync`)
+
+After a token graduates, `Bonding.Trade` no longer fires — all trading moves to HyperSwap V2. To keep `token.curveSupply` / `token.ltReserve` (and the `tokenSnapshot` history that powers the chart and 24h-change math) live for graduated tokens, the `HyperSwapPair:Sync` handler does a three-step mirror on every emitted Sync:
+
+1. Upsert `pairReserve` (raw `(reserve0, reserve1)` keyed by pair address — independent of the token mapping so it stays useful for debugging even when the index is missing).
+2. Look up `hyperswapPairIndex` (populated at `TokenGraduated` time) to resolve `(tokenAddress, ltAddress, tokenIsToken0)` in O(1) without an RPC read of `token0()`. If the row is absent (e.g. the very first Sync at LP-seed time, before `TokenGraduated` registers the pair as a factory contract) the rest of the mirror is a no-op — that's fine because dynamic LP seeding makes the first post-grad price equal to the last curve price, so the curve-phase reserves stay correct until the next user trade.
+3. Map `(reserve0, reserve1)` → `(tokenReserve, ltReserve)` via the cached `tokenIsToken0`, write them onto `token.curveSupply` / `token.ltReserve`, and append a `tokenSnapshot` row keyed `sync-${txHash}-${logIndex}`. The `sync-` prefix avoids ID collisions with the `Bonding.Trade` snapshots that share the same primary key space.
+
+A live `trade` WS event is also emitted (skipped during backfill) carrying just `(tokenAddress, curveSupply, ltReserve)` plus zeroed `trader`/`isBuy`/`ltAmount`/`tokenAmount` placeholders so `useChartData` rolls the in-progress candle. The trade-feed UI filters synthetic broadcasts by `ltAmount === 0` so they don't pollute the trade list — post-graduation trade history is REST-polled from `/api/v1/trades` (sourced from `routerTrade`, which covers both phases).
+
+#### Reusing `token.curveSupply` / `token.ltReserve` post-graduation
+
+The columns are deliberately reused (rather than adding `hyperswapTokenReserve` / `hyperswapLtReserve`) so every consumer that already reads token reserves (`computeTokenPrice` for price/mcap, the change24h calculation against `tokenSnapshot`, the `/chart` ratio timeline) keeps working without graduation special-casing. The `computeCurveFilledBreakdown` path short-circuits on `graduated === true`, so the supply-percent math (which assumes the values are *virtual* AMM reserves bounded `[250M, 1B]`) doesn't run for graduated tokens — safe to overwrite with HyperSwap's *real* reserves.
+
 ## Local dev port discipline
 
 `ponder dev` defaults to port `42069` and **silently falls back** to the next

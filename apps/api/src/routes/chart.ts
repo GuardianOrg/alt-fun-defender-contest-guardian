@@ -55,7 +55,7 @@ const INTERVAL_MODE_BAR_COUNT = 120;
 const MIN_CANDLE_SECONDS = 60;
 const MAX_CANDLES = 500;
 
-interface PonderBondingTrade {
+interface PonderTokenSnapshot {
   curveSupply: string;
   ltReserve: string;
   timestamp: string;
@@ -87,7 +87,16 @@ interface LtSnapshotRow {
   exchange_rate: string;
 }
 
-const CURVE_SUPPLY_INITIAL = 750_000_000n * 10n ** 18n;
+/**
+ * Virtual `reserve0` at launch (= `Pair.mint`'s `TOTAL_SUPPLY`, 1B × 1e18).
+ * The AMM constant-product invariant is `k = reserve0 × reserve1`, so the
+ * launch-time virtual LT reserve is `k / reserve0_initial = k / 1B × 1e18`.
+ * Used as the denominator when seeding the ratio timeline before the first
+ * indexed trade snapshot — using the "real curve supply" (750M) here would
+ * undershoot the launch price by ~78% and produce a phantom green candle on
+ * fresh tokens.
+ */
+const CURVE_RESERVE0_AT_LAUNCH = 1_000_000_000n * 10n ** 18n;
 const RATIO_PRECISION = 10n ** 18n;
 
 function bigintRatio(numerator: bigint, denominator: bigint): number {
@@ -98,27 +107,28 @@ function bigintRatio(numerator: bigint, denominator: bigint): number {
 function buildRatioTimeline(
   k: bigint,
   launchTimestamp: number,
-  trades: PonderBondingTrade[],
+  snapshots: PonderTokenSnapshot[],
 ): RatioSnapshot[] {
-  const initialLtReserve = (k * RATIO_PRECISION) / CURVE_SUPPLY_INITIAL;
-  const initialRatio = bigintRatio(initialLtReserve, CURVE_SUPPLY_INITIAL);
+  const initialLtReserve =
+    (k * RATIO_PRECISION) / CURVE_RESERVE0_AT_LAUNCH;
+  const initialRatio = bigintRatio(initialLtReserve, CURVE_RESERVE0_AT_LAUNCH);
 
-  const snapshots: RatioSnapshot[] = [
+  const out: RatioSnapshot[] = [
     { timestamp: launchTimestamp, ratio: initialRatio },
   ];
 
-  for (const t of trades) {
+  for (const t of snapshots) {
     const curveSupply = BigInt(t.curveSupply);
     const ltReserve = BigInt(t.ltReserve);
     if (curveSupply === 0n) continue;
 
-    snapshots.push({
+    out.push({
       timestamp: Number(t.timestamp),
       ratio: bigintRatio(ltReserve, curveSupply),
     });
   }
 
-  return snapshots;
+  return out;
 }
 
 function buildCandles(
@@ -272,7 +282,7 @@ chart.get("/:address", async (c) => {
   }
   const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
 
-  const [ltRows, tradesResult] = await Promise.all([
+  const [ltRows, snapshotsResult] = await Promise.all([
     btSql`
       SELECT
         extract(epoch from s.t)::bigint AS ts,
@@ -292,11 +302,15 @@ chart.get("/:address", async (c) => {
       ) t
       ORDER BY s.t
     ` as unknown as Promise<LtSnapshotRow[]>,
+    // Pulls from `tokenSnapshot`, which is written on every `Bonding.Trade`
+    // (curve phase) AND every `HyperSwapPair.Sync` (post-graduation). One
+    // query covers both phases so a graduated token's chart keeps moving
+    // with HyperSwap reserve changes — see `apps/indexer/src/hyperswap.ts`.
     (async () => {
       const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-      return queryPonderAll<PonderBondingTrade>(
+      return queryPonderAll<PonderTokenSnapshot>(
         `query ($address: String!, $limit: Int!, $offset: Int!) {
-          trades(
+          tokenSnapshots(
             where: { tokenAddress: $address }
             limit: $limit
             offset: $offset
@@ -310,7 +324,7 @@ chart.get("/:address", async (c) => {
             }
           }
         }`,
-        "trades",
+        "tokenSnapshots",
         { address },
       );
     })(),
@@ -326,19 +340,19 @@ chart.get("/:address", async (c) => {
     );
   }
 
-  if (tradesResult.truncated) {
+  if (snapshotsResult.truncated) {
     return c.json(
       formatError("Trade history too large to build accurate chart"),
       503,
     );
   }
 
-  const trades = tradesResult.items;
+  const snapshots = snapshotsResult.items;
   const ratioTimeline =
     k && k > 0n
-      ? buildRatioTimeline(k, launchTimestamp, trades)
-      : trades.length > 0
-        ? buildRatioTimeline(0n, launchTimestamp, trades).slice(1)
+      ? buildRatioTimeline(k, launchTimestamp, snapshots)
+      : snapshots.length > 0
+        ? buildRatioTimeline(0n, launchTimestamp, snapshots).slice(1)
         : [];
 
   if (ratioTimeline.length === 0) {

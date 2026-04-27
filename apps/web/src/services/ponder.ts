@@ -82,6 +82,17 @@ export async function fetchPonderToken(address: string): Promise<PonderToken | n
   return data.token;
 }
 
+/**
+ * Bonding-curve trades (`Bonding.Trade` events). NOT graduation-aware — the
+ * `trade` table only covers curve-phase activity, post-graduation trades live
+ * in `routerTrade` (Zap `Buy`/`Sell` events) and are exposed via
+ * `fetchRouterTradesGlobal` / `fetchRouterTradesByToken` in `services/api.ts`.
+ *
+ * Currently unused by the trade feed (which switched to `routerTrade` for
+ * graduation coverage). Kept as a thin wrapper for analytics/debugging that
+ * specifically wants curve-only history; reach for the API helpers in
+ * normal product code.
+ */
 export async function fetchPonderTrades(
   tokenAddress?: string,
   limit = 50,
