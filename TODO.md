@@ -6,6 +6,7 @@
 
 # Post Audit
 
+- Market cap doesn't update when our threshold params update
 - Buy trade is duplicated when it triggers graduation
 - Buys that graduate require big blocks
 - Get our own privy id

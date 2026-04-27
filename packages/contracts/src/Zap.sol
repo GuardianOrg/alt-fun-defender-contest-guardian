@@ -11,6 +11,7 @@ import {Bonding} from "./Bonding.sol";
 import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
+import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
 /// @title Zap
@@ -374,19 +375,50 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Internal: HyperSwap Trades ─────────────────────────────────────
 
+    /// @dev Direct-to-pair swap, bypassing the HyperSwap V2 router. The
+    ///      deployed mainnet router (`0xb4a9C4e6…`) only exposes
+    ///      `addLiquidity*` plus the HYPE-paired `swap*Supporting…` variants
+    ///      with a non-standard `referrer` parameter — it has no
+    ///      `swapExactTokensForTokens`. Calling the pair directly is the
+    ///      canonical UniswapV2 pattern (`transfer → pair.swap`) and works
+    ///      against any V2-compatible pair, so we don't depend on the router
+    ///      having a particular ABI.
+    function _swapOnHyperswap(
+        address tokenIn,
+        address tokenOut,
+        uint256 amountIn
+    ) internal returns (uint256 amountOut) {
+        // `Bonding._graduate` stores `graduatedPair` only under the launched token
+        // address (not the LT). Check `tokenIn` first for the sell direction
+        // (launched token -> LT), then fall back to `tokenOut` for the buy
+        // direction (LT -> launched token).
+        address pair = bonding.graduatedPair(tokenIn);
+        if (pair == address(0)) pair = bonding.graduatedPair(tokenOut);
+
+        (uint112 reserve0, uint112 reserve1,) = IUniswapV2Pair(pair).getReserves();
+        bool inIsToken0 = IUniswapV2Pair(pair).token0() == tokenIn;
+        (uint256 reserveIn, uint256 reserveOut) =
+            inIsToken0 ? (uint256(reserve0), uint256(reserve1)) : (uint256(reserve1), uint256(reserve0));
+
+        // Standard UniswapV2 constant-product formula with 0.3% fee.
+        uint256 amountInWithFee = amountIn * 997;
+        amountOut = (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
+
+        IERC20(tokenIn).safeTransfer(pair, amountIn);
+
+        (uint256 amount0Out, uint256 amount1Out) = inIsToken0 ? (uint256(0), amountOut) : (amountOut, uint256(0));
+        IUniswapV2Pair(pair).swap(amount0Out, amount1Out, address(this), new bytes(0));
+    }
+
     function _buyOnHyperswap(
         address tokenAddress,
         address lt,
         uint256 ltAmount,
-        uint256 minOut
+        uint256 /* minOut */
     ) internal returns (uint256 tokensOut) {
-        IERC20(lt).forceApprove(address(hyperswapRouter), ltAmount);
-        address[] memory path = new address[](2);
-        path[0] = lt;
-        path[1] = tokenAddress;
-        uint256[] memory amounts =
-            hyperswapRouter.swapExactTokensForTokens(ltAmount, minOut, path, address(this), block.timestamp);
-        tokensOut = amounts[amounts.length - 1];
+        // Slippage is enforced by the caller (`_buyInternal` checks
+        // `tokensOut < minTokensOut`), so no per-hop minOut needed here.
+        tokensOut = _swapOnHyperswap(lt, tokenAddress, ltAmount);
     }
 
     function _sellOnHyperswap(
@@ -394,13 +426,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address lt,
         uint256 tokenAmount
     ) internal returns (uint256 ltReceived) {
-        IERC20(tokenAddress).forceApprove(address(hyperswapRouter), tokenAmount);
-        address[] memory path = new address[](2);
-        path[0] = tokenAddress;
-        path[1] = lt;
-        uint256[] memory amounts =
-            hyperswapRouter.swapExactTokensForTokens(tokenAmount, 0, path, address(this), block.timestamp);
-        ltReceived = amounts[amounts.length - 1];
+        ltReceived = _swapOnHyperswap(tokenAddress, lt, tokenAmount);
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
