@@ -54,6 +54,34 @@ contract MockHyperswapPair is ERC20 {
         require(msg.sender == authorizedRouter, "only router");
         IERC20(token).transfer(to, amount);
     }
+
+    /// @dev Standard UniswapV2-style swap. Caller is expected to have
+    ///      pre-transferred the input tokens to this pair before calling.
+    ///      Used by `Zap`'s direct-to-pair swap path.
+    function swap(
+        uint256 amount0Out,
+        uint256 amount1Out,
+        address to,
+        bytes calldata /* data */
+    ) external {
+        require(amount0Out > 0 || amount1Out > 0, "MockPair: INSUFFICIENT_OUTPUT_AMOUNT");
+        require(amount0Out < _reserve0 && amount1Out < _reserve1, "MockPair: INSUFFICIENT_LIQUIDITY");
+
+        uint256 balance0 = IERC20(token0).balanceOf(address(this));
+        uint256 balance1 = IERC20(token1).balanceOf(address(this));
+
+        // Input amounts inferred from how much extra has been deposited above reserves.
+        uint256 amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0;
+        uint256 amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
+        require(amount0In > 0 || amount1In > 0, "MockPair: INSUFFICIENT_INPUT_AMOUNT");
+
+        if (amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
+        if (amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
+
+        // Refresh reserves to reflect the new pair balances.
+        _reserve0 = uint112(IERC20(token0).balanceOf(address(this)));
+        _reserve1 = uint112(IERC20(token1).balanceOf(address(this)));
+    }
 }
 
 contract MockHyperswapFactory {
