@@ -18,8 +18,8 @@ contract E2ETest is Script {
     ///      pointing the script at a different deployment (staging, fork,
     ///      next mainnet rev, etc.) so the script stays runnable without a
     ///      recompile after every upgrade.
-    address constant DEFAULT_BONDING = 0x5c67bab7307E6F25981DFbeD850477068c39a224;
-    address constant DEFAULT_ZAP = 0xE93D94f6da464EfDa721b9F6d16a0DABE0683389;
+    address constant DEFAULT_BONDING = 0x06dA483b9BaAfF21942D034A8E027e32d93E77CE;
+    address constant DEFAULT_ZAP = 0x38c3EdA163A6ae77427D36Aa284667D605b7A907;
 
     /// @dev Same EIP-1167 v5 layout as `DeployHelper._EIP1167_*` and
     ///      `packages/shared/src/vanity.ts`. Kept inline here so the script
