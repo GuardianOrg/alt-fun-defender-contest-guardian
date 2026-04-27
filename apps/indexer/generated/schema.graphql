@@ -40,6 +40,8 @@ type Query {
   swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): swapPage!
   pairReserve(pairAddress: String!): pairReserve
   pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): pairReservePage!
+  hyperswapPairIndex(pairAddress: String!): hyperswapPairIndex
+  hyperswapPairIndexs(where: hyperswapPairIndexFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): hyperswapPairIndexPage!
   tokenBalance(id: String!): tokenBalance
   tokenBalances(where: tokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenBalancePage!
   protocolConfig(id: String!): protocolConfig
@@ -979,6 +981,58 @@ input pairReserveFilter {
   timestamp_lt: BigInt
   timestamp_gte: BigInt
   timestamp_lte: BigInt
+}
+
+type hyperswapPairIndex {
+  pairAddress: String!
+  tokenAddress: String!
+  ltAddress: String!
+  tokenIsToken0: Boolean!
+}
+
+type hyperswapPairIndexPage {
+  items: [hyperswapPairIndex!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input hyperswapPairIndexFilter {
+  AND: [hyperswapPairIndexFilter]
+  OR: [hyperswapPairIndexFilter]
+  pairAddress: String
+  pairAddress_not: String
+  pairAddress_in: [String]
+  pairAddress_not_in: [String]
+  pairAddress_contains: String
+  pairAddress_not_contains: String
+  pairAddress_starts_with: String
+  pairAddress_ends_with: String
+  pairAddress_not_starts_with: String
+  pairAddress_not_ends_with: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  ltAddress: String
+  ltAddress_not: String
+  ltAddress_in: [String]
+  ltAddress_not_in: [String]
+  ltAddress_contains: String
+  ltAddress_not_contains: String
+  ltAddress_starts_with: String
+  ltAddress_ends_with: String
+  ltAddress_not_starts_with: String
+  ltAddress_not_ends_with: String
+  tokenIsToken0: Boolean
+  tokenIsToken0_not: Boolean
+  tokenIsToken0_in: [Boolean]
+  tokenIsToken0_not_in: [Boolean]
 }
 
 type tokenBalance {
