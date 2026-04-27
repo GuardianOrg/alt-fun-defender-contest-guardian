@@ -57,7 +57,10 @@ contract MockHyperswapPair is ERC20 {
 
     /// @dev Standard UniswapV2-style swap. Caller is expected to have
     ///      pre-transferred the input tokens to this pair before calling.
-    ///      Used by `Zap`'s direct-to-pair swap path.
+    ///      Used by `Zap`'s direct-to-pair swap path. Mirrors the reference
+    ///      `UniswapV2Pair.swap` ordering (transfer outputs first, then derive
+    ///      inputs from post-transfer balances and enforce the K invariant) so
+    ///      bad `amountOut` calculations actually revert here.
     function swap(
         uint256 amount0Out,
         uint256 amount1Out,
@@ -65,22 +68,30 @@ contract MockHyperswapPair is ERC20 {
         bytes calldata /* data */
     ) external {
         require(amount0Out > 0 || amount1Out > 0, "MockPair: INSUFFICIENT_OUTPUT_AMOUNT");
-        require(amount0Out < _reserve0 && amount1Out < _reserve1, "MockPair: INSUFFICIENT_LIQUIDITY");
 
-        uint256 balance0 = IERC20(token0).balanceOf(address(this));
-        uint256 balance1 = IERC20(token1).balanceOf(address(this));
-
-        // Input amounts inferred from how much extra has been deposited above reserves.
-        uint256 amount0In = balance0 > _reserve0 - amount0Out ? balance0 - (_reserve0 - amount0Out) : 0;
-        uint256 amount1In = balance1 > _reserve1 - amount1Out ? balance1 - (_reserve1 - amount1Out) : 0;
-        require(amount0In > 0 || amount1In > 0, "MockPair: INSUFFICIENT_INPUT_AMOUNT");
+        uint112 reserve0 = _reserve0;
+        uint112 reserve1 = _reserve1;
+        require(amount0Out < reserve0 && amount1Out < reserve1, "MockPair: INSUFFICIENT_LIQUIDITY");
 
         if (amount0Out > 0) IERC20(token0).transfer(to, amount0Out);
         if (amount1Out > 0) IERC20(token1).transfer(to, amount1Out);
 
-        // Refresh reserves to reflect the new pair balances.
-        _reserve0 = uint112(IERC20(token0).balanceOf(address(this)));
-        _reserve1 = uint112(IERC20(token1).balanceOf(address(this)));
+        uint256 balance0 = IERC20(token0).balanceOf(address(this));
+        uint256 balance1 = IERC20(token1).balanceOf(address(this));
+
+        uint256 amount0In = balance0 > reserve0 - amount0Out ? balance0 - (reserve0 - amount0Out) : 0;
+        uint256 amount1In = balance1 > reserve1 - amount1Out ? balance1 - (reserve1 - amount1Out) : 0;
+        require(amount0In > 0 || amount1In > 0, "MockPair: INSUFFICIENT_INPUT_AMOUNT");
+
+        // K-invariant check with 0.3% fee, matching UniswapV2Pair.
+        uint256 balance0Adjusted = (balance0 * 1000) - (amount0In * 3);
+        uint256 balance1Adjusted = (balance1 * 1000) - (amount1In * 3);
+        require(
+            balance0Adjusted * balance1Adjusted >= uint256(reserve0) * uint256(reserve1) * (1000 ** 2), "MockPair: K"
+        );
+
+        _reserve0 = uint112(balance0);
+        _reserve1 = uint112(balance1);
     }
 }
 

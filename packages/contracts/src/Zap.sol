@@ -388,9 +388,10 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address tokenOut,
         uint256 amountIn
     ) internal returns (uint256 amountOut) {
-        // The pair is keyed by either side of the trade in `Bonding.graduatedPair`,
-        // but `Bonding._graduate` only writes the entry under the launched token,
-        // not the LT. Look up under whichever side is the launched token.
+        // `Bonding._graduate` stores `graduatedPair` only under the launched token
+        // address (not the LT). Check `tokenIn` first for the sell direction
+        // (launched token -> LT), then fall back to `tokenOut` for the buy
+        // direction (LT -> launched token).
         address pair = bonding.graduatedPair(tokenIn);
         if (pair == address(0)) pair = bonding.graduatedPair(tokenOut);
 
