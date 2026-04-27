@@ -166,6 +166,8 @@ function makeOnchain(
     k: "1000000000000000000000000000000000000000000000000",
     curveSupply: "1000000000000000000000000000",
     ltReserve: "1000000000000000000000",
+    pendingGraduation: false,
+    pendingGraduationAt: null,
     graduated: false,
     graduatedAt: null,
     bondingPair: null,

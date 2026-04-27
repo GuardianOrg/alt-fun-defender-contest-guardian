@@ -71,6 +71,14 @@ export interface ApiToken {
   curveFilledLeverageBoost?: number | null;
   graduated?: boolean;
   graduatedAt?: string | null;
+  /**
+   * Phase 1 of graduation has fired but `finalizeGraduation` hasn't yet —
+   * the token is contract-frozen, no buys/sells will land. Drives the
+   * "Token is graduating" overlay on the trade panel.
+   */
+  pendingGraduation?: boolean;
+  /** ISO timestamp when phase 1 fired. `null` if not currently in phase 1. */
+  pendingGraduationAt?: string | null;
   bondingPair?: string | null;
   hyperswapPair?: string | null;
   priceUsd?: number | null;

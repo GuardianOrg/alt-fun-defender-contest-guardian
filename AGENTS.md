@@ -69,7 +69,12 @@ Fees are charged by `Zap` in USDC on every buy/sell — curve **and** post-gradu
 
 **Phase 1 — Bonding Curve:** Creator picks name, image, LT pair. Buys/sells go through Zap. Curve reserve is LT. Pair holds virtual `reserve0 = totalSupply` and 750M real tokens (25% is held back in `Bonding` as `lpReserve` for graduation).
 
-**Phase 2 — Graduation (dynamic LP seeding):** Either trigger fires → unsold real tokens burned from the pair → all real LT drained → `tokensForLP = raisedLT × reserve0 / reserve1` is computed (the exact amount that makes the LP open at the last curve price) → remainder of the 250M `lpReserve` is burned → `addLiquidity()` on HyperSwap with `(tokensForLP, raisedLT)` → LP locked → curve closed. Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in `test/GraduationInvariants.t.sol`.
+**Phase 2 — Graduation (two-phase, dynamic LP seeding):** Split across two txs to fit HyperEVM's ~2M small-block gas ceiling:
+
+- **Phase 1 (inline in the threshold-crossing buy):** unsold real tokens burned from the pair → all real LT drained → `tokensForLP = raisedLT × reserve0 / reserve1` is computed and cached → remainder of the 250M `lpReserve` is burned → `lifecycle: Curve → Graduating` flips, freezing trading. Emits `TokenGraduating`.
+- **Phase 2 (`Bonding.finalizeGraduation`, permissionless):** create HyperSwap pair if needed → direct `pair.mint(lpLock)` with the cached amounts (router-bypass — brick-proof against front-runner dust seeding) → `lifecycle: Graduating → Graduated`. Emits `TokenGraduated`. A Cloudflare Worker keeper drives the happy path within ~60s; anyone can call to rescue stuck tokens.
+
+Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in `test/GraduationInvariants.t.sol`; phase-1 gas budget + brick resistance in `test/TwoPhaseGraduation.t.sol`.
 
 **Phase 3 — Open Trading:** TOKEN/LT pool on HyperSwap. All trades still go through Zap (USDC in/out).
 

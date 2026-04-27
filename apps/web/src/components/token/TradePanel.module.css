@@ -183,6 +183,58 @@
   background: var(--mint);
 }
 
+/*
+ * Graduating overlay — replaces the entire trade form when the token is in
+ * the contract-frozen window (phase 1 of graduation has fired but the
+ * keeper hasn't called `finalizeGraduation` yet). Buys/sells would revert
+ * with `TokenIsGraduating`, so we hide the controls instead of letting the
+ * user discover the failure on submit.
+ */
+.graduatingPanel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.875rem;
+  padding: 2rem 1.5rem;
+  flex: 1;
+}
+
+.graduatingTitle {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mint);
+}
+
+.graduatingBody {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--txt);
+  max-width: 28ch;
+}
+
+.graduatingHint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--txt-3);
+  max-width: 32ch;
+}
+
+.graduatingSpinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid rgba(77, 232, 180, 0.18);
+  border-top-color: var(--mint);
+  border-radius: 9999px;
+  animation: graduatingSpin 1s linear infinite;
+}
+
+@keyframes graduatingSpin {
+  to { transform: rotate(360deg); }
+}
+
 .toggleBar {
   display: flex;
   align-items: center;

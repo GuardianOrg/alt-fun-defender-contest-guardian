@@ -473,6 +473,7 @@ describe("Bonding:TokenGraduated", () => {
     expect(updateCall.table).toBe(token);
     expect(updateCall.key).toEqual({ address: "0xtoken1" });
     expect(updateCall.values).toEqual({
+      pendingGraduation: false,
       graduated: true,
       graduatedAt: 1700100000n,
       hyperswapPair: "0xpair1",

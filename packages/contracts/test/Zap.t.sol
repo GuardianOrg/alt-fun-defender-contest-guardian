@@ -73,6 +73,11 @@ contract ZapTest is DeployHelper {
         usdc.approve(address(zap), usdcAmount);
         tokensOut = zap.buy(tokenAddr, usdcAmount, 0, address(0));
         vm.stopPrank();
+
+        // Mirror the production keeper: if the buy crossed the threshold, drive
+        // phase 2 inline. Tests that want to observe the `Graduating` window
+        // explicitly can drive the buy + finalize themselves.
+        if (bonding.isGraduating(tokenAddr)) bonding.finalizeGraduation(tokenAddr);
     }
 
     function _graduateToken(
@@ -90,10 +95,9 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(0);
         assertTrue(tokenAddr != address(0));
 
-        (address infoCreator,,,,,, bool trading, bool graduated) = bonding.tokenInfo(tokenAddr);
+        (address infoCreator,,,,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
         assertEq(infoCreator, creator);
-        assertTrue(trading);
-        assertFalse(graduated);
+        assertTrue(lifecycle == Bonding.Lifecycle.Curve);
     }
 
     function test_createToken_withSeedBuy() public {

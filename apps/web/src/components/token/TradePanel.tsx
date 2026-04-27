@@ -18,7 +18,7 @@ import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
-import { cn, formatCurveFilled, shortenAddress } from "../../utils/format";
+import { cn, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
@@ -166,19 +166,36 @@ export default function TradePanel({ token }: Props) {
   const ticker = token.ticker;
   const is5x = token.leverage === 5;
 
+  // Token is in the contract-frozen graduating window (phase 1 of the
+  // two-phase graduation has fired; awaiting the keeper's `finalizeGraduation`
+  // call). Both `Zap.buy` and `Zap.sell` would revert with `TokenIsGraduating`
+  // here, so render a read-only overlay instead of the form. The token-detail
+  // hook polls/subscribes to the API's `graduation` WS channel, so this
+  // automatically transitions to the post-grad UI when phase 2 lands.
+  if (token.status === "graduating") {
+    return (
+      <div className={styles.panel}>
+        <div className={styles.graduatingPanel}>
+          <div className={styles.graduatingSpinner} />
+          <div className={styles.graduatingTitle}>Token is graduating</div>
+          <div className={styles.graduatingBody}>
+            No buys or sells allowed during this period.
+          </div>
+          <div className={styles.graduatingHint}>
+            Usually under 2 minutes — please wait while liquidity is seeded on HyperSwap.
+          </div>
+        </div>
+        <CreatorBadge token={token} />
+        <TradePanelFooter token={token} />
+      </div>
+    );
+  }
+
   return (
     <div className={styles.panel}>
       {is5x && (
         <div className={styles.volWarning}>
           ⚠ 5× leverage — significantly more volatility decay, recommended for short-term
-        </div>
-      )}
-
-      {token.status === "graduating" && (
-        <div className={styles.graduatingBanner}>
-          <div className={styles.bannerDot} />
-          graduating · {formatCurveFilled(token.curveFilled)} progress
-          <div className={styles.bannerDot} />
         </div>
       )}
 

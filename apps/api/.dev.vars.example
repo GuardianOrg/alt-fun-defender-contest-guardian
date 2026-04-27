@@ -15,3 +15,19 @@ BOUNCETECH_DATABASE_URL=ASK_A_TEAMMATE
 # indexer to authenticate its trade webhook calls. Must match the indexer's
 # ADMIN_API_KEY. `dev-admin-key` is fine for local; prod uses a CF secret.
 ADMIN_API_KEY=dev-admin-key
+
+# Graduation keeper hot-wallet private key (`0x…`). Drives phase 2 of the
+# two-phase graduation flow — the worker calls `Bonding.finalizeGraduation`
+# from this account once a token enters the `pendingGraduation` window.
+# Setup:
+#   1. Generate a fresh key — never reuse the deployer key.
+#   2. Fund with ~5 HYPE for gas (each finalize is ~2.5M big-block gas).
+#   3. Toggle big blocks ON for the keeper wallet (sticky per-wallet on
+#      Hyperliquid L1):
+#        DEPLOYER_PRIVATE_KEY=<this key> node packages/contracts/scripts/toggle-big-blocks.mjs on
+#   4. `wrangler secret put KEEPER_PRIVATE_KEY` for prod.
+# Leave blank in local dev to disable the keeper (cron will log a warn).
+KEEPER_PRIVATE_KEY=
+
+# Optional override for the HyperEVM RPC URL. Defaults to the public RPC.
+HYPEREVM_RPC_URL=

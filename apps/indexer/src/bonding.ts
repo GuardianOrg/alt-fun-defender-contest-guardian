@@ -178,6 +178,40 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
   }
 });
 
+/**
+ * Phase 1 of graduation. Fires inline on the threshold-crossing buy. The
+ * token is now contract-frozen — no more buys/sells will land — but the
+ * HyperSwap LP isn't seeded yet (that's phase 2 / `TokenGraduated`). We
+ * surface this as `pendingGraduation: true` so the API can show the
+ * "Token is graduating" overlay and the keeper can drive `finalizeGraduation`.
+ */
+ponder.on("Bonding:TokenGraduating", async ({ event, context }) => {
+  const { db } = context;
+
+  await db
+    .update(token, { address: event.args.token })
+    .set({
+      pendingGraduation: true,
+      pendingGraduationAt: BigInt(event.block.timestamp),
+    });
+
+  if (isLiveEvent(event.block.timestamp)) {
+    broadcastEvent({
+      event: "graduation",
+      tokenAddress: event.args.token,
+      data: {
+        phase: "graduating",
+        tokenAddress: event.args.token,
+        tokensForLP: event.args.tokensForLP.toString(),
+        ltFromPair: event.args.ltFromPair.toString(),
+        lpBurned: event.args.lpBurned.toString(),
+        unsoldBurned: event.args.unsoldBurned.toString(),
+        timestamp: event.block.timestamp.toString(),
+      },
+    });
+  }
+});
+
 ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
   const { db } = context;
 
@@ -198,6 +232,7 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
   await db
     .update(token, { address: event.args.token })
     .set({
+      pendingGraduation: false,
       graduated: true,
       graduatedAt: BigInt(event.block.timestamp),
       hyperswapPair: event.args.pairAddress,
@@ -222,6 +257,23 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
         tokenIsToken0: tokenAddrLower < ltAddrLower,
       })
       .onConflictDoNothing();
+  }
+
+  if (isLiveEvent(event.block.timestamp)) {
+    broadcastEvent({
+      event: "graduation",
+      tokenAddress: event.args.token,
+      data: {
+        phase: "graduated",
+        tokenAddress: event.args.token,
+        pairAddress: event.args.pairAddress,
+        liquidity: event.args.liquidity.toString(),
+        tokensInLP: event.args.tokensInLP.toString(),
+        lpBurned: event.args.lpBurned.toString(),
+        unsoldBurned: event.args.unsoldBurned.toString(),
+        timestamp: event.block.timestamp.toString(),
+      },
+    });
   }
 });
 

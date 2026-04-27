@@ -334,6 +334,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "finalizeGraduation",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "getRouters",
     "inputs": [],
     "outputs": [
@@ -407,14 +420,9 @@ export const BondingAbi = [
             "internalType": "string[4]"
           },
           {
-            "name": "trading",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
-            "name": "graduated",
-            "type": "bool",
-            "internalType": "bool"
+            "name": "lifecycle",
+            "type": "uint8",
+            "internalType": "enum Bonding.Lifecycle"
           }
         ]
       }
@@ -507,6 +515,25 @@ export const BondingAbi = [
   {
     "type": "function",
     "name": "isGraduated",
+    "inputs": [
+      {
+        "name": "token_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "isGraduating",
     "inputs": [
       {
         "name": "token_",
@@ -686,6 +713,45 @@ export const BondingAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingGraduation",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokensForLP",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "ltFromPair",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "lpBurned",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "unsoldBurned",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "pendingSince",
+        "type": "uint64",
+        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
@@ -906,14 +972,9 @@ export const BondingAbi = [
         "internalType": "string"
       },
       {
-        "name": "trading",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
-        "name": "graduated",
-        "type": "bool",
-        "internalType": "bool"
+        "name": "lifecycle",
+        "type": "uint8",
+        "internalType": "enum Bonding.Lifecycle"
       }
     ],
     "stateMutability": "view"
@@ -1093,6 +1154,43 @@ export const BondingAbi = [
       },
       {
         "name": "tokensInLP",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lpBurned",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "unsoldBurned",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TokenGraduating",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "tokensForLP",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "ltFromPair",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1327,6 +1425,11 @@ export const BondingAbi = [
   },
   {
     "type": "error",
+    "name": "NotGraduating",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotInitializing",
     "inputs": []
   },
@@ -1370,16 +1473,6 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "PairAlreadySeeded",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "PairLookupFailed",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -1412,6 +1505,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "TokenAlreadyGraduated",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TokenIsGraduating",
     "inputs": []
   },
   {

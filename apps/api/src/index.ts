@@ -7,6 +7,7 @@ import { swaggerUI } from "@hono/swagger-ui";
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
 import { checkPonderHealth } from "./lib/ponder-client.js";
+import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
@@ -173,11 +174,15 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json) — kickstart the LtTicker
-   * DO if it's dormant. `/ensure` is idempotent: if an alarm is already
-   * scheduled it's a no-op. This guarantees the ticker self-heals within
-   * ~60s of any deploy, DO eviction, or transient failure without relying
-   * on user traffic.
+   * Cron trigger (1 min cadence per wrangler.json). Two jobs run in
+   * parallel each tick:
+   *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
+   *      Ensures the price ticker self-heals within ~60s of any deploy, DO
+   *      eviction, or transient failure without relying on user traffic.
+   *   2. Sweep tokens currently in `pendingGraduation` and broadcast
+   *      `finalizeGraduation` on each (phase 2 of the two-phase graduation
+   *      flow). Idempotent — already-finalized tokens revert harmlessly.
+   *      See `lib/graduation-keeper.ts`.
    */
   async scheduled(
     _controller: ScheduledController,
@@ -192,6 +197,19 @@ export default {
           JSON.stringify({
             level: "error",
             event: "lt_ticker_kickstart_failed",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    ctx.waitUntil(
+      runGraduationKeeper(env).catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "graduation_keeper_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

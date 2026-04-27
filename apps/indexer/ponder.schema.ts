@@ -9,6 +9,16 @@ export const token = onchainTable("token", (t) => ({
   k: t.bigint().notNull(),
   curveSupply: t.bigint().notNull(),
   ltReserve: t.bigint().notNull(),
+  /**
+   * True between `TokenGraduating` (phase 1, fires inline on the threshold-
+   * crossing buy) and `TokenGraduated` (phase 2, the permissionless
+   * `finalizeGraduation` tx). Tokens in this state are contract-frozen —
+   * `Zap.buy` / `Zap.sell` revert with `TokenIsGraduating`. Surfaced as the
+   * `"graduating"` lifecycle on the API + frontend.
+   */
+  pendingGraduation: t.boolean().notNull().default(false),
+  /** Block timestamp when phase 1 fired. Used by the keeper to detect stuck tokens. */
+  pendingGraduationAt: t.bigint(),
   graduated: t.boolean().notNull().default(false),
   graduatedAt: t.bigint(),
   /** Bonding curve pair address (from Factory.PairCreated). Set once at launch. */

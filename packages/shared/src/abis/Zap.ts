@@ -966,6 +966,11 @@ export const ZapAbi = [
   },
   {
     "type": "error",
+    "name": "TokenIsGraduating",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
