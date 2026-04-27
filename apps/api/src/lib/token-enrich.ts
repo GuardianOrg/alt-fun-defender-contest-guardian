@@ -182,17 +182,26 @@ export function computeCurveFilledBreakdown(
 }
 
 /**
- * Derive the lifecycle status. Graduation wins. Once ≥90% of the curve is
- * filled we surface "graduating" even if the DB still shows "curve".
+ * Derive the lifecycle status. The contract's two-phase graduation flow is
+ * the single source of truth:
+ *   - `pendingGraduation === true` → `Bonding.TokenGraduating` fired but
+ *     `TokenGraduated` hasn't yet (the keeper is about to call
+ *     `finalizeGraduation`). Trades revert with `TokenIsGraduating`. UI
+ *     shows the "Token is graduating, no buys or sells allowed" overlay.
+ *   - `graduated === true` → `Bonding.TokenGraduated` fired; LP locked,
+ *     post-grad trading on HyperSwap.
+ *   - else → `"curve"` (the active bonding-curve phase).
+ *
+ * The previous heuristic ("≥90% curve filled means graduating") was dropped
+ * because it conflated a *progress* signal with a *contract-frozen* signal —
+ * those should now mean different things in the UI.
  */
 export function computeStatus(
-  dbStatus: string,
   graduated: boolean,
-  curveFilled: number | null,
+  pendingGraduation: boolean,
 ): TokenStatus {
-  if (graduated || dbStatus === "graduated") return "graduated";
-  if (curveFilled !== null && curveFilled >= 90) return "graduating";
-  if (dbStatus === "graduating") return "graduating";
+  if (graduated) return "graduated";
+  if (pendingGraduation) return "graduating";
   return "curve";
 }
 
@@ -225,6 +234,16 @@ export interface EnrichedToken
   curveFilledLeverageBoost: number | null;
   graduated: boolean;
   graduatedAt: string | null;
+  /**
+   * Phase 1 of graduation has fired but `finalizeGraduation` hasn't yet —
+   * the token is contract-frozen, no buys/sells will land. Frontend renders
+   * the "Token is graduating, no buys or sells allowed" overlay over the
+   * trade panel during this window (~1-2 minutes). Always `false` once
+   * `graduated` is `true`.
+   */
+  pendingGraduation: boolean;
+  /** ISO timestamp when phase 1 fired. `null` if not currently in phase 1. */
+  pendingGraduationAt: string | null;
   bondingPair: string | null;
   hyperswapPair: string | null;
   priceUsd: number | null;

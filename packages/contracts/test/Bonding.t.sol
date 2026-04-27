@@ -74,6 +74,11 @@ contract BondingTest is DeployHelper {
         lt.approve(address(curveRouter), ltAmount);
         (tokensOut,) = bonding.buy(ltAmount, tokenAddr, 0, buyer);
         vm.stopPrank();
+
+        // Two-phase graduation: if this buy crossed the threshold, drive
+        // phase 2 inline so the rest of the test sees the standard
+        // `Graduated` lifecycle (matches the production keeper's behaviour).
+        if (bonding.isGraduating(tokenAddr)) bonding.finalizeGraduation(tokenAddr);
     }
 
     // ─── Setup Tests ─────────────────────────────────────────────────────
@@ -116,12 +121,11 @@ contract BondingTest is DeployHelper {
     function test_launch_setsTokenInfo() public {
         (address tokenAddr,) = _launchToken();
 
-        (address infoCreator,,, address ltAddr,,, bool trading, bool graduated) = bonding.tokenInfo(tokenAddr);
+        (address infoCreator,,, address ltAddr,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
 
         assertEq(infoCreator, creator);
         assertEq(ltAddr, address(lt));
-        assertTrue(trading);
-        assertFalse(graduated);
+        assertTrue(lifecycle == Bonding.Lifecycle.Curve);
     }
 
     function test_launch_creatorReceivesInitialTokens() public {
@@ -433,7 +437,7 @@ contract BondingTest is DeployHelper {
         vm.prank(creator);
         bonding.transferCreator(tokenAddr, trader);
 
-        (address newCreator,,,,,,,) = bonding.tokenInfo(tokenAddr);
+        (address newCreator,,,,,,) = bonding.tokenInfo(tokenAddr);
         assertEq(newCreator, trader);
     }
 
@@ -518,7 +522,7 @@ contract BondingTest is DeployHelper {
         vm.stopPrank();
     }
 
-    function test_graduation_emitsTokenGraduated() public {
+    function test_graduation_emitsTokenGraduating() public {
         (address tokenAddr,) = _launchToken();
         _buyTokens(tokenAddr, trader, 5000 ether);
         lt.setExchangeRate(3 ether);
@@ -527,10 +531,29 @@ contract BondingTest is DeployHelper {
         vm.startPrank(trader2);
         lt.approve(address(curveRouter), 100 ether);
 
+        // Phase 1 of graduation now fires inline on the threshold-crossing buy
+        // — `TokenGraduating` is the new event for that boundary.
         vm.expectEmit(true, false, false, false);
-        emit Bonding.TokenGraduated(tokenAddr, address(0), 0, 0, 0, 0);
+        emit Bonding.TokenGraduating(tokenAddr, 0, 0, 0, 0);
         bonding.buy(100 ether, tokenAddr, 0, trader2);
         vm.stopPrank();
+    }
+
+    function test_graduation_emitsTokenGraduated() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, 5000 ether);
+        lt.setExchangeRate(3 ether);
+
+        lt.mintDirect(trader2, 100 ether);
+        vm.startPrank(trader2);
+        lt.approve(address(curveRouter), 100 ether);
+        bonding.buy(100 ether, tokenAddr, 0, trader2);
+        vm.stopPrank();
+
+        // Phase 2: anyone can call `finalizeGraduation` to seed the HyperSwap LP.
+        vm.expectEmit(true, false, false, false);
+        emit Bonding.TokenGraduated(tokenAddr, address(0), 0, 0, 0, 0);
+        bonding.finalizeGraduation(tokenAddr);
     }
 
     function test_graduation_createsLpLock() public {

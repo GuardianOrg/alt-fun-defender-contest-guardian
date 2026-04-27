@@ -88,9 +88,9 @@ contract UUPSUpgradeTest is DeployHelper {
         BondingV2 newImpl = new BondingV2();
         bonding.upgradeToAndCall(address(newImpl), "");
 
-        (address infoCreator,,,,,, bool trading,) = bonding.tokenInfo(tokenAddr);
+        (address infoCreator,,,,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
         assertEq(infoCreator, creator);
-        assertTrue(trading);
+        assertTrue(lifecycle == Bonding.Lifecycle.Curve);
         assertEq(bonding.allTokensLength(), 1);
     }
 

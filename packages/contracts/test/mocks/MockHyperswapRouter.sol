@@ -13,11 +13,61 @@ contract MockHyperswapPair is ERC20 {
 
     constructor() ERC20("HyperSwap LP", "HS-LP") {}
 
+    /// @dev Direct-deposit mint matching UniswapV2 semantics: the caller has
+    ///      pre-transferred token0/token1 to this pair; we derive the deposit
+    ///      from `balanceOf(this) - reserves`, mint LP tokens to `to`, and
+    ///      update reserves. Used by `Bonding.finalizeGraduation` (router-bypass
+    ///      LP seeding) and tested in `TwoPhaseGraduation.t.sol`.
     function mint(
+        address to
+    ) external returns (uint256 liquidity) {
+        uint112 reserve0 = _reserve0;
+        uint112 reserve1 = _reserve1;
+
+        uint256 balance0 = IERC20(token0).balanceOf(address(this));
+        uint256 balance1 = IERC20(token1).balanceOf(address(this));
+        uint256 amount0 = balance0 - reserve0;
+        uint256 amount1 = balance1 - reserve1;
+
+        uint256 totalSupply_ = totalSupply();
+        if (totalSupply_ == 0) {
+            liquidity = _sqrt(amount0 * amount1);
+        } else {
+            uint256 liquidity0 = (amount0 * totalSupply_) / reserve0;
+            uint256 liquidity1 = (amount1 * totalSupply_) / reserve1;
+            liquidity = liquidity0 < liquidity1 ? liquidity0 : liquidity1;
+        }
+        require(liquidity > 0, "MockPair: INSUFFICIENT_LIQUIDITY_MINTED");
+
+        _mint(to, liquidity);
+
+        _reserve0 = uint112(balance0);
+        _reserve1 = uint112(balance1);
+    }
+
+    /// @dev Legacy bookkeeping path used by the router's `addLiquidity` mock
+    ///      (which manages reserves itself). Kept under a different name so the
+    ///      UniswapV2-style `mint(to)` above is unambiguous.
+    function mintRaw(
         address to,
         uint256 amount
     ) external {
         _mint(to, amount);
+    }
+
+    function _sqrt(
+        uint256 y
+    ) internal pure returns (uint256 z) {
+        if (y > 3) {
+            z = y;
+            uint256 x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
+        }
     }
 
     function setTokens(
@@ -113,6 +163,23 @@ contract MockHyperswapFactory {
         pairs[tokenA][tokenB] = pair;
         pairs[tokenB][tokenA] = pair;
     }
+
+    /// @dev Matches `IUniswapV2Factory.createPair` so `Bonding._ensureHyperswapPair`
+    ///      can deploy a pair on-the-fly during `finalizeGraduation` without
+    ///      going through the router.
+    function createPair(
+        address tokenA,
+        address tokenB
+    ) external returns (address pair) {
+        require(pairs[tokenA][tokenB] == address(0), "MockFactory: PAIR_EXISTS");
+        MockHyperswapPair newPair = new MockHyperswapPair();
+        newPair.setTokens(tokenA, tokenB);
+        // No router authorization here — the post-grad swap path uses
+        // `pair.swap(...)` directly which doesn't gate on router auth.
+        pairs[tokenA][tokenB] = address(newPair);
+        pairs[tokenB][tokenA] = address(newPair);
+        pair = address(newPair);
+    }
 }
 
 /// @dev Mock UniswapV2Router02 for graduation and post-grad swap tests
@@ -156,7 +223,7 @@ contract MockHyperswapRouter {
         pair.setReserves(uint112(amountADesired), uint112(amountBDesired));
 
         liquidity = _sqrt(amountADesired * amountBDesired);
-        pair.mint(to, liquidity);
+        pair.mintRaw(to, liquidity);
 
         return (amountADesired, amountBDesired, liquidity);
     }

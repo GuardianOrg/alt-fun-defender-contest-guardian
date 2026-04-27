@@ -15,6 +15,8 @@ import {Token} from "./Token.sol";
 import {IPair} from "./interfaces/IPair.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
+import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {LPLock} from "./LPLock.sol";
 
 /// @title Bonding
@@ -34,6 +36,18 @@ import {LPLock} from "./LPLock.sol";
 ///      Upon graduation, the LP pool is seeded with exactly the tokens needed to match
 ///      the last curve price (`tokensForLP = raisedLT / lastPrice`), with excess burned
 ///      from the 250M LP reserve. This guarantees zero LP/curve price gap.
+///
+///      Graduation is split across two transactions to fit HyperEVM's small-block
+///      gas ceiling (~2M):
+///        Phase 1 (inline in the threshold-crossing buy): drain the curve, cache the
+///                LP-bound amounts, flip lifecycle to `Graduating`, freeze trading.
+///                Emits `TokenGraduating`.
+///        Phase 2 (`finalizeGraduation`, permissionless big-block tx): create the
+///                HyperSwap pair if needed, mint LP via direct `pair.mint(lpLock)`
+///                (router-bypass — no slippage path that a front-runner can brick),
+///                lock LP, flip lifecycle to `Graduated`. Emits `TokenGraduated`.
+///      A Cloudflare Worker keeper handles the happy path; anyone can call
+///      `finalizeGraduation` to rescue a stuck token.
 ///
 ///      Forked from Virtuals Protocol Bonding.sol.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
@@ -111,6 +125,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///         the two would brick token creation.
     bytes2 public constant VANITY_SUFFIX = 0xa1fa;
 
+    /// @notice Lifecycle of a launched token. Three mutually-exclusive states; the
+    ///         enum is the single source of truth (replaces the old `trading` /
+    ///         `graduated` boolean pair). Transitions are strictly forward:
+    ///         `Curve → Graduating → Graduated`.
+    enum Lifecycle {
+        Curve, // default — trading on the bonding curve
+        Graduating, // phase 1 done; awaiting `finalizeGraduation`
+        Graduated // LP seeded on HyperSwap, locked, post-grad trading
+    }
+
     struct TokenInfo {
         address creator;
         address token;
@@ -121,8 +145,32 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string description;
         string image;
         string[4] urls;
-        bool trading;
-        bool graduated;
+        Lifecycle lifecycle;
+    }
+
+    /// @notice Snapshot of LP-bound amounts cached at the end of phase 1, consumed
+    ///         by `finalizeGraduation`, deleted on success.
+    /// @dev    All amount fields are stored as `uint256`. `tokensForLP`,
+    ///         `lpBurned`, and `unsoldBurned` are mathematically bounded by
+    ///         `LP_RESERVE` / `curveSupply` (both < 2^90), but `ltFromPair`
+    ///         depends on the LT's `exchangeRate()` at launch and at
+    ///         graduation. Token creation is permissionless on
+    ///         `Zap.createToken`, so a token paired with a malicious LT
+    ///         returning a tiny `exchangeRate` could legitimately produce an
+    ///         `ltFromPair` > 2^128. Storing as `uint256` removes any
+    ///         narrowing-cast footgun (a truncated `ltFromPair` would strand
+    ///         real LT in `Bonding` during phase 2). The extra storage slots
+    ///         cost ~40k gas in phase 1, which is negligible against phase
+    ///         2's ~2.5M baseline.
+    ///         `pendingSince` is exposed so off-chain consumers (frontend
+    ///         banner, keeper) can show "graduating for Xs" / escalate stale
+    ///         entries without a separate block lookup.
+    struct PendingGraduation {
+        uint256 tokensForLP;
+        uint256 ltFromPair;
+        uint256 lpBurned;
+        uint256 unsoldBurned;
+        uint64 pendingSince;
     }
 
     struct LaunchParams {
@@ -148,6 +196,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     mapping(address => uint256) public lpReserve;
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
+    /// @notice Per-token state cached during phase 1, consumed by `finalizeGraduation`.
+    ///         Empty (`pendingSince == 0`) for tokens not in the `Graduating` phase.
+    mapping(address => PendingGraduation) public pendingGraduation;
 
     event TokenLaunched(
         address indexed token,
@@ -167,6 +218,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 newCurveSupply,
         uint256 newLtReserve
     );
+    /// @notice Phase 1 of graduation has fired. Trading is frozen; `finalizeGraduation`
+    ///         is now callable (permissionlessly) to seed the HyperSwap LP. The
+    ///         indexer surfaces this to the frontend as the `Graduating` state.
+    event TokenGraduating(
+        address indexed token, uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned
+    );
     event TokenGraduated(
         address indexed token,
         address pairAddress,
@@ -182,6 +239,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
 
     error TokenNotTrading();
+    /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
+    ///      the `Graduating` phase — distinct from `TokenNotTrading` so the UI
+    ///      can show the "Token is graduating" overlay rather than a generic
+    ///      error.
+    error TokenIsGraduating();
+    /// @dev `finalizeGraduation` was called on a token that's not in phase 1.
+    error NotGraduating();
     error ZeroAddress();
     error TokenAlreadyGraduated();
     error InvalidInput();
@@ -191,8 +255,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error RouterAlreadyAdded();
     error RouterNotFound();
     error ZeroExchangeRate();
-    error PairAlreadySeeded();
-    error PairLookupFailed();
     error InvalidNameLength();
     error InvalidTickerLength();
     error InvalidThreshold();
@@ -334,8 +396,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             description: params.description,
             image: params.image,
             urls: params.urls,
-            trading: true,
-            graduated: false
+            lifecycle: Lifecycle.Curve
         });
         allTokens.push(tokenAddr);
         creatorTokens[creator_].push(tokenAddr);
@@ -360,7 +421,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 amountOutMin,
         address trader
     ) external onlyRouter nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
-        if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        // Existence check. `Lifecycle.Curve` is the zero value, so an
+        // unwritten slot (unknown token) would otherwise pass the lifecycle
+        // gate and fall through into `router.buy`, which would revert deep
+        // in `IPair(address(0))` with a cryptic low-level error.
+        // `_storeTokenInfo` always sets `info.token`, so a zero here means
+        // "address never registered as a launched token".
+        if (info.token == address(0)) revert TokenNotTrading();
+        if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
+        if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
         // `msg.sender` (the router) holds LT and receives tokens; `trader` is the
         // user whose identity is recorded in the `Trade` event.
@@ -376,7 +446,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 amountOutMin,
         address trader
     ) external onlyRouter nonReentrant returns (uint256) {
-        if (!_tokenInfo[tokenAddress].trading) revert TokenNotTrading();
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        // Existence check — see `buy` for the rationale.
+        if (info.token == address(0)) revert TokenNotTrading();
+        if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
+        if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
         // Router holds the tokens and receives LT (`msg.sender` here = router).
         // `trader` is purely informational — emitted in the `Trade` event.
@@ -402,13 +476,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             address ltAddress,
             string memory name_,
             string memory ticker,
-            bool trading,
-            bool graduated
+            Lifecycle lifecycle
         )
     {
         TokenInfo storage info = _tokenInfo[token_];
-        return
-            (info.creator, info.token, info.pair, info.ltAddress, info.name, info.ticker, info.trading, info.graduated);
+        return (info.creator, info.token, info.pair, info.ltAddress, info.name, info.ticker, info.lifecycle);
     }
 
     function getTokenInfo(
@@ -426,16 +498,27 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return _tokenInfo[token_].creator;
     }
 
+    /// @notice True iff the token is in the active bonding-curve phase. Buys
+    ///         and sells are only accepted in this state.
     function isTrading(
         address token_
     ) external view returns (bool) {
-        return _tokenInfo[token_].trading;
+        return _tokenInfo[token_].lifecycle == Lifecycle.Curve;
+    }
+
+    /// @notice True iff phase 1 has fired but `finalizeGraduation` has not yet
+    ///         seeded the HyperSwap LP. Buys and sells revert with
+    ///         `TokenIsGraduating` during this window.
+    function isGraduating(
+        address token_
+    ) external view returns (bool) {
+        return _tokenInfo[token_].lifecycle == Lifecycle.Graduating;
     }
 
     function isGraduated(
         address token_
     ) external view returns (bool) {
-        return _tokenInfo[token_].graduated;
+        return _tokenInfo[token_].lifecycle == Lifecycle.Graduated;
     }
 
     function allTokensLength() external view returns (uint256) {
@@ -448,7 +531,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function canGraduate(
         address token_
     ) public view returns (bool) {
-        if (!_tokenInfo[token_].trading || _tokenInfo[token_].graduated) return false;
+        if (_tokenInfo[token_].lifecycle != Lifecycle.Curve) return false;
         address pair = _tokenInfo[token_].pair;
         address lt = _tokenInfo[token_].ltAddress;
 
@@ -574,36 +657,79 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
         emit Trade(tokenAddress, trader, true, amountInUsed, tokensOut, newCurveSupply, newLtReserve);
 
-        if (_tokenInfo[tokenAddress].trading && canGraduate(tokenAddress)) {
-            _graduate(tokenAddress);
+        // `canGraduate` already gates on `lifecycle == Curve`, so no extra check needed here.
+        if (canGraduate(tokenAddress)) {
+            _enterGraduating(tokenAddress);
         }
     }
 
-    function _graduate(
+    /// @dev Phase 1 of graduation. Runs inline at the end of the threshold-crossing
+    ///      buy. Cheap (~150-200k of additional gas on top of the buy) so the
+    ///      whole tx still fits in HyperEVM's small block. Phase 2 is the
+    ///      separate `finalizeGraduation` call.
+    function _enterGraduating(
         address tokenAddress
     ) internal {
         TokenInfo storage info = _tokenInfo[tokenAddress];
-        if (info.graduated || !info.trading) revert TokenAlreadyGraduated();
+        if (info.lifecycle != Lifecycle.Curve) revert TokenAlreadyGraduated();
 
-        info.trading = false;
-        info.graduated = true;
+        info.lifecycle = Lifecycle.Graduating;
 
-        address lt = info.ltAddress;
-
-        // Drain curve, align price via dynamic LP seeding, burn excess.
+        // Drain curve, compute dynamic-LP-seeding amounts, burn excess. The
+        // `tokensForLP` and `ltFromPair` are pinned NOW (at the last curve
+        // price) and used verbatim in phase 2 — that's how we keep the
+        // zero-gap invariant despite the tx split.
         (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
             _prepareGraduationLiquidity(tokenAddress);
 
-        _requirePairEmpty(tokenAddress, lt);
+        // Amounts are stored full-width (`uint256`) — see `PendingGraduation`
+        // natspec for why narrowing casts on `ltFromPair` aren't safe in the
+        // presence of malicious LTs. `pendingSince` truncates a Unix
+        // timestamp (seconds) to `uint64`, which doesn't overflow until year
+        // ~584 billion AD.
+        pendingGraduation[tokenAddress] = PendingGraduation({
+            tokensForLP: tokensForLP,
+            ltFromPair: ltFromPair,
+            lpBurned: lpBurned,
+            unsoldBurned: unsoldBurned,
+            // forge-lint: disable-next-line(unsafe-typecast)
+            pendingSince: uint64(block.timestamp)
+        });
 
-        uint256 liquidity = _seedHyperswap(tokenAddress, lt, tokensForLP, ltFromPair);
+        emit TokenGraduating(tokenAddress, tokensForLP, ltFromPair, lpBurned, unsoldBurned);
+    }
 
-        address hyperPair = _getHyperswapPair(tokenAddress, lt);
+    /// @notice Phase 2 of graduation: seed the HyperSwap LP with the amounts
+    ///         cached in phase 1 and lock the LP tokens. **Permissionless** —
+    ///         a Cloudflare Worker keeper handles the happy path; anyone can
+    ///         call to rescue a token whose keeper missed it.
+    /// @dev The LP-seeding path bypasses the HyperSwap V2 router and calls
+    ///      `pair.mint(lpLock)` directly. This is brick-proof: even if a
+    ///      front-runner pre-creates the pair *and* deposits dust to set
+    ///      reserves > 0 in the window between phase 1 and phase 2, this
+    ///      function still succeeds (the front-runner just costs themselves
+    ///      gas + a small price haircut that arbitrageurs close out post-grad).
+    ///      Compare with the deleted `_requirePairEmpty` path which would
+    ///      have permanently bricked finalize in that scenario.
+    function finalizeGraduation(
+        address tokenAddress
+    ) external nonReentrant {
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        if (info.lifecycle != Lifecycle.Graduating) revert NotGraduating();
+
+        address lt = info.ltAddress;
+        PendingGraduation memory p = pendingGraduation[tokenAddress];
+
+        address hyperPair = _ensureHyperswapPair(tokenAddress, lt);
+        uint256 liquidity = _seedHyperswapDirect(tokenAddress, lt, hyperPair, p.tokensForLP, p.ltFromPair);
+
+        info.lifecycle = Lifecycle.Graduated;
         graduatedPair[tokenAddress] = hyperPair;
+        delete pendingGraduation[tokenAddress];
 
         LPLock(lpLock).recordLock(tokenAddress, hyperPair, liquidity);
 
-        emit TokenGraduated(tokenAddress, hyperPair, liquidity, tokensForLP, lpBurned, unsoldBurned);
+        emit TokenGraduated(tokenAddress, hyperPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
     }
 
     /// @dev Burns unsold curve tokens, drains LT from the pair, computes the exact
@@ -638,26 +764,37 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         lpReserve[tokenAddress] = 0;
     }
 
-    function _seedHyperswap(
+    /// @dev Idempotent: returns the existing HyperSwap pair if one is already
+    ///      registered, otherwise creates it. Either branch leaves the pair
+    ///      ready for `_seedHyperswapDirect` to mint LP into.
+    function _ensureHyperswapPair(
+        address tokenA,
+        address tokenB
+    ) internal returns (address pair) {
+        IUniswapV2Factory hsFactory = IUniswapV2Factory(IUniswapV2Router02(hyperswapRouter).factory());
+        pair = hsFactory.getPair(tokenA, tokenB);
+        if (pair == address(0)) {
+            pair = hsFactory.createPair(tokenA, tokenB);
+        }
+    }
+
+    /// @dev Standard UniswapV2 `transfer → mint` pattern. We bypass the V2
+    ///      router (no slippage path / `amountAMin` to bind) so a front-runner
+    ///      who pre-seeds reserves can never brick this call. The downside —
+    ///      LP minted at a slightly skewed ratio — is bounded by what the
+    ///      front-runner is willing to lock, and arbitrageurs close it out
+    ///      post-grad. This is the same direct-to-pair pattern `Zap` uses for
+    ///      its post-grad swaps.
+    function _seedHyperswapDirect(
         address tokenAddress,
         address lt,
+        address pair,
         uint256 tokensForLP,
         uint256 ltFromPair
     ) internal returns (uint256 liquidity) {
-        IERC20(tokenAddress).forceApprove(hyperswapRouter, tokensForLP);
-        IERC20(lt).forceApprove(hyperswapRouter, ltFromPair);
-
-        (,, liquidity) = IUniswapV2Router02(hyperswapRouter)
-            .addLiquidity(
-                tokenAddress,
-                lt,
-                tokensForLP,
-                ltFromPair,
-                (tokensForLP * 99) / 100,
-                (ltFromPair * 99) / 100,
-                lpLock,
-                block.timestamp
-            );
+        IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
+        IERC20(lt).safeTransfer(pair, ltFromPair);
+        liquidity = IUniswapV2Pair(pair).mint(lpLock);
     }
 
     function _getCurveState(
@@ -665,38 +802,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) internal view returns (uint256 curveSupply, uint256 ltReserve) {
         address pair = _tokenInfo[tokenAddress].pair;
         (curveSupply, ltReserve) = IPair(pair).getReserves();
-    }
-
-    /// @dev Reverts if the HyperSwap pair already has reserves (prevents front-running graduation)
-    function _requirePairEmpty(
-        address tokenA,
-        address tokenB
-    ) internal view {
-        address hsFactory = IUniswapV2Router02(hyperswapRouter).factory();
-        (bool pairOk, bytes memory pairData) =
-            hsFactory.staticcall(abi.encodeWithSignature("getPair(address,address)", tokenA, tokenB));
-        if (pairOk && pairData.length >= 32) {
-            address existingPair = abi.decode(pairData, (address));
-            if (existingPair != address(0)) {
-                (bool resOk, bytes memory resData) = existingPair.staticcall(abi.encodeWithSignature("getReserves()"));
-                if (resOk && resData.length >= 64) {
-                    (uint112 r0, uint112 r1,) = abi.decode(resData, (uint112, uint112, uint32));
-                    if (r0 > 0 || r1 > 0) revert PairAlreadySeeded();
-                }
-            }
-        }
-    }
-
-    function _getHyperswapPair(
-        address tokenA,
-        address tokenB
-    ) internal view returns (address) {
-        address hsFactory = IUniswapV2Router02(hyperswapRouter).factory();
-        // Use staticcall to IUniswapV2Factory.getPair
-        (bool ok, bytes memory data) =
-            hsFactory.staticcall(abi.encodeWithSignature("getPair(address,address)", tokenA, tokenB));
-        if (!ok || data.length < 32) revert PairLookupFailed();
-        return abi.decode(data, (address));
     }
 
     function _authorizeUpgrade(

@@ -73,6 +73,11 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     error ZeroAddress();
     error InvalidFee();
     error VaultNotConfigured();
+    /// @dev Forwarded from `Bonding`: trades are blocked while a token is in
+    ///      phase 1 of graduation (awaiting `finalizeGraduation`). Distinct from
+    ///      a generic revert so the frontend can show the "Token is graduating"
+    ///      overlay rather than a fee/balance error.
+    error TokenIsGraduating();
 
     function initialize(
         address bonding_,
@@ -202,6 +207,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address referrer
     ) internal returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
+        if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
         uint256 amountInUsed;
         uint256 actualFee;
@@ -273,7 +279,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _ltOf(
         address tokenAddress
     ) internal view returns (address lt) {
-        (,,, lt,,,,) = bonding.tokenInfo(tokenAddress);
+        (,,, lt,,,) = bonding.tokenInfo(tokenAddress);
     }
 
     function _sellInternal(
@@ -282,6 +288,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 minUsdcOut
     ) internal returns (uint256 usdcOut) {
         if (tokenAmount == 0) revert InvalidInput();
+        if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
         address lt = _ltOf(tokenAddress);
 

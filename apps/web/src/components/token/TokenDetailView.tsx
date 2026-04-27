@@ -5,6 +5,7 @@ import Chart from "./Chart";
 import HeroSection from "./HeroSection";
 import styles from "./TokenDetailView.module.css";
 import TradePanel from "./TradePanel";
+import { useGraduationFeed } from "../../hooks/useGraduationFeed";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
@@ -20,6 +21,9 @@ export default function TokenDetailView() {
   const { data: graduationThresholdUsd, fallback: thresholdFallback } =
     useGraduationThreshold();
   useTrackRecentlyViewed(token?.address);
+  // Auto-transition Curve → Graduating → Graduated when the indexer fires
+  // a `graduation` WS event for this token.
+  useGraduationFeed(address);
 
   if (isLoading) {
     return (

@@ -60,6 +60,8 @@ type token {
   k: BigInt!
   curveSupply: BigInt!
   ltReserve: BigInt!
+  pendingGraduation: Boolean!
+  pendingGraduationAt: BigInt
   graduated: Boolean!
   graduatedAt: BigInt
   bondingPair: String
@@ -167,6 +169,18 @@ input tokenFilter {
   ltReserve_lt: BigInt
   ltReserve_gte: BigInt
   ltReserve_lte: BigInt
+  pendingGraduation: Boolean
+  pendingGraduation_not: Boolean
+  pendingGraduation_in: [Boolean]
+  pendingGraduation_not_in: [Boolean]
+  pendingGraduationAt: BigInt
+  pendingGraduationAt_not: BigInt
+  pendingGraduationAt_in: [BigInt]
+  pendingGraduationAt_not_in: [BigInt]
+  pendingGraduationAt_gt: BigInt
+  pendingGraduationAt_lt: BigInt
+  pendingGraduationAt_gte: BigInt
+  pendingGraduationAt_lte: BigInt
   graduated: Boolean
   graduated_not: Boolean
   graduated_in: [Boolean]

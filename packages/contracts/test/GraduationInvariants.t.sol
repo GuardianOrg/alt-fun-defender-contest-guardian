@@ -88,6 +88,12 @@ contract GraduationInvariantsTest is DeployHelper {
         lt.approve(address(curveRouter), ltAmount);
         (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddr, 0, buyer);
         vm.stopPrank();
+
+        // Two-phase graduation: drive phase 2 inline so the rest of the
+        // invariant suite (which asserts on the *graduated* state) sees the
+        // post-finalize world. Production deployments rely on the keeper for
+        // this; we drive it directly in tests.
+        if (bonding.isGraduating(tokenAddr)) bonding.finalizeGraduation(tokenAddr);
     }
 
     struct GraduationSnapshot {
@@ -102,26 +108,35 @@ contract GraduationInvariantsTest is DeployHelper {
         address hyperPair;
     }
 
-    /// @dev Execute a buy that graduates the token and capture the TokenGraduated event data.
+    /// @dev Execute a buy that fires phase 1 of graduation, then call
+    ///      `finalizeGraduation` to fire phase 2, capturing the snapshot from
+    ///      both events. Two-phase graduation does NOT change the math —
+    ///      `tokensForLP` and `ltFromPair` are pinned at end-of-phase-1 and
+    ///      consumed verbatim in phase 2 — so the seven invariants prove the
+    ///      same property they did under the old single-tx flow.
     function _graduateAndCapture(
         address tokenAddr,
         address pairAddr,
         address buyer,
         uint256 ltAmount
     ) internal returns (GraduationSnapshot memory snap) {
-        // LT balance captured BEFORE the buy; the graduating buy contributes its net LT to the
-        // pair and the router subsequently drains the full real balance as `ltFromPair`.
-        uint256 ltBalPre = IPair(pairAddr).assetBalance();
-
         lt.mintDirect(buyer, ltAmount);
         if (!bonding.isRouter(buyer)) bonding.addRouter(buyer);
         vm.startPrank(buyer);
         lt.approve(address(curveRouter), ltAmount);
-
-        vm.recordLogs();
         bonding.buy(ltAmount, tokenAddr, 0, buyer);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
         vm.stopPrank();
+        require(bonding.isGraduating(tokenAddr), "phase 1 of graduation did not fire");
+
+        // Capture post-phase-1 curve reserves — the prices that `_prepareGraduationLiquidity`
+        // used to compute `tokensForLP`. `Pair._pool.reserve0/1` reflect the state after the
+        // final swap but before the balance sweeps (graduate/burn).
+        (snap.reserve0End, snap.reserve1End) = IPair(pairAddr).getReserves();
+
+        // Phase 2: anyone can finalize. We capture `TokenGraduated` for the LP-side fields.
+        vm.recordLogs();
+        bonding.finalizeGraduation(tokenAddr);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
 
         bytes32 topic = keccak256("TokenGraduated(address,address,uint256,uint256,uint256,uint256)");
         bool found;
@@ -137,17 +152,10 @@ contract GraduationInvariantsTest is DeployHelper {
                 break;
             }
         }
-        require(found, "graduation event not emitted");
+        require(found, "TokenGraduated event not emitted");
 
-        // Post-graduation read: Pair `_pool.reserve0/1` reflect the state after the final
-        // trade's `swap(...)` but before the balance sweeps (graduate/burn). This is exactly
-        // what `_prepareGraduationLiquidity` used to compute `tokensForLP`.
-        (snap.reserve0End, snap.reserve1End) = IPair(pairAddr).getReserves();
-
-        // `ltFromPair` must equal the full LT balance of the pair right before graduation
-        // drain. We reconstruct it from the Hyperswap pool's LT balance (mock holds it).
+        // `ltFromPair` is the LT now sitting in the freshly-seeded hyperswap pair.
         snap.ltFromPair = IERC20(address(lt)).balanceOf(snap.hyperPair);
-        ltBalPre; // silence unused warning — captured for debugging context
     }
 
     function _reserve0(

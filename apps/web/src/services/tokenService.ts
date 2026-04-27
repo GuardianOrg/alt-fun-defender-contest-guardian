@@ -21,9 +21,19 @@ export function deriveDirection(apiToken: ApiToken): Direction {
   return apiToken.ltDirection === "short" ? "short" : "long";
 }
 
+/**
+ * Map the API's lifecycle to the frontend's. The API uses `"curve"` for the
+ * active state (matches the contract's `Lifecycle.Curve`); we render that as
+ * `"active"`.
+ *
+ * The API's `"graduating"` status is now contract-driven — it means the token
+ * is in the frozen window between phase 1 (`Bonding.TokenGraduating`) and
+ * phase 2 (`finalizeGraduation`). The trade panel should refuse buys/sells
+ * and show the "Token is graduating" overlay during this state.
+ */
 export function deriveStatus(api: ApiToken): Token["status"] {
   if (api.status === "graduated" || api.graduated) return "graduated";
-  if (api.status === "graduating") return "graduating";
+  if (api.status === "graduating" || api.pendingGraduation) return "graduating";
   return "active";
 }
 

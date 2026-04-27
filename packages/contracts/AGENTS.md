@@ -37,17 +37,21 @@ real user EOA). Seed buys via `createToken` attribute to the creator.
 | `Zap.sol` | USDC abstraction, LT mint/redeem, **overflow-LT refund**, referral events |
 | `LPLock.sol` | Graduation LP lock (UUPS, no withdraw in v1) |
 
-## Graduation — Dynamic LP Seeding (Read This Before Touching `_graduate`)
+## Graduation — Two-Phase, Dynamic LP Seeding (Read This Before Touching Graduation Code)
 
 This is the most bespoke piece of the protocol. Full rationale + invariants live in [`docs/contracts-scope.md`](../../docs/contracts-scope.md#graduation); the short version:
 
+- **Two-phase split.** Graduation is split across two transactions to fit HyperEVM's small-block (~2M gas) ceiling.
+  - **Phase 1: `_enterGraduating`**, fired inline by the threshold-crossing buy (~150-200k of additional gas on top of the buy). Drains the curve, computes the LP-bound amounts, caches them in `pendingGraduation[token]`, flips `lifecycle: Curve → Graduating`, freezes trading. Emits `TokenGraduating`.
+  - **Phase 2: `finalizeGraduation`**, **permissionless** big-block tx (~2.5M gas). Creates the HyperSwap pair if needed, mints LP via direct `pair.mint(lpLock)` (router-bypass), locks LP, flips `lifecycle: Graduating → Graduated`. Emits `TokenGraduated`. A Cloudflare Worker keeper handles the happy path; anyone can call to rescue a stuck token.
+- **Brick resistance.** The phase-2 LP-seeding path bypasses the HyperSwap V2 router entirely (`pair.mint(lpLock)` directly). This makes the contract **immune to a front-runner pre-creating + dust-seeding the pair between phases** — under the previous `_requirePairEmpty` design that scenario was a permanent brick. Tested by `test_brick_resistance_frontRun_dust_seed` in [`test/TwoPhaseGraduation.t.sol`](test/TwoPhaseGraduation.t.sol).
 - **Virtual token reserve.** At launch, `Pair.reserve0 = totalSupply (1B)` while only `curveSupply = 75%` (750M) of real tokens are transferred to the pair. The other 250M (`LP_RESERVE`) sit in `Bonding` for graduation. This extends the curve beyond the sellable supply, which is what makes dynamic LP seeding work cleanly.
-- **Dual trigger.** Graduation fires on whichever hits first: `assetBalance × exchangeRate ≥ $12K` (USD, for LT pumps) or `IPair.tokenBalance() == 0` (supply, for flat/bear markets).
-- **Zero-gap LP seeding.** `_graduate` computes `tokensForLP = ltFromPair × reserve0 / reserve1` (the unique amount that makes the LP open at the last curve price), burns the remainder of the 250M reserve, and burns any unsold curve tokens.
-- **Parabola invariant.** With `V_t_init = totalSupply` and `curveSupply = 75%`, the function `tokensForLP(sold) = sold·(S−sold)/S` peaks at `S/4 = LP_RESERVE`. The cap in `_graduate` is defensive — it can never bind in normal operation.
+- **Dual trigger.** Phase 1 fires on whichever hits first: `assetBalance × exchangeRate ≥ $12K` (USD, for LT pumps) or `IPair.tokenBalance() == 0` (supply, for flat/bear markets).
+- **Zero-gap LP seeding.** `_prepareGraduationLiquidity` computes `tokensForLP = ltFromPair × reserve0 / reserve1` at end-of-phase-1 and caches the result. Phase 2 uses the cached value verbatim, so the curve→LP price match is invariant under the tx split.
+- **Parabola invariant.** With `V_t_init = totalSupply` and `curveSupply = 75%`, the function `tokensForLP(sold) = sold·(S−sold)/S` peaks at `S/4 = LP_RESERVE`. The cap in `_prepareGraduationLiquidity` is defensive — it can never bind in normal operation.
 - **Overflow buy cap.** `Router.buy` caps `tokensOut` at the pair's real balance and back-calculates the LT consumed, so the last buy cannot exceed remaining supply. `Zap.buy` refunds the unused LT as USDC (or LT on fallback). `Bonding.buy` returns `(tokensOut, amountInUsed)` for this reason.
 
-**If you change `_graduate`, `_prepareGraduationLiquidity`, `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol` and all 7 invariants must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
+**If you change `_enterGraduating`, `finalizeGraduation`, `_prepareGraduationLiquidity`, `_seedHyperswapDirect`, `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol` AND `test/TwoPhaseGraduation.t.sol`. All 7 zero-gap invariants must still pass; the phase-1-fits-in-small-block budget assertion (1.8M) must still hold; the brick-resistance tests must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
 
 ## Functional Spec
 

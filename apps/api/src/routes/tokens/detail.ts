@@ -48,6 +48,7 @@ function enrich(
   const curveSupply = onchain?.curveSupply ?? null;
   const ltReserve = onchain?.ltReserve ?? null;
   const graduated = onchain?.graduated ?? false;
+  const pendingGraduation = onchain?.pendingGraduation ?? false;
   const breakdown = computeCurveFilledBreakdown(
     curveSupply,
     ltReserve,
@@ -58,7 +59,7 @@ function enrich(
     graduationThresholdUsd,
   );
   const curveFilled = breakdown.total ?? computeCurveFilled(curveSupply);
-  const status = computeStatus(dbToken.status, graduated, curveFilled);
+  const status = computeStatus(graduated, pendingGraduation);
   const hyperswapPair = onchain?.hyperswapPair ?? dbToken.poolAddress ?? null;
   const lastTradeAt =
     market?.lastTradeAtSec != null
@@ -81,6 +82,10 @@ function enrich(
       : dbGraduatedAt
         ? dbGraduatedAt.toISOString()
         : null,
+    pendingGraduation,
+    pendingGraduationAt: onchain?.pendingGraduationAt
+      ? new Date(Number(onchain.pendingGraduationAt) * 1000).toISOString()
+      : null,
     bondingPair: onchain?.bondingPair ?? null,
     hyperswapPair,
     priceUsd: market?.priceUsd ?? null,

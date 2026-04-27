@@ -44,6 +44,17 @@ export interface PonderTokenOnchain {
    * `virtualLtReserveAtLaunch = k / TOTAL_SUPPLY_RAW`.
    */
   ltReserve: string;
+  /**
+   * Phase 1 of graduation has fired (`Bonding.TokenGraduating`) but
+   * `finalizeGraduation` hasn't yet — the token is contract-frozen, no
+   * buys/sells will land. The keeper is processing it; expected resolution
+   * within ~2 minutes. Surfaced to the frontend as the `"graduating"`
+   * status, which renders the "Token is graduating, no buys or sells
+   * allowed during this period" overlay over the trade panel.
+   */
+  pendingGraduation: boolean;
+  /** Block timestamp (sec) when phase 1 fired. Null if not currently in phase 1. */
+  pendingGraduationAt: string | null;
   graduated: boolean;
   graduatedAt: string | null;
   bondingPair: string | null;
@@ -160,6 +171,8 @@ export async function fetchAllTokensOnchain(
             k
             curveSupply
             ltReserve
+            pendingGraduation
+            pendingGraduationAt
             graduated
             graduatedAt
             bondingPair
@@ -209,6 +222,8 @@ export async function fetchTokensOnchainByAddresses(
             k
             curveSupply
             ltReserve
+            pendingGraduation
+            pendingGraduationAt
             graduated
             graduatedAt
             bondingPair
@@ -230,18 +245,15 @@ export async function fetchTokensOnchainByAddresses(
   }
 }
 
-/**
- * Supply threshold (virtual `reserve0`) at which a token is "graduating".
- * Mirrors the ≥90% rule in `computeStatus`:
- *   `virtualReserve0 = LP_RESERVE_RAW + 0.10 × CURVE_ALLOCATION = 325M × 1e18`
- * Below this threshold, a non-graduated token is in the final 10% stretch.
- * Note: this catches supply-trigger-only graduating tokens. USD-trigger
- * graduators (where the $12K line is hit before 90% supply is sold) may
- * still be below the 90% supply mark here; they'll show up in TRENDING /
- * NEW / LT MOVERS but not in GRADUATING. Acceptable trade-off for v1 —
- * keeping this path pure-Postgres-free.
- */
-export const GRADUATING_CURVE_SUPPLY_THRESHOLD = (325n * 1_000_000n * 10n ** 18n).toString();
+// `GRADUATING_CURVE_SUPPLY_THRESHOLD` was previously used to surface tokens
+// in the final 10% of curve fill as "graduating". With the contract's
+// two-phase graduation flow, "graduating" now exclusively means
+// `pendingGraduation: true` — the contract-frozen ~1-2 minute window between
+// phase 1 (`Bonding.TokenGraduating`) and phase 2 (`finalizeGraduation` →
+// `TokenGraduated`). The supply heuristic was retired with the introduction
+// of the keeper. The GRADUATING tab shows only tokens currently in this
+// window; "close to graduation" tokens surface in TRENDING / NEW / LT MOVERS
+// instead.
 
 /**
  * Fetch graduated tokens ordered by `graduatedAt desc`, paginated. Used by
@@ -272,6 +284,8 @@ export async function fetchGraduatedTokensOnchain(
           k
           curveSupply
           ltReserve
+          pendingGraduation
+          pendingGraduationAt
           graduated
           graduatedAt
           bondingPair
@@ -291,10 +305,12 @@ export async function fetchGraduatedTokensOnchain(
 }
 
 /**
- * Fetch tokens whose virtual reserve0 has dropped below
- * `GRADUATING_CURVE_SUPPLY_THRESHOLD` (≥90% supply filled) and which haven't
- * graduated yet, ordered by `curveSupply asc` (fullest / closest to
- * graduation first). Paginated.
+ * Fetch tokens currently in the contract-frozen graduating window —
+ * `pendingGraduation === true` (phase 1 has fired, `finalizeGraduation`
+ * hasn't yet). Ordered by `pendingGraduationAt asc` so the longest-pending
+ * tokens (which the keeper might be struggling to finalize) surface first.
+ * Typically a small set — the keeper finalizes within 1-2 cron cycles, so
+ * this list is usually empty or has 1-2 entries at peak times.
  */
 export async function fetchGraduatingTokensOnchain(
   ponderUrl: string | undefined,
@@ -305,12 +321,12 @@ export async function fetchGraduatingTokensOnchain(
   const data = await queryPonder<{
     tokens: { items: PonderTokenOnchain[] };
   }>(
-    `query ($limit: Int!, $offset: Int!, $threshold: BigInt!) {
+    `query ($limit: Int!, $offset: Int!) {
       tokens(
-        where: { graduated: false, curveSupply_lte: $threshold }
+        where: { pendingGraduation: true, graduated: false }
         limit: $limit
         offset: $offset
-        orderBy: "curveSupply"
+        orderBy: "pendingGraduationAt"
         orderDirection: "asc"
       ) {
         items {
@@ -319,6 +335,8 @@ export async function fetchGraduatingTokensOnchain(
           k
           curveSupply
           ltReserve
+          pendingGraduation
+          pendingGraduationAt
           graduated
           graduatedAt
           bondingPair
@@ -331,7 +349,7 @@ export async function fetchGraduatingTokensOnchain(
         }
       }
     }`,
-    { limit, offset, threshold: GRADUATING_CURVE_SUPPLY_THRESHOLD },
+    { limit, offset },
   );
   if (data === null) return null;
   return data.tokens.items;
@@ -439,6 +457,8 @@ export async function fetchTokenOnchain(
         k
         curveSupply
         ltReserve
+        pendingGraduation
+        pendingGraduationAt
         graduated
         graduatedAt
         bondingPair
