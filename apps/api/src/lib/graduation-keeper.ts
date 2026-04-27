@@ -14,10 +14,19 @@
  *
  * What this module does, every cron tick:
  *   1. Query Ponder for tokens with `pendingGraduation: true, graduated: false`.
- *   2. For each, broadcast `finalizeGraduation` from the keeper wallet.
+ *   2. For each, fire-and-forget `finalizeGraduation` from the keeper wallet
+ *      with manually-managed nonces. We do NOT wait for receipts —
+ *      submission itself is sub-second per tx, but big-block confirmation is
+ *      ~60s and waiting sequentially for several of those would push past
+ *      the next 1-minute cron tick. The indexer is the source of truth for
+ *      "did this finalize land": next tick's GraphQL query naturally filters
+ *      out tokens whose `Bonding:TokenGraduated` handler has flipped the
+ *      flag.
  *   3. Log + swallow failures — `finalizeGraduation` reverts cleanly on
  *      already-graduated tokens (race with another caller, e.g. an
  *      arbitrageur who beat us to it), so retries are safe and idempotent.
+ *      A failed-to-submit tx leaves its nonce slot reusable for the next tx
+ *      in the same batch.
  *
  * Operational setup (one-time):
  *   - `KEEPER_PRIVATE_KEY` worker secret. Fresh wallet, never reuse the
@@ -35,11 +44,13 @@ import { BondingAbi, CONTRACT_ADDRESSES, HYPER_EVM } from "@launchpad/shared";
 import { createPonderQuery } from "./ponder-client.js";
 import type { AppBindings } from "./types.js";
 
-/** Cap so a flood of pending tokens doesn't blow the cron's 30s budget. */
+/**
+ * Cap on submissions per cron tick. Bounded so a flood of pending tokens
+ * can't keep the worker busy past the next tick. Each submission is sub-second
+ * (no receipt wait), so even 5 sequential txs cost ~5s wall-clock total — well
+ * inside the cron budget. Anything beyond the cap waits for the next tick.
+ */
 const MAX_FINALIZES_PER_TICK = 5;
-
-/** Per-tx wait timeout — big blocks confirm ~60s, leave headroom. */
-const RECEIPT_TIMEOUT_MS = 90_000;
 
 const chain = {
   id: HYPER_EVM.id,
@@ -79,38 +90,48 @@ export async function runGraduationKeeper(env: AppBindings): Promise<void> {
   const wallet = createWalletClient({ account, chain, transport });
   const publicClient = createPublicClient({ chain, transport });
 
-  // Newest-first slicing is intentional: if we're behind, finalize the
-  // freshest tokens first (best UX for users watching the overlay) and let
-  // any older stragglers wait for the next tick. They will be retried —
+  // Oldest-first slicing (matches the `pendingGraduationAt asc` ordering on
+  // the GraphQL side). FIFO fairness: when we're behind, the user who's been
+  // staring at the graduating overlay the longest gets unblocked first. Any
+  // newer entries wait for the next tick and will be retried —
   // `pendingGraduation` stays true until phase 2 lands.
   const batch = pending.slice(0, MAX_FINALIZES_PER_TICK);
 
+  // Manual nonce management — viem's wallet client queries the RPC's `pending`
+  // count per call, which can return the same nonce twice for back-to-back
+  // submissions before the first tx propagates. Fetch once, increment locally
+  // per successful submit. A failed submit leaves the slot reusable.
+  const startNonce = await publicClient.getTransactionCount({
+    address: account.address,
+    blockTag: "pending",
+  });
+  let submitted = 0;
+
   for (const t of batch) {
+    const nonce = startNonce + submitted;
     try {
       const hash = await wallet.writeContract({
         address: CONTRACT_ADDRESSES.bonding as `0x${string}`,
         abi: BondingAbi,
         functionName: "finalizeGraduation",
         args: [t.address],
+        nonce,
       });
-      log("info", "keeper_tx_submitted", { token: t.address, hash });
-
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash,
-        timeout: RECEIPT_TIMEOUT_MS,
-      });
-      log("info", "keeper_tx_confirmed", {
-        token: t.address,
-        hash,
-        status: receipt.status,
-        blockNumber: receipt.blockNumber.toString(),
-      });
+      submitted++;
+      log("info", "keeper_tx_submitted", { token: t.address, hash, nonce });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      // Most expected failure: another caller (arbitrageur, manual rescue)
-      // beat us to finalize. The contract reverts with `NotGraduating` and
-      // we move on; the indexer will reconcile state on its next block.
-      log("warn", "keeper_tx_failed", { token: t.address, error: message });
+      // Submission failures don't consume the local nonce (the tx never
+      // went out). The most common cause is a race with another finalizer:
+      // viem's pre-flight `eth_call` simulates against latest state and
+      // reverts with `NotGraduating` if the token already finalized. The
+      // contract's idempotency keeps us safe — next tick won't see this
+      // token in the GraphQL result.
+      log("warn", "keeper_tx_failed", {
+        token: t.address,
+        nonce,
+        error: message,
+      });
     }
   }
 }

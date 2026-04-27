@@ -150,14 +150,26 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     /// @notice Snapshot of LP-bound amounts cached at the end of phase 1, consumed
     ///         by `finalizeGraduation`, deleted on success.
-    /// @dev    `pendingSince` is exposed so off-chain consumers (frontend banner,
-    ///         keeper) can show "graduating for Xs"/escalate without a separate
-    ///         block lookup.
+    /// @dev    All amount fields are stored as `uint256`. `tokensForLP`,
+    ///         `lpBurned`, and `unsoldBurned` are mathematically bounded by
+    ///         `LP_RESERVE` / `curveSupply` (both < 2^90), but `ltFromPair`
+    ///         depends on the LT's `exchangeRate()` at launch and at
+    ///         graduation. Token creation is permissionless on
+    ///         `Zap.createToken`, so a token paired with a malicious LT
+    ///         returning a tiny `exchangeRate` could legitimately produce an
+    ///         `ltFromPair` > 2^128. Storing as `uint256` removes any
+    ///         narrowing-cast footgun (a truncated `ltFromPair` would strand
+    ///         real LT in `Bonding` during phase 2). The extra storage slots
+    ///         cost ~40k gas in phase 1, which is negligible against phase
+    ///         2's ~2.5M baseline.
+    ///         `pendingSince` is exposed so off-chain consumers (frontend
+    ///         banner, keeper) can show "graduating for Xs" / escalate stale
+    ///         entries without a separate block lookup.
     struct PendingGraduation {
-        uint128 tokensForLP;
-        uint128 ltFromPair;
-        uint128 lpBurned;
-        uint128 unsoldBurned;
+        uint256 tokensForLP;
+        uint256 ltFromPair;
+        uint256 lpBurned;
+        uint256 unsoldBurned;
         uint64 pendingSince;
     }
 
@@ -409,9 +421,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 amountOutMin,
         address trader
     ) external onlyRouter nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
-        Lifecycle lc = _tokenInfo[tokenAddress].lifecycle;
-        if (lc == Lifecycle.Graduating) revert TokenIsGraduating();
-        if (lc != Lifecycle.Curve) revert TokenNotTrading();
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        // Existence check. `Lifecycle.Curve` is the zero value, so an
+        // unwritten slot (unknown token) would otherwise pass the lifecycle
+        // gate and fall through into `router.buy`, which would revert deep
+        // in `IPair(address(0))` with a cryptic low-level error.
+        // `_storeTokenInfo` always sets `info.token`, so a zero here means
+        // "address never registered as a launched token".
+        if (info.token == address(0)) revert TokenNotTrading();
+        if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
+        if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
         // `msg.sender` (the router) holds LT and receives tokens; `trader` is the
         // user whose identity is recorded in the `Trade` event.
@@ -427,9 +446,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 amountOutMin,
         address trader
     ) external onlyRouter nonReentrant returns (uint256) {
-        Lifecycle lc = _tokenInfo[tokenAddress].lifecycle;
-        if (lc == Lifecycle.Graduating) revert TokenIsGraduating();
-        if (lc != Lifecycle.Curve) revert TokenNotTrading();
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        // Existence check — see `buy` for the rationale.
+        if (info.token == address(0)) revert TokenNotTrading();
+        if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
+        if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
         // Router holds the tokens and receives LT (`msg.sender` here = router).
         // `trader` is purely informational — emitted in the `Trade` event.
@@ -661,18 +682,18 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
             _prepareGraduationLiquidity(tokenAddress);
 
-        // Casts are safe: every field is bounded by token total supply
-        // (1e9 * 1e18 < 2^90) or LT reserves of the same order, both well
-        // inside uint128. Packing into 3 storage slots saves an SSTORE in
-        // phase 1 and an SLOAD in phase 2.
+        // Amounts are stored full-width (`uint256`) — see `PendingGraduation`
+        // natspec for why narrowing casts on `ltFromPair` aren't safe in the
+        // presence of malicious LTs. `pendingSince` truncates a Unix
+        // timestamp (seconds) to `uint64`, which doesn't overflow until year
+        // ~584 billion AD.
         pendingGraduation[tokenAddress] = PendingGraduation({
-            // forge-lint: disable-start(unsafe-typecast)
-            tokensForLP: uint128(tokensForLP),
-            ltFromPair: uint128(ltFromPair),
-            lpBurned: uint128(lpBurned),
-            unsoldBurned: uint128(unsoldBurned),
+            tokensForLP: tokensForLP,
+            ltFromPair: ltFromPair,
+            lpBurned: lpBurned,
+            unsoldBurned: unsoldBurned,
+            // forge-lint: disable-next-line(unsafe-typecast)
             pendingSince: uint64(block.timestamp)
-            // forge-lint: disable-end(unsafe-typecast)
         });
 
         emit TokenGraduating(tokenAddress, tokensForLP, ltFromPair, lpBurned, unsoldBurned);

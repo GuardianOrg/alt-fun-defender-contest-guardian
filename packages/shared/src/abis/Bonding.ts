@@ -730,23 +730,23 @@ export const BondingAbi = [
     "outputs": [
       {
         "name": "tokensForLP",
-        "type": "uint128",
-        "internalType": "uint128"
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
         "name": "ltFromPair",
-        "type": "uint128",
-        "internalType": "uint128"
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
         "name": "lpBurned",
-        "type": "uint128",
-        "internalType": "uint128"
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
         "name": "unsoldBurned",
-        "type": "uint128",
-        "internalType": "uint128"
+        "type": "uint256",
+        "internalType": "uint256"
       },
       {
         "name": "pendingSince",

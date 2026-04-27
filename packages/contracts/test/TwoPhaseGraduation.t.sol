@@ -101,7 +101,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
         (address tokenAddr,) = _launchToken();
         _enterGraduating(tokenAddr);
 
-        (uint128 tokensForLP, uint128 ltFromPair, uint128 lpBurned, uint128 unsoldBurned, uint64 pendingSince) =
+        (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned, uint64 pendingSince) =
             bonding.pendingGraduation(tokenAddr);
 
         assertTrue(tokensForLP > 0, "tokensForLP must be cached for phase 2");
@@ -162,7 +162,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
 
         bonding.finalizeGraduation(tokenAddr);
 
-        (uint128 tokensForLP, uint128 ltFromPair,,, uint64 pendingSince) = bonding.pendingGraduation(tokenAddr);
+        (uint256 tokensForLP, uint256 ltFromPair,,, uint64 pendingSince) = bonding.pendingGraduation(tokenAddr);
         assertEq(tokensForLP, 0);
         assertEq(ltFromPair, 0);
         assertEq(pendingSince, 0);
@@ -194,6 +194,32 @@ contract TwoPhaseGraduationTest is DeployHelper {
         bonding.finalizeGraduation(tokenAddr);
     }
 
+    // ─── Unknown-token defense ───────────────────────────────────────────
+
+    /// @notice `Lifecycle.Curve` is the zero value of the enum, so without an
+    ///         explicit existence check, calling `buy`/`sell` against a never-
+    ///         registered address would fall through into router/pair calls
+    ///         that revert deep in low-level decode errors. Both functions
+    ///         must revert deterministically with `TokenNotTrading` for
+    ///         unknown tokens, matching the pre-enum behaviour where
+    ///         `trading == false` was the default.
+    function test_unknownToken_buy_reverts_with_TokenNotTrading() public {
+        address bogus = makeAddr("not-a-launched-token");
+        lt.mintDirect(trader, 100 ether);
+        vm.startPrank(trader);
+        lt.approve(address(curveRouter), 100 ether);
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.buy(100 ether, bogus, 0, trader);
+        vm.stopPrank();
+    }
+
+    function test_unknownToken_sell_reverts_with_TokenNotTrading() public {
+        address bogus = makeAddr("not-a-launched-token");
+        vm.prank(trader);
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.sell(1 ether, bogus, 0, trader);
+    }
+
     // ─── Brick-resistance (the whole reason we use direct pair.mint) ─────
 
     /// @notice A front-runner pre-creates the HyperSwap pair AND deposits dust
@@ -219,7 +245,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
         // Drive the curve into the `Graduating` window.
         _enterGraduating(tokenAddr);
 
-        (uint128 tokensForLP, uint128 ltFromPair,,,) = bonding.pendingGraduation(tokenAddr);
+        (uint256 tokensForLP, uint256 ltFromPair,,,) = bonding.pendingGraduation(tokenAddr);
         assertTrue(tokensForLP > 0 && ltFromPair > 0);
 
         // Pre-create the HyperSwap pair, deposit dust from both sides, mint LP
