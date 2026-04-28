@@ -1,14 +1,18 @@
 import { Hono } from "hono";
 
+import {
+  ALLOWED_IMAGE_TYPES_LABEL,
+  MAX_IMAGE_BYTES,
+  MAX_IMAGE_SIZE_LABEL,
+  isAllowedImageMimeType,
+} from "@launchpad/shared";
+
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
 import { createDb } from "../db/client.js";
 import { moderationLogs } from "../db/schema.js";
 
 import type { AppBindings } from "../lib/types.js";
-
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
 // Production CSAM detection should use a certified service (e.g. Microsoft PhotoDNA).
 // This Workers AI layer detects obviously objectionable content but is NOT NCMEC-certified.
@@ -150,12 +154,18 @@ images.post("/", async (c) => {
     return c.json(formatError("No file uploaded"), 400);
   }
 
-  if (!ALLOWED_TYPES.has(file.type)) {
-    return c.json(formatError("Invalid file type. Accepts: JPEG, PNG, GIF, WebP"), 400);
+  if (!isAllowedImageMimeType(file.type)) {
+    return c.json(
+      formatError(`Invalid file type. Accepts: ${ALLOWED_IMAGE_TYPES_LABEL}`),
+      400,
+    );
   }
 
-  if (file.size > MAX_SIZE) {
-    return c.json(formatError("File too large. Maximum 5MB"), 400);
+  if (file.size > MAX_IMAGE_BYTES) {
+    return c.json(
+      formatError(`File too large. Maximum ${MAX_IMAGE_SIZE_LABEL}`),
+      400,
+    );
   }
 
   const arrayBuffer = await file.arrayBuffer();
