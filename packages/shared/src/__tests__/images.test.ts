@@ -93,4 +93,17 @@ describe("validateImageFile", () => {
       ),
     ).toBeNull();
   });
+
+  it("derives the error label from a custom allowedTypes set", () => {
+    // If a caller restricts the allowed set, the message must reflect the
+    // restriction — not the global default — or it'd lie to the user.
+    const err = validateImageFile(
+      { type: "image/png", size: 100 },
+      { allowedTypes: ["image/jpeg", "image/heic"] },
+    );
+    expect(err).toContain("JPEG");
+    expect(err).toContain("HEIC");
+    expect(err).not.toContain("WebP");
+    expect(err).not.toContain("PNG");
+  });
 });

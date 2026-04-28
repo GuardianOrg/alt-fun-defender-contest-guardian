@@ -34,16 +34,48 @@ export type AllowedImageMimeType = (typeof ALLOWED_IMAGE_MIME_TYPES)[number];
 /** Comma-joined `accept` value for `<input type="file">`. */
 export const IMAGE_ACCEPT_ATTRIBUTE = ALLOWED_IMAGE_MIME_TYPES.join(",");
 
+/**
+ * Pretty-printer for a single MIME type. Hand-mapped for the canonical
+ * web image formats (so we render "WebP" not "WEBP") and falls back to
+ * the uppercased subtype for anything else, which keeps the validator
+ * usable for callers that supply a custom `allowedTypes` set.
+ */
+const MIME_LABELS: Record<string, string> = {
+  "image/jpeg": "JPEG",
+  "image/png": "PNG",
+  "image/gif": "GIF",
+  "image/webp": "WebP",
+};
+
+function labelForMime(mime: string): string {
+  if (mime in MIME_LABELS) return MIME_LABELS[mime];
+  const subtype = mime.includes("/") ? mime.split("/")[1] : mime;
+  return subtype.toUpperCase();
+}
+
+function joinMimeLabels(types: readonly string[]): string {
+  return types.map(labelForMime).join(", ");
+}
+
 /** Human-readable list for error/help text ("JPEG, PNG, GIF, WebP"). */
-export const ALLOWED_IMAGE_TYPES_LABEL = "JPEG, PNG, GIF, WebP";
+export const ALLOWED_IMAGE_TYPES_LABEL = joinMimeLabels(ALLOWED_IMAGE_MIME_TYPES);
 
 /**
- * `MAX_IMAGE_BYTES` formatted for display ("5MB"). Uses the colloquial
+ * Format a byte count as a megabyte label ("5MB"). Uses the colloquial
  * "MB" suffix (not "MiB") to match user expectations — almost no end
  * user reads "MiB" as more correct than "MB", and the OS file-size
  * displays we're echoing also use "MB" for the same value.
+ *
+ * Whole numbers render without a decimal ("5MB", not "5.0MB"); fractional
+ * sizes (test fixtures, custom configs) get one decimal place.
  */
-export const MAX_IMAGE_SIZE_LABEL = `${MAX_IMAGE_BYTES / (1024 * 1024)}MB`;
+function formatMb(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return Number.isInteger(mb) ? `${mb}MB` : `${mb.toFixed(1)}MB`;
+}
+
+/** `MAX_IMAGE_BYTES` formatted for display ("5MB"). */
+export const MAX_IMAGE_SIZE_LABEL = formatMb(MAX_IMAGE_BYTES);
 
 export function isAllowedImageMimeType(type: string): type is AllowedImageMimeType {
   return (ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(type);
@@ -70,10 +102,18 @@ export function validateImageFile(
   const maxBytes = options.maxBytes ?? MAX_IMAGE_BYTES;
 
   if (!allowed.includes(file.type)) {
-    return `Invalid file type. Accepts: ${ALLOWED_IMAGE_TYPES_LABEL}`;
+    // Derive the label from the *actual* allowed set so a custom
+    // `allowedTypes` doesn't lie about what's permitted.
+    const allowedLabel =
+      options.allowedTypes === undefined
+        ? ALLOWED_IMAGE_TYPES_LABEL
+        : joinMimeLabels(allowed);
+    return `Invalid file type. Accepts: ${allowedLabel}`;
   }
   if (file.size > maxBytes) {
-    return `File too large. Maximum ${MAX_IMAGE_SIZE_LABEL}`;
+    const maxLabel =
+      options.maxBytes === undefined ? MAX_IMAGE_SIZE_LABEL : formatMb(maxBytes);
+    return `File too large. Maximum ${maxLabel}`;
   }
   return null;
 }
