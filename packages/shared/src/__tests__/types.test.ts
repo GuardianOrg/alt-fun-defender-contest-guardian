@@ -55,20 +55,27 @@ describe("type exports compile correctly", () => {
       timestamp: "2024-01-01T00:00:00.000Z",
       tokenAddress: "0x1",
       tokenName: "Example",
-      curveSupply: "1000000000000000000000000000",
-      ltReserve: "500000000000000000",
     };
     expect(trade).toBeDefined();
   });
 
-  it("TradeBroadcast type is assignable (WS payload shape)", () => {
+  it("TradeBroadcast trade-list variant is assignable (Zap:Buy / Zap:Sell shape)", () => {
     const broadcast: TradeBroadcast = {
       id: "0xabc-0",
       tokenAddress: "0x1",
+      timestamp: "1700000000",
       trader: "0x2",
       isBuy: true,
-      ltAmount: "1000000000000000000",
+      usdcAmount: "300000000",
       tokenAmount: "1000000000000000000000000",
+    };
+    expect(broadcast).toBeDefined();
+  });
+
+  it("TradeBroadcast chart-state variant is assignable (Bonding:Trade / HyperSwapPair:Sync shape)", () => {
+    const broadcast: TradeBroadcast = {
+      id: "0xabc-0",
+      tokenAddress: "0x1",
       timestamp: "1700000000",
       curveSupply: "1000000000000000000000000000",
       ltReserve: "500000000000000000",

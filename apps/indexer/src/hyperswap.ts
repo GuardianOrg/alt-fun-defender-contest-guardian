@@ -9,8 +9,6 @@ import {
 
 import { broadcastEvent, isLiveEvent } from "./broadcast.js";
 
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-
 ponder.on("HyperSwapPair:Swap", async ({ event, context }) => {
   const { db } = context;
   await db
@@ -97,13 +95,13 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
     })
     .onConflictDoNothing();
 
-  // Live broadcast on the existing `trade` channel so `useChartData` picks
-  // up the new ratio and rolls the in-progress candle. We don't have
-  // `trader` / `isBuy` / amounts at the Sync event level (those come from
-  // the paired Swap event, but the trade-feed UI fetches those via REST
-  // from `routerTrades`); the chart consumer only reads
-  // `(tokenAddress, curveSupply, ltReserve)`, so we fill the rest with
-  // benign defaults that match the `TradeBroadcast` contract.
+  // Chart-state broadcast on the `trade` channel so `useChartData` picks
+  // up the new ratio and rolls the in-progress candle. We deliberately
+  // omit the trade-list payload (`usdcAmount` / `trader` / `isBuy` /
+  // `tokenAmount`) — Sync events don't carry them, and trade-list rows
+  // for post-grad swaps come from the `Zap:Buy` / `Zap:Sell` broadcasts
+  // (which fire in the same tx) plus the REST `/api/v1/trades` poll
+  // fallback. See `TradeBroadcast`'s docstring for the full split.
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",
@@ -111,10 +109,6 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
       data: {
         id: snapshotId,
         tokenAddress: idx.tokenAddress,
-        trader: ZERO_ADDRESS,
-        isBuy: true,
-        ltAmount: "0",
-        tokenAmount: "0",
         curveSupply: tokenReserve.toString(),
         ltReserve: ltReserve.toString(),
         timestamp: event.block.timestamp.toString(),

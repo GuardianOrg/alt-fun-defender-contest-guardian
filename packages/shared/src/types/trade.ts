@@ -1,43 +1,76 @@
 /**
- * WebSocket broadcast payload emitted by the indexer on every
- * `Bonding:Trade` event (see `apps/indexer/src/bonding.ts`). The same shape
- * is returned by the Ponder GraphQL `trades` query consumed as a polling
- * fallback in `apps/web/src/services/ponder.ts`, so the frontend uses a
- * single type for both transports.
+ * Fields shared by both `TradeBroadcast` variants.
  *
- * All bigint-valued fields (`ltAmount`, `tokenAmount`, `curveSupply`,
- * `ltReserve`) are serialised as decimal strings at their on-chain scale —
- * 1e18 for token/LT amounts and the virtual AMM reserves. `timestamp` is a
- * Unix seconds-since-epoch string (from `event.block.timestamp`), NOT a
- * 1e18-scaled value. `id` is the `${txHash}-${logIndex}` trade identifier.
+ * All bigint-valued fields on the variants are serialised as decimal
+ * strings at their on-chain scale — 1e6 for `usdcAmount`, 1e18 for
+ * `tokenAmount` and the virtual AMM reserves. `timestamp` is a Unix
+ * seconds-since-epoch string, NOT a 1e18-scaled value.
  */
-export interface TradeBroadcast {
+interface TradeBroadcastBase {
   id: string;
   tokenAddress: string;
-  trader: string;
-  isBuy: boolean;
-  /** LT amount in/out, 1e18-scaled decimal string. */
-  ltAmount: string;
-  /** Token amount in/out, 1e18-scaled decimal string. */
-  tokenAmount: string;
   /** Block timestamp in Unix seconds (decimal string, NOT 1e18-scaled). */
   timestamp: string;
-  /**
-   * Post-trade bonding curve state (virtual AMM reserves, 1e18-scaled).
-   * Always included on WS broadcasts and Ponder GraphQL `trades` responses;
-   * optional so consumers that don't persist the reserves (e.g. legacy
-   * fixtures) still satisfy the type.
-   */
-  curveSupply?: string;
-  ltReserve?: string;
 }
 
 /**
+ * Trade-list broadcast emitted by `Zap:Buy` / `Zap:Sell`. Carries the
+ * gross USDC the user paid/received plus the token amount and trader
+ * identity. `id` matches the REST `routerTrade.id`
+ * (`${txHash}-${zapLogIndex}`) so live broadcasts dedupe against the REST
+ * poll fallback. The trade-feed UI consumes only this variant — presence
+ * of `usdcAmount` is the discriminator.
+ */
+export interface TradeListBroadcast extends TradeBroadcastBase {
+  /** Gross USDC paid (Buy) or received (Sell), 1e6-scaled decimal string. */
+  usdcAmount: string;
+  /** Token amount in/out, 1e18-scaled decimal string. */
+  tokenAmount: string;
+  trader: string;
+  isBuy: boolean;
+  /** Forbidden on this variant — see `ChartStateBroadcast`. */
+  curveSupply?: never;
+  ltReserve?: never;
+}
+
+/**
+ * Chart-state broadcast emitted by `Bonding:Trade` (curve phase) and
+ * `HyperSwapPair:Sync` (post-grad). Carries post-trade virtual AMM
+ * reserves so `useChartData` can recompute `ratio = ltReserve / curveSupply`
+ * without a Ponder round-trip. Trade-list fields are forbidden —
+ * chart-only broadcasts have nothing to say about who traded or how much
+ * USDC moved.
+ */
+export interface ChartStateBroadcast extends TradeBroadcastBase {
+  curveSupply: string;
+  ltReserve: string;
+  /** Forbidden on this variant — see `TradeListBroadcast`. */
+  usdcAmount?: never;
+  tokenAmount?: never;
+  trader?: never;
+  isBuy?: never;
+}
+
+/**
+ * WebSocket broadcast payload on the `trade` channel. Discriminated union:
+ * producers must construct exactly one variant, consumers narrow on
+ * `usdcAmount` presence. Hybrid shapes are rejected at compile time via
+ * the `?: never` exclusions on each variant.
+ *
+ * The split exists because `Bonding:Trade` records the LT actually consumed
+ * by the curve (which can be strictly less than what the user paid for —
+ * e.g. a graduation-triggering buy that hits the supply cap), while
+ * `Zap:Buy` records the gross USDC input. Sourcing the trade-list from
+ * `Zap:Buy` keeps it consistent with the REST `/api/v1/trades` route
+ * (which reads from `routerTrade`).
+ */
+export type TradeBroadcast = TradeListBroadcast | ChartStateBroadcast;
+
+/**
  * Client-facing trade as rendered in the feed / trades tab. Derived from
- * `TradeBroadcast` by `ponderTradeToTrade` in `apps/web/src/services/
- * tradeFormatter.ts` — the USD amount is computed from `ltAmount` using the
- * live LT exchange rate, which is why it lives on the client rather than
- * being broadcast directly.
+ * the Zap-sourced `TradeBroadcast` (or the equivalent REST `routerTrade`
+ * row) by `routerTradeToTrade` in `apps/web/src/services/tradeFormatter.ts`
+ * — `usdcAmount` is broadcast directly, so no LT-rate lookup is needed.
  */
 export interface Trade {
   id: string;
@@ -50,14 +83,4 @@ export interface Trade {
   timestamp: string;
   tokenAddress: string;
   tokenName: string;
-  /**
-   * Post-trade bonding curve state (virtual AMM reserves, 1e18-scaled decimal
-   * strings). Populated from both the WS `trade` channel (indexer broadcast)
-   * and the Ponder GraphQL polling fallback — optional only so legacy
-   * fixtures / consumers that don't persist the reserves still satisfy the
-   * type. Used by `useChartData` to recompute the curve ratio live for the
-   * chart.
-   */
-  curveSupply?: string;
-  ltReserve?: string;
 }

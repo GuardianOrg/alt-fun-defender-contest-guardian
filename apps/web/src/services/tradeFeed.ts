@@ -2,30 +2,44 @@ import {
   fetchRouterTradesByToken,
   fetchRouterTradesGlobal,
 } from "./api";
-import { resolveExchangeRate, resolveTokenName } from "./exchangeRates";
-import { ponderTradeToTrade, routerTradeToTrade } from "./tradeFormatter";
+import { prefetchTokenName, resolveTokenName } from "./tokenNames";
+import { routerTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
 import type { Trade, TradeBroadcast } from "./types";
 
 /**
- * Convert a raw WS trade broadcast from the indexer into the client's
- * formatted `Trade` type. Looks up the LT exchange rate to compute `amountUsd`;
- * returns `null` if the rate isn't resolvable (caller can retry on next REST
- * poll).
+ * Convert a raw WS trade broadcast into the client's formatted `Trade`.
  *
- * The WS broadcast is keyed on `Bonding.Trade` (curve phase) — post-graduation
- * trades come through REST polling of `routerTrade` since that source carries
- * USDC amounts directly without an LT-rate lookup. The Sync handler does emit
- * a synthetic `trade` WS message for chart ratio updates, but it has zero
- * `ltAmount` / zero-address `trader`, so we filter those out here so the
- * trade-feed never shows phantom "$0 from 0x000…" entries.
+ * The trade-feed only consumes the **`Zap:Buy` / `Zap:Sell`** variant of
+ * the `trade` channel, identified by the presence of `usdcAmount`. That
+ * broadcast carries the gross USDC the user paid/received — the canonical
+ * user-facing value — and its `id` matches `routerTrade.id`, so it dedupes
+ * cleanly against the REST `/api/v1/trades` poll fallback.
+ *
+ * Chart-state broadcasts on the same channel (`Bonding:Trade`,
+ * `HyperSwapPair:Sync`) carry `curveSupply` / `ltReserve` only — they're
+ * picked up by `useChartData` and skipped here. Surfacing them as rows
+ * would produce two entries per trade because the Bonding broadcast
+ * records LT consumed by the curve (which can be strictly less than the
+ * gross USDC — e.g. a graduation-triggering buy whose final increment
+ * hits the supply cap) while the Zap broadcast records the gross USDC.
  */
-async function formatWsTrade(raw: TradeBroadcast): Promise<Trade | null> {
-  if (BigInt(raw.ltAmount ?? "0") === 0n) return null;
-  const exchangeRate = await resolveExchangeRate(raw.tokenAddress);
-  if (!exchangeRate) return null;
-  const trade = ponderTradeToTrade(raw, exchangeRate);
+function formatWsTrade(raw: TradeBroadcast): Trade | null {
+  // `TradeBroadcast` is a discriminated union: `usdcAmount` presence
+  // narrows to the trade-list variant. The chart-state variant has
+  // `usdcAmount?: never` so the type-system guarantees the other four
+  // trade-list fields are populated after this check.
+  if (raw.usdcAmount === undefined) return null;
+  const trade = routerTradeToTrade({
+    id: raw.id,
+    tokenAddress: raw.tokenAddress,
+    trader: raw.trader,
+    isBuy: raw.isBuy,
+    usdcAmount: raw.usdcAmount,
+    tokenAmount: raw.tokenAmount,
+    timestamp: raw.timestamp,
+  });
   trade.tokenName = resolveTokenName(raw.tokenAddress);
   return trade;
 }
@@ -34,24 +48,20 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
   const seenIds = new Set<string>();
-  const pendingIds = new Set<string>();
 
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
       const raw = data as TradeBroadcast;
-      if (!raw.id || seenIds.has(raw.id) || pendingIds.has(raw.id)) return;
-      pendingIds.add(raw.id);
-      void formatWsTrade(raw)
-        .then((trade) => {
-          if (trade) {
-            // Only mark as seen once we've successfully emitted it. If the
-            // exchange-rate lookup failed (trade === null), leave the id out
-            // of `seenIds` so the REST poll can retry.
-            seenIds.add(raw.id);
-            cb(trade);
-          }
-        })
-        .finally(() => pendingIds.delete(raw.id));
+      if (!raw.id || seenIds.has(raw.id)) return;
+      const trade = formatWsTrade(raw);
+      if (!trade) return;
+      seenIds.add(raw.id);
+      cb(trade);
+      // Fire-and-forget: warm the name cache so subsequent trades for
+      // this token render with the real symbol instead of a truncated
+      // address. The current trade may show truncated for a brand-new
+      // token; the next one will pick up the resolved name.
+      void prefetchTokenName(raw.tokenAddress);
     });
   }
 
@@ -68,6 +78,13 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       // catches everything. The previous Ponder `trades` GraphQL path was
       // bonding-only and silently dropped post-grad activity from the feed.
       const trades = await fetchRouterTradesGlobal(20);
+      if (cancelled) return;
+
+      // Warm the name cache for every unique token in this batch in
+      // parallel before mapping, so the initial render shows real
+      // symbols rather than truncated addresses on first paint.
+      const uniqueTokens = new Set(trades.map((t) => t.tokenAddress));
+      await Promise.all([...uniqueTokens].map(prefetchTokenName));
       if (cancelled) return;
 
       const batchIds = new Set<string>();
@@ -111,29 +128,26 @@ export function subscribeTokenTrades(
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
   const seenIds = new Set<string>();
-  const pendingIds = new Set<string>();
 
   const normalizedAddress = address.toLowerCase();
+  // Warm the cache for the single token this subscription cares about.
+  // No await needed — the WS handler and poll path both fall back to a
+  // truncated address until the prefetch resolves.
+  void prefetchTokenName(address);
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
       const raw = data as TradeBroadcast;
       if (
         !raw.id ||
         seenIds.has(raw.id) ||
-        pendingIds.has(raw.id) ||
         raw.tokenAddress?.toLowerCase() !== normalizedAddress
       ) {
         return;
       }
-      pendingIds.add(raw.id);
-      void formatWsTrade(raw)
-        .then((trade) => {
-          if (trade) {
-            seenIds.add(raw.id);
-            cb(trade);
-          }
-        })
-        .finally(() => pendingIds.delete(raw.id));
+      const trade = formatWsTrade(raw);
+      if (!trade) return;
+      seenIds.add(raw.id);
+      cb(trade);
     }, normalizedAddress);
   }
 

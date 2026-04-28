@@ -155,10 +155,14 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
     })
     .onConflictDoNothing();
 
-  // Real-time broadcast for the `trade` WS channel. Skipped during historical
-  // backfill so restarts don't replay stale trades to live subscribers.
-  // `curveSupply` / `ltReserve` are included so the frontend chart can
-  // recompute `ratio = ltReserve / curveSupply` without a Ponder round-trip.
+  // Chart-state broadcast. Carries only the post-trade virtual reserves so
+  // the frontend chart can recompute `ratio = ltReserve / curveSupply`
+  // without a Ponder round-trip. The trade-feed UI does NOT consume this
+  // event for its row list — trade-list rows come from the `Zap:Buy` /
+  // `Zap:Sell` broadcasts (which carry the gross USDC and dedupe against
+  // the REST poll fallback by `id`). The trade-list payload (`usdcAmount`
+  // / `trader` / `isBuy` / `tokenAmount`) is deliberately omitted so the
+  // shape can't be misread as a user-facing trade.
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",
@@ -166,10 +170,6 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
       data: {
         id: tradeId,
         tokenAddress: event.args.token,
-        trader: event.args.trader,
-        isBuy: event.args.isBuy,
-        ltAmount: event.args.ltAmount.toString(),
-        tokenAmount: event.args.tokenAmount.toString(),
         curveSupply: event.args.newCurveSupply.toString(),
         ltReserve: event.args.newLtReserve.toString(),
         timestamp: event.block.timestamp.toString(),
@@ -311,6 +311,31 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
       volumeUsd: current.volumeUsd + event.args.usdcIn,
     });
   }
+
+  // Real-time trade-list broadcast. The trade-feed UI uses this *instead*
+  // of the `Bonding:Trade` broadcast because:
+  //   1. It carries the gross USDC the user paid (matching the visible
+  //      "$X" they typed into the buy box). The Bonding broadcast carries
+  //      the LT *actually consumed* by the curve, which can be less than
+  //      the gross when a graduation-triggering buy hits the supply cap —
+  //      producing a phantom second row in the feed (see PR notes).
+  //   2. Its `id` matches `routerTrade.id` so the live-broadcast row
+  //      dedupes against the REST `/api/v1/trades` poll fallback.
+  if (isLiveEvent(event.block.timestamp)) {
+    broadcastEvent({
+      event: "trade",
+      tokenAddress: event.args.token,
+      data: {
+        id: tradeId,
+        tokenAddress: event.args.token,
+        trader: event.args.buyer,
+        isBuy: true,
+        tokenAmount: event.args.tokensOut.toString(),
+        usdcAmount: event.args.usdcIn.toString(),
+        timestamp: event.block.timestamp.toString(),
+      },
+    });
+  }
 });
 
 ponder.on("Zap:Sell", async ({ event, context }) => {
@@ -344,6 +369,23 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
     await db.update(token, { address: event.args.token }).set({
       organicUsdcRaised: next > 0n ? next : 0n,
       volumeUsd: current.volumeUsd + event.args.usdcOut,
+    });
+  }
+
+  // Trade-list broadcast — see Buy handler for rationale.
+  if (isLiveEvent(event.block.timestamp)) {
+    broadcastEvent({
+      event: "trade",
+      tokenAddress: event.args.token,
+      data: {
+        id: tradeId,
+        tokenAddress: event.args.token,
+        trader: event.args.seller,
+        isBuy: false,
+        tokenAmount: event.args.tokensIn.toString(),
+        usdcAmount: event.args.usdcOut.toString(),
+        timestamp: event.block.timestamp.toString(),
+      },
     });
   }
 });
