@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-import { findLT } from "@launchpad/shared";
+import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, utf8ByteLength } from "@launchpad/shared";
 import { createPublicClient, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
@@ -57,6 +57,18 @@ export function useCreateToken() {
           );
         }
 
+        // Pre-flight length checks — mirrors Bonding.launch's on-chain caps.
+        // Gives a clear UI error before the wallet popup rather than a revert.
+        if (params.description && utf8ByteLength(params.description) > MAX_TOKEN_DESCRIPTION_LENGTH) {
+          throw new Error(`Description is too long (max ${MAX_TOKEN_DESCRIPTION_LENGTH} bytes)`);
+        }
+        const socials = params.socialLinks ?? [];
+        for (const url of socials) {
+          if (url && utf8ByteLength(url) > MAX_TOKEN_URL_LENGTH) {
+            throw new Error(`Social link is too long (max ${MAX_TOKEN_URL_LENGTH} bytes)`);
+          }
+        }
+
         // Upload the image BEFORE the launch tx so we can stamp the
         // resulting URL into `LaunchParams.image` on-chain. The API
         // performs content moderation here and returns 4xx if the image
@@ -75,6 +87,9 @@ export function useCreateToken() {
               `Image upload failed (${detail}). Try a different image or remove it to continue.`,
               { cause: uploadErr },
             );
+          }
+          if (utf8ByteLength(imageUrl) > MAX_TOKEN_IMAGE_URL_LENGTH) {
+            throw new Error(`Image URL is too long (max ${MAX_TOKEN_IMAGE_URL_LENGTH} bytes)`);
           }
         }
 
@@ -125,7 +140,7 @@ export function useCreateToken() {
 
         setStep("deploying");
 
-        const socials = params.socialLinks ?? [];
+        // `socials` is declared above in the pre-flight validation block.
         // Vanity salt fed by the worker pool in `useVanityAddress`. The
         // contract enforces the suffix on-chain (`Bonding.NotVanityAddress`),
         // so we hard-require a mined salt here — the caller (`CreateView`)
