@@ -88,15 +88,29 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  width: 100%;
   height: 100px;
   cursor: pointer;
   transition: all 0.2s ease;
   background: rgba(16, 37, 32, 0.4);
+  color: inherit;
+  font-family: inherit;
+  padding: 0;
 }
 
-.uploadZone:hover {
+.uploadZone:hover:not(:disabled) {
   border-color: rgba(77, 232, 180, 0.4);
   background: rgba(77, 232, 180, 0.04);
+}
+
+.uploadZone:focus-visible {
+  outline: 2px solid rgba(77, 232, 180, 0.6);
+  outline-offset: 2px;
+}
+
+.uploadZone:disabled {
+  cursor: progress;
+  opacity: 0.7;
 }
 
 .uploadIcon {

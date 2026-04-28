@@ -167,20 +167,24 @@ export default function TokenForm({
           </div>
         </div>
       ) : (
-        <div
+        <button
+          type="button"
           className={styles.uploadZone}
-          onClick={() => {
-            if (!processingImage) fileRef.current?.click();
-          }}
+          onClick={() => fileRef.current?.click()}
+          disabled={processingImage}
+          aria-label={processingImage ? "Processing image" : "Upload token image"}
+          aria-busy={processingImage || undefined}
         >
-          <div className={styles.uploadIcon}>{processingImage ? "⏳" : "🖼"}</div>
+          <div className={styles.uploadIcon} aria-hidden="true">
+            {processingImage ? "⏳" : "🖼"}
+          </div>
           <div className={styles.uploadText}>
             {processingImage ? "Processing image…" : "Click or drag to upload"}
           </div>
           <div className={styles.uploadHint}>
             {ALLOWED_IMAGE_TYPES_LABEL} · max {MAX_IMAGE_SIZE_LABEL}
           </div>
-        </div>
+        </button>
       )}
       {imageError && (
         <div className={styles.imageError}>{imageError}</div>
