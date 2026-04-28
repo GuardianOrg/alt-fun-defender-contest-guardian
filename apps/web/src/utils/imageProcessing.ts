@@ -60,21 +60,29 @@ function isCanvasProcessable(type: string): boolean {
   return type === "image/jpeg" || type === "image/png" || type === "image/webp";
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
+/**
+ * Decode a file into an `HTMLImageElement` without round-tripping through
+ * a base64 data URL. `URL.createObjectURL` returns a tiny opaque pointer
+ * to the underlying blob (no copy, no encoding overhead), which keeps
+ * peak memory at ~1× the source size instead of ~2.3× — the difference
+ * between "fine on a mid-range phone" and "OOM at 50MB". The object URL
+ * is always revoked so we don't leak it on either the success or error
+ * path.
+ */
+function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to decode image"));
-    img.src = src;
-  });
-}
-
-function readAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsDataURL(file);
+    const cleanup = () => URL.revokeObjectURL(url);
+    img.onload = () => {
+      cleanup();
+      resolve(img);
+    };
+    img.onerror = () => {
+      cleanup();
+      reject(new Error("Failed to decode image"));
+    };
+    img.src = url;
   });
 }
 
@@ -161,8 +169,7 @@ export async function processImageForUpload(file: File): Promise<CompressionResu
     return { file, passthrough: true };
   }
 
-  const dataUrl = await readAsDataURL(file);
-  const img = await loadImage(dataUrl);
+  const img = await loadImage(file);
 
   const { w, h } = fitDimensions(img.naturalWidth, img.naturalHeight, MAX_DIMENSION);
 
