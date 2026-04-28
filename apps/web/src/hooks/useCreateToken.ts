@@ -73,9 +73,9 @@ export function useCreateToken() {
         // resulting URL into `LaunchParams.image` on-chain. The API
         // performs content moderation here and returns 4xx if the image
         // is rejected, which keeps the user out of the wallet popup
-        // entirely. Failures are surfaced as a warning rather than
-        // aborting the launch — a missing image is acceptable; an
-        // unmoderated one would silently bypass our pipeline.
+        // entirely. Upload failures abort the launch — an unmoderated
+        // image must never reach the on-chain field, so the user must
+        // remove or change the image to continue.
         let imageUrl = "";
         if (params.imageFile) {
           try {
