@@ -1,7 +1,7 @@
 import { useState, useCallback } from "react";
 
-import { buildTokenCreationMessage, findLT } from "@launchpad/shared";
-import { createPublicClient, getAddress, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
+import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, utf8ByteLength } from "@launchpad/shared";
+import { createPublicClient, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPermit, type PermitData } from "./useTokenPermit";
@@ -9,7 +9,7 @@ import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import { erc20Abi, ZapAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
-import { createTokenApi, fetchLeveragedTokens, uploadImage } from "../services/api";
+import { fetchLeveragedTokens, registerTokenApi, uploadImage } from "../services/api";
 import { getErrorMessage } from "../utils/format";
 
 import type { LaunchStep } from "../services/tradeRouter";
@@ -55,6 +55,42 @@ export function useCreateToken() {
           throw new Error(
             `No LT found for ${params.underlying} ${params.leverage}× ${params.direction}`,
           );
+        }
+
+        // Pre-flight length checks — mirrors Bonding.launch's on-chain caps.
+        // Gives a clear UI error before the wallet popup rather than a revert.
+        if (params.description && utf8ByteLength(params.description) > MAX_TOKEN_DESCRIPTION_LENGTH) {
+          throw new Error(`Description is too long (max ${MAX_TOKEN_DESCRIPTION_LENGTH} bytes)`);
+        }
+        const socials = params.socialLinks ?? [];
+        for (const url of socials) {
+          if (url && utf8ByteLength(url) > MAX_TOKEN_URL_LENGTH) {
+            throw new Error(`Social link is too long (max ${MAX_TOKEN_URL_LENGTH} bytes)`);
+          }
+        }
+
+        // Upload the image BEFORE the launch tx so we can stamp the
+        // resulting URL into `LaunchParams.image` on-chain. The API
+        // performs content moderation here and returns 4xx if the image
+        // is rejected, which keeps the user out of the wallet popup
+        // entirely. Upload failures abort the launch — an unmoderated
+        // image must never reach the on-chain field, so the user must
+        // remove or change the image to continue.
+        let imageUrl = "";
+        if (params.imageFile) {
+          try {
+            const uploaded = await uploadImage(params.imageFile);
+            imageUrl = uploaded.url;
+          } catch (uploadErr) {
+            const detail = uploadErr instanceof Error ? uploadErr.message : "unknown error";
+            throw new Error(
+              `Image upload failed (${detail}). Try a different image or remove it to continue.`,
+              { cause: uploadErr },
+            );
+          }
+          if (utf8ByteLength(imageUrl) > MAX_TOKEN_IMAGE_URL_LENGTH) {
+            throw new Error(`Image URL is too long (max ${MAX_TOKEN_IMAGE_URL_LENGTH} bytes)`);
+          }
         }
 
         // Prefer `createTokenWithPermit` (1 tx) when a seed buy is needed and
@@ -104,7 +140,7 @@ export function useCreateToken() {
 
         setStep("deploying");
 
-        const socials = params.socialLinks ?? [];
+        // `socials` is declared above in the pre-flight validation block.
         // Vanity salt fed by the worker pool in `useVanityAddress`. The
         // contract enforces the suffix on-chain (`Bonding.NotVanityAddress`),
         // so we hard-require a mined salt here — the caller (`CreateView`)
@@ -115,7 +151,11 @@ export function useCreateToken() {
           name: params.name,
           ticker: params.ticker,
           description: params.description,
-          image: "",
+          // The on-chain `image` field is the source of truth for the
+          // home-page image — the API's moderation gateway returns the URL
+          // that lives in our R2 bucket, and the registration endpoint
+          // refuses anything that doesn't match this prefix.
+          image: imageUrl,
           urls: [
             socials[0] ?? "",
             socials[1] ?? "",
@@ -187,54 +227,28 @@ export function useCreateToken() {
           (tokenCreatedEvents[0]?.args as { token?: `0x${string}` })?.token ??
           null;
 
-        const warnings: string[] = [];
-
         if (newTokenAddr) {
           setTokenAddress(newTokenAddr);
         }
 
-        let imageUrl = "";
-        if (params.imageFile) {
-          try {
-            const uploaded = await uploadImage(params.imageFile);
-            imageUrl = uploaded.url;
-          } catch (uploadErr) {
-            const detail = uploadErr instanceof Error ? uploadErr.message : "unknown error";
-            warnings.push(`Image upload failed (${detail}) — your token was created but has no image.`);
-          }
-        }
-
+        // Off-chain registration. The API reads the freshly-emitted
+        // `TokenInfo` directly from chain — no signature needed because
+        // anyone calling this for `newTokenAddr` would produce an
+        // identical row. We `await` so the spinner stays up until the row
+        // is queryable; if it errors, the cron backfill catches up within
+        // ~60s, so the warning copy points the user at "we'll keep trying"
+        // rather than "you must retry manually".
         if (newTokenAddr) {
           try {
-            const ltDir = isLong ? "long" : "short";
-            const normalizedToken = getAddress(newTokenAddr);
-            const normalizedCreator = getAddress(address);
-            const apiPayload = {
-              address: normalizedToken,
-              name: params.name,
-              ticker: params.ticker,
-              description: params.description ?? "",
-              imageUrl,
-              ltPair: lt.address,
-              ltDirection: ltDir,
-              leverage: params.leverage,
-              underlying: params.underlying,
-              twitterUrl: socials[0] ?? "",
-              telegramUrl: socials[1] ?? "",
-              websiteUrl: socials[2] ?? "",
-              creator: normalizedCreator,
-            };
-            const message = buildTokenCreationMessage(apiPayload);
-            const signature = await walletClient.signMessage({ message });
-            await createTokenApi({ ...apiPayload, signature });
-          } catch {
-            warnings.push("Token metadata registration failed — your token was created on-chain but metadata (image, description, social links) was not saved. Visit your token page to retry.");
+            await registerTokenApi(newTokenAddr);
+          } catch (registerErr) {
+            const detail = registerErr instanceof Error ? registerErr.message : "unknown error";
+            setWarning(
+              `Token launched on-chain but indexing is delayed (${detail}). It should appear within a minute.`,
+            );
           }
         }
 
-        if (warnings.length > 0) {
-          setWarning(warnings.join(" "));
-        }
         setStep("confirmed");
       } catch (e) {
         setError(getErrorMessage(e));

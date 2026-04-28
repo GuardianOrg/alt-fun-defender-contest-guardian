@@ -291,8 +291,9 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
       },
       post: {
         tags: ["Tokens"],
-        summary: "Create a new token",
-        description: "Registers a new token on the platform. Requires a wallet signature to verify the creator.",
+        summary: "Register an on-chain token",
+        description:
+          "Idempotent off-chain registration of a token that has already been launched on-chain. Reads `name`, `ticker`, `description`, `image`, `urls`, `creator`, and `ltAddress` directly from `Bonding.getTokenInfo` server-side, validates the image URL points at the Alt Fun image bucket, derives `underlying` / `leverage` / `direction` from the BounceTech LT directory, and inserts the row. **No signature** required: the on-chain `TokenInfo` is the source of truth, so any caller produces the same row. Idempotent — concurrent calls (frontend post-tx + cron backfill) collapse to a single insert.",
         parameters: [apiKeyHeader],
         requestBody: {
           required: true,
@@ -300,46 +301,26 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
             "application/json": {
               schema: {
                 type: "object",
-                required: ["address", "name", "ticker", "ltPair", "creator", "signature"],
+                required: ["address"],
                 properties: {
-                  address: { type: "string", description: "Token contract address" },
-                  name: {
+                  address: {
                     type: "string",
-                    minLength: 1,
-                    maxLength: 34,
-                    description:
-                      "Token name. Enforced server-side and on-chain as UTF-8 byte length, not JSON Schema character count. Non-ASCII characters (emoji, CJK) consume multiple bytes.",
-                    "x-maxByteLength": 34,
+                    pattern: "^0x[a-fA-F0-9]{40}$",
+                    description: "Token contract address (returned by `Zap.TokenCreated`).",
                   },
-                  ticker: {
-                    type: "string",
-                    minLength: 1,
-                    maxLength: 10,
-                    description:
-                      "Token ticker/symbol. Enforced server-side and on-chain as UTF-8 byte length, not JSON Schema character count. Non-ASCII characters (emoji, CJK) consume multiple bytes.",
-                    "x-maxByteLength": 10,
-                  },
-                  description: { type: "string", default: "" },
-                  imageUrl: { type: "string", default: "" },
-                  ltPair: { type: "string", description: "BounceTech LT address" },
-                  ltDirection: { type: "string", enum: ["long", "short"], default: "long" },
-                  leverage: { type: "integer", enum: [2, 3, 5], default: 2 },
-                  underlying: { type: "string", default: "HYPE" },
-                  twitterUrl: { type: "string", default: "" },
-                  telegramUrl: { type: "string", default: "" },
-                  websiteUrl: { type: "string", default: "" },
-                  creator: { type: "string", description: "Creator wallet address" },
-                  signature: { type: "string", description: "EIP-191 signature of the token creation message" },
                 },
               },
             },
           },
         },
         responses: {
-          "201": { description: "Token created", content: { "application/json": { schema: successResponse({ $ref: "#/components/schemas/Token" }) } } },
-          "400": { description: "Validation error", content: { "application/json": { schema: errorResponse } } },
-          "401": { description: "Invalid or mismatched signature", content: { "application/json": { schema: errorResponse } } },
-          "409": { description: "Token already exists", content: { "application/json": { schema: errorResponse } } },
+          "200": { description: "Token already registered (returns the existing row)", content: { "application/json": { schema: successResponse({ $ref: "#/components/schemas/Token" }) } } },
+          "201": { description: "Token registered", content: { "application/json": { schema: successResponse({ $ref: "#/components/schemas/Token" }) } } },
+          "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
+          "404": { description: "Token not found on-chain", content: { "application/json": { schema: errorResponse } } },
+          "422": { description: "Image URL or LT failed validation", content: { "application/json": { schema: errorResponse } } },
+          "500": { description: "Internal error during registration (e.g. DB write race that couldn't be re-resolved)", content: { "application/json": { schema: errorResponse } } },
+          "502": { description: "Upstream RPC or BounceTech directory unavailable", content: { "application/json": { schema: errorResponse } } },
         },
       },
     },

@@ -80,19 +80,31 @@ Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in 
 
 ---
 
-## Token Creation Flow (Two-Phase)
+## Token Creation Flow
 
-Creating a token is a **two-phase process**. Both phases must succeed for the token to appear in the UI.
+A token is fully launched in **a single on-chain transaction**. The frontend then makes one address-only API call to register the token in PostgreSQL — no second wallet popup, no signed message. If that API call fails (closed tab, lost network, transient 5xx) a cron-driven backfill catches up within ~60s, so the user never has to retry by hand.
 
-### Phase 1 — On-Chain
+### Step 1 — Image upload (off-chain, pre-tx)
 
-Frontend calls `Zap.createToken(LaunchParams, seedUsdcAmount)`. This deploys the Token clone, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `Zap.buy` path (so it inherits the same pro-rata fee handling and leftover-LT-to-USDC refund as any other buy). Three key events fire: `TokenLaunched` (Bonding), `TokenCreated` (Zap), and `Buy` (Zap, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+Before any wallet popup, the frontend uploads the token image via `POST /api/v1/images`. The Worker scans the image with our content-moderation pipeline (Workers AI today, replaceable with a third-party moderation service) and stores the file in R2 only if it passes. Returns a URL of the form `https://<api-host>/images/tokens/<uuid>-<name>`. A rejected image stops the flow before the wallet sees the launch tx.
 
-### Phase 2 — Off-Chain API Registration
+### Step 2 — On-chain launch (single tx)
 
-Frontend calls `POST /api/v1/tokens` with token metadata (name, ticker, description, image URL, LT address, social links) signed by the creator's wallet. This inserts a row into PostgreSQL. Without this step, the token exists on-chain but is invisible in the UI.
+Frontend calls `Zap.createToken(LaunchParams, seedUsdcAmount)` (or `Zap.createTokenWithPermit(...)` when a USDC permit is bundled in for seed buys). `LaunchParams.image` is the moderated R2 URL from step 1; `params.urls[0..2]` carries twitter / telegram / website. This deploys the Token clone, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `Zap.buy` path. Three events fire: `TokenLaunched` (Bonding), `TokenCreated` (Zap), and `Buy` (Zap, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
 
-**Critical:** The home page token list (`GET /api/v1/tokens`) reads **exclusively from PostgreSQL**. Ponder (the indexer) only enriches individual token detail views with on-chain curve state (supply, reserves, graduation status). If the API registration fails, the token will not appear anywhere in the frontend.
+`Bonding.launch` enforces metadata length caps (description ≤ 8KB, image ≤ 512B, each url ≤ 512B) on top of the existing name / ticker bounds. These are DoS guards — replicated off-chain so users get a clean validation error instead of a revert.
+
+### Step 3 — Address-only registration (off-chain, post-tx)
+
+Frontend calls `POST /api/v1/tokens` with `{ address }` only. The API reads `Bonding.getTokenInfo(address)` directly, validates that `info.image` either is empty or points at our R2 bucket (verified with an R2 HEAD), looks the LT up in the BounceTech directory to derive `underlying` / `ltDirection` / `leverage`, and inserts the row. **No signature** required: any caller for a given token address produces a byte-identical row, so a stranger calling this on someone else's freshly-launched token writes the same data the legitimate creator would. Idempotent at the DB layer — the cron backfill races the frontend harmlessly.
+
+The frontend `await`s this so the UI spinner stays up until the row is queryable; on failure the user sees "indexing is delayed, will appear within a minute" rather than an actionable retry button.
+
+### Step 4 — Cron backfill (safety net)
+
+The API Worker's `scheduled()` handler (1-minute cadence) sweeps Ponder for the most recently-launched tokens and registers any not yet in PostgreSQL. Same code path as the synchronous registration endpoint, so cron-driven and frontend-driven inserts are indistinguishable. See `apps/api/src/lib/registration-backfill.ts`.
+
+**Why the home page list still reads from PostgreSQL:** the home page is `GET /api/v1/tokens`, which serves filterable / paginatable / sortable queries that the indexer's GraphQL doesn't optimise for. Ponder enriches individual token detail views with on-chain curve state (supply, reserves, graduation status); the DB row carries the off-chain-derived fields (`underlying`, `ltDirection`, etc.) that the home page filters on.
 
 ### Field Semantics
 
@@ -103,9 +115,9 @@ Frontend calls `POST /api/v1/tokens` with token metadata (name, ticker, descript
 | `ltDirection` | Long or short | `long`, `short` |
 | `leverage` | Leverage multiplier | `2`, `3`, `5` |
 
-### Signing
+### Signing (other off-chain writes)
 
-Off-chain writes (token creation, comments, profile updates) require a wallet signature. The message is built with `buildTokenCreationMessage()` from `@launchpad/shared`. Both the frontend and API use the same function to ensure message parity. The API verifies `recoverMessageAddress(message, signature) === creator`.
+Other off-chain writes — comments, profile updates — still require a wallet signature, but they reuse the 24-hour session signature flow (`buildSessionMessage` + `useSessionSignature`) so users sign **once per day, not per action**. Token creation does not participate in this — the on-chain `TokenInfo` is sufficient proof, so no signed message is needed at all.
 
 ---
 

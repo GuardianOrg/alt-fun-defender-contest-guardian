@@ -2,16 +2,19 @@
 
 # Now
 
-- Clear all bad tokens
-
 # Internal feedback
 
-- No extra signing when creating token
+- Create documentation for contracts
+- AI Audit
+- My audit
+- Internal team audit
+- PoW system
 
 # Audit
 
 - Transfer domain name
 - Landing page
+- Remove comments
 - 1s chart
 - Default to 1m chart (not 1 day)
 - Option to enlarge token icon when clicked
@@ -21,8 +24,10 @@
 - Add Geoblocking, block UK, Any sanctioned countries
 - Add Terms of Service, Privacy Policy, DMCA Policy
 - Right now DEV and CA are equal-weight buttons. CA is the primary action (traders copy CAs constantly to paste into terminals, wallets, etc.). DEV is secondary context. Can we make CA larger, more prominent, possibly even as the only copy-button and relegate DEV to a smaller info icon that expands on hover, or a smaller pill below. The CA should be the most copy-worthy thing on the page. (https://www.printr.money/)
-- PoW system
+- Implement a system where there is an X button, which normally links to their twitter page, but if they dont' have a twitter page, it should link to this `https://x.com/search?q=6JdkaPqFWEkT3wZa24sJUzQaLdseFBWsb9ddpdtpump` with the contract address there.
 - Should implement infinite scroll for tokens on home page
+- Audit webapp
+- Audit API
 
 # launch
 
