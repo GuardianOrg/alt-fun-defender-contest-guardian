@@ -62,7 +62,7 @@ export async function runRegistrationBackfill(env: AppBindings): Promise<void> {
   for (const row of recent) {
     if (registered >= MAX_REGISTRATIONS_PER_TICK) break;
     try {
-      const result = await registerTokenFromChain(env, row.address, env.IMAGES_PUBLIC_URL);
+      const result = await registerTokenFromChain(env, row.address);
       if (result.kind === "registered") {
         registered++;
         // Fire-and-forget; if the WS broadcast hangs we'd still log the

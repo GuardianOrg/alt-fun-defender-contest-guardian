@@ -264,12 +264,22 @@ async function fetchOnChainInfo(
  *      writes to.
  *   3. Resolve to an object that actually exists in our R2 bucket.
  *
- * After the R2 HEAD succeeds the URL is **canonicalized**: the origin is
- * replaced with `apiOrigin` (if provided) so the stored `imageUrl` always
- * points at our own domain regardless of what host the caller stamped into
- * `LaunchParams.image`. This prevents a bypass where an attacker copies a
- * valid R2 key and wraps it in `https://attacker.com/images/tokens/<key>` —
- * the key check would pass but the UI would load from the foreign origin.
+ * After the R2 HEAD succeeds the URL is **canonicalized** to `apiOrigin`
+ * (when supplied). The route handler always supplies its request origin,
+ * so the legitimate frontend → API path always stores a URL on our own
+ * domain — defending against an on-chain bypass where someone calls
+ * `Zap.createToken` directly with `https://attacker.com/images/tokens/<key>`
+ * and a key that happens to exist in our R2.
+ *
+ * The cron backfill does NOT supply `apiOrigin` today (we don't have a
+ * stable canonical hostname yet — we're on a `*.workers.dev` URL that's
+ * about to move to a custom domain). For the tokens it picks up, it
+ * stores the validated raw URL. The residual risk is narrow: it requires
+ * an attacker to (a) bypass our frontend, (b) know a valid R2 key, and
+ * (c) avoid calling the register endpoint themselves so only the cron
+ * processes the token. Once we have a stable hostname this becomes a
+ * one-line fix: import `API_PUBLIC_ORIGIN` from `@launchpad/shared` and
+ * pass it to `registerTokenFromChain` from the cron caller.
  *
  * Empty image is allowed (creator chose not to upload one). Any URL that
  * fails the checks results in a `RegistrationError` — we don't quietly
