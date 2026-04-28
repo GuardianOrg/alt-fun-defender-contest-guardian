@@ -319,6 +319,7 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
           "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
           "404": { description: "Token not found on-chain", content: { "application/json": { schema: errorResponse } } },
           "422": { description: "Image URL or LT failed validation", content: { "application/json": { schema: errorResponse } } },
+          "500": { description: "Internal error during registration (e.g. DB write race that couldn't be re-resolved)", content: { "application/json": { schema: errorResponse } } },
           "502": { description: "Upstream RPC or BounceTech directory unavailable", content: { "application/json": { schema: errorResponse } } },
         },
       },

@@ -30,6 +30,7 @@ import type { AppBindings } from "../../lib/types.js";
  *   - 400: invalid address
  *   - 404: token not found on-chain
  *   - 422: image URL or LT failed validation
+ *   - 500: internal error during registration (e.g. unrecoverable DB write race)
  *   - 502: upstream RPC / BounceTech unavailable
  */
 const registerTokenSchema = z.object({
