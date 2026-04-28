@@ -150,10 +150,22 @@ export async function processImageForUpload(file: File): Promise<CompressionResu
   ctx.drawImage(img, 0, 0, w, h);
 
   const outputType = pickOutputType(file.type);
+  // PNG ignores `canvas.toBlob`'s quality arg (it's lossless), so the
+  // shrink loop below would just re-encode the same bytes N times. We
+  // rely on the dimension cap alone for PNGs — after a 512px downscale
+  // they're effectively always well under MAX_IMAGE_BYTES, and if a
+  // pixel-art PNG happens to land between TARGET_BYTES and MAX_IMAGE_BYTES,
+  // shipping it slightly larger is preferable to flattening alpha.
+  const isLossless = outputType === "image/png";
 
   let quality = INITIAL_QUALITY;
   let blob = await canvasToBlob(canvas, outputType, quality);
-  while (blob && blob.size > TARGET_BYTES && quality - QUALITY_STEP >= MIN_QUALITY) {
+  while (
+    !isLossless &&
+    blob &&
+    blob.size > TARGET_BYTES &&
+    quality - QUALITY_STEP >= MIN_QUALITY
+  ) {
     quality -= QUALITY_STEP;
     blob = await canvasToBlob(canvas, outputType, quality);
   }
