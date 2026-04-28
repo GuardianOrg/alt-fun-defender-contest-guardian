@@ -305,6 +305,57 @@ describe("POST /tokens — address-only registration", () => {
     expect(bucket.head).toHaveBeenCalledWith("tokens/abc-def.png");
   });
 
+  it("canonicalizes the image URL to the request origin regardless of host in TokenInfo", async () => {
+    // An attacker could stamp https://evil.example.com/images/tokens/<valid-key>
+    // on-chain. The R2 HEAD check would pass (the key exists), but we must
+    // rewrite the host to our own origin so the DB stores a URL we control.
+    const VALID_KEY = "tokens/abc-123.png";
+    mockReadContract.mockResolvedValueOnce(
+      // Foreign host, but valid path and key:
+      makeOnChainInfo({ image: `https://evil.example.com/images/${VALID_KEY}` }),
+    );
+    mockBounceTechLtList();
+    const insertedRow = {
+      address: VALID_ADDRESS,
+      name: "Test Token",
+      ticker: "TST",
+      description: "",
+      imageUrl: `http://localhost/images/${VALID_KEY}`,
+      ltPair: LT_ADDR,
+      ltDirection: "long",
+      leverage: 2,
+      underlying: "HYPE",
+      twitterUrl: "",
+      telegramUrl: "",
+      websiteUrl: "",
+      creator: VALID_CREATOR,
+    };
+    mockDbReturning.mockResolvedValueOnce([insertedRow]);
+
+    const app = createApp();
+    const req = new Request("http://localhost/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: VALID_ADDRESS }),
+    });
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+    const res = await app.fetch(req, makeEnv(), executionCtx);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { imageUrl: string } };
+    // The stored imageUrl must use the request's origin, not the attacker's.
+    expect(body.data.imageUrl).toBe(`http://localhost/images/${VALID_KEY}`);
+    expect(body.data.imageUrl).not.toContain("evil.example.com");
+
+    // Confirm the INSERT was called with the canonical URL.
+    const insertCall = mockInsertValues.mock.calls[0]?.[0] as { imageUrl?: string } | undefined;
+    expect(insertCall?.imageUrl).toBe(`http://localhost/images/${VALID_KEY}`);
+  });
+
   it("returns 422 when LT address is unknown to BounceTech", async () => {
     mockReadContract.mockResolvedValueOnce(
       makeOnChainInfo({ ltAddress: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }),
@@ -484,6 +535,9 @@ function mockBounceLtResponse(rates: Record<string, string>) {
 describe("GET /tokens/:address — token lookup with Ponder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset fetch so that any unconsumed `mockImplementationOnce` queued by
+    // POST-block tests (e.g. `mockBounceTechLtList`) doesn't leak here.
+    mockFetch.mockReset();
   });
 
   it("returns 400 for invalid address", async () => {

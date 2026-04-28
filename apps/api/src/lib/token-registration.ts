@@ -135,6 +135,7 @@ export interface RegisteredToken {
 export async function registerTokenFromChain(
   env: AppBindings,
   rawAddress: string,
+  apiOrigin?: string,
 ): Promise<
   | { kind: "registered"; token: RegisteredToken }
   | { kind: "exists"; token: RegisteredToken }
@@ -158,7 +159,7 @@ export async function registerTokenFromChain(
   }
 
   const info = await fetchOnChainInfo(env, address);
-  const imageUrl = await validateImageUrl(env, info.image);
+  const imageUrl = await validateImageUrl(env, info.image, apiOrigin);
   const ltMeta = await resolveLtMeta(info.ltAddress);
 
   const inserted = await db
@@ -263,6 +264,13 @@ async function fetchOnChainInfo(
  *      writes to.
  *   3. Resolve to an object that actually exists in our R2 bucket.
  *
+ * After the R2 HEAD succeeds the URL is **canonicalized**: the origin is
+ * replaced with `apiOrigin` (if provided) so the stored `imageUrl` always
+ * points at our own domain regardless of what host the caller stamped into
+ * `LaunchParams.image`. This prevents a bypass where an attacker copies a
+ * valid R2 key and wraps it in `https://attacker.com/images/tokens/<key>` —
+ * the key check would pass but the UI would load from the foreign origin.
+ *
  * Empty image is allowed (creator chose not to upload one). Any URL that
  * fails the checks results in a `RegistrationError` — we don't quietly
  * strip-and-store, because doing so would conceal a contract-level
@@ -271,6 +279,7 @@ async function fetchOnChainInfo(
 async function validateImageUrl(
   env: AppBindings,
   raw: string,
+  apiOrigin: string | undefined,
 ): Promise<string> {
   if (raw === "") return "";
 
@@ -304,7 +313,11 @@ async function validateImageUrl(
     );
   }
 
-  return raw;
+  // Canonicalize: replace whatever origin the caller stamped with ours so
+  // the DB always stores a URL we control. If `apiOrigin` is unavailable
+  // (cron without IMAGES_PUBLIC_URL configured), fall back to the raw URL —
+  // still verified to be a key in our bucket, just not origin-enforced.
+  return apiOrigin ? `${apiOrigin}/images/${key}` : raw;
 }
 
 async function resolveLtMeta(

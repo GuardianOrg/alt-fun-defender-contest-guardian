@@ -26,4 +26,17 @@ export interface AppBindings {
    * to the public HyperEVM RPC if unset.
    */
   HYPEREVM_RPC_URL?: string;
+  /**
+   * Public-facing origin of this API Worker (e.g. `https://api.alt.fun`).
+   * Used by the cron registration backfill to canonicalize image URLs read
+   * from on-chain `TokenInfo` — ensures the stored `imageUrl` always points
+   * at our own domain, even when a token was launched directly via the
+   * contract with a foreign host in the `image` field.
+   *
+   * Set via `wrangler secret put IMAGES_PUBLIC_URL` (prod) or `.dev.vars`
+   * (local). When unset, the cron falls back to storing the validated raw
+   * URL (still verified to be a key in our R2 bucket, just not guaranteed
+   * to be on our domain).
+   */
+  IMAGES_PUBLIC_URL?: string;
 }

@@ -42,7 +42,8 @@ createRoute.post("/", zodValidator("json", registerTokenSchema), async (c) => {
   const { address } = c.req.valid("json");
 
   try {
-    const result = await registerTokenFromChain(c.env, address);
+    const apiOrigin = new URL(c.req.url).origin;
+    const result = await registerTokenFromChain(c.env, address, apiOrigin);
     if (result.kind === "registered") {
       c.executionCtx.waitUntil(broadcastNewToken(c.env, result.token));
       return c.json(formatSuccess(result.token), 201);
