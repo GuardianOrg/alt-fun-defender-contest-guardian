@@ -26,8 +26,7 @@ Powers the "organic buys vs LT price appreciation" split on the landing-page pro
 The API (`apps/api/src/lib/token-enrich.ts`) reads this alongside the current `ltReserve × exchangeRate` value and derives:
 
 - `curveFilled` = `max(supplyFilled, usdFilled)` (whichever trigger is closer to firing).
-- `curveFilledOrganic` = `min(organicUsdcRaised / graduationThresholdUsd × 100, curveFilled)`.
-- `curveFilledLeverageBoost` = `max(curveFilled − curveFilledOrganic, 0)` — never surface a negative boost (product decision: this is a marketing number, not an accounting figure).
+- `curveFilledOrganic` and `curveFilledLeverageBoost` decompose `curveFilled` by computing the organic-vs-appreciation split *inside* `usdFilled` (`organicShare = min(organicPct, usdFilled)`, `leverageShare = max(0, usdFilled − organicPct)`) and then scaling both by `curveFilled / usdFilled`. When the supply trigger is leading, the supply-side overshoot is attributed to organic buy pressure — not leverage — so a fresh token with a flat LT renders as all-organic. Leverage boost is never negative (product decision: this is a marketing number, not an accounting figure).
 
 `graduationThresholdUsd` is read from the `protocolConfig` singleton (see below). The API caches it per-isolate for 60s and falls back to the compile-time `12_000` if the row is missing — so an indexer outage just means the curve bar uses the launch-time default, not "unknown".
 

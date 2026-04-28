@@ -80,9 +80,11 @@ export interface CurveFilledBreakdown {
   organic: number | null;
   /**
    * Share of `total` attributable to LT price appreciation since those buys.
-   * Clamped at 0 — if the LT has *lost* value we just show the total and
-   * don't surface a negative bucket in the UI (by product decision — it's a
-   * marketing number showcasing the LT boost, not an accounting figure).
+   * Computed from the gap between `realLt × currentRate` and the lifetime
+   * organic USDC, then scaled (with `organic`) so the two buckets fill
+   * `total`. Clamped at 0 — if the LT has *lost* value we just show the
+   * total and don't surface a negative bucket (by product decision — it's
+   * a marketing number showcasing the LT boost, not an accounting figure).
    */
   leverageBoost: number | null;
 }
@@ -97,10 +99,30 @@ export interface CurveFilledBreakdown {
  * on the landing page.
  *
  * The `total` we return is `max(supplyFilled, usdFilled)` — whichever trigger
- * is closer to firing — since graduation happens on whichever hits first. For
- * the split we use `usdFilled` as the denominator and clamp to `total` so the
- * two buckets never overshoot the headline number (which would look wrong in
- * the UI).
+ * is closer to firing — since graduation happens on whichever hits first.
+ *
+ * The split:
+ *   - The honest "organic vs leverage" story lives entirely inside `usdFilled`:
+ *     `organicShareOfUsd = min(organicPct, usdFilled)` and
+ *     `leverageShareOfUsd = max(0, usdFilled − organicPct)`.
+ *   - When the supply trigger is leading (`supplyFilled > usdFilled`) — which
+ *     is the steady state under tight `VIRTUAL_LIQUIDITY_USD`, where each
+ *     dollar moves the curve much faster in supply-% than in USD-% — we
+ *     scale both buckets by `total / usdFilled` so they reach the headline
+ *     number. The supply-side overshoot gets attributed to organic buy
+ *     pressure (it was caused by buys, not by an LT pump), preserving the
+ *     ratio of LT-appreciation-vs-organic-USD inside `usdFilled`.
+ *   - When the USD trigger is leading, `total = usdFilled`, the stretch
+ *     factor is 1, and the split is simply `(organicShareOfUsd,
+ *     leverageShareOfUsd)`.
+ *
+ * The previous formulation `leverageBoost = total − organic` (where `organic`
+ * was just `organicPct` clamped to `total`) silently misattributed the
+ * supply/USD progress gap to leverage boost: a fresh token with $21 of seed
+ * buys would render as ~7% buy pressure + 16% leverage boost even with the
+ * LT perfectly flat. The stretch-with-ratio approach fixes that — leverage
+ * boost is zero unless the LT has actually appreciated above the user's
+ * dollar contribution.
  *
  * Virtual vs real reserves: `curveSupplyRaw` and `ltReserveRaw` are the AMM's
  * **virtual** reserves (what the constant-product math uses, needed unmodified
@@ -109,7 +131,7 @@ export interface CurveFilledBreakdown {
  * compares against `graduationThresholdUsd`. We recover it by subtracting the
  * launch-time virtual LT reserve (`virtualLtAtLaunch = k / TOTAL_SUPPLY`)
  * from the current virtual `reserve1`. Without `k` we can't do that subtraction
- * and would overcount by the initial $4K virtual liquidity, so we degrade
+ * and would overcount by the initial virtual liquidity, so we degrade
  * cleanly to supply-only progress.
  */
 export function computeCurveFilledBreakdown(
@@ -175,8 +197,29 @@ export function computeCurveFilledBreakdown(
   const organicUsd = Number(BigInt(organicUsdcRaisedRaw)) / 1e6;
   const organicPct = (organicUsd / graduationThresholdUsd) * 100;
 
-  const organic = Math.min(Math.max(organicPct, 0), total);
-  const leverageBoost = Math.max(total - organic, 0);
+  // No real LT yet (or LT crashed to zero): no honest USD-denominated story
+  // exists, so attribute the whole bar to organic buy pressure and leave
+  // leverage at zero. Avoids a `total / usdFilled` divide-by-zero below and
+  // produces sensible output when `usdFilled` is negligibly small.
+  if (usdFilled <= 0) {
+    return { total, organic: total, leverageBoost: 0 };
+  }
+
+  // Decompose `usdFilled` into "organic" vs "LT appreciation" then stretch
+  // both by `total / usdFilled` so the segments reach the headline number.
+  // When `supplyFilled` is leading (e.g. a fresh token with low
+  // `VIRTUAL_LIQUIDITY_USD`), the stretch factor is > 1 — the supply-side
+  // overshoot gets attributed to organic, not leverage, preserving the
+  // appreciation ratio inside `usdFilled`. Tiny floating-point clamps keep
+  // `organic + leverageBoost ≤ total` even after rounding.
+  const organicShareOfUsd = Math.min(organicPct, usdFilled);
+  const leverageShareOfUsd = Math.max(0, usdFilled - organicPct);
+  const stretch = total / usdFilled;
+  const organic = Math.min(organicShareOfUsd * stretch, total);
+  const leverageBoost = Math.max(
+    0,
+    Math.min(leverageShareOfUsd * stretch, total - organic),
+  );
 
   return { total, organic, leverageBoost };
 }

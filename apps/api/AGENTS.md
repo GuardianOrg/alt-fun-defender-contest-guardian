@@ -25,7 +25,9 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 |---|---|
 | `curveFilled` | Headline progress toward graduation (0–100). `max(supplyFilled, usdFilled)` — whichever trigger fires first. `null` while the indexer is degraded. |
 | `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`). Clamped at `curveFilled`. |
-| `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation. Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
+| `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation, derived from the gap between `realLt × currentRate` and the lifetime organic USDC. Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
+
+When the supply trigger is leading (`supplyFilled > usdFilled` — typical under tight `VIRTUAL_LIQUIDITY_USD`), `computeCurveFilledBreakdown` keeps the LT-appreciation-vs-organic-USD ratio honest by computing the split inside `usdFilled` and then stretching both buckets by `total / usdFilled`. The supply-side overshoot is attributed to organic buy pressure, never to leverage. The previous `leverageBoost = total − organic` formula misattributed that gap as leverage and rendered phantom boost on flat-LT seed buys.
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 

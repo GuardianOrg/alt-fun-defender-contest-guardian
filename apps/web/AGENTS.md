@@ -24,8 +24,8 @@ Plus: search modal (Cmd+K), profile panel (right drawer), bridge modal (LI.FI).
 
 Every graduation progress bar is a two-segment render powered by the API's `curveFilledOrganic` / `curveFilledLeverageBoost` fields:
 
-- `organicFilled` (0–100, nullable): curve-fill % from real USDC buys.
-- `leverageBoost` (0–100, never negative): curve-fill % from LT price appreciation.
+- `organicFilled` (0–100, nullable): curve-fill % from real USDC buys (absorbs supply-side overshoot when the supply trigger is leading the USD trigger — see `apps/api/AGENTS.md`).
+- `leverageBoost` (0–100, never negative): curve-fill % from LT price appreciation, derived from the gap between `realLt × currentRate` and the lifetime organic USDC.
 - `curveFilled` = `organicFilled + leverageBoost` when both are present.
 
 **Rendering rules (see `TokenRow.tsx`, `TokenDetailView.tsx`, `Chart.tsx`):**
