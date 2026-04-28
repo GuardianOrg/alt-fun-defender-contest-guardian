@@ -2,7 +2,6 @@
 
 # Now
 
-- Better handling of not enough funds? Buffer maybe?
 - Can't sell enough tokens
 - Leverage boost looks wrong Fresh mint with $21 of initial buy, and starts at 7% buy pressure and 16% leverage boost
 - AVIF image didn't work

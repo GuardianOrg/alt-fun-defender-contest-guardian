@@ -80,19 +80,32 @@ export interface SellQuote {
   totalFee: number;
   priceImpactPct: number;
   youReceive: number;
-  /** Max token amount sellable right now given the LT's idle USDC buffer */
+  /**
+   * Max token amount safely sellable right now given the LT's idle USDC
+   * buffer, discounted by the user's slippage tolerance to leave headroom
+   * for `exchangeRate()` drift / concurrent redeems between quote and
+   * inclusion. Posting this value (rather than the raw theoretical max)
+   * dodges BounceTech `InsufficientBalance` reverts.
+   */
   maxSellableTokens: number;
-  /** Available idle USDC in the LT contract for atomic redeems */
+  /** Available idle USDC in the LT contract for atomic redeems (raw, undiscounted). */
   bufferUsdc: number;
-  /** Whether the requested sell exceeds the available buffer */
+  /** Whether the requested sell exceeds the slippage-discounted buffer. */
   exceedsBuffer: boolean;
 }
 
 export interface ITradeRouterService {
   getQuoteBuy(curveAddress: string, usdcAmount: number): Promise<BuyQuote | null>;
+  /**
+   * @param slippage Fractional slippage tolerance (e.g. `0.02` = 2%). Used as
+   *   the safety headroom on the LT idle-buffer cap so `maxSellableTokens`
+   *   stays redeemable even if `exchangeRate()` ticks up or another redeem
+   *   lands ahead of the user's tx between quote and inclusion.
+   */
   getQuoteSell(
     curveAddress: string,
     tokenAmount: number,
+    slippage?: number,
   ): Promise<SellQuote | null>;
 }
 
@@ -260,7 +273,7 @@ const liveTradeRouter: ITradeRouterService = {
     }
   },
 
-  async getQuoteSell(curveAddress, tokenAmount) {
+  async getQuoteSell(curveAddress, tokenAmount, slippage = 0) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
@@ -318,7 +331,18 @@ const liveTradeRouter: ITradeRouterService = {
           ? (tokenAmount / tokenReserveFloat) * 100
           : 0;
 
-      const bufferLt = exRate > 0 ? bufferUsdc / exRate : 0;
+      // Apply the user's slippage tolerance as headroom on the LT idle buffer.
+      // The on-chain `redeem()` consumes USDC from `baseAssetBalance()` at the
+      // *executed* `exchangeRate()`, not the quoted one — if the rate ticks up
+      // (or another redeem lands first) between quote and inclusion, the same
+      // LT amount needs more USDC than we sized it for and the tx reverts with
+      // BounceTech's `InsufficientBalance`. Sizing against `bufferUsdc *
+      // (1 - slippage)` reuses the same tolerance the user set for price
+      // protection, so the cap moves with their risk preference rather than a
+      // hard-coded magic number.
+      const safetyFactor = Math.max(0, Math.min(1, 1 - slippage));
+      const safeBufferUsdc = bufferUsdc * safetyFactor;
+      const bufferLt = exRate > 0 ? safeBufferUsdc / exRate : 0;
       const bufferBinds = bufferLt > 0 && ltReserveFloat > bufferLt;
       const maxSellableTokens = bufferBinds
         ? (tokenReserveFloat * bufferLt) / (ltReserveFloat - bufferLt)
@@ -328,7 +352,7 @@ const liveTradeRouter: ITradeRouterService = {
         : Infinity;
 
       const redeemUsdc = grossUsdc - curveFee;
-      const exceedsBuffer = redeemUsdc > bufferUsdc;
+      const exceedsBuffer = redeemUsdc > safeBufferUsdc;
 
       return {
         usdcOut: netUsdc,

@@ -74,7 +74,7 @@ export default function TradePanel({ token }: Props) {
           const quote = await tradeRouterService.getQuoteBuy(token.address, amtNum);
           if (!controller.signal.aborted) setBuyQuote(quote);
         } else {
-          const quote = await tradeRouterService.getQuoteSell(token.address, amtNum);
+          const quote = await tradeRouterService.getQuoteSell(token.address, amtNum, slippage);
           if (!controller.signal.aborted) setSellQuote(quote);
         }
       } catch {
@@ -86,7 +86,7 @@ export default function TradePanel({ token }: Props) {
       controller.abort();
       clearTimeout(timeout);
     };
-  }, [amtNum, mode, token.address]);
+  }, [amtNum, mode, token.address, slippage]);
 
   const loadBalance = useCallback(async () => {
     if (!address) return;
