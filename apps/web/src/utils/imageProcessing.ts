@@ -45,12 +45,18 @@ const QUALITY_STEP = 0.1;
 const MAX_INPUT_BYTES = 50 * 1024 * 1024;
 
 /**
- * Animated GIFs would lose their animation if redrawn through a 2D canvas
- * (only the first frame is sampled), so we leave them untouched. The
- * server cap (`MAX_IMAGE_BYTES`) still applies — caller is responsible
- * for surfacing that to the user via `validateImageFile`.
+ * Whether a format can be safely roundtripped through a 2D canvas — i.e.
+ * decoded, redrawn at a smaller size, and re-encoded without losing
+ * semantics the user cares about.
+ *
+ * GIF is excluded specifically because animated GIFs would lose their
+ * animation (canvas only samples the first frame). Everything else in
+ * `ALLOWED_IMAGE_MIME_TYPES` is a static raster the canvas can handle.
+ *
+ * Note "canvas processable" ≠ "lossy": PNG re-encodes losslessly here —
+ * the only loss for PNG is from the dimension downscale itself.
  */
-function isLossyResizable(type: string): boolean {
+function isCanvasProcessable(type: string): boolean {
   return type === "image/jpeg" || type === "image/png" || type === "image/webp";
 }
 
@@ -146,7 +152,7 @@ export async function processImageForUpload(file: File): Promise<CompressionResu
     );
   }
 
-  if (!isLossyResizable(file.type)) {
+  if (!isCanvasProcessable(file.type)) {
     // Animated GIFs can't be re-encoded without losing animation, so
     // there's no compression pass to fall back on — the server's hard
     // limit applies upfront.
