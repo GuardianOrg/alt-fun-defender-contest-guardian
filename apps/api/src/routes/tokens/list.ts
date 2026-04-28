@@ -90,6 +90,7 @@ function enrich(
     curveFilled,
     curveFilledOrganic: breakdown.organic,
     curveFilledLeverageBoost: breakdown.leverageBoost,
+    curveRaisedUsd: breakdown.raisedUsd,
     status,
     graduated,
     graduatedAt: onchain?.graduatedAt
