@@ -19,6 +19,7 @@
 - Default to 1m chart (not 1 day)
 - Option to enlarge token icon when clicked
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
+- Label the Y axis, MCap or similar like Dexscrener
 - We should pass through slippage checks
 - Add ability to resize right section in trade view, maybe other sections also
 - Add Geoblocking, block UK, Any sanctioned countries
