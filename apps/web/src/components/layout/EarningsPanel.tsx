@@ -8,6 +8,7 @@ import styles from "./EarningsPanel.module.css";
 import RewardsTab from "./RewardsTab";
 import { tokenPath, CREATE_PATH } from "../../app/routes";
 import { useBalances } from "../../hooks/useBalances";
+import { useCopyState } from "../../hooks/useCopyState";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
 import { selectEarningsOpen, setEarningsOpen } from "../../state/uiSlice";
@@ -21,9 +22,11 @@ export default function EarningsPanel() {
   const open = useSelector(selectEarningsOpen);
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const { isConnected, shortAddress, connect } = useWallet();
+  const { address, isConnected, shortAddress, connect, disconnect } =
+    useWallet();
   const { earnings, claiming, claim } = useCreatorEarnings();
   const { tokens: heldTokens, totalValue } = useBalances();
+  const { copied, copy } = useCopyState();
   const [tab, setTab] = useState<Tab>("balances");
 
   if (!open) return null;
@@ -33,6 +36,11 @@ export default function EarningsPanel() {
   const goToToken = (addr: string) => {
     setOpen(false);
     navigate(tokenPath(addr));
+  };
+
+  const handleDisconnect = async () => {
+    await disconnect();
+    setOpen(false);
   };
 
   return (
@@ -47,9 +55,36 @@ export default function EarningsPanel() {
             <div className={styles.avatarWrap}>
               <img src="/avatar.png" alt="" className={styles.avatar} />
               <div>
-                <div id="earnings-panel-title" className={styles.addressText}>
-                  {shortAddress}
-                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    styles.addressCopyBtn,
+                    copied && styles.addressCopyBtnCopied,
+                  )}
+                  onClick={() => address && copy(address)}
+                  title={copied ? "Copied!" : "Copy full address"}
+                  aria-label={
+                    copied ? "Address copied" : "Copy full wallet address"
+                  }
+                >
+                  <span
+                    id="earnings-panel-title"
+                    className={styles.addressText}
+                  >
+                    {shortAddress}
+                  </span>
+                  <span
+                    className={cn(
+                      styles.copyIcon,
+                      copied
+                        ? styles.copyIconCopied
+                        : styles.copyIconDefault,
+                    )}
+                    aria-hidden="true"
+                  >
+                    {copied ? "✓" : "⎘"}
+                  </span>
+                </button>
                 <div className={styles.chainText}>HyperEVM</div>
               </div>
             </div>
@@ -58,9 +93,21 @@ export default function EarningsPanel() {
               profile
             </div>
           )}
-          <button className={styles.escBtn} onClick={() => setOpen(false)}>
-            esc
-          </button>
+          <div className={styles.headerActions}>
+            {isConnected && (
+              <button
+                className={styles.disconnectBtn}
+                onClick={handleDisconnect}
+                title="Disconnect wallet"
+                type="button"
+              >
+                disconnect
+              </button>
+            )}
+            <button className={styles.escBtn} onClick={() => setOpen(false)}>
+              esc
+            </button>
+          </div>
         </div>
 
         {!isConnected ? (
