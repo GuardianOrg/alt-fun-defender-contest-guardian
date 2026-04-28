@@ -2,7 +2,6 @@
 
 # Now
 
-- Can't sell enough tokens
 - Leverage boost looks wrong Fresh mint with $21 of initial buy, and starts at 7% buy pressure and 16% leverage boost
 - AVIF image didn't work
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
@@ -25,6 +24,7 @@
 - Add Geoblocking, block UK, Any sanctioned countries
 - Add Terms of Service, Privacy Policy, DMCA Policy
 - Right now DEV and CA are equal-weight buttons. CA is the primary action (traders copy CAs constantly to paste into terminals, wallets, etc.). DEV is secondary context. Can we make CA larger, more prominent, possibly even as the only copy-button and relegate DEV to a smaller info icon that expands on hover, or a smaller pill below. The CA should be the most copy-worthy thing on the page. (https://www.printr.money/)
+- PoW system
 - Should implement infinite scroll for tokens on home page
 
 # launch

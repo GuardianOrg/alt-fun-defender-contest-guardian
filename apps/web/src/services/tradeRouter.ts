@@ -106,6 +106,13 @@ export interface ITradeRouterService {
     curveAddress: string,
     tokenAmount: number,
     slippage?: number,
+    /**
+     * LT leverage multiplier (2 / 3 / 5). Drives the BounceTech LT
+     * redemption-fee component of the quote — the fee is `0.3% × notional`
+     * where `notional = USD × leverage`, so we need the actual leverage
+     * (not a hard-coded `2`) for 3x/5x tokens to display a faithful net.
+     */
+    leverage?: number,
   ): Promise<SellQuote | null>;
 }
 
@@ -273,7 +280,7 @@ const liveTradeRouter: ITradeRouterService = {
     }
   },
 
-  async getQuoteSell(curveAddress, tokenAmount, slippage = 0) {
+  async getQuoteSell(curveAddress, tokenAmount, slippage = 0, leverage = 2) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
@@ -323,7 +330,13 @@ const liveTradeRouter: ITradeRouterService = {
           : 0;
       const grossUsdc = ltOut * exRate;
       const curveFee = grossUsdc * FEES.curveSell;
-      const ltRedemptionFee = grossUsdc * FEES.ltRedemption * 2;
+      // BounceTech `redeem()` charges `0.3% × notional`, where notional =
+      // `USD × leverage`. Previously the leverage factor was hard-coded to
+      // `2`, which under-quoted 3x/5x tokens by 0.9% / 1.5% of grossUsdc —
+      // the displayed "you receive" was higher than what actually landed
+      // post-redeem. Fall back to `2` only when the caller didn't pass a
+      // leverage (legacy callers / mocks) so the old behaviour is preserved.
+      const ltRedemptionFee = grossUsdc * FEES.ltRedemption * leverage;
       const totalFee = curveFee + ltRedemptionFee;
       const netUsdc = grossUsdc - totalFee;
       const priceImpact =
