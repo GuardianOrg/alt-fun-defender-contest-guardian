@@ -80,11 +80,13 @@ export interface CurveFilledBreakdown {
   organic: number | null;
   /**
    * Share of `total` attributable to LT price appreciation since those buys.
-   * Computed from the gap between `realLt × currentRate` and the lifetime
-   * organic USDC, then scaled (with `organic`) so the two buckets fill
-   * `total`. Clamped at 0 — if the LT has *lost* value we just show the
-   * total and don't surface a negative bucket (by product decision — it's
-   * a marketing number showcasing the LT boost, not an accounting figure).
+   * Computed as `max(0, total − organic)` — i.e. the gap between
+   * `realLt × currentRate` (already encoded in `total = usdFilled`) and the
+   * **net** organic USDC raised (indexer's `organicUsdcRaised`, where buys
+   * add and sells subtract, floored at 0). Clamped at 0 — if the LT has
+   * *lost* value we just show the total and don't surface a negative bucket
+   * (by product decision — it's a marketing number showcasing the LT boost,
+   * not an accounting figure).
    */
   leverageBoost: number | null;
 }
