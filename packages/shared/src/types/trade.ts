@@ -1,19 +1,61 @@
 /**
- * WebSocket broadcast payload on the `trade` channel. Two disjoint variants
- * share this channel; consumers route by which optional group is populated:
+ * Fields shared by both `TradeBroadcast` variants.
  *
- *   1. **Trade-list variant** (`Zap:Buy` / `Zap:Sell`). Carries the gross
- *      USDC the user paid/received plus the token amount and trader
- *      identity. `id` matches the REST `routerTrade.id`
- *      (`${txHash}-${zapLogIndex}`) so live broadcasts dedupe against the
- *      REST poll fallback. The trade-feed UI consumes only this variant —
- *      presence of `usdcAmount` is the discriminator.
- *   2. **Chart-state variant** (`Bonding:Trade` curve phase,
- *      `HyperSwapPair:Sync` post-grad). Carries post-trade virtual AMM
- *      reserves so `useChartData` can recompute
- *      `ratio = ltReserve / curveSupply` without a Ponder round-trip.
- *      Trade-list fields are absent — chart-only broadcasts have nothing
- *      to say about who traded or how much USDC moved.
+ * All bigint-valued fields on the variants are serialised as decimal
+ * strings at their on-chain scale — 1e6 for `usdcAmount`, 1e18 for
+ * `tokenAmount` and the virtual AMM reserves. `timestamp` is a Unix
+ * seconds-since-epoch string, NOT a 1e18-scaled value.
+ */
+interface TradeBroadcastBase {
+  id: string;
+  tokenAddress: string;
+  /** Block timestamp in Unix seconds (decimal string, NOT 1e18-scaled). */
+  timestamp: string;
+}
+
+/**
+ * Trade-list broadcast emitted by `Zap:Buy` / `Zap:Sell`. Carries the
+ * gross USDC the user paid/received plus the token amount and trader
+ * identity. `id` matches the REST `routerTrade.id`
+ * (`${txHash}-${zapLogIndex}`) so live broadcasts dedupe against the REST
+ * poll fallback. The trade-feed UI consumes only this variant — presence
+ * of `usdcAmount` is the discriminator.
+ */
+export interface TradeListBroadcast extends TradeBroadcastBase {
+  /** Gross USDC paid (Buy) or received (Sell), 1e6-scaled decimal string. */
+  usdcAmount: string;
+  /** Token amount in/out, 1e18-scaled decimal string. */
+  tokenAmount: string;
+  trader: string;
+  isBuy: boolean;
+  /** Forbidden on this variant — see `ChartStateBroadcast`. */
+  curveSupply?: never;
+  ltReserve?: never;
+}
+
+/**
+ * Chart-state broadcast emitted by `Bonding:Trade` (curve phase) and
+ * `HyperSwapPair:Sync` (post-grad). Carries post-trade virtual AMM
+ * reserves so `useChartData` can recompute `ratio = ltReserve / curveSupply`
+ * without a Ponder round-trip. Trade-list fields are forbidden —
+ * chart-only broadcasts have nothing to say about who traded or how much
+ * USDC moved.
+ */
+export interface ChartStateBroadcast extends TradeBroadcastBase {
+  curveSupply: string;
+  ltReserve: string;
+  /** Forbidden on this variant — see `TradeListBroadcast`. */
+  usdcAmount?: never;
+  tokenAmount?: never;
+  trader?: never;
+  isBuy?: never;
+}
+
+/**
+ * WebSocket broadcast payload on the `trade` channel. Discriminated union:
+ * producers must construct exactly one variant, consumers narrow on
+ * `usdcAmount` presence. Hybrid shapes are rejected at compile time via
+ * the `?: never` exclusions on each variant.
  *
  * The split exists because `Bonding:Trade` records the LT actually consumed
  * by the curve (which can be strictly less than what the user paid for —
@@ -21,35 +63,8 @@
  * `Zap:Buy` records the gross USDC input. Sourcing the trade-list from
  * `Zap:Buy` keeps it consistent with the REST `/api/v1/trades` route
  * (which reads from `routerTrade`).
- *
- * All bigint-valued fields are serialised as decimal strings at their
- * on-chain scale — 1e6 for `usdcAmount`, 1e18 for `tokenAmount` and the
- * virtual AMM reserves. `timestamp` is a Unix seconds-since-epoch string,
- * NOT a 1e18-scaled value.
  */
-export interface TradeBroadcast {
-  id: string;
-  tokenAddress: string;
-  /** Block timestamp in Unix seconds (decimal string, NOT 1e18-scaled). */
-  timestamp: string;
-
-  // ─── Trade-list variant (Zap:Buy / Zap:Sell) ─────────────────────────
-  // All four fields are set together. Presence of `usdcAmount` is the
-  // canonical discriminator used by the trade-feed consumer.
-
-  /** Gross USDC paid (Buy) or received (Sell), 1e6-scaled decimal string. */
-  usdcAmount?: string;
-  /** Token amount in/out, 1e18-scaled decimal string. */
-  tokenAmount?: string;
-  trader?: string;
-  isBuy?: boolean;
-
-  // ─── Chart-state variant (Bonding:Trade / HyperSwapPair:Sync) ────────
-  // Both fields are set together. Drives the live chart ratio update.
-
-  curveSupply?: string;
-  ltReserve?: string;
-}
+export type TradeBroadcast = TradeListBroadcast | ChartStateBroadcast;
 
 /**
  * Client-facing trade as rendered in the feed / trades tab. Derived from

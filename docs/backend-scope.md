@@ -121,13 +121,15 @@ Broadcast from the Ponder indexer via fire-and-forget POST to `/api/v1/webhook/i
 
 ```json
 {
-  "id": "0x<txHash>-<logIndex>",
+  "id": "<id>",
   "tokenAddress": "0x…",
   "curveSupply": "<post-trade curveSupply, 1e18-scaled>",
   "ltReserve": "<post-trade ltReserve, 1e18-scaled>",
   "timestamp": "<unix seconds as string>"
 }
 ```
+
+`id` format depends on the producer: `Bonding:Trade` emits `${txHash}-${logIndex}`, while `HyperSwapPair:Sync` prefixes its variant with `sync-` (i.e. `sync-${txHash}-${logIndex}`) to keep the two streams' IDs disjoint in the shared `tokenSnapshot` keyspace. Consumers must treat the field as an opaque string and not parse it as `${tx}-${idx}`.
 
 The split exists because `Bonding:Trade` records the LT actually consumed by the curve (which can be strictly less than what the user paid for — e.g. a graduation-triggering buy whose final increment hits the supply cap), while `Zap:Buy` records the gross USDC input. Sourcing the trade list from the Zap variant keeps the live feed consistent with the REST `/api/v1/trades` route (which reads from `routerTrade`).
 

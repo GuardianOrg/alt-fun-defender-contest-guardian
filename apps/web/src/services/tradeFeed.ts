@@ -2,7 +2,7 @@ import {
   fetchRouterTradesByToken,
   fetchRouterTradesGlobal,
 } from "./api";
-import { resolveTokenName } from "./exchangeRates";
+import { prefetchTokenName, resolveTokenName } from "./tokenNames";
 import { routerTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
@@ -26,18 +26,11 @@ import type { Trade, TradeBroadcast } from "./types";
  * hits the supply cap) while the Zap broadcast records the gross USDC.
  */
 function formatWsTrade(raw: TradeBroadcast): Trade | null {
-  // `usdcAmount`, `tokenAmount`, `trader`, `isBuy` are set together by
-  // the Zap variant — see `TradeBroadcast`'s docstring. The check on
-  // `usdcAmount` alone discriminates the variant; the others would only
-  // be undefined together if the broadcast contract were violated.
-  if (
-    raw.usdcAmount === undefined ||
-    raw.tokenAmount === undefined ||
-    raw.trader === undefined ||
-    raw.isBuy === undefined
-  ) {
-    return null;
-  }
+  // `TradeBroadcast` is a discriminated union: `usdcAmount` presence
+  // narrows to the trade-list variant. The chart-state variant has
+  // `usdcAmount?: never` so the type-system guarantees the other four
+  // trade-list fields are populated after this check.
+  if (raw.usdcAmount === undefined) return null;
   const trade = routerTradeToTrade({
     id: raw.id,
     tokenAddress: raw.tokenAddress,
@@ -64,6 +57,11 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       if (!trade) return;
       seenIds.add(raw.id);
       cb(trade);
+      // Fire-and-forget: warm the name cache so subsequent trades for
+      // this token render with the real symbol instead of a truncated
+      // address. The current trade may show truncated for a brand-new
+      // token; the next one will pick up the resolved name.
+      void prefetchTokenName(raw.tokenAddress);
     });
   }
 
@@ -80,6 +78,13 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       // catches everything. The previous Ponder `trades` GraphQL path was
       // bonding-only and silently dropped post-grad activity from the feed.
       const trades = await fetchRouterTradesGlobal(20);
+      if (cancelled) return;
+
+      // Warm the name cache for every unique token in this batch in
+      // parallel before mapping, so the initial render shows real
+      // symbols rather than truncated addresses on first paint.
+      const uniqueTokens = new Set(trades.map((t) => t.tokenAddress));
+      await Promise.all([...uniqueTokens].map(prefetchTokenName));
       if (cancelled) return;
 
       const batchIds = new Set<string>();
@@ -125,6 +130,10 @@ export function subscribeTokenTrades(
   const seenIds = new Set<string>();
 
   const normalizedAddress = address.toLowerCase();
+  // Warm the cache for the single token this subscription cares about.
+  // No await needed — the WS handler and poll path both fall back to a
+  // truncated address until the prefetch resolves.
+  void prefetchTokenName(address);
   if (ws) {
     unsubWs = ws.subscribe("trade", (data) => {
       const raw = data as TradeBroadcast;
