@@ -6,7 +6,6 @@ import { resolveTokenName } from "./exchangeRates";
 import { routerTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
-import type { ApiRouterTrade } from "./api";
 import type { Trade, TradeBroadcast } from "./types";
 
 /**
@@ -39,17 +38,15 @@ function formatWsTrade(raw: TradeBroadcast): Trade | null {
   ) {
     return null;
   }
-  const apiShape: ApiRouterTrade = {
+  const trade = routerTradeToTrade({
     id: raw.id,
     tokenAddress: raw.tokenAddress,
     trader: raw.trader,
     isBuy: raw.isBuy,
     usdcAmount: raw.usdcAmount,
     tokenAmount: raw.tokenAmount,
-    blockNumber: "0",
     timestamp: raw.timestamp,
-  };
-  const trade = routerTradeToTrade(apiShape);
+  });
   trade.tokenName = resolveTokenName(raw.tokenAddress);
   return trade;
 }

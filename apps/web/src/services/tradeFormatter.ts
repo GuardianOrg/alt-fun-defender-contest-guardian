@@ -17,17 +17,29 @@ export function formatTokenBalance(raw: string): string {
 }
 
 /**
- * Convert an `ApiRouterTrade` (USDC-denominated, sourced from
+ * Narrow input shape for `routerTradeToTrade` — just the fields the
+ * formatter actually reads. Both the REST `ApiRouterTrade` (which adds
+ * `blockNumber`) and the trade-list variant of the WS `TradeBroadcast`
+ * are structurally compatible, so no synthesised sentinels are needed
+ * to bridge the two transports.
+ */
+export type RouterTradeRow = Pick<
+  ApiRouterTrade,
+  "id" | "tokenAddress" | "trader" | "isBuy" | "usdcAmount" | "tokenAmount" | "timestamp"
+>;
+
+/**
+ * Convert a router-trade row (USDC-denominated, sourced from
  * `Zap.Buy/Sell`) into the client `Trade` shape. Used by the REST polling
  * path for both the global feed and per-token feed, and by the trade-feed's
- * WS path after the Zap broadcast is reshaped into `ApiRouterTrade` —
+ * WS path after the Zap broadcast is narrowed into a `RouterTradeRow` —
  * covers curve **and** post-graduation trades since `routerTrade` is
  * written for both phases.
  *
  * No LT exchange rate lookup is needed: the indexer records USDC-on-the-
  * wire, so `amountUsd` is a direct conversion.
  */
-export function routerTradeToTrade(rt: ApiRouterTrade): Trade {
+export function routerTradeToTrade(rt: RouterTradeRow): Trade {
   const usdcAmountFloat = Number(BigInt(rt.usdcAmount)) / 1e6;
   return {
     id: rt.id,
