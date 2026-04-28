@@ -103,6 +103,13 @@
   background: rgba(77, 232, 180, 0.04);
 }
 
+.uploadZoneDragActive,
+.uploadZoneDragActive:hover {
+  border-color: rgba(77, 232, 180, 0.8);
+  border-style: solid;
+  background: rgba(77, 232, 180, 0.1);
+}
+
 .uploadZone:focus-visible {
   outline: 2px solid rgba(77, 232, 180, 0.6);
   outline-offset: 2px;

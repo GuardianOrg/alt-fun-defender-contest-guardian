@@ -43,6 +43,12 @@ export default function TokenForm({
   const [socialOpen, setSocialOpen] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [processingImage, setProcessingImage] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  // Drag enter/leave fire on every child element traversal too, so a naive
+  // boolean would flicker as the cursor crosses inner spans. We keep a
+  // depth counter and only consider the drag "left" when we've balanced
+  // out every enter.
+  const dragDepthRef = useRef(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Enforce UTF-8 byte length, matching the on-chain `bytes(str).length` check.
@@ -53,14 +59,7 @@ export default function TokenForm({
     return utf8ByteLength(next) <= maxBytes ? next : prev;
   };
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Always reset the input so re-picking the same (now-rejected) file
-    // re-fires `change`. Otherwise the user can't retry without first
-    // picking some other file.
-    if (fileRef.current) fileRef.current.value = "";
-    if (!file) return;
-
+  const processFile = async (file: File) => {
     setImageError(null);
     setProcessingImage(true);
     try {
@@ -79,6 +78,50 @@ export default function TokenForm({
       setImageError(err instanceof Error ? err.message : "Image processing failed");
       setProcessingImage(false);
     }
+  };
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Always reset the input so re-picking the same (now-rejected) file
+    // re-fires `change`. Otherwise the user can't retry without first
+    // picking some other file.
+    if (fileRef.current) fileRef.current.value = "";
+    if (!file) return;
+    void processFile(file);
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLButtonElement>) => {
+    if (processingImage) return;
+    // Only treat the drag as a file drag — text selections etc. shouldn't
+    // light up the dropzone. `types` is the cleanest signal across browsers.
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLButtonElement>) => {
+    if (processingImage) return;
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    // Without preventDefault on dragover, the browser's default handler
+    // takes over and `drop` never fires.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragLeave = () => {
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragActive(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    if (processingImage) return;
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    void processFile(file);
   };
 
   return (
@@ -169,8 +212,12 @@ export default function TokenForm({
       ) : (
         <button
           type="button"
-          className={styles.uploadZone}
+          className={cn(styles.uploadZone, dragActive && styles.uploadZoneDragActive)}
           onClick={() => fileRef.current?.click()}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           disabled={processingImage}
           aria-label={processingImage ? "Processing image" : "Upload token image"}
           aria-busy={processingImage || undefined}
@@ -179,7 +226,11 @@ export default function TokenForm({
             {processingImage ? "⏳" : "🖼"}
           </div>
           <div className={styles.uploadText}>
-            {processingImage ? "Processing image…" : "Click or drag to upload"}
+            {processingImage
+              ? "Processing image…"
+              : dragActive
+                ? "Drop to upload"
+                : "Click or drag to upload"}
           </div>
           <div className={styles.uploadHint}>
             {ALLOWED_IMAGE_TYPES_LABEL} · max {MAX_IMAGE_SIZE_LABEL}
