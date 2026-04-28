@@ -10,7 +10,7 @@ interface WalletState {
   address: Address | undefined;
   shortAddress: string | undefined;
   isConnected: boolean;
-  /** True once Privy + wagmi have hydrated. UI can disable buttons until then. */
+  /** True once Privy and the wallet list have hydrated. UI can disable buttons until then. */
   ready: boolean;
   /**
    * Smart connect: opens Privy login when there's no session, or re-attaches
@@ -37,7 +37,11 @@ export function useWallet(): WalletState {
   const address = isConnected ? rawAddress : undefined;
 
   const connect = (): void => {
-    if (!ready) return;
+    // Wait for both Privy and the wallet list to hydrate. Otherwise
+    // `rawAddress` may be transiently undefined while `wallets` is still
+    // loading, and we'd incorrectly fall through to `connectWallet()` even
+    // though the user already has a wallet attached.
+    if (!ready || !walletsReady) return;
     if (!authenticated) {
       login();
       return;
