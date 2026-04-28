@@ -1,6 +1,7 @@
 import {
-  ALLOWED_IMAGE_MIME_TYPES,
+  ALLOWED_IMAGE_TYPES_LABEL,
   MAX_IMAGE_BYTES,
+  isAllowedImageMimeType,
   validateImageFile,
 } from "@launchpad/shared";
 
@@ -27,6 +28,21 @@ const MIN_QUALITY = 0.6;
 
 const INITIAL_QUALITY = 0.9;
 const QUALITY_STEP = 0.1;
+
+/**
+ * Hard ceiling on raw input we'll even attempt to decode in-browser.
+ * Well above any realistic phone-camera shot (modern 50MP JPEGs land
+ * in the 10–20MB range), well below "Safari tab OOM territory". Picks
+ * larger than this are rejected up front rather than risking a hung
+ * canvas decode on memory-constrained devices.
+ *
+ * Note this is *separate* from `MAX_IMAGE_BYTES` — that's the
+ * server's cap on the *compressed output*, this is the client's cap
+ * on the *raw input*. A 20MB phone shot is a perfectly normal source
+ * we want to transparently squeeze down to a few hundred KB; only
+ * pathological inputs hit this wall.
+ */
+const MAX_INPUT_BYTES = 50 * 1024 * 1024;
 
 /**
  * Animated GIFs would lose their animation if redrawn through a 2D canvas
@@ -110,21 +126,32 @@ export interface CompressionResult {
 /**
  * Validate, scale, and re-encode an image for upload.
  *
- * Throws a user-facing `Error` when the file fails the shared
- * (`validateImageFile`) checks or can't be decoded by the browser. Rejects
- * are surfaced to the UI rather than swallowed — we'd rather block the
- * launch than upload something the API will reject after the on-chain tx.
+ * MIME type is enforced unconditionally (so an AVIF pick is rejected
+ * before we waste cycles decoding it), but the server's `MAX_IMAGE_BYTES`
+ * cap is checked on the *output* for re-encodable types — a 20MB phone
+ * shot should sail through the compression pass and come out as a few
+ * hundred KB WebP, not get bounced at the front door. The only upfront
+ * size check is the much-larger `MAX_INPUT_BYTES` sanity cap.
+ *
+ * Throws a user-facing `Error` on any failure path so the UI surfaces it
+ * inline rather than silently uploading something the API will reject.
  */
 export async function processImageForUpload(file: File): Promise<CompressionResult> {
-  const validationError = validateImageFile(file, {
-    allowedTypes: ALLOWED_IMAGE_MIME_TYPES,
-    maxBytes: MAX_IMAGE_BYTES,
-  });
-  if (validationError) {
-    throw new Error(validationError);
+  if (!isAllowedImageMimeType(file.type)) {
+    throw new Error(`Invalid file type. Accepts: ${ALLOWED_IMAGE_TYPES_LABEL}`);
+  }
+  if (file.size > MAX_INPUT_BYTES) {
+    throw new Error(
+      `Image is too large to process in-browser (${(file.size / (1024 * 1024)).toFixed(1)}MB). Try a smaller source file.`,
+    );
   }
 
   if (!isLossyResizable(file.type)) {
+    // Animated GIFs can't be re-encoded without losing animation, so
+    // there's no compression pass to fall back on — the server's hard
+    // limit applies upfront.
+    const sizeError = validateImageFile(file);
+    if (sizeError) throw new Error(sizeError);
     return { file, passthrough: true };
   }
 
