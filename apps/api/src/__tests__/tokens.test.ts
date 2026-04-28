@@ -75,6 +75,7 @@ vi.mock("../lib/protocol-config.js", () => ({
 
 // Import route after mocks
 const { default: tokensRoute } = await import("../routes/tokens/index.js");
+const { _resetLtCache } = await import("../lib/token-registration.js");
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
@@ -191,6 +192,12 @@ function mockBounceTechLtList(entries: Array<{
 describe("POST /tokens — address-only registration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The token-registration helper caches the BounceTech LT directory at
+    // module scope (60s TTL). Without an explicit reset, the first test to
+    // populate the cache sticks for the rest of the suite, leaving any
+    // subsequent `mockBounceTechLtList(...)` queue unconsumed and making
+    // assertions order-dependent.
+    _resetLtCache();
     // Default: row doesn't exist yet, registration succeeds.
     mockSelectWhere.mockReturnValue({ limit: vi.fn().mockResolvedValue([]) });
   });
@@ -468,6 +475,9 @@ describe("POST /tokens — address-only registration", () => {
       targetLeverage: 5,
       isLong: false,
     }]);
+    // The DB mock just echoes whatever .returning() resolves with, so the
+    // body assertions alone wouldn't actually prove `resolveLtMeta` ran —
+    // we additionally inspect the values handed to the INSERT call below.
     mockDbReturning.mockResolvedValueOnce([{
       address: VALID_ADDRESS,
       ltDirection: "short",
@@ -493,6 +503,15 @@ describe("POST /tokens — address-only registration", () => {
     expect(body.data.ltDirection).toBe("short");
     expect(body.data.leverage).toBe(5);
     expect(body.data.underlying).toBe("ETH");
+
+    // Prove the helper actually derived these from the BounceTech directory
+    // and inserted them — not just that the DB mock echoed our fixture.
+    const insertCall = mockInsertValues.mock.calls[0]?.[0] as
+      | { ltDirection?: string; leverage?: number; underlying?: string }
+      | undefined;
+    expect(insertCall?.ltDirection).toBe("short");
+    expect(insertCall?.leverage).toBe(5);
+    expect(insertCall?.underlying).toBe("ETH");
   });
 });
 

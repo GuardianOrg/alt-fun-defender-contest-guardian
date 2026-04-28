@@ -57,6 +57,11 @@ const chain = {
 const LT_CACHE_TTL_MS = 60_000;
 let cachedLTs: { data: LiveLeveragedToken[]; ts: number } | null = null;
 
+/** Test-only hook to drop the per-isolate LT directory cache between cases. */
+export function _resetLtCache(): void {
+  cachedLTs = null;
+}
+
 /**
  * R2 keys produced by `POST /api/v1/images` are always under the
  * `tokens/` prefix. Validating image URLs against this prefix (plus a
