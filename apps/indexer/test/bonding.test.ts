@@ -349,7 +349,7 @@ describe("Bonding:Trade WS broadcaster", () => {
     delete process.env.ADMIN_API_KEY;
   });
 
-  it("broadcasts live trades with curveSupply and ltReserve", async () => {
+  it("broadcasts a chart-only event with curveSupply/ltReserve and no trade-list payload", async () => {
     const handler = getHandler("Bonding:Trade");
     const nowSec = BigInt(Math.floor(Date.now() / 1000));
     const event = createMockEvent({
@@ -378,9 +378,17 @@ describe("Bonding:Trade WS broadcaster", () => {
     const body = JSON.parse(init.body as string);
     expect(body.event).toBe("trade");
     expect(body.tokenAddress).toBe("0xtoken1");
-    expect(body.data.curveSupply).toBe("5000");
-    expect(body.data.ltReserve).toBe("1000");
-    expect(body.data.isBuy).toBe(true);
+    expect(body.data).toMatchObject({
+      tokenAddress: "0xtoken1",
+      curveSupply: "5000",
+      ltReserve: "1000",
+      // Chart-only sentinels — see `bonding.ts` Bonding:Trade comment. Trade-
+      // list rows now come from the Zap:Buy / Zap:Sell broadcast (see below).
+      ltAmount: "0",
+      tokenAmount: "0",
+      trader: "0x0000000000000000000000000000000000000000",
+    });
+    expect(body.data.usdcAmount).toBeUndefined();
   });
 
   it("skips broadcast during historical backfill", async () => {
@@ -418,6 +426,127 @@ describe("Bonding:Trade WS broadcaster", () => {
         newLtReserve: 1000n,
       },
       blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("Zap:Buy / Sell WS broadcaster (trade-list rows)", () => {
+  let db: ReturnType<typeof createMockDb>;
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    db = createMockDb();
+    fetchSpy = vi.fn().mockResolvedValue(new Response("ok"));
+    vi.stubGlobal("fetch", fetchSpy);
+    process.env.API_WEBHOOK_URL = "https://api.example.com";
+    process.env.ADMIN_API_KEY = "test-admin-key";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.API_WEBHOOK_URL;
+    delete process.env.ADMIN_API_KEY;
+  });
+
+  it("broadcasts a Buy with usdcAmount and the routerTrade id", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+
+    const handler = getHandler("Zap:Buy");
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        buyer: "0xbuyer",
+        usdcIn: 300_000_000n, // $300, 6dp
+        tokensOut: 583_000_000_000_000_000_000_000_000n,
+      },
+      txHash: "0xtxhash",
+      logIndex: 27,
+      blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.event).toBe("trade");
+    expect(body.tokenAddress).toBe("0xtoken1");
+    expect(body.data).toMatchObject({
+      // ID matches the REST `routerTrade.id` so the live broadcast
+      // dedupes against the REST poll fallback.
+      id: "0xtxhash-27",
+      tokenAddress: "0xtoken1",
+      trader: "0xbuyer",
+      isBuy: true,
+      usdcAmount: "300000000",
+      tokenAmount: "583000000000000000000000000",
+      ltAmount: "0",
+    });
+    // No chart state on this variant — useChartData consumes the
+    // Bonding:Trade broadcast for that.
+    expect(body.data.curveSupply).toBeUndefined();
+    expect(body.data.ltReserve).toBeUndefined();
+  });
+
+  it("broadcasts a Sell with isBuy=false and usdcAmount = usdcOut", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 100_000_000n,
+      volumeUsd: 100_000_000n,
+    });
+
+    const handler = getHandler("Zap:Sell");
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        seller: "0xseller",
+        tokensIn: 1_000_000_000_000_000_000_000_000n,
+        usdcOut: 50_000_000n,
+      },
+      txHash: "0xselltx",
+      logIndex: 5,
+      blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.data).toMatchObject({
+      id: "0xselltx-5",
+      trader: "0xseller",
+      isBuy: false,
+      usdcAmount: "50000000",
+    });
+  });
+
+  it("skips the broadcast on historical backfill", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+
+    const handler = getHandler("Zap:Buy");
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        buyer: "0xbuyer",
+        usdcIn: 1n,
+        tokensOut: 1n,
+      },
+      blockTimestamp: 1_700_000_000n,
     });
 
     await handler({ event, context: { db } });

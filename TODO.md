@@ -2,11 +2,12 @@
 
 # Now
 
-- Fix CI for smaller graduation treshold
+- Better handling of not enough funds? Buffer maybe?
+- Can't sell enough tokens
 - Leverage boost looks wrong Fresh mint with $21 of initial buy, and starts at 7% buy pressure and 16% leverage boost
-- Buy trade is duplicated when it triggers graduation
 - AVIF image didn't work
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
+- Clear all bad tokens
 
 # Internal feedback
 
@@ -14,6 +15,7 @@
 
 # Audit
 
+- Transfer domain name
 - Landing page
 - 1s chart
 - Default to 1m chart (not 1 day)
