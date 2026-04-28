@@ -108,7 +108,7 @@ const tokenDetailSchema = {
           description:
             "Virtual LT-side AMM reserve (reserve1) used by the bonding curve's constant-product math, raw 18 decimals. This is NOT a real LT balance: it includes the launch-time virtual LT seed (~$4K worth at launch-time LT rate). Consumers that just want graduation progress should use `curveFilled` / `curveFilledOrganic` / `curveFilledLeverageBoost` instead of recomputing.",
         },
-        curveFilled: { type: "number", description: "Percentage of curve filled (0-100). USD-denominated: `realLt × currentRate / graduationThresholdUsd × 100`, clamped to [0, 100]. Falls back to supply-based progress when `k` / rate / `ltReserve` are unavailable so the bar stays populated during indexer or BounceTech outages." },
+        curveFilled: { type: "number", nullable: true, description: "Percentage of curve filled (0-100). USD-denominated: `realLt × currentRate / graduationThresholdUsd × 100`, clamped to [0, 100]. Falls back to supply-based progress when `k` / rate / `ltReserve` are unavailable so the bar stays populated during indexer or BounceTech outages. `null` when neither path can be derived (e.g. the indexer is unreachable for this token and `curveSupply` is null) — clients must render '—', never `0`." },
         curveFilledOrganic: { type: "number", nullable: true, description: "Portion of `curveFilled` attributable to organic USDC buys. `null` while indexer/BounceTech are degraded or post-graduation." },
         curveFilledLeverageBoost: { type: "number", nullable: true, description: "Portion of `curveFilled` attributable to LT price appreciation. Clamped at 0 when the LT has dropped (we never surface a negative boost on the UI)." },
         curveRaisedUsd: { type: "number", nullable: true, description: "Live USD value of the curve's real LT reserve (`realLt × currentRate`). Numerator behind `curveFilled`; surfaced separately so clients can render the absolute '$X raised' label without redoing the virtual→real LT subtraction. `null` when degraded or post-graduation." },
@@ -283,8 +283,8 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
         ],
         responses: {
           "200": {
-            description: "List of tokens",
-            content: { "application/json": { schema: successResponse({ type: "array", items: { $ref: "#/components/schemas/Token" } }) } },
+            description: "List of tokens with on-chain enrichment (curve state, USD raised, USD-denominated graduation progress, organic-vs-leverage split). Same shape as `GET /api/v1/tokens/{address}`.",
+            content: { "application/json": { schema: successResponse({ type: "array", items: { $ref: "#/components/schemas/TokenDetail" } }) } },
           },
           "400": { description: "Invalid pagination parameters", content: { "application/json": { schema: errorResponse } } },
         },
