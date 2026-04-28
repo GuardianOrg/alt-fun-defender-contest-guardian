@@ -9,7 +9,7 @@
  * tx, which was the dominant create-flow friction point.
  *
  * The new design treats on-chain `Bonding.TokenInfo` as the source of truth.
- * Anyone can call `POST /api/v1/tokens/register { address }` — the API reads
+ * Anyone can call `POST /api/v1/tokens { address }` — the API reads
  * `getTokenInfo` directly, validates that the image URL points at our R2
  * bucket (so the moderation pipeline can't be bypassed), looks up the LT to
  * derive `underlying` / `leverage` / `direction`, and inserts the row. No
