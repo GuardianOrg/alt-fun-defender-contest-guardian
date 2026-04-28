@@ -1,0 +1,38 @@
+name: Nightly
+
+on:
+  schedule:
+    # 07:00 UTC every day. Adjust if you want a different cadence.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  contracts-full-fuzz:
+    name: Contracts (full fuzz / invariant runs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Cache Foundry artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            packages/contracts/cache
+            packages/contracts/out
+          key: foundry-nightly-${{ runner.os }}-${{ hashFiles('packages/contracts/foundry.toml', 'packages/contracts/remappings.txt', 'packages/contracts/src/**/*.sol', 'packages/contracts/test/**/*.sol', 'packages/contracts/lib/**/*.sol') }}
+          restore-keys: |
+            foundry-nightly-${{ runner.os }}-
+            foundry-${{ runner.os }}-
+
+      - name: forge test (default profile, full fuzz runs)
+        working-directory: packages/contracts
+        run: forge test -vv

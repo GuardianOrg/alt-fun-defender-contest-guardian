@@ -11,39 +11,74 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
-    name: Lint, Typecheck, Test, Build
+  js-checks:
+    name: JS/TS Lint, Typecheck, Test, Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          submodules: recursive
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
         with:
-          version: stable
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
 
       - name: Cache Turbo
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
+          key: turbo-js-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-js-${{ runner.os }}-
 
-      - run: npm ci
-
-      - name: CI
-        run: npm run ci
+      - name: Lint, Typecheck, Test, Build (excluding contracts)
+        run: npx turbo run lint typecheck test build --filter='!@launchpad/contracts'
 
       - name: Security audit
         run: npm audit --omit=dev
         continue-on-error: true
+
+  contracts:
+    name: Contracts (forge fmt + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Cache Foundry artifacts
+        uses: actions/cache@v5
+        with:
+          path: |
+            packages/contracts/cache
+            packages/contracts/out
+          key: foundry-${{ runner.os }}-${{ hashFiles('packages/contracts/foundry.toml', 'packages/contracts/remappings.txt', 'packages/contracts/src/**/*.sol', 'packages/contracts/test/**/*.sol', 'packages/contracts/lib/**/*.sol') }}
+          restore-keys: foundry-${{ runner.os }}-
+
+      - name: forge fmt --check
+        working-directory: packages/contracts
+        run: forge fmt --check
+
+      - name: forge test
+        working-directory: packages/contracts
+        env:
+          FOUNDRY_PROFILE: ci
+        run: forge test
 
   api-smoke:
     name: API Smoke Test
@@ -52,22 +87,33 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
       - name: Cache Turbo
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
-
-      - run: npm ci
+          key: turbo-js-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-js-${{ runner.os }}-
 
       - name: Build shared package
         run: npx turbo run build --filter=@launchpad/shared
@@ -88,22 +134,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
       - name: Cache Turbo
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: turbo-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-${{ runner.os }}-
-
-      - run: npm ci
+          key: turbo-js-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-js-${{ runner.os }}-
 
       - name: Build shared package
         run: npx turbo run build --filter=@launchpad/shared

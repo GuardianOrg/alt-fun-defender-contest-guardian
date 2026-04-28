@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
+
 import { computeCurveFilledBreakdown } from "../lib/token-enrich.js";
 import {
   _resetGraduationThresholdCache,
@@ -83,7 +85,7 @@ describe("getGraduationThresholdUsd — fallback + caching", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
 
     const value = await getGraduationThresholdUsd("http://no-such-host:1");
-    expect(value).toBe(12_000);
+    expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
   });
 
   it("falls back when the indexer responds with no row (fresh DB)", async () => {
@@ -94,7 +96,7 @@ describe("getGraduationThresholdUsd — fallback + caching", () => {
     );
 
     const value = await getGraduationThresholdUsd("http://stub:1");
-    expect(value).toBe(12_000);
+    expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
   });
 
   it("returns the live threshold when the indexer has a row", async () => {

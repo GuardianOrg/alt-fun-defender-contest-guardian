@@ -1,8 +1,24 @@
 import { describe, it, expect } from "vitest";
 
-import { seedBuyStats, usdcForSupplyPct } from "./seedBuyMath";
+import {
+  VIRTUAL_LIQUIDITY_USD,
+  seedBuyStats,
+  usdcForSupplyPct,
+} from "./seedBuyMath";
 
 const THRESHOLD = 12_000;
+const BUY_FEE = 0.005; // 0.5% — must match seedBuyMath.ts BUY_FEE_BPS
+
+/// Closed-form inverse of `seedBuyStats` for `supplyPct → usdcAmount`,
+/// mirroring `usdcForSupplyPct` exactly. Re-derived in the test so we can
+/// assert the implementation's output against an independent calculation
+/// using the *current* `VIRTUAL_LIQUIDITY_USD`. If the on-chain virtual
+/// liquidity dial moves, both this and the implementation move together
+/// and the assertion stays meaningful.
+function expectedUsdcForSupplyPct(pct: number): number {
+  const usdcAfterFee = (VIRTUAL_LIQUIDITY_USD * pct) / (100 - pct);
+  return usdcAfterFee / (1 - BUY_FEE);
+}
 
 describe("seedBuyStats", () => {
   it("returns zeros for zero input", () => {
@@ -20,15 +36,29 @@ describe("seedBuyStats", () => {
   });
 
   it("computes correct stats for a small buy", () => {
-    // $100 USDC input
-    // usdcAfterFee = 100 * 0.995 = 99.5
-    // rawTokens  = 1_000_000_000 * 99.5 / (4000 + 99.5) = 99_500_000_000 / 4099.5 ≈ 24_271_252
-    // (well below the 750M real-balance cap)
-    // supplyPct  = rawTokens / 1_000_000_000 * 100
-    const stats = seedBuyStats(100, THRESHOLD);
-    expect(stats.tokensReceived).toBeCloseTo(24_271_252, -2);
-    expect(stats.supplyPct).toBeCloseTo(2.427, 2);
-    expect(stats.curveFilled).toBeCloseTo(0.829, 2);
+    // Re-derive expectations from `VIRTUAL_LIQUIDITY_USD` so the assertions
+    // track on-chain config retunes (a hardcoded `4000` here silently
+    // breaks the moment we drop virtual liquidity for tighter curves).
+    //
+    //   usdcAfterFee = usdcIn * (1 - feeBps)
+    //   rawTokens    = TOTAL_SUPPLY * usdcAfterFee / (virtualLiquidity + usdcAfterFee)
+    //
+    // The `usdcIn` here is intentionally *much* smaller than virtual
+    // liquidity so the curve stays in its near-linear region. We pick 1%
+    // of virtual liquidity as the reference point — invariant to the
+    // exact dial value.
+    const usdcIn = VIRTUAL_LIQUIDITY_USD / 100;
+    const usdcAfterFee = usdcIn * (1 - BUY_FEE);
+    const expectedTokens =
+      (1_000_000_000 * usdcAfterFee) /
+      (VIRTUAL_LIQUIDITY_USD + usdcAfterFee);
+    const expectedSupplyPct = (expectedTokens / 1_000_000_000) * 100;
+    const expectedCurveFilled = (usdcAfterFee / THRESHOLD) * 100;
+
+    const stats = seedBuyStats(usdcIn, THRESHOLD);
+    expect(stats.tokensReceived).toBeCloseTo(expectedTokens, -2);
+    expect(stats.supplyPct).toBeCloseTo(expectedSupplyPct, 4);
+    expect(stats.curveFilled).toBeCloseTo(expectedCurveFilled, 4);
   });
 
   it("round-trips with usdcForSupplyPct", () => {
@@ -84,17 +114,15 @@ describe("usdcForSupplyPct", () => {
   });
 
   it("computes correct USDC for 1% of supply", () => {
-    // usdcAfterFee = 4000 * 1 / (100 - 1) = 4000/99 ≈ 40.40
-    // usdcAmount = 40.40 / 0.995 ≈ 40.61
-    const usdc = usdcForSupplyPct(1);
-    expect(usdc).toBeCloseTo(40.61, 1);
+    // Re-derive against `VIRTUAL_LIQUIDITY_USD` instead of hardcoding so
+    // the test survives on-chain virtual-liquidity retunes:
+    //   usdcAfterFee = virtualLiquidity * pct / (100 - pct)
+    //   usdcAmount   = usdcAfterFee / (1 - buyFee)
+    expect(usdcForSupplyPct(1)).toBeCloseTo(expectedUsdcForSupplyPct(1), 4);
   });
 
   it("computes correct USDC for 5% of supply", () => {
-    // usdcAfterFee = 4000 * 5 / (100 - 5) = 20000/95 ≈ 210.53
-    // usdcAmount = 210.53 / 0.995 ≈ 211.58
-    const usdc = usdcForSupplyPct(5);
-    expect(usdc).toBeCloseTo(211.58, 1);
+    expect(usdcForSupplyPct(5)).toBeCloseTo(expectedUsdcForSupplyPct(5), 4);
   });
 
   it("returns increasing USDC for increasing percentages (non-linear)", () => {

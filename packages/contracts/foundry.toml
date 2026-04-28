@@ -9,6 +9,12 @@ via_ir = false
 ffi = false
 fs_permissions = [{ access = "read", path = "./out" }]
 
+# Reduced-coverage profile for per-PR CI. Trades fuzz depth for wall time.
+# Full coverage is exercised by the nightly workflow (no FOUNDRY_PROFILE override).
+[profile.ci]
+fuzz = { runs = 64 }
+invariant = { runs = 64, depth = 32 }
+
 [fmt]
 line_length = 120
 tab_width = 4
