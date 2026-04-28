@@ -18,17 +18,27 @@ import type { Trade, TradeBroadcast } from "./types";
  * user-facing value — and its `id` matches `routerTrade.id`, so it dedupes
  * cleanly against the REST `/api/v1/trades` poll fallback.
  *
- * Other producers on the `trade` channel (`Bonding:Trade` curve state,
- * `HyperSwapPair:Sync` post-grad reserves) carry chart-state-only updates
- * (`curveSupply` / `ltReserve` for `useChartData`) and are skipped here —
- * surfacing them as rows would produce two entries per trade because the
- * Bonding broadcast records LT consumed by the curve (which can be
- * strictly less than the gross USDC, e.g. a graduation-triggering buy
- * whose final increment hits the supply cap) while the Zap broadcast
- * records the gross USDC, with different `id`s for the same tx.
+ * Chart-state broadcasts on the same channel (`Bonding:Trade`,
+ * `HyperSwapPair:Sync`) carry `curveSupply` / `ltReserve` only — they're
+ * picked up by `useChartData` and skipped here. Surfacing them as rows
+ * would produce two entries per trade because the Bonding broadcast
+ * records LT consumed by the curve (which can be strictly less than the
+ * gross USDC — e.g. a graduation-triggering buy whose final increment
+ * hits the supply cap) while the Zap broadcast records the gross USDC.
  */
 function formatWsTrade(raw: TradeBroadcast): Trade | null {
-  if (!raw.usdcAmount) return null;
+  // `usdcAmount`, `tokenAmount`, `trader`, `isBuy` are set together by
+  // the Zap variant — see `TradeBroadcast`'s docstring. The check on
+  // `usdcAmount` alone discriminates the variant; the others would only
+  // be undefined together if the broadcast contract were violated.
+  if (
+    raw.usdcAmount === undefined ||
+    raw.tokenAmount === undefined ||
+    raw.trader === undefined ||
+    raw.isBuy === undefined
+  ) {
+    return null;
+  }
   const apiShape: ApiRouterTrade = {
     id: raw.id,
     tokenAddress: raw.tokenAddress,

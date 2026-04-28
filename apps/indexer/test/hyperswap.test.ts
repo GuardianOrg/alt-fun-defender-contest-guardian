@@ -296,11 +296,15 @@ describe("HyperSwapPair:Sync", () => {
       tokenAddress: "0xtoken1",
       curveSupply: "100",
       ltReserve: "200",
-      // Synthetic identifiers — the trade-feed UI filters these out (zero
-      // ltAmount), the chart consumer reads only curveSupply/ltReserve.
-      ltAmount: "0",
-      tokenAmount: "0",
     });
+    // Trade-list payload deliberately absent — see `TradeBroadcast`'s
+    // docstring. The trade-feed UI sources rows from the Zap:Buy /
+    // Zap:Sell broadcasts (which fire alongside post-grad swaps) plus
+    // the REST `/api/v1/trades` poll fallback.
+    expect(body.data.usdcAmount).toBeUndefined();
+    expect(body.data.trader).toBeUndefined();
+    expect(body.data.isBuy).toBeUndefined();
+    expect(body.data.tokenAmount).toBeUndefined();
   });
 
   it("skips the WS broadcast for backfill events (older than the live window)", async () => {

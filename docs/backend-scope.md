@@ -101,23 +101,35 @@ Single endpoint: `WSS /ws`. Clients subscribe to channels.
 
 ### `trade` payload
 
-Broadcast from the Ponder indexer's `Bonding:Trade` handler via fire-and-forget POST to `/api/v1/webhook/indexer`. Historical backfill is skipped — the broadcaster only fires when the block timestamp is within 60s of wall-clock now.
+Broadcast from the Ponder indexer via fire-and-forget POST to `/api/v1/webhook/indexer`. Historical backfill is skipped — broadcasters only fire when the block timestamp is within 60s of wall-clock now. Two disjoint variants share the channel; consumers route by which optional group is populated.
+
+**Trade-list variant** (from `Zap:Buy` and `Zap:Sell`). `id` matches the REST `routerTrade.id` so live broadcasts dedupe against the `/api/v1/trades` poll fallback. `usdcAmount` is the gross USDC the user paid/received — the canonical user-facing value:
+
+```json
+{
+  "id": "0x<txHash>-<zapLogIndex>",
+  "tokenAddress": "0x…",
+  "trader": "0x…",
+  "isBuy": true,
+  "usdcAmount": "<bigint as string, 1e6-scaled>",
+  "tokenAmount": "<bigint as string, 1e18-scaled>",
+  "timestamp": "<unix seconds as string>"
+}
+```
+
+**Chart-state variant** (from `Bonding:Trade` and `HyperSwapPair:Sync`). Carries only the post-trade virtual AMM reserves so clients can recompute the live curve/DEX ratio without a round-trip. The chart pairs these with `price` ticks to drive live updates:
 
 ```json
 {
   "id": "0x<txHash>-<logIndex>",
   "tokenAddress": "0x…",
-  "trader": "0x…",
-  "isBuy": true,
-  "ltAmount": "<bigint as string, 1e18-scaled>",
-  "tokenAmount": "<bigint as string, 1e18-scaled>",
   "curveSupply": "<post-trade curveSupply, 1e18-scaled>",
   "ltReserve": "<post-trade ltReserve, 1e18-scaled>",
   "timestamp": "<unix seconds as string>"
 }
 ```
 
-`curveSupply` and `ltReserve` let clients recompute the live curve ratio without a round-trip. The chart pairs these with `price` ticks to drive live updates.
+The split exists because `Bonding:Trade` records the LT actually consumed by the curve (which can be strictly less than what the user paid for — e.g. a graduation-triggering buy whose final increment hits the supply cap), while `Zap:Buy` records the gross USDC input. Sourcing the trade list from the Zap variant keeps the live feed consistent with the REST `/api/v1/trades` route (which reads from `routerTrade`).
 
 ### `price` payload
 

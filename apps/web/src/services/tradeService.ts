@@ -6,8 +6,7 @@ import { formatTimeAgo } from "../utils/format";
 import type { Comment, Holder, Trade } from "./types";
 
 export type { TradeBroadcast } from "./types";
-export { getLtExchangeRates, resolveExchangeRate } from "./exchangeRates";
-export { formatTokenBalance, ponderTradeToTrade } from "./tradeFormatter";
+export { formatTokenBalance } from "./tradeFormatter";
 export { subscribeFeed, subscribeTokenTrades } from "./tradeFeed";
 
 export interface ITradeService {

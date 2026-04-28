@@ -155,14 +155,14 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
     })
     .onConflictDoNothing();
 
-  // Chart-state broadcast. Carries the post-trade virtual reserves so the
-  // frontend chart can recompute `ratio = ltReserve / curveSupply` without a
-  // Ponder round-trip. The trade-feed UI does NOT consume this event for
-  // its row list: trade-list rows come from the `Zap:Buy` / `Zap:Sell`
-  // broadcasts (which carry the gross USDC and dedupe against the REST
-  // poll fallback). Sentinel `ltAmount: "0"` matches the convention used by
-  // `HyperSwapPair:Sync` so any consumer that historically filtered chart-
-  // only updates by zero ltAmount keeps working unchanged.
+  // Chart-state broadcast. Carries only the post-trade virtual reserves so
+  // the frontend chart can recompute `ratio = ltReserve / curveSupply`
+  // without a Ponder round-trip. The trade-feed UI does NOT consume this
+  // event for its row list — trade-list rows come from the `Zap:Buy` /
+  // `Zap:Sell` broadcasts (which carry the gross USDC and dedupe against
+  // the REST poll fallback by `id`). The trade-list payload (`usdcAmount`
+  // / `trader` / `isBuy` / `tokenAmount`) is deliberately omitted so the
+  // shape can't be misread as a user-facing trade.
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",
@@ -170,10 +170,6 @@ ponder.on("Bonding:Trade", async ({ event, context }) => {
       data: {
         id: tradeId,
         tokenAddress: event.args.token,
-        trader: ZERO_ADDRESS,
-        isBuy: event.args.isBuy,
-        ltAmount: "0",
-        tokenAmount: "0",
         curveSupply: event.args.newCurveSupply.toString(),
         ltReserve: event.args.newLtReserve.toString(),
         timestamp: event.block.timestamp.toString(),
@@ -334,7 +330,6 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
         tokenAddress: event.args.token,
         trader: event.args.buyer,
         isBuy: true,
-        ltAmount: "0",
         tokenAmount: event.args.tokensOut.toString(),
         usdcAmount: event.args.usdcIn.toString(),
         timestamp: event.block.timestamp.toString(),
@@ -387,7 +382,6 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
         tokenAddress: event.args.token,
         trader: event.args.seller,
         isBuy: false,
-        ltAmount: "0",
         tokenAmount: event.args.tokensIn.toString(),
         usdcAmount: event.args.usdcOut.toString(),
         timestamp: event.block.timestamp.toString(),

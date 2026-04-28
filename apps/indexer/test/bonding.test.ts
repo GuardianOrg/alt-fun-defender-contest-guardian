@@ -378,17 +378,19 @@ describe("Bonding:Trade WS broadcaster", () => {
     const body = JSON.parse(init.body as string);
     expect(body.event).toBe("trade");
     expect(body.tokenAddress).toBe("0xtoken1");
-    expect(body.data).toMatchObject({
+    expect(body.data).toEqual({
+      id: "0xlive-0",
       tokenAddress: "0xtoken1",
       curveSupply: "5000",
       ltReserve: "1000",
-      // Chart-only sentinels — see `bonding.ts` Bonding:Trade comment. Trade-
-      // list rows now come from the Zap:Buy / Zap:Sell broadcast (see below).
-      ltAmount: "0",
-      tokenAmount: "0",
-      trader: "0x0000000000000000000000000000000000000000",
+      timestamp: nowSec.toString(),
     });
+    // Trade-list payload absent — rows come from the Zap:Buy / Zap:Sell
+    // broadcast (asserted below).
     expect(body.data.usdcAmount).toBeUndefined();
+    expect(body.data.trader).toBeUndefined();
+    expect(body.data.isBuy).toBeUndefined();
+    expect(body.data.tokenAmount).toBeUndefined();
   });
 
   it("skips broadcast during historical backfill", async () => {
@@ -489,7 +491,6 @@ describe("Zap:Buy / Sell WS broadcaster (trade-list rows)", () => {
       isBuy: true,
       usdcAmount: "300000000",
       tokenAmount: "583000000000000000000000000",
-      ltAmount: "0",
     });
     // No chart state on this variant — useChartData consumes the
     // Bonding:Trade broadcast for that.
