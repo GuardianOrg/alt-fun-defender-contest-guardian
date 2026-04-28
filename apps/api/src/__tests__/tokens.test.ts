@@ -639,6 +639,64 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.curveFilledLeverageBoost).toBe(0);
   });
 
+  it("uses USD raised as the headline, not the supply-side AMM lead", async () => {
+    // Regression for the user-visible "23% buy pressure on a $20 raise toward
+    // a $300 threshold" bug. Under the constant-product AMM, every dollar
+    // moves the supply-% counter way faster than the USD-% counter, so the
+    // previous `total = max(supplyFilled, usdFilled)` formula made a fresh
+    // token with $20 of seed buys look ~3× further along than the dollars
+    // actually represented. The headline must track USD raised — that's the
+    // framing users think in ("we need $X, we've put in $Y, we're Y/X
+    // there"). The supply trigger is a bear-market backstop, not a progress
+    // signal.
+    //
+    // Fixture: $20 organic USDC in a token launched against a flat LT at
+    // $1/LT, with a $12K threshold (test-suite default — see top-of-file
+    // mock). `VIRTUAL_LIQUIDITY_USD` modelled at $100 to surface the
+    // supply-vs-USD divergence:
+    //   k = 1B × 100 LT virtualLtAtLaunch = 1e29 (× 1e18 fixed-point = 1e47).
+    //   reserve1 = 120 LT (100 virtual + 20 real), reserve0 = k/r1 ≈ 833.33M
+    //   → supplyFilled ≈ 22.2%, but realLt = 20 → usdFilled = 20/12000 ≈
+    //   0.167%. New formula: total = usdFilled ≈ 0.17%, organic ≈ 0.17%,
+    //   leverageBoost = 0.
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "100000000000000000000000000000000000000000000000",
+        curveSupply: "833333333333333333333333333",
+        ltReserve: "120000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "20000000",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "1000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: {
+        curveFilled: number;
+        curveFilledOrganic: number;
+        curveFilledLeverageBoost: number;
+      };
+    };
+    // Headline = USD raised / threshold, NOT supply-% (which would be ~22%).
+    expect(body.data.curveFilled).toBeCloseTo(0.167, 2);
+    expect(body.data.curveFilledOrganic).toBeCloseTo(0.167, 2);
+    expect(body.data.curveFilledLeverageBoost).toBe(0);
+  });
+
   it("returns null split (not 0) when organicUsdcRaised is missing from indexer", async () => {
     // Guards against indexer-version skew: a stale indexer response could be
     // missing `organicUsdcRaised` while every other field is present. Treating

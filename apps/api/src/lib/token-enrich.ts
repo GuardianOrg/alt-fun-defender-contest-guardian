@@ -80,9 +80,13 @@ export interface CurveFilledBreakdown {
   organic: number | null;
   /**
    * Share of `total` attributable to LT price appreciation since those buys.
-   * Clamped at 0 — if the LT has *lost* value we just show the total and
-   * don't surface a negative bucket in the UI (by product decision — it's a
-   * marketing number showcasing the LT boost, not an accounting figure).
+   * Computed as `max(0, total − organic)` — i.e. the gap between
+   * `realLt × currentRate` (already encoded in `total = usdFilled`) and the
+   * **net** organic USDC raised (indexer's `organicUsdcRaised`, where buys
+   * add and sells subtract, floored at 0). Clamped at 0 — if the LT has
+   * *lost* value we just show the total and don't surface a negative bucket
+   * (by product decision — it's a marketing number showcasing the LT boost,
+   * not an accounting figure).
    */
   leverageBoost: number | null;
 }
@@ -96,11 +100,27 @@ export interface CurveFilledBreakdown {
  * Used by the tokens list + detail endpoints to power the split progress bar
  * on the landing page.
  *
- * The `total` we return is `max(supplyFilled, usdFilled)` — whichever trigger
- * is closer to firing — since graduation happens on whichever hits first. For
- * the split we use `usdFilled` as the denominator and clamp to `total` so the
- * two buckets never overshoot the headline number (which would look wrong in
- * the UI).
+ * **`total = clamp(usdFilled, 0, 100)`**, where `usdFilled = realLt × rate /
+ * threshold × 100`. This is the framing users actually think in: "we need
+ * `$X` raised, we've raised `$Y`, so we're `Y/X` of the way there."
+ *
+ * The supply trigger (curve sells out → graduation fires regardless of USD)
+ * is a bear-market backstop, not the natural progress framing — under the
+ * constant-product AMM with the current `VIRTUAL_LIQUIDITY_USD : threshold`
+ * ratio, supply-% systematically *leads* USD-% throughout most of the
+ * curve, so using `max(supplyFilled, usdFilled)` (the previous formulation)
+ * made small fresh-mint buys look ~3× further along than they actually are.
+ * `supplyFilled` is still computed and exported as `curveFilled` on the
+ * single-supply-fallback path (when `k` / rate / `ltReserve` are missing),
+ * so the bar stays populated when the indexer or BounceTech is degraded.
+ *
+ * Split (with `total = usdFilled`, no rescaling needed):
+ *   - `organic       = min(organicPct, usdFilled)` — clamped so a late-life
+ *                      LT crash that drove `usdFilled` below `organicPct`
+ *                      reads as all-organic, not negative-leverage.
+ *   - `leverageBoost = max(0, usdFilled − organicPct)` — the appreciation
+ *                      premium between user-paid USDC and the curve's
+ *                      current USD value. Always ≥ 0 by product decision.
  *
  * Virtual vs real reserves: `curveSupplyRaw` and `ltReserveRaw` are the AMM's
  * **virtual** reserves (what the constant-product math uses, needed unmodified
@@ -109,7 +129,7 @@ export interface CurveFilledBreakdown {
  * compares against `graduationThresholdUsd`. We recover it by subtracting the
  * launch-time virtual LT reserve (`virtualLtAtLaunch = k / TOTAL_SUPPLY`)
  * from the current virtual `reserve1`. Without `k` we can't do that subtraction
- * and would overcount by the initial $4K virtual liquidity, so we degrade
+ * and would overcount by the initial virtual liquidity, so we degrade
  * cleanly to supply-only progress.
  */
 export function computeCurveFilledBreakdown(
@@ -162,7 +182,13 @@ export function computeCurveFilledBreakdown(
   const usdRaisedNow = realLt * ltExchangeRate;
   const usdFilled = (usdRaisedNow / graduationThresholdUsd) * 100;
 
-  const total = Math.min(Math.max(supplyFilled, usdFilled), 100);
+  // USD-denominated headline. See function docstring on why the supply
+  // trigger doesn't influence `total` — the constant-product AMM makes
+  // supply-% lead USD-% throughout most of the curve, so using `max()` made
+  // fresh tokens look multiples further along than the user-paid dollars
+  // actually represent. `supplyFilled` is preserved on the fallback path
+  // above so the bar stays populated when USD progress is uncomputable.
+  const total = Math.min(Math.max(usdFilled, 0), 100);
 
   // Missing organic counter => don't invent a split. Returning `0` here would
   // silently render the bar as 100% leverage boost, which is a lie (and
@@ -175,8 +201,13 @@ export function computeCurveFilledBreakdown(
   const organicUsd = Number(BigInt(organicUsdcRaisedRaw)) / 1e6;
   const organicPct = (organicUsd / graduationThresholdUsd) * 100;
 
+  // With `total = usdFilled` no rescaling is needed: the USD headline IS the
+  // sum of "organic dollars in" and "LT appreciation since". `organic` is
+  // clamped to `total` so a late-life LT crash that drove `usdFilled` below
+  // `organicPct` reads as all-organic (not negative-leverage); leverage
+  // floors at 0 by product decision (marketing number, not accounting).
   const organic = Math.min(Math.max(organicPct, 0), total);
-  const leverageBoost = Math.max(total - organic, 0);
+  const leverageBoost = Math.max(0, total - organic);
 
   return { total, organic, leverageBoost };
 }

@@ -19,6 +19,7 @@
 - Default to 1m chart (not 1 day)
 - Option to enlarge token icon when clicked
 - We should pass through slippage checks
+- Add ability to resize right section in trade view, maybe other sections also
 - Testing image validation, does this work and how? Max image size also etc? some explicit filter
 - Add Geoblocking, block UK, Any sanctioned countries
 - Add Terms of Service, Privacy Policy, DMCA Policy
