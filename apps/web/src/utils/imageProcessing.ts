@@ -1,6 +1,6 @@
 import {
   ALLOWED_IMAGE_TYPES_LABEL,
-  MAX_IMAGE_BYTES,
+  MAX_IMAGE_SIZE_LABEL,
   isAllowedImageMimeType,
   validateImageFile,
 } from "@launchpad/shared";
@@ -213,9 +213,16 @@ export async function processImageForUpload(file: File): Promise<CompressionResu
   if (!blob) {
     throw new Error("Failed to compress image");
   }
-  if (blob.size > MAX_IMAGE_BYTES) {
+  // Reuse the shared validator so the threshold itself can never drift
+  // from the server. We rewrap the message with post-compression context
+  // ("after compression" tells the user we already tried, which is more
+  // actionable than the generic server wording) but the threshold value
+  // and units come from `MAX_IMAGE_SIZE_LABEL` so it stays in sync.
+  const sizeError = validateImageFile({ type: outputType, size: blob.size });
+  if (sizeError) {
+    const actualMb = (blob.size / (1024 * 1024)).toFixed(1);
     throw new Error(
-      `Image is too large after compression (${(blob.size / (1024 * 1024)).toFixed(1)}MB). Try a smaller image.`,
+      `Image is too large after compression (${actualMb}MB, max ${MAX_IMAGE_SIZE_LABEL}). Try a smaller image.`,
     );
   }
 
