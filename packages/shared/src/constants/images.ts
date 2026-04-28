@@ -8,7 +8,11 @@
  * has already gone through.
  */
 
-/** 5 MiB — hard cap on raw upload size accepted by the API. */
+/**
+ * Hard cap on raw upload size accepted by the API. Sized in binary
+ * megabytes (`5 × 1024 × 1024 = 5_242_880` bytes) to match the legacy
+ * server limit and the user-facing "5MB" copy in the UI.
+ */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /**
@@ -33,7 +37,12 @@ export const IMAGE_ACCEPT_ATTRIBUTE = ALLOWED_IMAGE_MIME_TYPES.join(",");
 /** Human-readable list for error/help text ("JPEG, PNG, GIF, WebP"). */
 export const ALLOWED_IMAGE_TYPES_LABEL = "JPEG, PNG, GIF, WebP";
 
-/** `MAX_IMAGE_BYTES` formatted for display ("5MB"). */
+/**
+ * `MAX_IMAGE_BYTES` formatted for display ("5MB"). Uses the colloquial
+ * "MB" suffix (not "MiB") to match user expectations — almost no end
+ * user reads "MiB" as more correct than "MB", and the OS file-size
+ * displays we're echoing also use "MB" for the same value.
+ */
 export const MAX_IMAGE_SIZE_LABEL = `${MAX_IMAGE_BYTES / (1024 * 1024)}MB`;
 
 export function isAllowedImageMimeType(type: string): type is AllowedImageMimeType {
