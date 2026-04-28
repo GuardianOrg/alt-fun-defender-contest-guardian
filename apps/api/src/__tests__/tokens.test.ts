@@ -639,30 +639,26 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.curveFilledLeverageBoost).toBe(0);
   });
 
-  it("attributes supply-side overshoot to organic, not leverage, on a fresh token", async () => {
-    // Regression: with tight `VIRTUAL_LIQUIDITY_USD` (e.g. $100 on testnet vs
-    // a $12K graduation threshold), a small seed buy moves the bonding curve
-    // a lot in supply-% terms while barely registering in USD-% terms. The
-    // pre-fix split formula (`leverageBoost = total − organic`) misattributed
-    // that gap to leverage boost, so a fresh token with the LT perfectly flat
-    // would render as e.g. "7% buy pressure + 16% leverage boost" — the user-
-    // reported bug. Leverage boost must be ~0 unless the LT has actually
-    // appreciated above the user's dollar contribution.
+  it("uses USD raised as the headline, not the supply-side AMM lead", async () => {
+    // Regression for the user-visible "23% buy pressure on a $20 raise toward
+    // a $300 threshold" bug. Under the constant-product AMM, every dollar
+    // moves the supply-% counter way faster than the USD-% counter, so the
+    // previous `total = max(supplyFilled, usdFilled)` formula made a fresh
+    // token with $20 of seed buys look ~3× further along than the dollars
+    // actually represented. The headline must track USD raised — that's the
+    // framing users think in ("we need $X, we've put in $Y, we're Y/X
+    // there"). The supply trigger is a bear-market backstop, not a progress
+    // signal.
     //
-    // Fixture: a fresh token whose curve has $20 of organic USDC in it (close
-    // to user-paid $21 minus the 0.5% router fee). LT exchange rate equals
-    // launch rate, so the LT has not moved.
-    //   k = TOTAL_SUPPLY × virtualLtAtLaunch with virtualLtAtLaunch = 100 LT
-    //   (matches `VIRTUAL_LIQUIDITY_USD = $100` at $1/LT launch rate).
-    //   organic of $20 mints 20 LT (no fee modelled in fixture) →
-    //   reserve1 = 100 + 20 = 120 LT, reserve0 follows constant-product:
-    //     reserve0 = k / reserve1 = 1B × 100 / 120 ≈ 833.33M
-    //   → realRemaining = 833.33M − 250M = 583.33M, sold = 750M − 583.33M
-    //     ≈ 166.67M → supplyFilled ≈ 22.2%
-    //   usdFilled = 20 LT × $1 / $12K ≈ 0.167%
-    //   organicPct = $20 / $12K ≈ 0.167%
-    //   total = max(22.2%, 0.167%) = 22.2%
-    //   stretched: organic ≈ 22.2%, leverageBoost ≈ 0%.
+    // Fixture: $20 organic USDC in a token launched against a flat LT at
+    // $1/LT, with a $12K threshold (test-suite default — see top-of-file
+    // mock). `VIRTUAL_LIQUIDITY_USD` modelled at $100 to surface the
+    // supply-vs-USD divergence:
+    //   k = 1B × 100 LT virtualLtAtLaunch = 1e29 (× 1e18 fixed-point = 1e47).
+    //   reserve1 = 120 LT (100 virtual + 20 real), reserve0 = k/r1 ≈ 833.33M
+    //   → supplyFilled ≈ 22.2%, but realLt = 20 → usdFilled = 20/12000 ≈
+    //   0.167%. New formula: total = usdFilled ≈ 0.17%, organic ≈ 0.17%,
+    //   leverageBoost = 0.
     mockSelectWhere.mockReturnValue({
       limit: vi.fn().mockResolvedValue([makeDbToken()]),
     });
@@ -670,11 +666,8 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
       token: {
         address: VALID_ADDRESS.toLowerCase(),
         ltToken: LT_ADDR.toLowerCase(),
-        // k = 1B × 100 (in 1e36 = 1e18 × 1e18 form) = 1e29 + 18 = 1e47
         k: "100000000000000000000000000000000000000000000000",
-        // reserve0 ≈ 833.33M × 1e18
         curveSupply: "833333333333333333333333333",
-        // reserve1 = 120 × 1e18
         ltReserve: "120000000000000000000",
         graduated: false,
         graduatedAt: null,
@@ -698,9 +691,10 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
         curveFilledLeverageBoost: number;
       };
     };
-    expect(body.data.curveFilled).toBeCloseTo(22.2, 0);
-    expect(body.data.curveFilledOrganic).toBeCloseTo(22.2, 0);
-    expect(body.data.curveFilledLeverageBoost).toBeLessThan(0.1);
+    // Headline = USD raised / threshold, NOT supply-% (which would be ~22%).
+    expect(body.data.curveFilled).toBeCloseTo(0.167, 2);
+    expect(body.data.curveFilledOrganic).toBeCloseTo(0.167, 2);
+    expect(body.data.curveFilledLeverageBoost).toBe(0);
   });
 
   it("returns null split (not 0) when organicUsdcRaised is missing from indexer", async () => {

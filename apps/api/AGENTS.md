@@ -23,11 +23,11 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 
 | Field | Meaning |
 |---|---|
-| `curveFilled` | Headline progress toward graduation (0–100). `max(supplyFilled, usdFilled)` — whichever trigger fires first. `null` while the indexer is degraded. |
-| `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`). Clamped at `curveFilled`. |
+| `curveFilled` | Headline progress toward graduation (0–100). `clamp(usdFilled, 0, 100)` where `usdFilled = realLt × rate / threshold × 100`. `null` while the indexer is degraded. Falls back to `supplyFilled` only when `k` / rate / `ltReserve` are unknown. |
+| `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`, percent of threshold). Clamped at `curveFilled`. |
 | `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation, derived from the gap between `realLt × currentRate` and the lifetime organic USDC. Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
 
-When the supply trigger is leading (`supplyFilled > usdFilled` — typical under tight `VIRTUAL_LIQUIDITY_USD`), `computeCurveFilledBreakdown` keeps the LT-appreciation-vs-organic-USD ratio honest by computing the split inside `usdFilled` and then stretching both buckets by `total / usdFilled`. The supply-side overshoot is attributed to organic buy pressure, never to leverage. The previous `leverageBoost = total − organic` formula misattributed that gap as leverage and rendered phantom boost on flat-LT seed buys.
+The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the current `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$20` raise toward a `$300` threshold rendered as `~23%` instead of `~6.67%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 
