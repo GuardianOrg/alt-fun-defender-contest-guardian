@@ -167,25 +167,23 @@ export function searchTokens(query: string): Promise<ApiToken[]> {
   return apiFetch(`/api/v1/tokens/search?q=${encodeURIComponent(query)}`);
 }
 
-export function createTokenApi(data: {
-  address: string;
-  name: string;
-  ticker: string;
-  description?: string;
-  imageUrl?: string;
-  ltPair: string;
-  ltDirection: string;
-  leverage: number;
-  twitterUrl?: string;
-  telegramUrl?: string;
-  websiteUrl?: string;
-  creator: string;
-  signature: string;
-}): Promise<ApiToken> {
+/**
+ * Register a token in the PostgreSQL `tokens` table after its on-chain
+ * launch. Address-only — every other field is read from
+ * `Bonding.getTokenInfo` server-side, so no signature is required and
+ * arbitrary clients can call this idempotently. The frontend awaits this
+ * synchronously after the launch tx confirms; if it fails, the API
+ * Worker's cron backfill picks the token up within ~60s.
+ *
+ * Returns the registered row on both 201 (just inserted) and 200
+ * (already existed) — `apiFetch` collapses the two into the same success
+ * shape, which is the right thing for the UI.
+ */
+export function registerTokenApi(address: string): Promise<ApiToken> {
   return apiFetch("/api/v1/tokens", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ address }),
   });
 }
 

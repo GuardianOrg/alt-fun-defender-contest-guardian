@@ -12,7 +12,6 @@ import type {
   LiveLeveragedToken,
   SupportedAsset,
   SupportedLeverage,
-  TokenCreationPayload,
 } from "../index.js";
 
 /**
@@ -154,18 +153,4 @@ describe("type exports compile correctly", () => {
     expect(lt).toBeDefined();
   });
 
-  it("TokenCreationPayload type is assignable", () => {
-    const payload: TokenCreationPayload = {
-      address: "0x1",
-      name: "Test",
-      ticker: "TST",
-      description: "d",
-      imageUrl: "https://example.com/img.png",
-      ltPair: "HYPE",
-      ltDirection: "long",
-      leverage: 2,
-      creator: "0x2",
-    };
-    expect(payload).toBeDefined();
-  });
 });

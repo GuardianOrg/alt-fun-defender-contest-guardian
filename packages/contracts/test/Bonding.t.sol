@@ -307,6 +307,97 @@ contract BondingTest is DeployHelper {
         assertTrue(tokenAddr != address(0));
     }
 
+    // ─── Description / Image / URL Length Validation ────────────────────
+    //
+    // These caps exist as DoS guards. A misbehaving caller could otherwise
+    // pack a multi-MB string into the launch tx and bloat block space and
+    // the indexer. The numbers here mirror the public constants and must
+    // stay in sync with the off-chain validation in the API.
+
+    function _launchParamsBase() internal returns (Bonding.LaunchParams memory) {
+        return Bonding.LaunchParams({
+            name: "Valid",
+            ticker: "VLD",
+            description: "",
+            image: "",
+            urls: ["", "", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator)
+        });
+    }
+
+    function test_launch_revertsOnDescriptionTooLong() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsBase();
+        params.description = _repeat("A", 8001);
+        vm.expectRevert(Bonding.InvalidDescriptionLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_acceptsDescriptionAtMaxLength() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsBase();
+        params.description = _repeat("A", 8000);
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
+    function test_launch_revertsOnImageTooLong() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsBase();
+        params.image = _repeat("A", 513);
+        vm.expectRevert(Bonding.InvalidImageLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_acceptsImageAtMaxLength() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsBase();
+        params.image = _repeat("A", 512);
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
+    function test_launch_revertsOnAnyUrlTooLong() public {
+        // Verify the per-slot loop catches an oversize URL in a non-zero
+        // index, not just the first one. Easy off-by-one to introduce.
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsBase();
+        params.urls[2] = _repeat("A", 513);
+        vm.expectRevert(Bonding.InvalidUrlLength.selector);
+        bonding.launch(params, creator);
+        vm.stopPrank();
+    }
+
+    function test_launch_acceptsUrlsAtMaxLength() public {
+        vm.startPrank(creator);
+        Bonding.LaunchParams memory params = _launchParamsBase();
+        for (uint256 i = 0; i < 4; i++) {
+            params.urls[i] = _repeat("A", 512);
+        }
+        (address tokenAddr,,) = bonding.launch(params, creator);
+        vm.stopPrank();
+        assertTrue(tokenAddr != address(0));
+    }
+
+    function _repeat(
+        string memory s,
+        uint256 n
+    ) internal pure returns (string memory) {
+        bytes memory unit = bytes(s);
+        bytes memory out = new bytes(unit.length * n);
+        for (uint256 i = 0; i < n; i++) {
+            for (uint256 j = 0; j < unit.length; j++) {
+                out[i * unit.length + j] = unit[j];
+            }
+        }
+        return string(out);
+    }
+
     // ─── Buy Tests ───────────────────────────────────────────────────────
 
     function test_buy_givesTokensToTrader() public {

@@ -1,59 +1,12 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  buildTokenCreationMessage,
   buildCommentMessage,
   buildProfileUpdateMessage,
   buildSessionMessage,
   SESSION_DURATION_MS,
 } from "../signing.js";
-import type { TokenCreationPayload, ProfileUpdatePayload } from "../signing.js";
-
-describe("buildTokenCreationMessage", () => {
-  const payload: TokenCreationPayload = {
-    address: "0xabc123",
-    name: "Test Token",
-    ticker: "TEST",
-    description: "A test token",
-    imageUrl: "https://example.com/img.png",
-    ltPair: "HYPE",
-    ltDirection: "long",
-    leverage: 2,
-    creator: "0xcreator",
-  };
-
-  it("starts with the domain separator", () => {
-    const msg = buildTokenCreationMessage(payload);
-    expect(msg.startsWith("Create token metadata\n")).toBe(true);
-  });
-
-  it("includes all fields in correct order", () => {
-    const msg = buildTokenCreationMessage(payload);
-    const lines = msg.split("\n");
-    expect(lines).toEqual([
-      "Create token metadata",
-      "address:0xabc123",
-      "name:Test Token",
-      "ticker:TEST",
-      "description:A test token",
-      "imageUrl:https://example.com/img.png",
-      "ltPair:HYPE",
-      "ltDirection:long",
-      "leverage:2",
-      "creator:0xcreator",
-    ]);
-  });
-
-  it("has exactly 10 lines", () => {
-    const msg = buildTokenCreationMessage(payload);
-    expect(msg.split("\n")).toHaveLength(10);
-  });
-
-  it("formats leverage as a number string", () => {
-    const msg = buildTokenCreationMessage({ ...payload, leverage: 5 });
-    expect(msg).toContain("leverage:5");
-  });
-});
+import type { ProfileUpdatePayload } from "../signing.js";
 
 describe("buildCommentMessage", () => {
   it("starts with the domain separator", () => {

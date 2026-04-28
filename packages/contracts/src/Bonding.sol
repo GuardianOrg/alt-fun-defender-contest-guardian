@@ -114,6 +114,19 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public constant MIN_TICKER_LENGTH = 1;
     uint256 public constant MAX_TICKER_LENGTH = 10;
 
+    /// @dev Upper bounds on the optional metadata fields in `LaunchParams`.
+    ///      These exist purely as DoS guards — without them a misbehaving
+    ///      caller could push a multi-MB string into the launch tx and
+    ///      bloat block space / indexer memory. Generous enough that real
+    ///      tokens (rich descriptions, long URLs) are unaffected; sized off
+    ///      the API's serialised body limits and what reasonable URL
+    ///      shorteners produce. Off-chain (frontend, API) replicates these
+    ///      pre-flight so users get a clean validation error instead of a
+    ///      revert.
+    uint256 public constant MAX_DESCRIPTION_LENGTH = 8000;
+    uint256 public constant MAX_IMAGE_LENGTH = 512;
+    uint256 public constant MAX_URL_LENGTH = 512;
+
     /// @notice Required low-order suffix on every launched token's address.
     ///         Every clone must end in `0xa1fa` (4 hex chars). The frontend
     ///         mines a CREATE2 salt that produces a qualifying address (~65k
@@ -257,6 +270,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error ZeroExchangeRate();
     error InvalidNameLength();
     error InvalidTickerLength();
+    error InvalidDescriptionLength();
+    error InvalidImageLength();
+    error InvalidUrlLength();
     error InvalidThreshold();
     /// @dev Thrown when a launch's CREATE2 salt resolves to an address that
     ///      doesn't end in `VANITY_SUFFIX`. This is the on-chain backstop
@@ -306,6 +322,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (nameLen < MIN_NAME_LENGTH || nameLen > MAX_NAME_LENGTH) revert InvalidNameLength();
         uint256 tickerLen = bytes(params.ticker).length;
         if (tickerLen < MIN_TICKER_LENGTH || tickerLen > MAX_TICKER_LENGTH) revert InvalidTickerLength();
+        if (bytes(params.description).length > MAX_DESCRIPTION_LENGTH) revert InvalidDescriptionLength();
+        if (bytes(params.image).length > MAX_IMAGE_LENGTH) revert InvalidImageLength();
+        // Per-URL cap (no minimum — empty URLs are valid). Cheaper than a
+        // total-cap loop and aligns with the per-field semantics off-chain.
+        for (uint256 i = 0; i < 4; i++) {
+            if (bytes(params.urls[i]).length > MAX_URL_LENGTH) revert InvalidUrlLength();
+        }
 
         (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress, creator_, params.salt);
         index = allTokens.length;

@@ -5,26 +5,21 @@ import {Script, console} from "forge-std/Script.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-/// @notice Deploy a fresh `Bonding` implementation and upgrade the live proxy
-///         to point at it. Used here to roll out the testing-mode constants
-///         (`VIRTUAL_LIQUIDITY_USD = 10 ether` etc.) without redeploying the
-///         entire stack — proxy address, all wiring, and existing state stay
-///         intact.
+/// @notice Deploy a fresh `Bonding` implementation and point the live proxy
+///         at it. All existing proxy state (graduation threshold, router
+///         allowlist, token records, pending-graduation entries) is preserved
+///         — UUPS upgrades only swap the implementation address.
 ///
 ///         Override `BONDING_PROXY` via env var to target a non-default
-///         deployment. After the upgrade we ratchet
-///         `graduationThresholdUsd` down to the new (lower) test value;
-///         this requires the upgrade to land first because the OLD
-///         implementation's `MIN_GRADUATION_THRESHOLD_USD` (= old
-///         `VIRTUAL_LIQUIDITY_USD = 4000 ether`) would reject anything
-///         below 4000.
+///         deployment.
+///
+///         This upgrade adds metadata length caps to `Bonding.launch`:
+///         - description <= 8 000 bytes
+///         - image        <=   512 bytes
+///         - each url[i]  <=   512 bytes
+///         No storage layout changes; no initializer call required.
 contract UpgradeBonding is Script {
     address constant DEFAULT_BONDING_PROXY = 0x06dA483b9BaAfF21942D034A8E027e32d93E77CE;
-
-    /// @dev New owner-set graduation threshold (18-dp USD). Must be >=
-    ///      the new `MIN_GRADUATION_THRESHOLD_USD` enforced by the upgraded
-    ///      implementation (= new `VIRTUAL_LIQUIDITY_USD`).
-    uint256 constant NEW_GRADUATION_THRESHOLD = 300 ether;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -32,6 +27,7 @@ contract UpgradeBonding is Script {
 
         console.log("Deployer:", vm.addr(pk));
         console.log("Bonding proxy:", bondingProxy);
+        console.log("Current graduationThresholdUsd:", Bonding(bondingProxy).graduationThresholdUsd());
 
         vm.startBroadcast(pk);
 
@@ -41,12 +37,11 @@ contract UpgradeBonding is Script {
         UUPSUpgradeable(bondingProxy).upgradeToAndCall(address(newImpl), "");
         console.log("Proxy upgraded.");
 
-        Bonding(bondingProxy).setGraduationThresholdUsd(NEW_GRADUATION_THRESHOLD);
-        console.log("graduationThresholdUsd set to:", NEW_GRADUATION_THRESHOLD);
-
         vm.stopBroadcast();
 
-        console.log("VIRTUAL_LIQUIDITY_USD now:", Bonding(bondingProxy).VIRTUAL_LIQUIDITY_USD());
-        console.log("graduationThresholdUsd now:", Bonding(bondingProxy).graduationThresholdUsd());
+        console.log("MAX_DESCRIPTION_LENGTH:", Bonding(bondingProxy).MAX_DESCRIPTION_LENGTH());
+        console.log("MAX_IMAGE_LENGTH:", Bonding(bondingProxy).MAX_IMAGE_LENGTH());
+        console.log("MAX_URL_LENGTH:", Bonding(bondingProxy).MAX_URL_LENGTH());
+        console.log("graduationThresholdUsd (unchanged):", Bonding(bondingProxy).graduationThresholdUsd());
     }
 }

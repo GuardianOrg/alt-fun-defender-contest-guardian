@@ -58,7 +58,33 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_DESCRIPTION_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_GRADUATION_THRESHOLD_USD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_IMAGE_LENGTH",
     "inputs": [],
     "outputs": [
       {
@@ -85,6 +111,19 @@ export const BondingAbi = [
   {
     "type": "function",
     "name": "MAX_TICKER_LENGTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_URL_LENGTH",
     "inputs": [],
     "outputs": [
       {
@@ -1395,6 +1434,16 @@ export const BondingAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidDescriptionLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidImageLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidInitialization",
     "inputs": []
   },
@@ -1416,6 +1465,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "InvalidTickerLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidUrlLength",
     "inputs": []
   },
   {

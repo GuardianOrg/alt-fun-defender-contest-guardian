@@ -35,7 +35,7 @@ vi.mock("@neondatabase/serverless", () => ({
   neon: () => mockNeonQuery,
 }));
 
-// --- Global fetch mock (used by BounceTech live LT API) ---
+// --- Global fetch mock (BounceTech LT directory + live LT API) ---
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 vi.stubGlobal("caches", undefined);
@@ -44,6 +44,21 @@ vi.stubGlobal("caches", undefined);
 vi.mock("../lib/broadcast.js", () => ({
   broadcastToChannel: vi.fn().mockResolvedValue(undefined),
 }));
+
+// --- Viem mock ---
+//
+// `registerTokenFromChain` calls `client.readContract({ ..., functionName: "getTokenInfo" })`
+// and then validates the result. Mocking at the viem boundary keeps the
+// helper's image / LT / DB interactions exercised by these tests without
+// hitting the network.
+const mockReadContract = vi.fn();
+vi.mock("viem", async () => {
+  const actual = await vi.importActual<typeof import("viem")>("viem");
+  return {
+    ...actual,
+    createPublicClient: () => ({ readContract: mockReadContract }),
+  };
+});
 
 // Pin the graduation threshold to a fixed test value so the curve-fill
 // percentage assertions below stay valid as the production default
@@ -58,18 +73,6 @@ vi.mock("../lib/protocol-config.js", () => ({
   _resetGraduationThresholdCache: vi.fn(),
 }));
 
-// --- Signature mock ---
-vi.mock("viem", async () => {
-  const actual = await vi.importActual("viem");
-  return {
-    ...actual,
-    recoverMessageAddress: vi.fn(),
-  };
-});
-
-const { recoverMessageAddress } = await import("viem");
-const mockedRecoverMessageAddress = vi.mocked(recoverMessageAddress);
-
 // Import route after mocks
 const { default: tokensRoute } = await import("../routes/tokens/index.js");
 
@@ -79,13 +82,33 @@ function createApp() {
   return app;
 }
 
-function makeEnv(): AppBindings {
+const VALID_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
+const VALID_CREATOR = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B";
+const LT_ADDR = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+interface BucketHeadResult {
+  size: number;
+}
+
+interface MockBucket {
+  head: ReturnType<typeof vi.fn>;
+}
+
+function makeBucket(headResult: BucketHeadResult | null = { size: 1024 }): MockBucket {
+  return {
+    head: vi.fn().mockResolvedValue(headResult),
+  };
+}
+
+function makeEnv(bucket: MockBucket = makeBucket()): AppBindings {
   return {
     DATABASE_URL: "postgres://test",
     BOUNCETECH_DATABASE_URL: "postgres://bouncetech",
     ADMIN_API_KEY: "admin-key",
     PONDER_URL: "http://localhost:42069",
-    IMAGES_BUCKET: {} as R2Bucket,
+    IMAGES_BUCKET: bucket as unknown as R2Bucket,
     WEBSOCKET_DO: {
       idFromName: () => "id",
       get: () => ({ fetch: vi.fn().mockResolvedValue(new Response("ok")) }),
@@ -95,12 +118,80 @@ function makeEnv(): AppBindings {
   };
 }
 
-const VALID_ADDRESS = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
-const VALID_CREATOR = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B";
+interface OnChainInfoOverrides {
+  creator?: string;
+  token?: string;
+  ltAddress?: string;
+  name?: string;
+  ticker?: string;
+  description?: string;
+  image?: string;
+  urls?: [string, string, string, string];
+}
 
-describe("POST /tokens — token creation", () => {
+function makeOnChainInfo(overrides: OnChainInfoOverrides = {}) {
+  return {
+    creator: overrides.creator ?? VALID_CREATOR,
+    token: overrides.token ?? VALID_ADDRESS,
+    pair: "0xpair000000000000000000000000000000000000",
+    ltAddress: overrides.ltAddress ?? LT_ADDR,
+    name: overrides.name ?? "Test Token",
+    ticker: overrides.ticker ?? "TST",
+    description: overrides.description ?? "",
+    image: overrides.image ?? "",
+    urls: overrides.urls ?? (["", "", "", ""] as [string, string, string, string]),
+    lifecycle: 0,
+  };
+}
+
+// BounceTech /leveraged-tokens response. Returned directly by the global
+// fetch mock to drive `resolveLtMeta` in `token-registration.ts`.
+function mockBounceTechLtList(entries: Array<{
+  address: string;
+  isLong?: boolean;
+  targetLeverage?: number;
+  targetAsset?: string;
+}> = []) {
+  const data = entries.length
+    ? entries
+    : [
+        {
+          address: LT_ADDR,
+          symbol: "HYPE2L",
+          name: "HYPE 2x Long",
+          targetAsset: "HYPE",
+          targetLeverage: 2,
+          isLong: true,
+          decimals: 18,
+          mintPaused: false,
+          exchangeRate: "1000000000000000000",
+          totalSupply: "0",
+          totalAssets: "0",
+        },
+      ];
+  const merged = data.map((d) => ({
+    address: d.address,
+    symbol: "HYPE2L",
+    name: "HYPE 2x Long",
+    targetAsset: d.targetAsset ?? "HYPE",
+    targetLeverage: d.targetLeverage ?? 2,
+    isLong: d.isLong ?? true,
+    decimals: 18,
+    mintPaused: false,
+    exchangeRate: "1000000000000000000",
+    totalSupply: "0",
+    totalAssets: "0",
+  }));
+  mockFetch.mockImplementationOnce(async () => ({
+    ok: true,
+    json: async () => ({ data: merged }),
+  }));
+}
+
+describe("POST /tokens — address-only registration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default: row doesn't exist yet, registration succeeds.
     mockSelectWhere.mockReturnValue({ limit: vi.fn().mockResolvedValue([]) });
   });
 
@@ -117,27 +208,21 @@ describe("POST /tokens — token creation", () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.status).toBe("error");
-    expect(body.error).toBeTruthy();
   });
 
-  it("returns 400 when required fields are missing", async () => {
+  it("returns 400 when address is missing", async () => {
     const app = createApp();
     const res = await app.request(
       "/tokens",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address: VALID_ADDRESS, name: "Test" }),
+        body: JSON.stringify({}),
       },
       makeEnv(),
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.status).toBe("error");
-    expect(body.error).toBeTruthy();
   });
 
   it("returns 400 when address is invalid", async () => {
@@ -147,148 +232,22 @@ describe("POST /tokens — token creation", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: "not-an-address",
-          name: "Test",
-          ticker: "TST",
-          ltPair: VALID_ADDRESS,
-          creator: VALID_CREATOR,
-          signature: "0xabc",
-        }),
+        body: JSON.stringify({ address: "not-an-address" }),
       },
       makeEnv(),
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toContain("Invalid address");
   });
 
-  it("returns 400 when name is too long (byte length)", async () => {
-    const app = createApp();
-    const res = await app.request(
-      "/tokens",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "A".repeat(35),
-          ticker: "TST",
-          ltPair: VALID_ADDRESS,
-          creator: VALID_CREATOR,
-          signature: "0xabc",
-        }),
-      },
-      makeEnv(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toContain("Name too long");
-  });
-
-  it("returns 400 when ticker is too long (byte length)", async () => {
-    const app = createApp();
-    const res = await app.request(
-      "/tokens",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "Test",
-          ticker: "A".repeat(11),
-          ltPair: VALID_ADDRESS,
-          creator: VALID_CREATOR,
-          signature: "0xabc",
-        }),
-      },
-      makeEnv(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toContain("Ticker too long");
-  });
-
-  it("rejects multi-byte symbols that exceed the on-chain byte limit", async () => {
-    // 4 emojis = 16 UTF-8 bytes (> 10 byte ticker cap), but only 8 UTF-16
-    // code units, so a plain `.max(10)` on JS string length would let this
-    // through and it would revert on-chain.
-    const app = createApp();
-    const res = await app.request(
-      "/tokens",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "Test",
-          ticker: "🚀🚀🚀🚀",
-          ltPair: VALID_ADDRESS,
-          creator: VALID_CREATOR,
-          signature: "0xabc",
-        }),
-      },
-      makeEnv(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toContain("Ticker too long");
-  });
-
-  it("returns 400 when name is empty", async () => {
-    const app = createApp();
-    const res = await app.request(
-      "/tokens",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "",
-          ticker: "TST",
-          ltPair: VALID_ADDRESS,
-          creator: VALID_CREATOR,
-          signature: "0xabc",
-        }),
-      },
-      makeEnv(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toContain("Name is required");
-  });
-
-  it("returns 400 when ltPair is not a valid address", async () => {
-    const app = createApp();
-    const res = await app.request(
-      "/tokens",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "Test",
-          ticker: "TST",
-          ltPair: "not-an-address",
-          creator: VALID_CREATOR,
-          signature: "0xabc",
-        }),
-      },
-      makeEnv(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toContain("Invalid LT pair address");
-  });
-
-  it("returns 401 when signature is invalid", async () => {
-    mockedRecoverMessageAddress.mockRejectedValue(new Error("bad sig"));
+  it("returns 404 when token has not been launched on-chain", async () => {
+    // `getTokenInfo` returns a zero-filled struct for an unregistered token.
+    mockReadContract.mockResolvedValueOnce(makeOnChainInfo({
+      token: ZERO_ADDRESS,
+      creator: ZERO_ADDRESS,
+    }));
 
     const app = createApp();
     const res = await app.request(
@@ -296,26 +255,17 @@ describe("POST /tokens — token creation", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "Test Token",
-          ticker: "TST",
-          ltPair: VALID_CREATOR,
-          creator: VALID_CREATOR,
-          signature: "0xbadsignature",
-        }),
+        body: JSON.stringify({ address: VALID_ADDRESS }),
       },
       makeEnv(),
     );
 
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Invalid signature");
+    expect(res.status).toBe(404);
   });
 
-  it("returns 401 when recovered address does not match creator", async () => {
-    mockedRecoverMessageAddress.mockResolvedValue(
-      "0x0000000000000000000000000000000000000001",
+  it("returns 422 when image URL is from a foreign domain", async () => {
+    mockReadContract.mockResolvedValueOnce(
+      makeOnChainInfo({ image: "https://evil.example.com/csam.jpg" }),
     );
 
     const app = createApp();
@@ -324,26 +274,42 @@ describe("POST /tokens — token creation", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "Test Token",
-          ticker: "TST",
-          ltPair: VALID_CREATOR,
-          creator: VALID_CREATOR,
-          signature: "0xvalidsignature",
-        }),
+        body: JSON.stringify({ address: VALID_ADDRESS }),
       },
       makeEnv(),
     );
 
-    expect(res.status).toBe(401);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Signature does not match creator");
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Alt Fun image bucket");
   });
 
-  it("returns 409 when token already exists", async () => {
-    mockedRecoverMessageAddress.mockResolvedValue(VALID_CREATOR);
-    mockDbReturning.mockResolvedValue([]);
+  it("returns 422 when image URL points to a missing R2 object", async () => {
+    mockReadContract.mockResolvedValueOnce(
+      makeOnChainInfo({ image: "https://api.alt.fun/images/tokens/abc-def.png" }),
+    );
+
+    const bucket = makeBucket(null); // R2 HEAD returns null = key absent.
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: VALID_ADDRESS }),
+      },
+      makeEnv(bucket),
+    );
+
+    expect(res.status).toBe(422);
+    expect(bucket.head).toHaveBeenCalledWith("tokens/abc-def.png");
+  });
+
+  it("returns 422 when LT address is unknown to BounceTech", async () => {
+    mockReadContract.mockResolvedValueOnce(
+      makeOnChainInfo({ ltAddress: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }),
+    );
+    mockBounceTechLtList(); // default list only has LT_ADDR.
 
     const app = createApp();
     const res = await app.request(
@@ -351,59 +317,133 @@ describe("POST /tokens — token creation", () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          address: VALID_ADDRESS,
-          name: "Test Token",
-          ticker: "TST",
-          ltPair: VALID_CREATOR,
-          creator: VALID_CREATOR,
-          signature: "0xvalidsignature",
-        }),
+        body: JSON.stringify({ address: VALID_ADDRESS }),
       },
       makeEnv(),
     );
 
-    expect(res.status).toBe(409);
-    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
-    expect(body.error).toBe("Token already exists");
+    expect(res.status).toBe(422);
   });
 
-  it("returns 201 on successful token creation", async () => {
-    const createdToken = {
+  it("returns 200 when the token is already registered (idempotent)", async () => {
+    // Existing row: skip on-chain read entirely.
+    const existingRow = {
       address: VALID_ADDRESS,
-      name: "Test Token",
-      ticker: "TST",
-      ltPair: VALID_CREATOR,
+      name: "Existing",
+      ticker: "EXST",
+      ltPair: LT_ADDR,
+      ltDirection: "long",
+      leverage: 2,
+      underlying: "HYPE",
       creator: VALID_CREATOR,
     };
-    mockedRecoverMessageAddress.mockResolvedValue(VALID_CREATOR);
-    mockDbReturning.mockResolvedValue([createdToken]);
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([existingRow]),
+    });
+
+    const app = createApp();
+    const res = await app.request(
+      "/tokens",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: VALID_ADDRESS }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockReadContract).not.toHaveBeenCalled();
+    const body = (await res.json()) as { data: { name: string } };
+    expect(body.data.name).toBe("Existing");
+  });
+
+  it("returns 201 on a successful new registration", async () => {
+    mockReadContract.mockResolvedValueOnce(
+      makeOnChainInfo({
+        name: "Fresh",
+        ticker: "FRSH",
+        description: "hello",
+        urls: ["https://x.com/fresh", "", "https://fresh.example", ""],
+      }),
+    );
+    mockBounceTechLtList();
+    mockDbReturning.mockResolvedValueOnce([{
+      address: VALID_ADDRESS,
+      name: "Fresh",
+      ticker: "FRSH",
+      description: "hello",
+      imageUrl: "",
+      ltPair: LT_ADDR,
+      ltDirection: "long",
+      leverage: 2,
+      underlying: "HYPE",
+      twitterUrl: "https://x.com/fresh",
+      telegramUrl: "",
+      websiteUrl: "https://fresh.example",
+      creator: VALID_CREATOR,
+    }]);
 
     const app = createApp();
     const req = new Request("http://localhost/tokens", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        address: VALID_ADDRESS,
-        name: "Test Token",
-        ticker: "TST",
-        ltPair: VALID_CREATOR,
-        creator: VALID_CREATOR,
-        signature: "0xvalidsignature",
-      }),
+      body: JSON.stringify({ address: VALID_ADDRESS }),
     });
-
-    const executionCtx = { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {} } as unknown as ExecutionContext;
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
     const res = await app.fetch(req, makeEnv(), executionCtx);
 
     expect(res.status).toBe(201);
-    const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
-    expect(body.status).toBe("success");
-    expect((body.data as Record<string, unknown>).name).toBe("Test Token");
+    const body = (await res.json()) as { data: { name: string; ticker: string; twitterUrl: string; websiteUrl: string } };
+    expect(body.data.name).toBe("Fresh");
+    expect(body.data.ticker).toBe("FRSH");
+    // Confirm `params.urls[0,1,2]` mapping survives the round-trip.
+    expect(body.data.twitterUrl).toBe("https://x.com/fresh");
+    expect(body.data.websiteUrl).toBe("https://fresh.example");
+    // `newToken` broadcast queued onto waitUntil so the response isn't
+    // blocked on a slow Durable Object.
+    expect(executionCtx.waitUntil).toHaveBeenCalled();
+  });
+
+  it("derives ltDirection / leverage / underlying from the BounceTech directory", async () => {
+    mockReadContract.mockResolvedValueOnce(makeOnChainInfo());
+    mockBounceTechLtList([{
+      address: LT_ADDR,
+      targetAsset: "ETH",
+      targetLeverage: 5,
+      isLong: false,
+    }]);
+    mockDbReturning.mockResolvedValueOnce([{
+      address: VALID_ADDRESS,
+      ltDirection: "short",
+      leverage: 5,
+      underlying: "ETH",
+    }]);
+
+    const app = createApp();
+    const req = new Request("http://localhost/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: VALID_ADDRESS }),
+    });
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+    const res = await app.fetch(req, makeEnv(), executionCtx);
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { data: { ltDirection: string; leverage: number; underlying: string } };
+    expect(body.data.ltDirection).toBe("short");
+    expect(body.data.leverage).toBe(5);
+    expect(body.data.underlying).toBe("ETH");
   });
 });
-
-const LT_ADDR = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
 
 function makeDbToken(overrides: Record<string, unknown> = {}) {
   return {
