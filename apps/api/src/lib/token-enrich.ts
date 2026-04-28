@@ -89,6 +89,15 @@ export interface CurveFilledBreakdown {
    * not an accounting figure).
    */
   leverageBoost: number | null;
+  /**
+   * Live USD value of the curve's real LT reserve (`realLt × currentRate`).
+   * This is the numerator behind `total` (= `raisedUsd / threshold × 100`),
+   * surfaced separately so the curve-strip UI can render the absolute "we've
+   * raised $X of $Y" number alongside the percentage bar without redoing the
+   * virtual→real reserve subtraction client-side. `null` when the breakdown
+   * is degraded (indexer down, no `k`, or no LT exchange rate).
+   */
+  raisedUsd: number | null;
 }
 
 /**
@@ -144,11 +153,11 @@ export function computeCurveFilledBreakdown(
   const supplyFilled = computeCurveFilled(curveSupplyRaw);
 
   if (graduated) {
-    return { total: 100, organic: null, leverageBoost: null };
+    return { total: 100, organic: null, leverageBoost: null, raisedUsd: null };
   }
 
   if (supplyFilled === null) {
-    return { total: null, organic: null, leverageBoost: null };
+    return { total: null, organic: null, leverageBoost: null, raisedUsd: null };
   }
 
   // Without an LT rate or `k` we can't turn `ltReserve` into *real* USD
@@ -162,7 +171,12 @@ export function computeCurveFilledBreakdown(
     ltExchangeRate === null ||
     ltExchangeRate <= 0
   ) {
-    return { total: supplyFilled, organic: null, leverageBoost: null };
+    return {
+      total: supplyFilled,
+      organic: null,
+      leverageBoost: null,
+      raisedUsd: null,
+    };
   }
 
   // Recover real LT balance from the virtual reserve1. At mint,
@@ -194,8 +208,16 @@ export function computeCurveFilledBreakdown(
   // silently render the bar as 100% leverage boost, which is a lie (and
   // contradicts the doc on `CurveFilledBreakdown`). Frontend treats `null` as
   // "unknown" and falls back to a single solid fill — that's the honest UI.
+  // `raisedUsd` is still meaningful here (it's just `realLt × rate`) so we
+  // surface it for the curve-strip "$X raised" label even when the split is
+  // unknown.
   if (organicUsdcRaisedRaw === undefined || organicUsdcRaisedRaw === null) {
-    return { total, organic: null, leverageBoost: null };
+    return {
+      total,
+      organic: null,
+      leverageBoost: null,
+      raisedUsd: usdRaisedNow,
+    };
   }
 
   const organicUsd = Number(BigInt(organicUsdcRaisedRaw)) / 1e6;
@@ -209,7 +231,7 @@ export function computeCurveFilledBreakdown(
   const organic = Math.min(Math.max(organicPct, 0), total);
   const leverageBoost = Math.max(0, total - organic);
 
-  return { total, organic, leverageBoost };
+  return { total, organic, leverageBoost, raisedUsd: usdRaisedNow };
 }
 
 /**
@@ -263,6 +285,15 @@ export interface EnrichedToken
    * contribution).
    */
   curveFilledLeverageBoost: number | null;
+  /**
+   * Live USD value of the curve's real LT reserve (`realLt × currentRate`).
+   * Powers the "$X raised" label on the token-detail curve strip; pairs with
+   * the live `graduationThresholdUsd` to render "$X / $Y" without making the
+   * client redo the virtual→real LT subtraction. `null` when the breakdown
+   * is degraded (no `k`, no rate, or indexer down) or when the token has
+   * already graduated (the curve no longer holds reserves).
+   */
+  curveRaisedUsd: number | null;
   graduated: boolean;
   graduatedAt: string | null;
   /**

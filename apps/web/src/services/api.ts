@@ -69,6 +69,13 @@ export interface ApiToken {
    * negative "boost" is hidden from the UI by product decision.
    */
   curveFilledLeverageBoost?: number | null;
+  /**
+   * Live USD value of the curve's real LT reserve (`realLt × currentRate`).
+   * Powers the `$X raised` label on the curve strip; pairs with the live
+   * `graduationThresholdUsd` to render `$X / $Y`. Null while
+   * indexer/BounceTech are degraded or post-graduation.
+   */
+  curveRaisedUsd?: number | null;
   graduated?: boolean;
   graduatedAt?: string | null;
   /**

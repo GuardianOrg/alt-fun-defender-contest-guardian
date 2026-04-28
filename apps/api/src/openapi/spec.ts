@@ -108,9 +108,10 @@ const tokenDetailSchema = {
           description:
             "Virtual LT-side AMM reserve (reserve1) used by the bonding curve's constant-product math, raw 18 decimals. This is NOT a real LT balance: it includes the launch-time virtual LT seed (~$4K worth at launch-time LT rate). Consumers that just want graduation progress should use `curveFilled` / `curveFilledOrganic` / `curveFilledLeverageBoost` instead of recomputing.",
         },
-        curveFilled: { type: "number", description: "Percentage of curve filled (0-100). Max of supply-based and USD-based progress — whichever trigger is closer to firing." },
+        curveFilled: { type: "number", description: "Percentage of curve filled (0-100). USD-denominated: `realLt × currentRate / graduationThresholdUsd × 100`, clamped to [0, 100]. Falls back to supply-based progress when `k` / rate / `ltReserve` are unavailable so the bar stays populated during indexer or BounceTech outages." },
         curveFilledOrganic: { type: "number", nullable: true, description: "Portion of `curveFilled` attributable to organic USDC buys. `null` while indexer/BounceTech are degraded or post-graduation." },
         curveFilledLeverageBoost: { type: "number", nullable: true, description: "Portion of `curveFilled` attributable to LT price appreciation. Clamped at 0 when the LT has dropped (we never surface a negative boost on the UI)." },
+        curveRaisedUsd: { type: "number", nullable: true, description: "Live USD value of the curve's real LT reserve (`realLt × currentRate`). Numerator behind `curveFilled`; surfaced separately so clients can render the absolute '$X raised' label without redoing the virtual→real LT subtraction. `null` when degraded or post-graduation." },
       },
     },
   ],

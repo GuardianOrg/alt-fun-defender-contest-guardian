@@ -9,7 +9,7 @@ import { useGraduationFeed } from "../../hooks/useGraduationFeed";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
-import { formatUsd } from "../../utils/format";
+import { formatUsd, formatUsdOrDash } from "../../utils/format";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import ProgressBar from "../shared/ProgressBar";
 
@@ -69,7 +69,7 @@ export default function TokenDetailView() {
           <div className={styles.curveStrip}>
             <span className={styles.curveLabel}>curve</span>
             <span className={styles.curveRaised}>
-              {formatUsd(token.curveRaisedUsd)}
+              {formatUsdOrDash(token.curveRaisedUsd)}
             </span>
             <div className={styles.progressWrapper}>
               <ProgressBar
