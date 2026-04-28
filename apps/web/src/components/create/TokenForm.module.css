@@ -143,6 +143,16 @@
   display: none;
 }
 
+.imageError {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(255, 100, 100, 0.4);
+  background: rgba(255, 100, 100, 0.08);
+  color: #ff8a8a;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
 .socialToggle {
   display: flex;
   align-items: center;

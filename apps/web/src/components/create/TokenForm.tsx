@@ -1,10 +1,18 @@
 import { useState, useRef } from "react";
 
-import { MAX_TOKEN_NAME_LENGTH, MAX_TOKEN_SYMBOL_LENGTH, utf8ByteLength } from "@launchpad/shared";
+import {
+  ALLOWED_IMAGE_TYPES_LABEL,
+  IMAGE_ACCEPT_ATTRIBUTE,
+  MAX_IMAGE_SIZE_LABEL,
+  MAX_TOKEN_NAME_LENGTH,
+  MAX_TOKEN_SYMBOL_LENGTH,
+  utf8ByteLength,
+} from "@launchpad/shared";
 
 import StepHeader from "./StepHeader";
 import styles from "./TokenForm.module.css";
 import { cn } from "../../utils/format";
+import { processImageForUpload } from "../../utils/imageProcessing";
 import Button from "../shared/Button";
 
 interface Props {
@@ -33,6 +41,8 @@ export default function TokenForm({
   onImageChange,
 }: Props) {
   const [socialOpen, setSocialOpen] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [processingImage, setProcessingImage] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Enforce UTF-8 byte length, matching the on-chain `bytes(str).length` check.
@@ -43,14 +53,32 @@ export default function TokenForm({
     return utf8ByteLength(next) <= maxBytes ? next : prev;
   };
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Always reset the input so re-picking the same (now-rejected) file
+    // re-fires `change`. Otherwise the user can't retry without first
+    // picking some other file.
+    if (fileRef.current) fileRef.current.value = "";
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      onImageChange(file, ev.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+
+    setImageError(null);
+    setProcessingImage(true);
+    try {
+      const { file: processed } = await processImageForUpload(file);
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        onImageChange(processed, ev.target?.result as string);
+        setProcessingImage(false);
+      };
+      reader.onerror = () => {
+        setImageError("Failed to read image");
+        setProcessingImage(false);
+      };
+      reader.readAsDataURL(processed);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : "Image processing failed");
+      setProcessingImage(false);
+    }
   };
 
   return (
@@ -120,6 +148,7 @@ export default function TokenForm({
               variant="secondary"
               size="sm"
               onClick={() => fileRef.current?.click()}
+              disabled={processingImage}
             >
               Change
             </Button>
@@ -128,8 +157,10 @@ export default function TokenForm({
               size="sm"
               onClick={() => {
                 onImageChange(null, null);
+                setImageError(null);
                 if (fileRef.current) fileRef.current.value = "";
               }}
+              disabled={processingImage}
             >
               Remove
             </Button>
@@ -138,17 +169,26 @@ export default function TokenForm({
       ) : (
         <div
           className={styles.uploadZone}
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            if (!processingImage) fileRef.current?.click();
+          }}
         >
-          <div className={styles.uploadIcon}>🖼</div>
-          <div className={styles.uploadText}>Click or drag to upload</div>
-          <div className={styles.uploadHint}>PNG, JPG, GIF · max 5MB</div>
+          <div className={styles.uploadIcon}>{processingImage ? "⏳" : "🖼"}</div>
+          <div className={styles.uploadText}>
+            {processingImage ? "Processing image…" : "Click or drag to upload"}
+          </div>
+          <div className={styles.uploadHint}>
+            {ALLOWED_IMAGE_TYPES_LABEL} · max {MAX_IMAGE_SIZE_LABEL}
+          </div>
         </div>
+      )}
+      {imageError && (
+        <div className={styles.imageError}>{imageError}</div>
       )}
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept={IMAGE_ACCEPT_ATTRIBUTE}
         className={styles.fileInput}
         onChange={handleFile}
       />

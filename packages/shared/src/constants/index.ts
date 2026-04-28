@@ -26,3 +26,13 @@ export {
   DEFAULT_GRADUATION_THRESHOLD_USD,
   DEFAULT_GRADUATION_THRESHOLD_USD_WEI,
 } from "./bonding.js";
+export {
+  MAX_IMAGE_BYTES,
+  ALLOWED_IMAGE_MIME_TYPES,
+  IMAGE_ACCEPT_ATTRIBUTE,
+  ALLOWED_IMAGE_TYPES_LABEL,
+  MAX_IMAGE_SIZE_LABEL,
+  isAllowedImageMimeType,
+  validateImageFile,
+} from "./images.js";
+export type { AllowedImageMimeType, ImageValidationOptions } from "./images.js";

@@ -3,7 +3,6 @@
 # Now
 
 - Leverage boost looks wrong Fresh mint with $21 of initial buy, and starts at 7% buy pressure and 16% leverage boost
-- AVIF image didn't work
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
 - Clear all bad tokens
 
