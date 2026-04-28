@@ -697,6 +697,81 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     expect(body.data.curveFilledLeverageBoost).toBe(0);
   });
 
+  it("surfaces curveRaisedUsd as `realLt × currentRate` for the curve-strip label", async () => {
+    // The token-detail curve strip used to read "$0 ... $threshold" because
+    // `curveRaisedUsd` was hardcoded to 0 in the frontend mapper. The API now
+    // exposes the live USD value of the real LT reserve so the strip can
+    // render "$X raised of $Y threshold" without redoing the virtual→real
+    // subtraction client-side. This is just `usdFilled × threshold / 100`,
+    // i.e. the numerator behind the headline percentage.
+    //
+    // Same fixture as the previous test: realLt = 20 LT @ $1/LT = $20.
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        k: "100000000000000000000000000000000000000000000000",
+        curveSupply: "833333333333333333333333333",
+        ltReserve: "120000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "20000000",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "1000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: { curveRaisedUsd: number | null };
+    };
+    expect(body.data.curveRaisedUsd).toBeCloseTo(20, 2);
+  });
+
+  it("returns curveRaisedUsd: null when the breakdown is degraded", async () => {
+    // No `k` (or rate, or ltReserve) → the enrich function can't recover the
+    // real LT balance, so `curveRaisedUsd` must be null. The frontend renders
+    // "—" via `formatUsdOrDash` rather than misleadingly displaying "$0".
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce({
+      token: {
+        address: VALID_ADDRESS.toLowerCase(),
+        ltToken: LT_ADDR.toLowerCase(),
+        // `k` intentionally absent
+        curveSupply: "833333333333333333333333333",
+        ltReserve: "120000000000000000000",
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: "0xbondingpair",
+        hyperswapPair: null,
+        organicUsdcRaised: "20000000",
+        timestamp: "1700000000",
+      },
+    });
+    mockBounceLtResponse({ [LT_ADDR]: "1000000000000000000" });
+    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockNeonQuery.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    const body = (await res.json()) as {
+      data: { curveRaisedUsd: number | null };
+    };
+    expect(body.data.curveRaisedUsd).toBeNull();
+  });
+
   it("returns null split (not 0) when organicUsdcRaised is missing from indexer", async () => {
     // Guards against indexer-version skew: a stale indexer response could be
     // missing `organicUsdcRaised` while every other field is present. Treating

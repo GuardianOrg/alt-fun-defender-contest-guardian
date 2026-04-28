@@ -37,7 +37,11 @@ export interface Token {
   /** Bonding curve progress (0–100). Null when the indexer is degraded —
    *  callers must treat null as "unknown" and render a dash, never 0. */
   curveFilled: number | null;
-  curveRaisedUsd: number;
+  /** Live USD value of the curve's real LT reserve (`realLt × currentRate`).
+   *  Numerator behind `curveFilled`; powers the `$X raised` label on the
+   *  curve strip. Null when the breakdown is degraded (indexer/BounceTech
+   *  down) or post-graduation — render as `—` via `formatUsdOrDash`. */
+  curveRaisedUsd: number | null;
   /**
    * 24h USD trading volume (buys + sells through `Zap`). `null`
    * while the indexer aggregation is degraded — render as `—`, never `$0`.

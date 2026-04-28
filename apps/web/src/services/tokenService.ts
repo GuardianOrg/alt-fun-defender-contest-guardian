@@ -59,7 +59,12 @@ export function fromApiToken(api: ApiToken): Token {
     leverageBoost: api.curveFilledLeverageBoost ?? 0,
     organicFilled: api.curveFilledOrganic ?? null,
     curveFilled: api.curveFilled ?? null,
-    curveRaisedUsd: 0,
+    // Honest pass-through: `null` here means "indexer/BounceTech degraded or
+    // graduated" — the curve-strip label uses `formatUsdOrDash` to render `—`,
+    // never a misleading "$0". Hardcoding 0 (the previous behaviour) made
+    // every fresh token's strip read "CURVE $0 ... $300" regardless of
+    // actual USD raised, which read as a broken/disabled bar to users.
+    curveRaisedUsd: api.curveRaisedUsd ?? null,
     volume24h: api.volume24hUsd ?? null,
     totalVolumeUsd: api.totalVolumeUsd ?? null,
     athUsd: 0,
