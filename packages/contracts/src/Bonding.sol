@@ -14,7 +14,6 @@ import {Router} from "./Router.sol";
 import {Token} from "./Token.sol";
 import {IPair} from "./interfaces/IPair.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
-import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {LPLock} from "./LPLock.sol";
@@ -57,7 +56,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     Factory public factory;
     Router public router;
 
-    address public hyperswapRouter;
+    address public hyperswapFactory;
     address public lpLock;
 
     /// @notice EIP-1167 minimal-proxy implementation. Each `launch()` deploys a
@@ -261,7 +260,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterRemoved(address indexed router);
     event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
-    event HyperswapUpdated(address indexed hyperswapRouter, address indexed lpLock);
+    event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
     event MaxTxUpdated(uint256 oldValue, uint256 newValue);
 
     error TokenNotTrading();
@@ -307,12 +306,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address factory_,
         address router_,
         uint256 maxTx_,
-        address hyperswapRouter_,
+        address hyperswapFactory_,
         address lpLock_,
         address tokenImplementation_
     ) external initializer {
         if (
-            factory_ == address(0) || router_ == address(0) || hyperswapRouter_ == address(0) || lpLock_ == address(0)
+            factory_ == address(0) || router_ == address(0) || hyperswapFactory_ == address(0) || lpLock_ == address(0)
                 || tokenImplementation_ == address(0)
         ) revert ZeroAddress();
         __Ownable_init(msg.sender);
@@ -320,7 +319,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         factory = Factory(factory_);
         router = Router(router_);
         maxTx = maxTx_;
-        hyperswapRouter = hyperswapRouter_;
+        hyperswapFactory = hyperswapFactory_;
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
         graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
@@ -604,13 +603,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     function setHyperswap(
-        address newRouter,
+        address newFactory,
         address newLpLock
     ) external onlyOwner {
-        if (newRouter == address(0) || newLpLock == address(0)) revert ZeroAddress();
-        hyperswapRouter = newRouter;
+        if (newFactory == address(0) || newLpLock == address(0)) revert ZeroAddress();
+        hyperswapFactory = newFactory;
         lpLock = newLpLock;
-        emit HyperswapUpdated(newRouter, newLpLock);
+        emit HyperswapUpdated(newFactory, newLpLock);
     }
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.
@@ -809,7 +808,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenA,
         address tokenB
     ) internal returns (address pair) {
-        IUniswapV2Factory hsFactory = IUniswapV2Factory(IUniswapV2Router02(hyperswapRouter).factory());
+        IUniswapV2Factory hsFactory = IUniswapV2Factory(hyperswapFactory);
         pair = hsFactory.getPair(tokenA, tokenB);
         if (pair == address(0)) {
             pair = hsFactory.createPair(tokenA, tokenB);
