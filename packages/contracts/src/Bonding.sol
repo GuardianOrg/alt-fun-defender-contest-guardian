@@ -107,6 +107,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public constant LP_RESERVE_BPS = 2500;
     uint256 public constant BPS_DENOM = 10_000;
 
+    /// @dev LP reserve held in `Bonding` between launch and graduation. Always
+    ///      `LP_RESERVE_BPS / BPS_DENOM` of `Token.TOTAL_SUPPLY` (250M ether)
+    ///      because supply is fixed at 1B per token.
+    uint256 public constant LP_RESERVE = (1_000_000_000 ether * LP_RESERVE_BPS) / BPS_DENOM;
+
     /// @dev Name/ticker length bounds. Hard-enforced at launch; webapp and API
     ///      replicate these limits. Changing them requires a contract redeploy.
     ///      `34` / `10` mirror Pump.fun's caps so tokens render consistently in
@@ -208,8 +213,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     address[] public allTokens;
     mapping(address => address[]) public creatorTokens;
 
-    /// @dev LP reserve tokens held per token for graduation
-    mapping(address => uint256) public lpReserve;
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
     /// @notice Per-token state cached during phase 1, consumed by `finalizeGraduation`.
@@ -217,9 +220,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     mapping(address => PendingGraduation) public pendingGraduation;
 
     /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (15 named + 35 gap). Append new state variables before
+    ///      totals 50 slots (14 named + 36 gap). Append new state variables before
     ///      this gap and shrink its length to match.
-    uint256[35] private __gap;
+    uint256[36] private __gap;
 
     event TokenLaunched(
         address indexed token,
@@ -387,8 +390,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
         // Virtual reserve0 = full totalSupply; only curveSupply (75%) is actually transferred.
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
-
-        lpReserve[tokenAddr] = totalSupply - curveSupply;
     }
 
     /// @notice Predict the clone address for `(creator_, userSalt)`. Mirrors
@@ -777,7 +778,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      Price equality: `tokensForLP / ltFromPair = reserve0 / reserve1 = lastPrice`.
     ///      By construction (V_t_init = totalSupply, curveSupply = 75%), the parabola
     ///         tokensForLP(sold) = sold · (S − sold) / S
-    ///      peaks at S/4 = LP_RESERVE when sold = S/2, so `tokensForLP ≤ lpReserveTotal`
+    ///      peaks at S/4 = LP_RESERVE when sold = S/2, so `tokensForLP ≤ LP_RESERVE`
     ///      is a mathematical invariant. The cap is a defensive guard.
     function _prepareGraduationLiquidity(
         address tokenAddress
@@ -792,15 +793,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         ltFromPair = router.graduate(tokenAddress);
 
-        uint256 lpReserveTotal = lpReserve[tokenAddress];
         tokensForLP = reserve1 == 0 ? 0 : (ltFromPair * reserve0) / reserve1;
-        if (tokensForLP > lpReserveTotal) tokensForLP = lpReserveTotal;
+        if (tokensForLP > LP_RESERVE) tokensForLP = LP_RESERVE;
 
-        lpBurned = lpReserveTotal - tokensForLP;
+        lpBurned = LP_RESERVE - tokensForLP;
         if (lpBurned > 0) {
             Token(tokenAddress).burn(address(this), lpBurned);
         }
-        lpReserve[tokenAddress] = 0;
     }
 
     /// @dev Idempotent: returns the existing HyperSwap pair if one is already
