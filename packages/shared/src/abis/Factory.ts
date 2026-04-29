@@ -462,6 +462,11 @@ export const FactoryAbi = [
   },
   {
     "type": "error",
+    "name": "PairExists",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   }

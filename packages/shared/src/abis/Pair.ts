@@ -267,12 +267,12 @@ export const PairAbi = [
   },
   {
     "type": "error",
-    "name": "OnlyRouter",
+    "name": "KInvariantViolated",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "ReentrancyGuardReentrantCall",
+    "name": "OnlyRouter",
     "inputs": []
   },
   {

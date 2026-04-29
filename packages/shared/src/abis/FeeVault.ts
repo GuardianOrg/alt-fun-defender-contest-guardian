@@ -277,6 +277,19 @@ export const FeeVaultAbi = [
   },
   {
     "type": "function",
+    "name": "totalAccruedCreator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -593,6 +606,11 @@ export const FeeVaultAbi = [
         "internalType": "bytes32"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "UnderfundedAccrual",
+    "inputs": []
   },
   {
     "type": "error",
