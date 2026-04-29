@@ -54,7 +54,7 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 ## Fees
 
-Fees are charged by `Zap` in USDC on every buy/sell — curve **and** post-graduation — and forwarded to the dedicated `FeeVault` contract. Creators and the protocol each claim their pooled USDC balance directly from the vault; the router holds no fee state, so it can be upgraded/swapped without affecting outstanding balances (the vault keeps a depositor allowlist).
+Fees are charged by `Zap` in USDC on every buy/sell — curve **and** post-graduation — and forwarded to the dedicated `FeeVault` contract. Creators and the protocol each claim their pooled USDC balance directly from the vault; `Zap` (the user-facing router) holds no fee state, so it can be upgraded or swapped via the `Bonding._routers` allowlist without affecting outstanding balances (the vault keeps a depositor allowlist). This "hot-swap" applies only to the `Zap` layer — the internal AMM `Router.sol` is frozen at deploy time (see [`packages/contracts/AGENTS.md`](packages/contracts/AGENTS.md#two-router-concepts--read-this-before-touching-either)).
 
 | Fee | Rate | Split | Charged where |
 |---|---|---|---|
