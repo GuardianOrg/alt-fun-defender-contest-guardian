@@ -268,7 +268,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev `finalizeGraduation` was called on a token that's not in phase 1.
     error NotGraduating();
     error ZeroAddress();
-    error TokenAlreadyGraduated();
     error InvalidInput();
     error SlippageExceeded();
     error NotCreator();
@@ -692,12 +691,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      buy. Cheap (~150-200k of additional gas on top of the buy) so the
     ///      whole tx still fits in HyperEVM's small block. Phase 2 is the
     ///      separate `finalizeGraduation` call.
+    /// @dev Caller MUST have verified `lifecycle == Curve` (e.g. via `canGraduate`).
     function _enterGraduating(
         address tokenAddress
     ) internal {
         TokenInfo storage info = _tokenInfo[tokenAddress];
-        if (info.lifecycle != Lifecycle.Curve) revert TokenAlreadyGraduated();
-
         info.lifecycle = Lifecycle.Graduating;
 
         // Drain curve, compute dynamic-LP-seeding amounts, burn excess. The
