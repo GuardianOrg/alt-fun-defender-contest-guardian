@@ -106,9 +106,9 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(0);
         assertTrue(tokenAddr != address(0));
 
-        (address infoCreator,,,,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
-        assertEq(infoCreator, creator);
-        assertTrue(lifecycle == Bonding.Lifecycle.Curve);
+        Bonding.TokenInfo memory info = bonding.getTokenInfo(tokenAddr);
+        assertEq(info.creator, creator);
+        assertTrue(info.lifecycle == Bonding.Lifecycle.Curve);
     }
 
     function test_createToken_withSeedBuy() public {
