@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title LPLock
 /// @notice Locks LP tokens from graduated tokens. No withdraw in v1.
@@ -31,6 +32,8 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
     event LockerUpdated(address indexed locker, bool authorized);
 
     error NotAuthorized();
+    error InsufficientLPBalance();
+    error AlreadyLocked();
 
     constructor() {
         _disableInitializers();
@@ -50,6 +53,8 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
         uint256 amount
     ) external {
         if (!isLocker[msg.sender]) revert NotAuthorized();
+        if (locks[token].amount != 0) revert AlreadyLocked();
+        if (IERC20(lpPair).balanceOf(address(this)) < amount) revert InsufficientLPBalance();
         locks[token] = LockInfo({lpPair: lpPair, amount: amount, lockedAt: block.timestamp});
         emit LPLocked(token, lpPair, amount);
     }
