@@ -200,8 +200,8 @@ export const ZapAbi = [
           },
           {
             "name": "urls",
-            "type": "string[4]",
-            "internalType": "string[4]"
+            "type": "string[3]",
+            "internalType": "string[3]"
           },
           {
             "name": "ltAddress",
@@ -261,8 +261,8 @@ export const ZapAbi = [
           },
           {
             "name": "urls",
-            "type": "string[4]",
-            "internalType": "string[4]"
+            "type": "string[3]",
+            "internalType": "string[3]"
           },
           {
             "name": "ltAddress",
