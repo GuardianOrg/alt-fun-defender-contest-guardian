@@ -111,14 +111,25 @@ contract PairTest is Test {
         vm.startPrank(routerAddr);
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
 
-        // Simulate sell: tokens in, asset out
-        uint256 tokensIn = 50_000 ether;
-        uint256 assetOut = 100 ether;
+        // Simulate sell: tokens in, asset out (curve-preserving values: 1B * 3K = 750M * 4K = k)
+        uint256 tokensIn = 250_000_000 ether;
+        uint256 assetOut = 1000 ether;
         pair.swap(tokensIn, 0, 0, assetOut);
 
         (uint256 r0, uint256 r1) = pair.getReserves();
         assertEq(r0, INITIAL_TOKEN_RESERVE + tokensIn);
         assertEq(r1, INITIAL_ASSET_RESERVE - assetOut);
+        vm.stopPrank();
+    }
+
+    function test_swap_revertsOnKInvariantViolation() public {
+        vm.startPrank(routerAddr);
+        pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
+
+        // Attempt to extract more asset than the curve allows: 50K tokens in, 100 LT out
+        // newR0 * newR1 = 750_050_000 * 3900 < 750_000_000 * 4000 = k
+        vm.expectRevert(Pair.KInvariantViolated.selector);
+        pair.swap(50_000 ether, 0, 0, 100 ether);
         vm.stopPrank();
     }
 
