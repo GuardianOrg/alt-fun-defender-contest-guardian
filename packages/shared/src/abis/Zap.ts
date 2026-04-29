@@ -32,6 +32,19 @@ export const ZapAbi = [
   },
   {
     "type": "function",
+    "name": "MIN_USDC_AMOUNT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "UPGRADE_INTERFACE_VERSION",
     "inputs": [],
     "outputs": [
@@ -757,6 +770,25 @@ export const ZapAbi = [
   },
   {
     "type": "event",
+    "name": "LeftoverLTReturned",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferred",
     "inputs": [
       {
@@ -855,7 +887,7 @@ export const ZapAbi = [
       {
         "name": "ltAddress",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       }
     ],
@@ -884,6 +916,11 @@ export const ZapAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "BelowMinAmount",
+    "inputs": []
   },
   {
     "type": "error",
@@ -972,6 +1009,11 @@ export const ZapAbi = [
   {
     "type": "error",
     "name": "TokenIsGraduating",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TokenNotTrading",
     "inputs": []
   },
   {

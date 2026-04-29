@@ -8,6 +8,7 @@ import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {FeeVault} from "../src/FeeVault.sol";
 import {Zap} from "../src/Zap.sol";
+import {ILeveragedToken} from "../src/interfaces/ILeveragedToken.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract ZapV2 is Zap {
@@ -225,6 +226,19 @@ contract ZapTest is DeployHelper {
         assertEq(usdc.balanceOf(trader), buyAmount, "USDC should not have moved");
     }
 
+    function test_buy_revertsBelowMinAmount() public {
+        address tokenAddr = _createToken(0);
+
+        // Mock USDC is 18-dp, so MIN_USDC_AMOUNT (10e6) sits in the
+        // sub-cent range for the test token. Anything below 10e6 wei
+        // triggers the on-chain pre-check.
+        uint256 belowMin = zap.MIN_USDC_AMOUNT() - 1;
+
+        vm.prank(trader);
+        vm.expectRevert(Zap.BelowMinAmount.selector);
+        zap.buy(tokenAddr, belowMin, 0, address(0));
+    }
+
     function test_buy_revertsOnSlippage() public {
         address tokenAddr = _createToken(0);
         uint256 buyAmount = _smallBuyUsdc();
@@ -350,6 +364,51 @@ contract ZapTest is DeployHelper {
         vm.prank(trader);
         vm.expectRevert(Zap.TokenNotTrading.selector);
         zap.sell(bogus, 1 ether, 0);
+    }
+
+    function test_sell_revertsBelowMinAmount() public {
+        address tokenAddr = _createToken(0);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
+
+        // Crash the LT exchange rate so the curve sell yields LT worth
+        // ~zero USDC, well below `MIN_USDC_AMOUNT`. The Zap must catch
+        // this before forwarding to `LT.redeem` (which would revert with
+        // the cryptic `0x05eb05ac` selector).
+        lt.setExchangeRate(1);
+
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), tokensOut);
+        vm.expectRevert(Zap.BelowMinAmount.selector);
+        zap.sell(tokenAddr, tokensOut, 0);
+        vm.stopPrank();
+    }
+
+    function test_buy_emitsLeftoverLTReturnedOnRedeemFailure() public {
+        address tokenAddr = _createToken(0);
+
+        // A buy that crosses the graduation threshold leaves leftover LT
+        // (the curve caps consumption). Sized at ~2× threshold to guarantee
+        // a non-zero refund.
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+
+        // Force the leftover-LT `redeem` call to revert so the Zap falls
+        // back to a direct LT transfer. Mirrors the production case where
+        // `ltLeft` is below the LT's `$10` redeem floor.
+        vm.mockCallRevert(address(lt), abi.encodeWithSelector(ILeveragedToken.redeem.selector), "");
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+
+        // We don't pin the exact `amount`; we only assert the user is correct.
+        vm.expectEmit(true, false, false, false);
+        emit Zap.LeftoverLTReturned(trader, 0);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        // The leftover LT must end up in the user's wallet, not the zap.
+        assertGt(lt.balanceOf(trader), 0, "User should hold the refunded LT");
+        assertEq(lt.balanceOf(address(zap)), 0, "Zap should not retain leftover LT");
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────

@@ -305,7 +305,7 @@ export const FactoryAbi = [
       {
         "name": "pair",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {

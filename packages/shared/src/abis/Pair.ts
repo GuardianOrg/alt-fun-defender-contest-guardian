@@ -267,6 +267,11 @@ export const PairAbi = [
   },
   {
     "type": "error",
+    "name": "IdenticalTokens",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "KInvariantViolated",
     "inputs": []
   },
@@ -285,5 +290,10 @@ export const PairAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
   }
 ] as const;

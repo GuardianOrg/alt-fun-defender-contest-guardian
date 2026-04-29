@@ -240,38 +240,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "allTokens",
-    "inputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "allTokensLength",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "buy",
     "inputs": [
       {
@@ -668,11 +636,6 @@ export const BondingAbi = [
         "name": "pair",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "index",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
@@ -1105,7 +1068,7 @@ export const BondingAbi = [
       {
         "name": "pairAddress",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {
@@ -1210,7 +1173,7 @@ export const BondingAbi = [
       {
         "name": "ltAddress",
         "type": "address",
-        "indexed": false,
+        "indexed": true,
         "internalType": "address"
       },
       {
@@ -1227,12 +1190,6 @@ export const BondingAbi = [
       },
       {
         "name": "k",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "index",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1393,6 +1350,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "InvalidUrlLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MustKeepOneRouter",
     "inputs": []
   },
   {

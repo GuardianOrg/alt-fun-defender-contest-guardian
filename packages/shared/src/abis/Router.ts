@@ -451,12 +451,12 @@ export const RouterAbi = [
   },
   {
     "type": "error",
-    "name": "PairNotFound",
+    "name": "OverflowCapDegenerate",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "ReentrancyGuardReentrantCall",
+    "name": "PairNotFound",
     "inputs": []
   },
   {
