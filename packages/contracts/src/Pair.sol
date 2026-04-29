@@ -25,7 +25,6 @@ contract Pair is IPair {
         uint256 tokenReserve;
         uint256 assetReserve;
         uint256 k;
-        uint256 lastUpdated;
     }
 
     Pool private _pool;
@@ -56,13 +55,8 @@ contract Pair is IPair {
         uint256 tokenReserve,
         uint256 assetReserve
     ) external onlyRouter returns (bool) {
-        if (_pool.lastUpdated != 0) revert AlreadyMinted();
-        _pool = Pool({
-            tokenReserve: tokenReserve,
-            assetReserve: assetReserve,
-            k: tokenReserve * assetReserve,
-            lastUpdated: block.timestamp
-        });
+        if (_pool.k != 0) revert AlreadyMinted();
+        _pool = Pool({tokenReserve: tokenReserve, assetReserve: assetReserve, k: tokenReserve * assetReserve});
         emit Mint(tokenReserve, assetReserve);
         return true;
     }
@@ -79,7 +73,6 @@ contract Pair is IPair {
 
         _pool.tokenReserve = newTokenReserve;
         _pool.assetReserve = newAssetReserve;
-        _pool.lastUpdated = block.timestamp;
         emit Swap(tokenIn, tokenOut, assetIn, assetOut);
         return true;
     }
