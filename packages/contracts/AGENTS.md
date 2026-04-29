@@ -13,17 +13,41 @@ Graduation → Bonding._graduate() → HyperSwap V2 pool (token/LT) → LP locke
 
 For the LT interface and constraints (atomic-redeem-only, idle USDC buffer, `$10` minimum) see the BounceTech LT Integration section in the root [`AGENTS.md`](../../AGENTS.md#bouncetech-lt-integration). External references: [BounceTech docs](https://docs.bounce.tech/), [integration guide](https://docs.bounce.tech/technical/integration-guide), [contract source](https://github.com/bounce-tech/bounce-smart-contracts).
 
-## Router allowlist (`Bonding.isRouter`)
+## Two "router" concepts — read this before touching either
 
-`Bonding.launch`, `Bonding.buy`, and `Bonding.sell` are gated on an allowlist:
-only addresses in `_routers` (OZ `EnumerableSet.AddressSet`) may call them.
-Manage via owner-only `addRouter` / `removeRouter`; query via `isRouter` or
-`getRouters`. This (a) makes `Zap` the only trust-surface for
-curve interactions, and (b) lets us hot-swap routers without downtime —
-`addRouter(newRouter)` → flip the frontend constant → `removeRouter(oldRouter)`.
+The codebase has two distinct things called "router" and they have very different
+upgrade properties. Conflating them is a real footgun:
+
+1. **Zap (a.k.a. user-facing router) — hot-swappable.** `Zap` is the entry point
+   gated by `Bonding._routers` (OZ `EnumerableSet.AddressSet`). `Bonding.launch`,
+   `Bonding.buy`, and `Bonding.sell` revert unless `msg.sender` is on this
+   allowlist. Manage via owner-only `addRouter` / `removeRouter`; query via
+   `isRouter` or `getRouters`. This list is what the "hot-swap" story refers to:
+   `addRouter(newZap)` → flip the frontend constant → `removeRouter(oldZap)`. No
+   downtime, no per-token migration. `Zap` itself is also UUPS-upgradeable, so
+   small changes can ship via implementation upgrade without touching the
+   allowlist at all.
+2. **`Router.sol` (AMM math, internal) — frozen at deploy.** This is the
+   contract the curve `Pair`s actually call into. `Pair.router` is **immutable**,
+   wired in `Pair`'s constructor from whatever `Factory.router` was at
+   `Factory.createPair` time. `Factory.setRouter` is also one-shot:
+   `if (pairCount > 0) revert RouterFrozen();` — once the first pair is created
+   the factory's `router` field is permanent, so every future pair inherits the
+   same address. `Router.sol` itself is **not** UUPS-upgradeable (no
+   `UUPSUpgradeable` mixin, no `_authorizeUpgrade`, and the deploy script
+   instantiates it directly via `new Router()` rather than behind an
+   `ERC1967Proxy`). Replacing it therefore requires a fresh `Factory` + fresh
+   `Router` + migrating every existing token, which is effectively a re-deploy.
+   This is acceptable because `Router` holds no funds and no per-token state —
+   it is pure AMM math against `Pair` reserves — but it is not "swappable" in
+   any operational sense.
+
+The "router" in the `Bonding._routers` allowlist refers to category (1); a
+future rename to `_zaps` would remove the ambiguity but is a coordinated
+breaking change (indexer + frontend) and has not been done.
 
 `Bonding.buy/sell` take a `trader` address which is emitted in `Bonding.Trade`
-and used by the indexer / UI. Because only allowlisted routers can reach the
+and used by the indexer / UI. Because only allowlisted Zaps can reach the
 function, `trader` is trusted — `Zap` forwards `msg.sender` (the
 real user EOA). Seed buys via `createToken` attribute to the creator.
 
