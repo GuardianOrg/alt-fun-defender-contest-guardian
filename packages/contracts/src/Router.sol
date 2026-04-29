@@ -32,6 +32,7 @@ contract Router is Initializable, AccessControlUpgradeable {
     error ZeroAddress();
     error ZeroAmount();
     error PairNotFound();
+    error OverflowCapDegenerate();
 
     function initialize(
         address factory_
@@ -136,8 +137,8 @@ contract Router is Initializable, AccessControlUpgradeable {
         if (tokensOut > realBalance) {
             tokensOut = realBalance;
             uint256 cappedReserveToken = reserveToken - tokensOut;
-            uint256 cappedReserveAsset =
-                cappedReserveToken == 0 ? newReserveAsset : (k + cappedReserveToken - 1) / cappedReserveToken;
+            if (cappedReserveToken == 0) revert OverflowCapDegenerate();
+            uint256 cappedReserveAsset = (k + cappedReserveToken - 1) / cappedReserveToken;
             amountInUsed = cappedReserveAsset - reserveAsset;
         }
     }
