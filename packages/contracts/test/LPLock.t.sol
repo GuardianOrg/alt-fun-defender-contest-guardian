@@ -22,7 +22,7 @@ contract LPLockTest is Test {
     address public bonding = makeAddr("bonding");
     address public unauthorized = makeAddr("unauthorized");
     address public tokenAddr = makeAddr("token");
-    address public pairAddr = makeAddr("pair");
+    address public pairAddr;
 
     function setUp() public {
         LPLock impl = new LPLock();
@@ -30,6 +30,7 @@ contract LPLockTest is Test {
         lpLock = LPLock(address(new ERC1967Proxy(address(impl), initData)));
 
         lpToken = new MockERC20("LP Token", "LP");
+        pairAddr = address(lpToken);
 
         lpLock.setLocker(bonding, true);
     }
@@ -72,6 +73,7 @@ contract LPLockTest is Test {
 
     function test_recordLock_storesLockInfo() public {
         uint256 amount = 1000 ether;
+        lpToken.mint(address(lpLock), amount);
 
         vm.prank(bonding);
         lpLock.recordLock(tokenAddr, pairAddr, amount);
@@ -84,6 +86,7 @@ contract LPLockTest is Test {
 
     function test_recordLock_emitsEvent() public {
         uint256 amount = 500 ether;
+        lpToken.mint(address(lpLock), amount);
 
         vm.expectEmit(true, true, false, true);
         emit LPLock.LPLocked(tokenAddr, pairAddr, amount);
@@ -98,17 +101,23 @@ contract LPLockTest is Test {
         lpLock.recordLock(tokenAddr, pairAddr, 100 ether);
     }
 
-    function test_recordLock_overwritesPreviousLock() public {
+    function test_recordLock_revertsWhenBalanceInsufficient() public {
+        lpToken.mint(address(lpLock), 99 ether);
+
+        vm.prank(bonding);
+        vm.expectRevert(LPLock.InsufficientLPBalance.selector);
+        lpLock.recordLock(tokenAddr, pairAddr, 100 ether);
+    }
+
+    function test_recordLock_revertsWhenAlreadyLocked() public {
+        lpToken.mint(address(lpLock), 300 ether);
+
         vm.prank(bonding);
         lpLock.recordLock(tokenAddr, pairAddr, 100 ether);
 
-        address newPair = makeAddr("newPair");
         vm.prank(bonding);
-        lpLock.recordLock(tokenAddr, newPair, 200 ether);
-
-        (address lp, uint256 locked,) = lpLock.getLock(tokenAddr);
-        assertEq(lp, newPair);
-        assertEq(locked, 200 ether);
+        vm.expectRevert(LPLock.AlreadyLocked.selector);
+        lpLock.recordLock(tokenAddr, pairAddr, 200 ether);
     }
 
     // ─── getLock ──────────────────────────────────────────────────────────
@@ -139,6 +148,7 @@ contract LPLockTest is Test {
     }
 
     function test_upgrade_preservesState() public {
+        lpToken.mint(address(lpLock), 777 ether);
         vm.prank(bonding);
         lpLock.recordLock(tokenAddr, pairAddr, 777 ether);
 
@@ -157,6 +167,8 @@ contract LPLockTest is Test {
     function testFuzz_recordLock_arbitraryAmounts(
         uint256 amount
     ) public {
+        lpToken.mint(address(lpLock), amount);
+
         vm.prank(bonding);
         lpLock.recordLock(tokenAddr, pairAddr, amount);
 
