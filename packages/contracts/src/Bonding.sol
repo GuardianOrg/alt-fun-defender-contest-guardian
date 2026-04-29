@@ -332,34 +332,39 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             if (bytes(params.urls[i]).length > MAX_URL_LENGTH) revert InvalidUrlLength();
         }
 
-        (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress, creator_, params.salt);
-        _storeTokenInfo(tokenAddr, pair, params, creator_);
+        // CEI pattern: predict the clone address & enforce the vanity suffix
+        // invariant BEFORE any external calls, write state next, and only
+        // then deploy + seed. The pair address is unknown until after the
+        // factory call, so it's patched into the already-stored slot below.
+        bytes32 saltMixed = _mixSalt(creator_, params.salt);
+        tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
+        // forge-lint: disable-next-line(unsafe-typecast)
+        if (bytes2(uint16(uint160(tokenAddr))) != VANITY_SUFFIX) {
+            revert NotVanityAddress(tokenAddr);
+        }
+
+        _storeTokenInfo(tokenAddr, address(0), params, creator_);
+
+        pair = _deployAndSeed(tokenAddr, saltMixed, params.name, params.ticker, params.ltAddress);
+        _tokenInfo[tokenAddr].pair = pair;
 
         uint256 k = IPair(pair).k();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k);
     }
 
     function _deployAndSeed(
+        address tokenAddr,
+        bytes32 saltMixed,
         string calldata name_,
         string calldata ticker_,
-        address ltAddress,
-        address creator_,
-        bytes32 userSalt
-    ) internal returns (address tokenAddr, address pair) {
+        address ltAddress
+    ) internal returns (address pair) {
         // EIP-1167 clone of `tokenImplementation`. `Clones.cloneDeterministic`
         // reverts with `ERC1167FailedCreateClone` on address collision; the
-        // creator-mixed salt makes that astronomically unlikely.
-        tokenAddr = Clones.cloneDeterministic(tokenImplementation, _mixSalt(creator_, userSalt));
-
-        // Enforce the vanity suffix invariant. The frontend mines a salt
-        // off-chain so this should always pass for legitimate launches; we
-        // check on-chain anyway so a misbehaving client (or any future
-        // alternative router) can't bypass it. The truncating cast is
-        // deliberate — we *want* only the last 2 bytes of the address.
-        // forge-lint: disable-next-line(unsafe-typecast)
-        if (bytes2(uint16(uint160(tokenAddr))) != VANITY_SUFFIX) {
-            revert NotVanityAddress(tokenAddr);
-        }
+        // creator-mixed salt makes that astronomically unlikely. CREATE2 is
+        // deterministic so the deployed address must match the prediction
+        // already gated on the vanity suffix in `launch`.
+        Clones.cloneDeterministic(tokenImplementation, saltMixed);
 
         Token(tokenAddr).initialize(name_, ticker_, address(this));
 
