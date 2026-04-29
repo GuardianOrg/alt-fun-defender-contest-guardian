@@ -512,11 +512,6 @@ export const BondingAbi = [
         "internalType": "address"
       },
       {
-        "name": "maxTx_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "hyperswapFactory_",
         "type": "address",
         "internalType": "address"
@@ -697,13 +692,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "maxTx",
-    "inputs": [],
+    "name": "ltOf",
+    "inputs": [
+      {
+        "name": "token_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "outputs": [
       {
         "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -897,19 +898,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setMaxTx",
-    "inputs": [
-      {
-        "name": "newMaxTx",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setTokenImplementation",
     "inputs": [
       {
@@ -930,50 +918,6 @@ export const BondingAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "tokenInfo",
-    "inputs": [
-      {
-        "name": "token_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "creator",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "pair",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "ltAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "name_",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "ticker",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "lifecycle",
-        "type": "uint8",
-        "internalType": "enum Bonding.Lifecycle"
       }
     ],
     "stateMutability": "view"
@@ -1099,25 +1043,6 @@ export const BondingAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "MaxTxUpdated",
-    "inputs": [
-      {
-        "name": "oldValue",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "newValue",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false

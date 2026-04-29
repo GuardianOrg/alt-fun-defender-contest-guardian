@@ -491,24 +491,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Views ───────────────────────────────────────────────────────────
 
-    function tokenInfo(
-        address token_
-    )
-        external
-        view
-        returns (
-            address creator,
-            address pair,
-            address ltAddress,
-            string memory name_,
-            string memory ticker,
-            Lifecycle lifecycle
-        )
-    {
-        TokenInfo storage info = _tokenInfo[token_];
-        return (info.creator, info.pair, info.ltAddress, info.name, info.ticker, info.lifecycle);
-    }
-
     function getTokenInfo(
         address token_
     ) external view returns (TokenInfo memory) {
@@ -516,12 +498,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     /// @notice Lightweight creator lookup. Hot-path callers (e.g. `Zap`'s
-    ///         per-trade fee accrual) should use this instead of `getTokenInfo` /
-    ///         `tokenInfo` to avoid ABI-copying the dynamic strings & URL array.
+    ///         per-trade fee accrual) should use this instead of `getTokenInfo`
+    ///         to avoid ABI-copying the dynamic strings & URL array.
     function creatorOf(
         address token_
     ) external view returns (address) {
         return _tokenInfo[token_].creator;
+    }
+
+    /// @notice Lightweight LT lookup. Hot-path callers (e.g. `Zap`'s per-trade
+    ///         buy/sell flow) should use this instead of `getTokenInfo` to avoid
+    ///         ABI-copying the dynamic strings & URL array.
+    function ltOf(
+        address token_
+    ) external view returns (address) {
+        return _tokenInfo[token_].ltAddress;
     }
 
     /// @notice True iff the token is in the active bonding-curve phase. Buys

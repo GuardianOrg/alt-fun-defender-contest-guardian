@@ -288,7 +288,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _ltOf(
         address tokenAddress
     ) internal view returns (address lt) {
-        (,, lt,,,) = bonding.tokenInfo(tokenAddress);
+        return bonding.ltOf(tokenAddress);
     }
 
     function _sellInternal(

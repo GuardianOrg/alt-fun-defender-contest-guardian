@@ -90,9 +90,9 @@ contract UUPSUpgradeTest is DeployHelper {
         BondingV2 newImpl = new BondingV2();
         bonding.upgradeToAndCall(address(newImpl), "");
 
-        (address infoCreator,,,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
-        assertEq(infoCreator, creator);
-        assertTrue(lifecycle == Bonding.Lifecycle.Curve);
+        Bonding.TokenInfo memory info = bonding.getTokenInfo(tokenAddr);
+        assertEq(info.creator, creator);
+        assertTrue(info.lifecycle == Bonding.Lifecycle.Curve);
         assertEq(bonding.allTokensLength(), 1);
     }
 

@@ -123,11 +123,11 @@ contract BondingTest is DeployHelper {
     function test_launch_setsTokenInfo() public {
         (address tokenAddr,) = _launchToken();
 
-        (address infoCreator,, address ltAddr,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
+        Bonding.TokenInfo memory info = bonding.getTokenInfo(tokenAddr);
 
-        assertEq(infoCreator, creator);
-        assertEq(ltAddr, address(lt));
-        assertTrue(lifecycle == Bonding.Lifecycle.Curve);
+        assertEq(info.creator, creator);
+        assertEq(info.ltAddress, address(lt));
+        assertTrue(info.lifecycle == Bonding.Lifecycle.Curve);
     }
 
     function test_launch_creatorReceivesInitialTokens() public {
@@ -530,8 +530,7 @@ contract BondingTest is DeployHelper {
         vm.prank(creator);
         bonding.transferCreator(tokenAddr, trader);
 
-        (address newCreator,,,,,) = bonding.tokenInfo(tokenAddr);
-        assertEq(newCreator, trader);
+        assertEq(bonding.getTokenInfo(tokenAddr).creator, trader);
     }
 
     function test_transferCreator_onlyCreator() public {

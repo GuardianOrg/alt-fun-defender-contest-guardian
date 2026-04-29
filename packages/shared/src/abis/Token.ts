@@ -186,11 +186,6 @@ export const TokenAbi = [
         "internalType": "string"
       },
       {
-        "name": "maxTxPercent_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "owner_",
         "type": "address",
         "internalType": "address"
@@ -198,51 +193,6 @@ export const TokenAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "isExcludedFromMaxTx",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "maxTxAmount",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "maxTxPercent",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -336,37 +286,6 @@ export const TokenAbi = [
     "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setMaxTxExclusion",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "excluded",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setMaxTxPercent",
-    "inputs": [
-      {
-        "name": "pct",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -502,25 +421,6 @@ export const TokenAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "MaxTxExclusionUpdated",
-    "inputs": [
-      {
-        "name": "account",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "excluded",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -708,11 +608,6 @@ export const TokenAbi = [
         "internalType": "address"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "ExceedsMaxTx",
-    "inputs": []
   },
   {
     "type": "error",
