@@ -27,7 +27,6 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 ether;
 
     uint256 public maxTxPercent;
-    uint256 public maxTxAmount;
 
     mapping(address => bool) public isExcludedFromMaxTx;
 
@@ -73,11 +72,14 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
         _burn(from, amount);
     }
 
+    function maxTxAmount() external view returns (uint256) {
+        return (maxTxPercent * TOTAL_SUPPLY) / 100;
+    }
+
     function _setMaxTxPercent(
         uint256 pct
     ) internal {
         maxTxPercent = pct;
-        maxTxAmount = (pct * TOTAL_SUPPLY) / 100;
     }
 
     function _update(
@@ -86,7 +88,7 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
         uint256 amount
     ) internal override {
         if (from != address(0) && to != address(0) && !isExcludedFromMaxTx[from]) {
-            if (amount > maxTxAmount) revert ExceedsMaxTx();
+            if (amount > (maxTxPercent * TOTAL_SUPPLY) / 100) revert ExceedsMaxTx();
         }
         super._update(from, to, amount);
     }
