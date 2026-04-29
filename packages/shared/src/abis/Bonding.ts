@@ -1558,11 +1558,6 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "TokenAlreadyGraduated",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "TokenIsGraduating",
     "inputs": []
   },
