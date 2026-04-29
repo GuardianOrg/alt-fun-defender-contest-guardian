@@ -74,11 +74,15 @@ contract RouterAllowlistTest is DeployHelper {
     }
 
     function test_removeRouter_ownerCanRemove() public {
+        address extra = makeAddr("extra");
+        bonding.addRouter(extra);
         bonding.removeRouter(address(zap));
         assertFalse(bonding.isRouter(address(zap)));
     }
 
     function test_removeRouter_emitsEvent() public {
+        address extra = makeAddr("extra");
+        bonding.addRouter(extra);
         vm.expectEmit(true, false, false, false);
         emit Bonding.RouterRemoved(address(zap));
         bonding.removeRouter(address(zap));
@@ -93,6 +97,14 @@ contract RouterAllowlistTest is DeployHelper {
     function test_removeRouter_revertsWhenNotAdded() public {
         vm.expectRevert(Bonding.RouterNotFound.selector);
         bonding.removeRouter(makeAddr("never-added"));
+    }
+
+    function test_removeRouter_revertsWhenLastRouter() public {
+        // Only `zap` is allowlisted in setUp; removing it would brick the
+        // protocol, so the call must revert.
+        vm.expectRevert(Bonding.MustKeepOneRouter.selector);
+        bonding.removeRouter(address(zap));
+        assertTrue(bonding.isRouter(address(zap)));
     }
 
     function test_getRouters_enumeratesAll() public {
@@ -110,8 +122,11 @@ contract RouterAllowlistTest is DeployHelper {
     }
 
     function test_removeRouter_shrinksEnumeration() public {
+        address extra = makeAddr("extra");
+        bonding.addRouter(extra);
+        assertEq(bonding.getRouters().length, 2);
         bonding.removeRouter(address(zap));
-        assertEq(bonding.getRouters().length, 0);
+        assertEq(bonding.getRouters().length, 1);
     }
 
     // ─── Router-only gating ──────────────────────────────────────────────

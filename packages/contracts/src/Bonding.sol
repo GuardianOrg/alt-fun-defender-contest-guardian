@@ -266,6 +266,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error NotRouter();
     error RouterAlreadyAdded();
     error RouterNotFound();
+    error MustKeepOneRouter();
     error ZeroExchangeRate();
     error InvalidNameLength();
     error InvalidTickerLength();
@@ -619,6 +620,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address router_
     ) external onlyOwner {
         if (!_routers.remove(router_)) revert RouterNotFound();
+        if (_routers.length() == 0) revert MustKeepOneRouter();
         emit RouterRemoved(router_);
     }
 
