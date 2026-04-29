@@ -191,7 +191,7 @@ contract BondingTest is DeployHelper {
         IPair pair = IPair(pairAddr);
 
         (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
-        uint256 k = pair.kLast();
+        uint256 k = pair.k();
 
         assertTrue(reserveToken > 0, "Token reserve should be > 0");
         assertTrue(reserveAsset > 0, "Asset reserve should be > 0 (virtual)");
@@ -722,9 +722,9 @@ contract BondingTest is DeployHelper {
         (address tokenAddr, address pairAddr2) = _launchToken();
         IPair pair = IPair(pairAddr2);
 
-        uint256 kBefore = pair.kLast();
+        uint256 kBefore = pair.k();
         _buyTokens(tokenAddr, trader, _smallBuyLt());
-        uint256 kAfter = pair.kLast();
+        uint256 kAfter = pair.k();
 
         assertEq(kBefore, kAfter, "k should not change after trades");
     }

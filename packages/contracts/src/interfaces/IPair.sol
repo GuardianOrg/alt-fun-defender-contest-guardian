@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 interface IPair {
     function getReserves() external view returns (uint256 reserve0, uint256 reserve1);
-    function kLast() external view returns (uint256);
+    function k() external view returns (uint256);
     function mint(
         uint256 reserve0,
         uint256 reserve1

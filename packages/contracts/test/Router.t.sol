@@ -121,7 +121,7 @@ contract RouterTest is Test {
 
         IPair pair = IPair(pairAddr);
         (uint256 r0, uint256 r1) = pair.getReserves();
-        uint256 k = pair.kLast();
+        uint256 k = pair.k();
 
         uint256 newR1 = r1 + amountIn;
         uint256 newR0 = k / newR1;
@@ -197,11 +197,11 @@ contract RouterTest is Test {
 
     function test_buy_kUnchanged() public {
         IPair pair = IPair(pairAddr);
-        uint256 kBefore = pair.kLast();
+        uint256 kBefore = pair.k();
 
         _doBuy(trader, 500 ether);
 
-        assertEq(pair.kLast(), kBefore, "k should not change after buy");
+        assertEq(pair.k(), kBefore, "k should not change after buy");
     }
 
     // ─── Sell Tests ──────────────────────────────────────────────────────
@@ -250,11 +250,11 @@ contract RouterTest is Test {
     function test_sell_kUnchanged() public {
         uint256 tokensOut = _doBuy(trader, 500 ether);
         IPair pair = IPair(pairAddr);
-        uint256 kBefore = pair.kLast();
+        uint256 kBefore = pair.k();
 
         _doSell(trader, tokensOut);
 
-        assertEq(pair.kLast(), kBefore, "k should not change after sell");
+        assertEq(pair.k(), kBefore, "k should not change after sell");
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
