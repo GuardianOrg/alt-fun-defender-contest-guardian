@@ -45,6 +45,11 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Lifetime gross protocol USDC accrued (never decreases).
     uint256 public lifetimeProtocolEarned;
 
+    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
+    ///      totals 50 slots (8 named + 42 gap). Append new state variables before
+    ///      this gap and shrink its length to match.
+    uint256[42] private __gap;
+
     event FeeAccrued(
         address indexed token, address indexed creator, uint256 creatorAmount, uint256 protocolAmount, bool isBuy
     );

@@ -50,6 +50,11 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Share of the total fee routed to the creator (bps; remainder goes to protocol).
     uint256 public creatorFeeBps;
 
+    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
+    ///      totals 50 slots (7 named + 43 gap). Append new state variables before
+    ///      this gap and shrink its length to match.
+    uint256[43] private __gap;
+
     /// @notice Permit signature payload (EIP-2612).
     struct PermitData {
         uint256 value;

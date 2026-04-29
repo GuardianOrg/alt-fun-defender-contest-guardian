@@ -22,6 +22,11 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
     /// @notice Addresses authorized to record locks (Bonding contract)
     mapping(address => bool) public isLocker;
 
+    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
+    ///      totals 50 slots (2 named + 48 gap). Append new state variables before
+    ///      this gap and shrink its length to match.
+    uint256[48] private __gap;
+
     event LPLocked(address indexed token, address indexed lpPair, uint256 amount);
     event LockerUpdated(address indexed locker, bool authorized);
 

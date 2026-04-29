@@ -216,6 +216,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///         Empty (`pendingSince == 0`) for tokens not in the `Graduating` phase.
     mapping(address => PendingGraduation) public pendingGraduation;
 
+    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
+    ///      totals 50 slots (15 named + 35 gap). Append new state variables before
+    ///      this gap and shrink its length to match.
+    uint256[35] private __gap;
+
     event TokenLaunched(
         address indexed token,
         address indexed creator,
