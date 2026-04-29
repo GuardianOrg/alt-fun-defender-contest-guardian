@@ -13,7 +13,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
 
     mapping(address => mapping(address => address)) private _pairs;
-    address[] public allPairs;
+    uint256 public pairCount;
 
     /// @notice Token address → its bonding curve pair
     mapping(address => address) public pairFor;
@@ -46,12 +46,11 @@ contract Factory is Initializable, AccessControlUpgradeable {
         Pair pair = new Pair(router, tokenA, tokenB);
         _pairs[tokenA][tokenB] = address(pair);
         _pairs[tokenB][tokenA] = address(pair);
-        allPairs.push(address(pair));
 
         pairFor[tokenA] = address(pair);
         ltFor[tokenA] = tokenB;
 
-        emit PairCreated(tokenA, tokenB, address(pair), allPairs.length);
+        emit PairCreated(tokenA, tokenB, address(pair), ++pairCount);
         return address(pair);
     }
 
@@ -62,15 +61,11 @@ contract Factory is Initializable, AccessControlUpgradeable {
         return _pairs[tokenA][tokenB];
     }
 
-    function allPairsLength() external view returns (uint256) {
-        return allPairs.length;
-    }
-
     function setRouter(
         address router_
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (router_ == address(0)) revert ZeroAddress();
-        if (allPairs.length > 0) revert RouterFrozen();
+        if (pairCount > 0) revert RouterFrozen();
         router = router_;
         emit RouterUpdated(router_);
     }

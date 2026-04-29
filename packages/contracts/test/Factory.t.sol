@@ -46,14 +46,13 @@ contract FactoryTest is Test {
         assertEq(factory.ltFor(address(tokenA)), address(tokenB));
     }
 
-    function test_createPair_incrementsAllPairs() public {
-        assertEq(factory.allPairsLength(), 0);
+    function test_createPair_incrementsPairCount() public {
+        assertEq(factory.pairCount(), 0);
 
         vm.prank(bondingRole);
-        address pair = factory.createPair(address(tokenA), address(tokenB));
+        factory.createPair(address(tokenA), address(tokenB));
 
-        assertEq(factory.allPairsLength(), 1);
-        assertEq(factory.allPairs(0), pair);
+        assertEq(factory.pairCount(), 1);
     }
 
     function test_createPair_emitsPairCreated() public {
@@ -128,9 +127,7 @@ contract FactoryTest is Test {
         address pair2 = factory.createPair(address(tokenC), address(tokenB));
         vm.stopPrank();
 
-        assertEq(factory.allPairsLength(), 2);
-        assertEq(factory.allPairs(0), pair1);
-        assertEq(factory.allPairs(1), pair2);
+        assertEq(factory.pairCount(), 2);
         assertTrue(pair1 != pair2, "Pairs should be different");
     }
 

@@ -45,6 +45,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "LP_RESERVE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "LP_RESERVE_BPS",
     "inputs": [],
     "outputs": [
@@ -502,7 +515,7 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "hyperswapRouter",
+    "name": "hyperswapFactory",
     "inputs": [],
     "outputs": [
       {
@@ -533,7 +546,7 @@ export const BondingAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "hyperswapRouter_",
+        "name": "hyperswapFactory_",
         "type": "address",
         "internalType": "address"
       },
@@ -707,25 +720,6 @@ export const BondingAbi = [
         "name": "",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "lpReserve",
-    "inputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -917,7 +911,7 @@ export const BondingAbi = [
     "name": "setHyperswap",
     "inputs": [
       {
-        "name": "newRouter",
+        "name": "newFactory",
         "type": "address",
         "internalType": "address"
       },
@@ -1113,6 +1107,25 @@ export const BondingAbi = [
   },
   {
     "type": "event",
+    "name": "HyperswapUpdated",
+    "inputs": [
+      {
+        "name": "hyperswapFactory",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "lpLock",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Initialized",
     "inputs": [
       {
@@ -1120,6 +1133,25 @@ export const BondingAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MaxTxUpdated",
+    "inputs": [
+      {
+        "name": "oldValue",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newValue",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
