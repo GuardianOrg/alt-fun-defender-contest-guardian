@@ -830,6 +830,13 @@ contract BondingTest is DeployHelper {
         assertEq(bonding.maxTx(), 50);
     }
 
+    function test_setMaxTx_emitsEvent() public {
+        uint256 oldValue = bonding.maxTx();
+        vm.expectEmit(false, false, false, true);
+        emit Bonding.MaxTxUpdated(oldValue, 50);
+        bonding.setMaxTx(50);
+    }
+
     // ─── Graduation Threshold Admin Tests ────────────────────────────────
 
     function test_setGraduationThresholdUsd_initialisesToDefault() public {

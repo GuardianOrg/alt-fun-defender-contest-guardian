@@ -258,6 +258,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterRemoved(address indexed router);
     event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
+    event MaxTxUpdated(uint256 oldValue, uint256 newValue);
 
     error TokenNotTrading();
     /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
@@ -593,6 +594,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function setMaxTx(
         uint256 newMaxTx
     ) external onlyOwner {
+        emit MaxTxUpdated(maxTx, newMaxTx);
         maxTx = newMaxTx;
     }
 
