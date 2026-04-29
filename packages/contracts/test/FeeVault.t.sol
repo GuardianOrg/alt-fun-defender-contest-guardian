@@ -268,6 +268,67 @@ contract FeeVaultTest is Test {
         vault.claimProtocol();
     }
 
+    // ─── Sweep Donations ─────────────────────────────────────────────────
+
+    function test_sweepDonations_paysSurplusToFeeTo() public {
+        // Some accruals in place (these are properly backed).
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 100 ether);
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, true);
+
+        // A stranger donates USDC directly to the vault.
+        usdc.mint(address(vault), 50 ether);
+
+        vm.expectEmit(true, false, false, true);
+        emit FeeVault.DonationsSwept(feeTo, 50 ether);
+        uint256 swept = vault.sweepDonations();
+
+        assertEq(swept, 50 ether);
+        assertEq(usdc.balanceOf(feeTo), 50 ether);
+        // Backed accruals untouched.
+        assertEq(usdc.balanceOf(address(vault)), 100 ether);
+        assertEq(vault.totalAccruedCreator(), 20 ether);
+        assertEq(vault.protocolBalance(), 80 ether);
+    }
+
+    function test_sweepDonations_revertsWhenNoSurplus() public {
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 100 ether);
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, true);
+
+        // Vault is exactly funded — nothing to sweep.
+        vm.expectRevert(FeeVault.NothingToClaim.selector);
+        vault.sweepDonations();
+    }
+
+    function test_sweepDonations_revertsWhenEmpty() public {
+        vm.expectRevert(FeeVault.NothingToClaim.selector);
+        vault.sweepDonations();
+    }
+
+    function test_sweepDonations_onlyOwner() public {
+        usdc.mint(address(vault), 50 ether);
+        vm.prank(stranger);
+        vm.expectRevert();
+        vault.sweepDonations();
+    }
+
+    function test_sweepDonations_unmasksUnderfundedAccrual() public {
+        // Without the sweep, a donation that exceeds an unfunded accrual would let
+        // a buggy depositor sneak `accrue` past the underfund check. After sweeping,
+        // the same buggy call must revert.
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 100 ether); // donation, no accrual yet
+
+        vault.sweepDonations();
+
+        vm.prank(depositor);
+        vm.expectRevert(FeeVault.UnderfundedAccrual.selector);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, true);
+    }
+
     // ─── Admin: setFeeTo ─────────────────────────────────────────────────
 
     function test_setFeeTo_updatesValue() public {

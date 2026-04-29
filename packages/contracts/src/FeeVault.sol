@@ -59,6 +59,7 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     );
     event CreatorFeesClaimed(address indexed creator, uint256 amount);
     event ProtocolFeesClaimed(address indexed feeTo, uint256 amount);
+    event DonationsSwept(address indexed feeTo, uint256 amount);
     event DepositorAdded(address indexed depositor);
     event DepositorRemoved(address indexed depositor);
     event FeeToUpdated(address indexed feeTo);
@@ -141,6 +142,21 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         protocolBalance = 0;
         usdc.safeTransfer(feeTo, amount);
         emit ProtocolFeesClaimed(feeTo, amount);
+    }
+
+    /// @notice Sweep any USDC in the vault that is not backing an outstanding accrual to `feeTo`.
+    /// @dev Direct USDC donations to the vault would otherwise inflate `balanceOf` above the
+    ///      running accrual tally, masking the `accrue` underfund check: a buggy depositor that
+    ///      called `accrue` without first transferring USDC could be silently back-filled by
+    ///      donation funds. Owner runs this periodically so `balanceOf` stays aligned with
+    ///      `totalAccruedCreator + protocolBalance` and the underfund check remains effective.
+    function sweepDonations() external nonReentrant onlyOwner returns (uint256 amount) {
+        uint256 backed = totalAccruedCreator + protocolBalance;
+        uint256 balance = usdc.balanceOf(address(this));
+        if (balance <= backed) revert NothingToClaim();
+        amount = balance - backed;
+        usdc.safeTransfer(feeTo, amount);
+        emit DonationsSwept(feeTo, amount);
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
