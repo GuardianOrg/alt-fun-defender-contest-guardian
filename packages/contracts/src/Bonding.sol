@@ -74,8 +74,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      with no window in which users can't trade.
     EnumerableSet.AddressSet private _routers;
 
-    uint256 public maxTx;
-
     /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
     ///      Since virtual tokenReserve = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
@@ -219,9 +217,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     mapping(address => PendingGraduation) public pendingGraduation;
 
     /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (14 named + 36 gap). Append new state variables before
+    ///      totals 50 slots (13 named + 37 gap). Append new state variables before
     ///      this gap and shrink its length to match.
-    uint256[36] private __gap;
+    uint256[37] private __gap;
 
     event TokenLaunched(
         address indexed token,
@@ -261,7 +259,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
-    event MaxTxUpdated(uint256 oldValue, uint256 newValue);
 
     error TokenNotTrading();
     /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
@@ -305,7 +302,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function initialize(
         address factory_,
         address router_,
-        uint256 maxTx_,
         address hyperswapFactory_,
         address lpLock_,
         address tokenImplementation_
@@ -318,7 +314,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         factory = Factory(factory_);
         router = Router(router_);
-        maxTx = maxTx_;
         hyperswapFactory = hyperswapFactory_;
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
@@ -375,7 +370,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             revert NotVanityAddress(tokenAddr);
         }
 
-        Token(tokenAddr).initialize(name_, ticker_, maxTx, address(this));
+        Token(tokenAddr).initialize(name_, ticker_, address(this));
 
         uint256 totalSupply = Token(tokenAddr).TOTAL_SUPPLY();
         uint256 curveSupply = (totalSupply * CURVE_BPS) / BPS_DENOM;
@@ -594,13 +589,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
-
-    function setMaxTx(
-        uint256 newMaxTx
-    ) external onlyOwner {
-        emit MaxTxUpdated(maxTx, newMaxTx);
-        maxTx = newMaxTx;
-    }
 
     function setHyperswap(
         address newFactory,

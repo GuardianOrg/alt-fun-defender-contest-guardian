@@ -21,7 +21,6 @@ contract Deploy is Script {
     uint256 constant BUY_FEE_BPS = 50;
     uint256 constant SELL_FEE_BPS = 50;
     uint256 constant CREATOR_FEE_BPS = 2000;
-    uint256 constant MAX_TX = 100; // 100% = no per-tx limit
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -58,9 +57,8 @@ contract Deploy is Script {
         console.log("Token (impl):", address(tokenImpl));
 
         address hyperswapFactory = IUniswapV2Router02(HYPERSWAP_ROUTER).factory();
-        address bondingProxy = _deployBonding(
-            address(factory), address(router), MAX_TX, hyperswapFactory, lpLockProxy, address(tokenImpl)
-        );
+        address bondingProxy =
+            _deployBonding(address(factory), address(router), hyperswapFactory, lpLockProxy, address(tokenImpl));
         console.log("Bonding (proxy):", bondingProxy);
 
         // Deploy FeeVault (proxy). `feeTo = deployer` initially — rotate via
@@ -93,15 +91,13 @@ contract Deploy is Script {
     function _deployBonding(
         address factory_,
         address router_,
-        uint256 maxTx_,
         address hyperswapFactory_,
         address lpLock_,
         address tokenImplementation_
     ) internal returns (address) {
         Bonding impl = new Bonding();
-        bytes memory initData = abi.encodeCall(
-            Bonding.initialize, (factory_, router_, maxTx_, hyperswapFactory_, lpLock_, tokenImplementation_)
-        );
+        bytes memory initData =
+            abi.encodeCall(Bonding.initialize, (factory_, router_, hyperswapFactory_, lpLock_, tokenImplementation_));
         return address(new ERC1967Proxy(address(impl), initData));
     }
 }

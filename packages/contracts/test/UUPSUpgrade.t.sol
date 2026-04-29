@@ -139,7 +139,7 @@ contract UUPSUpgradeTest is DeployHelper {
     function test_bonding_implementationCannotBeInitialized() public {
         Bonding impl = new Bonding();
         vm.expectRevert();
-        impl.initialize(address(1), address(2), 100, address(3), address(4), address(5));
+        impl.initialize(address(1), address(2), address(3), address(4), address(5));
     }
 
     function test_zap_implementationCannotBeInitialized() public {

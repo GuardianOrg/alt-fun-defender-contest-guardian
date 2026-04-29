@@ -99,10 +99,6 @@ contract BondingTest is DeployHelper {
         assertEq(factory.router(), address(curveRouter));
     }
 
-    function test_setUp_paramsCorrect() public view {
-        assertEq(bonding.maxTx(), MAX_TX);
-    }
-
     // ─── Launch Tests ────────────────────────────────────────────────────
 
     function test_launch_createsToken() public {
@@ -809,26 +805,6 @@ contract BondingTest is DeployHelper {
         assertTrue(ltBack <= buyAmount, "Should never profit on round trip");
     }
 
-    // ─── Admin Tests ─────────────────────────────────────────────────────
-
-    function test_setMaxTx_onlyOwner() public {
-        vm.prank(trader);
-        vm.expectRevert();
-        bonding.setMaxTx(100);
-    }
-
-    function test_setMaxTx_updatesValue() public {
-        bonding.setMaxTx(50);
-        assertEq(bonding.maxTx(), 50);
-    }
-
-    function test_setMaxTx_emitsEvent() public {
-        uint256 oldValue = bonding.maxTx();
-        vm.expectEmit(false, false, false, true);
-        emit Bonding.MaxTxUpdated(oldValue, 50);
-        bonding.setMaxTx(50);
-    }
-
     // ─── Initialize Zero-Address Validation ─────────────────────────────
     //
     // `Bonding.initialize` rejects any zero address among its dependency
@@ -844,7 +820,7 @@ contract BondingTest is DeployHelper {
         address lpLock_,
         address tokenImpl_
     ) internal view returns (bytes memory) {
-        return abi.encodeCall(Bonding.initialize, (factory_, router_, MAX_TX, hyperswapFactory_, lpLock_, tokenImpl_));
+        return abi.encodeCall(Bonding.initialize, (factory_, router_, hyperswapFactory_, lpLock_, tokenImpl_));
     }
 
     function test_initialize_revertsOnZeroFactory() public {
@@ -938,7 +914,6 @@ contract BondingTest is DeployHelper {
             (
                 address(factory),
                 address(curveRouter),
-                MAX_TX,
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl)
