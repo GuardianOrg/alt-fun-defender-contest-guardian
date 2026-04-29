@@ -351,6 +351,32 @@ contract GraduationInvariantsTest is DeployHelper {
         assertEq(ltConsumed, amountInUsed, "trader should only pay `amountInUsed`, not the requested amount");
     }
 
+    // ─── 8. Virtual reserve invariant (tokenBalance < tokenReserve) ──────
+
+    /// @dev Production seeding (`virtualReserveToken = totalSupply`,
+    ///      `realTokenAmount = curveSupply = 75% * totalSupply`) makes
+    ///      `pair.tokenBalance() < pair.tokenReserve()` a hard property at
+    ///      every state of the curve. This invariant is what makes the
+    ///      `cappedReserveToken == 0` branch in `Router._computeBuy`
+    ///      unreachable; if it ever ceased to hold, that branch would
+    ///      revert with `OverflowCapDegenerate` rather than over-pay.
+    function test_inv_virtualReserveAlwaysExceedsRealBalance() public {
+        (address tokenAddr, address pairAddr) = _launchNoSeed();
+
+        // Right after launch.
+        assertTrue(IPair(pairAddr).tokenBalance() < _reserve0(pairAddr), "post-launch invariant");
+
+        // After a series of buys the property must continue to hold while
+        // the curve is still trading.
+        for (uint256 i = 0; i < 10; i++) {
+            if (!bonding.isTrading(tokenAddr)) break;
+            _buy(tokenAddr, trader, 100 ether);
+            if (bonding.isTrading(tokenAddr)) {
+                assertTrue(IPair(pairAddr).tokenBalance() < _reserve0(pairAddr), "invariant must hold after every buy");
+            }
+        }
+    }
+
     // ─── Fuzz: graduation always preserves invariants ────────────────────
 
     /// @dev Fuzz over seed buys and exchange rates. Verifies that no matter how or when the
