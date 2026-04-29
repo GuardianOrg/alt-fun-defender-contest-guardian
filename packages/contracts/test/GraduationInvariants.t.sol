@@ -149,9 +149,10 @@ contract GraduationInvariantsTest is DeployHelper {
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].topics.length > 0 && logs[i].topics[0] == topic) {
-                (address hp,, uint256 tokensInLP, uint256 lpBurn, uint256 unsold) =
-                    abi.decode(logs[i].data, (address, uint256, uint256, uint256, uint256));
-                snap.hyperPair = hp;
+                // pairAddress is now indexed, so it's in topics[2] (after event sig and token)
+                snap.hyperPair = address(uint160(uint256(logs[i].topics[2])));
+                (, uint256 tokensInLP, uint256 lpBurn, uint256 unsold) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
                 snap.tokensInLP = tokensInLP;
                 snap.lpBurned = lpBurn;
                 snap.unsoldBurned = unsold;

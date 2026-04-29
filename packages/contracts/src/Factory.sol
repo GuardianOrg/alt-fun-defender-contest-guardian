@@ -22,7 +22,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
 
     address public router;
 
-    event PairCreated(address indexed tokenA, address indexed tokenB, address pair, uint256 index);
+    event PairCreated(address indexed tokenA, address indexed tokenB, address indexed pair, uint256 index);
     event RouterUpdated(address indexed router);
 
     error ZeroAddress();

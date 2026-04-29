@@ -220,7 +220,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256[38] private __gap;
 
     event TokenLaunched(
-        address indexed token, address indexed creator, address ltAddress, string name, string ticker, uint256 k
+        address indexed token, address indexed creator, address indexed ltAddress, string name, string ticker, uint256 k
     );
     event Trade(
         address indexed token,
@@ -239,7 +239,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     );
     event TokenGraduated(
         address indexed token,
-        address pairAddress,
+        address indexed pairAddress,
         uint256 liquidity,
         uint256 tokensInLP,
         uint256 lpBurned,
