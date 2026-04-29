@@ -30,6 +30,8 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
 
     mapping(address => bool) public isExcludedFromMaxTx;
 
+    event MaxTxExclusionUpdated(address indexed account, bool excluded);
+
     error ExceedsMaxTx();
 
     constructor() {
@@ -58,10 +60,12 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
         _setMaxTxPercent(pct);
     }
 
-    function excludeFromMaxTx(
-        address account
+    function setMaxTxExclusion(
+        address account,
+        bool excluded
     ) external onlyOwner {
-        isExcludedFromMaxTx[account] = true;
+        isExcludedFromMaxTx[account] = excluded;
+        emit MaxTxExclusionUpdated(account, excluded);
     }
 
     /// @notice Burn tokens from any address. Owner only, no approval required.

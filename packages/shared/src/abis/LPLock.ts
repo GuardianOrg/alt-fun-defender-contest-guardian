@@ -314,6 +314,11 @@ export const LPLockAbi = [
   },
   {
     "type": "error",
+    "name": "AlreadyLocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {
@@ -331,6 +336,11 @@ export const LPLockAbi = [
   {
     "type": "error",
     "name": "FailedCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientLPBalance",
     "inputs": []
   },
   {

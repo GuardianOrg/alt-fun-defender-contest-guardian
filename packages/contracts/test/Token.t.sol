@@ -96,12 +96,12 @@ contract TokenTest is Test {
         assertEq(token.balanceOf(alice), 100_000_000 ether);
     }
 
-    function test_excludeFromMaxTx_allowsOversizedTransfer() public {
+    function test_setMaxTxExclusion_allowsOversizedTransfer() public {
         token = _deployToken(1);
         token.transfer(alice, 50_000_000 ether);
 
         // Without exclusion, alice's 20M transfer would revert.
-        token.excludeFromMaxTx(alice);
+        token.setMaxTxExclusion(alice, true);
         assertTrue(token.isExcludedFromMaxTx(alice));
 
         vm.prank(alice);
@@ -109,11 +109,39 @@ contract TokenTest is Test {
         assertEq(token.balanceOf(bob), 20_000_000 ether);
     }
 
-    function test_excludeFromMaxTx_onlyOwner() public {
+    function test_setMaxTxExclusion_canRevoke() public {
+        token = _deployToken(1);
+        token.transfer(alice, 50_000_000 ether);
+
+        token.setMaxTxExclusion(alice, true);
+        assertTrue(token.isExcludedFromMaxTx(alice));
+
+        // Revoke the exclusion: alice is now subject to maxTx again.
+        token.setMaxTxExclusion(alice, false);
+        assertFalse(token.isExcludedFromMaxTx(alice));
+
+        vm.prank(alice);
+        vm.expectRevert(Token.ExceedsMaxTx.selector);
+        token.transfer(bob, 20_000_000 ether);
+    }
+
+    function test_setMaxTxExclusion_emitsEvent() public {
+        token = _deployToken(1);
+
+        vm.expectEmit(true, false, false, true, address(token));
+        emit Token.MaxTxExclusionUpdated(alice, true);
+        token.setMaxTxExclusion(alice, true);
+
+        vm.expectEmit(true, false, false, true, address(token));
+        emit Token.MaxTxExclusionUpdated(alice, false);
+        token.setMaxTxExclusion(alice, false);
+    }
+
+    function test_setMaxTxExclusion_onlyOwner() public {
         token = _deployToken(1);
         vm.prank(alice);
         vm.expectRevert();
-        token.excludeFromMaxTx(bob);
+        token.setMaxTxExclusion(bob, true);
     }
 
     // ─── Mint and Burn Skip maxTx ────────────────────────────────────────
