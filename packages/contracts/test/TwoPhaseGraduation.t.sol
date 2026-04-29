@@ -47,7 +47,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
             salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
-        (tokenAddr, pairAddr,) = bonding.launch(params, creator);
+        (tokenAddr, pairAddr) = bonding.launch(params, creator);
     }
 
     /// @dev Buy without auto-finalizing — leaves the token in `Graduating` if

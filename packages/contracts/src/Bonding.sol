@@ -206,7 +206,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     mapping(address => TokenInfo) internal _tokenInfo;
-    address[] public allTokens;
 
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
@@ -220,13 +219,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256[37] private __gap;
 
     event TokenLaunched(
-        address indexed token,
-        address indexed creator,
-        address ltAddress,
-        string name,
-        string ticker,
-        uint256 k,
-        uint256 index
+        address indexed token, address indexed creator, address ltAddress, string name, string ticker, uint256 k
     );
     event Trade(
         address indexed token,
@@ -322,7 +315,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function launch(
         LaunchParams calldata params,
         address creator_
-    ) external onlyRouter nonReentrant returns (address tokenAddr, address pair, uint256 index) {
+    ) external onlyRouter nonReentrant returns (address tokenAddr, address pair) {
         if (params.ltAddress == address(0)) revert InvalidInput();
 
         uint256 nameLen = bytes(params.name).length;
@@ -338,11 +331,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
 
         (tokenAddr, pair) = _deployAndSeed(params.name, params.ticker, params.ltAddress, creator_, params.salt);
-        index = allTokens.length;
         _storeTokenInfo(tokenAddr, pair, params, creator_);
 
         uint256 k = IPair(pair).k();
-        emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
+        emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k);
     }
 
     function _deployAndSeed(
@@ -425,7 +417,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             urls: params.urls,
             lifecycle: Lifecycle.Curve
         });
-        allTokens.push(tokenAddr);
     }
 
     // ─── Buy / Sell ──────────────────────────────────────────────────────
@@ -536,10 +527,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address token_
     ) external view returns (bool) {
         return _tokenInfo[token_].lifecycle == Lifecycle.Graduated;
-    }
-
-    function allTokensLength() external view returns (uint256) {
-        return allTokens.length;
     }
 
     /// @notice Dual-trigger graduation check.

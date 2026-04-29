@@ -43,7 +43,7 @@ contract BondingTest is DeployHelper {
             salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
-        (tokenAddr, pairAddr,) = bonding.launch(params, creator);
+        (tokenAddr, pairAddr) = bonding.launch(params, creator);
 
         // Seed buys no longer happen inside `Bonding.launch` — they're now a
         // post-launch step in the Zap. To preserve the seeded curve
@@ -65,7 +65,7 @@ contract BondingTest is DeployHelper {
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
-        (tokenAddr, pairAddr,) = bonding.launch(params, creator);
+        (tokenAddr, pairAddr) = bonding.launch(params, creator);
         vm.stopPrank();
     }
 
@@ -198,10 +198,14 @@ contract BondingTest is DeployHelper {
     }
 
     function test_launch_tracksMultipleTokens() public {
-        _launchToken();
+        (address first,) = _launchToken();
         vm.warp(block.timestamp + 1);
-        _launchToken();
-        assertEq(bonding.allTokensLength(), 2);
+        (address second,) = _launchToken();
+        assertTrue(first != address(0));
+        assertTrue(second != address(0));
+        assertTrue(first != second);
+        assertEq(bonding.getTokenInfo(first).creator, creator);
+        assertEq(bonding.getTokenInfo(second).creator, creator);
     }
 
     function test_launch_emitsEvent() public {
@@ -218,7 +222,7 @@ contract BondingTest is DeployHelper {
         });
 
         vm.expectEmit(false, true, false, false);
-        emit Bonding.TokenLaunched(address(0), creator, address(lt), "EventTest", "EVT", 0, 0);
+        emit Bonding.TokenLaunched(address(0), creator, address(lt), "EventTest", "EVT", 0);
         bonding.launch(params, creator);
         vm.stopPrank();
     }
@@ -261,7 +265,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(creator);
         // exactly 34 chars
         Bonding.LaunchParams memory params = _launchParamsWithNameTicker("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "TEST");
-        (address tokenAddr,,) = bonding.launch(params, creator);
+        (address tokenAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
         assertEq(Token(tokenAddr).name(), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
@@ -288,7 +292,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(creator);
         // exactly 10 chars
         Bonding.LaunchParams memory params = _launchParamsWithNameTicker("Valid", "AAAAAAAAAA");
-        (address tokenAddr,,) = bonding.launch(params, creator);
+        (address tokenAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
         assertEq(Token(tokenAddr).symbol(), "AAAAAAAAAA");
@@ -297,7 +301,7 @@ contract BondingTest is DeployHelper {
     function test_launch_acceptsMinLengthNameAndTicker() public {
         vm.startPrank(creator);
         Bonding.LaunchParams memory params = _launchParamsWithNameTicker("A", "B");
-        (address tokenAddr,,) = bonding.launch(params, creator);
+        (address tokenAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
     }
@@ -334,7 +338,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(creator);
         Bonding.LaunchParams memory params = _launchParamsBase();
         params.description = _repeat("A", 8000);
-        (address tokenAddr,,) = bonding.launch(params, creator);
+        (address tokenAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
     }
@@ -352,7 +356,7 @@ contract BondingTest is DeployHelper {
         vm.startPrank(creator);
         Bonding.LaunchParams memory params = _launchParamsBase();
         params.image = _repeat("A", 512);
-        (address tokenAddr,,) = bonding.launch(params, creator);
+        (address tokenAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
     }
@@ -374,7 +378,7 @@ contract BondingTest is DeployHelper {
         for (uint256 i = 0; i < 3; i++) {
             params.urls[i] = _repeat("A", 512);
         }
-        (address tokenAddr,,) = bonding.launch(params, creator);
+        (address tokenAddr,) = bonding.launch(params, creator);
         vm.stopPrank();
         assertTrue(tokenAddr != address(0));
     }

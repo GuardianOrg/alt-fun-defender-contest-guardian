@@ -59,7 +59,7 @@ contract GraduationInvariantsTest is DeployHelper {
             salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
-        (tokenAddr, pairAddr,) = bonding.launch(params, creator);
+        (tokenAddr, pairAddr) = bonding.launch(params, creator);
 
         // Seed buys are no longer part of `Bonding.launch`. These invariant
         // tests rely on a seeded curve, so reproduce it via `bonding.buy`
@@ -80,7 +80,7 @@ contract GraduationInvariantsTest is DeployHelper {
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
-        (tokenAddr, pairAddr,) = bonding.launch(params, creator);
+        (tokenAddr, pairAddr) = bonding.launch(params, creator);
         vm.stopPrank();
     }
 
