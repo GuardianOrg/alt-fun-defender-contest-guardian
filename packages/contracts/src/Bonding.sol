@@ -559,17 +559,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function canGraduate(
         address token_
     ) public view returns (bool) {
-        if (_tokenInfo[token_].lifecycle != Lifecycle.Curve) return false;
-        address pair = _tokenInfo[token_].pair;
-        address lt = _tokenInfo[token_].ltAddress;
+        TokenInfo storage info = _tokenInfo[token_];
+        if (info.lifecycle != Lifecycle.Curve) return false;
 
-        // Supply trigger: no real tokens left in the pair
+        address pair = info.pair;
         if (IPair(pair).tokenBalance() == 0) return true;
 
-        // USD trigger
-        uint256 realLtBalance = IPair(pair).assetBalance();
-        uint256 exchangeRate = ILeveragedToken(lt).exchangeRate();
-        uint256 valueUsd = (realLtBalance * exchangeRate) / 1e18;
+        uint256 valueUsd = (IPair(pair).assetBalance() * ILeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
         return valueUsd >= graduationThresholdUsd;
     }
 
