@@ -67,7 +67,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event Buy(address indexed token, address indexed buyer, uint256 usdcIn, uint256 tokensOut);
     event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 usdcOut);
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
-    event TokenCreated(address indexed token, address indexed creator, address ltAddress);
+    event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
     event BondingUpdated(address indexed bonding);
     event HyperswapRouterUpdated(address indexed hyperswapRouter);
     event FeeVaultUpdated(address indexed feeVault);
