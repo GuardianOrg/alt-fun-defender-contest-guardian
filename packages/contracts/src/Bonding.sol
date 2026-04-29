@@ -23,7 +23,7 @@ import {LPLock} from "./LPLock.sol";
 /// @dev Each token pairs with a BounceTech Leveraged Token (LT). K is computed per-token
 ///      from the LT's exchange rate so every token opens at ~$4K market cap.
 ///
-///      Virtual reserves: the pair's `reserve0` is initialised to the *total* supply (1B)
+///      Virtual reserves: the pair's `tokenReserve` is initialised to the *total* supply (1B)
 ///      while only the `curveSupply` (75%) of real tokens is transferred. This caps the
 ///      sellable supply at 750M and pins the post-sellout virtual reserve at 250M
 ///      (= `LP_RESERVE`). This gives:
@@ -77,7 +77,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public maxTx;
 
     /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
-    ///      Since virtual reserve0 = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
+    ///      Since virtual tokenReserve = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
 
     /// @dev Default graduation threshold seeded at deploy / upgrade. Mutable
@@ -387,7 +387,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
-        // Virtual reserve0 = full totalSupply; only curveSupply (75%) is actually transferred.
+        // Virtual tokenReserve = full totalSupply; only curveSupply (75%) is actually transferred.
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
     }
 
@@ -774,7 +774,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev Burns unsold curve tokens, drains LT from the pair, computes the exact
     ///      `tokensForLP` needed to match the last curve price, and burns the LP excess.
     ///
-    ///      Price equality: `tokensForLP / ltFromPair = reserve0 / reserve1 = lastPrice`.
+    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve = lastPrice`.
     ///      By construction (V_t_init = totalSupply, curveSupply = 75%), the parabola
     ///         tokensForLP(sold) = sold · (S − sold) / S
     ///      peaks at S/4 = LP_RESERVE when sold = S/2, so `tokensForLP ≤ LP_RESERVE`
@@ -783,7 +783,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenAddress
     ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
         address pairAddr = _tokenInfo[tokenAddress].pair;
-        (uint256 reserve0, uint256 reserve1) = IPair(pairAddr).getReserves();
+        (uint256 tokenReserve, uint256 assetReserve) = IPair(pairAddr).getReserves();
 
         unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
         if (unsoldBurned > 0) {
@@ -792,7 +792,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         ltFromPair = router.graduate(tokenAddress);
 
-        tokensForLP = reserve1 == 0 ? 0 : (ltFromPair * reserve0) / reserve1;
+        tokensForLP = assetReserve == 0 ? 0 : (ltFromPair * tokenReserve) / assetReserve;
         if (tokensForLP > LP_RESERVE) tokensForLP = LP_RESERVE;
 
         lpBurned = LP_RESERVE - tokensForLP;

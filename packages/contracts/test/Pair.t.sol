@@ -32,8 +32,8 @@ contract PairTest is Test {
 
     function test_constructor_setsImmutables() public view {
         assertEq(pair.router(), routerAddr);
-        assertEq(pair.tokenA(), address(token));
-        assertEq(pair.tokenB(), address(asset));
+        assertEq(pair.launchedToken(), address(token));
+        assertEq(pair.assetToken(), address(asset));
     }
 
     // ─── Mint Tests ──────────────────────────────────────────────────────
@@ -43,9 +43,9 @@ contract PairTest is Test {
         bool success = pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
         assertTrue(success);
 
-        (uint256 reserve0, uint256 reserve1) = pair.getReserves();
-        assertEq(reserve0, INITIAL_TOKEN_RESERVE);
-        assertEq(reserve1, INITIAL_ASSET_RESERVE);
+        (uint256 tokenReserve, uint256 assetReserve) = pair.getReserves();
+        assertEq(tokenReserve, INITIAL_TOKEN_RESERVE);
+        assertEq(assetReserve, INITIAL_ASSET_RESERVE);
         assertEq(pair.k(), INITIAL_TOKEN_RESERVE * INITIAL_ASSET_RESERVE);
     }
 
@@ -82,9 +82,9 @@ contract PairTest is Test {
         uint256 tokensOut = 50_000 ether;
         pair.swap(0, tokensOut, assetIn, 0);
 
-        (uint256 r0, uint256 r1) = pair.getReserves();
-        assertEq(r0, INITIAL_TOKEN_RESERVE - tokensOut);
-        assertEq(r1, INITIAL_ASSET_RESERVE + assetIn);
+        (uint256 tokenReserve, uint256 assetReserve) = pair.getReserves();
+        assertEq(tokenReserve, INITIAL_TOKEN_RESERVE - tokensOut);
+        assertEq(assetReserve, INITIAL_ASSET_RESERVE + assetIn);
         vm.stopPrank();
     }
 
@@ -116,9 +116,9 @@ contract PairTest is Test {
         uint256 assetOut = 1000 ether;
         pair.swap(tokensIn, 0, 0, assetOut);
 
-        (uint256 r0, uint256 r1) = pair.getReserves();
-        assertEq(r0, INITIAL_TOKEN_RESERVE + tokensIn);
-        assertEq(r1, INITIAL_ASSET_RESERVE - assetOut);
+        (uint256 tokenReserve, uint256 assetReserve) = pair.getReserves();
+        assertEq(tokenReserve, INITIAL_TOKEN_RESERVE + tokensIn);
+        assertEq(assetReserve, INITIAL_ASSET_RESERVE - assetOut);
         vm.stopPrank();
     }
 
@@ -127,7 +127,7 @@ contract PairTest is Test {
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
 
         // Attempt to extract more asset than the curve allows: 50K tokens in, 100 LT out
-        // newR0 * newR1 = 750_050_000 * 3900 < 750_000_000 * 4000 = k
+        // newTokenReserve * newAssetReserve = 750_050_000 * 3900 < 750_000_000 * 4000 = k
         vm.expectRevert(Pair.KInvariantViolated.selector);
         pair.swap(50_000 ether, 0, 0, 100 ether);
         vm.stopPrank();
@@ -135,7 +135,7 @@ contract PairTest is Test {
 
     // ─── Transfer Tests ──────────────────────────────────────────────────
 
-    function test_transferToken_sendsTokenA() public {
+    function test_transferToken_sendsLaunchedToken() public {
         vm.prank(routerAddr);
         uint256 amount = 1000 ether;
         pair.transferToken(recipient, amount);
@@ -149,7 +149,7 @@ contract PairTest is Test {
         pair.transferToken(recipient, 1000 ether);
     }
 
-    function test_transferAsset_sendsTokenB() public {
+    function test_transferAsset_sendsAssetToken() public {
         vm.prank(routerAddr);
         uint256 amount = 100 ether;
         pair.transferAsset(recipient, amount);
@@ -166,9 +166,9 @@ contract PairTest is Test {
     // ─── View Functions Tests ────────────────────────────────────────────
 
     function test_getReserves_returnsZeroBeforeMint() public view {
-        (uint256 r0, uint256 r1) = pair.getReserves();
-        assertEq(r0, 0);
-        assertEq(r1, 0);
+        (uint256 tokenReserve, uint256 assetReserve) = pair.getReserves();
+        assertEq(tokenReserve, 0);
+        assertEq(assetReserve, 0);
     }
 
     function test_k_returnsZeroBeforeMint() public view {
@@ -193,9 +193,9 @@ contract PairTest is Test {
         pair.transferAsset(recipient, 500 ether);
 
         // Real balance should be less than reserve
-        (uint256 r0, uint256 r1) = pair.getReserves();
-        assertEq(r0, INITIAL_TOKEN_RESERVE);
-        assertEq(r1, INITIAL_ASSET_RESERVE);
+        (uint256 tokenReserve, uint256 assetReserve) = pair.getReserves();
+        assertEq(tokenReserve, INITIAL_TOKEN_RESERVE);
+        assertEq(assetReserve, INITIAL_ASSET_RESERVE);
         assertEq(pair.assetBalance(), INITIAL_ASSET_RESERVE - 500 ether);
     }
 

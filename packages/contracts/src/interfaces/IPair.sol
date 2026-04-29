@@ -2,17 +2,17 @@
 pragma solidity ^0.8.24;
 
 interface IPair {
-    function getReserves() external view returns (uint256 reserve0, uint256 reserve1);
+    function getReserves() external view returns (uint256 tokenReserve, uint256 assetReserve);
     function k() external view returns (uint256);
     function mint(
-        uint256 reserve0,
-        uint256 reserve1
+        uint256 tokenReserve,
+        uint256 assetReserve
     ) external returns (bool);
     function swap(
-        uint256 amount0In,
-        uint256 amount0Out,
-        uint256 amount1In,
-        uint256 amount1Out
+        uint256 tokenIn,
+        uint256 tokenOut,
+        uint256 assetIn,
+        uint256 assetOut
     ) external returns (bool);
     function transferAsset(
         address recipient,
