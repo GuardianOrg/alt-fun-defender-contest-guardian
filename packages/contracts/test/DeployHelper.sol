@@ -11,7 +11,7 @@ import {LPLock} from "../src/LPLock.sol";
 import {FeeVault} from "../src/FeeVault.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
-import {MockHyperswapRouter} from "./mocks/MockHyperswapRouter.sol";
+import {MockHyperswapRouter, MockHyperswapFactory} from "./mocks/MockHyperswapRouter.sol";
 import {VanityMining} from "../src/lib/VanityMining.sol";
 
 /// @notice Shared deployment wiring for Bonding-based test suites.
@@ -21,6 +21,7 @@ abstract contract DeployHelper is Test {
     MockERC20 public usdc;
     MockLeveragedToken public lt;
     MockHyperswapRouter public hyperswapRouter;
+    MockHyperswapFactory public hyperswapFactory;
     Factory public factory;
     Router public curveRouter;
     Bonding public bonding;
@@ -87,6 +88,7 @@ abstract contract DeployHelper is Test {
         usdc = new MockERC20("USD Coin", "USDC");
         lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));
         hyperswapRouter = new MockHyperswapRouter();
+        hyperswapFactory = MockHyperswapFactory(hyperswapRouter.factory());
 
         factory = new Factory();
         factory.initialize();
@@ -107,7 +109,7 @@ abstract contract DeployHelper is Test {
                 address(factory),
                 address(curveRouter),
                 MAX_TX,
-                address(hyperswapRouter),
+                address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl)
             )

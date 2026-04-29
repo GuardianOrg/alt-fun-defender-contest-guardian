@@ -833,24 +833,24 @@ contract BondingTest is DeployHelper {
     //
     // `Bonding.initialize` rejects any zero address among its dependency
     // parameters. A misconfigured deploy would otherwise land in production
-    // with `factory` / `router` / `hyperswapRouter` / `lpLock` / token
+    // with `factory` / `router` / `hyperswapFactory` / `lpLock` / token
     // implementation set to zero, bricking core paths with cryptic
     // low-level reverts deep in delegate calls.
 
     function _bondingInitCall(
         address factory_,
         address router_,
-        address hyperswapRouter_,
+        address hyperswapFactory_,
         address lpLock_,
         address tokenImpl_
     ) internal view returns (bytes memory) {
-        return abi.encodeCall(Bonding.initialize, (factory_, router_, MAX_TX, hyperswapRouter_, lpLock_, tokenImpl_));
+        return abi.encodeCall(Bonding.initialize, (factory_, router_, MAX_TX, hyperswapFactory_, lpLock_, tokenImpl_));
     }
 
     function test_initialize_revertsOnZeroFactory() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(0), address(curveRouter), address(hyperswapRouter), address(lpLockContract), address(tokenImpl)
+            address(0), address(curveRouter), address(hyperswapFactory), address(lpLockContract), address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -859,13 +859,13 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroRouter() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(0), address(hyperswapRouter), address(lpLockContract), address(tokenImpl)
+            address(factory), address(0), address(hyperswapFactory), address(lpLockContract), address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
     }
 
-    function test_initialize_revertsOnZeroHyperswapRouter() public {
+    function test_initialize_revertsOnZeroHyperswapFactory() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
             address(factory), address(curveRouter), address(0), address(lpLockContract), address(tokenImpl)
@@ -877,7 +877,7 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroLpLock() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(curveRouter), address(hyperswapRouter), address(0), address(tokenImpl)
+            address(factory), address(curveRouter), address(hyperswapFactory), address(0), address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -886,7 +886,7 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroTokenImplementation() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(curveRouter), address(hyperswapRouter), address(lpLockContract), address(0)
+            address(factory), address(curveRouter), address(hyperswapFactory), address(lpLockContract), address(0)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -897,33 +897,33 @@ contract BondingTest is DeployHelper {
     function test_setHyperswap_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        bonding.setHyperswap(address(hyperswapRouter), address(lpLockContract));
+        bonding.setHyperswap(address(hyperswapFactory), address(lpLockContract));
     }
 
     function test_setHyperswap_updatesValues() public {
-        address newRouter = makeAddr("newHyperswapRouter");
+        address newFactory = makeAddr("newHyperswapFactory");
         address newLpLock = makeAddr("newLpLock");
-        bonding.setHyperswap(newRouter, newLpLock);
-        assertEq(bonding.hyperswapRouter(), newRouter);
+        bonding.setHyperswap(newFactory, newLpLock);
+        assertEq(bonding.hyperswapFactory(), newFactory);
         assertEq(bonding.lpLock(), newLpLock);
     }
 
     function test_setHyperswap_emitsEvent() public {
-        address newRouter = makeAddr("newHyperswapRouter");
+        address newFactory = makeAddr("newHyperswapFactory");
         address newLpLock = makeAddr("newLpLock");
         vm.expectEmit(true, true, false, false);
-        emit Bonding.HyperswapUpdated(newRouter, newLpLock);
-        bonding.setHyperswap(newRouter, newLpLock);
+        emit Bonding.HyperswapUpdated(newFactory, newLpLock);
+        bonding.setHyperswap(newFactory, newLpLock);
     }
 
-    function test_setHyperswap_revertsOnZeroRouter() public {
+    function test_setHyperswap_revertsOnZeroFactory() public {
         vm.expectRevert(Bonding.ZeroAddress.selector);
         bonding.setHyperswap(address(0), address(lpLockContract));
     }
 
     function test_setHyperswap_revertsOnZeroLpLock() public {
         vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.setHyperswap(address(hyperswapRouter), address(0));
+        bonding.setHyperswap(address(hyperswapFactory), address(0));
     }
 
     // ─── Graduation Threshold Admin Tests ────────────────────────────────
@@ -939,7 +939,7 @@ contract BondingTest is DeployHelper {
                 address(factory),
                 address(curveRouter),
                 MAX_TX,
-                address(hyperswapRouter),
+                address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl)
             )

@@ -351,6 +351,20 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      follow-on `transferFrom` still succeeds. If the permit was never
     ///      applied (e.g. bad sig), the subsequent transfer will revert,
     ///      which is the correct behaviour.
+    ///
+    ///      Failure modes worth knowing:
+    ///       - Bad permit (wrong sig, expired deadline, wrong owner): the
+    ///         catch swallows the revert, no allowance is set, and the
+    ///         subsequent `safeTransferFrom` reverts with
+    ///         `ERC20InsufficientAllowance` (or the legacy "transfer amount
+    ///         exceeds allowance" string). The user pays gas for the failed
+    ///         permit + the failed prefix of the buy/sell flow. Frontends
+    ///         SHOULD simulate the permit (e.g. via `eth_call` or a wallet
+    ///         simulation) before submitting so users see a permit-specific
+    ///         error rather than the misleading allowance one.
+    ///       - Out-of-gas inside `permit`: Solidity `try/catch` does NOT
+    ///         catch OOG — the entire tx reverts. Not a vulnerability, just a
+    ///         quirk of the EVM `try/catch` semantics.
     function _tryPermit(
         address token,
         address owner_,

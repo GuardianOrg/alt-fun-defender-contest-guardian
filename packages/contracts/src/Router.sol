@@ -14,9 +14,9 @@ import {IPair} from "./interfaces/IPair.sol";
 /// @dev Supports per-token LT pairing. No fees are charged at this layer — protocol fees
 ///      are collected in USDC by `Zap` and routed to `FeeVault`.
 ///
-///      Supports "virtual" token reserves, where `reserve0` in the pair can exceed the
-///      amount of real tokens held. This is used by the launchpad so the curve extends
-///      beyond the sellable supply, enabling dynamic LP seeding at graduation.
+///      Supports "virtual" token reserves, where `tokenReserve` in the pair can exceed
+///      the amount of real tokens held. This is used by the launchpad so the curve
+///      extends beyond the sellable supply, enabling dynamic LP seeding at graduation.
 contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -119,20 +119,21 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         uint256 amountIn
     ) internal view returns (uint256 amountInUsed, uint256 tokensOut) {
         IPair pair = IPair(pairAddr);
-        (uint256 r0, uint256 r1) = pair.getReserves();
+        (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
         uint256 k = pair.k();
 
         amountInUsed = amountIn;
 
-        uint256 newR1 = r1 + amountInUsed;
-        tokensOut = r0 - (k / newR1);
+        uint256 newReserveAsset = reserveAsset + amountInUsed;
+        tokensOut = reserveToken - (k / newReserveAsset);
 
         uint256 realBalance = pair.tokenBalance();
         if (tokensOut > realBalance) {
             tokensOut = realBalance;
-            uint256 cappedR0 = r0 - tokensOut;
-            uint256 cappedR1 = cappedR0 == 0 ? newR1 : (k + cappedR0 - 1) / cappedR0;
-            amountInUsed = cappedR1 - r1;
+            uint256 cappedReserveToken = reserveToken - tokensOut;
+            uint256 cappedReserveAsset =
+                cappedReserveToken == 0 ? newReserveAsset : (k + cappedReserveToken - 1) / cappedReserveToken;
+            amountInUsed = cappedReserveAsset - reserveAsset;
         }
     }
 

@@ -69,8 +69,8 @@ contract FactoryTest is Test {
         Pair pair = Pair(pairAddr);
 
         assertEq(pair.router(), routerAddr);
-        assertEq(pair.tokenA(), address(tokenA));
-        assertEq(pair.tokenB(), address(tokenB));
+        assertEq(pair.launchedToken(), address(tokenA));
+        assertEq(pair.assetToken(), address(tokenB));
     }
 
     function test_createPair_revertsForZeroTokenA() public {

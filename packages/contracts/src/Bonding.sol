@@ -14,7 +14,6 @@ import {Router} from "./Router.sol";
 import {Token} from "./Token.sol";
 import {IPair} from "./interfaces/IPair.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
-import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {LPLock} from "./LPLock.sol";
@@ -24,7 +23,7 @@ import {LPLock} from "./LPLock.sol";
 /// @dev Each token pairs with a BounceTech Leveraged Token (LT). K is computed per-token
 ///      from the LT's exchange rate so every token opens at ~$4K market cap.
 ///
-///      Virtual reserves: the pair's `reserve0` is initialised to the *total* supply (1B)
+///      Virtual reserves: the pair's `tokenReserve` is initialised to the *total* supply (1B)
 ///      while only the `curveSupply` (75%) of real tokens is transferred. This caps the
 ///      sellable supply at 750M and pins the post-sellout virtual reserve at 250M
 ///      (= `LP_RESERVE`). This gives:
@@ -57,7 +56,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     Factory public factory;
     Router public router;
 
-    address public hyperswapRouter;
+    address public hyperswapFactory;
     address public lpLock;
 
     /// @notice EIP-1167 minimal-proxy implementation. Each `launch()` deploys a
@@ -78,7 +77,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public maxTx;
 
     /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
-    ///      Since virtual reserve0 = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
+    ///      Since virtual tokenReserve = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
 
     /// @dev Default graduation threshold seeded at deploy / upgrade. Mutable
@@ -261,7 +260,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterRemoved(address indexed router);
     event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
-    event HyperswapUpdated(address indexed hyperswapRouter, address indexed lpLock);
+    event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
     event MaxTxUpdated(uint256 oldValue, uint256 newValue);
 
     error TokenNotTrading();
@@ -307,12 +306,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address factory_,
         address router_,
         uint256 maxTx_,
-        address hyperswapRouter_,
+        address hyperswapFactory_,
         address lpLock_,
         address tokenImplementation_
     ) external initializer {
         if (
-            factory_ == address(0) || router_ == address(0) || hyperswapRouter_ == address(0) || lpLock_ == address(0)
+            factory_ == address(0) || router_ == address(0) || hyperswapFactory_ == address(0) || lpLock_ == address(0)
                 || tokenImplementation_ == address(0)
         ) revert ZeroAddress();
         __Ownable_init(msg.sender);
@@ -320,7 +319,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         factory = Factory(factory_);
         router = Router(router_);
         maxTx = maxTx_;
-        hyperswapRouter = hyperswapRouter_;
+        hyperswapFactory = hyperswapFactory_;
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
         graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
@@ -388,7 +387,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
-        // Virtual reserve0 = full totalSupply; only curveSupply (75%) is actually transferred.
+        // Virtual tokenReserve = full totalSupply; only curveSupply (75%) is actually transferred.
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
     }
 
@@ -604,13 +603,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     function setHyperswap(
-        address newRouter,
+        address newFactory,
         address newLpLock
     ) external onlyOwner {
-        if (newRouter == address(0) || newLpLock == address(0)) revert ZeroAddress();
-        hyperswapRouter = newRouter;
+        if (newFactory == address(0) || newLpLock == address(0)) revert ZeroAddress();
+        hyperswapFactory = newFactory;
         lpLock = newLpLock;
-        emit HyperswapUpdated(newRouter, newLpLock);
+        emit HyperswapUpdated(newFactory, newLpLock);
     }
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.
@@ -775,7 +774,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev Burns unsold curve tokens, drains LT from the pair, computes the exact
     ///      `tokensForLP` needed to match the last curve price, and burns the LP excess.
     ///
-    ///      Price equality: `tokensForLP / ltFromPair = reserve0 / reserve1 = lastPrice`.
+    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve = lastPrice`.
     ///      By construction (V_t_init = totalSupply, curveSupply = 75%), the parabola
     ///         tokensForLP(sold) = sold · (S − sold) / S
     ///      peaks at S/4 = LP_RESERVE when sold = S/2, so `tokensForLP ≤ LP_RESERVE`
@@ -784,7 +783,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenAddress
     ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
         address pairAddr = _tokenInfo[tokenAddress].pair;
-        (uint256 reserve0, uint256 reserve1) = IPair(pairAddr).getReserves();
+        (uint256 tokenReserve, uint256 assetReserve) = IPair(pairAddr).getReserves();
 
         unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
         if (unsoldBurned > 0) {
@@ -793,7 +792,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         ltFromPair = router.graduate(tokenAddress);
 
-        tokensForLP = reserve1 == 0 ? 0 : (ltFromPair * reserve0) / reserve1;
+        tokensForLP = assetReserve == 0 ? 0 : (ltFromPair * tokenReserve) / assetReserve;
         if (tokensForLP > LP_RESERVE) tokensForLP = LP_RESERVE;
 
         lpBurned = LP_RESERVE - tokensForLP;
@@ -809,7 +808,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address tokenA,
         address tokenB
     ) internal returns (address pair) {
-        IUniswapV2Factory hsFactory = IUniswapV2Factory(IUniswapV2Router02(hyperswapRouter).factory());
+        IUniswapV2Factory hsFactory = IUniswapV2Factory(hyperswapFactory);
         pair = hsFactory.getPair(tokenA, tokenB);
         if (pair == address(0)) {
             pair = hsFactory.createPair(tokenA, tokenB);
