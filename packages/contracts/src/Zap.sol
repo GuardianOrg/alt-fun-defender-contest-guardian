@@ -256,7 +256,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         if (bonding.isGraduated(tokenAddress)) {
             // HyperSwap consumes the full LT amount (no supply cap).
-            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltMinted, 0);
+            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
             (tokensOut, amountInUsed) = _buyOnCurve(tokenAddress, lt, ltMinted);
@@ -443,8 +443,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function _buyOnHyperswap(
         address tokenAddress,
         address lt,
-        uint256 ltAmount,
-        uint256 /* minOut */
+        uint256 ltAmount
     ) internal returns (uint256 tokensOut) {
         // Slippage is enforced by the caller (`_buyInternal` checks
         // `tokensOut < minTokensOut`), so no per-hop minOut needed here.
