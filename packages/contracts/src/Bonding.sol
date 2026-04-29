@@ -275,6 +275,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error InvalidImageLength();
     error InvalidUrlLength();
     error InvalidThreshold();
+    /// @dev `setHyperswap` was called with an `lpLock` that hasn't allowlisted
+    ///      this Bonding as a locker. Without that, every subsequent
+    ///      `finalizeGraduation` would revert in `LPLock.recordLock`, bricking
+    ///      any token already in `Graduating` for the duration. Owners must
+    ///      `lpLock.setLocker(bonding, true)` on the new lock first, then call
+    ///      this. Mirrors the `Zap.setFeeVault` depositor check.
+    error LpLockNotConfigured();
     /// @dev Thrown when a launch's CREATE2 salt resolves to an address that
     ///      doesn't end in `VANITY_SUFFIX`. This is the on-chain backstop
     ///      enforcing the "every launched token has an `a1fa` suffix"
@@ -561,11 +568,19 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Admin ───────────────────────────────────────────────────────────
 
+    /// @notice Hot-swap the HyperSwap factory and LP lock. Reverts if the new
+    ///         `lpLock` hasn't already allowlisted this Bonding as a locker —
+    ///         without that, the very next `finalizeGraduation` would revert
+    ///         in `LPLock.recordLock` and brick any token already in
+    ///         `Graduating`. Owners must `lpLock.setLocker(bonding, true)` on
+    ///         the new lock first, then call this. Mirrors the `Zap.setFeeVault`
+    ///         depositor check.
     function setHyperswap(
         address newFactory,
         address newLpLock
     ) external onlyOwner {
         if (newFactory == address(0) || newLpLock == address(0)) revert ZeroAddress();
+        if (!LPLock(newLpLock).isLocker(address(this))) revert LpLockNotConfigured();
         hyperswapFactory = newFactory;
         lpLock = newLpLock;
         emit HyperswapUpdated(newFactory, newLpLock);
