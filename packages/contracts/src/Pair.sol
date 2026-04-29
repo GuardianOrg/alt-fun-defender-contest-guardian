@@ -35,6 +35,8 @@ contract Pair is IPair {
     error OnlyRouter();
     error AlreadyMinted();
     error KInvariantViolated();
+    error ZeroAddress();
+    error IdenticalTokens();
 
     modifier onlyRouter() {
         if (msg.sender != router) revert OnlyRouter();
@@ -46,6 +48,8 @@ contract Pair is IPair {
         address launchedToken_,
         address assetToken_
     ) {
+        if (router_ == address(0) || launchedToken_ == address(0) || assetToken_ == address(0)) revert ZeroAddress();
+        if (launchedToken_ == assetToken_) revert IdenticalTokens();
         router = router_;
         launchedToken = launchedToken_;
         assetToken = assetToken_;
