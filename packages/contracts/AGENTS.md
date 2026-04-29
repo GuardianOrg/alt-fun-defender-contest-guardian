@@ -11,6 +11,8 @@ User → USDC → Zap → mint LT → Bonding.buy(..., trader=user) → Pair (to
 Graduation → Bonding._graduate() → HyperSwap V2 pool (token/LT) → LP locked
 ```
 
+For the LT interface and constraints (atomic-redeem-only, idle USDC buffer, `$10` minimum) see the BounceTech LT Integration section in the root [`AGENTS.md`](../../AGENTS.md#bouncetech-lt-integration). External references: [BounceTech docs](https://docs.bounce.tech/), [integration guide](https://docs.bounce.tech/technical/integration-guide), [contract source](https://github.com/bounce-tech/bounce-smart-contracts).
+
 ## Router allowlist (`Bonding.isRouter`)
 
 `Bonding.launch`, `Bonding.buy`, and `Bonding.sell` are gated on an allowlist:

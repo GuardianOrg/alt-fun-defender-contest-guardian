@@ -137,6 +137,12 @@ Other off-chain writes — comments, profile updates — still require a wallet 
 
 External dependency. BounceTech Leveraged Tokens are the reserve asset in every bonding curve.
 
+### Documentation
+
+- [BounceTech docs](https://docs.bounce.tech/) — protocol overview, fees, leverage mechanics
+- [BounceTech integration guide](https://docs.bounce.tech/technical/integration-guide) — contract views, mint/redeem flow, atomic vs. async redemption
+- [`bounce-tech/bounce-smart-contracts`](https://github.com/bounce-tech/bounce-smart-contracts) — canonical Solidity source if you need to read past the interface summarised below
+
 ### Interface
 
 ```
