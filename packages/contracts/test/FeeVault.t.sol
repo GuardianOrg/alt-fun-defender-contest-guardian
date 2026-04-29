@@ -161,6 +161,57 @@ contract FeeVaultTest is Test {
         assertEq(vault.protocolBalance(), 55 ether);
     }
 
+    function test_accrue_revertsIfDepositorDidNotPreFund() public {
+        // A buggy depositor that calls `accrue` without first transferring USDC
+        // must be caught before any user funds are corrupted.
+        vault.addDepositor(depositor);
+
+        vm.prank(depositor);
+        vm.expectRevert(FeeVault.UnderfundedAccrual.selector);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, true);
+    }
+
+    function test_accrue_revertsIfDepositorPartiallyFunded() public {
+        // Even partial under-funding (less than the accrued total) must revert,
+        // otherwise the vault's running tallies drift away from its real balance.
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 99 ether);
+
+        vm.prank(depositor);
+        vm.expectRevert(FeeVault.UnderfundedAccrual.selector);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, true);
+    }
+
+    function test_accrue_revertsIfSecondAccrualDrainsHeadroom() public {
+        // The first accrual is funded; a second accrual without further USDC
+        // transfer should revert because the running tally now exceeds balance.
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 100 ether);
+
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, true);
+
+        // Vault is now exactly funded for the first claim. A follow-on accrual
+        // without a fresh transfer must fail.
+        vm.prank(depositor);
+        vm.expectRevert(FeeVault.UnderfundedAccrual.selector);
+        vault.accrue(address(0xbeef), creator, 1, 0, true);
+    }
+
+    function test_accrue_tracksTotalAccruedCreator() public {
+        address creator2 = makeAddr("creator2");
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 200 ether);
+
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), creator, 20 ether, 30 ether, true);
+        assertEq(vault.totalAccruedCreator(), 20 ether);
+
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), creator2, 50 ether, 10 ether, false);
+        assertEq(vault.totalAccruedCreator(), 70 ether);
+    }
+
     // ─── Creator Claim ───────────────────────────────────────────────────
 
     function test_claim_paysOutAndResetsBalance() public {
@@ -179,6 +230,8 @@ contract FeeVaultTest is Test {
         assertEq(vault.creatorBalance(creator), 0);
         // Lifetime is never reset.
         assertEq(vault.lifetimeCreatorEarned(creator), 20 ether);
+        // Running counter decremented so it stays in sync with the claim mapping.
+        assertEq(vault.totalAccruedCreator(), 0);
     }
 
     function test_claim_revertsWhenEmpty() public {
