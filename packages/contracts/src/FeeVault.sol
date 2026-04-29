@@ -12,10 +12,9 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 /// @notice Holds protocol and creator USDC fees accrued from allowlisted depositors (routers).
 /// @dev Depositors `transfer` USDC to this vault and then call `accrue()` to update balances.
 ///      The vault does NOT pull USDC via `transferFrom`; it trusts the allowlist to pass truthful
-///      amounts. The allowlist is owner-controlled, so the trust root is the same as for router
-///      upgrades: if the owner whitelists a bad router it can already misroute user funds, so the
-///      vault does not add a second layer of paranoia here. A balance-delta check could be added
-///      in a future upgrade if we ever integrate third-party depositors.
+///      amounts. As a defense-in-depth check, `accrue` verifies that the vault's USDC balance
+///      covers the running sum of all outstanding creator + protocol claims, so a buggy or
+///      misconfigured depositor cannot inflate accruals beyond the funds actually delivered.
 ///
 ///      Creator attribution is supplied by the depositor on each call (looked up via the
 ///      `Bonding` token registry) — the vault itself has no opinion about what a "creator" is.
@@ -45,10 +44,15 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Lifetime gross protocol USDC accrued (never decreases).
     uint256 public lifetimeProtocolEarned;
 
+    /// @notice Sum of all unclaimed `creatorBalance` entries. Tracked as a running counter so
+    ///         `accrue` can verify the vault's USDC balance covers every outstanding claim in
+    ///         O(1) without iterating the creator mapping.
+    uint256 public totalAccruedCreator;
+
     /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (8 named + 42 gap). Append new state variables before
+    ///      totals 50 slots (9 named + 41 gap). Append new state variables before
     ///      this gap and shrink its length to match.
-    uint256[42] private __gap;
+    uint256[41] private __gap;
 
     event FeeAccrued(
         address indexed token, address indexed creator, uint256 creatorAmount, uint256 protocolAmount, bool isBuy
@@ -64,6 +68,7 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     error ZeroAddress();
     error DepositorAlreadyAdded();
     error DepositorNotFound();
+    error UnderfundedAccrual();
 
     modifier onlyDepositor() {
         if (!_depositors.contains(msg.sender)) revert NotDepositor();
@@ -88,6 +93,10 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     /// @notice Record a fee accrual. The caller MUST have transferred
     ///         `creatorAmount + protocolAmount` USDC to this vault prior to calling.
+    /// @dev Reverts with `UnderfundedAccrual` if the vault's USDC balance does not cover
+    ///      the running sum of every outstanding creator + protocol claim after this call.
+    ///      This catches a buggy or misconfigured depositor that calls `accrue` without
+    ///      first transferring (or with an inflated amount) before any user funds are lost.
     /// @param token         Token the fee is attributed to (informational, emitted in event).
     /// @param creator       Creator receiving the creator share.
     /// @param creatorAmount Creator USDC share (6dp).
@@ -102,12 +111,14 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external onlyDepositor {
         if (creatorAmount > 0) {
             creatorBalance[creator] += creatorAmount;
+            totalAccruedCreator += creatorAmount;
             lifetimeCreatorEarned[creator] += creatorAmount;
         }
         if (protocolAmount > 0) {
             protocolBalance += protocolAmount;
             lifetimeProtocolEarned += protocolAmount;
         }
+        if (usdc.balanceOf(address(this)) < totalAccruedCreator + protocolBalance) revert UnderfundedAccrual();
         emit FeeAccrued(token, creator, creatorAmount, protocolAmount, isBuy);
     }
 
@@ -118,6 +129,7 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         amount = creatorBalance[msg.sender];
         if (amount == 0) revert NothingToClaim();
         creatorBalance[msg.sender] = 0;
+        totalAccruedCreator -= amount;
         usdc.safeTransfer(msg.sender, amount);
         emit CreatorFeesClaimed(msg.sender, amount);
     }
