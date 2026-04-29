@@ -160,9 +160,7 @@ detailRoute.get("/:address", async (c) => {
   const onchain = marketResult.ok ? marketResult.data.token : null;
   const market = marketResult.ok ? marketResult.data.market : null;
 
-  const graduationThresholdUsd = await getGraduationThresholdUsd(
-    c.env.PONDER_URL,
-  );
+  const graduationThresholdUsd = await getGraduationThresholdUsd(c.env);
   const response = c.json(
     formatSuccess(
       enrich(dbToken, onchain, market, graduationThresholdUsd),

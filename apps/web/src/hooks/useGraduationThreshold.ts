@@ -16,10 +16,13 @@ const STALE_MS = 5 * 60 * 1000;
 const GC_MS = 30 * 60 * 1000;
 
 /**
- * Live `Bonding.graduationThresholdUsd` (owner-tunable). Returns plain USD
- * (e.g. `12000`), not 18-dp wei. Cached aggressively (5min stale, 30min gc)
- * because this only changes on an admin tx and a stale value just delays the
- * UI seeing a parameter tweak by a few minutes — not user-facing critical.
+ * Live `Bonding.graduationThresholdUsd`. Returns plain USD (e.g. `12000`),
+ * not 18-dp wei. The threshold is set once at proxy initialisation and
+ * has no on-chain setter — see `packages/contracts/src/Bonding.sol`. We
+ * still read it via RPC (rather than reusing the compile-time constant)
+ * so a future UUPS upgrade that bumps the value via `reinitializer` is
+ * picked up automatically. Cached aggressively (5min stale, 30min gc)
+ * because the value is effectively immutable.
  *
  * `data` is `undefined` while loading and on RPC failure (TanStack Query
  * catches the throw). Consumers should treat `undefined` as "unknown" and

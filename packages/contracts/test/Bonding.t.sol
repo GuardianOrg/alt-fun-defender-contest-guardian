@@ -18,11 +18,6 @@ contract BondingTest is DeployHelper {
         bonding.addRouter(creator);
         bonding.addRouter(trader);
         bonding.addRouter(trader2);
-        // Keep `graduationThresholdUsd` at a constant multiple of
-        // `VIRTUAL_LIQUIDITY_USD` so the curve dynamics tested below stay
-        // valid as the production config is retuned. See
-        // `DeployHelper._alignThresholdToVirtualLiquidity`.
-        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -823,8 +818,11 @@ contract BondingTest is DeployHelper {
         address hyperswapFactory_,
         address lpLock_,
         address tokenImpl_
-    ) internal view returns (bytes memory) {
-        return abi.encodeCall(Bonding.initialize, (factory_, router_, hyperswapFactory_, lpLock_, tokenImpl_));
+    ) internal pure returns (bytes memory) {
+        return abi.encodeCall(
+            Bonding.initialize,
+            (factory_, router_, hyperswapFactory_, lpLock_, tokenImpl_, TEST_GRADUATION_THRESHOLD_USD)
+        );
     }
 
     function test_initialize_revertsOnZeroFactory() public {
@@ -927,12 +925,19 @@ contract BondingTest is DeployHelper {
         bonding.setHyperswap(address(hyperswapFactory), newLpLock);
     }
 
-    // ─── Graduation Threshold Admin Tests ────────────────────────────────
+    // ─── Graduation Threshold Initialisation Tests ───────────────────────
+    //
+    // `graduationThresholdUsd` is set once at `initialize` time and has no
+    // setter — see `Bonding.sol` natspec. The only on-chain validation is
+    // the `>= VIRTUAL_LIQUIDITY_USD` floor enforced in `initialize`, so a
+    // freshly-deployed proxy can never be pre-graduated by a too-low
+    // deploy-time value.
 
-    function test_setGraduationThresholdUsd_initialisesToDefault() public {
-        // Re-deploy a fresh Bonding proxy so the threshold reflects the
-        // initialise-time default — the suite-level `setUp` aligns the
-        // running proxy to a virt-liquidity-pegged value, masking the default.
+    function test_initialize_persistsGraduationThresholdUsd() public view {
+        assertEq(bonding.graduationThresholdUsd(), TEST_GRADUATION_THRESHOLD_USD);
+    }
+
+    function test_initialize_revertsOnThresholdBelowVirtualLiquidity() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = abi.encodeCall(
             Bonding.initialize,
@@ -941,119 +946,29 @@ contract BondingTest is DeployHelper {
                 address(curveRouter),
                 address(hyperswapFactory),
                 address(lpLockContract),
-                address(tokenImpl)
+                address(tokenImpl),
+                bonding.VIRTUAL_LIQUIDITY_USD() - 1
+            )
+        );
+        vm.expectRevert(Bonding.InvalidInput.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_acceptsThresholdAtVirtualLiquidityFloor() public {
+        Bonding freshImpl = new Bonding();
+        uint256 floor = bonding.VIRTUAL_LIQUIDITY_USD();
+        bytes memory init = abi.encodeCall(
+            Bonding.initialize,
+            (
+                address(factory),
+                address(curveRouter),
+                address(hyperswapFactory),
+                address(lpLockContract),
+                address(tokenImpl),
+                floor
             )
         );
         Bonding fresh = Bonding(address(new ERC1967Proxy(address(freshImpl), init)));
-
-        assertEq(fresh.graduationThresholdUsd(), fresh.DEFAULT_GRADUATION_THRESHOLD_USD());
-    }
-
-    function test_setGraduationThresholdUsd_onlyOwner() public {
-        vm.prank(trader);
-        vm.expectRevert();
-        bonding.setGraduationThresholdUsd(20_000 ether);
-    }
-
-    function test_setGraduationThresholdUsd_updatesValue() public {
-        bonding.setGraduationThresholdUsd(20_000 ether);
-        assertEq(bonding.graduationThresholdUsd(), 20_000 ether);
-    }
-
-    function test_setGraduationThresholdUsd_emitsEvent() public {
-        uint256 oldValue = bonding.graduationThresholdUsd();
-        vm.expectEmit(false, false, false, true);
-        emit Bonding.GraduationThresholdUpdated(oldValue, 25_000 ether);
-        bonding.setGraduationThresholdUsd(25_000 ether);
-    }
-
-    function test_setGraduationThresholdUsd_revertsBelowFloor() public {
-        // Floor pegged to VIRTUAL_LIQUIDITY_USD ($4K) — anything below would
-        // let an admin pre-graduate freshly-launched curves.
-        // Cache the floor before `vm.expectRevert` so it isn't the
-        // intercepted "next call".
-        uint256 floor = bonding.MIN_GRADUATION_THRESHOLD_USD();
-        vm.expectRevert(Bonding.InvalidThreshold.selector);
-        bonding.setGraduationThresholdUsd(floor - 1);
-    }
-
-    function test_setGraduationThresholdUsd_acceptsExactFloor() public {
-        uint256 floor = bonding.MIN_GRADUATION_THRESHOLD_USD();
-        bonding.setGraduationThresholdUsd(floor);
-        assertEq(bonding.graduationThresholdUsd(), floor);
-    }
-
-    function test_setGraduationThresholdUsd_revertsAboveCeiling() public {
-        uint256 ceiling = bonding.MAX_GRADUATION_THRESHOLD_USD();
-        vm.expectRevert(Bonding.InvalidThreshold.selector);
-        bonding.setGraduationThresholdUsd(ceiling + 1);
-    }
-
-    function test_setGraduationThresholdUsd_acceptsExactCeiling() public {
-        uint256 ceiling = bonding.MAX_GRADUATION_THRESHOLD_USD();
-        bonding.setGraduationThresholdUsd(ceiling);
-        assertEq(bonding.graduationThresholdUsd(), ceiling);
-    }
-
-    /// @notice Lowering the threshold mid-flight makes a token whose real LT
-    ///         reserve already exceeds the new value graduate on its next
-    ///         trade. This is the explicit design choice (see `Bonding.sol`
-    ///         natspec on `graduationThresholdUsd`) — the simplest semantic
-    ///         for an admin tuning the dial. Verified by parking a token at
-    ///         ~70% of threshold and dropping the threshold below it.
-    function test_loweringThreshold_graduatesOnNextTrade() public {
-        (address tokenAddr,) = _launchToken();
-        uint256 originalThreshold = bonding.graduationThresholdUsd();
-
-        // Park real LT value at ~70% of the current threshold — comfortably
-        // below it, so graduation isn't yet armed. The exact LT amount
-        // scales with `lt.exchangeRate()` so this works regardless of the
-        // configured `VIRTUAL_LIQUIDITY_USD`.
-        uint256 stageLt = _ltForUsd((originalThreshold * 70) / 100);
-        _buyTokens(tokenAddr, trader, stageLt);
-        assertFalse(bonding.canGraduate(tokenAddr), "Should not be graduatable at original threshold");
-
-        // Lower threshold below current real-LT-value → next-trade graduation arms.
-        // Use 50% of original (well below the 70% we staked) and clamp to the
-        // protocol's `MIN_GRADUATION_THRESHOLD_USD` floor in case original/2
-        // would underflow it.
-        uint256 newThreshold = originalThreshold / 2;
-        uint256 floor = bonding.MIN_GRADUATION_THRESHOLD_USD();
-        if (newThreshold < floor) newThreshold = floor;
-        bonding.setGraduationThresholdUsd(newThreshold);
-        assertTrue(bonding.canGraduate(tokenAddr), "Lowering the threshold below current value arms graduation");
-
-        // The next buy — even a tiny one — actually fires `_graduate`.
-        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
-        assertTrue(bonding.isGraduated(tokenAddr), "Next trade after lowering threshold should graduate");
-    }
-
-    /// @notice Raising the threshold above a token's current real LT value
-    ///         disarms graduation — the token continues trading, no funds
-    ///         at risk, just needs more buys. Mirror of the lowering test.
-    function test_raisingThreshold_defersGraduation() public {
-        (address tokenAddr,) = _launchToken();
-        uint256 originalThreshold = bonding.graduationThresholdUsd();
-
-        // Get the token close to graduating via the standard rate-pump
-        // pattern (stage 80% of threshold + 2× rate bump = 160% threshold).
-        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
-        lt.setExchangeRate(_ratePumpForStagedGraduation());
-        assertTrue(bonding.canGraduate(tokenAddr), "Should be at-threshold under original");
-
-        // Owner raises the bar — graduation disarms. We need a value above
-        // the current real-LT-value (≈ 1.6× original) but below the
-        // protocol ceiling. 3× original is comfortable on both sides.
-        uint256 newThreshold = originalThreshold * 3;
-        uint256 ceiling = bonding.MAX_GRADUATION_THRESHOLD_USD();
-        if (newThreshold > ceiling) newThreshold = ceiling;
-        bonding.setGraduationThresholdUsd(newThreshold);
-        assertFalse(bonding.canGraduate(tokenAddr), "Raising above current value should disarm graduation");
-
-        // Confirm the next buy doesn't fire graduation. Use a tiny trigger
-        // so we don't accidentally drain the curve via the supply trigger
-        // when the staged 80% has already consumed most of it.
-        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
-        assertFalse(bonding.isGraduated(tokenAddr), "Token should still be trading after a buy under the higher bar");
+        assertEq(fresh.graduationThresholdUsd(), floor);
     }
 }

@@ -28,10 +28,6 @@ contract TwoPhaseGraduationTest is DeployHelper {
         bonding.addRouter(creator);
         bonding.addRouter(trader);
         bonding.addRouter(trader2);
-        // Align the graduation threshold to virtual liquidity so the USD
-        // trigger is reachable on the test curve. See
-        // `DeployHelper._alignThresholdToVirtualLiquidity`.
-        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────

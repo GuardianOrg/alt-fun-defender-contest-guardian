@@ -8,6 +8,15 @@ import {
   getGraduationThresholdUsd,
 } from "../lib/protocol-config.js";
 
+import type { AppBindings } from "../lib/types.js";
+
+// Stub `env` shape passed to `getGraduationThresholdUsd`. The function only
+// reads `HYPEREVM_RPC_URL`; everything else is irrelevant for these tests
+// but TS still wants the full shape to compile.
+const stubEnv = {
+  HYPEREVM_RPC_URL: "http://stub-rpc:1",
+} as unknown as AppBindings;
+
 describe("computeCurveFilledBreakdown — graduation threshold argument", () => {
   // Pure-math sanity checks for the threshold parameter. The breakdown
   // routine has its own dedicated reserve-decoding tests elsewhere; this
@@ -81,62 +90,47 @@ describe("getGraduationThresholdUsd — fallback + caching", () => {
     _resetGraduationThresholdCache();
   });
 
-  it("falls back to the compile-time default when the indexer is unreachable", async () => {
+  it("falls back to the compile-time default when the RPC is unreachable", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const value = await getGraduationThresholdUsd("http://no-such-host:1");
+    const value = await getGraduationThresholdUsd(stubEnv);
     expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
   });
 
-  it("falls back when the indexer responds with no row (fresh DB)", async () => {
+  it("returns the live threshold when the RPC responds", async () => {
+    // viem JSON-RPC `eth_call` wire format. The single 32-byte hex word
+    // is the ABI-encoded `uint256` return value of `graduationThresholdUsd()`.
+    // 25_000 ether = 25_000n * 10n ** 18n → 0x54b40b1f852bda000000.
+    const wei = 25_000n * 10n ** 18n;
+    const hex = "0x" + wei.toString(16).padStart(64, "0");
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ data: { protocolConfig: null } }), {
+      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: hex }), {
         status: 200,
+        headers: { "Content-Type": "application/json" },
       }),
     );
 
-    const value = await getGraduationThresholdUsd("http://stub:1");
-    expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
-  });
-
-  it("returns the live threshold when the indexer has a row", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: {
-            protocolConfig: {
-              // 25_000 ether in 18-dp wei.
-              graduationThresholdUsd: (25_000n * 10n ** 18n).toString(),
-            },
-          },
-        }),
-        { status: 200 },
-      ),
-    );
-
-    const value = await getGraduationThresholdUsd("http://stub:1");
+    const value = await getGraduationThresholdUsd(stubEnv);
     expect(value).toBe(25_000);
   });
 
   it("caches the value across calls within the same isolate", async () => {
+    const wei = 12_000n * 10n ** 18n;
+    const hex = "0x" + wei.toString(16).padStart(64, "0");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: {
-            protocolConfig: {
-              graduationThresholdUsd: (12_000n * 10n ** 18n).toString(),
-            },
-          },
-        }),
-        { status: 200 },
-      ),
+      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: hex }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
-    await getGraduationThresholdUsd("http://stub:1");
-    await getGraduationThresholdUsd("http://stub:1");
-    await getGraduationThresholdUsd("http://stub:1");
+    await getGraduationThresholdUsd(stubEnv);
+    await getGraduationThresholdUsd(stubEnv);
+    await getGraduationThresholdUsd(stubEnv);
 
-    // Cache TTL is 60s; three back-to-back reads must hit the indexer once.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Cache TTL is 60s; three back-to-back reads must hit the RPC at most
+    // once. (viem may emit a `eth_chainId` probe before the call, hence the
+    // soft upper bound.)
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });

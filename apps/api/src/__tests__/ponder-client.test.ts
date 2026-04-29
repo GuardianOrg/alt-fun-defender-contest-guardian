@@ -165,11 +165,11 @@ describe("checkPonderHealth", () => {
     vi.clearAllMocks();
   });
 
-  it("queries protocolConfig (a real table) — not just { __typename }", async () => {
+  it("queries the tokens collection (a real table) — not just { __typename }", async () => {
     mockFetch.mockResolvedValue({
       ok: true,
       json: () =>
-        Promise.resolve({ data: { protocolConfig: { id: "global" } } }),
+        Promise.resolve({ data: { tokens: { items: [{ address: "0x1" }] } } }),
     });
 
     const healthy = await checkPonderHealth("http://test-ponder");
@@ -180,18 +180,18 @@ describe("checkPonderHealth", () => {
     // See `apps/indexer/scripts/dev.mjs` for the indexer-side guard that
     // backs this contract up.
     const [, init] = mockFetch.mock.calls[0];
-    expect(init.body).toContain("protocolConfig");
+    expect(init.body).toContain("tokens");
     expect(init.body).not.toContain("__typename");
   });
 
-  it("returns true when protocolConfig row is missing (fresh indexer)", async () => {
-    // A freshly-deployed contract that hasn't yet emitted
-    // GraduationThresholdUpdated has a null protocolConfig — but Ponder
-    // is still healthy and able to serve queries. We must not flap to
-    // unhealthy in this case or `/health` would lie on every cold start.
+  it("returns true when the tokens collection is empty (fresh indexer)", async () => {
+    // A freshly-deployed contract with no tokens yet still answers `tokens`
+    // with an empty `items` array. Ponder is healthy and able to serve
+    // queries — we must not flap to unhealthy in this case or `/health`
+    // would lie on every cold start.
     mockFetch.mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ data: { protocolConfig: null } }),
+      json: () => Promise.resolve({ data: { tokens: { items: [] } } }),
     });
 
     expect(await checkPonderHealth("http://test-ponder")).toBe(true);
@@ -213,7 +213,7 @@ describe("checkPonderHealth", () => {
     expect(await checkPonderHealth("http://test-ponder")).toBe(false);
   });
 
-  it("returns false when response is missing the protocolConfig field", async () => {
+  it("returns false when response is missing the tokens field", async () => {
     // Defensive: catches the case where `PONDER_URL` points at an unrelated
     // GraphQL endpoint that happens to accept POSTs but doesn't expose our
     // schema.

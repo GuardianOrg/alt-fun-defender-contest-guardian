@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
-import { token, trade, graduation, tokenSnapshot, protocolConfig, hyperswapPairIndex } from "../ponder.schema";
-import { DEFAULT_GRADUATION_THRESHOLD_USD_WEI } from "@launchpad/shared";
+import { token, trade, graduation, tokenSnapshot, hyperswapPairIndex } from "../ponder.schema";
 
 await import("../src/bonding");
 
@@ -30,9 +29,11 @@ describe("Bonding:TokenLaunched", () => {
 
     await handler({ event, context: { db } });
 
-    // TokenLaunched issues two inserts: the token row, and a defensive
-    // bootstrap of the protocolConfig singleton (no-op once seeded).
-    expect(db._insertCalls).toHaveLength(2);
+    // TokenLaunched only inserts the token row — there's no protocolConfig
+    // bootstrap because graduationThresholdUsd is now an immutable
+    // initialise-time constant on the proxy and off-chain consumers read it
+    // directly via RPC.
+    expect(db._insertCalls).toHaveLength(1);
     const tokenInsert = db._insertCalls.find((c) => c.table === token);
     expect(tokenInsert).toBeDefined();
     expect(tokenInsert!.values).toEqual({
@@ -49,37 +50,6 @@ describe("Bonding:TokenLaunched", () => {
       timestamp: 1700000000n,
     });
     expect(tokenInsert!.conflict).toBe("doUpdate");
-  });
-
-  it("bootstraps the protocolConfig singleton with the default threshold", async () => {
-    const handler = getHandler("Bonding:TokenLaunched");
-    const event = createMockEvent({
-      args: {
-        token: "0xtoken1",
-        name: "Bootstrap",
-        ticker: "BOOT",
-        creator: "0xcreator",
-        ltAddress: "0xlt",
-        k: 1n,
-      },
-      blockNumber: 99n,
-      blockTimestamp: 1700000000n,
-    });
-
-    await handler({ event, context: { db } });
-
-    const cfgInsert = db._insertCalls.find((c) => c.table === protocolConfig);
-    expect(cfgInsert).toBeDefined();
-    expect(cfgInsert!.values).toEqual({
-      id: "global",
-      graduationThresholdUsd: DEFAULT_GRADUATION_THRESHOLD_USD_WEI,
-      blockNumber: 99n,
-      timestamp: 1700000000n,
-    });
-    // Subsequent launches must NOT overwrite a real admin update — bootstrap
-    // is doNothing, the explicit `GraduationThresholdUpdated` handler is
-    // doUpdate.
-    expect(cfgInsert!.conflict).toBe("doNothing");
   });
 
   it("initializes curveSupply and ltReserve to 0", async () => {
@@ -131,46 +101,6 @@ describe("Bonding:TokenLaunched", () => {
       k: 1n,
       blockNumber: 42n,
       timestamp: 1700000000n,
-    });
-  });
-});
-
-describe("Bonding:GraduationThresholdUpdated", () => {
-  let db: ReturnType<typeof createMockDb>;
-
-  beforeEach(() => {
-    db = createMockDb();
-  });
-
-  it("upserts the protocolConfig singleton with the new threshold", async () => {
-    const handler = getHandler("Bonding:GraduationThresholdUpdated");
-    const event = createMockEvent({
-      args: {
-        oldValue: 12_000n * 10n ** 18n,
-        newValue: 25_000n * 10n ** 18n,
-      },
-      blockNumber: 500n,
-      blockTimestamp: 1700009999n,
-    });
-
-    await handler({ event, context: { db } });
-
-    expect(db._insertCalls).toHaveLength(1);
-    const cfgInsert = db._insertCalls[0];
-    expect(cfgInsert.table).toBe(protocolConfig);
-    expect(cfgInsert.values).toEqual({
-      id: "global",
-      graduationThresholdUsd: 25_000n * 10n ** 18n,
-      blockNumber: 500n,
-      timestamp: 1700009999n,
-    });
-    // Must be doUpdate (not doNothing) so admin tweaks actually overwrite
-    // the bootstrapped default.
-    expect(cfgInsert.conflict).toBe("doUpdate");
-    expect(cfgInsert.conflictValues).toEqual({
-      graduationThresholdUsd: 25_000n * 10n ** 18n,
-      blockNumber: 500n,
-      timestamp: 1700009999n,
     });
   });
 });

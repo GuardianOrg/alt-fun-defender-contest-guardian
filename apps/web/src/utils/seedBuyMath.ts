@@ -41,11 +41,11 @@ export interface SeedBuyStats {
  *   supplyPct    = tokensOut / totalSupply × 100
  *   curveFilled  = usdcAfterFee / graduationThreshold × 100
  *
- * `graduationThresholdUsd` is the live owner-tunable
- * `Bonding.graduationThresholdUsd` (read via `useGraduationThreshold`) — pass
- * the hook's `fallback` while loading so the preview renders something
- * sensible instead of `Infinity` (which would surface as `0%` in the UI but
- * NaN-poison any downstream math).
+ * `graduationThresholdUsd` is the live `Bonding.graduationThresholdUsd`
+ * (read via `useGraduationThreshold`). It's set once at proxy initialisation
+ * and immutable thereafter — pass the hook's `fallback` while loading so
+ * the preview renders something sensible instead of `Infinity` (which
+ * would surface as `0%` in the UI but NaN-poison any downstream math).
  */
 export function seedBuyStats(
   usdcAmount: number,

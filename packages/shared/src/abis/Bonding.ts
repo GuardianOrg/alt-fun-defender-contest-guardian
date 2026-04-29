@@ -32,19 +32,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "DEFAULT_GRADUATION_THRESHOLD_USD",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "LP_RESERVE",
     "inputs": [],
     "outputs": [
@@ -72,19 +59,6 @@ export const BondingAbi = [
   {
     "type": "function",
     "name": "MAX_DESCRIPTION_LENGTH",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "MAX_GRADUATION_THRESHOLD_USD",
     "inputs": [],
     "outputs": [
       {
@@ -137,19 +111,6 @@ export const BondingAbi = [
   {
     "type": "function",
     "name": "MAX_URL_LENGTH",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "MIN_GRADUATION_THRESHOLD_USD",
     "inputs": [],
     "outputs": [
       {
@@ -493,6 +454,11 @@ export const BondingAbi = [
         "name": "tokenImplementation_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "graduationThresholdUsd_",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [],
@@ -830,19 +796,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setGraduationThresholdUsd",
-    "inputs": [
-      {
-        "name": "newValue",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "setHyperswap",
     "inputs": [
       {
@@ -955,25 +908,6 @@ export const BondingAbi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "GraduationThresholdUpdated",
-    "inputs": [
-      {
-        "name": "oldValue",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "newValue",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -1339,17 +1273,17 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "InvalidThreshold",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidTickerLength",
     "inputs": []
   },
   {
     "type": "error",
     "name": "InvalidUrlLength",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LpLockNotConfigured",
     "inputs": []
   },
   {

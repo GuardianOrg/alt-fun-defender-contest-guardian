@@ -28,14 +28,6 @@ contract RouterAllowlistTest is DeployHelper {
         bonding.addRouter(address(zap));
         feeVault.addDepositor(address(zap));
         usdc.mint(address(lt), 1_000_000 ether);
-
-        // Align graduation threshold to virtual liquidity so:
-        //   1) buys sized off `_smallBuyUsdc()` never accidentally graduate
-        //      and reroute trader-attribution events through Hyperswap.
-        //   2) USD-trigger graduation tests in this suite (none today, but
-        //      future ones) remain reachable.
-        // See DeployHelper for the rationale behind this fixed multiple.
-        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Allowlist management ────────────────────────────────────────────

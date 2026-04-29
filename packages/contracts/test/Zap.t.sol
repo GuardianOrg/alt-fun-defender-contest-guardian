@@ -35,13 +35,6 @@ contract ZapTest is DeployHelper {
         feeVault.addDepositor(address(zap));
 
         usdc.mint(address(lt), 1_000_000 ether);
-
-        // Align graduation threshold to virtual liquidity so:
-        //   1) USD-based graduation is reachable on the test curve
-        //   2) "small/medium" buys sized off `VIRTUAL_LIQUIDITY_USD` stay
-        //      well below the graduation point.
-        // See DeployHelper for full rationale.
-        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
@@ -488,7 +481,8 @@ contract ZapTest is DeployHelper {
                 address(curveRouter),
                 address(hyperswapFactory),
                 address(lpLockContract),
-                address(tokenImpl)
+                address(tokenImpl),
+                TEST_GRADUATION_THRESHOLD_USD
             )
         );
         return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));

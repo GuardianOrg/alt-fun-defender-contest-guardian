@@ -1,7 +1,5 @@
 import { ponder } from "ponder:registry";
 
-import { DEFAULT_GRADUATION_THRESHOLD_USD_WEI } from "@launchpad/shared";
-
 import {
   token,
   trade,
@@ -10,14 +8,12 @@ import {
   referral,
   tokenBalance,
   tokenSnapshot,
-  protocolConfig,
   hyperswapPairIndex,
 } from "ponder:schema";
 
 import { broadcastEvent, isLiveEvent } from "./broadcast.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
-const PROTOCOL_CONFIG_ID = "global";
 
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;
@@ -48,43 +44,7 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     });
-
-  // Defensive bootstrap of the protocol config singleton: the
-  // `GraduationThresholdUpdated` event only fires when an admin tunes the
-  // dial, so on a freshly-deployed contract the row would otherwise stay
-  // empty. Seed with the contract's compile-time default on the first launch
-  // we see; subsequent launches no-op. A real `GraduationThresholdUpdated`
-  // event will overwrite this with the live value.
-  await db
-    .insert(protocolConfig)
-    .values({
-      id: PROTOCOL_CONFIG_ID,
-      graduationThresholdUsd: DEFAULT_GRADUATION_THRESHOLD_USD_WEI,
-      blockNumber: BigInt(event.block.number),
-      timestamp: BigInt(event.block.timestamp),
-    })
-    .onConflictDoNothing();
 });
-
-ponder.on(
-  "Bonding:GraduationThresholdUpdated",
-  async ({ event, context }) => {
-    const { db } = context;
-    await db
-      .insert(protocolConfig)
-      .values({
-        id: PROTOCOL_CONFIG_ID,
-        graduationThresholdUsd: event.args.newValue,
-        blockNumber: BigInt(event.block.number),
-        timestamp: BigInt(event.block.timestamp),
-      })
-      .onConflictDoUpdate({
-        graduationThresholdUsd: event.args.newValue,
-        blockNumber: BigInt(event.block.number),
-        timestamp: BigInt(event.block.timestamp),
-      });
-  },
-);
 
 ponder.on("Factory:PairCreated", async ({ event, context }) => {
   const { db } = context;
