@@ -3,7 +3,6 @@ pragma solidity ^0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Factory} from "./Factory.sol";
@@ -17,7 +16,13 @@ import {IPair} from "./interfaces/IPair.sol";
 ///      Supports "virtual" token reserves, where `tokenReserve` in the pair can exceed
 ///      the amount of real tokens held. This is used by the launchpad so the curve
 ///      extends beyond the sellable supply, enabling dynamic LP seeding at graduation.
-contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
+///
+///      Trust assumption: this contract does not apply its own reentrancy guard. All
+///      state-mutating entry points are gated by `BONDING_ROLE`, and the canonical caller
+///      (`Bonding`) wraps every external trade in its own `nonReentrant` modifier. Granting
+///      `BONDING_ROLE` to any contract that does not enforce non-reentrancy on the calling
+///      path would be unsafe.
+contract Router is Initializable, AccessControlUpgradeable {
     using SafeERC20 for IERC20;
 
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
@@ -98,7 +103,7 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         uint256 amountIn,
         address token,
         address to
-    ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 amountInUsed, uint256 tokensOut) {
+    ) external onlyRole(BONDING_ROLE) returns (uint256 amountInUsed, uint256 tokensOut) {
         if (amountIn == 0) revert ZeroAmount();
 
         address asset = assetTokenFor(token);
@@ -144,7 +149,7 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
         uint256 amountIn,
         address token,
         address to
-    ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 tokensIn, uint256 assetOut) {
+    ) external onlyRole(BONDING_ROLE) returns (uint256 tokensIn, uint256 assetOut) {
         if (amountIn == 0) revert ZeroAmount();
 
         address asset = assetTokenFor(token);
@@ -178,7 +183,7 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     /// @return amount The LT amount transferred to the caller (Bonding)
     function graduate(
         address token
-    ) external onlyRole(BONDING_ROLE) nonReentrant returns (uint256 amount) {
+    ) external onlyRole(BONDING_ROLE) returns (uint256 amount) {
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
         amount = IPair(pairAddr).assetBalance();
