@@ -225,7 +225,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event Trade(
         address indexed token,
         address indexed trader,
-        bool isBuy,
+        bool indexed isBuy,
         uint256 ltAmount,
         uint256 tokenAmount,
         uint256 newCurveSupply,
