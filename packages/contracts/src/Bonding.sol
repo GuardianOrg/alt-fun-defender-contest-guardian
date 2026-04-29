@@ -109,6 +109,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     /// @dev Name/ticker length bounds. Hard-enforced at launch; webapp and API
     ///      replicate these limits. Changing them requires a contract redeploy.
+    ///      `34` / `10` mirror Pump.fun's caps so tokens render consistently in
+    ///      cross-launchpad aggregators (DEXScreener, Birdeye, etc.) which size
+    ///      their UI off the longest name they've ever indexed.
     uint256 public constant MIN_NAME_LENGTH = 1;
     uint256 public constant MAX_NAME_LENGTH = 34;
     uint256 public constant MIN_TICKER_LENGTH = 1;
