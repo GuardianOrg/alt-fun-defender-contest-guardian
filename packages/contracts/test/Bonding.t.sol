@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
+import {LPLock} from "../src/LPLock.sol";
 import {Token} from "../src/Token.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
 import {DeployHelper} from "./DeployHelper.sol";
@@ -879,9 +880,21 @@ contract BondingTest is DeployHelper {
         bonding.setHyperswap(address(hyperswapFactory), address(lpLockContract));
     }
 
+    function _deployFreshLpLock(
+        bool authorizeBonding
+    ) internal returns (address) {
+        LPLock impl = new LPLock();
+        bytes memory init = abi.encodeCall(LPLock.initialize, (owner));
+        LPLock fresh = LPLock(address(new ERC1967Proxy(address(impl), init)));
+        if (authorizeBonding) {
+            fresh.setLocker(address(bonding), true);
+        }
+        return address(fresh);
+    }
+
     function test_setHyperswap_updatesValues() public {
         address newFactory = makeAddr("newHyperswapFactory");
-        address newLpLock = makeAddr("newLpLock");
+        address newLpLock = _deployFreshLpLock(true);
         bonding.setHyperswap(newFactory, newLpLock);
         assertEq(bonding.hyperswapFactory(), newFactory);
         assertEq(bonding.lpLock(), newLpLock);
@@ -889,7 +902,7 @@ contract BondingTest is DeployHelper {
 
     function test_setHyperswap_emitsEvent() public {
         address newFactory = makeAddr("newHyperswapFactory");
-        address newLpLock = makeAddr("newLpLock");
+        address newLpLock = _deployFreshLpLock(true);
         vm.expectEmit(true, true, false, false);
         emit Bonding.HyperswapUpdated(newFactory, newLpLock);
         bonding.setHyperswap(newFactory, newLpLock);
@@ -903,6 +916,15 @@ contract BondingTest is DeployHelper {
     function test_setHyperswap_revertsOnZeroLpLock() public {
         vm.expectRevert(Bonding.ZeroAddress.selector);
         bonding.setHyperswap(address(hyperswapFactory), address(0));
+    }
+
+    function test_setHyperswap_revertsWhenLpLockNotAuthorized() public {
+        // Fresh LPLock that hasn't called `setLocker(bonding, true)`. Without the
+        // sanity check, this would silently succeed and brick every subsequent
+        // `finalizeGraduation` for tokens already in `Graduating`.
+        address newLpLock = _deployFreshLpLock(false);
+        vm.expectRevert(Bonding.LpLockNotConfigured.selector);
+        bonding.setHyperswap(address(hyperswapFactory), newLpLock);
     }
 
     // ─── Graduation Threshold Admin Tests ────────────────────────────────
