@@ -53,7 +53,7 @@ contract ZapTest is DeployHelper {
             ticker: "TEST",
             description: "A test token",
             image: "https://img.test/logo.png",
-            urls: ["https://x.com/test", "", "", "https://test.com"],
+            urls: ["https://x.com/test", "", "https://test.com"],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -125,7 +125,7 @@ contract ZapTest is DeployHelper {
             ticker: "EVT",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -143,7 +143,7 @@ contract ZapTest is DeployHelper {
             ticker: "BAD",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(0),
             salt: _mineVanitySalt(creator)
         });

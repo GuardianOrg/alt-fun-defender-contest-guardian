@@ -53,7 +53,7 @@ contract E2ETest is Script {
             ticker: "E2E",
             description: "End-to-end test",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: HYPE2L,
             salt: vanitySalt
         });

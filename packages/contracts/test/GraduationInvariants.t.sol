@@ -54,7 +54,7 @@ contract GraduationInvariantsTest is DeployHelper {
             ticker: "INV",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -76,7 +76,7 @@ contract GraduationInvariantsTest is DeployHelper {
             ticker: "INV",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });

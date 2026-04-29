@@ -127,7 +127,7 @@ interface OnChainInfoOverrides {
   ticker?: string;
   description?: string;
   image?: string;
-  urls?: [string, string, string, string];
+  urls?: [string, string, string];
 }
 
 function makeOnChainInfo(overrides: OnChainInfoOverrides = {}) {
@@ -140,7 +140,7 @@ function makeOnChainInfo(overrides: OnChainInfoOverrides = {}) {
     ticker: overrides.ticker ?? "TST",
     description: overrides.description ?? "",
     image: overrides.image ?? "",
-    urls: overrides.urls ?? (["", "", "", ""] as [string, string, string, string]),
+    urls: overrides.urls ?? (["", "", ""] as [string, string, string]),
     lifecycle: 0,
   };
 }
@@ -422,7 +422,7 @@ describe("POST /tokens — address-only registration", () => {
         name: "Fresh",
         ticker: "FRSH",
         description: "hello",
-        urls: ["https://x.com/fresh", "", "https://fresh.example", ""],
+        urls: ["https://x.com/fresh", "", "https://fresh.example"],
       }),
     );
     mockBounceTechLtList();
