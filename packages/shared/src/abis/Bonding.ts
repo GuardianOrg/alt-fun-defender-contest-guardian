@@ -408,11 +408,6 @@ export const BondingAbi = [
             "internalType": "address"
           },
           {
-            "name": "token",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
             "name": "pair",
             "type": "address",
             "internalType": "address"

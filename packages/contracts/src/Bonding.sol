@@ -155,7 +155,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     struct TokenInfo {
         address creator;
-        address token;
         address pair;
         address ltAddress;
         string name;
@@ -417,7 +416,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) internal {
         _tokenInfo[tokenAddr] = TokenInfo({
             creator: creator_,
-            token: tokenAddr,
             pair: pair,
             ltAddress: params.ltAddress,
             name: params.name,
@@ -454,9 +452,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         // unwritten slot (unknown token) would otherwise pass the lifecycle
         // gate and fall through into `router.buy`, which would revert deep
         // in `IPair(address(0))` with a cryptic low-level error.
-        // `_storeTokenInfo` always sets `info.token`, so a zero here means
-        // "address never registered as a launched token".
-        if (info.token == address(0)) revert TokenNotTrading();
+        // `_storeTokenInfo` always sets `info.creator` to the launching
+        // user (non-zero in normal txs), so a zero here means "address
+        // never registered as a launched token".
+        if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
@@ -476,7 +475,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external onlyRouter nonReentrant returns (uint256) {
         TokenInfo storage info = _tokenInfo[tokenAddress];
         // Existence check — see `buy` for the rationale.
-        if (info.token == address(0)) revert TokenNotTrading();
+        if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
