@@ -201,7 +201,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) internal returns (address tokenAddr) {
         if (params.ltAddress == address(0)) revert InvalidInput();
 
-        (tokenAddr,,) = bonding.launch(params, msg.sender);
+        (tokenAddr,) = bonding.launch(params, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
 
         // Seed buys reuse the standard buy path so they inherit the same

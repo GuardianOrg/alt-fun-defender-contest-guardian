@@ -44,7 +44,7 @@ contract ClonesTest is DeployHelper {
         address predicted = bonding.predictTokenAddress(creator, userSalt);
 
         vm.prank(creator);
-        (address actual,,) = bonding.launch(_params(userSalt), creator);
+        (address actual,) = bonding.launch(_params(userSalt), creator);
 
         assertEq(actual, predicted, "predicted address must match deployment");
     }
@@ -68,9 +68,9 @@ contract ClonesTest is DeployHelper {
         address expB = bonding.predictTokenAddress(trader, saltB);
 
         vm.prank(creator);
-        (address tokenA,,) = bonding.launch(_params(saltA), creator);
+        (address tokenA,) = bonding.launch(_params(saltA), creator);
         vm.prank(trader);
-        (address tokenB,,) = bonding.launch(_params(saltB), trader);
+        (address tokenB,) = bonding.launch(_params(saltB), trader);
 
         assertEq(tokenA, expA);
         assertEq(tokenB, expB);
@@ -95,7 +95,7 @@ contract ClonesTest is DeployHelper {
     function test_clone_initializerCannotBeCalledTwice() public {
         bytes32 userSalt = _mineVanitySalt(creator);
         vm.prank(creator);
-        (address tokenAddr,,) = bonding.launch(_params(userSalt), creator);
+        (address tokenAddr,) = bonding.launch(_params(userSalt), creator);
 
         // The clone's initialize() runs once during launch(). A second call
         // must revert (OZ Initializable). This protects against a malicious
@@ -151,7 +151,7 @@ contract ClonesTest is DeployHelper {
         address predNew = bonding.predictTokenAddress(creator, newSalt);
 
         vm.prank(creator);
-        (address actual,,) = bonding.launch(_params(newSalt), creator);
+        (address actual,) = bonding.launch(_params(newSalt), creator);
         assertEq(actual, predNew, "new launches must use new impl");
     }
 
@@ -180,7 +180,7 @@ contract ClonesTest is DeployHelper {
     function test_launch_producesVanityAddress() public {
         bytes32 userSalt = _mineVanitySalt(creator);
         vm.prank(creator);
-        (address tokenAddr,,) = bonding.launch(_params(userSalt), creator);
+        (address tokenAddr,) = bonding.launch(_params(userSalt), creator);
         assertEq(
             bytes2(uint16(uint160(tokenAddr))), bonding.VANITY_SUFFIX(), "launched token must end in VANITY_SUFFIX"
         );

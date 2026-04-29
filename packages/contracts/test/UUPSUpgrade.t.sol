@@ -40,7 +40,7 @@ contract UUPSUpgradeTest is DeployHelper {
             salt: _mineVanitySalt(creator)
         });
         vm.prank(creator);
-        (tokenAddr,,) = bonding.launch(params, creator);
+        (tokenAddr,) = bonding.launch(params, creator);
 
         // Seed buy now happens via the standard buy path (no longer inside
         // `Bonding.launch`). Drive it directly through `bonding.buy` since
@@ -93,24 +93,23 @@ contract UUPSUpgradeTest is DeployHelper {
         Bonding.TokenInfo memory info = bonding.getTokenInfo(tokenAddr);
         assertEq(info.creator, creator);
         assertTrue(info.lifecycle == Bonding.Lifecycle.Curve);
-        assertEq(bonding.allTokensLength(), 1);
     }
 
     function test_bonding_preservesTokenListAfterUpgrade() public {
         address tokenAddr = _launchToken();
 
-        lt.mintDirect(trader, 1000 ether);
+        lt.mintDirect(trader, 50 ether);
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 1000 ether);
-        bonding.buy(1000 ether, tokenAddr, 0, trader);
+        lt.approve(address(curveRouter), 50 ether);
+        bonding.buy(50 ether, tokenAddr, 0, trader);
         vm.stopPrank();
-
-        uint256 tokensBefore = bonding.allTokensLength();
 
         BondingV2 newImpl = new BondingV2();
         bonding.upgradeToAndCall(address(newImpl), "");
 
-        assertEq(bonding.allTokensLength(), tokensBefore);
+        Bonding.TokenInfo memory info = bonding.getTokenInfo(tokenAddr);
+        assertEq(info.creator, creator);
+        assertTrue(info.lifecycle == Bonding.Lifecycle.Curve);
     }
 
     function test_bonding_canTradeAfterUpgrade() public {
