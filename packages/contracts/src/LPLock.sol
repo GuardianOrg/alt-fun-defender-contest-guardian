@@ -27,6 +27,10 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
 
     error NotAuthorized();
 
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         address owner_
     ) external initializer {

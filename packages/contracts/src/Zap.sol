@@ -79,6 +79,10 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      overlay rather than a fee/balance error.
     error TokenIsGraduating();
 
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         address bonding_,
         address usdc_,

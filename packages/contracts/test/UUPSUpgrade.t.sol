@@ -2,6 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {Bonding} from "../src/Bonding.sol";
+import {Zap} from "../src/Zap.sol";
+import {LPLock} from "../src/LPLock.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract BondingV2 is Bonding {
@@ -140,5 +142,17 @@ contract UUPSUpgradeTest is DeployHelper {
         Bonding impl = new Bonding();
         vm.expectRevert();
         impl.initialize(address(1), address(2), 100, address(3), address(4), address(5));
+    }
+
+    function test_zap_implementationCannotBeInitialized() public {
+        Zap impl = new Zap();
+        vm.expectRevert();
+        impl.initialize(address(1), address(2), address(3), address(4), 0, 0, 0);
+    }
+
+    function test_lpLock_implementationCannotBeInitialized() public {
+        LPLock impl = new LPLock();
+        vm.expectRevert();
+        impl.initialize(address(1));
     }
 }
