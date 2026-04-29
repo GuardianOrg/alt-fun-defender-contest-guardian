@@ -28,6 +28,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
     error ZeroAddress();
     error NoRouter();
     error PairExists();
+    error RouterFrozen();
 
     function initialize() external initializer {
         __AccessControl_init();
@@ -69,6 +70,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
         address router_
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (router_ == address(0)) revert ZeroAddress();
+        if (allPairs.length > 0) revert RouterFrozen();
         router = router_;
         emit RouterUpdated(router_);
     }

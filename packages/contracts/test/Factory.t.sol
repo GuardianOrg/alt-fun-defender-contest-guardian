@@ -169,4 +169,12 @@ contract FactoryTest is Test {
         vm.expectRevert();
         factory.setRouter(makeAddr("newRouter"));
     }
+
+    function test_setRouter_revertsAfterPairCreated() public {
+        vm.prank(bondingRole);
+        factory.createPair(address(tokenA), address(tokenB));
+
+        vm.expectRevert(Factory.RouterFrozen.selector);
+        factory.setRouter(makeAddr("newRouter"));
+    }
 }
