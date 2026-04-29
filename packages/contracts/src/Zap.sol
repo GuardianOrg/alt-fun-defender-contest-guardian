@@ -38,6 +38,13 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Hard upper bound on buy/sell fees (2%). Prevents an owner-driven fat-finger.
     uint256 public constant MAX_FEE_BPS = 200;
 
+    /// @dev Minimum USDC amount the BounceTech LT accepts on `mint`/`redeem`.
+    ///      Below this, the LT reverts with selector `0x05eb05ac` which
+    ///      decodes to nothing useful. Pre-checked here so users see a clean
+    ///      `BelowMinAmount` error instead of the cryptic LT revert.
+    ///      Denominated in real USDC (6dp) — `$10`.
+    uint256 public constant MIN_USDC_AMOUNT = 10e6;
+
     Bonding public bonding;
     IERC20 public usdc;
     IUniswapV2Router02 public hyperswapRouter;
@@ -72,6 +79,12 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event HyperswapRouterUpdated(address indexed hyperswapRouter);
     event FeeVaultUpdated(address indexed feeVault);
     event FeesUpdated(uint256 buyFeeBps, uint256 sellFeeBps, uint256 creatorFeeBps);
+    /// @dev Emitted when a buy's leftover-LT redeem path falls back to a
+    ///      direct LT transfer (typically because the leftover was below
+    ///      `MIN_USDC_AMOUNT` so the LT redeem reverted). Lets the frontend
+    ///      detect the case and surface "you got LT instead of USDC because
+    ///      the leftover was below the $10 redeem floor".
+    event LeftoverLTReturned(address indexed user, uint256 amount);
 
     error InvalidInput();
     error SlippageExceeded();
@@ -91,6 +104,11 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      transfer and LT approve and revert deep in `SafeERC20` with an
     ///      opaque error.
     error TokenNotTrading();
+    /// @dev Raised when a buy's USDC input or a sell's expected USDC output
+    ///      is below `MIN_USDC_AMOUNT`. Mirrors the BounceTech LT
+    ///      `mint`/`redeem` floor on-chain so users see a clean error
+    ///      instead of an undecodable LT revert.
+    error BelowMinAmount();
 
     constructor() {
         _disableInitializers();
@@ -225,6 +243,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) internal returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
         if (tokenAddress == address(0)) revert InvalidInput();
+        if (usdcAmount < MIN_USDC_AMOUNT) revert BelowMinAmount();
         if (bonding.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
@@ -288,6 +307,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             }
             catch {
                 IERC20(lt).safeTransfer(msg.sender, ltLeft);
+                emit LeftoverLTReturned(msg.sender, ltLeft);
             }
         }
         if (feeRefund > 0) {
@@ -318,6 +338,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 ltReceived = bonding.isGraduated(tokenAddress)
             ? _sellOnHyperswap(tokenAddress, lt, tokenAmount)
             : _sellOnCurve(tokenAddress, tokenAmount);
+
+        uint256 grossUsdcEstimate = (ltReceived * ILeveragedToken(lt).exchangeRate()) / 1e18;
+        if (grossUsdcEstimate < MIN_USDC_AMOUNT) revert BelowMinAmount();
 
         // LT -> USDC into this zap (not the user) so we can deduct the fee.
         IERC20(lt).forceApprove(lt, ltReceived);
