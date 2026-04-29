@@ -401,14 +401,38 @@ contract ZapTest is DeployHelper {
     }
 
     function test_setBonding_updatesValue() public {
-        address newBonding = makeAddr("newBonding");
-        zap.setBonding(newBonding);
-        assertEq(address(zap.bonding()), newBonding);
+        Bonding freshBonding = _deployFreshBonding();
+        freshBonding.addRouter(address(zap));
+
+        zap.setBonding(address(freshBonding));
+        assertEq(address(zap.bonding()), address(freshBonding));
     }
 
     function test_setBonding_revertsZeroAddress() public {
         vm.expectRevert(Zap.ZeroAddress.selector);
         zap.setBonding(address(0));
+    }
+
+    function test_setBonding_revertsIfZapNotRouter() public {
+        Bonding freshBonding = _deployFreshBonding();
+
+        vm.expectRevert(Zap.BondingNotConfigured.selector);
+        zap.setBonding(address(freshBonding));
+    }
+
+    function _deployFreshBonding() internal returns (Bonding) {
+        Bonding bondingImpl = new Bonding();
+        bytes memory bondingInit = abi.encodeCall(
+            Bonding.initialize,
+            (
+                address(factory),
+                address(curveRouter),
+                address(hyperswapFactory),
+                address(lpLockContract),
+                address(tokenImpl)
+            )
+        );
+        return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
     }
 
     function test_setHyperswapRouter_onlyOwner() public {

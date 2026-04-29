@@ -78,6 +78,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     error ZeroAddress();
     error InvalidFee();
     error VaultNotConfigured();
+    error BondingNotConfigured();
     /// @dev Forwarded from `Bonding`: trades are blocked while a token is in
     ///      phase 1 of graduation (awaiting `finalizeGraduation`). Distinct from
     ///      a generic revert so the frontend can show the "Token is graduating"
@@ -475,6 +476,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address bonding_
     ) external onlyOwner {
         if (bonding_ == address(0)) revert ZeroAddress();
+        if (!Bonding(bonding_).isRouter(address(this))) revert BondingNotConfigured();
         bonding = Bonding(bonding_);
         emit BondingUpdated(bonding_);
     }
