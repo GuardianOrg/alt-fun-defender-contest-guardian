@@ -83,6 +83,13 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      a generic revert so the frontend can show the "Token is graduating"
     ///      overlay rather than a fee/balance error.
     error TokenIsGraduating();
+    /// @dev Raised when buy/sell targets an address that was never registered
+    ///      as a launched token. Mirrors `Bonding.TokenNotTrading`. Caught
+    ///      upfront in `Zap` so unknown tokens revert before any USDC moves —
+    ///      otherwise the call would propagate into `_executeBuy`'s USDC
+    ///      transfer and LT approve and revert deep in `SafeERC20` with an
+    ///      opaque error.
+    error TokenNotTrading();
 
     constructor() {
         _disableInitializers();
@@ -216,6 +223,8 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address referrer
     ) internal returns (uint256 tokensOut) {
         if (usdcAmount == 0) revert InvalidInput();
+        if (tokenAddress == address(0)) revert InvalidInput();
+        if (bonding.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
         uint256 amountInUsed;
@@ -297,6 +306,8 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 minUsdcOut
     ) internal returns (uint256 usdcOut) {
         if (tokenAmount == 0) revert InvalidInput();
+        if (tokenAddress == address(0)) revert InvalidInput();
+        if (bonding.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
         if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
         address lt = _ltOf(tokenAddress);

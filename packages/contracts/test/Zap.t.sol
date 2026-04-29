@@ -198,6 +198,33 @@ contract ZapTest is DeployHelper {
         zap.buy(tokenAddr, 0, 0, address(0));
     }
 
+    function test_buy_revertsOnZeroTokenAddress() public {
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.expectRevert(Zap.InvalidInput.selector);
+        zap.buy(address(0), buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(trader), buyAmount, "USDC should not have moved");
+    }
+
+    function test_buy_revertsOnUnknownToken() public {
+        address bogus = makeAddr("not-a-launched-token");
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.expectRevert(Zap.TokenNotTrading.selector);
+        zap.buy(bogus, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(trader), buyAmount, "USDC should not have moved");
+    }
+
     function test_buy_revertsOnSlippage() public {
         address tokenAddr = _createToken(0);
         uint256 buyAmount = _smallBuyUsdc();
@@ -310,6 +337,19 @@ contract ZapTest is DeployHelper {
         vm.prank(trader);
         vm.expectRevert(Zap.InvalidInput.selector);
         zap.sell(tokenAddr, 0, 0);
+    }
+
+    function test_sell_revertsOnZeroTokenAddress() public {
+        vm.prank(trader);
+        vm.expectRevert(Zap.InvalidInput.selector);
+        zap.sell(address(0), 1 ether, 0);
+    }
+
+    function test_sell_revertsOnUnknownToken() public {
+        address bogus = makeAddr("not-a-launched-token");
+        vm.prank(trader);
+        vm.expectRevert(Zap.TokenNotTrading.selector);
+        zap.sell(bogus, 1 ether, 0);
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
