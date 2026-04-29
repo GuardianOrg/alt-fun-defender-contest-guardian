@@ -93,7 +93,6 @@ export class RegistrationError extends Error {
 
 interface OnChainTokenInfo {
   creator: `0x${string}`;
-  token: `0x${string}`;
   pair: `0x${string}`;
   ltAddress: `0x${string}`;
   name: string;
@@ -250,12 +249,9 @@ async function fetchOnChainInfo(
   }
 
   // `getTokenInfo` returns a zero-filled struct for an unregistered token
-  // (mapping miss returns the type's default). `info.token == 0x00…` is
+  // (mapping miss returns the type's default). `info.creator == 0x00…` is
   // the cheapest existence check.
-  if (
-    info.token === "0x0000000000000000000000000000000000000000" ||
-    info.creator === "0x0000000000000000000000000000000000000000"
-  ) {
+  if (info.creator === "0x0000000000000000000000000000000000000000") {
     throw new RegistrationError("not_launched", "Token not found on-chain", 404);
   }
 
