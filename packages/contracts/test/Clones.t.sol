@@ -32,7 +32,7 @@ contract ClonesTest is DeployHelper {
             ticker: "CLN",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: salt
         });

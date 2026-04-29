@@ -42,7 +42,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
             ticker: "TP",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });

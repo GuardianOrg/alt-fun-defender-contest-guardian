@@ -146,7 +146,7 @@ contract RouterAllowlistTest is DeployHelper {
             ticker: "X",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             // `onlyRouter` reverts before the vanity check ever runs, so no
             // need to mine a real suffix here.
@@ -229,7 +229,7 @@ contract RouterAllowlistTest is DeployHelper {
             ticker: "SEED",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -265,7 +265,7 @@ contract RouterAllowlistTest is DeployHelper {
             ticker: "TOK",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });

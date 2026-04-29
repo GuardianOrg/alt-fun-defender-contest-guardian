@@ -160,8 +160,7 @@ export function useCreateToken() {
             socials[0] ?? "",
             socials[1] ?? "",
             socials[2] ?? "",
-            socials[3] ?? "",
-          ] as [string, string, string, string],
+          ] as [string, string, string],
           ltAddress: lt.address,
           salt,
         };

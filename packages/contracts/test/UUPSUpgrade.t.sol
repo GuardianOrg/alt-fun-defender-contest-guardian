@@ -35,7 +35,7 @@ contract UUPSUpgradeTest is DeployHelper {
             ticker: "UPG",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });

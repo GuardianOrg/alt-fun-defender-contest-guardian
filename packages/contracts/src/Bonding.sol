@@ -162,7 +162,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string ticker;
         string description;
         string image;
-        string[4] urls;
+        string[3] urls;
         Lifecycle lifecycle;
     }
 
@@ -196,7 +196,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string ticker;
         string description;
         string image;
-        string[4] urls;
+        string[3] urls;
         address ltAddress;
         /// @dev User-supplied vanity salt for CREATE2 clone deployment. Mixed
         ///      with the creator address (`_mixSalt`) before being passed to
@@ -334,7 +334,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (bytes(params.image).length > MAX_IMAGE_LENGTH) revert InvalidImageLength();
         // Per-URL cap (no minimum — empty URLs are valid). Cheaper than a
         // total-cap loop and aligns with the per-field semantics off-chain.
-        for (uint256 i = 0; i < 4; i++) {
+        for (uint256 i = 0; i < 3; i++) {
             if (bytes(params.urls[i]).length > MAX_URL_LENGTH) revert InvalidUrlLength();
         }
 

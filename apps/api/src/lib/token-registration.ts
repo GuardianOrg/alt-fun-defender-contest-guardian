@@ -100,7 +100,7 @@ interface OnChainTokenInfo {
   ticker: string;
   description: string;
   image: string;
-  urls: readonly [string, string, string, string];
+  urls: readonly [string, string, string];
 }
 
 export interface RegisteredToken {
@@ -180,7 +180,7 @@ export async function registerTokenFromChain(
       leverage: ltMeta.targetLeverage,
       underlying: ltMeta.targetAsset,
       // `urls[0..2]` mirrors the order the frontend wrote on-chain (twitter,
-      // telegram, website). `urls[3]` is reserved.
+      // telegram, website).
       twitterUrl: info.urls[0] ?? "",
       telegramUrl: info.urls[1] ?? "",
       websiteUrl: info.urls[2] ?? "",

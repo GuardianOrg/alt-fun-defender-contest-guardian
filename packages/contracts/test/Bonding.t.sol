@@ -38,7 +38,7 @@ contract BondingTest is DeployHelper {
             ticker: "TEST",
             description: "A test token",
             image: "https://img.test/logo.png",
-            urls: ["https://x.com/test", "", "", "https://test.com"],
+            urls: ["https://x.com/test", "", "https://test.com"],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -61,7 +61,7 @@ contract BondingTest is DeployHelper {
             ticker: "NOSEED",
             description: "No seed buy",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -212,7 +212,7 @@ contract BondingTest is DeployHelper {
             ticker: "EVT",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -234,7 +234,7 @@ contract BondingTest is DeployHelper {
             ticker: ticker_,
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -315,7 +315,7 @@ contract BondingTest is DeployHelper {
             ticker: "VLD",
             description: "",
             image: "",
-            urls: ["", "", "", ""],
+            urls: ["", "", ""],
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator)
         });
@@ -371,7 +371,7 @@ contract BondingTest is DeployHelper {
     function test_launch_acceptsUrlsAtMaxLength() public {
         vm.startPrank(creator);
         Bonding.LaunchParams memory params = _launchParamsBase();
-        for (uint256 i = 0; i < 4; i++) {
+        for (uint256 i = 0; i < 3; i++) {
             params.urls[i] = _repeat("A", 512);
         }
         (address tokenAddr,,) = bonding.launch(params, creator);
