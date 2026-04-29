@@ -1,5 +1,10 @@
 export const ZapAbi = [
   {
+    "type": "constructor",
+    "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "function",
     "name": "BPS_DENOM",
     "inputs": [],

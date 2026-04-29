@@ -88,7 +88,7 @@ contract Pair is IPair, ReentrancyGuard {
         return (_pool.reserve0, _pool.reserve1);
     }
 
-    function kLast() external view returns (uint256) {
+    function k() external view returns (uint256) {
         return _pool.k;
     }
 

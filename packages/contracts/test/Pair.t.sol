@@ -46,7 +46,7 @@ contract PairTest is Test {
         (uint256 reserve0, uint256 reserve1) = pair.getReserves();
         assertEq(reserve0, INITIAL_TOKEN_RESERVE);
         assertEq(reserve1, INITIAL_ASSET_RESERVE);
-        assertEq(pair.kLast(), INITIAL_TOKEN_RESERVE * INITIAL_ASSET_RESERVE);
+        assertEq(pair.k(), INITIAL_TOKEN_RESERVE * INITIAL_ASSET_RESERVE);
     }
 
     function test_mint_emitsEvent() public {
@@ -160,8 +160,8 @@ contract PairTest is Test {
         assertEq(r1, 0);
     }
 
-    function test_kLast_returnsZeroBeforeMint() public view {
-        assertEq(pair.kLast(), 0);
+    function test_k_returnsZeroBeforeMint() public view {
+        assertEq(pair.k(), 0);
     }
 
     function test_tokenBalance_reportsRealBalance() public view {
@@ -190,13 +190,13 @@ contract PairTest is Test {
 
     // ─── K Invariant Tests ───────────────────────────────────────────────
 
-    function test_kLast_unchangedAfterSwap() public {
+    function test_k_unchangedAfterSwap() public {
         vm.startPrank(routerAddr);
         pair.mint(INITIAL_TOKEN_RESERVE, INITIAL_ASSET_RESERVE);
 
-        uint256 kBefore = pair.kLast();
+        uint256 kBefore = pair.k();
         pair.swap(0, 50_000 ether, 100 ether, 0);
-        uint256 kAfter = pair.kLast();
+        uint256 kAfter = pair.k();
 
         assertEq(kBefore, kAfter, "k should not change on swap");
         vm.stopPrank();

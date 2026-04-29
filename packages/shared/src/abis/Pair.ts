@@ -53,7 +53,7 @@ export const PairAbi = [
   },
   {
     "type": "function",
-    "name": "kLast",
+    "name": "k",
     "inputs": [],
     "outputs": [
       {

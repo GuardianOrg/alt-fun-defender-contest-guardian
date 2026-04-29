@@ -55,7 +55,7 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
 
         IPair pair = IPair(pairAddr);
         (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
-        uint256 k = pair.kLast();
+        uint256 k = pair.k();
 
         if (isBuy) {
             uint256 newReserveAsset = reserveAsset + amountIn;
@@ -120,7 +120,7 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
     ) internal view returns (uint256 amountInUsed, uint256 tokensOut) {
         IPair pair = IPair(pairAddr);
         (uint256 r0, uint256 r1) = pair.getReserves();
-        uint256 k = pair.kLast();
+        uint256 k = pair.k();
 
         amountInUsed = amountIn;
 

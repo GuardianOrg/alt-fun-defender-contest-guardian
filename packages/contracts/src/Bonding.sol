@@ -342,7 +342,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         index = allTokens.length;
         _storeTokenInfo(tokenAddr, pair, params, creator_);
 
-        uint256 k = IPair(pair).kLast();
+        uint256 k = IPair(pair).k();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k, index);
     }
 
