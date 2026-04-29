@@ -27,6 +27,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
 
     error ZeroAddress();
     error NoRouter();
+    error PairExists();
 
     function initialize() external initializer {
         __AccessControl_init();
@@ -39,6 +40,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
     ) external onlyRole(BONDING_ROLE) returns (address) {
         if (tokenA == address(0) || tokenB == address(0)) revert ZeroAddress();
         if (router == address(0)) revert NoRouter();
+        if (_pairs[tokenA][tokenB] != address(0)) revert PairExists();
 
         Pair pair = new Pair(router, tokenA, tokenB);
         _pairs[tokenA][tokenB] = address(pair);

@@ -102,6 +102,24 @@ contract FactoryTest is Test {
         factory.createPair(address(tokenA), address(tokenB));
     }
 
+    function test_createPair_revertsOnDuplicate() public {
+        vm.startPrank(bondingRole);
+        factory.createPair(address(tokenA), address(tokenB));
+
+        vm.expectRevert(Factory.PairExists.selector);
+        factory.createPair(address(tokenA), address(tokenB));
+        vm.stopPrank();
+    }
+
+    function test_createPair_revertsOnDuplicateReversedOrder() public {
+        vm.startPrank(bondingRole);
+        factory.createPair(address(tokenA), address(tokenB));
+
+        vm.expectRevert(Factory.PairExists.selector);
+        factory.createPair(address(tokenB), address(tokenA));
+        vm.stopPrank();
+    }
+
     function test_createPair_multiplePairsTracked() public {
         MockERC20 tokenC = new MockERC20("Token C", "TKC");
 
