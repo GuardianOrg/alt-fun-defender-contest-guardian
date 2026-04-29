@@ -106,13 +106,11 @@ contract UUPSUpgradeTest is DeployHelper {
         vm.stopPrank();
 
         uint256 tokensBefore = bonding.allTokensLength();
-        uint256 lpReserveBefore = bonding.lpReserve(tokenAddr);
 
         BondingV2 newImpl = new BondingV2();
         bonding.upgradeToAndCall(address(newImpl), "");
 
         assertEq(bonding.allTokensLength(), tokensBefore);
-        assertEq(bonding.lpReserve(tokenAddr), lpReserveBefore);
     }
 
     function test_bonding_canTradeAfterUpgrade() public {

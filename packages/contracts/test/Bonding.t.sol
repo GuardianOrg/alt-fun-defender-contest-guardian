@@ -165,7 +165,6 @@ contract BondingTest is DeployHelper {
         uint256 totalSupply = Token(tokenAddr).totalSupply();
         uint256 expected25 = (totalSupply * 2500) / 10_000;
 
-        // lpReserve returns the tokens minus what was bought in seed
         uint256 bondingBalance = Token(tokenAddr).balanceOf(address(bonding));
         assertEq(bondingBalance, expected25, "Bonding should hold 25% for LP reserve");
     }
@@ -679,16 +678,9 @@ contract BondingTest is DeployHelper {
         assertTrue(hyperPair != address(0), "HyperSwap pair should be set");
     }
 
-    function test_graduation_lpReserveCleared() public {
-        (address tokenAddr,) = _launchToken();
-        uint256 lpBefore = bonding.lpReserve(tokenAddr);
-        assertTrue(lpBefore > 0, "LP reserve should be set before graduation");
-
-        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
-        lt.setExchangeRate(_ratePumpForStagedGraduation());
-        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
-
-        assertEq(bonding.lpReserve(tokenAddr), 0, "LP reserve should be cleared after graduation");
+    function test_lpReserveConstant() public view {
+        // LP_RESERVE = LP_RESERVE_BPS / BPS_DENOM of the fixed 1B per-token supply.
+        assertEq(bonding.LP_RESERVE(), 250_000_000 ether, "LP_RESERVE should equal 25% of 1B supply");
     }
 
     function test_graduation_lpTokensSentToLpLock() public {

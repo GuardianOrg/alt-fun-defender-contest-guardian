@@ -302,8 +302,8 @@ contract GraduationInvariantsTest is DeployHelper {
         assertTrue(bonding.isGraduated(tokenAddr), "graduated via supply");
         assertEq(IPair(pairAddr).tokenBalance(), 0);
 
-        // lpReserve cleared
-        assertEq(bonding.lpReserve(tokenAddr), 0);
+        // LP_RESERVE is the constant amount reserved for LP at every graduation.
+        assertEq(bonding.LP_RESERVE(), LP_RESERVE);
     }
 
     // ─── 6. USD trigger fires with supply remaining ──────────────────────
@@ -389,7 +389,6 @@ contract GraduationInvariantsTest is DeployHelper {
         assertTrue(bonding.isGraduated(tokenAddr), "should graduate eventually");
         assertEq(IPair(pairAddr).tokenBalance(), 0, "pair drained of tokens");
         assertEq(IPair(pairAddr).assetBalance(), 0, "pair drained of LT");
-        assertEq(bonding.lpReserve(tokenAddr), 0, "lpReserve cleared");
         assertTrue(bonding.graduatedPair(tokenAddr) != address(0), "hyperswap pair created");
 
         lt.setExchangeRate(1 ether); // reset for subsequent runs
