@@ -149,15 +149,29 @@ contract Router is Initializable, AccessControlUpgradeable, ReentrancyGuard {
 
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
+        if (pairAddr == address(0)) revert PairNotFound();
         tokensIn = amountIn;
 
         IERC20(token).safeTransferFrom(to, pairAddr, amountIn);
 
-        assetOut = getAmountOut(token, false, amountIn);
+        assetOut = _computeSell(pairAddr, amountIn);
 
         IPair(pairAddr).transferAsset(to, assetOut);
 
         IPair(pairAddr).swap(amountIn, 0, 0, assetOut);
+    }
+
+    /// @dev Compute sell output for a given pair and input amount.
+    function _computeSell(
+        address pairAddr,
+        uint256 amountIn
+    ) internal view returns (uint256 assetOut) {
+        IPair pair = IPair(pairAddr);
+        (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
+        uint256 k = pair.k();
+
+        uint256 newReserveToken = reserveToken + amountIn;
+        assetOut = reserveAsset - (k / newReserveToken);
     }
 
     /// @notice Drain real LT balance from a pair (called during graduation).
