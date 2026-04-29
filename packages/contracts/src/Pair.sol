@@ -8,25 +8,30 @@ import {IPair} from "./interfaces/IPair.sol";
 /// @title Pair
 /// @notice Per-token bonding curve pair. Tracks reserves and holds tokens.
 /// @dev Forked from Virtuals Protocol's `FPair.sol`. Only the router may mutate state.
-///      reserve0 = token (tokenA), reserve1 = asset (tokenB, virtual at init).
+///      Reserves are NOT sorted by address (UniswapV2 convention) — the launched
+///      token is always `launchedToken` and its reserve is `tokenReserve`; the
+///      paired LT is always `assetToken` and its reserve is `assetReserve`
+///      (virtual at init). The naming kills the confusion at the source: any
+///      future code that touches `Pair` doesn't have to remember a non-V2
+///      ordering convention.
 contract Pair is IPair {
     using SafeERC20 for IERC20;
 
     address public immutable router;
-    address public immutable tokenA;
-    address public immutable tokenB;
+    address public immutable launchedToken;
+    address public immutable assetToken;
 
     struct Pool {
-        uint256 reserve0;
-        uint256 reserve1;
+        uint256 tokenReserve;
+        uint256 assetReserve;
         uint256 k;
         uint256 lastUpdated;
     }
 
     Pool private _pool;
 
-    event Mint(uint256 reserve0, uint256 reserve1);
-    event Swap(uint256 amount0In, uint256 amount0Out, uint256 amount1In, uint256 amount1Out);
+    event Mint(uint256 tokenReserve, uint256 assetReserve);
+    event Swap(uint256 tokenIn, uint256 tokenOut, uint256 assetIn, uint256 assetOut);
 
     error OnlyRouter();
     error AlreadyMinted();
@@ -39,38 +44,43 @@ contract Pair is IPair {
 
     constructor(
         address router_,
-        address token0_,
-        address token1_
+        address launchedToken_,
+        address assetToken_
     ) {
         router = router_;
-        tokenA = token0_;
-        tokenB = token1_;
+        launchedToken = launchedToken_;
+        assetToken = assetToken_;
     }
 
     function mint(
-        uint256 reserve0,
-        uint256 reserve1
+        uint256 tokenReserve,
+        uint256 assetReserve
     ) external onlyRouter returns (bool) {
         if (_pool.lastUpdated != 0) revert AlreadyMinted();
-        _pool = Pool({reserve0: reserve0, reserve1: reserve1, k: reserve0 * reserve1, lastUpdated: block.timestamp});
-        emit Mint(reserve0, reserve1);
+        _pool = Pool({
+            tokenReserve: tokenReserve,
+            assetReserve: assetReserve,
+            k: tokenReserve * assetReserve,
+            lastUpdated: block.timestamp
+        });
+        emit Mint(tokenReserve, assetReserve);
         return true;
     }
 
     function swap(
-        uint256 amount0In,
-        uint256 amount0Out,
-        uint256 amount1In,
-        uint256 amount1Out
+        uint256 tokenIn,
+        uint256 tokenOut,
+        uint256 assetIn,
+        uint256 assetOut
     ) external onlyRouter returns (bool) {
-        uint256 newReserve0 = (_pool.reserve0 + amount0In) - amount0Out;
-        uint256 newReserve1 = (_pool.reserve1 + amount1In) - amount1Out;
-        if ((newReserve0 + 1) * (newReserve1 + 1) < _pool.k) revert KInvariantViolated();
+        uint256 newTokenReserve = (_pool.tokenReserve + tokenIn) - tokenOut;
+        uint256 newAssetReserve = (_pool.assetReserve + assetIn) - assetOut;
+        if ((newTokenReserve + 1) * (newAssetReserve + 1) < _pool.k) revert KInvariantViolated();
 
-        _pool.reserve0 = newReserve0;
-        _pool.reserve1 = newReserve1;
+        _pool.tokenReserve = newTokenReserve;
+        _pool.assetReserve = newAssetReserve;
         _pool.lastUpdated = block.timestamp;
-        emit Swap(amount0In, amount0Out, amount1In, amount1Out);
+        emit Swap(tokenIn, tokenOut, assetIn, assetOut);
         return true;
     }
 
@@ -78,18 +88,18 @@ contract Pair is IPair {
         address recipient,
         uint256 amount
     ) external onlyRouter {
-        IERC20(tokenB).safeTransfer(recipient, amount);
+        IERC20(assetToken).safeTransfer(recipient, amount);
     }
 
     function transferToken(
         address recipient,
         uint256 amount
     ) external onlyRouter {
-        IERC20(tokenA).safeTransfer(recipient, amount);
+        IERC20(launchedToken).safeTransfer(recipient, amount);
     }
 
     function getReserves() external view returns (uint256, uint256) {
-        return (_pool.reserve0, _pool.reserve1);
+        return (_pool.tokenReserve, _pool.assetReserve);
     }
 
     function k() external view returns (uint256) {
@@ -97,10 +107,10 @@ contract Pair is IPair {
     }
 
     function tokenBalance() external view returns (uint256) {
-        return IERC20(tokenA).balanceOf(address(this));
+        return IERC20(launchedToken).balanceOf(address(this));
     }
 
     function assetBalance() external view returns (uint256) {
-        return IERC20(tokenB).balanceOf(address(this));
+        return IERC20(assetToken).balanceOf(address(this));
     }
 }
