@@ -117,7 +117,7 @@ contract BondingTest is DeployHelper {
         assertEq(factory.getPair(tokenAddr, address(lt)), pair);
         assertEq(factory.pairFor(tokenAddr), pair);
         assertEq(factory.ltFor(tokenAddr), address(lt));
-        assertEq(factory.allPairsLength(), 1);
+        assertEq(factory.pairCount(), 1);
     }
 
     function test_launch_setsTokenInfo() public {
