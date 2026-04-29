@@ -1216,7 +1216,7 @@ export const BondingAbi = [
       {
         "name": "isBuy",
         "type": "bool",
-        "indexed": false,
+        "indexed": true,
         "internalType": "bool"
       },
       {
