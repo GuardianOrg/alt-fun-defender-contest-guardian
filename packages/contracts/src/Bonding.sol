@@ -258,6 +258,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterRemoved(address indexed router);
     event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
+    event HyperswapUpdated(address indexed hyperswapRouter, address indexed lpLock);
 
     error TokenNotTrading();
     /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
@@ -306,7 +307,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address lpLock_,
         address tokenImplementation_
     ) external initializer {
-        if (tokenImplementation_ == address(0)) revert ZeroAddress();
+        if (
+            factory_ == address(0) || router_ == address(0) || hyperswapRouter_ == address(0) || lpLock_ == address(0)
+                || tokenImplementation_ == address(0)
+        ) revert ZeroAddress();
         __Ownable_init(msg.sender);
 
         factory = Factory(factory_);
@@ -600,8 +604,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address newRouter,
         address newLpLock
     ) external onlyOwner {
+        if (newRouter == address(0) || newLpLock == address(0)) revert ZeroAddress();
         hyperswapRouter = newRouter;
         lpLock = newLpLock;
+        emit HyperswapUpdated(newRouter, newLpLock);
     }
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.
