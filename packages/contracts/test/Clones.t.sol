@@ -99,9 +99,9 @@ contract ClonesTest is DeployHelper {
 
         // The clone's initialize() runs once during launch(). A second call
         // must revert (OZ Initializable). This protects against a malicious
-        // re-init wiping the maxTx config or owner.
+        // re-init wiping the owner.
         vm.expectRevert();
-        Token(tokenAddr).initialize("Evil", "EVL", 100, address(this));
+        Token(tokenAddr).initialize("Evil", "EVL", address(this));
     }
 
     function test_implementation_isLocked() public {
@@ -110,7 +110,7 @@ contract ClonesTest is DeployHelper {
         // anyone could call initialize() on the impl and grief future clones
         // (in OZ <5 this matters more, but the lock is still good hygiene).
         bool reverted;
-        try Token(address(tokenImpl)).initialize("X", "X", 100, address(this)) {
+        try Token(address(tokenImpl)).initialize("X", "X", address(this)) {
             reverted = false;
         } catch {
             reverted = true;

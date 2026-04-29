@@ -10,9 +10,8 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 /// @title Token
 /// @notice ERC20 token created by the bonding curve launchpad.
-/// @dev Forked from Virtuals Protocol's `FERC20.sol`. Fixed 1B supply, owner-only burn,
-///      and configurable maxTx limit (percentage of total supply).
-///      Owner is the Bonding contract — only it can burn or adjust maxTx.
+/// @dev Forked from Virtuals Protocol's `FERC20.sol`. Fixed 1B supply, owner-only burn.
+///      Owner is the Bonding contract — only it can burn.
 ///      EIP-2612 permit is supported so `Zap` can pull tokens via a
 ///      signed message — killing the pre-approve tx on the first sell of any
 ///      newly-launched token. Domain: name = token name, version = "1".
@@ -26,14 +25,6 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, OwnableUpgradeable {
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 ether;
 
-    uint256 public maxTxPercent;
-
-    mapping(address => bool) public isExcludedFromMaxTx;
-
-    event MaxTxExclusionUpdated(address indexed account, bool excluded);
-
-    error ExceedsMaxTx();
-
     constructor() {
         _disableInitializers();
     }
@@ -41,7 +32,6 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
     function initialize(
         string memory name_,
         string memory symbol_,
-        uint256 maxTxPercent_,
         address owner_
     ) external initializer {
         __ERC20_init(name_, symbol_);
@@ -49,23 +39,6 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
         __Ownable_init(owner_);
 
         _mint(owner_, TOTAL_SUPPLY);
-        isExcludedFromMaxTx[owner_] = true;
-        isExcludedFromMaxTx[address(this)] = true;
-        _setMaxTxPercent(maxTxPercent_);
-    }
-
-    function setMaxTxPercent(
-        uint256 pct
-    ) external onlyOwner {
-        _setMaxTxPercent(pct);
-    }
-
-    function setMaxTxExclusion(
-        address account,
-        bool excluded
-    ) external onlyOwner {
-        isExcludedFromMaxTx[account] = excluded;
-        emit MaxTxExclusionUpdated(account, excluded);
     }
 
     /// @notice Burn tokens from any address. Owner only, no approval required.
@@ -74,26 +47,5 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
         uint256 amount
     ) external onlyOwner {
         _burn(from, amount);
-    }
-
-    function maxTxAmount() external view returns (uint256) {
-        return (maxTxPercent * TOTAL_SUPPLY) / 100;
-    }
-
-    function _setMaxTxPercent(
-        uint256 pct
-    ) internal {
-        maxTxPercent = pct;
-    }
-
-    function _update(
-        address from,
-        address to,
-        uint256 amount
-    ) internal override {
-        if (from != address(0) && to != address(0) && !isExcludedFromMaxTx[from]) {
-            if (amount > (maxTxPercent * TOTAL_SUPPLY) / 100) revert ExceedsMaxTx();
-        }
-        super._update(from, to, amount);
     }
 }

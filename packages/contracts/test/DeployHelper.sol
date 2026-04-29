@@ -35,7 +35,6 @@ abstract contract DeployHelper is Test {
     address public trader = makeAddr("trader");
     address public trader2 = makeAddr("trader2");
 
-    uint256 constant MAX_TX = 100; // 100% = no limit
     uint256 constant LT_EXCHANGE_RATE = 1 ether; // 1 LT = $1 USD
 
     /// @dev Per-test salt counter so successive `_mineVanitySalt` calls in
@@ -108,7 +107,6 @@ abstract contract DeployHelper is Test {
             (
                 address(factory),
                 address(curveRouter),
-                MAX_TX,
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl)
