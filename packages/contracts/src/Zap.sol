@@ -275,7 +275,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // Pro-rate the fee by the fraction of LT actually consumed. The remainder
         // (leftover LT + unused fee in USDC) is refunded to the user as USDC.
-        actualFee = ltMinted == 0 ? 0 : (feeOnGross * amountInUsed) / ltMinted;
+        actualFee = ltMinted == 0 ? 0 : (usdcAmount * buyFeeBps * amountInUsed) / (BPS_DENOM * ltMinted);
         uint256 feeRefund = feeOnGross - actualFee;
 
         // Refund leftover LT -> USDC to the user. Fall back to LT if redeem reverts.
