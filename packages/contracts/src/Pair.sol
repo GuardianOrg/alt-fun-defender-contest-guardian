@@ -30,6 +30,7 @@ contract Pair is IPair {
 
     error OnlyRouter();
     error AlreadyMinted();
+    error KInvariantViolated();
 
     modifier onlyRouter() {
         if (msg.sender != router) revert OnlyRouter();
@@ -62,8 +63,12 @@ contract Pair is IPair {
         uint256 amount1In,
         uint256 amount1Out
     ) external onlyRouter returns (bool) {
-        _pool.reserve0 = (_pool.reserve0 + amount0In) - amount0Out;
-        _pool.reserve1 = (_pool.reserve1 + amount1In) - amount1Out;
+        uint256 newReserve0 = (_pool.reserve0 + amount0In) - amount0Out;
+        uint256 newReserve1 = (_pool.reserve1 + amount1In) - amount1Out;
+        if ((newReserve0 + 1) * (newReserve1 + 1) < _pool.k) revert KInvariantViolated();
+
+        _pool.reserve0 = newReserve0;
+        _pool.reserve1 = newReserve1;
         _pool.lastUpdated = block.timestamp;
         emit Swap(amount0In, amount0Out, amount1In, amount1Out);
         return true;
