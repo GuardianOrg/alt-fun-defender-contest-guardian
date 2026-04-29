@@ -467,6 +467,11 @@ export const FactoryAbi = [
   },
   {
     "type": "error",
+    "name": "RouterFrozen",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   }

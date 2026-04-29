@@ -210,7 +210,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     mapping(address => TokenInfo) internal _tokenInfo;
     address[] public allTokens;
-    mapping(address => address[]) public creatorTokens;
 
     /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
@@ -219,9 +218,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     mapping(address => PendingGraduation) public pendingGraduation;
 
     /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (14 named + 36 gap). Append new state variables before
+    ///      totals 50 slots (13 named + 37 gap). Append new state variables before
     ///      this gap and shrink its length to match.
-    uint256[36] private __gap;
+    uint256[37] private __gap;
 
     event TokenLaunched(
         address indexed token,
@@ -435,7 +434,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             lifecycle: Lifecycle.Curve
         });
         allTokens.push(tokenAddr);
-        creatorTokens[creator_].push(tokenAddr);
     }
 
     // ─── Buy / Sell ──────────────────────────────────────────────────────

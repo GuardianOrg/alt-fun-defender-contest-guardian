@@ -8,12 +8,12 @@ export const PairAbi = [
         "internalType": "address"
       },
       {
-        "name": "token0_",
+        "name": "launchedToken_",
         "type": "address",
         "internalType": "address"
       },
       {
-        "name": "token1_",
+        "name": "assetToken_",
         "type": "address",
         "internalType": "address"
       }
@@ -29,6 +29,19 @@ export const PairAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "assetToken",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -66,15 +79,28 @@ export const PairAbi = [
   },
   {
     "type": "function",
+    "name": "launchedToken",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "mint",
     "inputs": [
       {
-        "name": "reserve0",
+        "name": "tokenReserve",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "reserve1",
+        "name": "assetReserve",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -106,22 +132,22 @@ export const PairAbi = [
     "name": "swap",
     "inputs": [
       {
-        "name": "amount0In",
+        "name": "tokenIn",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "amount0Out",
+        "name": "tokenOut",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "amount1In",
+        "name": "assetIn",
         "type": "uint256",
         "internalType": "uint256"
       },
       {
-        "name": "amount1Out",
+        "name": "assetOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -134,32 +160,6 @@ export const PairAbi = [
       }
     ],
     "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "tokenA",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "tokenB",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -215,13 +215,13 @@ export const PairAbi = [
     "name": "Mint",
     "inputs": [
       {
-        "name": "reserve0",
+        "name": "tokenReserve",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "reserve1",
+        "name": "assetReserve",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -234,25 +234,25 @@ export const PairAbi = [
     "name": "Swap",
     "inputs": [
       {
-        "name": "amount0In",
+        "name": "tokenIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "amount0Out",
+        "name": "tokenOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "amount1In",
+        "name": "assetIn",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "amount1Out",
+        "name": "assetOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
