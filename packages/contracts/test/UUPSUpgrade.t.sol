@@ -98,10 +98,10 @@ contract UUPSUpgradeTest is DeployHelper {
     function test_bonding_preservesTokenListAfterUpgrade() public {
         address tokenAddr = _launchToken();
 
-        lt.mintDirect(trader, 1000 ether);
+        lt.mintDirect(trader, 50 ether);
         vm.startPrank(trader);
-        lt.approve(address(curveRouter), 1000 ether);
-        bonding.buy(1000 ether, tokenAddr, 0, trader);
+        lt.approve(address(curveRouter), 50 ether);
+        bonding.buy(50 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
         BondingV2 newImpl = new BondingV2();

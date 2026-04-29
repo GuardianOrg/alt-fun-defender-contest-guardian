@@ -72,6 +72,5 @@ contract E2ETest is Script {
         console.log("Reserve token:", rt);
         console.log("Reserve asset:", ra);
         console.log("Trading:", bonding.isTrading(tokenAddr));
-        console.log("Tokens count:", bonding.allTokensLength());
     }
 }
