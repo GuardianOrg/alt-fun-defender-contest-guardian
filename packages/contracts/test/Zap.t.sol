@@ -106,7 +106,7 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(0);
         assertTrue(tokenAddr != address(0));
 
-        (address infoCreator,,,,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
+        (address infoCreator,,,,, Bonding.Lifecycle lifecycle) = bonding.tokenInfo(tokenAddr);
         assertEq(infoCreator, creator);
         assertTrue(lifecycle == Bonding.Lifecycle.Curve);
     }

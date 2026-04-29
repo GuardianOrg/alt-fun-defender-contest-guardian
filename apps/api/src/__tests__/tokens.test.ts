@@ -121,7 +121,6 @@ function makeEnv(bucket: MockBucket = makeBucket()): AppBindings {
 
 interface OnChainInfoOverrides {
   creator?: string;
-  token?: string;
   ltAddress?: string;
   name?: string;
   ticker?: string;
@@ -133,7 +132,6 @@ interface OnChainInfoOverrides {
 function makeOnChainInfo(overrides: OnChainInfoOverrides = {}) {
   return {
     creator: overrides.creator ?? VALID_CREATOR,
-    token: overrides.token ?? VALID_ADDRESS,
     pair: "0xpair000000000000000000000000000000000000",
     ltAddress: overrides.ltAddress ?? LT_ADDR,
     name: overrides.name ?? "Test Token",
@@ -252,7 +250,6 @@ describe("POST /tokens — address-only registration", () => {
   it("returns 404 when token has not been launched on-chain", async () => {
     // `getTokenInfo` returns a zero-filled struct for an unregistered token.
     mockReadContract.mockResolvedValueOnce(makeOnChainInfo({
-      token: ZERO_ADDRESS,
       creator: ZERO_ADDRESS,
     }));
 
