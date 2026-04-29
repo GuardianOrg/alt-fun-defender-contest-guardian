@@ -17,6 +17,7 @@ import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {LPLock} from "./LPLock.sol";
+import {VanityMining} from "./lib/VanityMining.sol";
 
 /// @title Bonding
 /// @notice Constant-product bonding curve for the launchpad.
@@ -579,6 +580,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address newImpl
     ) external onlyOwner {
         if (newImpl == address(0)) revert ZeroAddress();
+        // Probe that some `(creator, salt)` exists for which the CREATE2
+        // address ends in `VANITY_SUFFIX`. `VanityMining.mine` reverts if
+        // it can't converge in 1M attempts, so the call itself is the gate
+        // — a structurally-broken impl bricks `setTokenImplementation`
+        // here instead of silently bricking every user's `launch()`.
+        VanityMining.mine(address(0x1), newImpl, address(this), 0);
         address old = tokenImplementation;
         tokenImplementation = newImpl;
         emit TokenImplementationUpdated(old, newImpl);
