@@ -837,6 +837,103 @@ contract BondingTest is DeployHelper {
         bonding.setMaxTx(50);
     }
 
+    // ─── Initialize Zero-Address Validation ─────────────────────────────
+    //
+    // `Bonding.initialize` rejects any zero address among its dependency
+    // parameters. A misconfigured deploy would otherwise land in production
+    // with `factory` / `router` / `hyperswapRouter` / `lpLock` / token
+    // implementation set to zero, bricking core paths with cryptic
+    // low-level reverts deep in delegate calls.
+
+    function _bondingInitCall(
+        address factory_,
+        address router_,
+        address hyperswapRouter_,
+        address lpLock_,
+        address tokenImpl_
+    ) internal view returns (bytes memory) {
+        return abi.encodeCall(Bonding.initialize, (factory_, router_, MAX_TX, hyperswapRouter_, lpLock_, tokenImpl_));
+    }
+
+    function test_initialize_revertsOnZeroFactory() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = _bondingInitCall(
+            address(0), address(curveRouter), address(hyperswapRouter), address(lpLockContract), address(tokenImpl)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_revertsOnZeroRouter() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = _bondingInitCall(
+            address(factory), address(0), address(hyperswapRouter), address(lpLockContract), address(tokenImpl)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_revertsOnZeroHyperswapRouter() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = _bondingInitCall(
+            address(factory), address(curveRouter), address(0), address(lpLockContract), address(tokenImpl)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_revertsOnZeroLpLock() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = _bondingInitCall(
+            address(factory), address(curveRouter), address(hyperswapRouter), address(0), address(tokenImpl)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_revertsOnZeroTokenImplementation() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = _bondingInitCall(
+            address(factory), address(curveRouter), address(hyperswapRouter), address(lpLockContract), address(0)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    // ─── setHyperswap Admin Tests ───────────────────────────────────────
+
+    function test_setHyperswap_onlyOwner() public {
+        vm.prank(trader);
+        vm.expectRevert();
+        bonding.setHyperswap(address(hyperswapRouter), address(lpLockContract));
+    }
+
+    function test_setHyperswap_updatesValues() public {
+        address newRouter = makeAddr("newHyperswapRouter");
+        address newLpLock = makeAddr("newLpLock");
+        bonding.setHyperswap(newRouter, newLpLock);
+        assertEq(bonding.hyperswapRouter(), newRouter);
+        assertEq(bonding.lpLock(), newLpLock);
+    }
+
+    function test_setHyperswap_emitsEvent() public {
+        address newRouter = makeAddr("newHyperswapRouter");
+        address newLpLock = makeAddr("newLpLock");
+        vm.expectEmit(true, true, false, false);
+        emit Bonding.HyperswapUpdated(newRouter, newLpLock);
+        bonding.setHyperswap(newRouter, newLpLock);
+    }
+
+    function test_setHyperswap_revertsOnZeroRouter() public {
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        bonding.setHyperswap(address(0), address(lpLockContract));
+    }
+
+    function test_setHyperswap_revertsOnZeroLpLock() public {
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        bonding.setHyperswap(address(hyperswapRouter), address(0));
+    }
+
     // ─── Graduation Threshold Admin Tests ────────────────────────────────
 
     function test_setGraduationThresholdUsd_initialisesToDefault() public {
