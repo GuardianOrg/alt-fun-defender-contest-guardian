@@ -23,9 +23,11 @@ import {
  * the keccak-over-lowercase-hex EIP-55 dance that letter suffixes
  * require. ~3 gas per launch vs ~15k.
  *
- * If you change the length here, update `Bonding.VANITY_TRAILING_ZEROS`,
- * the `0xfffff` mask in `Bonding._checkVanity`, and the matching mask in
- * `VanityMining.sol`. Diverging any of those bricks token creation.
+ * If you change the length here, keep the on-chain sources of truth in
+ * sync: `Bonding.VANITY_TRAILING_ZEROS` (and the derived `_VANITY_MASK`
+ * used by `Bonding._checkVanity`) plus `VanityMining.TRAILING_ZEROS`
+ * (whose mask is derived in Yul). Diverging any of those bricks token
+ * creation.
  */
 export const VANITY_SUFFIX = "00000";
 
