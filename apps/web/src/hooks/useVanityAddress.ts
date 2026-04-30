@@ -313,8 +313,9 @@ export function useVanityAddress({
             implementation,
             bondingProxy: ADDRESSES.bonding,
             creator,
-            // Hash off the main thread so the worker hot loop only ever sees
-            // 32-byte words — matches `Bonding._mixSalt`'s pre-hashed inputs.
+            // Pre-hash in the host before entering the worker hot loop so
+            // it only ever moves 32-byte words — matches `Bonding._mixSalt`'s
+            // pre-hashed inputs.
             nameHash: metadataHash(tokenName),
             tickerHash: metadataHash(tokenTicker),
             suffix: VANITY_SUFFIX,
