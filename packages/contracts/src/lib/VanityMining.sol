@@ -24,9 +24,21 @@ library VanityMining {
     bytes internal constant EIP1167_PREFIX = hex"3d602d80600a3d3981f3363d3d373d3d3d363d73";
     bytes internal constant EIP1167_SUFFIX = hex"5af43d82803e903d91602b57fd5bf3";
 
+    /// @dev Mirror of `Bonding.VANITY_TRAILING_ZEROS`. Kept as a separate
+    ///      constant rather than imported because libraries can't reach
+    ///      contract-level constants without coupling them at the type
+    ///      level. Comment in `Bonding.sol` flags both locations as the
+    ///      single source of truth — keep them in lockstep.
+    ///
+    ///      Must remain a direct numeric literal: Solidity's inline
+    ///      assembly rejects constants defined by expressions, and the
+    ///      mining hot loop derives its mask from this value in Yul.
+    uint256 internal constant TRAILING_ZEROS = 5;
+
     /// @dev Brute-force a `userSalt` so the resulting clone address ends in
-    ///      5 zero hex chars (low 20 bits all zero — mask `0xfffff`). ~1 M
-    ///      attempts on average; loop cap 16 M (P(no hit) ≈ 1.1e-7).
+    ///      `TRAILING_ZEROS` zero hex chars (low `TRAILING_ZEROS * 4` bits
+    ///      all zero). ~1 M attempts on average for the production length
+    ///      of 5; loop cap 16 M (P(no hit) ≈ 1.1e-7).
     ///
     ///      The salt is bound to `(creator_, nameHash, tickerHash)` so a
     ///      salt mined for one (name, ticker) pair will not validate against
@@ -61,6 +73,15 @@ library VanityMining {
             let addrBuf := add(mixBuf, 0x80)
             mstore(0x40, add(addrBuf, 0x80))
 
+            // Derive the suffix mask once, outside the loop, from the
+            // single source of truth. `TRAILING_ZEROS` is a direct numeric
+            // constant so Solidity allows referencing it from Yul; the
+            // shl/sub fold to compile-time literals during inline-assembly
+            // optimisation, costing zero runtime gas. Keeping this here
+            // (instead of a hardcoded `0xfffff`) means a future change to
+            // `TRAILING_ZEROS` automatically propagates.
+            let mask := sub(shl(mul(TRAILING_ZEROS, 4), 1), 1)
+
             mstore(mixBuf, creator_)
             mstore(add(mixBuf, 0x20), nameHash)
             mstore(add(mixBuf, 0x40), tickerHash)
@@ -77,8 +98,7 @@ library VanityMining {
                 let mixed := keccak256(mixBuf, 0x80)
                 mstore(add(addrBuf, 21), mixed)
                 let predicted := keccak256(addrBuf, 85)
-                // Low 20 bits must be zero (5 trailing hex zeros).
-                if iszero(and(predicted, 0xfffff)) {
+                if iszero(and(predicted, mask)) {
                     found := salt
                     success := 1
                     break

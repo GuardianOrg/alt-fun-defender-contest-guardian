@@ -88,13 +88,19 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      EIP-55 dance. Mining cost ≈ 1 M attempts (~1 s background on
     ///      typical hardware via the JS worker pool).
     ///
-    ///      The corresponding bitmask `0xfffff` (low 20 bits = 5 nibbles)
-    ///      is hardcoded in `_checkVanity`; if you change this constant
-    ///      you MUST update that mask in lockstep, plus the matching
-    ///      `VANITY_SUFFIX` string in `packages/shared/src/vanity.ts` and
-    ///      the `0xfffff` literal in `VanityMining.sol`. Diverging any of
-    ///      the four bricks token creation.
+    ///      The on-chain mask `_VANITY_MASK` below derives from this
+    ///      constant so they cannot drift apart. If you change the length
+    ///      here you MUST also update the matching `VANITY_SUFFIX` string
+    ///      in `packages/shared/src/vanity.ts` and the `TRAILING_ZEROS`
+    ///      mirror in `VanityMining.sol`. Diverging any of those bricks
+    ///      token creation.
     uint256 public constant VANITY_TRAILING_ZEROS = 5;
+
+    /// @dev Bitmask covering the low `(VANITY_TRAILING_ZEROS * 4)` bits of
+    ///      an address — `0xfffff` for the production length of 5. Folded
+    ///      to a literal at compile time by Solidity since both operands
+    ///      are `constant`, so there's no runtime cost vs hardcoding.
+    uint256 private constant _VANITY_MASK = (uint256(1) << (VANITY_TRAILING_ZEROS * 4)) - 1;
 
     /// @notice Strictly-forward lifecycle: `Curve → Graduating → Graduated`.
     enum Lifecycle {
@@ -359,13 +365,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return keccak256(abi.encode(creator_, keccak256(bytes(name_)), keccak256(bytes(ticker_)), userSalt));
     }
 
-    /// @dev Enforce the launch-time vanity invariant: the low 20 bits (5 hex
-    ///      nibbles) of the address must all be zero. ~3 gas per call —
-    ///      single bitwise AND. Mirror of `VANITY_TRAILING_ZEROS = 5`.
+    /// @dev Enforce the launch-time vanity invariant: the low
+    ///      `VANITY_TRAILING_ZEROS * 4` bits of the address must all be
+    ///      zero. ~3 gas per call — single bitwise AND.
     function _checkVanity(
         address tokenAddr
     ) internal pure {
-        if (uint160(tokenAddr) & 0xfffff != 0) {
+        if (uint160(tokenAddr) & _VANITY_MASK != 0) {
             revert NotVanityAddress(tokenAddr);
         }
     }
