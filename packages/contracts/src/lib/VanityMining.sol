@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 /// @notice On-chain mirror of the frontend vanity miner. Used by
 ///         `setTokenImplementation` (and tests) to verify a new impl can
 ///         produce a `0xa1fa`-suffixed clone before it bricks user launches.
-///         All-`internal pure`, so the library adds no bytecode to consumers.
 ///         The TypeScript copy in `packages/shared/src/vanity.ts` is
 ///         equality-checked against `Clones.predictDeterministicAddress` by
 ///         `test_predictTokenAddress_matchesOZHelper` in `test/Clones.t.sol`.
