@@ -223,10 +223,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///         `setBounceGlobalStorage` as a backstop.
     IBounceGlobalStorage public bounceGlobalStorage;
 
-    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (13 named + 37 gap). Append new state variables before
-    ///      this gap and shrink its length to match.
-    uint256[37] private __gap;
+    /// @dev Storage gap for future upgrades. Sized so this contract's storage
+    ///      block totals 50 slots (12 used + 38 gap; `_routers` is an
+    ///      `EnumerableSet.AddressSet` and consumes two slots). Append new
+    ///      state variables before this gap and shrink its length to match.
+    uint256[38] private __gap;
 
     event TokenLaunched(
         address indexed token, address indexed creator, address indexed ltAddress, string name, string ticker, uint256 k
