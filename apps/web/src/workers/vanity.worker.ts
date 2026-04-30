@@ -83,25 +83,41 @@ function bytesToHex(bytes: Uint8Array, start: number, end: number): string {
   return s;
 }
 
-function hexToBytes20(hex: string): Uint8Array {
-  // Strip "0x", pad/truncate to 40 chars (20 bytes).
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const padded = clean.padStart(40, "0").slice(-40);
-  const out = new Uint8Array(20);
-  for (let i = 0; i < 20; i++) {
-    out[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
+/**
+ * Strict hex → bytes decoder. Requires `expectedBytes * 2` hex chars after
+ * the optional `0x` prefix and rejects anything outside `[0-9a-fA-F]`.
+ *
+ * The strictness matters: `parseInt(badPair, 16)` returns `NaN`, which
+ * coerces to `0` when written into a `Uint8Array`. Without validation the
+ * worker would silently mine against (e.g.) the wrong `nameHash` and burn
+ * CPU until the salt eventually got rejected on-chain. Throwing here turns
+ * any upstream serialisation bug into the worker's `error` event, which
+ * the hook's `handlePoolFailure` already converts into a clean rejection.
+ */
+function hexToBytes(hex: string, expectedBytes: number, label: string): Uint8Array {
+  const clean = hex.startsWith("0x") || hex.startsWith("0X") ? hex.slice(2) : hex;
+  const expectedChars = expectedBytes * 2;
+  if (clean.length !== expectedChars) {
+    throw new Error(
+      `vanity.worker: ${label} must be ${expectedChars} hex chars (got ${clean.length})`,
+    );
+  }
+  if (!/^[0-9a-fA-F]+$/.test(clean)) {
+    throw new Error(`vanity.worker: ${label} contains non-hex characters`);
+  }
+  const out = new Uint8Array(expectedBytes);
+  for (let i = 0; i < expectedBytes; i++) {
+    out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
 }
 
-function hexToBytes32(hex: string): Uint8Array {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
-  const padded = clean.padStart(64, "0").slice(-64);
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    out[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
+function hexToBytes20(hex: string, label: string): Uint8Array {
+  return hexToBytes(hex, 20, label);
+}
+
+function hexToBytes32(hex: string, label: string): Uint8Array {
+  return hexToBytes(hex, 32, label);
 }
 
 // EIP-1167 minimal-proxy *creation* code (OpenZeppelin v5 layout). Must
@@ -113,7 +129,7 @@ const EIP1167_PREFIX_HEX = "3d602d80600a3d3981f3363d3d373d3d3d363d73";
 const EIP1167_SUFFIX_HEX = "5af43d82803e903d91602b57fd5bf3";
 
 function buildInitCode(implBytes: Uint8Array): Uint8Array {
-  const prefix = hexToBytes20(`0x${EIP1167_PREFIX_HEX}`);
+  const prefix = hexToBytes20(`0x${EIP1167_PREFIX_HEX}`, "EIP1167 prefix");
   const suffixBytes = new Uint8Array(EIP1167_SUFFIX_HEX.length / 2);
   for (let i = 0; i < suffixBytes.length; i++) {
     suffixBytes[i] = parseInt(
@@ -140,11 +156,11 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
 
   stopped = false;
 
-  const implBytes = hexToBytes20(msg.implementation);
-  const deployerBytes = hexToBytes20(msg.bondingProxy);
-  const creatorBytes = hexToBytes20(msg.creator);
-  const nameHashBytes = hexToBytes32(msg.nameHash);
-  const tickerHashBytes = hexToBytes32(msg.tickerHash);
+  const implBytes = hexToBytes20(msg.implementation, "implementation");
+  const deployerBytes = hexToBytes20(msg.bondingProxy, "bondingProxy");
+  const creatorBytes = hexToBytes20(msg.creator, "creator");
+  const nameHashBytes = hexToBytes32(msg.nameHash, "nameHash");
+  const tickerHashBytes = hexToBytes32(msg.tickerHash, "tickerHash");
   const suffix = msg.suffix.toLowerCase();
   const suffixLen = suffix.length;
 
