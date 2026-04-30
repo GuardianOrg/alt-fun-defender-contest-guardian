@@ -16,6 +16,9 @@ contract Deploy is Script {
     // HyperEVM mainnet addresses
     address constant USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
     address constant HYPERSWAP_ROUTER = 0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A;
+    /// @dev BounceTech `GlobalStorage` (HyperEVM mainnet). Mirrors
+    ///      `GLOBAL_STORAGE_ADDRESS` in `bounce-tech/bounce-npm`.
+    address constant BOUNCE_GLOBAL_STORAGE = 0xa07d06383c1863c8A54d427aC890643d76cc03ff;
 
     // Fee config at deploy time: 0.5% buy/sell, 20% of that to the creator.
     uint256 constant BUY_FEE_BPS = 50;
@@ -104,7 +107,15 @@ contract Deploy is Script {
         Bonding impl = new Bonding();
         bytes memory initData = abi.encodeCall(
             Bonding.initialize,
-            (factory_, router_, hyperswapFactory_, lpLock_, tokenImplementation_, GRADUATION_THRESHOLD_USD)
+            (
+                factory_,
+                router_,
+                hyperswapFactory_,
+                lpLock_,
+                tokenImplementation_,
+                GRADUATION_THRESHOLD_USD,
+                BOUNCE_GLOBAL_STORAGE
+            )
         );
         return address(new ERC1967Proxy(address(impl), initData));
     }

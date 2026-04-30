@@ -12,8 +12,10 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Factory} from "./Factory.sol";
 import {Router} from "./Router.sol";
 import {Token} from "./Token.sol";
+import {IBounceFactory} from "./interfaces/IBounceFactory.sol";
+import {IBounceGlobalStorage} from "./interfaces/IBounceGlobalStorage.sol";
+import {IBounceLeveragedToken} from "./interfaces/IBounceLeveragedToken.sol";
 import {IPair} from "./interfaces/IPair.sol";
-import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {LPLock} from "./LPLock.sol";
@@ -211,9 +213,20 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///         Empty (`pendingSince == 0`) for tokens not in the `Graduating` phase.
     mapping(address => PendingGraduation) public pendingGraduation;
 
-    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (12 named + 38 gap). Append new state variables before
-    ///      this gap and shrink its length to match.
+    /// @notice BounceTech `GlobalStorage`, queried at every `launch` to
+    ///         resolve the live `Factory` and reject `ltAddress` values
+    ///         that aren't real BounceTech-deployed LTs (which would
+    ///         otherwise let a malicious LT siphon buyer USDC inside
+    ///         `mint`). Going through `GlobalStorage` instead of caching
+    ///         the factory means BounceTech-driven `setFactory` calls
+    ///         flow through automatically. Hot-swappable via
+    ///         `setBounceGlobalStorage` as a backstop.
+    IBounceGlobalStorage public bounceGlobalStorage;
+
+    /// @dev Storage gap for future upgrades. Sized so this contract's storage
+    ///      block totals 50 slots (12 used + 38 gap; `_routers` is an
+    ///      `EnumerableSet.AddressSet` and consumes two slots). Append new
+    ///      state variables before this gap and shrink its length to match.
     uint256[38] private __gap;
 
     event TokenLaunched(
@@ -247,6 +260,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
+    event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
 
     error TokenNotTrading();
     /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
@@ -283,6 +297,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      product invariant — the frontend miner must always produce a
     ///      qualifying salt (no random fallbacks).
     error NotVanityAddress(address tokenAddr);
+    /// @dev `params.ltAddress` is not registered in the BounceTech `Factory`'s
+    ///      `ltExists` mapping (either an arbitrary contract or an LT that
+    ///      BounceTech has since `redeployLt`'d).
+    error UnknownLeveragedToken(address ltAddress);
 
     modifier onlyRouter() {
         if (!_routers.contains(msg.sender)) revert NotRouter();
@@ -304,11 +322,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address hyperswapFactory_,
         address lpLock_,
         address tokenImplementation_,
-        uint256 graduationThresholdUsd_
+        uint256 graduationThresholdUsd_,
+        address bounceGlobalStorage_
     ) external initializer {
         if (
             factory_ == address(0) || router_ == address(0) || hyperswapFactory_ == address(0) || lpLock_ == address(0)
-                || tokenImplementation_ == address(0)
+                || tokenImplementation_ == address(0) || bounceGlobalStorage_ == address(0)
         ) revert ZeroAddress();
         if (graduationThresholdUsd_ < VIRTUAL_LIQUIDITY_USD) revert InvalidInput();
         __Ownable_init(msg.sender);
@@ -319,6 +338,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
         graduationThresholdUsd = graduationThresholdUsd_;
+        bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
+    }
+
+    /// @notice Backfill `bounceGlobalStorage` on a proxy deployed before
+    ///         this slot existed. Invoked atomically via `upgradeToAndCall`.
+    /// @dev    The `bounceGlobalStorage != address(0)` guard closes the
+    ///         front-run window on fresh proxies where `_initialized == 1`
+    ///         would otherwise still satisfy `reinitializer(2)`.
+    function initializeBounceGlobalStorage(
+        address bounceGlobalStorage_
+    ) external reinitializer(2) {
+        if (bounceGlobalStorage_ == address(0)) revert ZeroAddress();
+        if (address(bounceGlobalStorage) != address(0)) revert InvalidInput();
+        bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
+        emit BounceGlobalStorageUpdated(address(0), bounceGlobalStorage_);
     }
 
     // ─── Launch ──────────────────────────────────────────────────────────
@@ -328,6 +362,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address creator_
     ) external onlyRouter nonReentrant returns (address tokenAddr, address pair) {
         if (params.ltAddress == address(0)) revert InvalidInput();
+        // LT legitimacy gate — `Zap.createToken` is permissionless, so
+        // without this check a fake LT could siphon USDC inside `mint`
+        // (which `Zap` `forceApprove`s before the curve buy).
+        if (!IBounceFactory(bounceGlobalStorage.factory()).ltExists(params.ltAddress)) {
+            revert UnknownLeveragedToken(params.ltAddress);
+        }
 
         uint256 nameLen = bytes(params.name).length;
         if (nameLen < MIN_NAME_LENGTH || nameLen > MAX_NAME_LENGTH) revert InvalidNameLength();
@@ -342,9 +382,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
 
         // CEI pattern: predict the clone address & enforce the vanity suffix
-        // invariant BEFORE any external calls, write state next, and only
-        // then deploy + seed. The pair address is unknown until after the
-        // factory call, so it's patched into the already-stored slot below.
+        // invariant BEFORE any state-mutating external calls, write state
+        // next, and only then deploy + seed. The earlier `ltExists` lookup
+        // is a read-only `view` into a trusted BounceTech contract (and
+        // `nonReentrant` covers the function regardless), so it doesn't
+        // count against the CEI ordering. The pair address is unknown
+        // until after the factory call, so it's patched into the
+        // already-stored slot below.
         bytes32 saltMixed = _mixSalt(creator_, params.salt);
         tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -382,7 +426,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         pair = factory.createPair(tokenAddr, ltAddress);
 
-        uint256 exchangeRate = ILeveragedToken(ltAddress).exchangeRate();
+        uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
@@ -557,7 +601,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address pair = info.pair;
         if (IPair(pair).tokenBalance() == 0) return true;
 
-        uint256 valueUsd = (IPair(pair).assetBalance() * ILeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
+        uint256 valueUsd = (IPair(pair).assetBalance() * IBounceLeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
         return valueUsd >= graduationThresholdUsd;
     }
 
@@ -591,6 +635,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         hyperswapFactory = newFactory;
         lpLock = newLpLock;
         emit HyperswapUpdated(newFactory, newLpLock);
+    }
+
+    /// @notice Hot-swap the BounceTech `GlobalStorage` consulted by `launch`.
+    ///         Backstop for the unlikely case BounceTech redeploys
+    ///         `GlobalStorage` itself (factory rotations are picked up
+    ///         automatically). Affects future launches only — already-
+    ///         launched tokens have `ltAddress` baked into `TokenInfo` and
+    ///         keep trading regardless.
+    function setBounceGlobalStorage(
+        address newBounceGlobalStorage
+    ) external onlyOwner {
+        if (newBounceGlobalStorage == address(0)) revert ZeroAddress();
+        address old = address(bounceGlobalStorage);
+        bounceGlobalStorage = IBounceGlobalStorage(newBounceGlobalStorage);
+        emit BounceGlobalStorageUpdated(old, newBounceGlobalStorage);
     }
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.

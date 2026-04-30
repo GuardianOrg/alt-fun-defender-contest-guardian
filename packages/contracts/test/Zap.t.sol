@@ -8,7 +8,7 @@ import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {FeeVault} from "../src/FeeVault.sol";
 import {Zap} from "../src/Zap.sol";
-import {ILeveragedToken} from "../src/interfaces/ILeveragedToken.sol";
+import {IBounceLeveragedToken} from "../src/interfaces/IBounceLeveragedToken.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract ZapV2 is Zap {
@@ -388,7 +388,7 @@ contract ZapTest is DeployHelper {
         // Force the leftover-LT `redeem` call to revert so the Zap falls
         // back to a direct LT transfer. Mirrors the production case where
         // `ltLeft` is below the LT's `$10` redeem floor.
-        vm.mockCallRevert(address(lt), abi.encodeWithSelector(ILeveragedToken.redeem.selector), "");
+        vm.mockCallRevert(address(lt), abi.encodeWithSelector(IBounceLeveragedToken.redeem.selector), "");
 
         vm.startPrank(trader);
         usdc.approve(address(zap), buyAmount);
@@ -482,7 +482,8 @@ contract ZapTest is DeployHelper {
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl),
-                TEST_GRADUATION_THRESHOLD_USD
+                TEST_GRADUATION_THRESHOLD_USD,
+                address(bounceGlobalStorage)
             )
         );
         return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));

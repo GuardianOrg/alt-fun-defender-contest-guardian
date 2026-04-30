@@ -10,7 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Bonding} from "./Bonding.sol";
 import {Router} from "./Router.sol";
 import {FeeVault} from "./FeeVault.sol";
-import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
+import {IBounceLeveragedToken} from "./interfaces/IBounceLeveragedToken.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
@@ -281,7 +281,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         // USDC -> LT on the net amount (fee stays in the zap as USDC).
         usdc.forceApprove(lt, netUsdc);
-        uint256 ltMinted = ILeveragedToken(lt).mint(address(this), netUsdc, 0);
+        uint256 ltMinted = IBounceLeveragedToken(lt).mint(address(this), netUsdc, 0);
 
         if (bonding.isGraduated(tokenAddress)) {
             // HyperSwap consumes the full LT amount (no supply cap).
@@ -302,7 +302,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 ltLeft = ltMinted - amountInUsed;
         if (ltLeft > 0) {
             IERC20(lt).forceApprove(lt, ltLeft);
-            try ILeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {
+            try IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {
             // delivered as USDC
             }
             catch {
@@ -339,12 +339,12 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             ? _sellOnHyperswap(tokenAddress, lt, tokenAmount)
             : _sellOnCurve(tokenAddress, tokenAmount);
 
-        uint256 grossUsdcEstimate = (ltReceived * ILeveragedToken(lt).exchangeRate()) / 1e18;
+        uint256 grossUsdcEstimate = (ltReceived * IBounceLeveragedToken(lt).exchangeRate()) / 1e18;
         if (grossUsdcEstimate < MIN_USDC_AMOUNT) revert BelowMinAmount();
 
         // LT -> USDC into this zap (not the user) so we can deduct the fee.
         IERC20(lt).forceApprove(lt, ltReceived);
-        uint256 grossUsdc = ILeveragedToken(lt).redeem(address(this), ltReceived, 0);
+        uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
         uint256 fee = (grossUsdc * sellFeeBps) / BPS_DENOM;
         usdcOut = grossUsdc - fee;

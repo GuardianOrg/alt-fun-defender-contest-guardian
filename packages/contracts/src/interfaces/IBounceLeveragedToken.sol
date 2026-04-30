@@ -3,9 +3,11 @@ pragma solidity ^0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/// @title ILeveragedToken
-/// @notice Interface for BounceTech Leveraged Token contracts
-interface ILeveragedToken is IERC20 {
+/// @title IBounceLeveragedToken
+/// @notice Interface for BounceTech Leveraged Token contracts.
+/// @dev Source:
+///      https://github.com/bounce-tech/bounce-smart-contracts/blob/main/src/LeveragedToken.sol
+interface IBounceLeveragedToken is IERC20 {
     /// @notice Mint LT by depositing base asset (USDC).
     /// @param to Recipient of the minted LT
     /// @param baseAmount Amount of USDC to deposit

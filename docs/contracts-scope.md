@@ -43,7 +43,7 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 4. If on curve: routes through `Bonding.buy()`. If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). Fee is charged on both paths — symmetric with sells.
 5. Tokens sent to user; any leftover LT (capped-buy case) is redeemed back to USDC and refunded along with the pro-rata fee refund
 
-**Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` then refunds any unused LT to the buyer by calling `ILeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
+**Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` then refunds any unused LT to the buyer by calling `IBounceLeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
 
 ## Sell Flow
 
