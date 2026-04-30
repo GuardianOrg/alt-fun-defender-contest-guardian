@@ -818,10 +818,18 @@ contract BondingTest is DeployHelper {
         address hyperswapFactory_,
         address lpLock_,
         address tokenImpl_
-    ) internal pure returns (bytes memory) {
+    ) internal view returns (bytes memory) {
         return abi.encodeCall(
             Bonding.initialize,
-            (factory_, router_, hyperswapFactory_, lpLock_, tokenImpl_, TEST_GRADUATION_THRESHOLD_USD)
+            (
+                factory_,
+                router_,
+                hyperswapFactory_,
+                lpLock_,
+                tokenImpl_,
+                TEST_GRADUATION_THRESHOLD_USD,
+                address(bounceFactory)
+            )
         );
     }
 
@@ -865,6 +873,24 @@ contract BondingTest is DeployHelper {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
             address(factory), address(curveRouter), address(hyperswapFactory), address(lpLockContract), address(0)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_revertsOnZeroBounceFactory() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = abi.encodeCall(
+            Bonding.initialize,
+            (
+                address(factory),
+                address(curveRouter),
+                address(hyperswapFactory),
+                address(lpLockContract),
+                address(tokenImpl),
+                TEST_GRADUATION_THRESHOLD_USD,
+                address(0)
+            )
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -947,7 +973,8 @@ contract BondingTest is DeployHelper {
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl),
-                bonding.VIRTUAL_LIQUIDITY_USD() - 1
+                bonding.VIRTUAL_LIQUIDITY_USD() - 1,
+                address(bounceFactory)
             )
         );
         vm.expectRevert(Bonding.InvalidInput.selector);
@@ -965,7 +992,8 @@ contract BondingTest is DeployHelper {
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl),
-                floor
+                floor,
+                address(bounceFactory)
             )
         );
         Bonding fresh = Bonding(address(new ERC1967Proxy(address(freshImpl), init)));

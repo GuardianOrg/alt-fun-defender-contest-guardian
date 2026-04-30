@@ -482,7 +482,8 @@ contract ZapTest is DeployHelper {
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl),
-                TEST_GRADUATION_THRESHOLD_USD
+                TEST_GRADUATION_THRESHOLD_USD,
+                address(bounceFactory)
             )
         );
         return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));

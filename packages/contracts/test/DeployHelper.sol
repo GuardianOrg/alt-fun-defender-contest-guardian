@@ -9,6 +9,7 @@ import {Factory} from "../src/Factory.sol";
 import {Router} from "../src/Router.sol";
 import {LPLock} from "../src/LPLock.sol";
 import {FeeVault} from "../src/FeeVault.sol";
+import {MockBounceFactory} from "./mocks/MockBounceFactory.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
 import {MockHyperswapRouter, MockHyperswapFactory} from "./mocks/MockHyperswapRouter.sol";
@@ -28,6 +29,7 @@ abstract contract DeployHelper is Test {
     LPLock public lpLockContract;
     FeeVault public feeVault;
     Token public tokenImpl;
+    MockBounceFactory public bounceFactory;
 
     address public owner = address(this);
     address public feeReceiver = makeAddr("feeReceiver");
@@ -94,6 +96,12 @@ abstract contract DeployHelper is Test {
         lt = new MockLeveragedToken("HYPE 2x Long", "HYPE2L", LT_EXCHANGE_RATE, 2, true, "HYPE", address(usdc));
         hyperswapRouter = new MockHyperswapRouter();
         hyperswapFactory = MockHyperswapFactory(hyperswapRouter.factory());
+        // Mock the BounceTech `Factory` and pre-register the mock LT so the
+        // standard test launches pass the on-chain LT-existence gate. Tests
+        // that want to exercise the gate directly can call
+        // `bounceFactory.setLtExists(...)` themselves.
+        bounceFactory = new MockBounceFactory();
+        bounceFactory.setLtExists(address(lt), true);
 
         factory = new Factory();
         factory.initialize();
@@ -116,7 +124,8 @@ abstract contract DeployHelper is Test {
                 address(hyperswapFactory),
                 address(lpLockContract),
                 address(tokenImpl),
-                TEST_GRADUATION_THRESHOLD_USD
+                TEST_GRADUATION_THRESHOLD_USD,
+                address(bounceFactory)
             )
         );
         bonding = Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));

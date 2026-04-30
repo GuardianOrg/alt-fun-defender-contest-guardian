@@ -12,6 +12,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Factory} from "./Factory.sol";
 import {Router} from "./Router.sol";
 import {Token} from "./Token.sol";
+import {IBounceFactory} from "./interfaces/IBounceFactory.sol";
 import {IPair} from "./interfaces/IPair.sol";
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
@@ -211,10 +212,36 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///         Empty (`pendingSince == 0`) for tokens not in the `Graduating` phase.
     mapping(address => PendingGraduation) public pendingGraduation;
 
+    /// @notice BounceTech `Factory` consulted on every `launch` to confirm
+    ///         `params.ltAddress` is a real BounceTech-deployed LT.
+    /// @dev    Without this gate, `Zap.createToken` is permissionless and
+    ///         forwards an arbitrary `ltAddress` straight through to
+    ///         `Bonding.launch`. A scammer can ship a contract that satisfies
+    ///         our `ILeveragedToken` interface but pulls the buyer's USDC into
+    ///         an attacker-controlled address inside `mint(...)` (since `Zap`
+    ///         `forceApprove`s the supposed LT before calling `mint`). The
+    ///         off-chain UI filters to BounceTech's directory, but anyone can
+    ///         call `Zap.createToken` directly via `cast` and the indexer
+    ///         then surfaces the malicious token like any other.
+    ///
+    ///         Using BounceTech's own `Factory.ltExists` (their canonical
+    ///         registry of LTs they deployed) lets us delegate the
+    ///         "is this a legitimate LT?" question to the protocol that
+    ///         issues them, instead of maintaining our own admin allowlist
+    ///         that has to be kept in sync with BounceTech's directory.
+    ///
+    ///         Hot-swappable via `setBounceFactory` — if BounceTech ever
+    ///         redeploys the factory, owner can point at the new address
+    ///         without an upgrade. See `setBounceFactory` for the
+    ///         existing-tokens-keep-trading guarantee.
+    ///
+    ///         See `Bonding.UnknownLeveragedToken` for the matching revert.
+    IBounceFactory public bounceFactory;
+
     /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (12 named + 38 gap). Append new state variables before
+    ///      totals 50 slots (13 named + 37 gap). Append new state variables before
     ///      this gap and shrink its length to match.
-    uint256[38] private __gap;
+    uint256[37] private __gap;
 
     event TokenLaunched(
         address indexed token, address indexed creator, address indexed ltAddress, string name, string ticker, uint256 k
@@ -247,6 +274,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
+    event BounceFactoryUpdated(address indexed oldFactory, address indexed newFactory);
 
     error TokenNotTrading();
     /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
@@ -283,6 +311,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      product invariant — the frontend miner must always produce a
     ///      qualifying salt (no random fallbacks).
     error NotVanityAddress(address tokenAddr);
+    /// @dev `params.ltAddress` is not registered in the BounceTech `Factory`'s
+    ///      `ltExists` mapping. This catches both random / arbitrary contracts
+    ///      a scammer might pass in and LTs that BounceTech has since
+    ///      `redeployLt`'d (the old address gets unregistered and we shouldn't
+    ///      anchor new launches against a dead LT).
+    error UnknownLeveragedToken(address ltAddress);
 
     modifier onlyRouter() {
         if (!_routers.contains(msg.sender)) revert NotRouter();
@@ -298,17 +332,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///        freshly-launched curve cannot be pre-graduated by a too-low
     ///        deploy-time value. There is no on-chain setter — changing
     ///        this value requires a UUPS upgrade with a `reinitializer`.
+    /// @param bounceFactory_ BounceTech `Factory` consulted by `launch` to
+    ///        confirm the supplied LT was deployed by BounceTech. See the
+    ///        `bounceFactory` storage slot natspec for full rationale.
     function initialize(
         address factory_,
         address router_,
         address hyperswapFactory_,
         address lpLock_,
         address tokenImplementation_,
-        uint256 graduationThresholdUsd_
+        uint256 graduationThresholdUsd_,
+        address bounceFactory_
     ) external initializer {
         if (
             factory_ == address(0) || router_ == address(0) || hyperswapFactory_ == address(0) || lpLock_ == address(0)
-                || tokenImplementation_ == address(0)
+                || tokenImplementation_ == address(0) || bounceFactory_ == address(0)
         ) revert ZeroAddress();
         if (graduationThresholdUsd_ < VIRTUAL_LIQUIDITY_USD) revert InvalidInput();
         __Ownable_init(msg.sender);
@@ -319,6 +357,32 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
         graduationThresholdUsd = graduationThresholdUsd_;
+        bounceFactory = IBounceFactory(bounceFactory_);
+    }
+
+    /// @notice Backfill `bounceFactory` on a proxy that was deployed before
+    ///         this slot existed. UUPS upgrade entrypoint — invoked by the
+    ///         post-upgrade `upgradeToAndCall` payload exactly once.
+    /// @dev    `reinitializer(2)` so this can run on a proxy already at
+    ///         `_initialized == 1` and locks itself afterwards. New
+    ///         deployments use `initialize` directly and never reach this
+    ///         function — the `bounceFactory != address(0)` short-circuit
+    ///         closes the front-run window where a stranger could call
+    ///         `initializeBounceFactory(maliciousAddr)` between an atomic
+    ///         deploy+initialize and any other tx (it would still satisfy
+    ///         `reinitializer(2)` because `_initialized` is only at 1
+    ///         post-`initialize`). On a freshly-deployed proxy the slot is
+    ///         already set, so the guard reverts immediately and ownership
+    ///         doesn't matter; on an upgraded legacy proxy the slot is
+    ///         zero and the keeper-driven `upgradeToAndCall` lands the
+    ///         backfill atomically before any other tx can interleave.
+    function initializeBounceFactory(
+        address bounceFactory_
+    ) external reinitializer(2) {
+        if (bounceFactory_ == address(0)) revert ZeroAddress();
+        if (address(bounceFactory) != address(0)) revert InvalidInput();
+        bounceFactory = IBounceFactory(bounceFactory_);
+        emit BounceFactoryUpdated(address(0), bounceFactory_);
     }
 
     // ─── Launch ──────────────────────────────────────────────────────────
@@ -328,6 +392,17 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address creator_
     ) external onlyRouter nonReentrant returns (address tokenAddr, address pair) {
         if (params.ltAddress == address(0)) revert InvalidInput();
+        // On-chain LT-legitimacy gate. The off-chain UI already filters to
+        // BounceTech's directory, but `Zap.createToken` is permissionless
+        // and a `cast send` can pass any address as `ltAddress`. Without
+        // this check, a contract that fakes the `ILeveragedToken` ABI but
+        // siphons USDC inside `mint` is accepted, the indexer surfaces the
+        // resulting token like any other, and the first buyer's USDC
+        // (which `Zap` `forceApprove`s to the LT before the curve buy)
+        // goes to the attacker. By delegating the legitimacy check to
+        // BounceTech's own `Factory.ltExists` we avoid maintaining our own
+        // admin allowlist and stay in sync with their canonical registry.
+        if (!bounceFactory.ltExists(params.ltAddress)) revert UnknownLeveragedToken(params.ltAddress);
 
         uint256 nameLen = bytes(params.name).length;
         if (nameLen < MIN_NAME_LENGTH || nameLen > MAX_NAME_LENGTH) revert InvalidNameLength();
@@ -591,6 +666,26 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         hyperswapFactory = newFactory;
         lpLock = newLpLock;
         emit HyperswapUpdated(newFactory, newLpLock);
+    }
+
+    /// @notice Hot-swap the BounceTech `Factory` consulted by `launch`. Use
+    ///         when BounceTech itself redeploys their factory (the address
+    ///         lives in their `bounce-npm` package and is the canonical
+    ///         source of truth).
+    /// @dev    Affects future launches only. Already-launched tokens have a
+    ///         resolved `ltAddress` baked into their `TokenInfo` and keep
+    ///         trading regardless — `bounceFactory.ltExists` is consulted
+    ///         only in the launch path. So even if BounceTech rotates their
+    ///         factory and an old LT becomes "non-existent" in the new
+    ///         factory's view, every token already paired against that LT
+    ///         continues to trade and graduate normally.
+    function setBounceFactory(
+        address newBounceFactory
+    ) external onlyOwner {
+        if (newBounceFactory == address(0)) revert ZeroAddress();
+        address old = address(bounceFactory);
+        bounceFactory = IBounceFactory(newBounceFactory);
+        emit BounceFactoryUpdated(old, newBounceFactory);
     }
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.

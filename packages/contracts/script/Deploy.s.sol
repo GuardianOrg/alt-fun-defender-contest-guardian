@@ -16,6 +16,13 @@ contract Deploy is Script {
     // HyperEVM mainnet addresses
     address constant USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
     address constant HYPERSWAP_ROUTER = 0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A;
+    /// @dev BounceTech `Factory` (HyperEVM mainnet). Source of truth for
+    ///      "is this address a real BounceTech LT?" via `ltExists(address)`.
+    ///      Mirrors `FACTORY_ADDRESS` in `bounce-tech/bounce-npm`. If
+    ///      BounceTech ever redeploys their factory, also call
+    ///      `Bonding.setBounceFactory` post-rotation — `Bonding` reads
+    ///      from this slot at every launch.
+    address constant BOUNCE_FACTORY = 0xeD8bCDe433EB7c4B69DB1235483bf0Edb726Fc1B;
 
     // Fee config at deploy time: 0.5% buy/sell, 20% of that to the creator.
     uint256 constant BUY_FEE_BPS = 50;
@@ -104,7 +111,15 @@ contract Deploy is Script {
         Bonding impl = new Bonding();
         bytes memory initData = abi.encodeCall(
             Bonding.initialize,
-            (factory_, router_, hyperswapFactory_, lpLock_, tokenImplementation_, GRADUATION_THRESHOLD_USD)
+            (
+                factory_,
+                router_,
+                hyperswapFactory_,
+                lpLock_,
+                tokenImplementation_,
+                GRADUATION_THRESHOLD_USD,
+                BOUNCE_FACTORY
+            )
         );
         return address(new ERC1967Proxy(address(impl), initData));
     }
