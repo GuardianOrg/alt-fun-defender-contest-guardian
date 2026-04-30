@@ -206,7 +206,7 @@ export function useVanityAddress({
       implementation: Address,
       tokenName: string,
       tokenTicker: string,
-    ) => {
+    ): boolean => {
       teardown();
       setStatus("mining");
       setResult(null);
@@ -248,7 +248,7 @@ export function useVanityAddress({
       // launch button stays disabled until the user retries on a browser
       // that supports workers. There's no random-salt fallback because the
       // contract enforces the vanity suffix.
-      let workers: Worker[] = [];
+      const workers: Worker[] = [];
       try {
         const cores = Math.min(
           Math.max(navigator.hardwareConcurrency ?? 4, 1),
@@ -323,13 +323,32 @@ export function useVanityAddress({
           });
           workers.push(worker);
         }
-      } catch {
+      } catch (spawnErr) {
+        // Synchronous spawn failure (sandboxed iframe / CSP / very old
+        // browser). Roll back the optimistic state we set above so the
+        // hook doesn't sit in `mining` forever, AND drain any pending
+        // `ensureSalt` resolvers — without that drain, callers that
+        // pushed before us hang on a pool that no longer exists, and
+        // callers that push *after* us (e.g. the `ensureSalt` flush
+        // path) would too unless they also check our return value.
+        console.error("[useVanityAddress] worker spawn failed", spawnErr);
         workers.forEach((w) => w.terminate());
-        workers = [];
+        if (tickIntervalRef.current) {
+          clearInterval(tickIntervalRef.current);
+          tickIntervalRef.current = null;
+        }
         setStatus("error");
+        const pending = pendingResolversRef.current;
+        pendingResolversRef.current = [];
+        pending.forEach(({ reject }) =>
+          reject(new Error(MINER_ERROR_MESSAGE)),
+        );
+        workersRef.current = [];
+        return false;
       }
 
       workersRef.current = workers;
+      return true;
     },
     [teardown],
   );
@@ -443,7 +462,19 @@ export function useVanityAddress({
           name: requestedName,
           ticker: requestedTicker,
         };
-        start(creator, effectiveImpl, requestedName, requestedTicker);
+        // `start` returns `false` on synchronous spawn failure (sandboxed
+        // iframe, etc.) — without this guard the resolver we'd push below
+        // would hang forever, since no worker exists to fire `found` and
+        // `start`'s catch path has already drained the pre-existing queue.
+        const started = start(
+          creator,
+          effectiveImpl,
+          requestedName,
+          requestedTicker,
+        );
+        if (!started) {
+          return Promise.reject(new Error(MINER_ERROR_MESSAGE));
+        }
         return new Promise<VanityResult>((resolve, reject) => {
           pendingResolversRef.current.push({ resolve, reject });
         });
