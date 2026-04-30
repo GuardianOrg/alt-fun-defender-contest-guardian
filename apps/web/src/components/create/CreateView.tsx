@@ -31,11 +31,27 @@ export default function CreateView() {
 
   const { isConnected, connect } = useWallet();
   const { step: launchStep, error: launchError, warning: launchWarning, tokenAddress, create } = useCreateToken();
-  // Mining starts as soon as the wallet is connected — by the time the user
-  // has filled in name/ticker, a vanity salt is usually already in hand.
-  // `ensureSalt` waits indefinitely for the miner: the contract enforces
-  // the vanity suffix on-chain, so there is no random-salt fallback.
-  const vanity = useVanityAddress();
+  // Mining starts as soon as the wallet is connected *and* the user has
+  // entered a name + ticker — both feed into the on-chain salt mix, so we
+  // can't begin mining without them. We debounce the trimmed values into
+  // the hook so the worker pool doesn't tear down + reseed per keystroke;
+  // by the time the user clicks Launch the salt is usually already mined.
+  // `ensureSalt(trimmedName, trimmedTicker)` flushes the debounce by
+  // force-restarting against the live values if they differ — see the
+  // hook for the race resolution. There is no random-salt fallback: the
+  // contract enforces the vanity suffix on-chain.
+  const trimmedName = name.trim();
+  const trimmedTicker = ticker.trim();
+  const [debouncedName, setDebouncedName] = useState(trimmedName);
+  const [debouncedTicker, setDebouncedTicker] = useState(trimmedTicker);
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedName(trimmedName);
+      setDebouncedTicker(trimmedTicker);
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [trimmedName, trimmedTicker]);
+  const vanity = useVanityAddress({ name: debouncedName, ticker: debouncedTicker });
   const [waitingForVanity, setWaitingForVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
   const seedAmt = parseFloat(seedAmount) || 0;
@@ -56,7 +72,7 @@ export default function CreateView() {
       connect();
       return;
     }
-    if (!name.trim() || !ticker.trim()) return;
+    if (!trimmedName || !trimmedTicker) return;
     if (vanity.status === "error") {
       setVanityError(
         "Vanity address miner failed to start. Please refresh and try again.",
@@ -66,13 +82,16 @@ export default function CreateView() {
 
     // Wait for the miner. With a worker pool this almost always returns
     // immediately (mining starts at wallet connect and finishes in
-    // 50-300ms); on slow devices it may take a few seconds. The contract
-    // requires a vanity salt — there is no fallback.
+    // 50-300ms); on slow devices it may take a few seconds. We pass the
+    // live trimmed `(name, ticker)` so the hook flushes the input
+    // debounce if the user clicked Launch before it caught up — the
+    // contract reverts with `NotVanityAddress` if the salt was mined for
+    // a different tuple, so this race must be closed.
     setWaitingForVanity(true);
     setVanityError(null);
     let vanityResult;
     try {
-      vanityResult = await vanity.ensureSalt();
+      vanityResult = await vanity.ensureSalt(trimmedName, trimmedTicker);
     } catch (err) {
       setVanityError(err instanceof Error ? err.message : "Mining failed");
       setWaitingForVanity(false);
@@ -82,8 +101,8 @@ export default function CreateView() {
 
     await create(
       {
-        name: name.trim(),
-        ticker: ticker.trim(),
+        name: trimmedName,
+        ticker: trimmedTicker,
         description: description.trim(),
         direction,
         underlying: asset as "HYPE" | "ETH" | "BTC" | "SOL",

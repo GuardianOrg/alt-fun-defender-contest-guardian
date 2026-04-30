@@ -39,7 +39,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "TwoPhase", "TP")
         });
         vm.prank(creator);
         (tokenAddr, pairAddr) = bonding.launch(params, creator);

@@ -201,6 +201,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "bounceGlobalStorage",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IBounceGlobalStorage"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "buy",
     "inputs": [
       {
@@ -459,6 +472,24 @@ export const BondingAbi = [
         "name": "graduationThresholdUsd_",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "bounceGlobalStorage_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "initializeBounceGlobalStorage",
+    "inputs": [
+      {
+        "name": "bounceGlobalStorage_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
@@ -700,6 +731,16 @@ export const BondingAbi = [
         "internalType": "address"
       },
       {
+        "name": "name_",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "ticker_",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
         "name": "userSalt",
         "type": "bytes32",
         "internalType": "bytes32"
@@ -796,6 +837,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "setBounceGlobalStorage",
+    "inputs": [
+      {
+        "name": "newBounceGlobalStorage",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setHyperswap",
     "inputs": [
       {
@@ -886,6 +940,25 @@ export const BondingAbi = [
     ],
     "outputs": [],
     "stateMutability": "payable"
+  },
+  {
+    "type": "event",
+    "name": "BounceGlobalStorageUpdated",
+    "inputs": [
+      {
+        "name": "oldGlobalStorage",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newGlobalStorage",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1398,6 +1471,17 @@ export const BondingAbi = [
         "name": "slot",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "UnknownLeveragedToken",
+    "inputs": [
+      {
+        "name": "ltAddress",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },

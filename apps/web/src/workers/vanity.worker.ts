@@ -26,6 +26,14 @@ interface InitMessage {
   implementation: `0x${string}`;
   bondingProxy: `0x${string}`;
   creator: `0x${string}`;
+  /**
+   * `keccak256(bytes(name))` of the user-entered token name. Pre-hashed by
+   * the host so the hot loop only ever moves fixed-size 32-byte words —
+   * matches `Bonding._mixSalt`'s `keccak256(bytes(name_))`.
+   */
+  nameHash: `0x${string}`;
+  /** `keccak256(bytes(ticker))` of the user-entered ticker. */
+  tickerHash: `0x${string}`;
   suffix: string; // lowercase hex, e.g. "a1fa"
   workerIndex: number;
   workerCount: number;
@@ -86,6 +94,16 @@ function hexToBytes20(hex: string): Uint8Array {
   return out;
 }
 
+function hexToBytes32(hex: string): Uint8Array {
+  const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const padded = clean.padStart(64, "0").slice(-64);
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    out[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
 // EIP-1167 minimal-proxy *creation* code (OpenZeppelin v5 layout). Must
 // stay in lockstep with `Bonding`'s `Clones.cloneDeterministic` — see the
 // notes in `packages/shared/src/vanity.ts` for why the suffix is the
@@ -125,16 +143,27 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
   const implBytes = hexToBytes20(msg.implementation);
   const deployerBytes = hexToBytes20(msg.bondingProxy);
   const creatorBytes = hexToBytes20(msg.creator);
+  const nameHashBytes = hexToBytes32(msg.nameHash);
+  const tickerHashBytes = hexToBytes32(msg.tickerHash);
   const suffix = msg.suffix.toLowerCase();
   const suffixLen = suffix.length;
 
   const initCode = buildInitCode(implBytes);
   const initCodeHash = keccak_256(initCode); // 32 bytes, constant per impl
 
-  // mixBuf = abi.encode(address creator, bytes32 userSalt)
-  //        = 32 bytes (12 zeros + 20-byte addr) + 32 bytes salt
-  const mixBuf = new Uint8Array(64);
+  // mixBuf = abi.encode(
+  //   address creator, bytes32 nameHash, bytes32 tickerHash, bytes32 userSalt,
+  // )
+  //   = 32 bytes (12 zeros + 20-byte addr)
+  //   ‖ 32 bytes nameHash
+  //   ‖ 32 bytes tickerHash
+  //   ‖ 32 bytes salt
+  // Bytes 0..95 are pinned for the lifetime of this worker — only the salt
+  // window at offset 96 is rewritten each iteration.
+  const mixBuf = new Uint8Array(128);
   mixBuf.set(creatorBytes, 12); // bytes 0..11 stay zero (left-pad address to 32b)
+  mixBuf.set(nameHashBytes, 32);
+  mixBuf.set(tickerHashBytes, 64);
 
   // predictBuf = 0xff ++ deployer (20b) ++ mixedSalt (32b) ++ initCodeHash (32b) = 85 bytes
   const predictBuf = new Uint8Array(85);
@@ -176,8 +205,8 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
     saltBuf[30] = (counterLo >>> 8) & 0xff;
     saltBuf[31] = counterLo & 0xff;
 
-    // mixSalt: keccak256(abi.encode(creator, userSalt))
-    mixBuf.set(saltBuf, 32);
+    // mixSalt: keccak256(abi.encode(creator, nameHash, tickerHash, userSalt))
+    mixBuf.set(saltBuf, 96);
     const mixed = keccak_256(mixBuf);
 
     // predictAddress: keccak256(0xff ++ deployer ++ mixed ++ initCodeHash)[12:]

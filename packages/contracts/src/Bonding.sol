@@ -128,9 +128,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string image;
         string[3] urls;
         address ltAddress;
-        /// @dev User-supplied vanity salt. Mixed with the creator address in
-        ///      `_mixSalt` so two creators using the same `userSalt` cannot
-        ///      collide and a mined salt cannot be front-run.
+        /// @dev User-supplied vanity salt. Mixed with the creator address,
+        ///      `keccak256(bytes(name))`, and `keccak256(bytes(ticker))` in
+        ///      `_mixSalt`. Binding the mix to the metadata means a salt mined
+        ///      for one `(creator, name, ticker)` triple cannot be reused if
+        ///      the launcher edits the symbol/name afterwards — they must
+        ///      mine again — and a mined salt observed in the mempool cannot
+        ///      be front-run by a different creator.
         bytes32 salt;
     }
 
@@ -280,7 +284,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             if (bytes(params.urls[i]).length > MAX_URL_LENGTH) revert InvalidUrlLength();
         }
 
-        bytes32 saltMixed = _mixSalt(creator_, params.salt);
+        bytes32 saltMixed = _mixSalt(creator_, params.name, params.ticker, params.salt);
         tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
         // forge-lint: disable-next-line(unsafe-typecast)
         if (bytes2(uint16(uint160(tokenAddr))) != VANITY_SUFFIX) {
@@ -321,20 +325,33 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
     }
 
-    /// @notice Predict the clone address for `(creator_, userSalt)` without
-    ///         deploying. Used by the frontend vanity miner.
+    /// @notice Predict the clone address for `(creator_, name_, ticker_, userSalt)`
+    ///         without deploying. Used by the frontend vanity miner — the
+    ///         miner must call this with the exact `name`/`ticker` strings
+    ///         that will appear in `LaunchParams`, otherwise `launch` will
+    ///         revert with `NotVanityAddress` against a different mix.
     function predictTokenAddress(
         address creator_,
+        string calldata name_,
+        string calldata ticker_,
         bytes32 userSalt
     ) external view returns (address) {
-        return Clones.predictDeterministicAddress(tokenImplementation, _mixSalt(creator_, userSalt), address(this));
+        return Clones.predictDeterministicAddress(
+            tokenImplementation, _mixSalt(creator_, name_, ticker_, userSalt), address(this)
+        );
     }
 
+    /// @dev Bind the mined salt to the launch metadata so editing the name or
+    ///      symbol after mining invalidates the salt. Strings are pre-hashed
+    ///      to keep the on-chain mix (and the JS/assembly miner mirrors)
+    ///      working in fixed-size 32-byte words.
     function _mixSalt(
         address creator_,
+        string memory name_,
+        string memory ticker_,
         bytes32 userSalt
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(creator_, userSalt));
+        return keccak256(abi.encode(creator_, keccak256(bytes(name_)), keccak256(bytes(ticker_)), userSalt));
     }
 
     function _storeTokenInfo(
@@ -508,7 +525,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         // Probe that the new impl can produce a vanity-suffixed clone. If
         // structurally broken, fail here rather than silently bricking every
         // user's `launch()`.
-        VanityMining.mine(address(0x1), newImpl, address(this), 0);
+        VanityMining.mine(address(0x1), bytes32(0), bytes32(0), newImpl, address(this), 0);
         address old = tokenImplementation;
         tokenImplementation = newImpl;
         emit TokenImplementationUpdated(old, newImpl);

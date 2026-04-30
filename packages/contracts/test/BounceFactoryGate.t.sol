@@ -32,7 +32,7 @@ contract BounceFactoryGateTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: ltAddress,
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "GateTest", "GATE")
         });
     }
 

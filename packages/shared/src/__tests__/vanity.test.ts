@@ -4,6 +4,7 @@ import {
   getAddress,
   getContractAddress,
   keccak256,
+  stringToHex,
   type Address,
   type Hex,
 } from "viem";
@@ -11,11 +12,15 @@ import {
 import {
   eip1167InitCodeHash,
   hasVanitySuffix,
+  metadataHash,
   mixSalt,
   predictCloneAddress,
   predictTokenAddress,
   VANITY_SUFFIX,
 } from "../vanity.js";
+
+const NAME = "TestToken";
+const TICKER = "TEST";
 
 const IMPL: Address = getAddress(
   "0x000000000000000000000000000000000000dead",
@@ -42,16 +47,26 @@ describe("vanity", () => {
     expect(eip1167InitCodeHash(IMPL)).not.toBe(eip1167InitCodeHash(BONDING));
   });
 
-  it("mixSalt matches keccak256(abi.encode(creator, userSalt)) — Bonding._mixSalt", () => {
+  it("metadataHash matches keccak256(bytes(s)) — Solidity helper", () => {
+    expect(metadataHash(NAME)).toBe(keccak256(stringToHex(NAME)));
+    expect(metadataHash("")).toBe(keccak256("0x"));
+  });
+
+  it("mixSalt matches keccak256(abi.encode(creator, nameHash, tickerHash, userSalt)) — Bonding._mixSalt", () => {
     const userSalt: Hex =
       "0x1111111111111111111111111111111111111111111111111111111111111111";
     const expected = keccak256(
       encodeAbiParameters(
-        [{ type: "address" }, { type: "bytes32" }],
-        [CREATOR, userSalt],
+        [
+          { type: "address" },
+          { type: "bytes32" },
+          { type: "bytes32" },
+          { type: "bytes32" },
+        ],
+        [CREATOR, metadataHash(NAME), metadataHash(TICKER), userSalt],
       ),
     );
-    expect(mixSalt(CREATOR, userSalt)).toBe(expected);
+    expect(mixSalt(CREATOR, NAME, TICKER, userSalt)).toBe(expected);
   });
 
   it("predictCloneAddress matches viem getContractAddress(create2)", () => {
@@ -59,7 +74,7 @@ describe("vanity", () => {
     // if our hand-rolled keccak chain ever drifts, this fails loudly.
     const userSalt: Hex =
       "0xabababababababababababababababababababababababababababababababab";
-    const mixed = mixSalt(CREATOR, userSalt);
+    const mixed = mixSalt(CREATOR, NAME, TICKER, userSalt);
     const initCodeHash = eip1167InitCodeHash(IMPL);
 
     const ours = predictCloneAddress(IMPL, mixed, BONDING);
@@ -76,8 +91,8 @@ describe("vanity", () => {
   it("different creators using same userSalt produce different addresses", () => {
     const userSalt: Hex =
       "0x2222222222222222222222222222222222222222222222222222222222222222";
-    const a = predictTokenAddress(IMPL, BONDING, CREATOR, userSalt);
-    const b = predictTokenAddress(IMPL, BONDING, USER, userSalt);
+    const a = predictTokenAddress(IMPL, BONDING, CREATOR, NAME, TICKER, userSalt);
+    const b = predictTokenAddress(IMPL, BONDING, USER, NAME, TICKER, userSalt);
     expect(a).not.toBe(b);
   });
 
@@ -86,15 +101,55 @@ describe("vanity", () => {
       IMPL,
       BONDING,
       CREATOR,
+      NAME,
+      TICKER,
       "0x1111111111111111111111111111111111111111111111111111111111111111",
     );
     const b = predictTokenAddress(
       IMPL,
       BONDING,
       CREATOR,
+      NAME,
+      TICKER,
       "0x2222222222222222222222222222222222222222222222222222222222222222",
     );
     expect(a).not.toBe(b);
+  });
+
+  it("different (name, ticker) under same creator+salt produce different addresses", () => {
+    // Headline guarantee for the on-chain salt binding: editing the symbol
+    // or name on the create form invalidates a previously-mined salt and
+    // forces a fresh mine. This mirrors Solidity's
+    // `test_predictTokenAddress_differentNameOrTicker_differentAddresses`.
+    const userSalt: Hex =
+      "0x3333333333333333333333333333333333333333333333333333333333333333";
+    const baseline = predictTokenAddress(
+      IMPL,
+      BONDING,
+      CREATOR,
+      "Foo",
+      "FOO",
+      userSalt,
+    );
+    const altName = predictTokenAddress(
+      IMPL,
+      BONDING,
+      CREATOR,
+      "Bar",
+      "FOO",
+      userSalt,
+    );
+    const altTicker = predictTokenAddress(
+      IMPL,
+      BONDING,
+      CREATOR,
+      "Foo",
+      "BAR",
+      userSalt,
+    );
+    expect(baseline).not.toBe(altName);
+    expect(baseline).not.toBe(altTicker);
+    expect(altName).not.toBe(altTicker);
   });
 
   it("eip1167InitCodeHash matches OZ Clones v5 (golden value)", () => {

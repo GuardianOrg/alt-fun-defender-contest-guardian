@@ -48,7 +48,7 @@ contract GraduationInvariantsTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "Inv", "INV")
         });
         vm.prank(creator);
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
@@ -70,7 +70,7 @@ contract GraduationInvariantsTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "Inv", "INV")
         });
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
         vm.stopPrank();

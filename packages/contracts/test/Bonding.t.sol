@@ -36,7 +36,7 @@ contract BondingTest is DeployHelper {
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "https://test.com"],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "TestToken", "TEST")
         });
         vm.prank(creator);
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
@@ -59,7 +59,7 @@ contract BondingTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "NoSeed", "NOSEED")
         });
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
         vm.stopPrank();
@@ -214,7 +214,7 @@ contract BondingTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "EventTest", "EVT")
         });
 
         vm.expectEmit(false, true, false, false);
@@ -236,7 +236,7 @@ contract BondingTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, name_, ticker_)
         });
     }
 
@@ -317,7 +317,7 @@ contract BondingTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "Valid", "VLD")
         });
     }
 

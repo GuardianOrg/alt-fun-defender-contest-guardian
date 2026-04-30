@@ -37,7 +37,7 @@ contract UUPSUpgradeTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "UpgradeTest", "UPG")
         });
         vm.prank(creator);
         (tokenAddr,) = bonding.launch(params, creator);

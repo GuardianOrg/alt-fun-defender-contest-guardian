@@ -56,37 +56,47 @@ abstract contract DeployHelper is Test {
     uint256 internal _saltNonce;
 
     /// @dev Brute-force a `userSalt` such that
-    ///      `Clones.cloneDeterministic(tokenImpl, _mixSalt(creator_, userSalt))`
+    ///      `Clones.cloneDeterministic(tokenImpl, _mixSalt(creator_, name, ticker, userSalt))`
     ///      deploys to an address ending in `Bonding.VANITY_SUFFIX`
     ///      (`0xa1fa`). Mirrors the off-chain Web Worker miner used by the
     ///      frontend. ~65k attempts on average — Foundry's revm runs this
     ///      in tens of ms per launch.
     ///
+    ///      The salt is bound to `(creator, name, ticker)` on-chain — callers
+    ///      MUST pass the exact strings that will appear in their
+    ///      `LaunchParams`, otherwise `launch` reverts with `NotVanityAddress`.
+    ///
     ///      Non-view because we tick `_saltNonce` so successive launches in
     ///      a single test (with the same creator) get fresh starting points
     ///      and don't waste cycles re-mining the same range.
     function _mineVanitySalt(
-        address creator_
+        address creator_,
+        string memory name_,
+        string memory ticker_
     ) internal returns (bytes32) {
         // IMPORTANT: this helper must NOT make any external calls — the
         // calling test commonly does `vm.prank(creator); doStuff(_mineVanitySalt(...))`,
         // and any call here would consume the prank before `doStuff` runs.
         // We use the cached `tokenImpl` set at deploy time. Tests that
         // rotate `tokenImplementation` mid-test must call
-        // `_mineVanitySaltForImpl(creator_, newImpl)` explicitly.
-        return _mineVanitySaltForImpl(creator_, address(tokenImpl));
+        // `_mineVanitySaltForImpl(creator_, newImpl, name, ticker)` explicitly.
+        return _mineVanitySaltForImpl(creator_, address(tokenImpl), name_, ticker_);
     }
 
     function _mineVanitySaltForImpl(
         address creator_,
-        address implementation_
+        address implementation_,
+        string memory name_,
+        string memory ticker_
     ) internal returns (bytes32 found) {
         ++_saltNonce;
         bytes32 baseSalt = keccak256(abi.encode("vanity-mine-base", _saltNonce, creator_, implementation_));
         // `VanityMining.mine` is `internal pure` so the call inlines into
         // this function — no external call is made and any in-flight
         // `vm.prank` survives.
-        found = VanityMining.mine(creator_, implementation_, address(bonding), baseSalt);
+        found = VanityMining.mine(
+            creator_, keccak256(bytes(name_)), keccak256(bytes(ticker_)), implementation_, address(bonding), baseSalt
+        );
     }
 
     /// @notice Deploys all core contracts and wires roles. Does NOT allowlist any
