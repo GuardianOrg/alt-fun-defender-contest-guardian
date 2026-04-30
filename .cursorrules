@@ -29,6 +29,18 @@ ABIs flow: Foundry build -> export script -> `packages/shared/src/abis/` -> cons
 - Import types with `import type` when only used as types
 - Use `as const` on ABIs and constant objects for full type inference
 
+## Comments
+
+Default to no comment. Only add one when the code can't speak for itself.
+
+- **Comment "why", not "what".** Security implications, non-obvious invariants, cross-system constraints (e.g. "must stay in sync with `vanity.ts`"), surprising trade-offs, footguns. Skip narration of what the next line literally does.
+- **Don't restate the function/variable name.** A natspec that just rephrases `function setFeeTo(address feeTo_)` as "Set the fee-to address" adds nothing — drop it.
+- **One source of truth.** If a struct/field already documents a rationale, don't repeat it at every use site. Link or stay silent.
+- **Don't duplicate `AGENTS.md` / `docs/`.** Contract-level natspec should orient a reader, not re-derive what's already in the spec — link to it instead.
+- **Section banners (`// ─── X ───`)** are fine in long files (>300 lines) where they help navigation; drop them in short files.
+- **No "this is intentional" filler.** If a `try/catch` swallows by design, the natspec on the function should say so once; the body shouldn't repeat it.
+- Smart-contract comment guidance is stricter (audit-readability matters) — see [`packages/contracts/AGENTS.md`](packages/contracts/AGENTS.md#comment-style).
+
 ## Terminology
 
 | Use this | Not this |

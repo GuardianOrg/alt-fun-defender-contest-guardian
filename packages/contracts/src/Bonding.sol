@@ -22,37 +22,13 @@ import {LPLock} from "./LPLock.sol";
 import {VanityMining} from "./lib/VanityMining.sol";
 
 /// @title Bonding
-/// @notice Constant-product bonding curve for the launchpad.
-/// @dev Each token pairs with a BounceTech Leveraged Token (LT). K is computed per-token
-///      from the LT's exchange rate so every token opens at ~$4K market cap.
-///
-///      Virtual reserves: the pair's `tokenReserve` is initialised to the *total* supply (1B)
-///      while only the `curveSupply` (75%) of real tokens is transferred. This caps the
-///      sellable supply at 750M and pins the post-sellout virtual reserve at 250M
-///      (= `LP_RESERVE`). This gives:
-///        • A deterministic "supply trigger" (all curve tokens sold).
-///        • A USD trigger at `raisedLT * exchangeRate ≥ graduationThresholdUsd`
-///          (set once at `initialize` time; immutable for the life of the
-///          proxy. Changing it requires an upgrade with a `reinitializer`).
-///        • An invariant that `tokensForLP(sold) = sold·(S-sold)/S ≤ S/4 = LP_RESERVE`.
-///
-///      Upon graduation, the LP pool is seeded with exactly the tokens needed to match
-///      the last curve price (`tokensForLP = raisedLT / lastPrice`), with excess burned
-///      from the 250M LP reserve. This guarantees zero LP/curve price gap.
-///
-///      Graduation is split across two transactions to fit HyperEVM's small-block
-///      gas ceiling (~2M):
-///        Phase 1 (inline in the threshold-crossing buy): drain the curve, cache the
-///                LP-bound amounts, flip lifecycle to `Graduating`, freeze trading.
-///                Emits `TokenGraduating`.
-///        Phase 2 (`finalizeGraduation`, permissionless big-block tx): create the
-///                HyperSwap pair if needed, mint LP via direct `pair.mint(lpLock)`
-///                (router-bypass — no slippage path that a front-runner can brick),
-///                lock LP, flip lifecycle to `Graduated`. Emits `TokenGraduated`.
-///      A Cloudflare Worker keeper handles the happy path; anyone can call
-///      `finalizeGraduation` to rescue a stuck token.
-///
-///      Forked from Virtuals Protocol Bonding.sol.
+/// @notice Constant-product bonding curve for the launchpad. Each token pairs with a
+///         BounceTech Leveraged Token (LT) as its reserve asset.
+/// @dev Forked from Virtuals Protocol `Bonding.sol`. Full design (virtual reserves,
+///      dual-trigger graduation, two-phase split, dynamic LP seeding, brick-resistance
+///      invariants) lives in `packages/contracts/AGENTS.md` and `docs/contracts-scope.md`.
+///      Read those before touching `_enterGraduating`, `finalizeGraduation`, or
+///      `_prepareGraduationLiquidity`.
 contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -63,94 +39,60 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     address public hyperswapFactory;
     address public lpLock;
 
-    /// @notice EIP-1167 minimal-proxy implementation. Each `launch()` deploys a
-    ///         45-byte clone that delegatecalls into this address. Set at
-    ///         `initialize()` time and hot-swappable by the owner via
-    ///         `setTokenImplementation` (affects future launches only —
-    ///         already-deployed clones hard-code their impl in bytecode).
+    /// @dev EIP-1167 implementation cloned by `launch()`. Hot-swappable for
+    ///      future launches via `setTokenImplementation`; already-deployed
+    ///      clones bake in the impl address at deploy time and are unaffected.
     address public tokenImplementation;
 
-    /// @dev Authorised routers. Only addresses in this set may call `launch`,
-    ///      `buy`, or `sell`. Managed via `addRouter` / `removeRouter`. The
-    ///      set model (vs. a single `zap` address) allows seamless
-    ///      router upgrades: deploy the new zap, `addRouter(newZap)`,
-    ///      flip the frontend's canonical address, then `removeRouter(old)`
-    ///      with no window in which users can't trade.
+    /// @dev Authorised routers (Zaps). Set-based so a new Zap can be
+    ///      allowlisted before the old one is removed, giving zero-downtime
+    ///      router rotations.
     EnumerableSet.AddressSet private _routers;
 
-    /// @dev Target virtual LT reserve in 18-decimal USD. Controls opening market cap.
-    ///      Since virtual tokenReserve = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
+    /// @dev Target virtual LT reserve, 18-dp USD. Since virtual tokenReserve =
+    ///      totalSupply (1B), opening MC == this value.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
 
-    /// @dev Graduation fires when real LT reserve * exchangeRate >= this value
-    ///      (18-decimal USD). Set once at `initialize` time and immutable for
-    ///      the life of the proxy — there is no setter, and the value applies
-    ///      uniformly to every token launched against this Bonding.
-    ///
-    ///      An earlier design exposed `setGraduationThresholdUsd` so the dial
-    ///      could be tuned mid-flight, but that turned every change into a
-    ///      retroactive trigger that re-scored every currently-trading token
-    ///      on its next trade — a public, observable parameter change that an
-    ///      MEV searcher could sandwich for free profit (see issue #269).
-    ///      Making it immutable removes that surface entirely. If the
-    ///      threshold needs to change in future, ship a UUPS upgrade with a
-    ///      `reinitializer` that sets a new value (and accept that the
-    ///      change is still retroactive — but this time the timelock window
-    ///      is the upgrade itself, not a single owner tx).
+    /// @dev Graduation fires when real LT reserve × exchangeRate ≥ this. Set
+    ///      once at `initialize` and immutable thereafter: a live setter would
+    ///      let an MEV searcher sandwich the parameter change against every
+    ///      currently-trading token (issue #269). Tuning requires a UUPS
+    ///      upgrade with a `reinitializer`.
     uint256 public graduationThresholdUsd;
 
-    /// @dev Curve gets 75% of supply (real tokens transferred to pair), 25% reserved for LP
     uint256 public constant CURVE_BPS = 7500;
     uint256 public constant LP_RESERVE_BPS = 2500;
     uint256 public constant BPS_DENOM = 10_000;
 
-    /// @dev LP reserve held in `Bonding` between launch and graduation. Always
-    ///      `LP_RESERVE_BPS / BPS_DENOM` of `Token.TOTAL_SUPPLY` (250M ether)
-    ///      because supply is fixed at 1B per token.
     uint256 public constant LP_RESERVE = (1_000_000_000 ether * LP_RESERVE_BPS) / BPS_DENOM;
 
-    /// @dev Name/ticker length bounds. Hard-enforced at launch; webapp and API
-    ///      replicate these limits. Changing them requires a contract redeploy.
-    ///      `34` / `10` mirror Pump.fun's caps so tokens render consistently in
-    ///      cross-launchpad aggregators (DEXScreener, Birdeye, etc.) which size
-    ///      their UI off the longest name they've ever indexed.
+    /// @dev Name/ticker bounds mirror Pump.fun so tokens render consistently in
+    ///      cross-launchpad aggregators (DEXScreener, Birdeye) that size UI off
+    ///      the longest name they've indexed. Webapp/API replicate.
     uint256 public constant MIN_NAME_LENGTH = 1;
     uint256 public constant MAX_NAME_LENGTH = 34;
     uint256 public constant MIN_TICKER_LENGTH = 1;
     uint256 public constant MAX_TICKER_LENGTH = 10;
 
-    /// @dev Upper bounds on the optional metadata fields in `LaunchParams`.
-    ///      These exist purely as DoS guards — without them a misbehaving
-    ///      caller could push a multi-MB string into the launch tx and
-    ///      bloat block space / indexer memory. Generous enough that real
-    ///      tokens (rich descriptions, long URLs) are unaffected; sized off
-    ///      the API's serialised body limits and what reasonable URL
-    ///      shorteners produce. Off-chain (frontend, API) replicates these
-    ///      pre-flight so users get a clean validation error instead of a
-    ///      revert.
+    /// @dev DoS guards on optional metadata. Without them a caller could push
+    ///      multi-MB strings into the launch tx. Webapp/API replicate
+    ///      pre-flight so users get a clean validation error.
     uint256 public constant MAX_DESCRIPTION_LENGTH = 8000;
     uint256 public constant MAX_IMAGE_LENGTH = 512;
     uint256 public constant MAX_URL_LENGTH = 512;
 
-    /// @notice Required low-order suffix on every launched token's address.
-    ///         Every clone must end in `0xa1fa` (4 hex chars). The frontend
-    ///         mines a CREATE2 salt that produces a qualifying address (~65k
-    ///         attempts, <300 ms in a Web Worker pool); the contract enforces
-    ///         the suffix as a backstop so launches are guaranteed-consistent
-    ///         and no random fallback can sneak through.
-    /// @dev    Must stay in sync with `VANITY_SUFFIX` in
-    ///         `packages/shared/src/vanity.ts` (frontend miner) — diverging
-    ///         the two would brick token creation.
+    /// @dev Required low-order suffix on every launched token address. The
+    ///      frontend miner produces a qualifying CREATE2 salt; this on-chain
+    ///      check guarantees no random fallback sneaks through. Must stay in
+    ///      sync with `VANITY_SUFFIX` in `packages/shared/src/vanity.ts` —
+    ///      diverging the two bricks token creation.
     bytes2 public constant VANITY_SUFFIX = 0xa1fa;
 
-    /// @notice Lifecycle of a launched token. Three mutually-exclusive states; the
-    ///         enum is the single source of truth (replaces the old `trading` /
-    ///         `graduated` boolean pair). Transitions are strictly forward:
-    ///         `Curve → Graduating → Graduated`.
+    /// @notice Strictly-forward lifecycle: `Curve → Graduating → Graduated`.
     enum Lifecycle {
-        Curve, // default — trading on the bonding curve
-        Graduating, // phase 1 done; awaiting `finalizeGraduation`
-        Graduated // LP seeded on HyperSwap, locked, post-grad trading
+        Curve,
+        Graduating,
+        Graduated
     }
 
     struct TokenInfo {
@@ -165,23 +107,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         Lifecycle lifecycle;
     }
 
-    /// @notice Snapshot of LP-bound amounts cached at the end of phase 1, consumed
+    /// @notice Snapshot of LP-bound amounts cached at end of phase 1, consumed
     ///         by `finalizeGraduation`, deleted on success.
-    /// @dev    All amount fields are stored as `uint256`. `tokensForLP`,
-    ///         `lpBurned`, and `unsoldBurned` are mathematically bounded by
-    ///         `LP_RESERVE` / `curveSupply` (both < 2^90), but `ltFromPair`
-    ///         depends on the LT's `exchangeRate()` at launch and at
-    ///         graduation. Token creation is permissionless on
-    ///         `Zap.createToken`, so a token paired with a malicious LT
-    ///         returning a tiny `exchangeRate` could legitimately produce an
-    ///         `ltFromPair` > 2^128. Storing as `uint256` removes any
-    ///         narrowing-cast footgun (a truncated `ltFromPair` would strand
-    ///         real LT in `Bonding` during phase 2). The extra storage slots
-    ///         cost ~40k gas in phase 1, which is negligible against phase
-    ///         2's ~2.5M baseline.
-    ///         `pendingSince` is exposed so off-chain consumers (frontend
-    ///         banner, keeper) can show "graduating for Xs" / escalate stale
-    ///         entries without a separate block lookup.
+    /// @dev    `ltFromPair` is held as `uint256` (not narrower) because token
+    ///         creation is permissionless and a malicious LT returning a tiny
+    ///         `exchangeRate` could legitimately push it past 2^128 — a
+    ///         narrowing cast would strand real LT in phase 2.
     struct PendingGraduation {
         uint256 tokensForLP;
         uint256 ltFromPair;
@@ -197,36 +128,25 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string image;
         string[3] urls;
         address ltAddress;
-        /// @dev User-supplied vanity salt for CREATE2 clone deployment. Mixed
-        ///      with the creator address (`_mixSalt`) before being passed to
-        ///      `Clones.cloneDeterministic`, so two creators using the same
-        ///      `userSalt` cannot collide and a mined salt cannot be
-        ///      front-run by another launcher.
+        /// @dev User-supplied vanity salt. Mixed with the creator address in
+        ///      `_mixSalt` so two creators using the same `userSalt` cannot
+        ///      collide and a mined salt cannot be front-run.
         bytes32 salt;
     }
 
     mapping(address => TokenInfo) internal _tokenInfo;
 
-    /// @dev HyperSwap V2 pair created at graduation
     mapping(address => address) public graduatedPair;
-    /// @notice Per-token state cached during phase 1, consumed by `finalizeGraduation`.
-    ///         Empty (`pendingSince == 0`) for tokens not in the `Graduating` phase.
     mapping(address => PendingGraduation) public pendingGraduation;
 
-    /// @notice BounceTech `GlobalStorage`, queried at every `launch` to
-    ///         resolve the live `Factory` and reject `ltAddress` values
-    ///         that aren't real BounceTech-deployed LTs (which would
-    ///         otherwise let a malicious LT siphon buyer USDC inside
-    ///         `mint`). Going through `GlobalStorage` instead of caching
-    ///         the factory means BounceTech-driven `setFactory` calls
-    ///         flow through automatically. Hot-swappable via
-    ///         `setBounceGlobalStorage` as a backstop.
+    /// @dev BounceTech `GlobalStorage`, queried per-launch to resolve the live
+    ///      `Factory` and reject non-BounceTech LTs (which could otherwise
+    ///      siphon buyer USDC inside `mint`). Going through `GlobalStorage`
+    ///      means BounceTech `setFactory` rotations flow through automatically.
     IBounceGlobalStorage public bounceGlobalStorage;
 
-    /// @dev Storage gap for future upgrades. Sized so this contract's storage
-    ///      block totals 50 slots (12 used + 38 gap; `_routers` is an
-    ///      `EnumerableSet.AddressSet` and consumes two slots). Append new
-    ///      state variables before this gap and shrink its length to match.
+    /// @dev Storage gap → 50 slots total. Append new state variables before
+    ///      this gap and shrink the length to match.
     uint256[38] private __gap;
 
     event TokenLaunched(
@@ -241,9 +161,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 newCurveSupply,
         uint256 newLtReserve
     );
-    /// @notice Phase 1 of graduation has fired. Trading is frozen; `finalizeGraduation`
-    ///         is now callable (permissionlessly) to seed the HyperSwap LP. The
-    ///         indexer surfaces this to the frontend as the `Graduating` state.
+    /// @notice Phase 1 of graduation fired. Trading frozen; `finalizeGraduation`
+    ///         now callable to seed the HyperSwap LP.
     event TokenGraduating(
         address indexed token, uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned
     );
@@ -263,12 +182,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
 
     error TokenNotTrading();
-    /// @dev Raised by `Zap` (and callable views) when a buy/sell hits a token in
-    ///      the `Graduating` phase — distinct from `TokenNotTrading` so the UI
-    ///      can show the "Token is graduating" overlay rather than a generic
-    ///      error.
+    /// @dev Distinct from `TokenNotTrading` so the UI can render a "graduating"
+    ///      overlay rather than a generic error.
     error TokenIsGraduating();
-    /// @dev `finalizeGraduation` was called on a token that's not in phase 1.
     error NotGraduating();
     error ZeroAddress();
     error InvalidInput();
@@ -284,22 +200,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error InvalidDescriptionLength();
     error InvalidImageLength();
     error InvalidUrlLength();
-    /// @dev `setHyperswap` was called with an `lpLock` that hasn't allowlisted
-    ///      this Bonding as a locker. Without that, every subsequent
-    ///      `finalizeGraduation` would revert in `LPLock.recordLock`, bricking
-    ///      any token already in `Graduating` for the duration. Owners must
-    ///      `lpLock.setLocker(bonding, true)` on the new lock first, then call
-    ///      this. Mirrors the `Zap.setFeeVault` depositor check.
+    /// @dev New `lpLock` hasn't allowlisted this Bonding as a locker.
+    ///      `setHyperswap` would otherwise brick every in-flight graduation.
     error LpLockNotConfigured();
-    /// @dev Thrown when a launch's CREATE2 salt resolves to an address that
-    ///      doesn't end in `VANITY_SUFFIX`. This is the on-chain backstop
-    ///      enforcing the "every launched token has an `a1fa` suffix"
-    ///      product invariant — the frontend miner must always produce a
-    ///      qualifying salt (no random fallbacks).
     error NotVanityAddress(address tokenAddr);
-    /// @dev `params.ltAddress` is not registered in the BounceTech `Factory`'s
-    ///      `ltExists` mapping (either an arbitrary contract or an LT that
-    ///      BounceTech has since `redeployLt`'d).
+    /// @dev `ltAddress` not in the BounceTech `Factory.ltExists` mapping
+    ///      (arbitrary contract, or an LT BounceTech has since `redeployLt`'d).
     error UnknownLeveragedToken(address ltAddress);
 
     modifier onlyRouter() {
@@ -311,11 +217,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         _disableInitializers();
     }
 
-    /// @param graduationThresholdUsd_ Immutable USD trigger (18-dp) for
-    ///        graduation. Must be at least `VIRTUAL_LIQUIDITY_USD` so a
-    ///        freshly-launched curve cannot be pre-graduated by a too-low
-    ///        deploy-time value. There is no on-chain setter — changing
-    ///        this value requires a UUPS upgrade with a `reinitializer`.
+    /// @param graduationThresholdUsd_ Immutable USD trigger (18-dp). Must be
+    ///        ≥ `VIRTUAL_LIQUIDITY_USD` so a fresh curve can't be pre-graduated.
     function initialize(
         address factory_,
         address router_,
@@ -341,11 +244,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
     }
 
-    /// @notice Backfill `bounceGlobalStorage` on a proxy deployed before
-    ///         this slot existed. Invoked atomically via `upgradeToAndCall`.
-    /// @dev    The `bounceGlobalStorage != address(0)` guard closes the
-    ///         front-run window on fresh proxies where `_initialized == 1`
-    ///         would otherwise still satisfy `reinitializer(2)`.
+    /// @notice Backfill `bounceGlobalStorage` on a proxy deployed before this
+    ///         slot existed. Invoked atomically via `upgradeToAndCall`. The
+    ///         `address(0)` guard closes the reinitializer-front-run window on
+    ///         fresh proxies that haven't been initialised yet.
     function initializeBounceGlobalStorage(
         address bounceGlobalStorage_
     ) external reinitializer(2) {
@@ -362,9 +264,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address creator_
     ) external onlyRouter nonReentrant returns (address tokenAddr, address pair) {
         if (params.ltAddress == address(0)) revert InvalidInput();
-        // LT legitimacy gate — `Zap.createToken` is permissionless, so
-        // without this check a fake LT could siphon USDC inside `mint`
-        // (which `Zap` `forceApprove`s before the curve buy).
+        // `Zap.createToken` is permissionless; without this gate a fake LT
+        // could siphon USDC inside `mint` (which `Zap` `forceApprove`s).
         if (!IBounceFactory(bounceGlobalStorage.factory()).ltExists(params.ltAddress)) {
             revert UnknownLeveragedToken(params.ltAddress);
         }
@@ -375,20 +276,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (tickerLen < MIN_TICKER_LENGTH || tickerLen > MAX_TICKER_LENGTH) revert InvalidTickerLength();
         if (bytes(params.description).length > MAX_DESCRIPTION_LENGTH) revert InvalidDescriptionLength();
         if (bytes(params.image).length > MAX_IMAGE_LENGTH) revert InvalidImageLength();
-        // Per-URL cap (no minimum — empty URLs are valid). Cheaper than a
-        // total-cap loop and aligns with the per-field semantics off-chain.
         for (uint256 i = 0; i < 3; i++) {
             if (bytes(params.urls[i]).length > MAX_URL_LENGTH) revert InvalidUrlLength();
         }
 
-        // CEI pattern: predict the clone address & enforce the vanity suffix
-        // invariant BEFORE any state-mutating external calls, write state
-        // next, and only then deploy + seed. The earlier `ltExists` lookup
-        // is a read-only `view` into a trusted BounceTech contract (and
-        // `nonReentrant` covers the function regardless), so it doesn't
-        // count against the CEI ordering. The pair address is unknown
-        // until after the factory call, so it's patched into the
-        // already-stored slot below.
         bytes32 saltMixed = _mixSalt(creator_, params.salt);
         tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
         // forge-lint: disable-next-line(unsafe-typecast)
@@ -412,11 +303,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string calldata ticker_,
         address ltAddress
     ) internal returns (address pair) {
-        // EIP-1167 clone of `tokenImplementation`. `Clones.cloneDeterministic`
-        // reverts with `ERC1167FailedCreateClone` on address collision; the
-        // creator-mixed salt makes that astronomically unlikely. CREATE2 is
-        // deterministic so the deployed address must match the prediction
-        // already gated on the vanity suffix in `launch`.
         Clones.cloneDeterministic(tokenImplementation, saltMixed);
 
         Token(tokenAddr).initialize(name_, ticker_, address(this));
@@ -431,16 +317,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
-        // Virtual tokenReserve = full totalSupply; only curveSupply (75%) is actually transferred.
+        // Virtual tokenReserve = full totalSupply; only curveSupply (75%) actually transferred.
         router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
     }
 
-    /// @notice Predict the clone address for `(creator_, userSalt)`. Mirrors
-    ///         the address that `launch()` would deploy, without state changes.
-    ///         Used by the frontend vanity-mining UI to (a) pre-display the
-    ///         address before the user signs the launch tx and (b) verify
-    ///         on-chain that a mined salt still resolves to the expected
-    ///         address (e.g. after an impl rotation).
+    /// @notice Predict the clone address for `(creator_, userSalt)` without
+    ///         deploying. Used by the frontend vanity miner.
     function predictTokenAddress(
         address creator_,
         bytes32 userSalt
@@ -448,11 +330,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return Clones.predictDeterministicAddress(tokenImplementation, _mixSalt(creator_, userSalt), address(this));
     }
 
-    /// @dev Combine the creator address into the user-supplied salt so that:
-    ///      1. Two creators using the same `userSalt` deploy to different
-    ///         addresses (no accidental collision).
-    ///      2. A mined `userSalt` cannot be front-run by another launcher —
-    ///         their tx would resolve to a different clone address.
     function _mixSalt(
         address creator_,
         bytes32 userSalt
@@ -482,16 +359,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     // ─── Buy / Sell ──────────────────────────────────────────────────────
 
     /// @notice Buy tokens on the curve. Router-only.
-    /// @param amountIn      Max LT the caller permits to be pulled.
-    /// @param tokenAddress  Token to buy.
-    /// @param amountOutMin  Minimum tokens out (slippage check).
-    /// @param trader        The ultimate user attributed in the emitted `Trade`
-    ///                      event. The calling router passes its own caller
-    ///                      (`msg.sender` at the router level) — trusted because
-    ///                      only allowlisted routers can reach this function.
-    /// @return tokensOut    Tokens delivered to the calling router (which then
-    ///                      forwards them to the user).
-    /// @return amountInUsed LT actually consumed (≤ amountIn). Any difference remains in caller.
+    /// @param trader        Attributed in the emitted `Trade` event. Trusted
+    ///                      because only allowlisted routers can reach here.
+    /// @return tokensOut    Tokens delivered to the calling router.
+    /// @return amountInUsed LT actually consumed (≤ amountIn).
     function buy(
         uint256 amountIn,
         address tokenAddress,
@@ -499,25 +370,18 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address trader
     ) external onlyRouter nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
         TokenInfo storage info = _tokenInfo[tokenAddress];
-        // Existence check. `Lifecycle.Curve` is the zero value, so an
-        // unwritten slot (unknown token) would otherwise pass the lifecycle
-        // gate and fall through into `router.buy`, which would revert deep
-        // in `IPair(address(0))` with a cryptic low-level error.
-        // `_storeTokenInfo` always sets `info.creator` to the launching
-        // user (non-zero in normal txs), so a zero here means "address
-        // never registered as a launched token".
+        // `creator == 0` means the slot was never written. `Lifecycle.Curve` is
+        // the zero value, so without this an unknown token would fall through
+        // and revert deep in `router.buy` with an opaque error.
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
-        // `msg.sender` (the router) holds LT and receives tokens; `trader` is the
-        // user whose identity is recorded in the `Trade` event.
         (tokensOut, amountInUsed) = _executeBuy(msg.sender, trader, amountIn, tokenAddress);
         if (tokensOut < amountOutMin) revert SlippageExceeded();
     }
 
     /// @notice Sell tokens on the curve. Router-only.
-    /// @param trader The ultimate user attributed in the emitted `Trade` event.
     function sell(
         uint256 amountIn,
         address tokenAddress,
@@ -525,13 +389,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address trader
     ) external onlyRouter nonReentrant returns (uint256) {
         TokenInfo storage info = _tokenInfo[tokenAddress];
-        // Existence check — see `buy` for the rationale.
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
-        // Router holds the tokens and receives LT (`msg.sender` here = router).
-        // `trader` is purely informational — emitted in the `Trade` event.
         (, uint256 assetOut) = router.sell(amountIn, tokenAddress, msg.sender);
         if (assetOut < amountOutMin) revert SlippageExceeded();
 
@@ -548,35 +409,28 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return _tokenInfo[token_];
     }
 
-    /// @notice Lightweight creator lookup. Hot-path callers (e.g. `Zap`'s
-    ///         per-trade fee accrual) should use this instead of `getTokenInfo`
-    ///         to avoid ABI-copying the dynamic strings & URL array.
+    /// @notice Hot-path lookup that avoids ABI-copying the dynamic strings in
+    ///         `TokenInfo`. Prefer over `getTokenInfo` per-trade.
     function creatorOf(
         address token_
     ) external view returns (address) {
         return _tokenInfo[token_].creator;
     }
 
-    /// @notice Lightweight LT lookup. Hot-path callers (e.g. `Zap`'s per-trade
-    ///         buy/sell flow) should use this instead of `getTokenInfo` to avoid
-    ///         ABI-copying the dynamic strings & URL array.
+    /// @notice Hot-path lookup that avoids ABI-copying the dynamic strings in
+    ///         `TokenInfo`. Prefer over `getTokenInfo` per-trade.
     function ltOf(
         address token_
     ) external view returns (address) {
         return _tokenInfo[token_].ltAddress;
     }
 
-    /// @notice True iff the token is in the active bonding-curve phase. Buys
-    ///         and sells are only accepted in this state.
     function isTrading(
         address token_
     ) external view returns (bool) {
         return _tokenInfo[token_].lifecycle == Lifecycle.Curve;
     }
 
-    /// @notice True iff phase 1 has fired but `finalizeGraduation` has not yet
-    ///         seeded the HyperSwap LP. Buys and sells revert with
-    ///         `TokenIsGraduating` during this window.
     function isGraduating(
         address token_
     ) external view returns (bool) {
@@ -589,9 +443,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return _tokenInfo[token_].lifecycle == Lifecycle.Graduated;
     }
 
-    /// @notice Dual-trigger graduation check.
-    ///         USD trigger: real LT reserve * exchangeRate >= `graduationThresholdUsd`.
-    ///         Supply trigger: all curve tokens sold (pair real token balance == 0).
+    /// @notice Dual graduation triggers: USD (LT reserve × exchangeRate ≥
+    ///         threshold) or supply (all curve tokens sold).
     function canGraduate(
         address token_
     ) public view returns (bool) {
@@ -619,13 +472,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Admin ───────────────────────────────────────────────────────────
 
-    /// @notice Hot-swap the HyperSwap factory and LP lock. Reverts if the new
-    ///         `lpLock` hasn't already allowlisted this Bonding as a locker —
-    ///         without that, the very next `finalizeGraduation` would revert
-    ///         in `LPLock.recordLock` and brick any token already in
-    ///         `Graduating`. Owners must `lpLock.setLocker(bonding, true)` on
-    ///         the new lock first, then call this. Mirrors the `Zap.setFeeVault`
-    ///         depositor check.
+    /// @notice Hot-swap HyperSwap factory + LP lock. Reverts unless the new
+    ///         `lpLock` already allowlists this Bonding — otherwise the next
+    ///         `finalizeGraduation` would brick. Owners must
+    ///         `lpLock.setLocker(bonding, true)` first.
     function setHyperswap(
         address newFactory,
         address newLpLock
@@ -637,12 +487,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit HyperswapUpdated(newFactory, newLpLock);
     }
 
-    /// @notice Hot-swap the BounceTech `GlobalStorage` consulted by `launch`.
-    ///         Backstop for the unlikely case BounceTech redeploys
-    ///         `GlobalStorage` itself (factory rotations are picked up
-    ///         automatically). Affects future launches only — already-
-    ///         launched tokens have `ltAddress` baked into `TokenInfo` and
-    ///         keep trading regardless.
+    /// @notice Hot-swap BounceTech `GlobalStorage`. Backstop for the unlikely
+    ///         case BounceTech redeploys it (factory rotations flow through
+    ///         automatically). Affects future launches only.
     function setBounceGlobalStorage(
         address newBounceGlobalStorage
     ) external onlyOwner {
@@ -653,29 +500,20 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.
-    /// @dev Already-deployed clones are unaffected — EIP-1167 hard-codes the
-    ///      impl address into the proxy bytecode at deploy time, so existing
-    ///      tokens keep delegating into whichever impl was current when they
-    ///      were launched. Use this for shipping a new `Token` (e.g. bug fix
-    ///      surfaces in the impl) without disturbing already-issued tokens.
+    ///         Existing clones bake their impl in at deploy time and are unaffected.
     function setTokenImplementation(
         address newImpl
     ) external onlyOwner {
         if (newImpl == address(0)) revert ZeroAddress();
-        // Probe that some `(creator, salt)` exists for which the CREATE2
-        // address ends in `VANITY_SUFFIX`. `VanityMining.mine` reverts if
-        // it can't converge in 1M attempts, so the call itself is the gate
-        // — a structurally-broken impl bricks `setTokenImplementation`
-        // here instead of silently bricking every user's `launch()`.
+        // Probe that the new impl can produce a vanity-suffixed clone. If
+        // structurally broken, fail here rather than silently bricking every
+        // user's `launch()`.
         VanityMining.mine(address(0x1), newImpl, address(this), 0);
         address old = tokenImplementation;
         tokenImplementation = newImpl;
         emit TokenImplementationUpdated(old, newImpl);
     }
 
-    /// @notice Authorise a router to call `launch`, `buy`, and `sell`. Multiple
-    ///         routers may be active simultaneously. Reverts if `router` is
-    ///         zero or already allowlisted.
     function addRouter(
         address router_
     ) external onlyOwner {
@@ -684,8 +522,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit RouterAdded(router_);
     }
 
-    /// @notice Revoke a router's authorisation. Reverts if not previously
-    ///         allowlisted.
     function removeRouter(
         address router_
     ) external onlyOwner {
@@ -694,26 +530,20 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit RouterRemoved(router_);
     }
 
-    /// @notice Check whether an address is an authorised router.
     function isRouter(
         address router_
     ) external view returns (bool) {
         return _routers.contains(router_);
     }
 
-    /// @notice Enumerate all currently-authorised routers. Intended for admin
-    ///         tooling / off-chain introspection; on-chain callers should
-    ///         prefer `isRouter` for O(1) membership checks.
     function getRouters() external view returns (address[] memory) {
         return _routers.values();
     }
 
     // ─── Internals ───────────────────────────────────────────────────────
 
-    /// @dev `tokenHolder` is the address `Router` pulls LT from and delivers
-    ///      tokens to — always the calling `Zap` (which then forwards
-    ///      tokens to the user). `trader` is the event-only attribution
-    ///      (the user EOA) and has no effect on token flow.
+    /// @dev `tokenHolder` is where `Router` pulls LT from / delivers tokens to
+    ///      (the calling Zap). `trader` is event-only attribution (the user EOA).
     function _executeBuy(
         address tokenHolder,
         address trader,
@@ -725,35 +555,24 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
         emit Trade(tokenAddress, trader, true, amountInUsed, tokensOut, newCurveSupply, newLtReserve);
 
-        // `canGraduate` already gates on `lifecycle == Curve`, so no extra check needed here.
         if (canGraduate(tokenAddress)) {
             _enterGraduating(tokenAddress);
         }
     }
 
-    /// @dev Phase 1 of graduation. Runs inline at the end of the threshold-crossing
-    ///      buy. Cheap (~150-200k of additional gas on top of the buy) so the
-    ///      whole tx still fits in HyperEVM's small block. Phase 2 is the
-    ///      separate `finalizeGraduation` call.
-    /// @dev Caller MUST have verified `lifecycle == Curve` (e.g. via `canGraduate`).
+    /// @dev Phase 1: drain curve, cache LP-bound amounts, freeze trading. Runs
+    ///      inline at end of the threshold-crossing buy. Pinning `tokensForLP`
+    ///      and `ltFromPair` here (at the last curve price) is what preserves
+    ///      the zero-gap invariant across the tx split.
     function _enterGraduating(
         address tokenAddress
     ) internal {
         TokenInfo storage info = _tokenInfo[tokenAddress];
         info.lifecycle = Lifecycle.Graduating;
 
-        // Drain curve, compute dynamic-LP-seeding amounts, burn excess. The
-        // `tokensForLP` and `ltFromPair` are pinned NOW (at the last curve
-        // price) and used verbatim in phase 2 — that's how we keep the
-        // zero-gap invariant despite the tx split.
         (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
             _prepareGraduationLiquidity(tokenAddress);
 
-        // Amounts are stored full-width (`uint256`) — see `PendingGraduation`
-        // natspec for why narrowing casts on `ltFromPair` aren't safe in the
-        // presence of malicious LTs. `pendingSince` truncates a Unix
-        // timestamp (seconds) to `uint64`, which doesn't overflow until year
-        // ~584 billion AD.
         pendingGraduation[tokenAddress] = PendingGraduation({
             tokensForLP: tokensForLP,
             ltFromPair: ltFromPair,
@@ -766,18 +585,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit TokenGraduating(tokenAddress, tokensForLP, ltFromPair, lpBurned, unsoldBurned);
     }
 
-    /// @notice Phase 2 of graduation: seed the HyperSwap LP with the amounts
-    ///         cached in phase 1 and lock the LP tokens. **Permissionless** —
-    ///         a Cloudflare Worker keeper handles the happy path; anyone can
-    ///         call to rescue a token whose keeper missed it.
-    /// @dev The LP-seeding path bypasses the HyperSwap V2 router and calls
-    ///      `pair.mint(lpLock)` directly. This is brick-proof: even if a
-    ///      front-runner pre-creates the pair *and* deposits dust to set
-    ///      reserves > 0 in the window between phase 1 and phase 2, this
-    ///      function still succeeds (the front-runner just costs themselves
-    ///      gas + a small price haircut that arbitrageurs close out post-grad).
-    ///      Compare with the deleted `_requirePairEmpty` path which would
-    ///      have permanently bricked finalize in that scenario.
+    /// @notice Phase 2: seed the HyperSwap LP and lock it. Permissionless —
+    ///         keeper drives the happy path; anyone can rescue a stuck token.
+    /// @dev Bypasses the HyperSwap V2 router and calls `pair.mint(lpLock)`
+    ///      directly. This is brick-proof against a front-runner pre-creating
+    ///      the pair and dust-seeding it between phases.
     function finalizeGraduation(
         address tokenAddress
     ) external nonReentrant {
@@ -799,14 +611,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit TokenGraduated(tokenAddress, hyperPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
     }
 
-    /// @dev Burns unsold curve tokens, drains LT from the pair, computes the exact
-    ///      `tokensForLP` needed to match the last curve price, and burns the LP excess.
+    /// @dev Burns unsold curve tokens, drains LT, computes `tokensForLP` for
+    ///      zero-gap LP seeding, burns the LP excess.
     ///
-    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve = lastPrice`.
-    ///      By construction (V_t_init = totalSupply, curveSupply = 75%), the parabola
-    ///         tokensForLP(sold) = sold · (S − sold) / S
-    ///      peaks at S/4 = LP_RESERVE when sold = S/2, so `tokensForLP ≤ LP_RESERVE`
-    ///      is a mathematical invariant. The cap is a defensive guard.
+    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve`.
+    ///      With virtual `tokenReserve = totalSupply` and `curveSupply = 75%`, the
+    ///      parabola `tokensForLP(sold) = sold·(S−sold)/S` peaks at
+    ///      `S/4 = LP_RESERVE` when `sold = S/2`, so `tokensForLP ≤ LP_RESERVE`
+    ///      is mathematically invariant. The cap is defensive.
     function _prepareGraduationLiquidity(
         address tokenAddress
     ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
@@ -829,9 +641,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
     }
 
-    /// @dev Idempotent: returns the existing HyperSwap pair if one is already
-    ///      registered, otherwise creates it. Either branch leaves the pair
-    ///      ready for `_seedHyperswapDirect` to mint LP into.
     function _ensureHyperswapPair(
         address tokenA,
         address tokenB
@@ -843,13 +652,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
     }
 
-    /// @dev Standard UniswapV2 `transfer → mint` pattern. We bypass the V2
-    ///      router (no slippage path / `amountAMin` to bind) so a front-runner
-    ///      who pre-seeds reserves can never brick this call. The downside —
-    ///      LP minted at a slightly skewed ratio — is bounded by what the
-    ///      front-runner is willing to lock, and arbitrageurs close it out
-    ///      post-grad. This is the same direct-to-pair pattern `Zap` uses for
-    ///      its post-grad swaps.
+    /// @dev Direct `transfer → pair.mint`, bypassing the V2 router so a
+    ///      front-runner who pre-seeds reserves can't brick the call. Skewed
+    ///      LP ratio from a hostile pre-seed is bounded and arbed out post-grad.
     function _seedHyperswapDirect(
         address tokenAddress,
         address lt,

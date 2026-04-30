@@ -7,9 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title LPLock
 /// @notice Locks LP tokens from graduated tokens. No withdraw in v1.
-/// @dev UUPS upgradeable to support v2 migrateLT() functionality.
-///      LP tokens are sent directly to this contract during graduation.
-///      recordLock() is called by the Bonding contract to track locks.
+/// @dev UUPS-upgradeable to support v2 `migrateLT` functionality.
 contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
     struct LockInfo {
         address lpPair;
@@ -17,15 +15,12 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
         uint256 lockedAt;
     }
 
-    /// @notice Token address -> lock details
     mapping(address => LockInfo) public locks;
 
-    /// @notice Addresses authorized to record locks (Bonding contract)
     mapping(address => bool) public isLocker;
 
-    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (2 named + 48 gap). Append new state variables before
-    ///      this gap and shrink its length to match.
+    /// @dev Storage gap → 50 slots total. Append new state variables before
+    ///      this gap and shrink the length to match.
     uint256[48] private __gap;
 
     event LPLocked(address indexed token, address indexed lpPair, uint256 amount);
@@ -45,8 +40,7 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
         __Ownable_init(owner_);
     }
 
-    /// @notice Record an LP lock. Called by Bonding after graduation.
-    ///         LP tokens must already be at this address.
+    /// @notice Record an LP lock. LP tokens must already sit at this address.
     function recordLock(
         address token,
         address lpPair,

@@ -9,19 +9,12 @@ import {
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 /// @title Token
-/// @notice ERC20 token created by the bonding curve launchpad.
-/// @dev Forked from Virtuals Protocol's `FERC20.sol`. Fixed 1B supply, owner-only burn.
-///      Owner is the Bonding contract — only it can burn.
-///      EIP-2612 permit is supported so `Zap` can pull tokens via a
-///      signed message — killing the pre-approve tx on the first sell of any
-///      newly-launched token. Domain: name = token name, version = "1".
-///
-///      This contract is initializer-based (not constructor-based) so it can be
-///      cloned via EIP-1167 minimal proxies. Each launch deploys a 45-byte
-///      proxy that delegatecalls into a single deployed implementation, slashing
-///      per-token deployment gas (~1.15M → ~280k for clone + initialize). The
-///      implementation itself is `_disableInitializers()`-locked in the
-///      constructor so it cannot be initialised directly.
+/// @notice ERC20 launchpad token. Forked from Virtuals `FERC20.sol`.
+/// @dev Fixed 1B supply. Owner (Bonding) is the only burner.
+///      EIP-2612 permit lets `Zap` skip the first-sell pre-approve tx.
+///      Initializer-based so it can be cloned via EIP-1167 minimal proxies
+///      (~1.15M → ~280k per launch). Implementation is `_disableInitializers`'d
+///      in the constructor so it can't be initialised directly.
 contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, OwnableUpgradeable {
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000 ether;
 
@@ -41,7 +34,7 @@ contract Token is Initializable, ERC20Upgradeable, ERC20PermitUpgradeable, Ownab
         _mint(owner_, TOTAL_SUPPLY);
     }
 
-    /// @notice Burn tokens from any address. Owner only, no approval required.
+    /// @notice Burn from any address. Owner only, no approval required.
     function burn(
         address from,
         uint256 amount

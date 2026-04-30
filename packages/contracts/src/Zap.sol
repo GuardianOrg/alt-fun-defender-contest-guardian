@@ -15,34 +15,24 @@ import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
 /// @title Zap
-/// @notice Single entry point for users: pay USDC, receive tokens (and vice versa).
-/// @dev Handles USDC -> LT mint -> bonding curve buy (or HyperSwap swap post-graduation).
-///      Sell path: token -> curve sell or HyperSwap swap -> LT redeem -> USDC.
-///
-///      This zap is the fee layer. On every buy and sell, a USDC fee is collected
-///      from the user and forwarded to `FeeVault`, which handles creator/protocol
-///      accruals and claims. No fees live on `Bonding`, `Router`, or `Factory`.
-///
-///      EIP-2612 permit variants (`buyWithPermit`, `sellWithPermit`,
-///      `createTokenWithPermit`) let a first-time user skip the pre-approve tx:
-///      they sign an off-chain permit and the zap applies it before pulling
-///      funds. Permits are wrapped in `try/catch` to defuse the standard
-///      permit-front-run DoS (if someone else submits the sig first, the nonce
-///      is consumed but the allowance is already in place).
+/// @notice User-facing entry point: pay USDC, receive tokens (and vice versa).
+/// @dev Buy path: USDC → LT mint → curve buy (or HyperSwap swap post-grad).
+///      Sell path: token → curve sell or HyperSwap swap → LT redeem → USDC.
+///      Fee layer: every buy/sell skims USDC and forwards it to `FeeVault`. No
+///      fees live on `Bonding`, `Router`, or `Factory`.
+///      Permit variants apply an EIP-2612 sig before pulling funds; wrapped in
+///      `try/catch` to defuse the standard permit-front-run DoS.
 contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    /// @dev Basis-points denominator. 10_000 = 100%.
     uint256 public constant BPS_DENOM = 10_000;
 
-    /// @dev Hard upper bound on buy/sell fees (2%). Prevents an owner-driven fat-finger.
+    /// @dev Owner-fat-finger guard. 2% hard ceiling on each side.
     uint256 public constant MAX_FEE_BPS = 200;
 
-    /// @dev Minimum USDC amount the BounceTech LT accepts on `mint`/`redeem`.
-    ///      Below this, the LT reverts with selector `0x05eb05ac` which
-    ///      decodes to nothing useful. Pre-checked here so users see a clean
-    ///      `BelowMinAmount` error instead of the cryptic LT revert.
-    ///      Denominated in real USDC (6dp) — `$10`.
+    /// @dev BounceTech `mint`/`redeem` floor. Below this the LT reverts with
+    ///      undecodable selector `0x05eb05ac`; pre-checked so users see
+    ///      `BelowMinAmount` instead. Real USDC (6dp) — `$10`.
     uint256 public constant MIN_USDC_AMOUNT = 10e6;
 
     Bonding public bonding;
@@ -50,19 +40,15 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     IUniswapV2Router02 public hyperswapRouter;
     FeeVault public feeVault;
 
-    /// @notice Fee charged on the USDC side of every buy (bps of gross USDC in).
     uint256 public buyFeeBps;
-    /// @notice Fee charged on the USDC side of every sell (bps of gross USDC out).
     uint256 public sellFeeBps;
-    /// @notice Share of the total fee routed to the creator (bps; remainder goes to protocol).
+    /// @notice Share of total fee routed to creator (bps); remainder is protocol.
     uint256 public creatorFeeBps;
 
-    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (7 named + 43 gap). Append new state variables before
-    ///      this gap and shrink its length to match.
+    /// @dev Storage gap → 50 slots total. Append new state variables before
+    ///      this gap and shrink the length to match.
     uint256[43] private __gap;
 
-    /// @notice Permit signature payload (EIP-2612).
     struct PermitData {
         uint256 value;
         uint256 deadline;
@@ -79,11 +65,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event HyperswapRouterUpdated(address indexed hyperswapRouter);
     event FeeVaultUpdated(address indexed feeVault);
     event FeesUpdated(uint256 buyFeeBps, uint256 sellFeeBps, uint256 creatorFeeBps);
-    /// @dev Emitted when a buy's leftover-LT redeem path falls back to a
-    ///      direct LT transfer (typically because the leftover was below
-    ///      `MIN_USDC_AMOUNT` so the LT redeem reverted). Lets the frontend
-    ///      detect the case and surface "you got LT instead of USDC because
-    ///      the leftover was below the $10 redeem floor".
+    /// @dev Buy's leftover-LT redeem reverted (typically below `MIN_USDC_AMOUNT`)
+    ///      and the LT was returned as-is. Frontend uses this to surface "you
+    ///      got LT instead of USDC because the leftover was below the $10 floor".
     event LeftoverLTReturned(address indexed user, uint256 amount);
 
     error InvalidInput();
@@ -92,22 +76,12 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     error InvalidFee();
     error VaultNotConfigured();
     error BondingNotConfigured();
-    /// @dev Forwarded from `Bonding`: trades are blocked while a token is in
-    ///      phase 1 of graduation (awaiting `finalizeGraduation`). Distinct from
-    ///      a generic revert so the frontend can show the "Token is graduating"
-    ///      overlay rather than a fee/balance error.
     error TokenIsGraduating();
-    /// @dev Raised when buy/sell targets an address that was never registered
-    ///      as a launched token. Mirrors `Bonding.TokenNotTrading`. Caught
-    ///      upfront in `Zap` so unknown tokens revert before any USDC moves —
-    ///      otherwise the call would propagate into `_executeBuy`'s USDC
-    ///      transfer and LT approve and revert deep in `SafeERC20` with an
-    ///      opaque error.
+    /// @dev Caught upfront so unknown tokens revert before any USDC moves
+    ///      (otherwise the failure surfaces deep in `SafeERC20` with an opaque error).
     error TokenNotTrading();
-    /// @dev Raised when a buy's USDC input or a sell's expected USDC output
-    ///      is below `MIN_USDC_AMOUNT`. Mirrors the BounceTech LT
-    ///      `mint`/`redeem` floor on-chain so users see a clean error
-    ///      instead of an undecodable LT revert.
+    /// @dev Mirrors the BounceTech LT `mint`/`redeem` floor so users see a
+    ///      clean error instead of an undecodable LT revert.
     error BelowMinAmount();
 
     constructor() {
@@ -135,12 +109,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         creatorFeeBps = creatorFeeBps_;
     }
 
-    /// @notice Create a new token on the bonding curve
-    /// @param params Launch parameters (name, ticker, description, image, urls, ltAddress)
-    /// @param seedUsdcAmount USDC amount for seed buy (0 = no seed buy). Routed
-    ///                       through the standard buy path so it gets the same
-    ///                       pro-rata fee handling, leftover-LT-to-USDC refund,
-    ///                       and `Buy` event as a regular post-launch buy.
+    /// @param seedUsdcAmount USDC for seed buy (0 = no seed). Routed through
+    ///                       `_buyInternal` so it inherits the standard
+    ///                       fee/refund handling and emits `Buy`.
     function createToken(
         Bonding.LaunchParams calldata params,
         uint256 seedUsdcAmount
@@ -148,10 +119,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _createTokenInternal(params, seedUsdcAmount);
     }
 
-    /// @notice Create a new token, applying an EIP-2612 permit on USDC first.
-    /// @dev Permit is only consumed if a seed buy is requested. For a pure
-    ///      create (no seed buy) the zap needs no USDC, so any provided
-    ///      permit is ignored.
+    /// @dev Permit is only consumed when a seed buy is requested.
     function createTokenWithPermit(
         Bonding.LaunchParams calldata params,
         uint256 seedUsdcAmount,
@@ -161,11 +129,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _createTokenInternal(params, seedUsdcAmount);
     }
 
-    /// @notice Buy tokens with USDC
-    /// @param tokenAddress Token to buy
-    /// @param usdcAmount USDC to spend
-    /// @param minTokensOut Minimum tokens to receive
-    /// @param referrer Referrer address (address(0) if none)
     function buy(
         address tokenAddress,
         uint256 usdcAmount,
@@ -175,7 +138,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _buyInternal(tokenAddress, usdcAmount, minTokensOut, referrer);
     }
 
-    /// @notice Buy tokens with USDC, applying an EIP-2612 permit on USDC first.
     function buyWithPermit(
         address tokenAddress,
         uint256 usdcAmount,
@@ -187,10 +149,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _buyInternal(tokenAddress, usdcAmount, minTokensOut, referrer);
     }
 
-    /// @notice Sell tokens for USDC
-    /// @param tokenAddress Token to sell
-    /// @param tokenAmount Amount of tokens to sell
-    /// @param minUsdcOut Minimum USDC to receive
     function sell(
         address tokenAddress,
         uint256 tokenAmount,
@@ -199,9 +157,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _sellInternal(tokenAddress, tokenAmount, minUsdcOut);
     }
 
-    /// @notice Sell tokens for USDC, applying an EIP-2612 permit on the token first.
-    /// @dev Requires the token to support EIP-2612 (all `Token`s launched by
-    ///      this protocol do). For legacy tokens without permit, use `sell`.
     function sellWithPermit(
         address tokenAddress,
         uint256 tokenAmount,
@@ -223,13 +178,8 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         (tokenAddr,) = bonding.launch(params, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
 
-        // Seed buys reuse the standard buy path so they inherit the same
-        // pro-rata fee accrual and leftover-LT-to-USDC refund logic. This
-        // matters when the curve graduates inline (USD trigger) and `Bonding`
-        // caps the LT actually consumed — the fee is then charged only on the
-        // portion of USDC that was really spent. `referrer = address(0)` and
-        // `minTokensOut = 0` because seed buys are user-driven from the same
-        // tx that launched the token; slippage here is meaningless.
+        // `minTokensOut = 0` is intentional: a seed buy executes in the same tx
+        // as the launch, so there's nothing for slippage to protect against.
         if (seedUsdcAmount > 0) {
             _buyInternal(tokenAddr, seedUsdcAmount, 0, address(0));
         }
@@ -264,10 +214,11 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    /// @dev Core buy cash-flow: pull USDC, mint LT on the net portion, execute
-    ///      the curve/HyperSwap buy, refund any leftover (LT and pro-rata fee),
-    ///      and deliver tokens. Returned `actualFee` is USDC sitting in the
-    ///      zap awaiting `_accrueFee`; `feeRefund` has already been paid out.
+    /// @dev Pull USDC, mint LT on the net amount, execute the buy, refund the
+    ///      pro-rata fee + leftover LT, deliver tokens. Returns `actualFee` in
+    ///      USDC awaiting `_accrueFee`; `feeRefund` has already been paid.
+    ///      Pro-rating matters when an inline graduation caps the LT consumed:
+    ///      the fee scales with the LT actually spent, not the gross USDC in.
     function _executeBuy(
         address tokenAddress,
         uint256 usdcAmount
@@ -279,12 +230,10 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 feeOnGross = (usdcAmount * buyFeeBps) / BPS_DENOM;
         uint256 netUsdc = usdcAmount - feeOnGross;
 
-        // USDC -> LT on the net amount (fee stays in the zap as USDC).
         usdc.forceApprove(lt, netUsdc);
         uint256 ltMinted = IBounceLeveragedToken(lt).mint(address(this), netUsdc, 0);
 
         if (bonding.isGraduated(tokenAddress)) {
-            // HyperSwap consumes the full LT amount (no supply cap).
             tokensOut = _buyOnHyperswap(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
@@ -293,18 +242,15 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
 
-        // Pro-rate the fee by the fraction of LT actually consumed. The remainder
-        // (leftover LT + unused fee in USDC) is refunded to the user as USDC.
         actualFee = ltMinted == 0 ? 0 : (usdcAmount * buyFeeBps * amountInUsed) / (BPS_DENOM * ltMinted);
         uint256 feeRefund = feeOnGross - actualFee;
 
-        // Refund leftover LT -> USDC to the user. Fall back to LT if redeem reverts.
+        // Refund leftover LT as USDC. Fall back to LT if redeem reverts (e.g.
+        // leftover below `MIN_USDC_AMOUNT`).
         uint256 ltLeft = ltMinted - amountInUsed;
         if (ltLeft > 0) {
             IERC20(lt).forceApprove(lt, ltLeft);
-            try IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {
-            // delivered as USDC
-            }
+            try IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {}
             catch {
                 IERC20(lt).safeTransfer(msg.sender, ltLeft);
                 emit LeftoverLTReturned(msg.sender, ltLeft);
@@ -342,7 +288,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 grossUsdcEstimate = (ltReceived * IBounceLeveragedToken(lt).exchangeRate()) / 1e18;
         if (grossUsdcEstimate < MIN_USDC_AMOUNT) revert BelowMinAmount();
 
-        // LT -> USDC into this zap (not the user) so we can deduct the fee.
+        // Redeem into this zap (not the user) so we can deduct the fee.
         IERC20(lt).forceApprove(lt, ltReceived);
         uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
@@ -362,9 +308,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Internal: Fee Accrual ───────────────────────────────────────────
 
-    /// @dev Split `feeAmount` USDC into creator / protocol shares, forward to
-    ///      `FeeVault` via a `transfer` + `accrue` call. The vault trusts
-    ///      allowlisted depositors to pass truthful amounts.
+    /// @dev Split into creator / protocol shares, transfer to `FeeVault`, then
+    ///      `accrue`. The vault trusts allowlisted depositors to pass truthful
+    ///      amounts (cross-checked against its USDC balance).
     function _accrueFee(
         address token,
         address creator,
@@ -379,36 +325,18 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Internal: Permit ────────────────────────────────────────────────
 
-    /// @dev Apply an EIP-2612 permit from `owner_` to this zap. Swallows
-    ///      reverts to defuse the standard permit-front-run DoS: if an
-    ///      attacker observes the mempool and submits the same sig first,
-    ///      the nonce is consumed but the allowance is already set, so the
-    ///      follow-on `transferFrom` still succeeds. If the permit was never
-    ///      applied (e.g. bad sig), the subsequent transfer will revert,
-    ///      which is the correct behaviour.
-    ///
-    ///      Failure modes worth knowing:
-    ///       - Bad permit (wrong sig, expired deadline, wrong owner): the
-    ///         catch swallows the revert, no allowance is set, and the
-    ///         subsequent `safeTransferFrom` reverts with
-    ///         `ERC20InsufficientAllowance` (or the legacy "transfer amount
-    ///         exceeds allowance" string). The user pays gas for the failed
-    ///         permit + the failed prefix of the buy/sell flow. Frontends
-    ///         SHOULD simulate the permit (e.g. via `eth_call` or a wallet
-    ///         simulation) before submitting so users see a permit-specific
-    ///         error rather than the misleading allowance one.
-    ///       - Out-of-gas inside `permit`: Solidity `try/catch` does NOT
-    ///         catch OOG — the entire tx reverts. Not a vulnerability, just a
-    ///         quirk of the EVM `try/catch` semantics.
+    /// @dev Catch swallows reverts to defuse permit-front-run DoS: if an
+    ///      attacker submits the same sig first the nonce is consumed but the
+    ///      allowance is already set, so the follow-on `transferFrom`
+    ///      succeeds. A genuinely bad permit is caught downstream by the
+    ///      transfer reverting on insufficient allowance — frontends should
+    ///      simulate to surface a permit-specific error pre-flight.
     function _tryPermit(
         address token,
         address owner_,
         PermitData calldata p
     ) internal {
-        try IERC20Permit(token).permit(owner_, address(this), p.value, p.deadline, p.v, p.r, p.s) {}
-            catch {
-            // intentional: see natspec
-        }
+        try IERC20Permit(token).permit(owner_, address(this), p.value, p.deadline, p.v, p.r, p.s) {} catch {}
     }
 
     // ─── Internal: Curve Trades ──────────────────────────────────────────
@@ -420,12 +348,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
         Router curveRouter = bonding.router();
         IERC20(lt).forceApprove(address(curveRouter), ltAmount);
-        // Slippage is checked in Zap.buy after the refund path, so pass 0 here.
-        // `msg.sender` is preserved across the internal call, so it's the user
-        // who invoked `Zap.buy` — passed through to Bonding as the
-        // `trader` for the emitted `Trade` event. Zap is trusted by Bonding
-        // (it's on the `isRouter` allowlist), so this attribution is not
-        // spoofable by any other caller.
+        // Slippage check happens after the refund path in `_buyInternal`.
+        // `msg.sender` here is the user-EOA that called `Zap.buy`; passed
+        // through as `trader` for the emitted `Trade` event.
         (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
     }
 
@@ -441,22 +366,16 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     // ─── Internal: HyperSwap Trades ─────────────────────────────────────
 
     /// @dev Direct-to-pair swap, bypassing the HyperSwap V2 router. The
-    ///      deployed mainnet router (`0xb4a9C4e6…`) only exposes
-    ///      `addLiquidity*` plus the HYPE-paired `swap*Supporting…` variants
-    ///      with a non-standard `referrer` parameter — it has no
-    ///      `swapExactTokensForTokens`. Calling the pair directly is the
-    ///      canonical UniswapV2 pattern (`transfer → pair.swap`) and works
-    ///      against any V2-compatible pair, so we don't depend on the router
-    ///      having a particular ABI.
+    ///      mainnet router has no `swapExactTokensForTokens` (only HYPE-paired
+    ///      `swap*Supporting…` variants with a non-standard `referrer`),
+    ///      so we go direct to the pair.
     function _swapOnHyperswap(
         address tokenIn,
         address tokenOut,
         uint256 amountIn
     ) internal returns (uint256 amountOut) {
-        // `Bonding._graduate` stores `graduatedPair` only under the launched token
-        // address (not the LT). Check `tokenIn` first for the sell direction
-        // (launched token -> LT), then fall back to `tokenOut` for the buy
-        // direction (LT -> launched token).
+        // `graduatedPair` is keyed by the launched token only; check `tokenIn`
+        // first (sell direction) then fall back to `tokenOut` (buy direction).
         address pair = bonding.graduatedPair(tokenIn);
         if (pair == address(0)) pair = bonding.graduatedPair(tokenOut);
 
@@ -465,7 +384,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         (uint256 reserveIn, uint256 reserveOut) =
             inIsToken0 ? (uint256(reserve0), uint256(reserve1)) : (uint256(reserve1), uint256(reserve0));
 
-        // Standard UniswapV2 constant-product formula with 0.3% fee.
         uint256 amountInWithFee = amountIn * 997;
         amountOut = (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
 
@@ -480,8 +398,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address lt,
         uint256 ltAmount
     ) internal returns (uint256 tokensOut) {
-        // Slippage is enforced by the caller (`_buyInternal` checks
-        // `tokensOut < minTokensOut`), so no per-hop minOut needed here.
         tokensOut = _swapOnHyperswap(lt, tokenAddress, ltAmount);
     }
 
@@ -512,11 +428,10 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit HyperswapRouterUpdated(hyperswapRouter_);
     }
 
-    /// @notice Hot-swap the FeeVault. Reverts if the new vault hasn't already
-    ///         allowlisted this zap as a depositor — without that, the very
-    ///         next buy/sell would revert in `FeeVault.accrue` and brick
-    ///         trading. Owners must `feeVault.addDepositor(zap)` on the new
-    ///         vault first, then call this.
+    /// @notice Hot-swap the FeeVault. Reverts unless the new vault already
+    ///         allowlists this zap as a depositor — otherwise the next
+    ///         buy/sell would brick. Owners must `feeVault.addDepositor(zap)`
+    ///         on the new vault first.
     function setFeeVault(
         address feeVault_
     ) external onlyOwner {
@@ -526,8 +441,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit FeeVaultUpdated(feeVault_);
     }
 
-    /// @notice Update fee parameters. Bounded by `MAX_FEE_BPS` on each side and
-    ///         `BPS_DENOM` on the creator split.
     function setFees(
         uint256 buyFeeBps_,
         uint256 sellFeeBps_,
