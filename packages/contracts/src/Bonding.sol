@@ -382,9 +382,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
 
         // CEI pattern: predict the clone address & enforce the vanity suffix
-        // invariant BEFORE any external calls, write state next, and only
-        // then deploy + seed. The pair address is unknown until after the
-        // factory call, so it's patched into the already-stored slot below.
+        // invariant BEFORE any state-mutating external calls, write state
+        // next, and only then deploy + seed. The earlier `ltExists` lookup
+        // is a read-only `view` into a trusted BounceTech contract (and
+        // `nonReentrant` covers the function regardless), so it doesn't
+        // count against the CEI ordering. The pair address is unknown
+        // until after the factory call, so it's patched into the
+        // already-stored slot below.
         bytes32 saltMixed = _mixSalt(creator_, params.salt);
         tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
         // forge-lint: disable-next-line(unsafe-typecast)
