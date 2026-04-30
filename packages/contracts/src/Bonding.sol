@@ -214,39 +214,13 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     mapping(address => PendingGraduation) public pendingGraduation;
 
     /// @notice BounceTech `GlobalStorage`, queried at every `launch` to
-    ///         resolve the live `Factory` and confirm `params.ltAddress` is
-    ///         a real BounceTech-deployed LT via `Factory.ltExists`.
-    /// @dev    Without this gate, `Zap.createToken` is permissionless and
-    ///         forwards an arbitrary `ltAddress` straight through to
-    ///         `Bonding.launch`. A scammer can ship a contract that
-    ///         satisfies our `IBounceLeveragedToken` interface but pulls the
-    ///         buyer's USDC into an attacker-controlled address inside
-    ///         `mint(...)` (since `Zap` `forceApprove`s the supposed LT
-    ///         before calling `mint`). The off-chain UI filters to
-    ///         BounceTech's directory, but anyone can call
-    ///         `Zap.createToken` directly via `cast` and the indexer then
-    ///         surfaces the malicious token like any other.
-    ///
-    ///         Going through `GlobalStorage.factory()` (rather than caching
-    ///         the factory address ourselves) means a BounceTech-driven
-    ///         `setFactory` flows through to us automatically — the next
-    ///         launch reads the new factory with zero ops on our side.
-    ///         `GlobalStorage` is BounceTech's central upgrade-stable
-    ///         registry; their factory address can be rotated via
-    ///         `setFactory`, but the `GlobalStorage` address itself is
-    ///         long-lived and the canonical entry point all of their own
-    ///         contracts use.
-    ///
-    ///         Hot-swappable via `setBounceGlobalStorage` as a backstop in
-    ///         the unlikely event BounceTech ever redeploys `GlobalStorage`
-    ///         itself. The check only runs in `launch`, so already-launched
-    ///         tokens keep trading and graduating regardless — see the
-    ///         setter natspec for the existing-tokens-keep-trading guarantee.
-    ///
-    ///         Two SLOADs across two contracts (~5k gas total) per launch
-    ///         is negligible vs. the ~2.5M gas baseline of the launch tx.
-    ///
-    ///         See `Bonding.UnknownLeveragedToken` for the matching revert.
+    ///         resolve the live `Factory` and reject `ltAddress` values
+    ///         that aren't real BounceTech-deployed LTs (which would
+    ///         otherwise let a malicious LT siphon buyer USDC inside
+    ///         `mint`). Going through `GlobalStorage` instead of caching
+    ///         the factory means BounceTech-driven `setFactory` calls
+    ///         flow through automatically. Hot-swappable via
+    ///         `setBounceGlobalStorage` as a backstop.
     IBounceGlobalStorage public bounceGlobalStorage;
 
     /// @dev Storage gap for future upgrades. Sized so this contract's storage block
@@ -323,10 +297,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      qualifying salt (no random fallbacks).
     error NotVanityAddress(address tokenAddr);
     /// @dev `params.ltAddress` is not registered in the BounceTech `Factory`'s
-    ///      `ltExists` mapping. This catches both random / arbitrary contracts
-    ///      a scammer might pass in and LTs that BounceTech has since
-    ///      `redeployLt`'d (the old address gets unregistered and we shouldn't
-    ///      anchor new launches against a dead LT).
+    ///      `ltExists` mapping (either an arbitrary contract or an LT that
+    ///      BounceTech has since `redeployLt`'d).
     error UnknownLeveragedToken(address ltAddress);
 
     modifier onlyRouter() {
@@ -343,10 +315,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///        freshly-launched curve cannot be pre-graduated by a too-low
     ///        deploy-time value. There is no on-chain setter — changing
     ///        this value requires a UUPS upgrade with a `reinitializer`.
-    /// @param bounceGlobalStorage_ BounceTech `GlobalStorage`. Queried at
-    ///        every `launch` to resolve the live `Factory` and confirm
-    ///        the supplied LT was deployed by BounceTech. See the
-    ///        `bounceGlobalStorage` storage slot natspec for full rationale.
     function initialize(
         address factory_,
         address router_,
@@ -372,23 +340,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
     }
 
-    /// @notice Backfill `bounceGlobalStorage` on a proxy that was deployed
-    ///         before this slot existed. UUPS upgrade entrypoint — invoked
-    ///         by the post-upgrade `upgradeToAndCall` payload exactly once.
-    /// @dev    `reinitializer(2)` so this can run on a proxy already at
-    ///         `_initialized == 1` and locks itself afterwards. New
-    ///         deployments use `initialize` directly and never reach this
-    ///         function — the `bounceGlobalStorage != address(0)`
-    ///         short-circuit closes the front-run window where a stranger
-    ///         could call `initializeBounceGlobalStorage(maliciousAddr)`
-    ///         between an atomic deploy+initialize and any other tx (it
-    ///         would still satisfy `reinitializer(2)` because
-    ///         `_initialized` is only at 1 post-`initialize`). On a
-    ///         freshly-deployed proxy the slot is already set, so the
-    ///         guard reverts immediately and ownership doesn't matter; on
-    ///         an upgraded legacy proxy the slot is zero and the
-    ///         keeper-driven `upgradeToAndCall` lands the backfill
-    ///         atomically before any other tx can interleave.
+    /// @notice Backfill `bounceGlobalStorage` on a proxy deployed before
+    ///         this slot existed. Invoked atomically via `upgradeToAndCall`.
+    /// @dev    The `bounceGlobalStorage != address(0)` guard closes the
+    ///         front-run window on fresh proxies where `_initialized == 1`
+    ///         would otherwise still satisfy `reinitializer(2)`.
     function initializeBounceGlobalStorage(
         address bounceGlobalStorage_
     ) external reinitializer(2) {
@@ -405,18 +361,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address creator_
     ) external onlyRouter nonReentrant returns (address tokenAddr, address pair) {
         if (params.ltAddress == address(0)) revert InvalidInput();
-        // On-chain LT-legitimacy gate. The off-chain UI already filters to
-        // BounceTech's directory, but `Zap.createToken` is permissionless
-        // and a `cast send` can pass any address as `ltAddress`. Without
-        // this check, a contract that fakes the `IBounceLeveragedToken` ABI but
-        // siphons USDC inside `mint` is accepted, the indexer surfaces the
-        // resulting token like any other, and the first buyer's USDC
-        // (which `Zap` `forceApprove`s to the LT before the curve buy)
-        // goes to the attacker. We resolve the live BounceTech `Factory`
-        // through their `GlobalStorage` (rather than caching the factory
-        // address ourselves) so a BounceTech-driven `setFactory` flows
-        // through to us automatically — no ops on our side needed when
-        // they rotate the factory.
+        // LT legitimacy gate — `Zap.createToken` is permissionless, so
+        // without this check a fake LT could siphon USDC inside `mint`
+        // (which `Zap` `forceApprove`s before the curve buy).
         if (!IBounceFactory(bounceGlobalStorage.factory()).ltExists(params.ltAddress)) {
             revert UnknownLeveragedToken(params.ltAddress);
         }
@@ -686,18 +633,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     /// @notice Hot-swap the BounceTech `GlobalStorage` consulted by `launch`.
-    ///         Backstop for the unlikely event BounceTech ever redeploys
-    ///         `GlobalStorage` itself (factory rotations alone are picked
-    ///         up automatically through the live `factory()` lookup and
-    ///         require no action here).
-    /// @dev    Affects future launches only. Already-launched tokens have
-    ///         a resolved `ltAddress` baked into their `TokenInfo` and
-    ///         keep trading regardless — the `ltExists` lookup is
-    ///         consulted only in the launch path. So even if BounceTech
-    ///         rotates `GlobalStorage` (or the factory it points at) and
-    ///         an old LT becomes "non-existent" in the new factory's view,
-    ///         every token already paired against that LT continues to
-    ///         trade and graduate normally.
+    ///         Backstop for the unlikely case BounceTech redeploys
+    ///         `GlobalStorage` itself (factory rotations are picked up
+    ///         automatically). Affects future launches only — already-
+    ///         launched tokens have `ltAddress` baked into `TokenInfo` and
+    ///         keep trading regardless.
     function setBounceGlobalStorage(
         address newBounceGlobalStorage
     ) external onlyOwner {

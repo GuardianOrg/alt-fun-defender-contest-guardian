@@ -4,14 +4,9 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title IBounceLeveragedToken
-/// @notice Interface for BounceTech Leveraged Token contracts. Named with the
-///         `IBounce` prefix to match `IBounceFactory` and
-///         `IBounceGlobalStorage` — every interface that wraps an external
-///         BounceTech contract carries the prefix so the trust surface is
-///         obvious at every callsite.
-///
-///         Source:
-///         https://github.com/bounce-tech/bounce-smart-contracts/blob/main/src/LeveragedToken.sol
+/// @notice Interface for BounceTech Leveraged Token contracts.
+/// @dev Source:
+///      https://github.com/bounce-tech/bounce-smart-contracts/blob/main/src/LeveragedToken.sol
 interface IBounceLeveragedToken is IERC20 {
     /// @notice Mint LT by depositing base asset (USDC).
     /// @param to Recipient of the minted LT
