@@ -17,6 +17,22 @@ const stubEnv = {
   HYPEREVM_RPC_URL: "http://stub-rpc:1",
 } as unknown as AppBindings;
 
+// --- Viem mock ---
+//
+// `getGraduationThresholdUsd` calls `client.readContract({ ..., functionName:
+// "graduationThresholdUsd" })`. Mocking at the viem boundary keeps the cache
+// + fallback logic exercised without depending on viem's JSON-RPC wire
+// format (which can include `eth_chainId` probes alongside the `eth_call`,
+// making raw-fetch mocks brittle across viem versions).
+const mockReadContract = vi.fn();
+vi.mock("viem", async () => {
+  const actual = await vi.importActual<typeof import("viem")>("viem");
+  return {
+    ...actual,
+    createPublicClient: () => ({ readContract: mockReadContract }),
+  };
+});
+
 describe("computeCurveFilledBreakdown — graduation threshold argument", () => {
   // Pure-math sanity checks for the threshold parameter. The breakdown
   // routine has its own dedicated reserve-decoding tests elsewhere; this
@@ -83,54 +99,38 @@ describe("computeCurveFilledBreakdown — graduation threshold argument", () => 
 describe("getGraduationThresholdUsd — fallback + caching", () => {
   beforeEach(() => {
     _resetGraduationThresholdCache();
+    mockReadContract.mockReset();
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
     _resetGraduationThresholdCache();
   });
 
   it("falls back to the compile-time default when the RPC is unreachable", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+    mockReadContract.mockRejectedValue(new Error("ECONNREFUSED"));
 
     const value = await getGraduationThresholdUsd(stubEnv);
     expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
   });
 
   it("returns the live threshold when the RPC responds", async () => {
-    // viem JSON-RPC `eth_call` wire format. The single 32-byte hex word
-    // is the ABI-encoded `uint256` return value of `graduationThresholdUsd()`.
-    // 25_000 ether = 25_000n * 10n ** 18n → 0x54b40b1f852bda000000.
-    const wei = 25_000n * 10n ** 18n;
-    const hex = "0x" + wei.toString(16).padStart(64, "0");
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: hex }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    // `readContract` returns the decoded `uint256` (18-dp wei), not raw
+    // calldata. `getGraduationThresholdUsd` divides by 10^18.
+    mockReadContract.mockResolvedValue(25_000n * 10n ** 18n);
 
     const value = await getGraduationThresholdUsd(stubEnv);
     expect(value).toBe(25_000);
   });
 
   it("caches the value across calls within the same isolate", async () => {
-    const wei = 12_000n * 10n ** 18n;
-    const hex = "0x" + wei.toString(16).padStart(64, "0");
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: hex }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
+    mockReadContract.mockResolvedValue(12_000n * 10n ** 18n);
 
     await getGraduationThresholdUsd(stubEnv);
     await getGraduationThresholdUsd(stubEnv);
     await getGraduationThresholdUsd(stubEnv);
 
-    // Cache TTL is 60s; three back-to-back reads must hit the RPC at most
-    // once. (viem may emit a `eth_chainId` probe before the call, hence the
-    // soft upper bound.)
-    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(2);
+    // Cache TTL is 60s; three back-to-back reads must hit the contract
+    // exactly once.
+    expect(mockReadContract).toHaveBeenCalledTimes(1);
   });
 });
