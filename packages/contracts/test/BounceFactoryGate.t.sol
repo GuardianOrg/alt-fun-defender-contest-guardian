@@ -4,14 +4,18 @@ pragma solidity ^0.8.24;
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {IBounceFactory} from "../src/interfaces/IBounceFactory.sol";
+import {IBounceGlobalStorage} from "../src/interfaces/IBounceGlobalStorage.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 import {MockBounceFactory} from "./mocks/MockBounceFactory.sol";
+import {MockBounceGlobalStorage} from "./mocks/MockBounceGlobalStorage.sol";
 import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
 
 /// @notice Tests for the BounceTech LT-existence gate added to `Bonding.launch`
-///         (issue #268). The gate consults BounceTech's own `Factory.ltExists`
-///         on every launch, so a token can only be paired with an LT that
-///         BounceTech itself deployed via their `createLt` flow.
+///         (issue #268). The gate consults BounceTech's `Factory.ltExists`,
+///         resolved live on every launch through their `GlobalStorage.factory()`.
+///         Going through `GlobalStorage` (rather than caching the factory
+///         address ourselves) means a BounceTech-driven `setFactory` flows
+///         through to us automatically with zero ops on our side.
 contract BounceFactoryGateTest is DeployHelper {
     address public stranger = makeAddr("stranger");
 
@@ -37,8 +41,8 @@ contract BounceFactoryGateTest is DeployHelper {
 
     // ─── Initialisation ──────────────────────────────────────────────────
 
-    function test_initialize_persistsBounceFactory() public view {
-        assertEq(address(bonding.bounceFactory()), address(bounceFactory));
+    function test_initialize_persistsBounceGlobalStorage() public view {
+        assertEq(address(bonding.bounceGlobalStorage()), address(bounceGlobalStorage));
     }
 
     // ─── Launch gate ─────────────────────────────────────────────────────
@@ -87,36 +91,64 @@ contract BounceFactoryGateTest is DeployHelper {
         bonding.launch(params, creator);
     }
 
-    // ─── setBounceFactory admin path ─────────────────────────────────────
+    // ─── Live factory resolution through GlobalStorage ───────────────────
 
-    function test_setBounceFactory_onlyOwner() public {
-        MockBounceFactory replacement = new MockBounceFactory();
+    function test_launch_picksUpFactoryRotationWithoutAdminAction() public {
+        // The whole point of resolving the factory live: BounceTech rotates
+        // their factory by calling `GlobalStorage.setFactory`, and the
+        // very next `Bonding.launch` reads from the new factory with zero
+        // ops on our side.
+        MockBounceFactory rotatedFactory = new MockBounceFactory();
+        // The new factory does NOT recognise the previously-valid LT.
+        bounceGlobalStorage.setFactory(address(rotatedFactory));
+
+        Bonding.LaunchParams memory params = _launchParams(address(lt));
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(Bonding.UnknownLeveragedToken.selector, address(lt)));
+        bonding.launch(params, creator);
+
+        // Register `lt` in the new factory and re-attempt — should now pass.
+        rotatedFactory.setLtExists(address(lt), true);
+        Bonding.LaunchParams memory params2 = _launchParams(address(lt));
+        vm.prank(creator);
+        (address tokenAddr,) = bonding.launch(params2, creator);
+        assertTrue(tokenAddr != address(0));
+    }
+
+    // ─── setBounceGlobalStorage admin path ───────────────────────────────
+
+    function test_setBounceGlobalStorage_onlyOwner() public {
+        MockBounceFactory replacementFactory = new MockBounceFactory();
+        MockBounceGlobalStorage replacement = new MockBounceGlobalStorage(address(replacementFactory));
         vm.prank(stranger);
         vm.expectRevert();
-        bonding.setBounceFactory(address(replacement));
+        bonding.setBounceGlobalStorage(address(replacement));
     }
 
-    function test_setBounceFactory_revertsOnZeroAddress() public {
+    function test_setBounceGlobalStorage_revertsOnZeroAddress() public {
         vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.setBounceFactory(address(0));
+        bonding.setBounceGlobalStorage(address(0));
     }
 
-    function test_setBounceFactory_emitsAndUpdates() public {
-        MockBounceFactory replacement = new MockBounceFactory();
-        address old = address(bonding.bounceFactory());
+    function test_setBounceGlobalStorage_emitsAndUpdates() public {
+        MockBounceFactory replacementFactory = new MockBounceFactory();
+        MockBounceGlobalStorage replacement = new MockBounceGlobalStorage(address(replacementFactory));
+        address old = address(bonding.bounceGlobalStorage());
 
         vm.expectEmit(true, true, false, false);
-        emit Bonding.BounceFactoryUpdated(old, address(replacement));
-        bonding.setBounceFactory(address(replacement));
+        emit Bonding.BounceGlobalStorageUpdated(old, address(replacement));
+        bonding.setBounceGlobalStorage(address(replacement));
 
-        assertEq(address(bonding.bounceFactory()), address(replacement));
+        assertEq(address(bonding.bounceGlobalStorage()), address(replacement));
     }
 
-    function test_setBounceFactory_appliesToFutureLaunches() public {
-        // Old factory recognises `lt`, new one doesn't — switching factories
-        // should immediately reject launches against `lt`.
-        MockBounceFactory replacement = new MockBounceFactory();
-        bonding.setBounceFactory(address(replacement));
+    function test_setBounceGlobalStorage_appliesToFutureLaunches() public {
+        // Old global storage points at a factory that recognises `lt`, new
+        // one points at a factory that doesn't — switching should
+        // immediately reject launches against `lt`.
+        MockBounceFactory emptyFactory = new MockBounceFactory();
+        MockBounceGlobalStorage replacement = new MockBounceGlobalStorage(address(emptyFactory));
+        bonding.setBounceGlobalStorage(address(replacement));
 
         Bonding.LaunchParams memory params = _launchParams(address(lt));
         vm.prank(creator);
@@ -124,17 +156,19 @@ contract BounceFactoryGateTest is DeployHelper {
         bonding.launch(params, creator);
     }
 
-    function test_setBounceFactory_doesNotAffectAlreadyLaunchedTokens() public {
+    function test_setBounceGlobalStorage_doesNotAffectAlreadyLaunchedTokens() public {
         // Token launched while `lt` was registered. We then rotate the
-        // BounceTech factory to one that doesn't know about `lt` — the
-        // already-launched token must keep trading because the gate only
-        // runs in `launch`, not in `buy`/`sell`/`finalizeGraduation`.
+        // BounceTech global storage to one whose factory doesn't know
+        // about `lt` — the already-launched token must keep trading
+        // because the gate only runs in `launch`, not in
+        // `buy`/`sell`/`finalizeGraduation`.
         Bonding.LaunchParams memory params = _launchParams(address(lt));
         vm.prank(creator);
         (address tokenAddr,) = bonding.launch(params, creator);
 
-        MockBounceFactory replacement = new MockBounceFactory();
-        bonding.setBounceFactory(address(replacement));
+        MockBounceFactory emptyFactory = new MockBounceFactory();
+        MockBounceGlobalStorage replacement = new MockBounceGlobalStorage(address(emptyFactory));
+        bonding.setBounceGlobalStorage(address(replacement));
 
         lt.mintDirect(trader, 50 ether);
         vm.startPrank(trader);
@@ -142,24 +176,25 @@ contract BounceFactoryGateTest is DeployHelper {
         (uint256 tokensOut,) = bonding.buy(50 ether, tokenAddr, 0, trader);
         vm.stopPrank();
 
-        assertGt(tokensOut, 0, "existing token must keep trading after factory rotation");
+        assertGt(tokensOut, 0, "existing token must keep trading after global storage rotation");
     }
 
     // ─── Reinitializer (upgrade backfill) ────────────────────────────────
 
-    function test_initializeBounceFactory_revertsOnFreshProxyEvenForOwner() public {
+    function test_initializeBounceGlobalStorage_revertsOnFreshProxyEvenForOwner() public {
         // Closes the front-run window: a fresh-deploy proxy sets
-        // `bounceFactory` in `initialize` (so `_initialized == 1`), and
-        // `reinitializer(2)` would technically still allow one more call.
-        // The `bounceFactory != address(0)` guard rejects the call so an
-        // attacker can't swap the gate to a malicious factory between deploy
-        // and any other tx.
-        MockBounceFactory replacement = new MockBounceFactory();
+        // `bounceGlobalStorage` in `initialize` (so `_initialized == 1`),
+        // and `reinitializer(2)` would technically still allow one more
+        // call. The `bounceGlobalStorage != address(0)` guard rejects the
+        // call so an attacker can't swap the gate to a malicious global
+        // storage between deploy and any other tx.
+        MockBounceFactory replacementFactory = new MockBounceFactory();
+        MockBounceGlobalStorage replacement = new MockBounceGlobalStorage(address(replacementFactory));
         vm.expectRevert(Bonding.InvalidInput.selector);
-        bonding.initializeBounceFactory(address(replacement));
+        bonding.initializeBounceGlobalStorage(address(replacement));
     }
 
-    function test_initializeBounceFactory_cannotBeCalledByStranger() public {
+    function test_initializeBounceGlobalStorage_cannotBeCalledByStranger() public {
         // Permissionless function (it's gated only by `reinitializer(2)` +
         // the slot guard), so a stranger calling it should revert for the
         // same reason the owner does — slot is already populated. This is
@@ -167,6 +202,6 @@ contract BounceFactoryGateTest is DeployHelper {
         // slot guard, not msg.sender, is the safety net.
         vm.prank(stranger);
         vm.expectRevert(Bonding.InvalidInput.selector);
-        bonding.initializeBounceFactory(address(0xdead));
+        bonding.initializeBounceGlobalStorage(address(0xdead));
     }
 }

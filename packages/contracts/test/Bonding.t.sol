@@ -828,7 +828,7 @@ contract BondingTest is DeployHelper {
                 lpLock_,
                 tokenImpl_,
                 TEST_GRADUATION_THRESHOLD_USD,
-                address(bounceFactory)
+                address(bounceGlobalStorage)
             )
         );
     }
@@ -878,7 +878,7 @@ contract BondingTest is DeployHelper {
         new ERC1967Proxy(address(freshImpl), init);
     }
 
-    function test_initialize_revertsOnZeroBounceFactory() public {
+    function test_initialize_revertsOnZeroBounceGlobalStorage() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = abi.encodeCall(
             Bonding.initialize,
@@ -974,7 +974,7 @@ contract BondingTest is DeployHelper {
                 address(lpLockContract),
                 address(tokenImpl),
                 bonding.VIRTUAL_LIQUIDITY_USD() - 1,
-                address(bounceFactory)
+                address(bounceGlobalStorage)
             )
         );
         vm.expectRevert(Bonding.InvalidInput.selector);
@@ -993,7 +993,7 @@ contract BondingTest is DeployHelper {
                 address(lpLockContract),
                 address(tokenImpl),
                 floor,
-                address(bounceFactory)
+                address(bounceGlobalStorage)
             )
         );
         Bonding fresh = Bonding(address(new ERC1967Proxy(address(freshImpl), init)));
