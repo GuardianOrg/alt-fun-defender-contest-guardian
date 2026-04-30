@@ -11,11 +11,13 @@ pragma solidity ^0.8.24;
 ///
 ///         Pure value match — digits 0-9 render identically regardless of
 ///         EIP-55 checksum casing, so no second keccak step is needed.
-///         Production launches use the JS Web Worker miner with the
-///         identical predicate. Equality of the address-derivation half is
-///         pinned by `test_predictTokenAddress_matchesOZHelper` in
-///         `test/Clones.t.sol`; equality of the suffix mask is implicit
-///         because the JS worker uses the same `0x…fffff` low-bits check.
+///         Production launches use the JS Web Worker miner with an
+///         equivalent predicate via a different code shape: the worker
+///         does `tail.endsWith(suffix)` over the address's lowercase hex
+///         string, which for an all-digit `suffix = "00000"` is exactly
+///         equivalent to the low-20-bits mask check used here. Equality
+///         of the address-derivation half is pinned by
+///         `test_predictTokenAddress_matchesOZHelper` in `test/Clones.t.sol`.
 library VanityMining {
     /// @dev EIP-1167 *creation*-code, OpenZeppelin v5 layout used by
     ///      `Clones.cloneDeterministic` (longer suffix than the original spec).
