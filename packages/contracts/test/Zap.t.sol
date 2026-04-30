@@ -48,7 +48,7 @@ contract ZapTest is DeployHelper {
             image: "https://img.test/logo.png",
             urls: ["https://x.com/test", "", "https://test.com"],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "TestToken", "TEST")
         });
 
         if (seedUsdc > 0) {
@@ -120,7 +120,7 @@ contract ZapTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "EventToken", "EVT")
         });
 
         vm.expectEmit(false, true, false, false);
@@ -138,7 +138,7 @@ contract ZapTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(0),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "Bad", "BAD")
         });
 
         vm.prank(creator);

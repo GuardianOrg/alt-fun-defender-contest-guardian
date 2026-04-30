@@ -66,11 +66,12 @@ contract ZapPermitTest is DeployHelper {
             urls: ["https://x.com/test", "", "https://test.com"],
             ltAddress: address(lt),
             // Salt must be mined for the *actual* creator that will end up
-            // as `msg.sender` when `Zap` calls `Bonding.launch`,
-            // because `_mixSalt(creator, salt)` is what determines the final
-            // CREATE2 address. Using a salt mined for the wrong creator
+            // as `msg.sender` when `Zap` calls `Bonding.launch`, *and* for
+            // the exact `(name, ticker)` here, because
+            // `_mixSalt(creator, name, ticker, salt)` is what determines the
+            // final CREATE2 address. Using a salt mined for any other tuple
             // trips the on-chain `NotVanityAddress` check.
-            salt: _mineVanitySalt(launchCreator)
+            salt: _mineVanitySalt(launchCreator, "TestToken", "TEST")
         });
     }
 

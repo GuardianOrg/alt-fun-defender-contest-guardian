@@ -24,12 +24,15 @@ contract ClonesTest is DeployHelper {
         bonding.addRouter(trader);
     }
 
+    string internal constant NAME = "CloneTest";
+    string internal constant TICKER = "CLN";
+
     function _params(
         bytes32 salt
     ) internal view returns (Bonding.LaunchParams memory) {
         return Bonding.LaunchParams({
-            name: "CloneTest",
-            ticker: "CLN",
+            name: NAME,
+            ticker: TICKER,
             description: "",
             image: "",
             urls: ["", "", ""],
@@ -38,10 +41,16 @@ contract ClonesTest is DeployHelper {
         });
     }
 
-    function test_predictTokenAddress_matchesActualDeployment() public {
-        bytes32 userSalt = _mineVanitySalt(creator);
+    function _mineForParams(
+        address creator_
+    ) internal returns (bytes32) {
+        return _mineVanitySalt(creator_, NAME, TICKER);
+    }
 
-        address predicted = bonding.predictTokenAddress(creator, userSalt);
+    function test_predictTokenAddress_matchesActualDeployment() public {
+        bytes32 userSalt = _mineForParams(creator);
+
+        address predicted = bonding.predictTokenAddress(creator, NAME, TICKER, userSalt);
 
         vm.prank(creator);
         (address actual,) = bonding.launch(_params(userSalt), creator);
@@ -52,20 +61,21 @@ contract ClonesTest is DeployHelper {
     function test_predictTokenAddress_differentCreators_differentAddresses() public {
         // Property check (no launch): same userSalt yields different
         // predicted addresses for different creators. This is what
-        // `_mixSalt(creator, userSalt)` guarantees, preventing front-running
-        // of mined vanity salts. Uses an arbitrary salt — `predictTokenAddress`
-        // is a view that doesn't enforce the vanity suffix.
+        // `_mixSalt(creator, name, ticker, userSalt)` guarantees, preventing
+        // front-running of mined vanity salts. Uses an arbitrary salt —
+        // `predictTokenAddress` is a view that doesn't enforce the vanity
+        // suffix.
         bytes32 sharedSalt = keccak256("collision-check");
-        address predA = bonding.predictTokenAddress(creator, sharedSalt);
-        address predB = bonding.predictTokenAddress(trader, sharedSalt);
+        address predA = bonding.predictTokenAddress(creator, NAME, TICKER, sharedSalt);
+        address predB = bonding.predictTokenAddress(trader, NAME, TICKER, sharedSalt);
         assertTrue(predA != predB, "different creators must yield different addresses");
 
         // Sanity: each creator can launch successfully with their own
         // independently-mined vanity salt and lands at the predicted address.
-        bytes32 saltA = _mineVanitySalt(creator);
-        bytes32 saltB = _mineVanitySalt(trader);
-        address expA = bonding.predictTokenAddress(creator, saltA);
-        address expB = bonding.predictTokenAddress(trader, saltB);
+        bytes32 saltA = _mineForParams(creator);
+        bytes32 saltB = _mineForParams(trader);
+        address expA = bonding.predictTokenAddress(creator, NAME, TICKER, saltA);
+        address expB = bonding.predictTokenAddress(trader, NAME, TICKER, saltB);
 
         vm.prank(creator);
         (address tokenA,) = bonding.launch(_params(saltA), creator);
@@ -78,7 +88,7 @@ contract ClonesTest is DeployHelper {
     }
 
     function test_sameCreatorAndSalt_revertsOnSecondLaunch() public {
-        bytes32 userSalt = _mineVanitySalt(creator);
+        bytes32 userSalt = _mineForParams(creator);
 
         vm.prank(creator);
         bonding.launch(_params(userSalt), creator);
@@ -93,7 +103,7 @@ contract ClonesTest is DeployHelper {
     }
 
     function test_clone_initializerCannotBeCalledTwice() public {
-        bytes32 userSalt = _mineVanitySalt(creator);
+        bytes32 userSalt = _mineForParams(creator);
         vm.prank(creator);
         (address tokenAddr,) = bonding.launch(_params(userSalt), creator);
 
@@ -130,8 +140,8 @@ contract ClonesTest is DeployHelper {
         Token newImpl = new Token();
 
         // Mine against the OLD impl, capture predicted address.
-        bytes32 oldSalt = _mineVanitySaltForImpl(creator, address(tokenImpl));
-        address predOld = bonding.predictTokenAddress(creator, oldSalt);
+        bytes32 oldSalt = _mineVanitySaltForImpl(creator, address(tokenImpl), NAME, TICKER);
+        address predOld = bonding.predictTokenAddress(creator, NAME, TICKER, oldSalt);
 
         // Rotate. Existing predictions become stale by design — the frontend
         // re-reads `predictTokenAddress` (and re-mines if needed) after any
@@ -143,12 +153,12 @@ contract ClonesTest is DeployHelper {
         // The old salt now resolves to a different predicted address (because
         // the initCodeHash baked into CREATE2 changed), and almost certainly
         // not a vanity one.
-        address predOldUnderNew = bonding.predictTokenAddress(creator, oldSalt);
+        address predOldUnderNew = bonding.predictTokenAddress(creator, NAME, TICKER, oldSalt);
         assertTrue(predOld != predOldUnderNew, "rotation must change predicted address");
 
         // Mine fresh against the NEW impl; that's what the frontend would do.
-        bytes32 newSalt = _mineVanitySaltForImpl(creator, address(newImpl));
-        address predNew = bonding.predictTokenAddress(creator, newSalt);
+        bytes32 newSalt = _mineVanitySaltForImpl(creator, address(newImpl), NAME, TICKER);
+        address predNew = bonding.predictTokenAddress(creator, NAME, TICKER, newSalt);
 
         vm.prank(creator);
         (address actual,) = bonding.launch(_params(newSalt), creator);
@@ -165,9 +175,9 @@ contract ClonesTest is DeployHelper {
         // helper (and therefore to the JS keccak we'll do in the worker).
         // If this ever diverges, the frontend vanity miner is broken.
         bytes32 userSalt = keccak256("oz-check");
-        bytes32 mixed = keccak256(abi.encode(creator, userSalt));
+        bytes32 mixed = keccak256(abi.encode(creator, keccak256(bytes(NAME)), keccak256(bytes(TICKER)), userSalt));
         address ozPred = Clones.predictDeterministicAddress(address(tokenImpl), mixed, address(bonding));
-        assertEq(bonding.predictTokenAddress(creator, userSalt), ozPred);
+        assertEq(bonding.predictTokenAddress(creator, NAME, TICKER, userSalt), ozPred);
     }
 
     // ─── Vanity suffix enforcement ──────────────────────────────────────
@@ -178,7 +188,7 @@ contract ClonesTest is DeployHelper {
     ///         property here so any future regression in either the helper
     ///         or the on-chain check is caught.
     function test_launch_producesVanityAddress() public {
-        bytes32 userSalt = _mineVanitySalt(creator);
+        bytes32 userSalt = _mineForParams(creator);
         vm.prank(creator);
         (address tokenAddr,) = bonding.launch(_params(userSalt), creator);
         assertEq(
@@ -198,7 +208,7 @@ contract ClonesTest is DeployHelper {
         bytes32 badSalt;
         for (uint256 i = 1; i < 100; ++i) {
             bytes32 candidate = bytes32(i);
-            address predicted = bonding.predictTokenAddress(creator, candidate);
+            address predicted = bonding.predictTokenAddress(creator, NAME, TICKER, candidate);
             if (bytes2(uint16(uint160(predicted))) != bonding.VANITY_SUFFIX()) {
                 badSalt = candidate;
                 break;
@@ -206,7 +216,7 @@ contract ClonesTest is DeployHelper {
         }
         require(badSalt != bytes32(0), "test setup: failed to find non-vanity salt");
 
-        address pred = bonding.predictTokenAddress(creator, badSalt);
+        address pred = bonding.predictTokenAddress(creator, NAME, TICKER, badSalt);
         vm.prank(creator);
         vm.expectRevert(abi.encodeWithSelector(Bonding.NotVanityAddress.selector, pred));
         bonding.launch(_params(badSalt), creator);
@@ -216,5 +226,89 @@ contract ClonesTest is DeployHelper {
         // Tripwire: any change to the suffix bytes breaks the frontend miner
         // and the Solidity test miner in tandem. Force a code review.
         assertEq(bonding.VANITY_SUFFIX(), bytes2(0xa1fa));
+    }
+
+    // ─── Name/ticker binding ─────────────────────────────────────────────
+
+    /// @notice The same `(creator, userSalt)` resolves to *different*
+    ///         predicted addresses under different `(name, ticker)` pairs.
+    ///         This is what makes a mined salt invalidate the moment the
+    ///         launcher edits the symbol/name on the form.
+    function test_predictTokenAddress_differentNameOrTicker_differentAddresses() public view {
+        bytes32 sharedSalt = keccak256("name-ticker-binding");
+        address baseline = bonding.predictTokenAddress(creator, "Foo", "FOO", sharedSalt);
+        address altName = bonding.predictTokenAddress(creator, "Bar", "FOO", sharedSalt);
+        address altTicker = bonding.predictTokenAddress(creator, "Foo", "BAR", sharedSalt);
+        assertTrue(baseline != altName, "name change must alter predicted address");
+        assertTrue(baseline != altTicker, "ticker change must alter predicted address");
+        assertTrue(altName != altTicker, "name vs ticker changes must not collide");
+    }
+
+    /// @notice A salt mined for `(name1, ticker1)` MUST NOT validate against
+    ///         a launch carrying any other `(name, ticker)` pair — `launch`
+    ///         reverts with `NotVanityAddress` because the mix is bound to
+    ///         the metadata. This is the on-chain backstop for the "edited
+    ///         the symbol after mining → forced re-mine" UX.
+    ///
+    ///         We probe a small space of alt-tuples to find ones whose
+    ///         predicted address is *not* vanity (~65,535 / 65,536 per probe),
+    ///         keeping the test deterministic in the face of the 1/65,536
+    ///         chance that a random alt-tuple would land on `0xa1fa`.
+    function test_launch_revertsWhenNameOrTickerDifferFromMinedTuple() public {
+        bytes32 minedSalt = _mineForParams(creator);
+
+        (string memory altName, string memory altTicker) = _findNonVanityAltTuple(minedSalt);
+
+        // Different ticker: mined salt no longer satisfies the suffix check.
+        Bonding.LaunchParams memory tickered = Bonding.LaunchParams({
+            name: NAME,
+            ticker: altTicker,
+            description: "",
+            image: "",
+            urls: ["", "", ""],
+            ltAddress: address(lt),
+            salt: minedSalt
+        });
+        address tickeredPred = bonding.predictTokenAddress(creator, NAME, altTicker, minedSalt);
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(Bonding.NotVanityAddress.selector, tickeredPred));
+        bonding.launch(tickered, creator);
+
+        // Different name: same outcome.
+        Bonding.LaunchParams memory named = Bonding.LaunchParams({
+            name: altName,
+            ticker: TICKER,
+            description: "",
+            image: "",
+            urls: ["", "", ""],
+            ltAddress: address(lt),
+            salt: minedSalt
+        });
+        address namedPred = bonding.predictTokenAddress(creator, altName, TICKER, minedSalt);
+        vm.prank(creator);
+        vm.expectRevert(abi.encodeWithSelector(Bonding.NotVanityAddress.selector, namedPred));
+        bonding.launch(named, creator);
+    }
+
+    /// @dev Find an `(altName, altTicker)` such that *both* the name-only
+    ///      and ticker-only swaps produce non-vanity predicted addresses
+    ///      under `creator`/`minedSalt`. With a 16-bit suffix the very
+    ///      first probe almost always works.
+    function _findNonVanityAltTuple(
+        bytes32 minedSalt
+    ) internal view returns (string memory altName, string memory altTicker) {
+        for (uint256 i = 1; i < 64; ++i) {
+            string memory candidateName = string(abi.encodePacked("Alt", vm.toString(i)));
+            string memory candidateTicker = string(abi.encodePacked("ALT", vm.toString(i)));
+            address namePred = bonding.predictTokenAddress(creator, candidateName, TICKER, minedSalt);
+            address tickerPred = bonding.predictTokenAddress(creator, NAME, candidateTicker, minedSalt);
+            if (
+                bytes2(uint16(uint160(namePred))) != bonding.VANITY_SUFFIX()
+                    && bytes2(uint16(uint160(tickerPred))) != bonding.VANITY_SUFFIX()
+            ) {
+                return (candidateName, candidateTicker);
+            }
+        }
+        revert("test setup: no non-vanity alt tuple found");
     }
 }

@@ -238,7 +238,7 @@ contract RouterAllowlistTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "SeedAttrib", "SEED")
         });
 
         vm.startPrank(creator);
@@ -274,7 +274,7 @@ contract RouterAllowlistTest is DeployHelper {
             image: "",
             urls: ["", "", ""],
             ltAddress: address(lt),
-            salt: _mineVanitySalt(creator)
+            salt: _mineVanitySalt(creator, "Tok", "TOK")
         });
         vm.prank(creator);
         tokenAddr = zap.createToken(params, 0);

@@ -40,8 +40,15 @@ contract E2ETest is Script {
         // `Bonding.VANITY_SUFFIX` (`0xa1fa`). Pulling `tokenImplementation()`
         // from the live Bonding (rather than hardcoding) means a future
         // `Token` implementation upgrade doesn't break the script.
+        string memory tokenName = "E2E Test Token";
+        string memory tokenTicker = "E2E";
         bytes32 vanitySalt = VanityMining.mine(
-            deployer, bonding.tokenImplementation(), bondingAddr, keccak256(abi.encode(block.timestamp))
+            deployer,
+            keccak256(bytes(tokenName)),
+            keccak256(bytes(tokenTicker)),
+            bonding.tokenImplementation(),
+            bondingAddr,
+            keccak256(abi.encode(block.timestamp))
         );
         console.log("Mined vanity salt:");
         console.logBytes32(vanitySalt);
@@ -49,8 +56,8 @@ contract E2ETest is Script {
         vm.startBroadcast(pk);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
-            name: "E2E Test Token",
-            ticker: "E2E",
+            name: tokenName,
+            ticker: tokenTicker,
             description: "End-to-end test",
             image: "",
             urls: ["", "", ""],

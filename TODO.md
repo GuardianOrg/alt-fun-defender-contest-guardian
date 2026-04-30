@@ -7,7 +7,6 @@
 - AI Audit
 - My audit
 - Internal team audit
-- PoW system
 - Minimum purchase amount when creating token
 
 # Audit

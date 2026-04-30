@@ -3,6 +3,7 @@ import {
   encodePacked,
   getAddress,
   keccak256,
+  stringToHex,
   type Address,
   type Hex,
 } from "viem";
@@ -58,24 +59,55 @@ export function eip1167InitCodeHash(implementation: Address): Hex {
 }
 
 /**
- * Mix the user-supplied vanity salt with the creator address — must match
- * `Bonding._mixSalt` byte-for-byte:
+ * `keccak256` of the UTF-8 bytes of `s` — matches Solidity's
+ * `keccak256(bytes(s))`. Used to pre-hash `name` / `ticker` for `mixSalt`
+ * so the on-chain mix and the mining hot loop only ever move fixed-size
+ * 32-byte words.
+ */
+export function metadataHash(s: string): Hex {
+  return keccak256(stringToHex(s));
+}
+
+/**
+ * Mix the user-supplied vanity salt with the creator address and the launch
+ * metadata — must match `Bonding._mixSalt` byte-for-byte:
  *
- *   keccak256(abi.encode(creator, userSalt))
+ *   keccak256(abi.encode(
+ *     creator,
+ *     keccak256(bytes(name)),
+ *     keccak256(bytes(ticker)),
+ *     userSalt,
+ *   ))
  *
- * Why mix at all: a raw `userSalt` mined off-chain could be observed in the
- * mempool and front-run by another launcher who'd then own that vanity
- * address. Pinning it to `msg.sender` makes that impossible — Bob's tx
+ * Why mix the metadata in: a salt mined for one `(name, ticker)` pair will
+ * not validate against a launch carrying any other pair. Editing the symbol
+ * or name on the create form after a salt has been mined invalidates that
+ * salt and forces a re-mine, so a creator can't slip new metadata into
+ * a launch that was originally vetted under a different identity.
+ *
+ * Why mix the creator: a raw `userSalt` mined off-chain could be observed in
+ * the mempool and front-run by another launcher who'd then own that vanity
+ * address. Pinning the mix to `msg.sender` makes that impossible — Bob's tx
  * with Alice's mined salt deploys to a totally different address.
  */
-export function mixSalt(creator: Address, userSalt: Hex): Hex {
+export function mixSalt(
+  creator: Address,
+  name: string,
+  ticker: string,
+  userSalt: Hex,
+): Hex {
   // `getAddress` checksums (and validates) the input. We always normalise
   // before passing to viem's encoder because workers/UI code may pass raw
   // lowercase strings, and viem rejects mixed-case non-checksummed values.
   return keccak256(
     encodeAbiParameters(
-      [{ type: "address" }, { type: "bytes32" }],
-      [getAddress(creator), userSalt],
+      [
+        { type: "address" },
+        { type: "bytes32" },
+        { type: "bytes32" },
+        { type: "bytes32" },
+      ],
+      [getAddress(creator), metadataHash(name), metadataHash(ticker), userSalt],
     ),
   );
 }
@@ -103,7 +135,9 @@ export function predictCloneAddress(
 }
 
 /**
- * High-level helper mirroring `Bonding.predictTokenAddress(creator, userSalt)`.
+ * High-level helper mirroring
+ * `Bonding.predictTokenAddress(creator, name, ticker, userSalt)`.
+ *
  * Use this in UI code; the worker uses the lower-level `predictCloneAddress`
  * with a pre-computed `mixSalt` so it can hot-loop the random part only.
  */
@@ -111,11 +145,13 @@ export function predictTokenAddress(
   implementation: Address,
   bondingProxy: Address,
   creator: Address,
+  name: string,
+  ticker: string,
   userSalt: Hex,
 ): Address {
   return predictCloneAddress(
     implementation,
-    mixSalt(creator, userSalt),
+    mixSalt(creator, name, ticker, userSalt),
     bondingProxy,
   );
 }
