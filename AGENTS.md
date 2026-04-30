@@ -41,7 +41,7 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 | Virtual `reserve0` | Initialised at full 1B (`totalSupply`); only 750M real tokens transferred. Pins post-sellout virtual reserve at 250M = `LP_RESERVE` and makes `tokensForLP ≤ LP_RESERVE` a mathematical invariant. |
 | K parameter | Dynamic per token — computed at `launch()` from LT's `exchangeRate()` |
 | Opening market cap | ~`$4K` |
-| Graduation market cap | `~$16K` at launch-time rate when threshold = `$12K` (higher when LT rallies). Threshold itself is owner-mutable. |
+| Graduation market cap | `~$16K` at launch-time rate when threshold = `$12K` (higher when LT rallies). `graduationThresholdUsd` is set at `Bonding.initialize` and only changeable via a UUPS upgrade with a `reinitializer`. |
 | Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$12K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`). **Supply:** all 750M curve tokens sold (flat/bear markets). |
 | Dynamic LP seeding | `tokensForLP = raisedLT × reserve0 / reserve1`. Guarantees LP opens at the exact last curve price (zero-gap). Excess of `LP_RESERVE` burned. |
 | Overflow buy protection | A buy that would exceed remaining real supply is capped; unused LT refunded (as USDC) to the buyer. |
