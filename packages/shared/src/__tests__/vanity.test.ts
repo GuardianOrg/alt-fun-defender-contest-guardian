@@ -172,16 +172,20 @@ describe("vanity", () => {
     expect(got).toBe(keccak256(expectedInitCode));
   });
 
-  it("VANITY_SUFFIX is 4 hex chars", () => {
-    expect(VANITY_SUFFIX).toMatch(/^[0-9a-f]{4}$/);
+  it("VANITY_SUFFIX is 5 hex chars", () => {
+    expect(VANITY_SUFFIX).toMatch(/^[0-9a-f]{5}$/);
   });
 
-  it("hasVanitySuffix is case-insensitive", () => {
-    expect(hasVanitySuffix("0x000000000000000000000000000000000000A1FA")).toBe(
+  it("hasVanitySuffix is case-insensitive on the trailing chars", () => {
+    expect(hasVanitySuffix("0x00000000000000000000000000000000000000000")).toBe(
       true,
     );
-    expect(hasVanitySuffix("0x000000000000000000000000000000000000a1fa")).toBe(
+    expect(hasVanitySuffix("0x123456789abcdef0123456789abcdef000000000")).toBe(
       true,
+    );
+    // Suffix doesn't match — last 5 chars are not all zero.
+    expect(hasVanitySuffix("0x00000000000000000000000000000000000aaaaa")).toBe(
+      false,
     );
     expect(hasVanitySuffix("0x000000000000000000000000000000000000abcd")).toBe(
       false,

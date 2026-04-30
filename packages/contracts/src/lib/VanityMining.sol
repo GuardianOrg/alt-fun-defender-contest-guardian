@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice On-chain mirror of the frontend vanity miner. Used by
-///         `setTokenImplementation` (and tests) to verify a new impl can
-///         produce a `0xa1fa`-suffixed clone before it bricks user launches.
-///         The TypeScript copy in `packages/shared/src/vanity.ts` is
-///         equality-checked against `Clones.predictDeterministicAddress` by
-///         `test_predictTokenAddress_matchesOZHelper` in `test/Clones.t.sol`.
+/// @notice On-chain mirror of the frontend vanity miner. Brute-forces a
+///         `userSalt` such that the predicted clone address ends in
+///         `VANITY_TRAILING_ZEROS = 5` zero hex chars (i.e. `0x…00000`).
+///         Used by `Bonding.setTokenImplementation` to verify a new impl
+///         can produce a launch-ready clone before bricking user launches,
+///         and by Foundry tests / the E2E deploy script to generate real
+///         launch-ready salts.
+///
+///         Pure value match — digits 0-9 render identically regardless of
+///         EIP-55 checksum casing, so no second keccak step is needed.
+///         Production launches use the JS Web Worker miner with the
+///         identical predicate. Equality of the address-derivation half is
+///         pinned by `test_predictTokenAddress_matchesOZHelper` in
+///         `test/Clones.t.sol`; equality of the suffix mask is implicit
+///         because the JS worker uses the same `0x…fffff` low-bits check.
 library VanityMining {
     /// @dev EIP-1167 *creation*-code, OpenZeppelin v5 layout used by
     ///      `Clones.cloneDeterministic` (longer suffix than the original spec).
@@ -16,17 +25,19 @@ library VanityMining {
     bytes internal constant EIP1167_SUFFIX = hex"5af43d82803e903d91602b57fd5bf3";
 
     /// @dev Brute-force a `userSalt` so the resulting clone address ends in
-    ///      `0xa1fa`. ~65k attempts on average.
+    ///      5 zero hex chars (low 20 bits all zero — mask `0xfffff`). ~1 M
+    ///      attempts on average; loop cap 16 M (P(no hit) ≈ 1.1e-7).
     ///
-    ///      The salt is bound to `(creator_, nameHash, tickerHash)` so a salt
-    ///      mined for one (name, ticker) pair will not validate against a
-    ///      different one — changing the symbol or name forces a fresh mine.
-    ///      `nameHash` and `tickerHash` are `keccak256(bytes(...))` of the UTF-8
-    ///      bytes; the caller pre-hashes so this loop only ever moves
-    ///      fixed-size 32-byte words.
+    ///      The salt is bound to `(creator_, nameHash, tickerHash)` so a
+    ///      salt mined for one (name, ticker) pair will not validate against
+    ///      a different one — changing the symbol or name forces a fresh
+    ///      mine. `nameHash` and `tickerHash` are `keccak256(bytes(...))` of
+    ///      the UTF-8 bytes; the caller pre-hashes so this loop only ever
+    ///      moves fixed-size 32-byte words.
     ///
-    ///      Assembly hot-loop reuses scratch buffers so memory expansion stays
-    ///      O(1) — without this, ~65k iterations hit `MemoryOOG`.
+    ///      Assembly hot-loop reuses scratch buffers so memory expansion
+    ///      stays O(1) — without this, ~1 M iterations would balloon
+    ///      memory-cost gas.
     ///        `mixBuf` (128): [creator (32) | nameHash (32) | tickerHash (32) |
     ///                          salt (32)] → keccak → mixed
     ///        `addrBuf` (85): [0xff | bonding (20) | mixed (32) | initHash (32)]
@@ -55,19 +66,20 @@ library VanityMining {
             mstore(add(addrBuf, 1), shl(96, bondingAddr))
             mstore(add(addrBuf, 53), initCodeHash)
 
-            for { let i := 0 } lt(i, 1000000) { i := add(i, 1) } {
+            for { let i := 0 } lt(i, 16000000) { i := add(i, 1) } {
                 let salt := add(baseSalt, i)
                 mstore(add(mixBuf, 0x60), salt)
                 let mixed := keccak256(mixBuf, 0x80)
                 mstore(add(addrBuf, 21), mixed)
                 let predicted := keccak256(addrBuf, 85)
-                if eq(and(predicted, 0xffff), 0xa1fa) {
+                // Low 20 bits must be zero (5 trailing hex zeros).
+                if iszero(and(predicted, 0xfffff)) {
                     found := salt
                     break
                 }
             }
         }
 
-        require(found != bytes32(0), "VanityMining: did not converge in 1M attempts");
+        require(found != bytes32(0), "VanityMining: did not converge in 16M attempts");
     }
 }

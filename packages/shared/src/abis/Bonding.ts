@@ -162,13 +162,13 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "VANITY_SUFFIX",
+    "name": "VANITY_TRAILING_ZEROS",
     "inputs": [],
     "outputs": [
       {
         "name": "",
-        "type": "bytes2",
-        "internalType": "bytes2"
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"

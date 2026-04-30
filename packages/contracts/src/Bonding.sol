@@ -81,12 +81,20 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     uint256 public constant MAX_IMAGE_LENGTH = 512;
     uint256 public constant MAX_URL_LENGTH = 512;
 
-    /// @dev Required low-order suffix on every launched token address. The
-    ///      frontend miner produces a qualifying CREATE2 salt; this on-chain
-    ///      check guarantees no random fallback sneaks through. Must stay in
-    ///      sync with `VANITY_SUFFIX` in `packages/shared/src/vanity.ts` —
-    ///      diverging the two bricks token creation.
-    bytes2 public constant VANITY_SUFFIX = 0xa1fa;
+    /// @dev Number of trailing hex zeros required on every launched token
+    ///      address — addresses always render as `0x…00000`. Hex digits 0-9
+    ///      render identically regardless of EIP-55 checksum casing, so the
+    ///      check is a single bitwise mask: no second keccak, no per-launch
+    ///      EIP-55 dance. Mining cost ≈ 1 M attempts (~1 s background on
+    ///      typical hardware via the JS worker pool).
+    ///
+    ///      The corresponding bitmask `0xfffff` (low 20 bits = 5 nibbles)
+    ///      is hardcoded in `_checkVanity`; if you change this constant
+    ///      you MUST update that mask in lockstep, plus the matching
+    ///      `VANITY_SUFFIX` string in `packages/shared/src/vanity.ts` and
+    ///      the `0xfffff` literal in `VanityMining.sol`. Diverging any of
+    ///      the four bricks token creation.
+    uint256 public constant VANITY_TRAILING_ZEROS = 5;
 
     /// @notice Strictly-forward lifecycle: `Curve → Graduating → Graduated`.
     enum Lifecycle {
@@ -286,10 +294,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         bytes32 saltMixed = _mixSalt(creator_, params.name, params.ticker, params.salt);
         tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
-        // forge-lint: disable-next-line(unsafe-typecast)
-        if (bytes2(uint16(uint160(tokenAddr))) != VANITY_SUFFIX) {
-            revert NotVanityAddress(tokenAddr);
-        }
+        _checkVanity(tokenAddr);
 
         _storeTokenInfo(tokenAddr, address(0), params, creator_);
 
@@ -352,6 +357,17 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         bytes32 userSalt
     ) internal pure returns (bytes32) {
         return keccak256(abi.encode(creator_, keccak256(bytes(name_)), keccak256(bytes(ticker_)), userSalt));
+    }
+
+    /// @dev Enforce the launch-time vanity invariant: the low 20 bits (5 hex
+    ///      nibbles) of the address must all be zero. ~3 gas per call —
+    ///      single bitwise AND. Mirror of `VANITY_TRAILING_ZEROS = 5`.
+    function _checkVanity(
+        address tokenAddr
+    ) internal pure {
+        if (uint160(tokenAddr) & 0xfffff != 0) {
+            revert NotVanityAddress(tokenAddr);
+        }
     }
 
     function _storeTokenInfo(

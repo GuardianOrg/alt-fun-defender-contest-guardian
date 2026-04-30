@@ -9,6 +9,14 @@ optimizer_runs = 200
 via_ir = false
 ffi = false
 fs_permissions = [{ access = "read", path = "./out" }]
+# Lifted off Foundry's default 2^30 per-test gas. The vanity miner used by
+# `_mineVanitySalt` has a high-variance long tail (geometric distribution,
+# mean ~1M iterations × ~150 gas/iter = ~150M gas, but ~0.1% of mines need
+# 7M+ iterations and exceed 1B gas); with ~70 mines across the suite the
+# default cap fires occasionally for purely statistical reasons. We're
+# never bound by real block gas in tests so push this high enough that
+# mining tail variance can't flake CI.
+gas_limit = "18446744073709551615"
 
 # Reduced-coverage profile for per-PR CI. Trades fuzz depth for wall time.
 # Full coverage is exercised by the nightly workflow (no FOUNDRY_PROFILE override).
