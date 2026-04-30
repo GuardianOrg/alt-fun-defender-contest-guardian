@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Factory} from "../src/Factory.sol";
 import {Router} from "../src/Router.sol";
-import {Pair} from "../src/Pair.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 

@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {Token} from "../src/Token.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 

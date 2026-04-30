@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {IBounceFactory} from "../src/interfaces/IBounceFactory.sol";
-import {IBounceGlobalStorage} from "../src/interfaces/IBounceGlobalStorage.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 import {MockBounceFactory} from "./mocks/MockBounceFactory.sol";
 import {MockBounceGlobalStorage} from "./mocks/MockBounceGlobalStorage.sol";

@@ -6,7 +6,6 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {Token} from "../src/Token.sol";
 import {Zap} from "../src/Zap.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
