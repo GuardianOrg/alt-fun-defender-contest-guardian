@@ -179,7 +179,7 @@ describe("vanity", () => {
   it("hasVanitySuffix matches the production suffix regardless of input casing", () => {
     // Production suffix is `"00000"` — digits, so no case issue, but the
     // address can come in any casing per EIP-55 / storage convention.
-    expect(hasVanitySuffix("0x00000000000000000000000000000000000000000")).toBe(
+    expect(hasVanitySuffix("0x0000000000000000000000000000000000000000")).toBe(
       true,
     );
     expect(hasVanitySuffix("0x123456789abcdef0123456789abcdef000000000")).toBe(
