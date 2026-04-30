@@ -23,9 +23,14 @@ const chain = {
  *
  *   1. A future UUPS upgrade that bumps the value via `reinitializer` is
  *      picked up automatically without a webapp redeploy.
- *   2. Different deployments (mainnet, testnet, local fork) can ship with
- *      different thresholds and the API just reflects whatever the proxy
- *      reports.
+ *   2. Environments that target the same bonding proxy address (mainnet
+ *      and mainnet forks pointed at it via `HYPEREVM_RPC_URL`) reflect
+ *      whatever that proxy currently reports.
+ *
+ * The RPC endpoint is configurable via `env.HYPEREVM_RPC_URL`, but the
+ * contract address read here is the shared `CONTRACT_ADDRESSES.bonding`
+ * from `@launchpad/shared`. Pointing the API at a *different* proxy
+ * (e.g. a separate testnet deployment) requires updating that constant.
  *
  * Cached per Worker isolate. The TTL is generous because the value is
  * effectively immutable; the cache only refreshes after a Worker isolate
