@@ -83,6 +83,36 @@ This is the most bespoke piece of the protocol. Full rationale + invariants live
 
 Full requirements (buy/sell flows, graduation, events, fee structure): [`docs/contracts-scope.md`](../../docs/contracts-scope.md).
 
+## Comment Style
+
+These contracts will be audited and re-read by adversaries. Auditor attention is a finite resource — every paragraph of natspec is one less paragraph of attention on the next finding. Default to no comment, and earn each one.
+
+**Keep:**
+
+- Security-relevant invariants and the consequences of violating them (e.g. "tokens-for-LP ≤ LP_RESERVE is a mathematical invariant; the cap is a defensive guard").
+- Front-run / DoS / MEV rationale (e.g. why a parameter is immutable, why a path bypasses the router, why a `try/catch` defuses a permit grief).
+- Cross-system constraints that would break if violated (e.g. "must stay in sync with `vanity.ts`", "frontend / API replicate this length cap pre-flight").
+- Numerical-encoding footguns (`uint256` vs `uint128` choices, scaling factors, BPS denominators).
+- Non-obvious storage-layout requirements (gap sizing, append-only ordering for upgradeable contracts).
+- Anything an auditor would reasonably ask "why this and not the obvious thing?" about.
+
+**Cut:**
+
+- Restatements of the function or variable name (`/// @notice Set the fee-to address`).
+- Narration of the next line (`// Pull USDC from the user`).
+- Standard pattern references when the code is plainly the standard pattern (don't cite "CEI" before every well-ordered function; don't explain UniswapV2 `transfer → swap` every time it appears).
+- Re-derivations of content already in [root `AGENTS.md`](../../AGENTS.md), [`docs/contracts-scope.md`](../../docs/contracts-scope.md), or this file. Link to the canonical source instead.
+- Doc strings that just describe what the next struct field obviously holds (`/// @dev The address of the recipient`).
+- Per-getter natspec on trivial mappings already documented at the storage-variable declaration.
+- "Existence check" / "see X for the rationale" comments that lead a reader through obvious control flow — early-return the obvious revert and trust the error name.
+
+**Style:**
+
+- Contract-level natspec orients a reader (one paragraph: what it is, what's load-bearing, where to look for the deep dive). Don't reproduce the spec.
+- One source of truth: if a struct field's natspec already explains a width-choice rationale, the producing function shouldn't repeat it. Either link or stay silent.
+- Section banners (`// ─── X ───`) are fine in long files (>300 lines, e.g. `Bonding.sol`, `Zap.sol`); drop them in short files.
+- Errors should be self-documenting via their name (`UnknownLeveragedToken`, `LpLockNotConfigured`). Add an `@dev` only when the trigger condition isn't obvious from the name.
+
 ## Deploying to HyperEVM
 
 Run from `packages/contracts`. Requires `.env` with `DEPLOYER_PRIVATE_KEY` and `HYPEREVM_RPC_URL`.

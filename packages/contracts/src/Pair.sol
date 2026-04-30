@@ -6,14 +6,11 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {IPair} from "./interfaces/IPair.sol";
 
 /// @title Pair
-/// @notice Per-token bonding curve pair. Tracks reserves and holds tokens.
-/// @dev Forked from Virtuals Protocol's `FPair.sol`. Only the router may mutate state.
-///      Reserves are NOT sorted by address (UniswapV2 convention) — the launched
-///      token is always `launchedToken` and its reserve is `tokenReserve`; the
-///      paired LT is always `assetToken` and its reserve is `assetReserve`
-///      (virtual at init). The naming kills the confusion at the source: any
-///      future code that touches `Pair` doesn't have to remember a non-V2
-///      ordering convention.
+/// @notice Per-token bonding-curve pair. Forked from Virtuals `FPair.sol`.
+/// @dev Reserves are NOT sorted by address (unlike UniswapV2). The launched
+///      token is always `launchedToken`/`tokenReserve`; the paired LT is always
+///      `assetToken`/`assetReserve` (virtual at init). Naming-by-role kills the
+///      ordering confusion at the source.
 contract Pair is IPair {
     using SafeERC20 for IERC20;
 

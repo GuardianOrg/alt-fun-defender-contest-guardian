@@ -6,18 +6,16 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {Pair} from "./Pair.sol";
 
 /// @title Factory
-/// @notice Registry of bonding curve pairs. Creates `Pair` instances and tracks per-token LT mapping.
-/// @dev Forked from Virtuals Protocol's `FFactory.sol`. Uses AccessControl for role-gated pair creation.
-///      Fees are NOT collected at this layer — `Zap` collects USDC fees into `FeeVault`.
+/// @notice Registry of bonding-curve pairs. Forked from Virtuals `FFactory.sol`.
+/// @dev `router` is one-shot: `setRouter` reverts after the first pair is
+///      created so every pair shares an immutable router address.
 contract Factory is Initializable, AccessControlUpgradeable {
     bytes32 public constant BONDING_ROLE = keccak256("BONDING_ROLE");
 
     mapping(address => mapping(address => address)) private _pairs;
     uint256 public pairCount;
 
-    /// @notice Token address → its bonding curve pair
     mapping(address => address) public pairFor;
-    /// @notice Token address → its paired LT address
     mapping(address => address) public ltFor;
 
     address public router;

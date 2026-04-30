@@ -9,19 +9,13 @@ import {Factory} from "./Factory.sol";
 import {IPair} from "./interfaces/IPair.sol";
 
 /// @title Router
-/// @notice Executes buy/sell trades on bonding curve pairs using constant-product AMM math.
-/// @dev Supports per-token LT pairing. No fees are charged at this layer — protocol fees
-///      are collected in USDC by `Zap` and routed to `FeeVault`.
+/// @notice AMM math for bonding-curve pairs. No fees here — `Zap` handles fees.
+/// @dev Supports virtual token reserves (curve extends beyond sellable supply,
+///      enabling zero-gap LP seeding at graduation).
 ///
-///      Supports "virtual" token reserves, where `tokenReserve` in the pair can exceed
-///      the amount of real tokens held. This is used by the launchpad so the curve
-///      extends beyond the sellable supply, enabling dynamic LP seeding at graduation.
-///
-///      Trust assumption: this contract does not apply its own reentrancy guard. All
-///      state-mutating entry points are gated by `BONDING_ROLE`, and the canonical caller
-///      (`Bonding`) wraps every external trade in its own `nonReentrant` modifier. Granting
-///      `BONDING_ROLE` to any contract that does not enforce non-reentrancy on the calling
-///      path would be unsafe.
+///      No reentrancy guard: all entry points are gated by `BONDING_ROLE`, and
+///      `Bonding` wraps every trade in `nonReentrant`. Granting `BONDING_ROLE`
+///      to any caller that doesn't enforce non-reentrancy would be unsafe.
 contract Router is Initializable, AccessControlUpgradeable {
     using SafeERC20 for IERC20;
 
@@ -42,14 +36,12 @@ contract Router is Initializable, AccessControlUpgradeable {
         factory = Factory(factory_);
     }
 
-    /// @notice Resolve the LT address for a given token
     function assetTokenFor(
         address token
     ) public view returns (address) {
         return factory.ltFor(token);
     }
 
-    /// @notice Compute the output amount for a given input using the constant-product formula.
     function getAmountOut(
         address token,
         bool isBuy,
@@ -74,12 +66,10 @@ contract Router is Initializable, AccessControlUpgradeable {
         }
     }
 
-    /// @notice Seed a pair with an initial token reserve and virtual LT reserve.
-    /// @param token              Token to seed
-    /// @param virtualReserveToken Token reserve value stored in the pair (defines K).
-    ///                            May exceed `realTokenAmount`, creating a virtual reserve.
-    /// @param realTokenAmount    Actual tokens transferred to the pair (what can be sold).
-    /// @param reserveAsset       Virtual LT reserve (no real LT transferred at init).
+    /// @param virtualReserveToken Token reserve stored in the pair (defines K);
+    ///                            may exceed `realTokenAmount`.
+    /// @param realTokenAmount    Tokens actually transferred (sellable supply).
+    /// @param reserveAsset       Virtual LT reserve (no real LT moved here).
     function addInitialLiquidity(
         address token,
         uint256 virtualReserveToken,
@@ -94,12 +84,9 @@ contract Router is Initializable, AccessControlUpgradeable {
         IPair(pairAddr).mint(virtualReserveToken, reserveAsset);
     }
 
-    /// @notice Execute a buy: LT in -> tokens out. No fee at this layer.
-    /// @dev If the computed `tokensOut` would exceed the pair's real token balance, the buy is
-    ///      capped at the real balance and `amountInUsed` is back-calculated. The caller's
-    ///      approval covers `amountIn`, but only `amountInUsed` worth of LT is pulled.
-    /// @return amountInUsed The LT actually consumed (≤ `amountIn`).
-    /// @return tokensOut    The tokens sent to the buyer.
+    /// @notice LT in → tokens out. Caps `tokensOut` at the pair's real balance
+    ///         and back-calculates `amountInUsed` so the last buy can't exceed
+    ///         remaining supply (the leftover LT stays with the caller).
     function buy(
         uint256 amountIn,
         address token,
@@ -118,8 +105,8 @@ contract Router is Initializable, AccessControlUpgradeable {
         IPair(pairAddr).swap(0, tokensOut, amountInUsed, 0);
     }
 
-    /// @dev Compute buy amounts, capping `tokensOut` at the pair's real token balance.
-    ///      When capped, `amountInUsed` is back-calculated from the invariant (rounded up).
+    /// @dev Capped: `amountInUsed` is back-calculated from the K invariant
+    ///      (rounded up so the curve never under-charges).
     function _computeBuy(
         address pairAddr,
         uint256 amountIn
@@ -143,9 +130,7 @@ contract Router is Initializable, AccessControlUpgradeable {
         }
     }
 
-    /// @notice Execute a sell: tokens in -> LT out. No fee at this layer.
-    /// @return tokensIn The tokens that entered the curve
-    /// @return assetOut The LT amount sent to the seller
+    /// @notice Tokens in → LT out.
     function sell(
         uint256 amountIn,
         address token,
@@ -167,7 +152,6 @@ contract Router is Initializable, AccessControlUpgradeable {
         IPair(pairAddr).swap(amountIn, 0, 0, assetOut);
     }
 
-    /// @dev Compute sell output for a given pair and input amount.
     function _computeSell(
         address pairAddr,
         uint256 amountIn
@@ -180,8 +164,8 @@ contract Router is Initializable, AccessControlUpgradeable {
         assetOut = reserveAsset - (k / newReserveToken);
     }
 
-    /// @notice Drain real LT balance from a pair (called during graduation).
-    /// @return amount The LT amount transferred to the caller (Bonding)
+    /// @notice Drain the pair's real LT balance to the caller. Called by
+    ///         `Bonding._prepareGraduationLiquidity` during graduation.
     function graduate(
         address token
     ) external onlyRole(BONDING_ROLE) returns (uint256 amount) {

@@ -9,49 +9,37 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 /// @title FeeVault
-/// @notice Holds protocol and creator USDC fees accrued from allowlisted depositors (routers).
-/// @dev Depositors `transfer` USDC to this vault and then call `accrue()` to update balances.
-///      The vault does NOT pull USDC via `transferFrom`; it trusts the allowlist to pass truthful
-///      amounts. As a defense-in-depth check, `accrue` verifies that the vault's USDC balance
-///      covers the running sum of all outstanding creator + protocol claims, so a buggy or
-///      misconfigured depositor cannot inflate accruals beyond the funds actually delivered.
-///
-///      Creator attribution is supplied by the depositor on each call (looked up via the
-///      `Bonding` token registry) — the vault itself has no opinion about what a "creator" is.
+/// @notice Holds creator + protocol USDC fees from allowlisted depositors (Zaps).
+/// @dev Depositors `transfer` USDC then call `accrue` — the vault never pulls
+///      via `transferFrom`. Trust is bounded by an O(1) underfund check in
+///      `accrue` (vault USDC balance ≥ outstanding creator + protocol claims),
+///      so a buggy depositor can't inflate balances beyond delivered funds.
 contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
     IERC20 public usdc;
 
-    /// @notice Protocol fee recipient. Receives payout on `claimProtocol()`.
+    /// @notice Protocol fee recipient. Receives `claimProtocol()` payout.
     address public feeTo;
 
-    /// @dev Depositors allowed to call `accrue`. Owner-managed via `addDepositor` /
-    ///      `removeDepositor`. The set model mirrors `Bonding._routers` so a router upgrade
-    ///      path is always open: whitelist the new router, migrate frontends, remove the old.
     EnumerableSet.AddressSet private _depositors;
 
-    /// @notice Pending creator USDC balances. Cleared on `claim()`.
     mapping(address => uint256) public creatorBalance;
 
-    /// @notice Pending protocol USDC balance. Cleared on `claimProtocol()`.
     uint256 public protocolBalance;
 
-    /// @notice Lifetime gross creator USDC accrued (never decreases). Used for UI "total earned".
+    /// @notice Lifetime gross creator USDC accrued (never decreases).
     mapping(address => uint256) public lifetimeCreatorEarned;
 
-    /// @notice Lifetime gross protocol USDC accrued (never decreases).
     uint256 public lifetimeProtocolEarned;
 
-    /// @notice Sum of all unclaimed `creatorBalance` entries. Tracked as a running counter so
-    ///         `accrue` can verify the vault's USDC balance covers every outstanding claim in
-    ///         O(1) without iterating the creator mapping.
+    /// @notice Running sum of unclaimed creator balances. Lets `accrue` do its
+    ///         underfund check in O(1) without iterating the creator mapping.
     uint256 public totalAccruedCreator;
 
-    /// @dev Storage gap for future upgrades. Sized so this contract's storage block
-    ///      totals 50 slots (9 named + 41 gap). Append new state variables before
-    ///      this gap and shrink its length to match.
+    /// @dev Storage gap → 50 slots total. Append new state variables before
+    ///      this gap and shrink the length to match.
     uint256[41] private __gap;
 
     event FeeAccrued(
@@ -92,17 +80,11 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Accrual (depositor-only) ────────────────────────────────────────
 
-    /// @notice Record a fee accrual. The caller MUST have transferred
-    ///         `creatorAmount + protocolAmount` USDC to this vault prior to calling.
-    /// @dev Reverts with `UnderfundedAccrual` if the vault's USDC balance does not cover
-    ///      the running sum of every outstanding creator + protocol claim after this call.
-    ///      This catches a buggy or misconfigured depositor that calls `accrue` without
-    ///      first transferring (or with an inflated amount) before any user funds are lost.
-    /// @param token         Token the fee is attributed to (informational, emitted in event).
-    /// @param creator       Creator receiving the creator share.
-    /// @param creatorAmount Creator USDC share (6dp).
-    /// @param protocolAmount Protocol USDC share (6dp).
-    /// @param isBuy         Whether the trade was a buy (informational, emitted in event).
+    /// @notice Record a fee accrual. Caller MUST have transferred
+    ///         `creatorAmount + protocolAmount` USDC to this vault first.
+    /// @dev Reverts `UnderfundedAccrual` if the vault's USDC balance no longer
+    ///      covers all outstanding claims — catches a depositor that calls
+    ///      `accrue` without (or under-) transferring before user funds are lost.
     function accrue(
         address token,
         address creator,
@@ -125,7 +107,6 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     // ─── Claims ──────────────────────────────────────────────────────────
 
-    /// @notice Claim the caller's pending creator USDC. Reverts if zero.
     function claim() external nonReentrant returns (uint256 amount) {
         amount = creatorBalance[msg.sender];
         if (amount == 0) revert NothingToClaim();
@@ -135,7 +116,6 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit CreatorFeesClaimed(msg.sender, amount);
     }
 
-    /// @notice Send pending protocol USDC to the configured `feeTo`. Owner-only.
     function claimProtocol() external nonReentrant onlyOwner returns (uint256 amount) {
         amount = protocolBalance;
         if (amount == 0) revert NothingToClaim();
@@ -144,12 +124,10 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit ProtocolFeesClaimed(feeTo, amount);
     }
 
-    /// @notice Sweep any USDC in the vault that is not backing an outstanding accrual to `feeTo`.
-    /// @dev Direct USDC donations to the vault would otherwise inflate `balanceOf` above the
-    ///      running accrual tally, masking the `accrue` underfund check: a buggy depositor that
-    ///      called `accrue` without first transferring USDC could be silently back-filled by
-    ///      donation funds. Owner runs this periodically so `balanceOf` stays aligned with
-    ///      `totalAccruedCreator + protocolBalance` and the underfund check remains effective.
+    /// @notice Sweep unbacked USDC (donations) to `feeTo`. Required because
+    ///         direct USDC transfers would otherwise inflate `balanceOf` above
+    ///         the accrual tally and silently mask the `accrue` underfund
+    ///         check. Owner runs periodically.
     function sweepDonations() external nonReentrant onlyOwner returns (uint256 amount) {
         uint256 backed = totalAccruedCreator + protocolBalance;
         uint256 balance = usdc.balanceOf(address(this));
