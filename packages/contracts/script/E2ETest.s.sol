@@ -35,9 +35,10 @@ contract E2ETest is Script {
         Bonding bonding = Bonding(bondingAddr);
         Zap zap = Zap(zapAddr);
 
-        // Mine a vanity salt off-broadcast — `Bonding._deployAndSeed` reverts
+        // Mine a vanity salt off-broadcast — `Bonding._checkVanity` reverts
         // with `NotVanityAddress` unless the resulting address ends in
-        // `Bonding.VANITY_SUFFIX` (`0xa1fa`). Pulling `tokenImplementation()`
+        // `Bonding.VANITY_TRAILING_ZEROS = 5` zero hex chars (so the
+        // address renders as `0x…00000`). Pulling `tokenImplementation()`
         // from the live Bonding (rather than hardcoding) means a future
         // `Token` implementation upgrade doesn't break the script.
         string memory tokenName = "E2E Test Token";

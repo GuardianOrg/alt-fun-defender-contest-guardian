@@ -9,18 +9,27 @@ import {
 } from "viem";
 
 /**
- * Vanity-suffix length the frontend miner targets. 4 hex chars (16 bits) ≈
- * 65,536 attempts on average — typically <200 ms on a single worker, sub-50ms
- * with `navigator.hardwareConcurrency` workers in parallel. Sized for "feels
- * instant" UX: by the time the user has filled in the form, mining has
- * usually finished. Bump to 5 (~1 M attempts, 1-3 s) only if we want to
- * trade UX for prettier addresses.
+ * Lowercase-hex literal the frontend miner targets at the end of the
+ * predicted address. Production value: `"00000"` (5 zeros) — every
+ * launched token's address renders as `0x…00000`.
  *
- * Lower-cased hex; the matcher compares against `address.slice(-4)` which is
- * also lower-case (viem checksum uppercases letters but the suffix check
- * runs on the raw `slice(-40)` of the keccak hash, never the checksum form).
+ * Per-attempt probability: 1 / 16^suffixLen. With 5 zeros that's
+ * ~1 / 1,048,576 → mean ≈ 1 M attempts (sub-second background mining on
+ * typical hardware via the JS worker pool).
+ *
+ * Why digits, not letters: hex digits 0-9 render identically regardless
+ * of EIP-55 checksum casing, so the launch invariant collapses to a
+ * single bitwise mask check on-chain (`Bonding._checkVanity`) instead of
+ * the keccak-over-lowercase-hex EIP-55 dance that letter suffixes
+ * require. ~3 gas per launch vs ~15k.
+ *
+ * If you change the length here, keep the on-chain sources of truth in
+ * sync: `Bonding.VANITY_TRAILING_ZEROS` (and the derived `_VANITY_MASK`
+ * used by `Bonding._checkVanity`) plus `VanityMining.TRAILING_ZEROS`
+ * (whose mask is derived in Yul). Diverging any of those bricks token
+ * creation.
  */
-export const VANITY_SUFFIX = "a1fa";
+export const VANITY_SUFFIX = "00000";
 
 /**
  * EIP-1167 minimal-proxy *creation* code, OpenZeppelin v5 layout.
@@ -157,12 +166,15 @@ export function predictTokenAddress(
 }
 
 /**
- * Check whether an address ends with the vanity suffix. Comparison is
- * case-insensitive to dodge checksum-casing surprises.
+ * Check whether an address satisfies the launch-time vanity invariant
+ * (`Bonding._checkVanity`): the trailing `suffix.length` hex chars of the
+ * address value must equal `suffix`. Comparison is case-insensitive so
+ * caller-supplied addresses can be in any casing — production suffix is
+ * all digits anyway, so casing doesn't matter, but this stays robust if
+ * you ever bump to a letter suffix.
  *
- * Mostly used in tests + for assertions; the contract enforces the suffix
- * on every launched token (see `Bonding.NotVanityAddress`), so app code
- * doesn't need to verify it.
+ * Mostly used in tests + for assertions; the contract enforces this on
+ * every launched token, so app code doesn't normally need to verify it.
  */
 export function hasVanitySuffix(
   address: Address,

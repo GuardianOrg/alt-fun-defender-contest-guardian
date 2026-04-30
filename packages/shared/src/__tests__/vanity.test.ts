@@ -172,19 +172,46 @@ describe("vanity", () => {
     expect(got).toBe(keccak256(expectedInitCode));
   });
 
-  it("VANITY_SUFFIX is 4 hex chars", () => {
-    expect(VANITY_SUFFIX).toMatch(/^[0-9a-f]{4}$/);
+  it("VANITY_SUFFIX is 5 hex chars", () => {
+    expect(VANITY_SUFFIX).toMatch(/^[0-9a-f]{5}$/);
   });
 
-  it("hasVanitySuffix is case-insensitive", () => {
-    expect(hasVanitySuffix("0x000000000000000000000000000000000000A1FA")).toBe(
+  it("hasVanitySuffix matches the production suffix regardless of input casing", () => {
+    // Production suffix is `"00000"` — digits, so no case issue, but the
+    // address can come in any casing per EIP-55 / storage convention.
+    expect(hasVanitySuffix("0x0000000000000000000000000000000000000000")).toBe(
       true,
     );
-    expect(hasVanitySuffix("0x000000000000000000000000000000000000a1fa")).toBe(
+    expect(hasVanitySuffix("0x123456789abcdef0123456789abcdef000000000")).toBe(
       true,
+    );
+    expect(hasVanitySuffix("0x123456789ABCDEF0123456789ABCDEF000000000")).toBe(
+      true,
+    );
+    // Suffix doesn't match — last 5 chars are not all zero.
+    expect(hasVanitySuffix("0x00000000000000000000000000000000000aaaaa")).toBe(
+      false,
     );
     expect(hasVanitySuffix("0x000000000000000000000000000000000000abcd")).toBe(
       false,
     );
+  });
+
+  it("hasVanitySuffix is case-insensitive on letter suffixes (defensive)", () => {
+    // Production uses a digit suffix where casing is moot, but the function
+    // is meant to stay correct if we ever bump to a letter-containing
+    // suffix. Exercise case-folding both ways via a custom `suffix` arg.
+    expect(
+      hasVanitySuffix("0x000000000000000000000000000000000000abcd", "ABCD"),
+    ).toBe(true);
+    expect(
+      hasVanitySuffix("0x000000000000000000000000000000000000ABCD", "abcd"),
+    ).toBe(true);
+    expect(
+      hasVanitySuffix("0x000000000000000000000000000000000000AbCd", "aBcD"),
+    ).toBe(true);
+    expect(
+      hasVanitySuffix("0x000000000000000000000000000000000000abcd", "ABCE"),
+    ).toBe(false);
   });
 });

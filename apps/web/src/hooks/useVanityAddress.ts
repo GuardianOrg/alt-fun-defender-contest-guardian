@@ -21,17 +21,17 @@ const hyperEvmClient = createPublicClient({
 });
 
 // `Bonding.tokenImplementation` is owner-rotatable via `setTokenImplementation`
-// (see `Bonding.sol:497`) — explicitly designed to be hot-swapped to ship a
-// new Token impl without disturbing already-launched tokens. If we hardcoded the
-// impl into worker init, every launch would silently revert with
-// `NotVanityAddress` after a rotation (the miner would compute salts against
-// the stale `initCodeHash`) until every user refreshed against a redeployed
-// frontend. Reading it from chain on hook init closes that gap.
+// — explicitly designed to be hot-swapped to ship a new Token impl without
+// disturbing already-launched tokens. If we hardcoded the impl into worker
+// init, every launch would silently revert with `NotVanityAddress` after a
+// rotation (the miner would compute salts against the stale `initCodeHash`)
+// until every user refreshed against a redeployed frontend. Reading it from
+// chain on hook init closes that gap.
 //
-// We deliberately *don't* read `VANITY_SUFFIX()` from chain — it's a
-// `bytes2 public constant` baked into bytecode (`Bonding.sol:110`), so the
-// only way it changes is a Bonding redeploy, which already requires bumping
-// the `@launchpad/shared` constant.
+// We deliberately *don't* read `VANITY_TRAILING_ZEROS()` from chain — it's
+// a `uint256 public constant` baked into bytecode, so the only way it
+// changes is a Bonding redeploy, which already requires bumping the
+// `@launchpad/shared` `VANITY_SUFFIX` constant in lockstep.
 const IMPL_STALE_MS = 5 * 60 * 1000;
 const IMPL_GC_MS = 30 * 60 * 1000;
 
@@ -75,11 +75,18 @@ export interface UseVanityAddressReturn {
 }
 
 /**
- * Spawns one Web Worker per CPU core and races them to find a salt that
- * deploys the user's Token clone to a vanity address ending in
- * `VANITY_SUFFIX`. Starts once the wallet is connected and the user has
- * entered both a name and a ticker — the on-chain mix binds the salt to
- * `(creator, name, ticker)` so we can't begin mining without those.
+ * Spawns one Web Worker per CPU core and races them to find a salt whose
+ * predicted clone address ends with `VANITY_SUFFIX` (`"00000"` in
+ * production — every launched token's address renders as `0x…00000`).
+ * Starts once the wallet is connected and the user has entered both a
+ * name and a ticker — the on-chain mix binds the salt to `(creator,
+ * name, ticker)` so we can't begin mining without those.
+ *
+ * Expected mining cost: ~16^suffixLen attempts. With 5-char suffix
+ * that's ~1 M — sub-second on a typical multi-core dev machine, low
+ * single-digit seconds on weaker hardware. Mining runs in the background
+ * while the user fills in description / image / seed buy, so the
+ * user-visible wait is usually zero.
  *
  * Re-mines when any of `(creator, tokenImplementation, name, ticker)`
  * changes. The caller is expected to pass debounced `name`/`ticker` so
@@ -88,10 +95,11 @@ export interface UseVanityAddressReturn {
  * what the pool was last spawned for, closing the race where a user
  * clicks Launch within the debounce window.
  *
- * No fallback path: every launched token MUST have the vanity suffix to
- * satisfy the on-chain invariant in `Bonding`. If mining hasn't completed
- * by the time the user clicks Launch, `ensureSalt` waits — the UI surfaces
- * a "FINDING YOUR ADDRESS…" state for as long as that takes.
+ * No fallback path: every launched token MUST satisfy the vanity
+ * invariant on-chain (`Bonding._checkVanity`). If mining hasn't
+ * completed by the time the user clicks Launch, `ensureSalt` waits —
+ * the UI surfaces a "FINDING YOUR ADDRESS…" state for as long as that
+ * takes.
  */
 // Single user-facing message for any miner failure (spawn-time or runtime).
 // Both paths land the hook in `status === "error"` and pending callers see

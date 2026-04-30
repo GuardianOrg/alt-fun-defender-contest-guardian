@@ -51,16 +51,18 @@ abstract contract DeployHelper is Test {
     ///      a single test pick up where the previous one left off. Tests
     ///      that build a `LaunchParams` literal directly must use
     ///      `_mineVanitySalt(creator_)` for the `salt` field — every
-    ///      launched token must end in `Bonding.VANITY_SUFFIX` and the
-    ///      contract reverts otherwise.
+    ///      launched token must satisfy `Bonding._checkVanity` (low 20
+    ///      bits zero) and the contract reverts otherwise.
     uint256 internal _saltNonce;
 
     /// @dev Brute-force a `userSalt` such that
     ///      `Clones.cloneDeterministic(tokenImpl, _mixSalt(creator_, name, ticker, userSalt))`
-    ///      deploys to an address ending in `Bonding.VANITY_SUFFIX`
-    ///      (`0xa1fa`). Mirrors the off-chain Web Worker miner used by the
-    ///      frontend. ~65k attempts on average — Foundry's revm runs this
-    ///      in tens of ms per launch.
+    ///      deploys to an address satisfying `Bonding._checkVanity` —
+    ///      the low 20 bits (5 trailing hex chars) must all be zero, so
+    ///      the address renders as `0x…00000`. Mirrors the off-chain Web
+    ///      Worker miner used by the frontend. ~1 M attempts on average
+    ///      — Foundry's revm runs this in single-digit seconds per launch
+    ///      on standard hardware.
     ///
     ///      The salt is bound to `(creator, name, ticker)` on-chain — callers
     ///      MUST pass the exact strings that will appear in their

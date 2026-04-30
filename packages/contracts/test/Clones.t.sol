@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {DeployHelper} from "./DeployHelper.sol";
+import {VanityMining} from "../src/lib/VanityMining.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 /// @notice EIP-1167 cloning + vanity-salt behaviour for the launchpad.
@@ -182,34 +183,32 @@ contract ClonesTest is DeployHelper {
 
     // ─── Vanity suffix enforcement ──────────────────────────────────────
 
-    /// @notice Every successful launch's token address must end in the
-    ///         `Bonding.VANITY_SUFFIX` (`0xa1fa`). The mining helper produces
-    ///         such a salt by construction; we explicitly verify that
-    ///         property here so any future regression in either the helper
-    ///         or the on-chain check is caught.
+    /// @notice Every successful launch's token address must satisfy the
+    ///         `Bonding._checkVanity` invariant: the low 20 bits (5 trailing
+    ///         hex chars) must all be zero. The mining helper produces
+    ///         such a salt by construction; verify that property here so
+    ///         any future regression in the helper or the on-chain check
+    ///         is caught.
     function test_launch_producesVanityAddress() public {
         bytes32 userSalt = _mineForParams(creator);
         vm.prank(creator);
         (address tokenAddr,) = bonding.launch(_params(userSalt), creator);
-        assertEq(
-            bytes2(uint16(uint160(tokenAddr))), bonding.VANITY_SUFFIX(), "launched token must end in VANITY_SUFFIX"
-        );
+        assertEq(uint160(tokenAddr) & 0xfffff, 0, "launched token must end in 5 zero hex chars");
     }
 
     /// @notice A non-vanity salt must revert with `NotVanityAddress`. Picks
-    ///         a salt deterministically known not to mine to `0xa1fa` (the
-    ///         on-chain check is the backstop preventing a misbehaving
-    ///         frontend or alternative router from sneaking through random
-    ///         fallbacks).
+    ///         a salt deterministically known not to land on a `…00000`
+    ///         address (the on-chain check is the backstop preventing a
+    ///         misbehaving frontend or alternative router from sneaking
+    ///         through random fallbacks). With a 20-bit suffix, ~99.9999%
+    ///         of random salts qualify, so the very first candidate almost
+    ///         always works.
     function test_launch_revertsOnNonVanityAddress() public {
-        // Brute-force a salt that *isn't* vanity. With a 16-bit suffix,
-        // ~65,535 in 65,536 random salts qualify, so the very first
-        // candidate almost always works.
         bytes32 badSalt;
         for (uint256 i = 1; i < 100; ++i) {
             bytes32 candidate = bytes32(i);
             address predicted = bonding.predictTokenAddress(creator, NAME, TICKER, candidate);
-            if (bytes2(uint16(uint160(predicted))) != bonding.VANITY_SUFFIX()) {
+            if (uint160(predicted) & 0xfffff != 0) {
                 badSalt = candidate;
                 break;
             }
@@ -222,10 +221,81 @@ contract ClonesTest is DeployHelper {
         bonding.launch(_params(badSalt), creator);
     }
 
-    function test_VANITY_SUFFIX_isExpectedConstant() public view {
-        // Tripwire: any change to the suffix bytes breaks the frontend miner
-        // and the Solidity test miner in tandem. Force a code review.
-        assertEq(bonding.VANITY_SUFFIX(), bytes2(0xa1fa));
+    function test_VANITY_TRAILING_ZEROS_isExpectedConstant() public view {
+        // Tripwire: any change to the suffix length breaks the frontend
+        // miner and the Solidity test miner in tandem. Force a code review.
+        assertEq(bonding.VANITY_TRAILING_ZEROS(), 5);
+    }
+
+    /// @notice `bytes32(0)` is a *valid* mining outcome: when `baseSalt = 0`
+    ///         and iteration 0 happens to produce a vanity address (~1/1M
+    ///         chance per call), `mine()` must return `bytes32(0)` cleanly
+    ///         instead of false-reverting with "did not converge". Regression
+    ///         for an earlier shape that used `require(found != 0)` as the
+    ///         success check, conflating "loop exhausted" with "salt is
+    ///         literally zero".
+    function test_mine_returnsZeroSaltCleanly() public view {
+        bytes32 nameHash = keccak256(bytes("ZeroProbe"));
+        bytes32 tickerHash = keccak256(bytes("ZP"));
+        address bondingAddr = address(bonding);
+        address impl = address(tokenImpl);
+
+        // Brute-force a `creator` such that mixing with `userSalt = 0`
+        // produces a vanity-suffixed predicted address. With 1/1,048,576
+        // hit probability per creator candidate, ~16M probes is enough to
+        // converge with overwhelming likelihood (P(no hit) ≈ exp(-16) ≈ 1e-7).
+        // Inline the address derivation in memory-safe assembly so memory
+        // doesn't grow per iteration (a naive Solidity loop calling
+        // `Clones.predictDeterministicAddress` hits the memory-limit OOG
+        // long before convergence).
+        address foundCreator = _findZeroSaltCreator(nameHash, tickerHash, impl, bondingAddr);
+        require(foundCreator != address(0), "test setup: no creator found that makes salt=0 a vanity hit");
+
+        // Mining with baseSalt=0 must now return bytes32(0) and NOT revert,
+        // because iteration 0 (salt = baseSalt + 0 = 0) is the valid hit.
+        bytes32 result = VanityMining.mine(foundCreator, nameHash, tickerHash, impl, bondingAddr, bytes32(0));
+        assertEq(result, bytes32(0), "mine() must return bytes32(0) when that is the converged salt");
+    }
+
+    /// @dev Inline-assembly creator search, structurally identical to
+    ///      `VanityMining.mine` but iterating over `creator` (with `salt = 0`
+    ///      pinned) instead of `salt`. Reuses fixed scratch buffers so
+    ///      memory expansion stays O(1) over the 16 M-iteration budget.
+    function _findZeroSaltCreator(
+        bytes32 nameHash,
+        bytes32 tickerHash,
+        address impl,
+        address bondingAddr
+    ) internal pure returns (address foundCreator) {
+        bytes memory prefix = hex"3d602d80600a3d3981f3363d3d373d3d3d363d73";
+        bytes memory suffix = hex"5af43d82803e903d91602b57fd5bf3";
+        bytes32 initCodeHash = keccak256(abi.encodePacked(prefix, impl, suffix));
+        assembly ("memory-safe") {
+            let mixBuf := mload(0x40)
+            let addrBuf := add(mixBuf, 0x80)
+            mstore(0x40, add(addrBuf, 0x80))
+
+            // mixBuf = abi.encode(creator, nameHash, tickerHash, userSalt=0)
+            mstore(add(mixBuf, 0x20), nameHash)
+            mstore(add(mixBuf, 0x40), tickerHash)
+            mstore(add(mixBuf, 0x60), 0)
+
+            // addrBuf = 0xff || bondingAddr || mixed || initCodeHash
+            mstore8(addrBuf, 0xff)
+            mstore(add(addrBuf, 1), shl(96, bondingAddr))
+            mstore(add(addrBuf, 53), initCodeHash)
+
+            for { let i := 1 } lt(i, 16000000) { i := add(i, 1) } {
+                mstore(mixBuf, i)
+                let mixed := keccak256(mixBuf, 0x80)
+                mstore(add(addrBuf, 21), mixed)
+                let predicted := keccak256(addrBuf, 85)
+                if iszero(and(predicted, 0xfffff)) {
+                    foundCreator := i
+                    break
+                }
+            }
+        }
     }
 
     // ─── Name/ticker binding ─────────────────────────────────────────────
@@ -251,9 +321,10 @@ contract ClonesTest is DeployHelper {
     ///         the symbol after mining → forced re-mine" UX.
     ///
     ///         We probe a small space of alt-tuples to find ones whose
-    ///         predicted address is *not* vanity (~65,535 / 65,536 per probe),
-    ///         keeping the test deterministic in the face of the 1/65,536
-    ///         chance that a random alt-tuple would land on `0xa1fa`.
+    ///         predicted address is *not* vanity (~99.9999% per probe with
+    ///         a 20-bit suffix), keeping the test deterministic in the face
+    ///         of the 1/1,048,576 chance that a random alt-tuple lands on
+    ///         a `…00000` address.
     function test_launch_revertsWhenNameOrTickerDifferFromMinedTuple() public {
         bytes32 minedSalt = _mineForParams(creator);
 
@@ -292,7 +363,7 @@ contract ClonesTest is DeployHelper {
 
     /// @dev Find an `(altName, altTicker)` such that *both* the name-only
     ///      and ticker-only swaps produce non-vanity predicted addresses
-    ///      under `creator`/`minedSalt`. With a 16-bit suffix the very
+    ///      under `creator`/`minedSalt`. With a 20-bit suffix the very
     ///      first probe almost always works.
     function _findNonVanityAltTuple(
         bytes32 minedSalt
@@ -302,10 +373,7 @@ contract ClonesTest is DeployHelper {
             string memory candidateTicker = string(abi.encodePacked("ALT", vm.toString(i)));
             address namePred = bonding.predictTokenAddress(creator, candidateName, TICKER, minedSalt);
             address tickerPred = bonding.predictTokenAddress(creator, NAME, candidateTicker, minedSalt);
-            if (
-                bytes2(uint16(uint160(namePred))) != bonding.VANITY_SUFFIX()
-                    && bytes2(uint16(uint160(tickerPred))) != bonding.VANITY_SUFFIX()
-            ) {
+            if (uint160(namePred) & 0xfffff != 0 && uint160(tickerPred) & 0xfffff != 0) {
                 return (candidateName, candidateTicker);
             }
         }
