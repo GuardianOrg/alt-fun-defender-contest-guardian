@@ -51,6 +51,11 @@ library VanityMining {
         bytes32 baseSalt
     ) internal pure returns (bytes32 found) {
         bytes32 initCodeHash = keccak256(abi.encodePacked(EIP1167_PREFIX, implementation_, EIP1167_SUFFIX));
+        // `found == bytes32(0)` is a *valid* mining outcome (e.g. when `baseSalt`
+        // is 0 and iteration 0 happens to produce a `…00000` address — ~1/1M
+        // chance per call). Track convergence in a separate flag so the
+        // post-loop `require` doesn't false-reject the legitimate zero salt.
+        bool success;
         assembly ("memory-safe") {
             let mixBuf := mload(0x40)
             let addrBuf := add(mixBuf, 0x80)
@@ -75,11 +80,12 @@ library VanityMining {
                 // Low 20 bits must be zero (5 trailing hex zeros).
                 if iszero(and(predicted, 0xfffff)) {
                     found := salt
+                    success := 1
                     break
                 }
             }
         }
 
-        require(found != bytes32(0), "VanityMining: did not converge in 16M attempts");
+        require(success, "VanityMining: did not converge in 16M attempts");
     }
 }

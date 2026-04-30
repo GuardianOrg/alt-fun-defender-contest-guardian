@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {DeployHelper} from "./DeployHelper.sol";
+import {VanityMining} from "../src/lib/VanityMining.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 /// @notice EIP-1167 cloning + vanity-salt behaviour for the launchpad.
@@ -224,6 +225,77 @@ contract ClonesTest is DeployHelper {
         // Tripwire: any change to the suffix length breaks the frontend
         // miner and the Solidity test miner in tandem. Force a code review.
         assertEq(bonding.VANITY_TRAILING_ZEROS(), 5);
+    }
+
+    /// @notice `bytes32(0)` is a *valid* mining outcome: when `baseSalt = 0`
+    ///         and iteration 0 happens to produce a vanity address (~1/1M
+    ///         chance per call), `mine()` must return `bytes32(0)` cleanly
+    ///         instead of false-reverting with "did not converge". Regression
+    ///         for an earlier shape that used `require(found != 0)` as the
+    ///         success check, conflating "loop exhausted" with "salt is
+    ///         literally zero".
+    function test_mine_returnsZeroSaltCleanly() public view {
+        bytes32 nameHash = keccak256(bytes("ZeroProbe"));
+        bytes32 tickerHash = keccak256(bytes("ZP"));
+        address bondingAddr = address(bonding);
+        address impl = address(tokenImpl);
+
+        // Brute-force a `creator` such that mixing with `userSalt = 0`
+        // produces a vanity-suffixed predicted address. With 1/1,048,576
+        // hit probability per creator candidate, ~16M probes is enough to
+        // converge with overwhelming likelihood (P(no hit) ≈ exp(-16) ≈ 1e-7).
+        // Inline the address derivation in memory-safe assembly so memory
+        // doesn't grow per iteration (a naive Solidity loop calling
+        // `Clones.predictDeterministicAddress` hits the memory-limit OOG
+        // long before convergence).
+        address foundCreator = _findZeroSaltCreator(nameHash, tickerHash, impl, bondingAddr);
+        require(foundCreator != address(0), "test setup: no creator found that makes salt=0 a vanity hit");
+
+        // Mining with baseSalt=0 must now return bytes32(0) and NOT revert,
+        // because iteration 0 (salt = baseSalt + 0 = 0) is the valid hit.
+        bytes32 result = VanityMining.mine(foundCreator, nameHash, tickerHash, impl, bondingAddr, bytes32(0));
+        assertEq(result, bytes32(0), "mine() must return bytes32(0) when that is the converged salt");
+    }
+
+    /// @dev Inline-assembly creator search, structurally identical to
+    ///      `VanityMining.mine` but iterating over `creator` (with `salt = 0`
+    ///      pinned) instead of `salt`. Reuses fixed scratch buffers so
+    ///      memory expansion stays O(1) over the 16 M-iteration budget.
+    function _findZeroSaltCreator(
+        bytes32 nameHash,
+        bytes32 tickerHash,
+        address impl,
+        address bondingAddr
+    ) internal pure returns (address foundCreator) {
+        bytes memory prefix = hex"3d602d80600a3d3981f3363d3d373d3d3d363d73";
+        bytes memory suffix = hex"5af43d82803e903d91602b57fd5bf3";
+        bytes32 initCodeHash = keccak256(abi.encodePacked(prefix, impl, suffix));
+        assembly ("memory-safe") {
+            let mixBuf := mload(0x40)
+            let addrBuf := add(mixBuf, 0x80)
+            mstore(0x40, add(addrBuf, 0x80))
+
+            // mixBuf = abi.encode(creator, nameHash, tickerHash, userSalt=0)
+            mstore(add(mixBuf, 0x20), nameHash)
+            mstore(add(mixBuf, 0x40), tickerHash)
+            mstore(add(mixBuf, 0x60), 0)
+
+            // addrBuf = 0xff || bondingAddr || mixed || initCodeHash
+            mstore8(addrBuf, 0xff)
+            mstore(add(addrBuf, 1), shl(96, bondingAddr))
+            mstore(add(addrBuf, 53), initCodeHash)
+
+            for { let i := 1 } lt(i, 16000000) { i := add(i, 1) } {
+                mstore(mixBuf, i)
+                let mixed := keccak256(mixBuf, 0x80)
+                mstore(add(addrBuf, 21), mixed)
+                let predicted := keccak256(addrBuf, 85)
+                if iszero(and(predicted, 0xfffff)) {
+                    foundCreator := i
+                    break
+                }
+            }
+        }
     }
 
     // ─── Name/ticker binding ─────────────────────────────────────────────
