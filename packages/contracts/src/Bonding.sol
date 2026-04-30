@@ -14,8 +14,8 @@ import {Router} from "./Router.sol";
 import {Token} from "./Token.sol";
 import {IBounceFactory} from "./interfaces/IBounceFactory.sol";
 import {IBounceGlobalStorage} from "./interfaces/IBounceGlobalStorage.sol";
+import {IBounceLeveragedToken} from "./interfaces/IBounceLeveragedToken.sol";
 import {IPair} from "./interfaces/IPair.sol";
-import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {LPLock} from "./LPLock.sol";
@@ -219,7 +219,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev    Without this gate, `Zap.createToken` is permissionless and
     ///         forwards an arbitrary `ltAddress` straight through to
     ///         `Bonding.launch`. A scammer can ship a contract that
-    ///         satisfies our `ILeveragedToken` interface but pulls the
+    ///         satisfies our `IBounceLeveragedToken` interface but pulls the
     ///         buyer's USDC into an attacker-controlled address inside
     ///         `mint(...)` (since `Zap` `forceApprove`s the supposed LT
     ///         before calling `mint`). The off-chain UI filters to
@@ -408,7 +408,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         // On-chain LT-legitimacy gate. The off-chain UI already filters to
         // BounceTech's directory, but `Zap.createToken` is permissionless
         // and a `cast send` can pass any address as `ltAddress`. Without
-        // this check, a contract that fakes the `ILeveragedToken` ABI but
+        // this check, a contract that fakes the `IBounceLeveragedToken` ABI but
         // siphons USDC inside `mint` is accepted, the indexer surfaces the
         // resulting token like any other, and the first buyer's USDC
         // (which `Zap` `forceApprove`s to the LT before the curve buy)
@@ -474,7 +474,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         pair = factory.createPair(tokenAddr, ltAddress);
 
-        uint256 exchangeRate = ILeveragedToken(ltAddress).exchangeRate();
+        uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
@@ -649,7 +649,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address pair = info.pair;
         if (IPair(pair).tokenBalance() == 0) return true;
 
-        uint256 valueUsd = (IPair(pair).assetBalance() * ILeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
+        uint256 valueUsd = (IPair(pair).assetBalance() * IBounceLeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
         return valueUsd >= graduationThresholdUsd;
     }
 
