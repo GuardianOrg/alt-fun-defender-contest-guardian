@@ -9,7 +9,7 @@ Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leve
 1. **Create:** Creator picks an underlying asset + leverage (e.g. HYPE 2x Long) and launches a token
 2. **Buy:** User sends USDC → Router mints LT → LT enters bonding curve → user gets tokens
 3. **Sell:** User sends tokens → Router sells on curve → redeems LT → user gets USDC
-4. **Graduate:** Dual trigger — curve closes when **either** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (default `$12K`, owner-tunable via `setGraduationThresholdUsd`) **or** all 750M curve tokens sold. LP is seeded with exactly the tokens needed to match the last curve price ("dynamic LP seeding" → zero price gap between curve and DEX). Excess LP-reserve tokens and any unsold curve tokens are burned. LP is locked.
+4. **Graduate:** Dual trigger — curve closes when **either** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$12K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`) **or** all 750M curve tokens sold. LP is seeded with exactly the tokens needed to match the last curve price ("dynamic LP seeding" → zero price gap between curve and DEX). Excess LP-reserve tokens and any unsold curve tokens are burned. LP is locked.
 5. **Post-grad:** Trading continues through Router on HyperSwap. Leveraged exposure persists.
 
 The `Zap` contract is the only user-facing entry point. Users always pay and receive USDC.
@@ -41,8 +41,8 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 | Virtual `reserve0` | Initialised at full 1B (`totalSupply`); only 750M real tokens transferred. Pins post-sellout virtual reserve at 250M = `LP_RESERVE` and makes `tokensForLP ≤ LP_RESERVE` a mathematical invariant. |
 | K parameter | Dynamic per token — computed at `launch()` from LT's `exchangeRate()` |
 | Opening market cap | ~`$4K` |
-| Graduation market cap | `~$16K` at launch-time rate when threshold = `$12K` (higher when LT rallies). Threshold itself is owner-mutable. |
-| Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (default `$12K`, owner-tunable via `setGraduationThresholdUsd`, bounded to `[$4K, $1M]`). **Supply:** all 750M curve tokens sold (flat/bear markets). |
+| Graduation market cap | `~$16K` at launch-time rate when threshold = `$12K` (higher when LT rallies). `graduationThresholdUsd` is set at `Bonding.initialize` and only changeable via a UUPS upgrade with a `reinitializer`. |
+| Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$12K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`). **Supply:** all 750M curve tokens sold (flat/bear markets). |
 | Dynamic LP seeding | `tokensForLP = raisedLT × reserve0 / reserve1`. Guarantees LP opens at the exact last curve price (zero-gap). Excess of `LP_RESERVE` burned. |
 | Overflow buy protection | A buy that would exceed remaining real supply is capped; unused LT refunded (as USDC) to the buyer. |
 | User-facing currency | USDC in / USDC out. LT fully abstracted. |

@@ -30,7 +30,8 @@ import {VanityMining} from "./lib/VanityMining.sol";
 ///      (= `LP_RESERVE`). This gives:
 ///        • A deterministic "supply trigger" (all curve tokens sold).
 ///        • A USD trigger at `raisedLT * exchangeRate ≥ graduationThresholdUsd`
-///          (defaults to $12K, mutable by the owner via `setGraduationThresholdUsd`).
+///          (set once at `initialize` time; immutable for the life of the
+///          proxy. Changing it requires an upgrade with a `reinitializer`).
 ///        • An invariant that `tokensForLP(sold) = sold·(S-sold)/S ≤ S/4 = LP_RESERVE`.
 ///
 ///      Upon graduation, the LP pool is seeded with exactly the tokens needed to match
@@ -79,25 +80,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      Since virtual tokenReserve = totalSupply (1B), opening MC = VIRTUAL_LIQUIDITY_USD.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
 
-    /// @dev Default graduation threshold seeded at deploy / upgrade. Mutable
-    ///      via `setGraduationThresholdUsd`. See `graduationThresholdUsd`.
-    uint256 public constant DEFAULT_GRADUATION_THRESHOLD_USD = 12_000 ether;
-
-    /// @dev Lower bound on `graduationThresholdUsd`. Pegged to the opening
-    ///      virtual liquidity so a freshly-launched curve can never be
-    ///      pre-graduated by an admin setting an absurdly low threshold.
-    uint256 public constant MIN_GRADUATION_THRESHOLD_USD = VIRTUAL_LIQUIDITY_USD;
-
-    /// @dev Upper bound on `graduationThresholdUsd`. Defensive against fat-finger
-    ///      input — well above any realistic launchpad threshold.
-    uint256 public constant MAX_GRADUATION_THRESHOLD_USD = 1_000_000 ether;
-
     /// @dev Graduation fires when real LT reserve * exchangeRate >= this value
-    ///      (18-decimal USD). Globally applied — a change re-scores every
-    ///      currently-trading token on its next `buy`/`sell`. This is
-    ///      deliberate: lowering the dial mid-flight is the *only* way to
-    ///      affect the long tail of stale tokens. Bounded by
-    ///      `MIN_GRADUATION_THRESHOLD_USD` / `MAX_GRADUATION_THRESHOLD_USD`.
+    ///      (18-decimal USD). Set once at `initialize` time and immutable for
+    ///      the life of the proxy — there is no setter, and the value applies
+    ///      uniformly to every token launched against this Bonding.
+    ///
+    ///      An earlier design exposed `setGraduationThresholdUsd` so the dial
+    ///      could be tuned mid-flight, but that turned every change into a
+    ///      retroactive trigger that re-scored every currently-trading token
+    ///      on its next trade — a public, observable parameter change that an
+    ///      MEV searcher could sandwich for free profit (see issue #269).
+    ///      Making it immutable removes that surface entirely. If the
+    ///      threshold needs to change in future, ship a UUPS upgrade with a
+    ///      `reinitializer` that sets a new value (and accept that the
+    ///      change is still retroactive — but this time the timelock window
+    ///      is the upgrade itself, not a single owner tx).
     uint256 public graduationThresholdUsd;
 
     /// @dev Curve gets 75% of supply (real tokens transferred to pair), 25% reserved for LP
@@ -248,7 +245,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event CreatorTransferred(address indexed token, address indexed oldCreator, address indexed newCreator);
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
-    event GraduationThresholdUpdated(uint256 oldValue, uint256 newValue);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
 
@@ -274,7 +270,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error InvalidDescriptionLength();
     error InvalidImageLength();
     error InvalidUrlLength();
-    error InvalidThreshold();
     /// @dev `setHyperswap` was called with an `lpLock` that hasn't allowlisted
     ///      this Bonding as a locker. Without that, every subsequent
     ///      `finalizeGraduation` would revert in `LPLock.recordLock`, bricking
@@ -298,17 +293,24 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         _disableInitializers();
     }
 
+    /// @param graduationThresholdUsd_ Immutable USD trigger (18-dp) for
+    ///        graduation. Must be at least `VIRTUAL_LIQUIDITY_USD` so a
+    ///        freshly-launched curve cannot be pre-graduated by a too-low
+    ///        deploy-time value. There is no on-chain setter — changing
+    ///        this value requires a UUPS upgrade with a `reinitializer`.
     function initialize(
         address factory_,
         address router_,
         address hyperswapFactory_,
         address lpLock_,
-        address tokenImplementation_
+        address tokenImplementation_,
+        uint256 graduationThresholdUsd_
     ) external initializer {
         if (
             factory_ == address(0) || router_ == address(0) || hyperswapFactory_ == address(0) || lpLock_ == address(0)
                 || tokenImplementation_ == address(0)
         ) revert ZeroAddress();
+        if (graduationThresholdUsd_ < VIRTUAL_LIQUIDITY_USD) revert InvalidInput();
         __Ownable_init(msg.sender);
 
         factory = Factory(factory_);
@@ -316,7 +318,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         hyperswapFactory = hyperswapFactory_;
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
-        graduationThresholdUsd = DEFAULT_GRADUATION_THRESHOLD_USD;
+        graduationThresholdUsd = graduationThresholdUsd_;
     }
 
     // ─── Launch ──────────────────────────────────────────────────────────
@@ -610,24 +612,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address old = tokenImplementation;
         tokenImplementation = newImpl;
         emit TokenImplementationUpdated(old, newImpl);
-    }
-
-    /// @notice Update the global graduation threshold (18-dp USD).
-    /// @dev Applies to ALL currently-trading tokens — the new value is read
-    ///      on the next `buy`/`sell` via `canGraduate`. Tokens whose real LT
-    ///      reserve already values above the new threshold will graduate on
-    ///      their next trade. Bounded by `MIN_GRADUATION_THRESHOLD_USD` (so
-    ///      a freshly-launched curve can't be pre-graduated) and
-    ///      `MAX_GRADUATION_THRESHOLD_USD` (defensive fat-finger guard).
-    function setGraduationThresholdUsd(
-        uint256 newValue
-    ) external onlyOwner {
-        if (newValue < MIN_GRADUATION_THRESHOLD_USD || newValue > MAX_GRADUATION_THRESHOLD_USD) {
-            revert InvalidThreshold();
-        }
-        uint256 old = graduationThresholdUsd;
-        graduationThresholdUsd = newValue;
-        emit GraduationThresholdUpdated(old, newValue);
     }
 
     /// @notice Authorise a router to call `launch`, `buy`, and `sell`. Multiple

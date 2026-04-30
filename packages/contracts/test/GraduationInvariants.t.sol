@@ -35,13 +35,6 @@ contract GraduationInvariantsTest is DeployHelper {
         bonding.addRouter(creator);
         bonding.addRouter(trader);
         bonding.addRouter(trader2);
-        // Align the graduation threshold to virtual liquidity so the USD
-        // trigger is reachable on the test curve. Without this, the
-        // contract-default $12K threshold cannot be hit on a $100-virt-
-        // liquidity curve before the supply trigger fires, making the
-        // USD-trigger invariants untestable. See DeployHelper for full
-        // rationale.
-        _alignThresholdToVirtualLiquidity();
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────

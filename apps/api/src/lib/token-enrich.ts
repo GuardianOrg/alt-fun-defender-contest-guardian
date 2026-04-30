@@ -103,9 +103,9 @@ export interface CurveFilledBreakdown {
 /**
  * Decompose the graduation progress bar into "organic USD raised" vs "LT
  * price appreciation". Both are percentages of the live USD graduation
- * threshold (owner-tunable via `Bonding.setGraduationThresholdUsd` — read by
- * the route handler from `protocol-config.getGraduationThresholdUsd` and
- * threaded in here as `graduationThresholdUsd`) and always sum to ≤ `total`.
+ * threshold (set once at `Bonding.initialize` and read by the route handler
+ * from `protocol-config.getGraduationThresholdUsd`, threaded in here as
+ * `graduationThresholdUsd`) and always sum to ≤ `total`.
  * Used by the tokens list + detail endpoints to power the split progress bar
  * on the landing page.
  *
@@ -271,15 +271,15 @@ export interface EnrichedToken
   ltReserve: string | null;
   curveFilled: number | null;
   /**
-   * Percent of the live USD graduation threshold (owner-tunable —
-   * `Bonding.graduationThresholdUsd`, defaults to $12K) that came from
+   * Percent of the USD graduation threshold (`Bonding.graduationThresholdUsd`,
+   * set once at proxy initialisation; production = $12K) that came from
    * organic USDC buys (clamped at `curveFilled`). `null` when the
    * indexer/BounceTech are degraded or the token is graduated.
    */
   curveFilledOrganic: number | null;
   /**
-   * Percent of the live USD graduation threshold (owner-tunable —
-   * `Bonding.graduationThresholdUsd`, defaults to $12K) that came from LT
+   * Percent of the USD graduation threshold (`Bonding.graduationThresholdUsd`,
+   * set once at proxy initialisation; production = $12K) that came from LT
    * price appreciation since those buys. `null` when unknown, clamped at 0
    * when the LT has dropped (marketing number — we don't surface a negative
    * contribution).

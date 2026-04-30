@@ -924,6 +924,11 @@ export const ZapAbi = [
   },
   {
     "type": "error",
+    "name": "BondingNotConfigured",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ERC1967InvalidImplementation",
     "inputs": [
       {

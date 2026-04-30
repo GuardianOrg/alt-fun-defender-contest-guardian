@@ -6,10 +6,9 @@ Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap
 
 | Event | Contract |
 |---|---|
-| `TokenLaunched` | Bonding — also defensively bootstraps the `protocolConfig` singleton on first sight |
+| `TokenLaunched` | Bonding |
 | `Trade` | Bonding (unified buy/sell with `isBuy` flag) |
 | `TokenGraduated` | Bonding — includes `tokensInLP`, `lpBurned`, `unsoldBurned` (dynamic LP seeding outputs, see `packages/contracts/AGENTS.md`) |
-| `GraduationThresholdUpdated` | Bonding — owner tweaked `graduationThresholdUsd`; upserts the `protocolConfig` singleton |
 | `CreatorFeesClaimed` | Bonding |
 | `ProtocolFeesClaimed` | Bonding |
 | `Buy` | Zap — also bumps `token.organicUsdcRaised` and `token.volumeUsd` |
@@ -29,18 +28,9 @@ The API (`apps/api/src/lib/token-enrich.ts`) reads this alongside the current `l
 - `curveFilledOrganic` = `min(organicUsdcRaised / graduationThresholdUsd × 100, curveFilled)` — clamp keeps a late-life LT crash from producing negative leverage.
 - `curveFilledLeverageBoost` = `max(0, curveFilled − curveFilledOrganic)` — never surface a negative boost (product decision: this is a marketing number, not an accounting figure).
 
-`graduationThresholdUsd` is read from the `protocolConfig` singleton (see below). The API caches it per-isolate for 60s and falls back to the compile-time `12_000` if the row is missing — so an indexer outage just means the curve bar uses the launch-time default, not "unknown".
+`graduationThresholdUsd` is set once at `Bonding.initialize` (no on-chain setter). The API reads it directly from the contract via RPC and caches per-isolate for 60s; falls back to the compile-time `12_000` from `@launchpad/shared` on RPC outage. The indexer no longer mirrors this value — see `apps/api/AGENTS.md`.
 
 When you modify `Zap.Buy`/`Sell` handlers, **also keep the organic counter in sync**. The test suite in `apps/indexer/test/bonding.test.ts` asserts both the `routerTrade` insert and the counter bump.
-
-### Protocol config singleton (`protocolConfig`)
-
-Mirror of owner-tunable `Bonding` parameters. Currently a single column (`graduationThresholdUsd`, 18-dp wei); structured as a singleton row keyed `id = "global"` so additional tunables can be added without schema churn. Two write paths:
-
-- `Bonding:GraduationThresholdUpdated` handler: `onConflictDoUpdate` — admin tweaks always overwrite.
-- `Bonding:TokenLaunched` handler: `onConflictDoNothing` — defensive bootstrap to seed the row on a fresh indexer DB pointed at a freshly-deployed contract that hasn't yet emitted a threshold update. **Must stay no-op-on-conflict** so a subsequent launch doesn't clobber a real admin tweak.
-
-Consumers (the API) treat a missing row as "use the compile-time default" rather than "unknown", which keeps the curve-filled progress bar populated during indexer outages and on cold starts before the bootstrap fires.
 
 ### Lifetime trading volume (`token.volumeUsd`)
 
@@ -99,8 +89,8 @@ the offending PID. If you ever see the wrapper bail, kill the squatter:
 lsof -ti :42069 | xargs kill -9
 ```
 
-The API side has a matching guard: `checkPonderHealth` queries an actual
-table (`protocolConfig`) rather than `{ __typename }`, so a Ponder with a
+The API side has a matching guard: `checkPonderHealth` queries the
+`tokens` collection rather than `{ __typename }`, so a Ponder with a
 crashed DB is reported `degraded` instead of `healthy`. Keep both guards in
 lockstep — bypassing one lets the failure mode return.
 

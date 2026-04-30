@@ -316,9 +316,7 @@ listRoute.get("/", async (c) => {
       }
     }
 
-    const graduationThresholdUsd = await getGraduationThresholdUsd(
-      c.env.PONDER_URL,
-    );
+    const graduationThresholdUsd = await getGraduationThresholdUsd(c.env);
     const enriched = paged.map((t) =>
       enrich(
         t,
@@ -403,9 +401,7 @@ listRoute.get("/", async (c) => {
     }
   }
 
-  const graduationThresholdUsd = await getGraduationThresholdUsd(
-    c.env.PONDER_URL,
-  );
+  const graduationThresholdUsd = await getGraduationThresholdUsd(c.env);
   let enriched = dbTokens.map((t) =>
     enrich(
       t,

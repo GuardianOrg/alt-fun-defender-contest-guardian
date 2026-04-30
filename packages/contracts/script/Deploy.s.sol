@@ -22,6 +22,12 @@ contract Deploy is Script {
     uint256 constant SELL_FEE_BPS = 50;
     uint256 constant CREATOR_FEE_BPS = 2000;
 
+    /// @dev USD-denominated (18-dp) graduation trigger seeded into the
+    ///      Bonding proxy at `initialize`. Immutable for the life of the
+    ///      proxy — changing it requires a UUPS upgrade with a
+    ///      `reinitializer`.
+    uint256 constant GRADUATION_THRESHOLD_USD = 12_000 ether;
+
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
@@ -96,8 +102,10 @@ contract Deploy is Script {
         address tokenImplementation_
     ) internal returns (address) {
         Bonding impl = new Bonding();
-        bytes memory initData =
-            abi.encodeCall(Bonding.initialize, (factory_, router_, hyperswapFactory_, lpLock_, tokenImplementation_));
+        bytes memory initData = abi.encodeCall(
+            Bonding.initialize,
+            (factory_, router_, hyperswapFactory_, lpLock_, tokenImplementation_, GRADUATION_THRESHOLD_USD)
+        );
         return address(new ERC1967Proxy(address(impl), initData));
     }
 }

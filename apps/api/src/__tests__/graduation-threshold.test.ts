@@ -8,6 +8,31 @@ import {
   getGraduationThresholdUsd,
 } from "../lib/protocol-config.js";
 
+import type { AppBindings } from "../lib/types.js";
+
+// Stub `env` shape passed to `getGraduationThresholdUsd`. The function only
+// reads `HYPEREVM_RPC_URL`; everything else is irrelevant for these tests
+// but TS still wants the full shape to compile.
+const stubEnv = {
+  HYPEREVM_RPC_URL: "http://stub-rpc:1",
+} as unknown as AppBindings;
+
+// --- Viem mock ---
+//
+// `getGraduationThresholdUsd` calls `client.readContract({ ..., functionName:
+// "graduationThresholdUsd" })`. Mocking at the viem boundary keeps the cache
+// + fallback logic exercised without depending on viem's JSON-RPC wire
+// format (which can include `eth_chainId` probes alongside the `eth_call`,
+// making raw-fetch mocks brittle across viem versions).
+const mockReadContract = vi.fn();
+vi.mock("viem", async () => {
+  const actual = await vi.importActual<typeof import("viem")>("viem");
+  return {
+    ...actual,
+    createPublicClient: () => ({ readContract: mockReadContract }),
+  };
+});
+
 describe("computeCurveFilledBreakdown — graduation threshold argument", () => {
   // Pure-math sanity checks for the threshold parameter. The breakdown
   // routine has its own dedicated reserve-decoding tests elsewhere; this
@@ -74,69 +99,38 @@ describe("computeCurveFilledBreakdown — graduation threshold argument", () => 
 describe("getGraduationThresholdUsd — fallback + caching", () => {
   beforeEach(() => {
     _resetGraduationThresholdCache();
+    mockReadContract.mockReset();
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
     _resetGraduationThresholdCache();
   });
 
-  it("falls back to the compile-time default when the indexer is unreachable", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+  it("falls back to the compile-time default when the RPC is unreachable", async () => {
+    mockReadContract.mockRejectedValue(new Error("ECONNREFUSED"));
 
-    const value = await getGraduationThresholdUsd("http://no-such-host:1");
+    const value = await getGraduationThresholdUsd(stubEnv);
     expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
   });
 
-  it("falls back when the indexer responds with no row (fresh DB)", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ data: { protocolConfig: null } }), {
-        status: 200,
-      }),
-    );
+  it("returns the live threshold when the RPC responds", async () => {
+    // `readContract` returns the decoded `uint256` (18-dp wei), not raw
+    // calldata. `getGraduationThresholdUsd` divides by 10^18.
+    mockReadContract.mockResolvedValue(25_000n * 10n ** 18n);
 
-    const value = await getGraduationThresholdUsd("http://stub:1");
-    expect(value).toBe(DEFAULT_GRADUATION_THRESHOLD_USD);
-  });
-
-  it("returns the live threshold when the indexer has a row", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: {
-            protocolConfig: {
-              // 25_000 ether in 18-dp wei.
-              graduationThresholdUsd: (25_000n * 10n ** 18n).toString(),
-            },
-          },
-        }),
-        { status: 200 },
-      ),
-    );
-
-    const value = await getGraduationThresholdUsd("http://stub:1");
+    const value = await getGraduationThresholdUsd(stubEnv);
     expect(value).toBe(25_000);
   });
 
   it("caches the value across calls within the same isolate", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: {
-            protocolConfig: {
-              graduationThresholdUsd: (12_000n * 10n ** 18n).toString(),
-            },
-          },
-        }),
-        { status: 200 },
-      ),
-    );
+    mockReadContract.mockResolvedValue(12_000n * 10n ** 18n);
 
-    await getGraduationThresholdUsd("http://stub:1");
-    await getGraduationThresholdUsd("http://stub:1");
-    await getGraduationThresholdUsd("http://stub:1");
+    await getGraduationThresholdUsd(stubEnv);
+    await getGraduationThresholdUsd(stubEnv);
+    await getGraduationThresholdUsd(stubEnv);
 
-    // Cache TTL is 60s; three back-to-back reads must hit the indexer once.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    // Cache TTL is 60s; three back-to-back reads must hit the contract
+    // exactly once.
+    expect(mockReadContract).toHaveBeenCalledTimes(1);
   });
 });

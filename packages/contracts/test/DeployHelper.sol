@@ -37,6 +37,12 @@ abstract contract DeployHelper is Test {
 
     uint256 constant LT_EXCHANGE_RATE = 1 ether; // 1 LT = $1 USD
 
+    /// @dev Test-suite graduation threshold. Pegged to `3×` the contract's
+    ///      `VIRTUAL_LIQUIDITY_USD` so the USD trigger is reachable on the
+    ///      mock $100 virtual-liquidity curves the suite spins up. Production
+    ///      uses a much higher absolute number — see `Deploy.s.sol`.
+    uint256 constant TEST_GRADUATION_THRESHOLD_USD = 300 ether;
+
     /// @dev Per-test salt counter so successive `_mineVanitySalt` calls in
     ///      a single test pick up where the previous one left off. Tests
     ///      that build a `LaunchParams` literal directly must use
@@ -109,7 +115,8 @@ abstract contract DeployHelper is Test {
                 address(curveRouter),
                 address(hyperswapFactory),
                 address(lpLockContract),
-                address(tokenImpl)
+                address(tokenImpl),
+                TEST_GRADUATION_THRESHOLD_USD
             )
         );
         bonding = Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
@@ -126,13 +133,14 @@ abstract contract DeployHelper is Test {
 
     // ─── Config-scaled trade-size helpers ────────────────────────────────
     //
-    // `Bonding.VIRTUAL_LIQUIDITY_USD` and `Bonding.graduationThresholdUsd`
-    // are tuned periodically — every test should size its buys/seeds in
-    // *USD* (or as a fraction of the threshold) and let these helpers do
-    // the LT/USDC conversion. Hardcoding raw `N ether` of LT bakes in the
-    // current `VIRTUAL_LIQUIDITY_USD` and silently breaks the moment the
-    // dial moves: a "small" 200-LT seed at $4K virtual liquidity is a
-    // curve-graduating monster at $100.
+    // `Bonding.VIRTUAL_LIQUIDITY_USD` and the test-time threshold (set via
+    // `TEST_GRADUATION_THRESHOLD_USD` at proxy initialisation) are tuned
+    // periodically — every test should size its buys/seeds in *USD* (or as
+    // a fraction of the threshold) and let these helpers do the LT/USDC
+    // conversion. Hardcoding raw `N ether` of LT bakes in the current
+    // `VIRTUAL_LIQUIDITY_USD` and silently breaks the moment the dial moves:
+    // a "small" 200-LT seed at $4K virtual liquidity is a curve-graduating
+    // monster at $100.
 
     /// @dev LT amount equivalent to `usd18dp` USD at the current
     ///      `lt.exchangeRate()`. Mirrors the on-chain conversion used by
@@ -174,19 +182,6 @@ abstract contract DeployHelper is Test {
     ///      impact comparisons across two successive trades).
     function _mediumBuyLt() internal view returns (uint256) {
         return (_initialVirtualLt() * 3) / 4;
-    }
-
-    /// @dev Aligns `graduationThresholdUsd` to a fixed multiple of
-    ///      `VIRTUAL_LIQUIDITY_USD`. Mirrors the production deploy/upgrade
-    ///      scripts which keep the two roughly in proportion (currently
-    ///      $300 threshold against $100 virt liquidity → 3×). Without this,
-    ///      tests run against the contract default of $12K threshold which
-    ///      can't be reached on a $100-virt-liquidity curve before the
-    ///      supply trigger fires — making the USD graduation path
-    ///      untestable. Suites that exercise graduation should call this
-    ///      from `setUp()`.
-    function _alignThresholdToVirtualLiquidity() internal {
-        bonding.setGraduationThresholdUsd(bonding.VIRTUAL_LIQUIDITY_USD() * 3);
     }
 
     /// @dev LT buy that, applied to a fresh curve, pushes real-LT-value

@@ -27,17 +27,17 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 | `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`, percent of threshold). Clamped at `curveFilled`. |
 | `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation, derived from the gap between `realLt × currentRate` and the net organic USDC raised (indexer's `organicUsdcRaised`, buys − sells, floored at 0). Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
 
-The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the current `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$20` raise toward a `$300` threshold rendered as `~23%` instead of `~6.67%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
+The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$20` raise toward a `$300` threshold rendered as `~23%` instead of `~6.67%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 
-### Graduation threshold (mutable, read from indexer)
+### Graduation threshold (immutable, read from RPC)
 
-`computeCurveFilledBreakdown` takes `graduationThresholdUsd` as a required arg — it's the denominator for the USD trigger. Route handlers read it via `getGraduationThresholdUsd(env.PONDER_URL)` in `src/lib/protocol-config.ts`, which:
+`computeCurveFilledBreakdown` takes `graduationThresholdUsd` as a required arg — it's the denominator for the USD trigger. Route handlers read it via `getGraduationThresholdUsd(c.env)` in `src/lib/protocol-config.ts`, which:
 
-- Queries the indexer's `protocolConfig(id: "global")` row over GraphQL.
-- Caches the result per Worker isolate for 60s — threshold changes are extremely rare and stale-by-60s is fine for a marketing %.
-- Falls back to the compile-time `DEFAULT_GRADUATION_THRESHOLD_USD` (`12_000`) from `@launchpad/shared` if the indexer is unreachable or the row is missing — keeps the curve bar visible during indexer outages and on cold isolates before the bootstrap fires.
+- Calls `Bonding.graduationThresholdUsd()` over RPC (HyperEVM via the `HYPEREVM_RPC_URL` env var, falling back to the public RPC).
+- Caches the result per Worker isolate for 60s — the value is immutable for the life of the proxy (set once at `Bonding.initialize`, no on-chain setter), so even an aggressive cache is fine. The TTL exists so a future UUPS upgrade that bumps the value via `reinitializer` is picked up within a minute.
+- Falls back to the compile-time `DEFAULT_GRADUATION_THRESHOLD_USD` (`12_000`) from `@launchpad/shared` if the RPC is unreachable — keeps the curve bar visible during outages.
 
 **Don't hardcode `12_000` in enrichment logic.** Threading the threshold through `computeCurveFilledBreakdown` keeps the function pure / unit-testable; the I/O lives in the route handler.
 
