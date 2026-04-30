@@ -614,8 +614,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev Burns unsold curve tokens, drains LT, computes `tokensForLP` for
     ///      zero-gap LP seeding, burns the LP excess.
     ///
-    ///      Price equality: `tokensForLP / ltFromPair = reserve0 / reserve1`.
-    ///      With virtual `reserve0 = totalSupply` and `curveSupply = 75%`, the
+    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve`.
+    ///      With virtual `tokenReserve = totalSupply` and `curveSupply = 75%`, the
     ///      parabola `tokensForLP(sold) = sold·(S−sold)/S` peaks at
     ///      `S/4 = LP_RESERVE` when `sold = S/2`, so `tokensForLP ≤ LP_RESERVE`
     ///      is mathematically invariant. The cap is defensive.
