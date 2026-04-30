@@ -15,7 +15,7 @@ interface IBounceLeveragedToken is IERC20 {
         uint256 minOut
     ) external returns (uint256 ltAmount);
 
-    /// @notice LT → USDC. Reverts if `baseAssetBalance() < baseAmount`.
+    /// @notice LT → USDC. Reverts if the computed USDC output exceeds `baseAssetBalance()`.
     function redeem(
         address to,
         uint256 ltAmount,
