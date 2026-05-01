@@ -106,8 +106,19 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
     background: { color: "transparent" },
     detectRetina: true,
     fpsLimit: 60,
-    pauseOnBlur: false,
-    pauseOnOutsideViewport: false,
+    // Pause when the tab loses focus. The React-level gate
+    // (`showParticles && inView` in `VanityEffect`) already unmounts
+    // the canvas when the element scrolls off-screen, but it stays
+    // mounted while the tab is just backgrounded — so without this,
+    // every visible token row's particles keep burning CPU after
+    // `cmd+tab`.
+    pauseOnBlur: true,
+    // Belt-and-braces with our IntersectionObserver gate: if the
+    // observer ever misses an off-screen transition (e.g. unusual
+    // nested-scroll layouts), tsparticles' own canvas-level observer
+    // catches it and pauses redundantly. Free to leave on — when the
+    // React gate is doing its job this option is a no-op.
+    pauseOnOutsideViewport: true,
   };
 
   if (tierId === "lightning") {
