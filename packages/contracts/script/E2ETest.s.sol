@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {Zap} from "../src/Zap.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
@@ -54,7 +55,15 @@ contract E2ETest is Script {
         console.log("Mined vanity salt:");
         console.logBytes32(vanitySalt);
 
+        // `Zap.createToken` now enforces a `MIN_SEED_USDC` (= `$20`) seed
+        // buy as part of the anti-snipe design. Approve USDC and pass the
+        // floor amount so the broadcast doesn't revert with `BelowMinSeed`.
+        uint256 seedAmount = zap.MIN_SEED_USDC();
+        address usdcAddr = address(zap.usdc());
+
         vm.startBroadcast(pk);
+
+        IERC20(usdcAddr).approve(zapAddr, seedAmount);
 
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: tokenName,
@@ -66,7 +75,7 @@ contract E2ETest is Script {
             salt: vanitySalt
         });
 
-        address tokenAddr = zap.createToken(params, 0);
+        address tokenAddr = zap.createToken(params, seedAmount);
         console.log("Token:", tokenAddr);
 
         vm.stopBroadcast();

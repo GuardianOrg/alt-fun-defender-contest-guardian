@@ -132,3 +132,10 @@
   margin-top: 0.5rem;
   text-align: center;
 }
+
+.minHint {
+  font-size: 11px;
+  color: var(--amber, #f5a623);
+  margin-top: 0.5rem;
+  text-align: center;
+}

@@ -266,6 +266,9 @@ contract RouterAllowlistTest is DeployHelper {
 
     // ─── Helpers ─────────────────────────────────────────────────────────
 
+    /// @dev Mandatory `MIN_SEED_USDC` seed buy + roll past the launch
+    ///      trading delay so subsequent buys land. Anti-snipe gates live in
+    ///      `Zap.t.sol`.
     function _createBasicToken() internal returns (address tokenAddr) {
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "Tok",
@@ -276,8 +279,13 @@ contract RouterAllowlistTest is DeployHelper {
             ltAddress: address(lt),
             salt: _mineVanitySalt(creator, "Tok", "TOK")
         });
-        vm.prank(creator);
-        tokenAddr = zap.createToken(params, 0);
+        uint256 seed = _defaultSeedUsdc();
+        usdc.mint(creator, seed);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), seed);
+        tokenAddr = zap.createToken(params, seed);
+        vm.stopPrank();
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
     }
 
     function _buyViaRouter(

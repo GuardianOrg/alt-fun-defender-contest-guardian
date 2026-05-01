@@ -43,6 +43,10 @@ contract TwoPhaseGraduationTest is DeployHelper {
         });
         vm.prank(creator);
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
+        // Anti-snipe gate is observed in `Zap.t.sol`. These tests drive
+        // Bonding directly to exercise graduation, so jump past
+        // `LAUNCH_TRADING_DELAY_BLOCKS` once the token is up.
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
     }
 
     /// @dev Buy without auto-finalizing — leaves the token in `Graduating` if

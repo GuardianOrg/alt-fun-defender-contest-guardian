@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 
+import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./CreateView.module.css";
@@ -26,7 +27,9 @@ export default function CreateView() {
   const [ticker, setTicker] = useState("");
   const [description, setDescription] = useState("");
   const [socialLinks, setSocialLinks] = useState({ twitter: "", telegram: "", website: "" });
-  const [seedAmount, setSeedAmount] = useState("");
+  // Default to the on-chain `MIN_SEED_USDC` floor so the form lands valid
+  // out of the box — nothing below this can be submitted anyway.
+  const [seedAmount, setSeedAmount] = useState(String(MIN_USDC_BUY_AMOUNT));
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | undefined>();
 
@@ -56,6 +59,10 @@ export default function CreateView() {
   const [waitingForVanity, setWaitingForVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
   const seedAmt = parseFloat(seedAmount) || 0;
+  // Mirrors `Zap.MIN_SEED_USDC` on-chain: the contract reverts with
+  // `BelowMinSeed` if `seedUsdcAmount < $20`. Block the Launch button at
+  // the UI layer so the user never signs a reverting tx.
+  const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
   const isBusy =
     launchStep === "approving" || launchStep === "signing" || launchStep === "deploying";
 
@@ -74,6 +81,7 @@ export default function CreateView() {
       return;
     }
     if (!trimmedName || !trimmedTicker) return;
+    if (seedBelowMin) return;
     if (vanity.status === "error") {
       setVanityError(
         "Vanity address miner failed to start. Please refresh and try again.",
@@ -125,6 +133,7 @@ export default function CreateView() {
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "⚡ RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED — REFRESH";
+    if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "⚡ LAUNCH TOKEN";
   };
 
@@ -212,7 +221,11 @@ export default function CreateView() {
                 size="lg"
                 fullWidth
                 busy={isBusy || waitingForVanity}
-                disabled={launchStep === "confirmed" || vanity.status === "error"}
+                disabled={
+                  launchStep === "confirmed" ||
+                  vanity.status === "error" ||
+                  (isConnected && seedBelowMin)
+                }
                 className={launchStep === "confirmed" ? styles.launchButtonConfirmed : undefined}
                 onClick={handleSubmit}
               >
@@ -231,15 +244,13 @@ export default function CreateView() {
               </div>
             )}
 
-            {launchStep === "idle" && (
+            {launchStep === "idle" && !seedBelowMin && (
               <div className={styles.idleHint}>
-                {seedAmt > 0
-                  ? `Sign a permit for $${seedAmt.toFixed(2)} USDC, then your token deploys in one tx`
-                  : "You will be asked to confirm in your wallet"}
+                Sign a permit for ${seedAmt.toFixed(2)} USDC, then your token deploys in one tx
               </div>
             )}
 
-            {seedAmt > 0 && launchStep === "idle" && (
+            {launchStep === "idle" && !seedBelowMin && (
               <div className={styles.seedInfo}>
                 Seed buy of{" "}
                 <span className={styles.mintHighlight}>

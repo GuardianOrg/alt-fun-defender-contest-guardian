@@ -21,7 +21,13 @@ Forked from Virtuals Protocol `contracts/fun` — a bonding curve system. We rep
 
 ## Token Launch
 
-Creator calls `Zap.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)`. The router calls `Bonding.launch()` to deploy the curve, then — if `seedUsdcAmount > 0` — performs the seed buy via the standard `Zap.buy` path so it inherits the same pro-rata fee handling and leftover refund as any other buy.
+Creator calls `Zap.createToken({ name, ticker, ltAddress, description, image, urls }, seedUsdcAmount)`. The router calls `Bonding.launch()` to deploy the curve, then performs the **mandatory** seed buy via the standard `Zap.buy` path so it inherits the same pro-rata fee handling and leftover refund as any other buy.
+
+### Anti-snipe gate
+
+`seedUsdcAmount` must be `≥ Zap.MIN_SEED_USDC` (`$20`, real USDC, 6dp). On top of that, `Bonding` blocks every public buy on the curve for the next `LAUNCH_TRADING_DELAY_BLOCKS` (`= 3`) blocks — trading opens at `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. The seed buy bypasses the gate via a transient-storage flag set inside `Bonding.launch` and consumed by the very next `Bonding.buy` in the same tx, so the creator's seed always lands while same-block sniper bundles (separate txs, transient cleared) revert with `TradingNotOpen`.
+
+There is **no upper bound** on the seed. A cap is trivially bypassable (the same creator seeds via wallet A then snipes the open at block N+4 from wallet B), and seed-and-burn launches are a legitimate supply pattern. The floor is the only side that protects the curve floor from being free.
 
 This deploys a `Token` clone (1B supply) and creates a `Pair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
 

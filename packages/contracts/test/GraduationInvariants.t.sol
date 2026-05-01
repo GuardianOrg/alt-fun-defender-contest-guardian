@@ -53,6 +53,11 @@ contract GraduationInvariantsTest is DeployHelper {
         vm.prank(creator);
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
 
+        // Skip past the launch trading delay so direct `bonding.buy` calls
+        // land — these invariant tests drive Bonding directly (the
+        // anti-snipe gate is observed in `Zap.t.sol`).
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
+
         // Seed buys are no longer part of `Bonding.launch`. These invariant
         // tests rely on a seeded curve, so reproduce it via `bonding.buy`
         // (creator is allowlisted in `setUp`).
@@ -74,6 +79,7 @@ contract GraduationInvariantsTest is DeployHelper {
         });
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
         vm.stopPrank();
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
     }
 
     function _buy(

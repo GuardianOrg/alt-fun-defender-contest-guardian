@@ -57,7 +57,7 @@ Two-column: left (form) | right (live preview card).
 
 1. **Choose pair:** direction (LONG/SHORT) → underlying asset grid → leverage selector (2x, 3x, 5x). 5x needs extra confirmation.
 2. **Token details:** name, ticker, description, image upload.
-3. **Seed buy** (optional): USDC amount with preset buttons.
+3. **Seed buy** (mandatory, `≥ $20` — `Zap.MIN_SEED_USDC`): USDC amount with preset buttons. UI must disable Launch when the input is below the floor; the contract reverts with `BelowMinSeed` otherwise.
 4. **Review & launch:** approve USDC (if seed buy) → `Bonding.launch()` → `POST /tokens` → redirect to token page.
 
 ---

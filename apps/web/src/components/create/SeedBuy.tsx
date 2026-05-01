@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
+
 import styles from "./SeedBuy.module.css";
 import StepHeader from "./StepHeader";
 import { SEED_PCT_OPTIONS } from "../../config/constants";
@@ -28,12 +30,19 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
   const supplyStr = amt > 0 ? `${stats.supplyPct.toFixed(1)}%` : "—";
   const curveStr = amt > 0 ? `${stats.curveFilled.toFixed(1)}%` : "—";
 
+  // Mirrors `Zap.MIN_SEED_USDC` on-chain. The contract reverts with
+  // `BelowMinSeed` if a launch tries to seed less than this; we surface the
+  // floor in the UI so users never sign a reverting tx. See root
+  // `AGENTS.md` § "Anti-snipe Design".
+  const belowMinSeed = amt > 0 && amt < MIN_USDC_BUY_AMOUNT;
+  const noSeed = amt <= 0;
+
   return (
     <div>
       <StepHeader
         step={3}
         title="Seed buy"
-        subtitle="Buy tokens before anyone else. Sets the opening price."
+        subtitle={`Mandatory min $${MIN_USDC_BUY_AMOUNT}. Buy tokens before anyone else, sets the opening price.`}
       />
 
       <div className={styles.card}>
@@ -42,13 +51,13 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
           <input
             type="number"
             className={styles.amountInput}
-            placeholder="0.00"
+            placeholder={`${MIN_USDC_BUY_AMOUNT}.00`}
             value={seedAmount}
             onChange={(e) => {
               onSeedChange(e.target.value);
               setActivePct(null);
             }}
-            min="0"
+            min={MIN_USDC_BUY_AMOUNT}
           />
         </div>
 
@@ -92,9 +101,15 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
         </div>
       </div>
 
-      {amt <= 0 && (
-        <div className={styles.skipHint}>
-          Skip this step to launch with zero initial buy
+      {noSeed && (
+        <div className={styles.minHint}>
+          Seed buy is required (min ${MIN_USDC_BUY_AMOUNT})
+        </div>
+      )}
+
+      {belowMinSeed && (
+        <div className={styles.minHint}>
+          Seed buy must be at least ${MIN_USDC_BUY_AMOUNT}
         </div>
       )}
     </div>

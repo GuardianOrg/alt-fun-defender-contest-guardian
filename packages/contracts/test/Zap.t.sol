@@ -38,6 +38,14 @@ contract ZapTest is DeployHelper {
 
     // ─── Helpers ─────────────────────────────────────────────────────────
 
+    /// @dev Default-seed launch helper. Seed buys are now mandatory via
+    ///      `Zap.MIN_SEED_USDC`; a `seedUsdc == 0` argument is interpreted
+    ///      as "use the default seed sized for these mock-USDC decimals"
+    ///      so existing call sites that didn't care about the seed amount
+    ///      keep working without churn. Auto-rolls past the
+    ///      `Bonding.LAUNCH_TRADING_DELAY_BLOCKS` gate so post-launch
+    ///      buys land — anti-snipe-specific tests bypass this helper and
+    ///      drive `zap.createToken` directly so they can observe the gate.
     function _createToken(
         uint256 seedUsdc
     ) internal returns (address tokenAddr) {
@@ -51,16 +59,18 @@ contract ZapTest is DeployHelper {
             salt: _mineVanitySalt(creator, "TestToken", "TEST")
         });
 
-        if (seedUsdc > 0) {
-            usdc.mint(creator, seedUsdc);
-            vm.startPrank(creator);
-            usdc.approve(address(zap), seedUsdc);
-            tokenAddr = zap.createToken(params, seedUsdc);
-            vm.stopPrank();
-        } else {
-            vm.prank(creator);
-            tokenAddr = zap.createToken(params, 0);
-        }
+        uint256 amount = seedUsdc == 0 ? _defaultSeedUsdc() : seedUsdc;
+        usdc.mint(creator, amount);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), amount);
+        tokenAddr = zap.createToken(params, amount);
+        vm.stopPrank();
+
+        _skipLaunchDelay();
+    }
+
+    function _skipLaunchDelay() internal {
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
     }
 
     function _buyViaRouter(
@@ -95,8 +105,8 @@ contract ZapTest is DeployHelper {
 
     // ─── createToken Tests ───────────────────────────────────────────────
 
-    function test_createToken_noSeedBuy() public {
-        address tokenAddr = _createToken(0);
+    function test_createToken_landsLifecycleCurve() public {
+        address tokenAddr = _createToken(_defaultSeedUsdc());
         assertTrue(tokenAddr != address(0));
 
         Bonding.TokenInfo memory info = bonding.getTokenInfo(tokenAddr);
@@ -113,6 +123,7 @@ contract ZapTest is DeployHelper {
     }
 
     function test_createToken_emitsTokenCreated() public {
+        uint256 seedUsdc = _defaultSeedUsdc();
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "EventToken",
             ticker: "EVT",
@@ -123,14 +134,21 @@ contract ZapTest is DeployHelper {
             salt: _mineVanitySalt(creator, "EventToken", "EVT")
         });
 
+        usdc.mint(creator, seedUsdc);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), seedUsdc);
         vm.expectEmit(false, true, false, false);
         emit Zap.TokenCreated(address(0), creator, address(lt));
-
-        vm.prank(creator);
-        zap.createToken(params, 0);
+        zap.createToken(params, seedUsdc);
+        vm.stopPrank();
     }
 
     function test_createToken_revertsZeroLt() public {
+        // Pre-resolve the seed amount before the prank — `_defaultSeedUsdc`
+        // makes an external call into Bonding, which would otherwise consume
+        // the single prank we want sitting on `zap.createToken`.
+        uint256 seed = _defaultSeedUsdc();
+
         Bonding.LaunchParams memory params = Bonding.LaunchParams({
             name: "Bad",
             ticker: "BAD",
@@ -143,7 +161,111 @@ contract ZapTest is DeployHelper {
 
         vm.prank(creator);
         vm.expectRevert(Zap.InvalidInput.selector);
+        zap.createToken(params, seed);
+    }
+
+    function test_createToken_revertsBelowMinSeed() public {
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "TooSmall",
+            ticker: "TS",
+            description: "",
+            image: "",
+            urls: ["", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator, "TooSmall", "TS")
+        });
+
+        // `MIN_SEED_USDC = 20e6` (real USDC, 6dp). `1` is well below that
+        // even on the mock 18-dp USDC tests use, so this exercises the
+        // anti-snipe seed-buy floor without depending on USDC decimals.
+        vm.prank(creator);
+        vm.expectRevert(Zap.BelowMinSeed.selector);
+        zap.createToken(params, 1);
+    }
+
+    function test_createToken_revertsZeroSeed() public {
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "ZeroSeed",
+            ticker: "ZS",
+            description: "",
+            image: "",
+            urls: ["", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator, "ZeroSeed", "ZS")
+        });
+
+        vm.prank(creator);
+        vm.expectRevert(Zap.BelowMinSeed.selector);
         zap.createToken(params, 0);
+    }
+
+    // ─── Anti-snipe Tests ────────────────────────────────────────────────
+
+    /// @dev Drives `zap.createToken` directly (bypassing `_createToken`
+    ///      which auto-rolls past the delay) so the launch-delay window is
+    ///      observable. Returns the freshly-launched token at its true
+    ///      `launchBlock` so tests can roll forward as needed.
+    function _createTokenAtCurrentBlock() internal returns (address tokenAddr) {
+        Bonding.LaunchParams memory params = Bonding.LaunchParams({
+            name: "AntiSnipe",
+            ticker: "AS",
+            description: "",
+            image: "",
+            urls: ["", "", ""],
+            ltAddress: address(lt),
+            salt: _mineVanitySalt(creator, "AntiSnipe", "AS")
+        });
+        uint256 amount = _defaultSeedUsdc();
+        usdc.mint(creator, amount);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), amount);
+        tokenAddr = zap.createToken(params, amount);
+        vm.stopPrank();
+    }
+
+    function test_buy_blockedDuringLaunchDelay() public {
+        address tokenAddr = _createTokenAtCurrentBlock();
+
+        // Same block as launch — only the in-tx seed buy from `createToken`
+        // is allowed, and it has already consumed the transient bypass. A
+        // separate-tx buy here mirrors a same-block sniper bundle.
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.expectRevert(Bonding.TradingNotOpen.selector);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+    }
+
+    function test_buy_blockedAtLastDelayBlock() public {
+        address tokenAddr = _createTokenAtCurrentBlock();
+        // `LAUNCH_TRADING_DELAY_BLOCKS = 3` → trading opens at
+        // `launchBlock + 4`. At `launchBlock + 3` (the last gated block) a
+        // buy must still revert.
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS());
+
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        vm.expectRevert(Bonding.TradingNotOpen.selector);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+    }
+
+    function test_buy_succeedsOnceDelayElapses() public {
+        address tokenAddr = _createTokenAtCurrentBlock();
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
+
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
+        assertTrue(tokensOut > 0, "Should receive tokens after delay elapses");
+    }
+
+    function test_launchBlock_recorded() public {
+        uint256 expected = block.number;
+        address tokenAddr = _createTokenAtCurrentBlock();
+        assertEq(uint256(bonding.launchBlock(tokenAddr)), expected, "launchBlock should equal block.number at launch");
     }
 
     // ─── Buy Tests (Curve) ───────────────────────────────────────────────
@@ -559,7 +681,12 @@ contract ZapTest is DeployHelper {
         // Sized so all USDC clears the curve without refund (else fees would
         // accrue only on the consumed portion and the equality check fails).
         uint256 usdcIn = _smallBuyUsdc();
+        // Snapshot **after** `_createToken` so we measure only the
+        // trader's buy fee — the mandatory seed buy already accrued its own
+        // fee that we don't want to double-count here.
         uint256 vaultBefore = usdc.balanceOf(address(feeVault));
+        uint256 creatorBalanceBefore = feeVault.creatorBalance(creator);
+        uint256 protocolBalanceBefore = feeVault.protocolBalance();
 
         _buyViaRouter(tokenAddr, trader, usdcIn);
 
@@ -567,10 +694,14 @@ contract ZapTest is DeployHelper {
         uint256 vaultAfter = usdc.balanceOf(address(feeVault));
         assertEq(vaultAfter - vaultBefore, expectedFee, "FeeVault should hold the buy fee");
 
-        uint256 creatorAccrual = feeVault.creatorBalance(creator);
+        uint256 creatorDelta = feeVault.creatorBalance(creator) - creatorBalanceBefore;
         uint256 expectedCreator = (expectedFee * 2000) / 10_000; // 20% of fee
-        assertEq(creatorAccrual, expectedCreator, "Creator share should be 20% of fee");
-        assertEq(feeVault.protocolBalance(), expectedFee - expectedCreator, "Protocol share should be the remainder");
+        assertEq(creatorDelta, expectedCreator, "Creator share should be 20% of fee");
+        assertEq(
+            feeVault.protocolBalance() - protocolBalanceBefore,
+            expectedFee - expectedCreator,
+            "Protocol share should be the remainder"
+        );
     }
 
     function test_sell_feeAccruesToVault() public {
