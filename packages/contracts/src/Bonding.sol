@@ -571,10 +571,22 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     /// @notice Hot-swap the `Token` implementation cloned by future launches.
     ///         Existing clones bake their impl in at deploy time and are unaffected.
+    /// @dev    Reverts unless the new impl exposes the same `TOTAL_SUPPLY`
+    ///         as the current one. `_launchTimeVirtualLtReserve` recovers the
+    ///         launch-time virtual LT reserve as `Pair.k() / TOTAL_SUPPLY`,
+    ///         so a rotation that changes `TOTAL_SUPPLY` would mis-derive the
+    ///         reserve for tokens launched before the rotation, breaking
+    ///         their graduation math. Tokens launched AFTER a (mismatched)
+    ///         rotation would still derive correctly because their `Pair.k`
+    ///         is set off the new `TOTAL_SUPPLY`, but mixing pre- and post-
+    ///         rotation tokens under a single derivation rule isn't safe.
     function setTokenImplementation(
         address newImpl
     ) external onlyOwner {
         if (newImpl == address(0)) revert ZeroAddress();
+        if (Token(newImpl).TOTAL_SUPPLY() != Token(tokenImplementation).TOTAL_SUPPLY()) {
+            revert InvalidInput();
+        }
         // Probe that the new impl can produce a vanity-suffixed clone. If
         // structurally broken, fail here rather than silently bricking every
         // user's `launch()`.
@@ -737,10 +749,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      Going through this derivation rather than a stored mirror
     ///      eliminates an admin-writable economic-state slot and makes the
     ///      donation-immunity property a pure consequence of the pair's
-    ///      already-immutable accounting. New `Token` impls registered via
-    ///      `setTokenImplementation` MUST keep `TOTAL_SUPPLY` constant
-    ///      across versions or graduations of pre-rotation tokens will
-    ///      mis-derive the virtual reserve.
+    ///      already-immutable accounting. The `TOTAL_SUPPLY`-equality check
+    ///      in `setTokenImplementation` keeps the divisor consistent across
+    ///      impl rotations, so tokens launched under different
+    ///      `tokenImplementation` versions still derive the same way.
     function _launchTimeVirtualLtReserve(
         address token_,
         address pair_

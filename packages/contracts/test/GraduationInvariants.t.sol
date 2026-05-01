@@ -431,21 +431,37 @@ contract GraduationInvariantsTest is DeployHelper {
     ///      relies on to be donation-immune without storing its own mirror.
     function test_inv_kIdentity_recoversVirtualLtReserve() public {
         // Sweep across exchange rates that produce different launch-time
-        // `virtualLtReserve` values, plus a sells-decrease-assetReserve case
-        // to confirm K (and therefore the recovered value) stays put.
+        // `virtualLtReserve` values. Each iteration exercises the same pair
+        // through buys (and a sell, which mutates the stored reserves in the
+        // opposite direction) to confirm the recovered value never shifts.
         uint256[3] memory rates = [uint256(1 ether), uint256(0.5 ether), uint256(2 ether)];
         for (uint256 i = 0; i < rates.length; i++) {
             lt.setExchangeRate(rates[i]);
             uint256 expected = (bonding.VIRTUAL_LIQUIDITY_USD() * 1e18) / rates[i];
-            (, address pairAddr) = _launchNoSeed();
-            uint256 derived = IPair(pairAddr).k() / TOTAL_SUPPLY;
-            assertEq(derived, expected, "K-identity must recover exact launch-time virtualLtReserve");
 
-            // Buys + sells (which mutate stored reserves) MUST NOT shift
-            // the recovered value — that's the whole point.
-            (address tokenAddr,) = _launchToken(50 ether);
-            _buy(tokenAddr, trader, 200 ether);
-            assertEq(IPair(pairAddr).k() / TOTAL_SUPPLY, expected, "K-identity stable through trading");
+            (address tokenAddr, address pairAddr) = _launchNoSeed();
+
+            assertEq(
+                IPair(pairAddr).k() / TOTAL_SUPPLY,
+                expected,
+                "K-identity must recover exact launch-time virtualLtReserve"
+            );
+
+            // Trading on THIS pair must not shift the recovered value.
+            // A buy increases `assetReserve` and decreases `tokenReserve`;
+            // a follow-up sell flips both back. `_pool.k` should stay put
+            // through both.
+            _buy(tokenAddr, trader, 50 ether);
+            assertEq(IPair(pairAddr).k() / TOTAL_SUPPLY, expected, "K-identity must be stable through buys");
+
+            uint256 traderTokens = IERC20(tokenAddr).balanceOf(trader);
+            if (traderTokens > 0) {
+                vm.startPrank(trader);
+                IERC20(tokenAddr).approve(address(curveRouter), traderTokens);
+                bonding.sell(traderTokens, tokenAddr, 0, trader);
+                vm.stopPrank();
+                assertEq(IPair(pairAddr).k() / TOTAL_SUPPLY, expected, "K-identity must be stable through sells");
+            }
         }
         lt.setExchangeRate(1 ether);
     }

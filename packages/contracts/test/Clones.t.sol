@@ -171,6 +171,18 @@ contract ClonesTest is DeployHelper {
         bonding.setTokenImplementation(address(0));
     }
 
+    /// @notice Rotation MUST reject impls whose `TOTAL_SUPPLY` differs from
+    ///         the current one. `_launchTimeVirtualLtReserve` derives the
+    ///         launch-time virtual LT reserve as `Pair.k() / TOTAL_SUPPLY`
+    ///         on demand, so a rotation that changes `TOTAL_SUPPLY` would
+    ///         silently mis-derive the reserve for tokens launched before
+    ///         the rotation, breaking their graduation math.
+    function test_setTokenImplementation_revertsOnMismatchedTotalSupply() public {
+        TokenWithDifferentTotalSupply badImpl = new TokenWithDifferentTotalSupply();
+        vm.expectRevert(Bonding.InvalidInput.selector);
+        bonding.setTokenImplementation(address(badImpl));
+    }
+
     function test_predictTokenAddress_matchesOZHelper() public view {
         // Sanity-check our prediction is byte-identical to the OZ library
         // helper (and therefore to the JS keccak we'll do in the worker).
@@ -379,4 +391,12 @@ contract ClonesTest is DeployHelper {
         }
         revert("test setup: no non-vanity alt tuple found");
     }
+}
+
+/// @dev Minimal stand-in for a `Token` impl with a different `TOTAL_SUPPLY`.
+///      Used by `test_setTokenImplementation_revertsOnMismatchedTotalSupply`
+///      to exercise the supply-equality guard. Only `TOTAL_SUPPLY` is needed
+///      because the guard runs before the `VanityMining` probe.
+contract TokenWithDifferentTotalSupply {
+    uint256 public constant TOTAL_SUPPLY = 999;
 }
