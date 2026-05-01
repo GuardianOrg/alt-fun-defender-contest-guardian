@@ -42,6 +42,10 @@ contract UUPSUpgradeTest is DeployHelper {
         vm.prank(creator);
         (tokenAddr,) = bonding.launch(params, creator);
 
+        // Anti-snipe gate is observed in `Zap.t.sol`. Skip past it so the
+        // simulated seed-buy below lands.
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
+
         // Seed buy now happens via the standard buy path (no longer inside
         // `Bonding.launch`). Drive it directly through `bonding.buy` since
         // these tests bypass the Zap.

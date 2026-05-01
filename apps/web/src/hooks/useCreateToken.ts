@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, utf8ByteLength } from "@launchpad/shared";
+import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, MIN_USDC_BUY_AMOUNT, utf8ByteLength } from "@launchpad/shared";
 import { createPublicClient, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
@@ -47,6 +47,17 @@ export function useCreateToken() {
       try {
         setError(null);
         setWarning(null);
+
+        // Mirrors `Zap.MIN_SEED_USDC` on-chain. The contract reverts with
+        // `BelowMinSeed` for any smaller seed; surfacing the floor here
+        // means we never put the user through wallet popups for a tx that
+        // can't land. UI also disables the Launch button — this is a
+        // belt-and-braces.
+        if (params.seedBuyUsd < MIN_USDC_BUY_AMOUNT) {
+          throw new Error(
+            `Seed buy must be at least $${MIN_USDC_BUY_AMOUNT} USDC (anti-snipe floor).`,
+          );
+        }
 
         const lts = await fetchLTs();
         const isLong = params.direction === "long";

@@ -75,16 +75,25 @@ contract ZapPermitTest is DeployHelper {
         });
     }
 
-    function _createTokenNoSeed() internal returns (address tokenAddr) {
+    /// @dev Launches via `Zap`'s mandatory `MIN_SEED_USDC` seed and rolls
+    ///      past `Bonding`'s anti-snipe trading delay so the permit-flavoured
+    ///      buys these tests exercise can land. Seed buys can no longer be
+    ///      `0` — that path is asserted in `Zap.t.sol`.
+    function _createTokenSeeded() internal returns (address tokenAddr) {
+        uint256 seed = _defaultSeedUsdc();
+        usdc.mint(creator, seed);
         Bonding.LaunchParams memory params = _launchParams(creator);
-        vm.prank(creator);
-        tokenAddr = zap.createToken(params, 0);
+        vm.startPrank(creator);
+        usdc.approve(address(zap), seed);
+        tokenAddr = zap.createToken(params, seed);
+        vm.stopPrank();
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
     }
 
     // ─── buyWithPermit ───────────────────────────────────────────────────
 
     function test_buyWithPermit_noPriorAllowance() public {
-        address tokenAddr = _createTokenNoSeed();
+        address tokenAddr = _createTokenSeeded();
 
         uint256 amount = 50 ether;
         usdc.mint(signer.addr, amount);
@@ -104,7 +113,7 @@ contract ZapPermitTest is DeployHelper {
     }
 
     function test_buyWithPermit_infiniteValueLeavesStandingAllowance() public {
-        address tokenAddr = _createTokenNoSeed();
+        address tokenAddr = _createTokenSeeded();
 
         uint256 amount = 50 ether;
         usdc.mint(signer.addr, amount * 2);
@@ -128,7 +137,7 @@ contract ZapPermitTest is DeployHelper {
     }
 
     function test_buyWithPermit_frontRun_isAbsorbed() public {
-        address tokenAddr = _createTokenNoSeed();
+        address tokenAddr = _createTokenSeeded();
 
         uint256 amount = 50 ether;
         usdc.mint(signer.addr, amount);
@@ -152,7 +161,7 @@ contract ZapPermitTest is DeployHelper {
     }
 
     function test_buyWithPermit_expiredDeadline_reverts() public {
-        address tokenAddr = _createTokenNoSeed();
+        address tokenAddr = _createTokenSeeded();
 
         uint256 amount = 50 ether;
         usdc.mint(signer.addr, amount);
@@ -172,7 +181,7 @@ contract ZapPermitTest is DeployHelper {
     // ─── sellWithPermit (Token) ──────────────────────────────────────────
 
     function test_sellWithPermit_token_noPriorAllowance() public {
-        address tokenAddr = _createTokenNoSeed();
+        address tokenAddr = _createTokenSeeded();
 
         // Seed the signer with some Token via a regular buy.
         uint256 buyUsdc = 100 ether;
@@ -227,14 +236,15 @@ contract ZapPermitTest is DeployHelper {
         assertEq(usdc.balanceOf(signer.addr), 0, "usdc consumed by seed buy");
     }
 
-    function test_createTokenWithPermit_noSeedBuy_ignoresPermit() public {
-        // Permit with bogus values — since seed amount is 0, permit is never
-        // invoked, so this must still succeed.
+    function test_createTokenWithPermit_revertsBelowMinSeed() public {
+        // Seed buys are now mandatory at `Zap.MIN_SEED_USDC`. A bogus permit
+        // is harmlessly absorbed by `_tryPermit`, so the relevant revert path
+        // is the seed-floor check that fires before any permit work.
         Zap.PermitData memory p = Zap.PermitData({value: 0, deadline: 0, v: 0, r: bytes32(0), s: bytes32(0)});
 
         Bonding.LaunchParams memory params = _launchParams(creator);
         vm.prank(creator);
-        address tokenAddr = zap.createTokenWithPermit(params, 0, p);
-        assertTrue(tokenAddr != address(0), "token deployed without seed");
+        vm.expectRevert(Zap.BelowMinSeed.selector);
+        zap.createTokenWithPermit(params, 0, p);
     }
 }

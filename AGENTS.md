@@ -80,6 +80,21 @@ Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in 
 
 ---
 
+## Anti-snipe Design
+
+The launch flow is gated by a two-knob anti-snipe mechanism (issue #310). First-block bots are the dominant retail-exit-liquidity drain on every pump.fun-class launchpad — these knobs eliminate the asymmetric extraction without changing the user-facing flow.
+
+| Knob | Where | Value |
+|---|---|---|
+| Mandatory creator seed buy | `Zap.MIN_SEED_USDC` | `$20` (real USDC, 6dp) |
+| Public-trading delay | `Bonding.LAUNCH_TRADING_DELAY_BLOCKS` | 3 blocks |
+
+The combination is what works: the seed buy absorbs the bottom of the curve, and the 3-block delay stops anyone (sniper or retail) racing the seed at block N or piling in at N+1..N+3. Trading opens at `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. The seed buy itself bypasses the delay via a transient-storage flag set inside `Bonding.launch` and consumed by the very next `Bonding.buy` in the same tx — so the in-tx seed always lands while same-block sniper bundles (separate txs, transient cleared) revert with `TradingNotOpen`.
+
+**No upper bound on the seed buy. This is intentional.** A cap is trivially bypassable (the same creator seeds via wallet A then snipes the open at block N+4 from wallet B), and some creators legitimately seed >50% of a curve and burn the result post-launch as a supply sink. The lower bound is the protective side; the upper bound would block useful patterns and provide no real defence. Auditors: this is a deliberate design decision, not an oversight. See the inline natspec on `Zap.MIN_SEED_USDC` and `Bonding._enforceLaunchDelay`.
+
+**Pre-flight in the UI.** The frontend mirrors `MIN_SEED_USDC` so users can't construct a reverting tx — see [`apps/web/src/components/create/SeedBuy.tsx`](apps/web/src/components/create/SeedBuy.tsx) and the create-flow disable rule in [`apps/web/src/components/create/CreateView.tsx`](apps/web/src/components/create/CreateView.tsx).
+
 ## Token Creation Flow
 
 A token is fully launched in **a single on-chain transaction**. The frontend then makes one address-only API call to register the token in PostgreSQL — no second wallet popup, no signed message. If that API call fails (closed tab, lost network, transient 5xx) a cron-driven backfill catches up within ~60s, so the user never has to retry by hand.
@@ -90,7 +105,7 @@ Before any wallet popup, the frontend uploads the token image via `POST /api/v1/
 
 ### Step 2 — On-chain launch (single tx)
 
-Frontend calls `Zap.createToken(LaunchParams, seedUsdcAmount)` (or `Zap.createTokenWithPermit(...)` when a USDC permit is bundled in for seed buys). `LaunchParams.image` is the moderated R2 URL from step 1; `params.urls[0..2]` carries twitter / telegram / website. This deploys the Token clone, creates the bonding curve pair via `Bonding.launch()`, and — if `seedUsdcAmount > 0` — performs the seed buy via the standard `Zap.buy` path. Three events fire: `TokenLaunched` (Bonding), `TokenCreated` (Zap), and `Buy` (Zap, only when seeded). The frontend parses `TokenCreated` from the receipt to extract the new token address.
+Frontend calls `Zap.createToken(LaunchParams, seedUsdcAmount)` (or `Zap.createTokenWithPermit(...)` when a USDC permit is bundled in for the seed buy). `seedUsdcAmount` is **mandatory** and must be at least `Zap.MIN_SEED_USDC` (= `$20`) — see *Anti-snipe Design* above. `LaunchParams.image` is the moderated R2 URL from step 1; `params.urls[0..2]` carries twitter / telegram / website. This deploys the Token clone, creates the bonding curve pair via `Bonding.launch()`, and performs the seed buy via the standard `Zap.buy` path. Three events fire: `TokenLaunched` (Bonding), `TokenCreated` (Zap), and `Buy` (Zap). The frontend parses `TokenCreated` from the receipt to extract the new token address.
 
 `Bonding.launch` enforces metadata length caps (description ≤ 8KB, image ≤ 512B, each url ≤ 512B) on top of the existing name / ticker bounds. These are DoS guards — replicated off-chain so users get a clean validation error instead of a revert.
 

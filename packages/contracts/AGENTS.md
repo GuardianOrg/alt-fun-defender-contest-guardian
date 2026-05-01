@@ -63,6 +63,17 @@ real user EOA). Seed buys via `createToken` attribute to the creator.
 | `Zap.sol` | USDC abstraction, LT mint/redeem, **overflow-LT refund**, referral events |
 | `LPLock.sol` | Graduation LP lock (UUPS, no withdraw in v1) |
 
+## Anti-snipe Launch Gate (Read This Before Touching `launch` or `buy`)
+
+Issue #310. Two cooperating knobs eliminate the standard pump.fun-class first-block snipe:
+
+- `Zap.MIN_SEED_USDC` (`$20`, real USDC, 6dp) — `Zap.createToken` reverts with `BelowMinSeed` for any smaller seed. Mandatory; the seed buy is no longer optional.
+- `Bonding.LAUNCH_TRADING_DELAY_BLOCKS = 3` — `Bonding.buy` reverts with `TradingNotOpen` until `block.number > launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`. The seed buy bypasses the gate via a transient-storage slot (`_SEED_BUY_BYPASS_SLOT`, EIP-1153 TLOAD/TSTORE) set in `launch()` and consumed on first match in `buy()`. Bypass is consume-once and naturally cleared at end-of-tx — separate-tx sniper buys at the same block see a cleared slot and revert.
+
+Combined: the creator's seed absorbs the cheap end of the curve, and no public buy can land before `launchBlock + 4`. **No upper bound on the seed.** A cap would be trivially bypassable via a second wallet at `launchBlock + 4` and would block legitimate seed-and-burn patterns; the floor is the only side that protects retail. This is a deliberate design choice — see `Zap.MIN_SEED_USDC` natspec and `Bonding._enforceLaunchDelay`.
+
+If you change either knob, update the threat-model writeup in the root [`AGENTS.md`](../../AGENTS.md#anti-snipe-design) and the frontend mirror (`MIN_USDC_BUY_AMOUNT` in [`packages/shared/src/constants/bouncetech.ts`](../shared/src/constants/bouncetech.ts) plus the disable check in [`apps/web/src/components/create/CreateView.tsx`](../../apps/web/src/components/create/CreateView.tsx)). Coverage: `test_buy_blockedDuringLaunchDelay`, `test_buy_blockedAtLastDelayBlock`, `test_buy_succeedsOnceDelayElapses`, `test_createToken_revertsBelowMinSeed`, `test_createToken_revertsZeroSeed`, `test_launchBlock_recorded` in `test/Zap.t.sol`.
+
 ## Graduation — Two-Phase, Dynamic LP Seeding (Read This Before Touching Graduation Code)
 
 This is the most bespoke piece of the protocol. Full rationale + invariants live in [`docs/contracts-scope.md`](../../docs/contracts-scope.md#graduation); the short version:

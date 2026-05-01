@@ -42,10 +42,13 @@ contract BondingTest is DeployHelper {
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
 
         // Seed buys no longer happen inside `Bonding.launch` — they're now a
-        // post-launch step in the Zap. To preserve the seeded curve
-        // state these Bonding-level tests rely on, perform an equivalent seed
-        // buy via `bonding.buy` (creator is already on the router allowlist).
+        // post-launch step in the Zap. The unit tests drive Bonding directly
+        // (each `vm.prank` + external call is its own tx, so the seed-buy
+        // transient bypass set inside `launch()` is cleared before the
+        // follow-up buy). Skip past the launch trading delay so the
+        // simulated "seed buy" lands without tripping `TradingNotOpen`.
         if (seedLtAmount > 0) {
+            _skipLaunchDelay();
             _buyTokens(tokenAddr, creator, seedLtAmount);
         }
     }
@@ -63,6 +66,12 @@ contract BondingTest is DeployHelper {
         });
         (tokenAddr, pairAddr) = bonding.launch(params, creator);
         vm.stopPrank();
+    }
+
+    /// @dev Roll past `LAUNCH_TRADING_DELAY_BLOCKS` so direct-Bonding tests
+    ///      can buy without the seed-buy transient bypass.
+    function _skipLaunchDelay() internal {
+        vm.roll(block.number + bonding.LAUNCH_TRADING_DELAY_BLOCKS() + 1);
     }
 
     function _buyTokens(

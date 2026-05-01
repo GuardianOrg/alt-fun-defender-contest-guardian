@@ -35,6 +35,22 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ///      `BelowMinAmount` instead. Real USDC (6dp) — `$10`.
     uint256 public constant MIN_USDC_AMOUNT = 10e6;
 
+    /// @notice Mandatory seed-buy floor enforced on every `createToken` call
+    ///         (real USDC, 6dp — `$20`). Combined with `Bonding`'s
+    ///         `LAUNCH_TRADING_DELAY_BLOCKS`, this is the system's anti-snipe
+    ///         design: the creator's seed absorbs the cheap end of the curve
+    ///         while public buys are gated for the next 3 blocks, so first-
+    ///         block bots cannot capture supply at the curve floor.
+    /// @dev    There is **no upper bound** on the seed buy. This is
+    ///         intentional. A cap is trivially bypassable (the same creator
+    ///         seeds via wallet A then snipes from wallet B at
+    ///         `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`), and some
+    ///         creators legitimately want to seed-and-burn to remove
+    ///         supply — capping would block that pattern. The floor is the
+    ///         only side that protects the curve floor from being free.
+    ///         Front-end mirrors this constant in `MIN_USDC_BUY_AMOUNT`.
+    uint256 public constant MIN_SEED_USDC = 20e6;
+
     Bonding public bonding;
     IERC20 public usdc;
     IUniswapV2Router02 public uniswapV2Router;
@@ -90,6 +106,10 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @dev Mirrors the BounceTech LT `mint`/`redeem` floor so users see a
     ///      clean error instead of an undecodable LT revert.
     error BelowMinAmount();
+    /// @dev Seed buy below `MIN_SEED_USDC`. Surfaced separately from
+    ///      `BelowMinAmount` so the UI can distinguish "you tried to buy too
+    ///      little" from "your launch seed must be at least $20".
+    error BelowMinSeed();
 
     constructor() {
         _disableInitializers();
@@ -116,7 +136,8 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         creatorFeeBps = creatorFeeBps_;
     }
 
-    /// @param seedUsdcAmount USDC for seed buy (0 = no seed). Routed through
+    /// @param seedUsdcAmount USDC for the mandatory seed buy. Must be
+    ///                       `>= MIN_SEED_USDC`. Routed through
     ///                       `_buyInternal` so it inherits the standard
     ///                       fee/refund handling and emits `Buy`.
     function createToken(
@@ -126,13 +147,12 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         return _createTokenInternal(params, seedUsdcAmount);
     }
 
-    /// @dev Permit is only consumed when a seed buy is requested.
     function createTokenWithPermit(
         Bonding.LaunchParams calldata params,
         uint256 seedUsdcAmount,
         PermitData calldata p
     ) external nonReentrant returns (address tokenAddr) {
-        if (seedUsdcAmount > 0) _tryPermit(address(usdc), msg.sender, p);
+        _tryPermit(address(usdc), msg.sender, p);
         return _createTokenInternal(params, seedUsdcAmount);
     }
 
@@ -181,15 +201,18 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 seedUsdcAmount
     ) internal returns (address tokenAddr) {
         if (params.ltAddress == address(0)) revert InvalidInput();
+        // Mandatory seed buy. See `MIN_SEED_USDC` for the no-cap rationale.
+        if (seedUsdcAmount < MIN_SEED_USDC) revert BelowMinSeed();
 
         (tokenAddr,) = bonding.launch(params, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
 
-        // `minTokensOut = 0` is intentional: a seed buy executes in the same tx
-        // as the launch, so there's nothing for slippage to protect against.
-        if (seedUsdcAmount > 0) {
-            _buyInternal(tokenAddr, seedUsdcAmount, 0, address(0));
-        }
+        // The seed buy is what arms the bypass into `Bonding`'s launch
+        // trading delay — it MUST happen in the same tx as `bonding.launch`,
+        // otherwise the transient flag clears and the buy reverts with
+        // `TradingNotOpen`. `minTokensOut = 0` is intentional: same-tx as
+        // launch, so there's nothing for slippage to protect against.
+        _buyInternal(tokenAddr, seedUsdcAmount, 0, address(0));
     }
 
     function _buyInternal(

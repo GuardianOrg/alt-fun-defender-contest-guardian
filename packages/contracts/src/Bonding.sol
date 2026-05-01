@@ -102,6 +102,26 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      are `constant`, so there's no runtime cost vs hardcoding.
     uint256 private constant _VANITY_MASK = (uint256(1) << (VANITY_TRAILING_ZEROS * 4)) - 1;
 
+    /// @notice Anti-snipe trading delay. After `launch()`, public buys on the
+    ///         curve are blocked for `LAUNCH_TRADING_DELAY_BLOCKS` blocks (so
+    ///         trading opens at `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`).
+    ///         The seed buy attached to the launch tx bypasses the gate via
+    ///         the transient flag set in `launch()` — see `buy()` for the
+    ///         consume-once mechanic. Combined with `Zap.MIN_SEED_USDC`, this
+    ///         is the system's first-block-sniper mitigation: the creator's
+    ///         seed absorbs the cheap end of the curve, and no other buyer
+    ///         can race them into block N or pile in at N+1..N+3.
+    uint256 public constant LAUNCH_TRADING_DELAY_BLOCKS = 3;
+
+    /// @dev Transient-storage slot keying the seed-buy bypass. Set in
+    ///      `launch()` to the freshly-deployed token address, consumed by the
+    ///      first matching `buy()` call in the same tx (i.e. the seed buy
+    ///      Zap fires immediately after launch). Naturally cleared at
+    ///      end-of-tx, so it cannot leak across txs even if a bug skips the
+    ///      consume. Keyed off a domain-separated label to avoid collisions
+    ///      with any future transient slots elsewhere in the contract.
+    bytes32 private constant _SEED_BUY_BYPASS_SLOT = keccak256("alt-fun.bonding.seedBuyBypass.v1");
+
     /// @notice Strictly-forward lifecycle: `Curve → Graduating → Graduated`.
     enum Lifecycle {
         Curve,
@@ -163,9 +183,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///      means BounceTech `setFactory` rotations flow through automatically.
     IBounceGlobalStorage public bounceGlobalStorage;
 
+    /// @notice Block in which each token was launched. Combined with
+    ///         `LAUNCH_TRADING_DELAY_BLOCKS` to gate post-launch buys against
+    ///         first-block snipers — see `buy()` for the full rationale.
+    /// @dev `uint64` is enough for any realistic chain age (>500 years at 1s
+    ///      blocks) and packs four launches per slot.
+    mapping(address => uint64) public launchBlock;
+
     /// @dev Storage gap → 50 slots total. Append new state variables before
     ///      this gap and shrink the length to match.
-    uint256[38] private __gap;
+    uint256[37] private __gap;
 
     event TokenLaunched(
         address indexed token, address indexed creator, address indexed ltAddress, string name, string ticker, uint256 k
@@ -227,6 +254,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     /// @dev `ltAddress` not in the BounceTech `Factory.ltExists` mapping
     ///      (arbitrary contract, or an LT BounceTech has since `redeployLt`'d).
     error UnknownLeveragedToken(address ltAddress);
+    /// @dev Buy attempted before `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`
+    ///      without the seed-buy transient bypass — i.e. a sniper trying to
+    ///      front-run public trading. See `LAUNCH_TRADING_DELAY_BLOCKS`.
+    error TradingNotOpen();
 
     modifier onlyRouter() {
         if (!_routers.contains(msg.sender)) revert NotRouter();
@@ -308,6 +339,18 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         pair = _deployAndSeed(tokenAddr, saltMixed, params.name, params.ticker, params.ltAddress);
         _tokenInfo[tokenAddr].pair = pair;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        launchBlock[tokenAddr] = uint64(block.number);
+
+        // Arm the seed-buy bypass: the first `buy()` in this tx targeting this
+        // token skips the launch trading delay. Routers (Zap) immediately
+        // follow `launch()` with the seed buy, so the creator's seed lands
+        // before the gate engages while same-block sniper buys (separate
+        // txs, transient cleared) are blocked.
+        bytes32 slot = _SEED_BUY_BYPASS_SLOT;
+        assembly {
+            tstore(slot, tokenAddr)
+        }
 
         uint256 k = IPair(pair).k();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k);
@@ -417,6 +460,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
+        _enforceLaunchDelay(tokenAddress);
 
         (tokensOut, amountInUsed) = _executeBuy(msg.sender, trader, amountIn, tokenAddress);
         if (tokensOut < amountOutMin) revert SlippageExceeded();
@@ -591,6 +635,38 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     // ─── Internals ───────────────────────────────────────────────────────
+
+    /// @dev Anti-snipe gate. Inside the launch tx the seed buy fires the
+    ///      transient bypass set in `launch()`, so the creator's seed always
+    ///      lands. Any other buy (including same-block sniper bundles in a
+    ///      separate tx) sees a cleared transient slot and reverts until
+    ///      `block.number > launchBlock + LAUNCH_TRADING_DELAY_BLOCKS`. The
+    ///      bypass is consumed on first use so a malicious router that
+    ///      crammed multiple buys into one tx still only gets one through.
+    ///
+    ///      We do **not** cap the seed-buy size. Some creators legitimately
+    ///      seed >50% of a curve and burn the result post-launch as a supply
+    ///      sink — capping would block that pattern, and the cap is
+    ///      trivially bypassable anyway via a second wallet at
+    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. See root
+    ///      `AGENTS.md` for the threat-model writeup. Auditors: this is
+    ///      intentional, not an oversight.
+    function _enforceLaunchDelay(
+        address tokenAddress
+    ) internal {
+        if (block.number > uint256(launchBlock[tokenAddress]) + LAUNCH_TRADING_DELAY_BLOCKS) {
+            return;
+        }
+        bytes32 slot = _SEED_BUY_BYPASS_SLOT;
+        address bypass;
+        assembly {
+            bypass := tload(slot)
+        }
+        if (bypass != tokenAddress) revert TradingNotOpen();
+        assembly {
+            tstore(slot, 0)
+        }
+    }
 
     /// @dev `tokenHolder` is where `Router` pulls LT from / delivers tokens to
     ///      (the calling Zap). `trader` is event-only attribution (the user EOA).
