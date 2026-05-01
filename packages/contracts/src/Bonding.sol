@@ -638,13 +638,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address lt = info.ltAddress;
         PendingGraduation memory p = pendingGraduation[tokenAddress];
 
-        address hyperPair = _ensureHyperswapPair(tokenAddress, lt);
-        uint256 liquidity = _seedHyperswapDirect(tokenAddress, lt, hyperPair, p.tokensForLP, p.ltFromPair);
-
         info.lifecycle = Lifecycle.Graduated;
-        graduatedPair[tokenAddress] = hyperPair;
         delete pendingGraduation[tokenAddress];
 
+        address hyperPair = _ensureHyperswapPair(tokenAddress, lt);
+        uint256 liquidity = _seedHyperswapDirect(tokenAddress, lt, hyperPair, p.tokensForLP, p.ltFromPair);
+        graduatedPair[tokenAddress] = hyperPair;
         LPLock(lpLock).recordLock(tokenAddress, hyperPair, liquidity);
 
         emit TokenGraduated(tokenAddress, hyperPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
