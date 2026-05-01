@@ -15,7 +15,8 @@ import {IUniswapV2Router02} from "../src/interfaces/IUniswapV2Router02.sol";
 contract Deploy is Script {
     // HyperEVM mainnet addresses
     address constant USDC = 0xb88339CB7199b77E23DB6E890353E22632Ba630f;
-    address constant HYPERSWAP_ROUTER = 0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A;
+    /// @dev UniswapV2-compatible router (HyperSwap V2 on HyperEVM mainnet).
+    address constant UNISWAP_V2_ROUTER = 0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A;
     /// @dev BounceTech `GlobalStorage` (HyperEVM mainnet). Mirrors
     ///      `GLOBAL_STORAGE_ADDRESS` in `bounce-tech/bounce-npm`.
     address constant BOUNCE_GLOBAL_STORAGE = 0xa07d06383c1863c8A54d427aC890643d76cc03ff;
@@ -65,9 +66,9 @@ contract Deploy is Script {
         Token tokenImpl = new Token();
         console.log("Token (impl):", address(tokenImpl));
 
-        address hyperswapFactory = IUniswapV2Router02(HYPERSWAP_ROUTER).factory();
+        address uniswapV2Factory = IUniswapV2Router02(UNISWAP_V2_ROUTER).factory();
         address bondingProxy =
-            _deployBonding(address(factory), address(router), hyperswapFactory, lpLockProxy, address(tokenImpl));
+            _deployBonding(address(factory), address(router), uniswapV2Factory, lpLockProxy, address(tokenImpl));
         console.log("Bonding (proxy):", bondingProxy);
 
         // Deploy FeeVault (proxy). `feeTo = deployer` initially — rotate via
@@ -80,7 +81,7 @@ contract Deploy is Script {
         Zap zapImpl = new Zap();
         bytes memory zapInit = abi.encodeCall(
             Zap.initialize,
-            (bondingProxy, USDC, HYPERSWAP_ROUTER, feeVaultProxy, BUY_FEE_BPS, SELL_FEE_BPS, CREATOR_FEE_BPS)
+            (bondingProxy, USDC, UNISWAP_V2_ROUTER, feeVaultProxy, BUY_FEE_BPS, SELL_FEE_BPS, CREATOR_FEE_BPS)
         );
         address zapProxy = address(new ERC1967Proxy(address(zapImpl), zapInit));
         console.log("Zap (proxy):", zapProxy);
@@ -94,13 +95,13 @@ contract Deploy is Script {
 
         console.log("--- Deployment complete ---");
         console.log("USDC:", USDC);
-        console.log("HyperSwap Router:", HYPERSWAP_ROUTER);
+        console.log("Uniswap V2 Router:", UNISWAP_V2_ROUTER);
     }
 
     function _deployBonding(
         address factory_,
         address router_,
-        address hyperswapFactory_,
+        address uniswapV2Factory_,
         address lpLock_,
         address tokenImplementation_
     ) internal returns (address) {
@@ -110,7 +111,7 @@ contract Deploy is Script {
             (
                 factory_,
                 router_,
-                hyperswapFactory_,
+                uniswapV2Factory_,
                 lpLock_,
                 tokenImplementation_,
                 GRADUATION_THRESHOLD_USD,

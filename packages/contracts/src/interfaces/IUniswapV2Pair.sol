@@ -3,10 +3,11 @@ pragma solidity 0.8.24;
 
 /// @title IUniswapV2Pair
 /// @notice Subset of UniswapV2Pair used for direct-to-pair swaps (`Zap`) and
-///         direct-to-pair LP seeding (`Bonding.finalizeGraduation`). HyperSwap
-///         V2's router has no token-to-token swap, and direct seeding is also
-///         brick-proof against a front-runner dust-seeding the pair (non-zero
-///         reserves) between phases.
+///         direct-to-pair LP seeding (`Bonding.finalizeGraduation`). The
+///         HyperSwap V2 deployment we target has no token-to-token swap on its
+///         router, and direct seeding is also brick-proof against a
+///         front-runner dust-seeding the pair (non-zero reserves) between
+///         phases.
 interface IUniswapV2Pair {
     function token0() external view returns (address);
     function token1() external view returns (address);
