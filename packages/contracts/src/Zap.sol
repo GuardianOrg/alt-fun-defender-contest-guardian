@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
@@ -22,7 +22,12 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 ///      fees live on `Bonding`, `Router`, or `Factory`.
 ///      Permit variants apply an EIP-2612 sig before pulling funds; wrapped in
 ///      `try/catch` to defuse the standard permit-front-run DoS.
-contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+/// @dev Owner is the protocol multisig. Uses `Ownable2StepUpgradeable` so a
+///      bad `transferOwnership` can be cancelled (or simply ignored by the
+///      pending owner) before it takes effect — single-step transfer to a
+///      fat-fingered or contract-incompatible address would otherwise brick
+///      every owner-only path on the live proxy.
+contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOM = 10_000;

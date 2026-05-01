@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -29,7 +29,12 @@ import {VanityMining} from "./lib/VanityMining.sol";
 ///      invariants) lives in `packages/contracts/AGENTS.md` and `docs/contracts-scope.md`.
 ///      Read those before touching `_enterGraduating`, `finalizeGraduation`, or
 ///      `_prepareGraduationLiquidity`.
-contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+/// @dev Owner is the protocol multisig. Uses `Ownable2StepUpgradeable` so a
+///      bad `transferOwnership` can be cancelled (or simply ignored by the
+///      pending owner) before it takes effect — single-step transfer to a
+///      fat-fingered or contract-incompatible address would otherwise brick
+///      every owner-only path on the live proxy.
+contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 

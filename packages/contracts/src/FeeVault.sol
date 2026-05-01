@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -14,7 +14,12 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 ///      via `transferFrom`. Trust is bounded by an O(1) underfund check in
 ///      `accrue` (vault USDC balance ≥ outstanding creator + protocol claims),
 ///      so a buggy depositor can't inflate balances beyond delivered funds.
-contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+///      Owner is the protocol multisig. Uses `Ownable2StepUpgradeable` so a
+///      bad `transferOwnership` can be cancelled (or simply ignored by the
+///      pending owner) before it takes effect — single-step transfer to a
+///      fat-fingered or contract-incompatible address would otherwise brick
+///      every owner-only path on the live proxy.
+contract FeeVault is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 

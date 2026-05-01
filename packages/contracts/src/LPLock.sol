@@ -2,13 +2,18 @@
 pragma solidity 0.8.24;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title LPLock
 /// @notice Locks LP tokens from graduated tokens. No withdraw in v1.
 /// @dev UUPS-upgradeable to support v2 `migrateLT` functionality.
-contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
+///      Owner is the protocol multisig. Uses `Ownable2StepUpgradeable` so a
+///      bad `transferOwnership` can be cancelled (or simply ignored by the
+///      pending owner) before it takes effect — single-step transfer to a
+///      fat-fingered or contract-incompatible address would otherwise brick
+///      every owner-only path on the live proxy.
+contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
     struct LockInfo {
         address lpPair;
         uint256 amount;
