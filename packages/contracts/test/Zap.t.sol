@@ -488,15 +488,15 @@ contract ZapTest is DeployHelper {
         return Bonding(address(new ERC1967Proxy(address(bondingImpl), bondingInit)));
     }
 
-    function test_setHyperswapRouter_onlyOwner() public {
+    function test_setUniswapV2Router_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        zap.setHyperswapRouter(address(1));
+        zap.setUniswapV2Router(address(1));
     }
 
-    function test_setHyperswapRouter_revertsZeroAddress() public {
+    function test_setUniswapV2Router_revertsZeroAddress() public {
         vm.expectRevert(Zap.ZeroAddress.selector);
-        zap.setHyperswapRouter(address(0));
+        zap.setUniswapV2Router(address(0));
     }
 
     // ─── UUPS Upgrade ────────────────────────────────────────────────────

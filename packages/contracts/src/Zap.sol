@@ -16,8 +16,8 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 
 /// @title Zap
 /// @notice User-facing entry point: pay USDC, receive tokens (and vice versa).
-/// @dev Buy path: USDC → LT mint → curve buy (or HyperSwap swap post-grad).
-///      Sell path: token → curve sell or HyperSwap swap → LT redeem → USDC.
+/// @dev Buy path: USDC → LT mint → curve buy (or V2 swap post-grad).
+///      Sell path: token → curve sell or V2 swap → LT redeem → USDC.
 ///      Fee layer: every buy/sell skims USDC and forwards it to `FeeVault`. No
 ///      fees live on `Bonding`, `Router`, or `Factory`.
 ///      Permit variants apply an EIP-2612 sig before pulling funds; wrapped in
@@ -37,7 +37,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     Bonding public bonding;
     IERC20 public usdc;
-    IUniswapV2Router02 public hyperswapRouter;
+    IUniswapV2Router02 public uniswapV2Router;
     FeeVault public feeVault;
 
     uint256 public buyFeeBps;
@@ -62,7 +62,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
     event BondingUpdated(address indexed bonding);
-    event HyperswapRouterUpdated(address indexed hyperswapRouter);
+    event UniswapV2RouterUpdated(address indexed uniswapV2Router);
     event FeeVaultUpdated(address indexed feeVault);
     event FeesUpdated(uint256 buyFeeBps, uint256 sellFeeBps, uint256 creatorFeeBps);
     /// @dev Buy's leftover-LT redeem reverted (typically below `MIN_USDC_AMOUNT`)
@@ -91,18 +91,18 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     function initialize(
         address bonding_,
         address usdc_,
-        address hyperswapRouter_,
+        address uniswapV2Router_,
         address feeVault_,
         uint256 buyFeeBps_,
         uint256 sellFeeBps_,
         uint256 creatorFeeBps_
     ) external initializer {
-        if (bonding_ == address(0) || usdc_ == address(0) || hyperswapRouter_ == address(0) || feeVault_ == address(0)) revert ZeroAddress();
+        if (bonding_ == address(0) || usdc_ == address(0) || uniswapV2Router_ == address(0) || feeVault_ == address(0)) revert ZeroAddress();
         if (buyFeeBps_ > MAX_FEE_BPS || sellFeeBps_ > MAX_FEE_BPS || creatorFeeBps_ > BPS_DENOM) revert InvalidFee();
         __Ownable_init(msg.sender);
         bonding = Bonding(bonding_);
         usdc = IERC20(usdc_);
-        hyperswapRouter = IUniswapV2Router02(hyperswapRouter_);
+        uniswapV2Router = IUniswapV2Router02(uniswapV2Router_);
         feeVault = FeeVault(feeVault_);
         buyFeeBps = buyFeeBps_;
         sellFeeBps = sellFeeBps_;
@@ -234,7 +234,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 ltMinted = IBounceLeveragedToken(lt).mint(address(this), netUsdc, 0);
 
         if (bonding.isGraduated(tokenAddress)) {
-            tokensOut = _buyOnHyperswap(tokenAddress, lt, ltMinted);
+            tokensOut = _buyOnUniswapV2(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
             (tokensOut, amountInUsed) = _buyOnCurve(tokenAddress, lt, ltMinted);
@@ -281,7 +281,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
         uint256 ltReceived = bonding.isGraduated(tokenAddress)
-            ? _sellOnHyperswap(tokenAddress, lt, tokenAmount)
+            ? _sellOnUniswapV2(tokenAddress, lt, tokenAmount)
             : _sellOnCurve(tokenAddress, tokenAmount);
 
         uint256 grossUsdcEstimate = (ltReceived * IBounceLeveragedToken(lt).exchangeRate()) / 1e18;
@@ -362,13 +362,13 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         ltReceived = bonding.sell(tokenAmount, tokenAddress, 0, msg.sender);
     }
 
-    // ─── Internal: HyperSwap Trades ─────────────────────────────────────
+    // ─── Internal: V2 Trades ────────────────────────────────────────────
 
-    /// @dev Direct-to-pair swap, bypassing the HyperSwap V2 router. The
-    ///      mainnet router has no `swapExactTokensForTokens` (only HYPE-paired
+    /// @dev Direct-to-pair swap, bypassing the V2 router. HyperSwap's mainnet
+    ///      router has no `swapExactTokensForTokens` (only HYPE-paired
     ///      `swap*Supporting…` variants with a non-standard `referrer`),
     ///      so we go direct to the pair.
-    function _swapOnHyperswap(
+    function _swapOnUniswapV2(
         address tokenIn,
         address tokenOut,
         uint256 amountIn
@@ -392,20 +392,20 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         IUniswapV2Pair(pair).swap(amount0Out, amount1Out, address(this), new bytes(0));
     }
 
-    function _buyOnHyperswap(
+    function _buyOnUniswapV2(
         address tokenAddress,
         address lt,
         uint256 ltAmount
     ) internal returns (uint256 tokensOut) {
-        tokensOut = _swapOnHyperswap(lt, tokenAddress, ltAmount);
+        tokensOut = _swapOnUniswapV2(lt, tokenAddress, ltAmount);
     }
 
-    function _sellOnHyperswap(
+    function _sellOnUniswapV2(
         address tokenAddress,
         address lt,
         uint256 tokenAmount
     ) internal returns (uint256 ltReceived) {
-        ltReceived = _swapOnHyperswap(tokenAddress, lt, tokenAmount);
+        ltReceived = _swapOnUniswapV2(tokenAddress, lt, tokenAmount);
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
@@ -419,12 +419,12 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit BondingUpdated(bonding_);
     }
 
-    function setHyperswapRouter(
-        address hyperswapRouter_
+    function setUniswapV2Router(
+        address uniswapV2Router_
     ) external onlyOwner {
-        if (hyperswapRouter_ == address(0)) revert ZeroAddress();
-        hyperswapRouter = IUniswapV2Router02(hyperswapRouter_);
-        emit HyperswapRouterUpdated(hyperswapRouter_);
+        if (uniswapV2Router_ == address(0)) revert ZeroAddress();
+        uniswapV2Router = IUniswapV2Router02(uniswapV2Router_);
+        emit UniswapV2RouterUpdated(uniswapV2Router_);
     }
 
     /// @notice Hot-swap the FeeVault. Reverts unless the new vault already
