@@ -45,15 +45,26 @@ function resolveTier(props: VanityEffectProps): VanityTier {
  * in the viewport. Used to gate expensive particle effects so a
  * 50-token homepage list doesn't fire 50 emitters off-screen.
  */
+/**
+ * Returns whether the wrapped element is currently in (or near) the
+ * viewport. Defaults to `true` so high-tier effects render
+ * immediately on mount; the observer only flips it to `false` if the
+ * element is later confirmed to be off-screen.
+ *
+ * Why default-true: a strict default-false races against the
+ * IntersectionObserver's first callback, and on layouts with a
+ * scrolling parent (e.g. our showcase page wraps everything in
+ * `.layout { overflow-y: auto }`) the observer's default
+ * `root: viewport` may never fire `isIntersecting` for elements
+ * inside that scroll container at all. Leaning toward "show" with
+ * downward correction is both more correct and visibly snappier.
+ */
 function useInView(ref: React.RefObject<HTMLElement | null>): boolean {
-  const [inView, setInView] = useState(false);
+  const [inView, setInView] = useState(true);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    if (typeof IntersectionObserver === "undefined") {
-      setInView(true);
-      return;
-    }
+    if (typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {

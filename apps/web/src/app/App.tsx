@@ -10,9 +10,8 @@ import {
 } from "react-router";
 
 import styles from "./App.module.css";
-import { CREATE_ROUTE, DEV_TIERS_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
+import { CREATE_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
 import CreateView from "../components/create/CreateView";
-import VanityTierShowcase from "../components/dev/VanityTierShowcase";
 import AssetTape from "../components/layout/AssetTape";
 import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
@@ -70,14 +69,6 @@ const router = createBrowserRouter([
         element: (
           <ErrorBoundary>
             <CreateView />
-          </ErrorBoundary>
-        ),
-      },
-      {
-        path: DEV_TIERS_ROUTE,
-        element: (
-          <ErrorBoundary>
-            <VanityTierShowcase />
           </ErrorBoundary>
         ),
       },

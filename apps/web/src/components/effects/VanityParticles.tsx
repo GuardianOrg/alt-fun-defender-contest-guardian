@@ -106,8 +106,8 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
     background: { color: "transparent" },
     detectRetina: true,
     fpsLimit: 60,
-    pauseOnBlur: true,
-    pauseOnOutsideViewport: true,
+    pauseOnBlur: false,
+    pauseOnOutsideViewport: false,
   };
 
   if (tierId === "lightning") {
@@ -295,8 +295,7 @@ export default function VanityParticles({ tierId, size }: Props) {
   // Stable per-instance id so multiple tier wrappers on the same page
   // (e.g. the dev showcase, where one tier renders four times across
   // row/hero/icon/button) don't collide on the tsparticles container
-  // id. Generated once on mount and cached for the lifetime of the
-  // component.
+  // id.
   const [instanceId] = useState(() =>
     Math.random().toString(36).slice(2, 10),
   );
@@ -308,9 +307,8 @@ export default function VanityParticles({ tierId, size }: Props) {
         if (!cancelled) setReady(true);
       })
       .catch(() => {
-        // Engine init failure is logged inside `ensureEngine`. The
-        // border + glow CSS still applies, so the user sees a
-        // tier-shaped chrome — particles are graceful-degradation.
+        // Engine init failure is logged inside `ensureEngine`. Border +
+        // glow CSS still applies; particles are graceful-degradation.
       });
     return () => {
       cancelled = true;
