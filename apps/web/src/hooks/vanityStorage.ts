@@ -4,12 +4,19 @@ import type { Address, Hex } from "viem";
 
 /**
  * localStorage-backed cache of best-known vanity salts. Keyed by the
- * `(creator, nameHash, tickerHash)` tuple so the salt's launch invariant
- * (which mixes those four together — see `Bonding._mixSalt`) is preserved
- * verbatim. Editing the form's name or ticker switches keys; the previous
- * tuple's progress stays in storage in case the user changes their mind
- * back. An LRU cap keeps the storage bounded so a user trying many
- * (name, ticker) pairs can't blow past the browser quota.
+ * `(creator, implementation, nameHash, tickerHash)` tuple. Three of those
+ * are inputs to the on-chain `Bonding._mixSalt` mix; the fourth
+ * (`implementation`) feeds the EIP-1167 init code that the CREATE2
+ * derivation is hashed against. Owner-rotatable in `Bonding`, so a salt
+ * cached against the previous impl would predict a different address
+ * after rotation and revert at launch with `NotVanityAddress`. Including
+ * impl in the key means a rotation seamlessly invalidates every cached
+ * entry without us needing to walk storage.
+ *
+ * Editing form fields switches keys; the previous tuple's progress stays
+ * in storage in case the user changes their mind back. An LRU cap keeps
+ * the storage bounded so a user trying many (name, ticker) pairs can't
+ * blow past the browser quota.
  */
 
 export interface VanityCacheEntry {
@@ -28,20 +35,23 @@ const MAX_ENTRIES = 50;
 
 /**
  * Truncated metadata-hash form keeps localStorage keys short. We only need
- * uniqueness across (creator, name, ticker) tuples a single user is
- * actively cycling through, and 32 bits of name + 32 bits of ticker keccak
- * is more than enough — collision means a stale entry gets reused for a
- * different name/ticker, which is harmless: the launch tx still verifies
- * on-chain via `Bonding._checkVanity`.
+ * uniqueness across (creator, impl, name, ticker) tuples a single user is
+ * actively cycling through, and 32 bits each of name/ticker keccak plus
+ * 32 bits of impl is more than enough — collision means a stale entry
+ * gets reused for a different launch context, which is harmless: the
+ * launch tx still verifies on-chain via `Bonding._checkVanity` and would
+ * revert with `NotVanityAddress` rather than producing a bad token.
  */
 export function vanityKey(
   creator: Address,
+  implementation: Address,
   name: string,
   ticker: string,
 ): string {
+  const implSlug = implementation.toLowerCase().slice(2, 10);
   const nameSlug = metadataHash(name).slice(2, 10);
   const tickerSlug = metadataHash(ticker).slice(2, 10);
-  return `${KEY_PREFIX}${creator.toLowerCase()}:${nameSlug}:${tickerSlug}`;
+  return `${KEY_PREFIX}${creator.toLowerCase()}:${implSlug}:${nameSlug}:${tickerSlug}`;
 }
 
 function safeStorage(): Storage | null {

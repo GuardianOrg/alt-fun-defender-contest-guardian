@@ -2,7 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { metadataHash, VANITY_SUFFIX } from "@launchpad/shared";
 import { useQuery } from "@tanstack/react-query";
-import { createPublicClient, getAddress, http, type Address, type Hex } from "viem";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  isAddress,
+  isHex,
+  type Address,
+  type Hex,
+} from "viem";
 
 import { useWallet } from "./useWallet";
 import {
@@ -77,6 +85,37 @@ export interface UseVanityAddressReturn {
 
 const MINER_ERROR_MESSAGE =
   "Vanity address miner failed. Please refresh and try again.";
+
+/**
+ * Validate untrusted cache shape (other tabs, dev-tools, future versions
+ * of this app, etc.) before promoting it to a `VanityResult`. Returns
+ * null on any structural issue rather than throwing — `getAddress` and
+ * the salt-format check would crash the create flow if we didn't guard
+ * against tampering / corrupt rows.
+ */
+function parseCacheEntry(
+  raw: { salt: Hex; address: Address; zeros: number } | null | undefined,
+): VanityResult | null {
+  if (!raw) return null;
+  if (typeof raw.zeros !== "number" || raw.zeros < BASE_TARGET_ZEROS) {
+    return null;
+  }
+  if (typeof raw.salt !== "string" || !isHex(raw.salt) || raw.salt.length !== 66) {
+    return null;
+  }
+  if (typeof raw.address !== "string" || !isAddress(raw.address)) {
+    return null;
+  }
+  try {
+    return {
+      salt: raw.salt,
+      address: getAddress(raw.address),
+      zeros: raw.zeros,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface UseVanityAddressArgs {
   /** Token name as the user has it in the form. Mining waits for non-empty. */
@@ -191,17 +230,15 @@ export function useVanityAddress({
       // tuple. Workers will then start mining for `cached.zeros + 1` and
       // only re-emit `found` when they beat that. The user gets an
       // instant "ready" state on revisit.
-      const key = vanityKey(creator, tokenName, tokenTicker);
+      //
+      // Cache values are user-writable (other tabs, dev-tools, browser
+      // extensions) so we validate the shape strictly before trusting
+      // them. A bad row (mangled hex, dropped fields, casing tampering)
+      // gets ignored and overwritten on the next legitimate `found`.
+      const key = vanityKey(creator, implementation, tokenName, tokenTicker);
       cacheKeyRef.current = key;
       const cached = readVanityCache(key);
-      const initialBest: VanityResult | null
-        = cached && cached.zeros >= BASE_TARGET_ZEROS
-          ? {
-              salt: cached.salt,
-              address: getAddress(cached.address),
-              zeros: cached.zeros,
-            }
-          : null;
+      const initialBest = parseCacheEntry(cached);
       const initialTargetZeros = initialBest
         ? initialBest.zeros + 1
         : BASE_TARGET_ZEROS;
@@ -436,34 +473,32 @@ export function useVanityAddress({
       if (!event.key || !event.key.startsWith("vanity:")) return;
       if (event.key !== cacheKeyRef.current) return;
       if (!event.newValue) return;
+      // `event.newValue` is untrusted (other tabs, dev-tools, browser
+      // extensions, future schema versions) — validate the payload
+      // strictly before promoting it. Bad rows are silently dropped.
+      let parsed: unknown;
       try {
-        const parsed = JSON.parse(event.newValue) as {
-          salt: Hex;
-          address: Address;
-          zeros: number;
-        };
-        if (typeof parsed.zeros !== "number") return;
-        const currentZeros = bestRef.current?.zeros ?? 0;
-        if (parsed.zeros <= currentZeros) return;
-        const upgraded: VanityResult = {
-          salt: parsed.salt,
-          address: getAddress(parsed.address),
-          zeros: parsed.zeros,
-        };
-        bestRef.current = upgraded;
-        setBest(upgraded);
-        setStatus("ready");
-        const nextTarget = parsed.zeros + 1;
-        workersRef.current.forEach((w) => {
-          try {
-            w.postMessage({ type: "bumpTarget", targetZeros: nextTarget });
-          } catch {
-            // ignore
-          }
-        });
+        parsed = JSON.parse(event.newValue);
       } catch {
-        // ignore malformed payloads from other origins / future versions.
+        return;
       }
+      const upgraded = parseCacheEntry(
+        parsed as { salt: Hex; address: Address; zeros: number } | null,
+      );
+      if (!upgraded) return;
+      const currentZeros = bestRef.current?.zeros ?? 0;
+      if (upgraded.zeros <= currentZeros) return;
+      bestRef.current = upgraded;
+      setBest(upgraded);
+      setStatus("ready");
+      const nextTarget = upgraded.zeros + 1;
+      workersRef.current.forEach((w) => {
+        try {
+          w.postMessage({ type: "bumpTarget", targetZeros: nextTarget });
+        } catch {
+          // Worker may have died; ignore.
+        }
+      });
     };
     window.addEventListener("storage", handler);
     return () => window.removeEventListener("storage", handler);

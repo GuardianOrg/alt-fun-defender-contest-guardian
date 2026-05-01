@@ -184,12 +184,14 @@ let stopped = false;
 // Mutable across the worker's lifetime. `init` resets it; `bumpTarget` and
 // in-loop self-bumps only ever raise it. Sentinel `Infinity` before init.
 let targetZeros = Number.POSITIVE_INFINITY;
-// Re-entrancy guard: `init` messages can in principle arrive while a prior
-// mining loop is still draining (e.g. host re-spawns the worker pool
-// without terminating the previous workers — currently never happens, but
-// belt-and-braces). When set, an incoming `init` just refreshes the
-// module-scoped state; the existing async loop picks it up at the next
-// chunk boundary.
+// Re-entrancy guard. The host always `terminate()`s a worker before
+// re-spawning, so in practice a second `init` never arrives mid-run.
+// This guard exists purely to make a misuse safe: a duplicate `init`
+// while the loop is still draining is silently dropped (the state the
+// running loop reads is captured in its `MinerState` argument and
+// can't be hot-swapped from the message handler). If we ever need
+// in-flight reconfiguration, that's a deliberate design change, not
+// something to fall into accidentally.
 let mining = false;
 
 /** Iterations between yields. Sized so wall-clock per chunk is large
@@ -287,20 +289,25 @@ interface MinerState {
  * which silently broke the lockstep target-bump protocol — sibling
  * workers' bumps never reached this worker until termination.
  *
- * `setTimeout(0)` is the cheapest reliable yield: it flushes pending
- * microtasks AND lets the message queue drain, so a `bumpTarget` posted
- * during chunk N takes effect at the start of chunk N+1. Chunk size is
- * tuned to make this overhead negligible while keeping bump latency
- * under ~5ms.
+ * Two counters intentionally track different things:
+ *   - `iterationsInChunk` controls when we yield. Always increments per
+ *     attempt. Bounds the worst-case bumpTarget/stop latency to
+ *     `CHUNK_SIZE` iterations regardless of how many `found` events fire
+ *     mid-chunk (which reset the progress counter).
+ *   - `attemptsSinceProgress` accumulates progress deltas the host hasn't
+ *     seen yet. Resets on `found` (folded into the `attemptsDelta` of the
+ *     `FoundMessage`) and on each progress emission so the host's
+ *     attempt counter never double-counts.
  */
 async function runMiner(state: MinerState): Promise<void> {
   let { counterLo } = state;
   const { stride, mixBuf, predictBuf, saltBuf } = state;
 
   while (!stopped) {
-    let attemptsSinceTick = 0;
+    let iterationsInChunk = 0;
+    let attemptsSinceProgress = 0;
 
-    while (!stopped && attemptsSinceTick < CHUNK_SIZE) {
+    while (!stopped && iterationsInChunk < CHUNK_SIZE) {
       saltBuf[28] = (counterLo >>> 24) & 0xff;
       saltBuf[29] = (counterLo >>> 16) & 0xff;
       saltBuf[30] = (counterLo >>> 8) & 0xff;
@@ -322,27 +329,30 @@ async function runMiner(state: MinerState): Promise<void> {
           salt: fullSalt,
           address: fullAddr,
           zeros: actualZeros,
-          attemptsDelta: attemptsSinceTick + 1,
+          // +1 for the winning attempt itself, on top of whatever's
+          // accumulated since the host's last progress tick.
+          attemptsDelta: attemptsSinceProgress + 1,
         };
         (self as DedicatedWorkerGlobalScope).postMessage(found);
-        attemptsSinceTick = 0;
+        attemptsSinceProgress = 0;
         // Self-bump locally so we don't immediately re-emit at the same
         // threshold while the host's `bumpTarget` broadcast is in flight.
         targetZeros = actualZeros + 1;
       } else {
-        attemptsSinceTick++;
+        attemptsSinceProgress++;
       }
 
+      iterationsInChunk++;
       counterLo = (counterLo + stride) >>> 0;
     }
 
     // Drain partial chunk's progress before yielding so the host's
-    // attempt counter stays smooth. Skip if `attemptsSinceTick` is 0
-    // (could happen if a `found` reset it on the very last iteration).
-    if (attemptsSinceTick > 0) {
+    // attempt counter stays smooth. Skip the post if a `found` on the
+    // last iteration already drained the buffer to zero.
+    if (attemptsSinceProgress > 0) {
       const progress: ProgressMessage = {
         type: "progress",
-        attemptsDelta: attemptsSinceTick,
+        attemptsDelta: attemptsSinceProgress,
       };
       (self as DedicatedWorkerGlobalScope).postMessage(progress);
     }

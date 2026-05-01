@@ -1,3 +1,5 @@
+import { VANITY_SUFFIX } from "@launchpad/shared";
+
 import type { Address } from "viem";
 
 /**
@@ -32,7 +34,14 @@ import type { Address } from "viem";
  * can reach `singularity` (+11).
  */
 
-export const VANITY_BASE_ZEROS = 5;
+/**
+ * Trailing-zero count enforced by `Bonding._checkVanity` on-chain.
+ * Derived from the shared `VANITY_SUFFIX` constant so we can't drift if
+ * the on-chain minimum ever changes — bumping the suffix in
+ * `packages/shared/src/vanity.ts` automatically rescales the entire
+ * tier ladder here.
+ */
+export const VANITY_BASE_ZEROS = VANITY_SUFFIX.length;
 
 export type VanityTierId =
   | "none"
