@@ -104,7 +104,7 @@ All fees are charged by `Zap` in USDC and forwarded into `FeeVault`. The router 
 
 - **Rate:** 0.5% on every buy/sell (curve **and** post-grad), split 0.4% protocol / 0.1% creator.
 - **Accrual:** `Zap` transfers the fee USDC to `FeeVault`, then calls `FeeVault.accrue(token, creator, creatorAmount, protocolAmount, isBuy)`. Creator attribution comes from `Bonding.tokenInfo(token).creator` (set at launch, updatable via `transferCreator`).
-- **Claims:** `FeeVault.claim()` pays the caller their pooled USDC balance across every token they've launched. `FeeVault.claimProtocol()` is owner-only and pays the configured `feeTo`.
+- **Claims:** `FeeVault.claim()` pays the caller their pooled USDC balance across every token they've launched. `FeeVault.claimProtocol()` is permissionless and pays the configured `feeTo` — anyone can trigger the payout, but funds always go to the admin-set address.
 - **Lifetime counters:** `lifetimeCreatorEarned(creator)` / `lifetimeProtocolEarned` never decrement on claim, so the UI can render "total earned / claimed / claimable" consistently.
 - **Router swapability:** The vault has an owner-controlled depositor allowlist. A new router is whitelisted, the old router removed, and creator balances are untouched during the transition.
 - `transferCreator(tokenAddress, newCreator)` (on `Bonding`) — transfers role and future fee attribution.

@@ -364,19 +364,6 @@ export const ZapAbi = [
   },
   {
     "type": "function",
-    "name": "hyperswapRouter",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "contract IUniswapV2Router02"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -390,7 +377,7 @@ export const ZapAbi = [
         "internalType": "address"
       },
       {
-        "name": "hyperswapRouter_",
+        "name": "uniswapV2Router_",
         "type": "address",
         "internalType": "address"
       },
@@ -605,10 +592,10 @@ export const ZapAbi = [
   },
   {
     "type": "function",
-    "name": "setHyperswapRouter",
+    "name": "setUniswapV2Router",
     "inputs": [
       {
-        "name": "hyperswapRouter_",
+        "name": "uniswapV2Router_",
         "type": "address",
         "internalType": "address"
       }
@@ -628,6 +615,19 @@ export const ZapAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "uniswapV2Router",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IUniswapV2Router02"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -738,19 +738,6 @@ export const ZapAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "HyperswapRouterUpdated",
-    "inputs": [
-      {
-        "name": "hyperswapRouter",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -886,6 +873,19 @@ export const ZapAbi = [
       },
       {
         "name": "ltAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UniswapV2RouterUpdated",
+    "inputs": [
+      {
+        "name": "uniswapV2Router",
         "type": "address",
         "indexed": true,
         "internalType": "address"
