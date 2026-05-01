@@ -117,7 +117,7 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         emit CreatorFeesClaimed(msg.sender, amount);
     }
 
-    function claimProtocol() external nonReentrant onlyOwner returns (uint256 amount) {
+    function claimProtocol() external nonReentrant returns (uint256 amount) {
         amount = protocolBalance;
         if (amount == 0) revert NothingToClaim();
         protocolBalance = 0;
@@ -128,8 +128,8 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     /// @notice Sweep unbacked USDC (donations) to `feeTo`. Required because
     ///         direct USDC transfers would otherwise inflate `balanceOf` above
     ///         the accrual tally and silently mask the `accrue` underfund
-    ///         check. Owner runs periodically.
-    function sweepDonations() external nonReentrant onlyOwner returns (uint256 amount) {
+    ///         check. Permissionless — funds always go to the admin-set `feeTo`.
+    function sweepDonations() external nonReentrant returns (uint256 amount) {
         uint256 backed = totalAccruedCreator + protocolBalance;
         uint256 balance = usdc.balanceOf(address(this));
         if (balance <= backed) revert NothingToClaim();
