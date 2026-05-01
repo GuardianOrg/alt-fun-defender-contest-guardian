@@ -201,6 +201,13 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "acceptOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "addRouter",
     "inputs": [
       {
@@ -412,7 +419,7 @@ export const BondingAbi = [
     "name": "graduatedPair",
     "inputs": [
       {
-        "name": "",
+        "name": "token_",
         "type": "address",
         "internalType": "address"
       }
@@ -642,7 +649,7 @@ export const BondingAbi = [
     "name": "launchBlock",
     "inputs": [
       {
-        "name": "",
+        "name": "token_",
         "type": "address",
         "internalType": "address"
       }
@@ -706,7 +713,7 @@ export const BondingAbi = [
     "name": "pendingGraduation",
     "inputs": [
       {
-        "name": "",
+        "name": "token_",
         "type": "address",
         "internalType": "address"
       }
@@ -736,6 +743,19 @@ export const BondingAbi = [
         "name": "pendingSince",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingOwner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -1008,6 +1028,25 @@ export const BondingAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferStarted",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

@@ -34,42 +34,16 @@ import {VanityMining} from "./lib/VanityMining.sol";
 ///      pending owner) before it takes effect — single-step transfer to a
 ///      fat-fingered or contract-incompatible address would otherwise brick
 ///      every owner-only path on the live proxy.
+///
+///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
+///      mutable state lives in `BondingStorage` at
+///      `_BONDING_STORAGE_LOCATION`. See
+///      `packages/contracts/AGENTS.md#storage-layout`.
 contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    Factory public factory;
-    Router public router;
-
-    /// @dev Set once at `initialize` and immutable thereafter — there is no
-    ///      live setter. Hot-swapping the post-graduation venue or LP lock
-    ///      would let an admin silently reroute any token already in
-    ///      `Lifecycle.Graduating` between phase 1 and `finalizeGraduation`.
-    ///      Migrating to a new HyperSwap fork or LP lock requires a UUPS
-    ///      upgrade so the change is visible on-chain ahead of time.
-    address public uniswapV2Factory;
-    address public lpLock;
-
-    /// @dev EIP-1167 implementation cloned by `launch()`. Hot-swappable for
-    ///      future launches via `setTokenImplementation`; already-deployed
-    ///      clones bake in the impl address at deploy time and are unaffected.
-    address public tokenImplementation;
-
-    /// @dev Authorised routers (Zaps). Set-based so a new Zap can be
-    ///      allowlisted before the old one is removed, giving zero-downtime
-    ///      router rotations.
-    EnumerableSet.AddressSet private _routers;
-
-    /// @dev Target virtual LT reserve, 18-dp USD. Since virtual tokenReserve =
-    ///      totalSupply (1B), opening MC == this value.
     uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
-
-    /// @dev Graduation fires when real LT reserve × exchangeRate ≥ this. Set
-    ///      once at `initialize` and immutable thereafter: a live setter would
-    ///      let an MEV searcher sandwich the parameter change against every
-    ///      currently-trading token (issue #269). Tuning requires a UUPS
-    ///      upgrade with a `reinitializer`.
-    uint256 public graduationThresholdUsd;
 
     uint256 public constant CURVE_BPS = 7500;
     uint256 public constant LP_RESERVE_BPS = 2500;
@@ -183,27 +157,61 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         bytes32 salt;
     }
 
-    mapping(address => TokenInfo) internal _tokenInfo;
+    /// @custom:storage-location erc7201:altfun.storage.Bonding
+    struct BondingStorage {
+        Factory factory;
+        Router router;
+        /// @dev Set once at `initialize` and immutable thereafter — there is
+        ///      no live setter. Hot-swapping the post-graduation venue or LP
+        ///      lock would let an admin silently reroute any token already
+        ///      in `Lifecycle.Graduating` between phase 1 and
+        ///      `finalizeGraduation`. Migrating to a new HyperSwap fork or
+        ///      LP lock requires a UUPS upgrade so the change is visible
+        ///      on-chain ahead of time.
+        address uniswapV2Factory;
+        address lpLock;
+        /// @dev EIP-1167 implementation cloned by `launch()`. Hot-swappable
+        ///      for future launches via `setTokenImplementation`;
+        ///      already-deployed clones bake in the impl address at deploy
+        ///      time and are unaffected.
+        address tokenImplementation;
+        /// @dev Authorised routers (Zaps). Set-based so a new Zap can be
+        ///      allowlisted before the old one is removed, giving
+        ///      zero-downtime router rotations.
+        EnumerableSet.AddressSet routers;
+        /// @dev Graduation fires when real LT reserve × exchangeRate ≥ this.
+        ///      Set once at `initialize` and immutable thereafter: a live
+        ///      setter would let an MEV searcher sandwich the parameter
+        ///      change against every currently-trading token (issue #269).
+        ///      Tuning requires a UUPS upgrade with a `reinitializer`.
+        uint256 graduationThresholdUsd;
+        mapping(address token => TokenInfo) tokenInfo;
+        mapping(address token => address) graduatedPair;
+        mapping(address token => PendingGraduation) pendingGraduation;
+        /// @dev BounceTech `GlobalStorage`, queried per-launch to resolve the
+        ///      live `Factory` and reject non-BounceTech LTs (which could
+        ///      otherwise siphon buyer USDC inside `mint`). Going through
+        ///      `GlobalStorage` means BounceTech `setFactory` rotations flow
+        ///      through automatically.
+        IBounceGlobalStorage bounceGlobalStorage;
+        /// @notice Block in which each token was launched. Combined with
+        ///         `LAUNCH_TRADING_DELAY_BLOCKS` to gate post-launch buys
+        ///         against first-block snipers — see `buy()` for the full
+        ///         rationale.
+        /// @dev `uint64` is enough for any realistic chain age (>500 years
+        ///      at 1s blocks) and packs four launches per slot.
+        mapping(address token => uint64) launchBlock;
+    }
 
-    mapping(address => address) public graduatedPair;
-    mapping(address => PendingGraduation) public pendingGraduation;
+    // keccak256(abi.encode(uint256(keccak256("altfun.storage.Bonding")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _BONDING_STORAGE_LOCATION =
+        0x8b5754e13e604f53718538385c40d9546a4725ba57a2e3447377e5a0d65c8e00;
 
-    /// @dev BounceTech `GlobalStorage`, queried per-launch to resolve the live
-    ///      `Factory` and reject non-BounceTech LTs (which could otherwise
-    ///      siphon buyer USDC inside `mint`). Going through `GlobalStorage`
-    ///      means BounceTech `setFactory` rotations flow through automatically.
-    IBounceGlobalStorage public bounceGlobalStorage;
-
-    /// @notice Block in which each token was launched. Combined with
-    ///         `LAUNCH_TRADING_DELAY_BLOCKS` to gate post-launch buys against
-    ///         first-block snipers — see `buy()` for the full rationale.
-    /// @dev `uint64` is enough for any realistic chain age (>500 years at 1s
-    ///      blocks) and packs four launches per slot.
-    mapping(address => uint64) public launchBlock;
-
-    /// @dev Storage gap → 50 slots total. Append new state variables before
-    ///      this gap and shrink the length to match.
-    uint256[37] private __gap;
+    function _s() private pure returns (BondingStorage storage $) {
+        assembly {
+            $.slot := _BONDING_STORAGE_LOCATION
+        }
+    }
 
     event TokenLaunched(
         address indexed token, address indexed creator, address indexed ltAddress, string name, string ticker, uint256 k
@@ -265,7 +273,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     error TradingNotOpen();
 
     modifier onlyRouter() {
-        if (!_routers.contains(msg.sender)) revert NotRouter();
+        if (!_s().routers.contains(msg.sender)) revert NotRouter();
         _;
     }
 
@@ -291,13 +299,14 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (graduationThresholdUsd_ < VIRTUAL_LIQUIDITY_USD) revert InvalidInput();
         __Ownable_init(msg.sender);
 
-        factory = Factory(factory_);
-        router = Router(router_);
-        uniswapV2Factory = uniswapV2Factory_;
-        lpLock = lpLock_;
-        tokenImplementation = tokenImplementation_;
-        graduationThresholdUsd = graduationThresholdUsd_;
-        bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
+        BondingStorage storage $ = _s();
+        $.factory = Factory(factory_);
+        $.router = Router(router_);
+        $.uniswapV2Factory = uniswapV2Factory_;
+        $.lpLock = lpLock_;
+        $.tokenImplementation = tokenImplementation_;
+        $.graduationThresholdUsd = graduationThresholdUsd_;
+        $.bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
     }
 
     /// @notice Backfill `bounceGlobalStorage` on a proxy deployed before this
@@ -308,8 +317,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address bounceGlobalStorage_
     ) external reinitializer(2) {
         if (bounceGlobalStorage_ == address(0)) revert ZeroAddress();
-        if (address(bounceGlobalStorage) != address(0)) revert InvalidInput();
-        bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
+        BondingStorage storage $ = _s();
+        if (address($.bounceGlobalStorage) != address(0)) revert InvalidInput();
+        $.bounceGlobalStorage = IBounceGlobalStorage(bounceGlobalStorage_);
         emit BounceGlobalStorageUpdated(address(0), bounceGlobalStorage_);
     }
 
@@ -320,9 +330,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address creator_
     ) external onlyRouter nonReentrant returns (address tokenAddr, address pair) {
         if (params.ltAddress == address(0)) revert InvalidInput();
+        BondingStorage storage $ = _s();
         // `Zap.createToken` is permissionless; without this gate a fake LT
         // could siphon USDC inside `mint` (which `Zap` `forceApprove`s).
-        if (!IBounceFactory(bounceGlobalStorage.factory()).ltExists(params.ltAddress)) {
+        if (!IBounceFactory($.bounceGlobalStorage.factory()).ltExists(params.ltAddress)) {
             revert UnknownLeveragedToken(params.ltAddress);
         }
 
@@ -337,15 +348,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         }
 
         bytes32 saltMixed = _mixSalt(creator_, params.name, params.ticker, params.salt);
-        tokenAddr = Clones.predictDeterministicAddress(tokenImplementation, saltMixed, address(this));
+        tokenAddr = Clones.predictDeterministicAddress($.tokenImplementation, saltMixed, address(this));
         _checkVanity(tokenAddr);
 
         _storeTokenInfo(tokenAddr, address(0), params, creator_);
 
         pair = _deployAndSeed(tokenAddr, saltMixed, params.name, params.ticker, params.ltAddress);
-        _tokenInfo[tokenAddr].pair = pair;
+        $.tokenInfo[tokenAddr].pair = pair;
         // forge-lint: disable-next-line(unsafe-typecast)
-        launchBlock[tokenAddr] = uint64(block.number);
+        $.launchBlock[tokenAddr] = uint64(block.number);
 
         // Arm the seed-buy bypass: the first `buy()` in this tx targeting this
         // token skips the launch trading delay. Routers (Zap) immediately
@@ -368,20 +379,21 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         string calldata ticker_,
         address ltAddress
     ) internal returns (address pair) {
-        Clones.cloneDeterministic(tokenImplementation, saltMixed);
+        BondingStorage storage $ = _s();
+        Clones.cloneDeterministic($.tokenImplementation, saltMixed);
 
         Token(tokenAddr).initialize(name_, ticker_, address(this));
 
         uint256 totalSupply = Token(tokenAddr).TOTAL_SUPPLY();
         uint256 curveSupply = (totalSupply * CURVE_BPS) / BPS_DENOM;
 
-        pair = factory.createPair(tokenAddr, ltAddress);
+        pair = $.factory.createPair(tokenAddr, ltAddress);
 
         uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
         uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
-        IERC20(tokenAddr).forceApprove(address(router), curveSupply);
+        IERC20(tokenAddr).forceApprove(address($.router), curveSupply);
         // Virtual tokenReserve = full totalSupply; only curveSupply (75%) actually transferred.
         // The launch-time `virtualLtReserve` is recoverable later as
         // `Pair.k() / Token.TOTAL_SUPPLY()`: `Pair.mint` sets `_pool.k =
@@ -389,7 +401,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // and `Pair.swap` never modifies `_pool.k`. That identity is what
         // `_launchTimeVirtualLtReserve` exploits to derive donation-immune
         // raised-LT in `canGraduate` and `_prepareGraduationLiquidity`.
-        router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
+        $.router.addInitialLiquidity(tokenAddr, totalSupply, curveSupply, virtualLtReserve);
     }
 
     /// @notice Predict the clone address for `(creator_, name_, ticker_, userSalt)`
@@ -404,7 +416,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         bytes32 userSalt
     ) external view returns (address) {
         return Clones.predictDeterministicAddress(
-            tokenImplementation, _mixSalt(creator_, name_, ticker_, userSalt), address(this)
+            _s().tokenImplementation, _mixSalt(creator_, name_, ticker_, userSalt), address(this)
         );
     }
 
@@ -438,7 +450,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         LaunchParams calldata params,
         address creator_
     ) internal {
-        _tokenInfo[tokenAddr] = TokenInfo({
+        _s().tokenInfo[tokenAddr] = TokenInfo({
             creator: creator_,
             pair: pair,
             ltAddress: params.ltAddress,
@@ -464,7 +476,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 amountOutMin,
         address trader
     ) external onlyRouter nonReentrant returns (uint256 tokensOut, uint256 amountInUsed) {
-        TokenInfo storage info = _tokenInfo[tokenAddress];
+        TokenInfo storage info = _s().tokenInfo[tokenAddress];
         // `creator == 0` means the slot was never written. `Lifecycle.Curve` is
         // the zero value, so without this an unknown token would fall through
         // and revert deep in `router.buy` with an opaque error.
@@ -484,12 +496,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 amountOutMin,
         address trader
     ) external onlyRouter nonReentrant returns (uint256) {
-        TokenInfo storage info = _tokenInfo[tokenAddress];
+        BondingStorage storage $ = _s();
+        TokenInfo storage info = $.tokenInfo[tokenAddress];
         if (info.creator == address(0)) revert TokenNotTrading();
         if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
         if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
 
-        (, uint256 assetOut) = router.sell(amountIn, tokenAddress, msg.sender);
+        (, uint256 assetOut) = $.router.sell(amountIn, tokenAddress, msg.sender);
         if (assetOut < amountOutMin) revert SlippageExceeded();
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
@@ -502,7 +515,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function getTokenInfo(
         address token_
     ) external view returns (TokenInfo memory) {
-        return _tokenInfo[token_];
+        return _s().tokenInfo[token_];
     }
 
     /// @notice Hot-path lookup that avoids ABI-copying the dynamic strings in
@@ -510,7 +523,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function creatorOf(
         address token_
     ) external view returns (address) {
-        return _tokenInfo[token_].creator;
+        return _s().tokenInfo[token_].creator;
     }
 
     /// @notice Hot-path lookup that avoids ABI-copying the dynamic strings in
@@ -518,13 +531,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function ltOf(
         address token_
     ) external view returns (address) {
-        return _tokenInfo[token_].ltAddress;
+        return _s().tokenInfo[token_].ltAddress;
     }
 
     function isTrading(
         address token_
     ) external view returns (bool) {
-        TokenInfo storage info = _tokenInfo[token_];
+        TokenInfo storage info = _s().tokenInfo[token_];
         if (info.creator == address(0)) return false;
         return info.lifecycle == Lifecycle.Curve;
     }
@@ -532,7 +545,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function isGraduating(
         address token_
     ) external view returns (bool) {
-        TokenInfo storage info = _tokenInfo[token_];
+        TokenInfo storage info = _s().tokenInfo[token_];
         if (info.creator == address(0)) return false;
         return info.lifecycle == Lifecycle.Graduating;
     }
@@ -540,7 +553,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function isGraduated(
         address token_
     ) external view returns (bool) {
-        TokenInfo storage info = _tokenInfo[token_];
+        TokenInfo storage info = _s().tokenInfo[token_];
         if (info.creator == address(0)) return false;
         return info.lifecycle == Lifecycle.Graduated;
     }
@@ -562,7 +575,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function canGraduate(
         address token_
     ) public view returns (bool) {
-        TokenInfo storage info = _tokenInfo[token_];
+        BondingStorage storage $ = _s();
+        TokenInfo storage info = $.tokenInfo[token_];
         if (info.creator == address(0)) return false;
         if (info.lifecycle != Lifecycle.Curve) return false;
 
@@ -572,7 +586,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         (, uint256 assetReserve) = IPair(pair).getReserves();
         uint256 realLtRaised = assetReserve - _launchTimeVirtualLtReserve(token_, pair);
         uint256 valueUsd = (realLtRaised * IBounceLeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
-        return valueUsd >= graduationThresholdUsd;
+        return valueUsd >= $.graduationThresholdUsd;
     }
 
     function transferCreator(
@@ -580,11 +594,68 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address newCreator
     ) external {
         if (newCreator == address(0)) revert ZeroAddress();
-        TokenInfo storage info = _tokenInfo[tokenAddress];
+        TokenInfo storage info = _s().tokenInfo[tokenAddress];
         if (msg.sender != info.creator) revert NotCreator();
         if (newCreator == info.creator) revert InvalidInput();
         info.creator = newCreator;
         emit CreatorTransferred(tokenAddress, msg.sender, newCreator);
+    }
+
+    // ─── Public storage accessors (mirror pre-ERC-7201 ABI) ──────────────
+
+    function factory() external view returns (Factory) {
+        return _s().factory;
+    }
+
+    function router() external view returns (Router) {
+        return _s().router;
+    }
+
+    function uniswapV2Factory() external view returns (address) {
+        return _s().uniswapV2Factory;
+    }
+
+    function lpLock() external view returns (address) {
+        return _s().lpLock;
+    }
+
+    function tokenImplementation() external view returns (address) {
+        return _s().tokenImplementation;
+    }
+
+    function graduationThresholdUsd() external view returns (uint256) {
+        return _s().graduationThresholdUsd;
+    }
+
+    function bounceGlobalStorage() external view returns (IBounceGlobalStorage) {
+        return _s().bounceGlobalStorage;
+    }
+
+    function graduatedPair(
+        address token_
+    ) external view returns (address) {
+        return _s().graduatedPair[token_];
+    }
+
+    /// @dev Mirrors the auto-generated getter for the pre-ERC-7201 public
+    ///      `pendingGraduation` mapping (returns the struct fields as a
+    ///      tuple, matching the original ABI consumed by the indexer and
+    ///      tests).
+    function pendingGraduation(
+        address token_
+    )
+        external
+        view
+        returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned, uint64 pendingSince)
+    {
+        PendingGraduation storage p = _s().pendingGraduation[token_];
+        return (p.tokensForLP, p.ltFromPair, p.lpBurned, p.unsoldBurned, p.pendingSince);
+    }
+
+    function launchBlock(
+        address token_
+    ) external view returns (uint64) {
+        return _s().launchBlock[token_];
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
@@ -596,8 +667,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address newBounceGlobalStorage
     ) external onlyOwner {
         if (newBounceGlobalStorage == address(0)) revert ZeroAddress();
-        address old = address(bounceGlobalStorage);
-        bounceGlobalStorage = IBounceGlobalStorage(newBounceGlobalStorage);
+        BondingStorage storage $ = _s();
+        address old = address($.bounceGlobalStorage);
+        $.bounceGlobalStorage = IBounceGlobalStorage(newBounceGlobalStorage);
         emit BounceGlobalStorageUpdated(old, newBounceGlobalStorage);
     }
 
@@ -616,15 +688,16 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address newImpl
     ) external onlyOwner {
         if (newImpl == address(0)) revert ZeroAddress();
-        if (Token(newImpl).TOTAL_SUPPLY() != Token(tokenImplementation).TOTAL_SUPPLY()) {
+        BondingStorage storage $ = _s();
+        if (Token(newImpl).TOTAL_SUPPLY() != Token($.tokenImplementation).TOTAL_SUPPLY()) {
             revert InvalidInput();
         }
         // Probe that the new impl can produce a vanity-suffixed clone. If
         // structurally broken, fail here rather than silently bricking every
         // user's `launch()`.
         VanityMining.mine(address(0x1), bytes32(0), bytes32(0), newImpl, address(this), 0);
-        address old = tokenImplementation;
-        tokenImplementation = newImpl;
+        address old = $.tokenImplementation;
+        $.tokenImplementation = newImpl;
         emit TokenImplementationUpdated(old, newImpl);
     }
 
@@ -632,26 +705,27 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address router_
     ) external onlyOwner {
         if (router_ == address(0)) revert ZeroAddress();
-        if (!_routers.add(router_)) revert RouterAlreadyAdded();
+        if (!_s().routers.add(router_)) revert RouterAlreadyAdded();
         emit RouterAdded(router_);
     }
 
     function removeRouter(
         address router_
     ) external onlyOwner {
-        if (!_routers.remove(router_)) revert RouterNotFound();
-        if (_routers.length() == 0) revert MustKeepOneRouter();
+        EnumerableSet.AddressSet storage routers_ = _s().routers;
+        if (!routers_.remove(router_)) revert RouterNotFound();
+        if (routers_.length() == 0) revert MustKeepOneRouter();
         emit RouterRemoved(router_);
     }
 
     function isRouter(
         address router_
     ) external view returns (bool) {
-        return _routers.contains(router_);
+        return _s().routers.contains(router_);
     }
 
     function getRouters() external view returns (address[] memory) {
-        return _routers.values();
+        return _s().routers.values();
     }
 
     // ─── Internals ───────────────────────────────────────────────────────
@@ -674,7 +748,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function _enforceLaunchDelay(
         address tokenAddress
     ) internal {
-        if (block.number > uint256(launchBlock[tokenAddress]) + LAUNCH_TRADING_DELAY_BLOCKS) {
+        if (block.number > uint256(_s().launchBlock[tokenAddress]) + LAUNCH_TRADING_DELAY_BLOCKS) {
             return;
         }
         bytes32 slot = _SEED_BUY_BYPASS_SLOT;
@@ -696,7 +770,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 amountIn,
         address tokenAddress
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
-        (amountInUsed, tokensOut) = router.buy(amountIn, tokenAddress, tokenHolder);
+        (amountInUsed, tokensOut) = _s().router.buy(amountIn, tokenAddress, tokenHolder);
 
         (uint256 newCurveSupply, uint256 newLtReserve) = _getCurveState(tokenAddress);
         emit Trade(tokenAddress, trader, true, amountInUsed, tokensOut, newCurveSupply, newLtReserve);
@@ -713,13 +787,14 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function _enterGraduating(
         address tokenAddress
     ) internal {
-        TokenInfo storage info = _tokenInfo[tokenAddress];
+        BondingStorage storage $ = _s();
+        TokenInfo storage info = $.tokenInfo[tokenAddress];
         info.lifecycle = Lifecycle.Graduating;
 
         (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
             _prepareGraduationLiquidity(tokenAddress);
 
-        pendingGraduation[tokenAddress] = PendingGraduation({
+        $.pendingGraduation[tokenAddress] = PendingGraduation({
             tokensForLP: tokensForLP,
             ltFromPair: ltFromPair,
             lpBurned: lpBurned,
@@ -739,20 +814,21 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function finalizeGraduation(
         address tokenAddress
     ) external nonReentrant {
-        TokenInfo storage info = _tokenInfo[tokenAddress];
+        BondingStorage storage $ = _s();
+        TokenInfo storage info = $.tokenInfo[tokenAddress];
         if (info.lifecycle != Lifecycle.Graduating) revert NotGraduating();
 
         address lt = info.ltAddress;
-        PendingGraduation memory p = pendingGraduation[tokenAddress];
+        PendingGraduation memory p = $.pendingGraduation[tokenAddress];
 
         address lpPair = _ensureUniswapV2Pair(tokenAddress, lt);
         uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair);
 
         info.lifecycle = Lifecycle.Graduated;
-        graduatedPair[tokenAddress] = lpPair;
-        delete pendingGraduation[tokenAddress];
+        $.graduatedPair[tokenAddress] = lpPair;
+        delete $.pendingGraduation[tokenAddress];
 
-        LPLock(lpLock).recordLock(tokenAddress, lpPair, liquidity);
+        LPLock($.lpLock).recordLock(tokenAddress, lpPair, liquidity);
 
         emit TokenGraduated(tokenAddress, lpPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
     }
@@ -779,7 +855,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     function _prepareGraduationLiquidity(
         address tokenAddress
     ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
-        address pairAddr = _tokenInfo[tokenAddress].pair;
+        address pairAddr = _s().tokenInfo[tokenAddress].pair;
         (uint256 tokenReserve, uint256 assetReserve) = IPair(pairAddr).getReserves();
 
         unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
@@ -789,7 +865,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
 
         ltFromPair = assetReserve - _launchTimeVirtualLtReserve(tokenAddress, pairAddr);
         if (ltFromPair > 0) {
-            router.graduate(tokenAddress, ltFromPair);
+            _s().router.graduate(tokenAddress, ltFromPair);
         }
 
         tokensForLP = assetReserve == 0 ? 0 : (ltFromPair * tokenReserve) / assetReserve;
@@ -828,7 +904,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address tokenA,
         address tokenB
     ) internal returns (address pair) {
-        IUniswapV2Factory v2Factory = IUniswapV2Factory(uniswapV2Factory);
+        IUniswapV2Factory v2Factory = IUniswapV2Factory(_s().uniswapV2Factory);
         pair = v2Factory.getPair(tokenA, tokenB);
         if (pair == address(0)) {
             pair = v2Factory.createPair(tokenA, tokenB);
@@ -847,13 +923,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ) internal returns (uint256 liquidity) {
         IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
         IERC20(lt).safeTransfer(pair, ltFromPair);
-        liquidity = IUniswapV2Pair(pair).mint(lpLock);
+        liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
     }
 
     function _getCurveState(
         address tokenAddress
     ) internal view returns (uint256 curveSupply, uint256 ltReserve) {
-        address pair = _tokenInfo[tokenAddress].pair;
+        address pair = _s().tokenInfo[tokenAddress].pair;
         (curveSupply, ltReserve) = IPair(pair).getReserves();
     }
 

@@ -19,6 +19,13 @@ export const FeeVaultAbi = [
   },
   {
     "type": "function",
+    "name": "acceptOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "accrue",
     "inputs": [
       {
@@ -94,7 +101,7 @@ export const FeeVaultAbi = [
     "name": "creatorBalance",
     "inputs": [
       {
-        "name": "",
+        "name": "creator",
         "type": "address",
         "internalType": "address"
       }
@@ -176,7 +183,7 @@ export const FeeVaultAbi = [
     "name": "lifetimeCreatorEarned",
     "inputs": [
       {
-        "name": "",
+        "name": "creator",
         "type": "address",
         "internalType": "address"
       }
@@ -206,6 +213,19 @@ export const FeeVaultAbi = [
   {
     "type": "function",
     "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingOwner",
     "inputs": [],
     "outputs": [
       {
@@ -474,6 +494,25 @@ export const FeeVaultAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferStarted",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
