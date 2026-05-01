@@ -93,6 +93,7 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         bool isBuy
     ) external onlyDepositor {
         if (creatorAmount > 0) {
+            if (creator == address(0)) revert ZeroAddress();
             creatorBalance[creator] += creatorAmount;
             totalAccruedCreator += creatorAmount;
             lifetimeCreatorEarned[creator] += creatorAmount;
