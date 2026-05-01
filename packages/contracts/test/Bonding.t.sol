@@ -808,14 +808,14 @@ contract BondingTest is DeployHelper {
     //
     // `Bonding.initialize` rejects any zero address among its dependency
     // parameters. A misconfigured deploy would otherwise land in production
-    // with `factory` / `router` / `hyperswapFactory` / `lpLock` / token
+    // with `factory` / `router` / `uniswapV2Factory` / `lpLock` / token
     // implementation set to zero, bricking core paths with cryptic
     // low-level reverts deep in delegate calls.
 
     function _bondingInitCall(
         address factory_,
         address router_,
-        address hyperswapFactory_,
+        address uniswapV2Factory_,
         address lpLock_,
         address tokenImpl_
     ) internal view returns (bytes memory) {
@@ -824,7 +824,7 @@ contract BondingTest is DeployHelper {
             (
                 factory_,
                 router_,
-                hyperswapFactory_,
+                uniswapV2Factory_,
                 lpLock_,
                 tokenImpl_,
                 TEST_GRADUATION_THRESHOLD_USD,
@@ -851,7 +851,7 @@ contract BondingTest is DeployHelper {
         new ERC1967Proxy(address(freshImpl), init);
     }
 
-    function test_initialize_revertsOnZeroHyperswapFactory() public {
+    function test_initialize_revertsOnZeroUniswapV2Factory() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
             address(factory), address(curveRouter), address(0), address(lpLockContract), address(tokenImpl)
@@ -896,12 +896,12 @@ contract BondingTest is DeployHelper {
         new ERC1967Proxy(address(freshImpl), init);
     }
 
-    // ─── setHyperswap Admin Tests ───────────────────────────────────────
+    // ─── setUniswapV2 Admin Tests ───────────────────────────────────────
 
-    function test_setHyperswap_onlyOwner() public {
+    function test_setUniswapV2_onlyOwner() public {
         vm.prank(trader);
         vm.expectRevert();
-        bonding.setHyperswap(address(hyperswapFactory), address(lpLockContract));
+        bonding.setUniswapV2(address(hyperswapFactory), address(lpLockContract));
     }
 
     function _deployFreshLpLock(
@@ -916,39 +916,39 @@ contract BondingTest is DeployHelper {
         return address(fresh);
     }
 
-    function test_setHyperswap_updatesValues() public {
-        address newFactory = makeAddr("newHyperswapFactory");
+    function test_setUniswapV2_updatesValues() public {
+        address newFactory = makeAddr("newUniswapV2Factory");
         address newLpLock = _deployFreshLpLock(true);
-        bonding.setHyperswap(newFactory, newLpLock);
-        assertEq(bonding.hyperswapFactory(), newFactory);
+        bonding.setUniswapV2(newFactory, newLpLock);
+        assertEq(bonding.uniswapV2Factory(), newFactory);
         assertEq(bonding.lpLock(), newLpLock);
     }
 
-    function test_setHyperswap_emitsEvent() public {
-        address newFactory = makeAddr("newHyperswapFactory");
+    function test_setUniswapV2_emitsEvent() public {
+        address newFactory = makeAddr("newUniswapV2Factory");
         address newLpLock = _deployFreshLpLock(true);
         vm.expectEmit(true, true, false, false);
-        emit Bonding.HyperswapUpdated(newFactory, newLpLock);
-        bonding.setHyperswap(newFactory, newLpLock);
+        emit Bonding.UniswapV2Updated(newFactory, newLpLock);
+        bonding.setUniswapV2(newFactory, newLpLock);
     }
 
-    function test_setHyperswap_revertsOnZeroFactory() public {
+    function test_setUniswapV2_revertsOnZeroFactory() public {
         vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.setHyperswap(address(0), address(lpLockContract));
+        bonding.setUniswapV2(address(0), address(lpLockContract));
     }
 
-    function test_setHyperswap_revertsOnZeroLpLock() public {
+    function test_setUniswapV2_revertsOnZeroLpLock() public {
         vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.setHyperswap(address(hyperswapFactory), address(0));
+        bonding.setUniswapV2(address(hyperswapFactory), address(0));
     }
 
-    function test_setHyperswap_revertsWhenLpLockNotAuthorized() public {
+    function test_setUniswapV2_revertsWhenLpLockNotAuthorized() public {
         // Fresh LPLock that hasn't called `setLocker(bonding, true)`. Without the
         // sanity check, this would silently succeed and brick every subsequent
         // `finalizeGraduation` for tokens already in `Graduating`.
         address newLpLock = _deployFreshLpLock(false);
         vm.expectRevert(Bonding.LpLockNotConfigured.selector);
-        bonding.setHyperswap(address(hyperswapFactory), newLpLock);
+        bonding.setUniswapV2(address(hyperswapFactory), newLpLock);
     }
 
     // ─── Graduation Threshold Initialisation Tests ───────────────────────

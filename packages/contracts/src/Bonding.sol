@@ -36,7 +36,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     Factory public factory;
     Router public router;
 
-    address public hyperswapFactory;
+    address public uniswapV2Factory;
     address public lpLock;
 
     /// @dev EIP-1167 implementation cloned by `launch()`. Hot-swappable for
@@ -180,7 +180,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         uint256 newLtReserve
     );
     /// @notice Phase 1 of graduation fired. Trading frozen; `finalizeGraduation`
-    ///         now callable to seed the HyperSwap LP.
+    ///         now callable to seed the V2 LP.
     event TokenGraduating(
         address indexed token, uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned
     );
@@ -196,7 +196,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
-    event HyperswapUpdated(address indexed hyperswapFactory, address indexed lpLock);
+    event UniswapV2Updated(address indexed uniswapV2Factory, address indexed lpLock);
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
 
     error TokenNotTrading();
@@ -219,7 +219,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error InvalidImageLength();
     error InvalidUrlLength();
     /// @dev New `lpLock` hasn't allowlisted this Bonding as a locker.
-    ///      `setHyperswap` would otherwise brick every in-flight graduation.
+    ///      `setUniswapV2` would otherwise brick every in-flight graduation.
     error LpLockNotConfigured();
     error NotVanityAddress(address tokenAddr);
     /// @dev `ltAddress` not in the BounceTech `Factory.ltExists` mapping
@@ -240,14 +240,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function initialize(
         address factory_,
         address router_,
-        address hyperswapFactory_,
+        address uniswapV2Factory_,
         address lpLock_,
         address tokenImplementation_,
         uint256 graduationThresholdUsd_,
         address bounceGlobalStorage_
     ) external initializer {
         if (
-            factory_ == address(0) || router_ == address(0) || hyperswapFactory_ == address(0) || lpLock_ == address(0)
+            factory_ == address(0) || router_ == address(0) || uniswapV2Factory_ == address(0) || lpLock_ == address(0)
                 || tokenImplementation_ == address(0) || bounceGlobalStorage_ == address(0)
         ) revert ZeroAddress();
         if (graduationThresholdUsd_ < VIRTUAL_LIQUIDITY_USD) revert InvalidInput();
@@ -255,7 +255,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         factory = Factory(factory_);
         router = Router(router_);
-        hyperswapFactory = hyperswapFactory_;
+        uniswapV2Factory = uniswapV2Factory_;
         lpLock = lpLock_;
         tokenImplementation = tokenImplementation_;
         graduationThresholdUsd = graduationThresholdUsd_;
@@ -511,19 +511,19 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
     // ─── Admin ───────────────────────────────────────────────────────────
 
-    /// @notice Hot-swap HyperSwap factory + LP lock. Reverts unless the new
-    ///         `lpLock` already allowlists this Bonding — otherwise the next
-    ///         `finalizeGraduation` would brick. Owners must
+    /// @notice Hot-swap UniswapV2-compatible factory + LP lock. Reverts unless
+    ///         the new `lpLock` already allowlists this Bonding — otherwise the
+    ///         next `finalizeGraduation` would brick. Owners must
     ///         `lpLock.setLocker(bonding, true)` first.
-    function setHyperswap(
+    function setUniswapV2(
         address newFactory,
         address newLpLock
     ) external onlyOwner {
         if (newFactory == address(0) || newLpLock == address(0)) revert ZeroAddress();
         if (!LPLock(newLpLock).isLocker(address(this))) revert LpLockNotConfigured();
-        hyperswapFactory = newFactory;
+        uniswapV2Factory = newFactory;
         lpLock = newLpLock;
-        emit HyperswapUpdated(newFactory, newLpLock);
+        emit UniswapV2Updated(newFactory, newLpLock);
     }
 
     /// @notice Hot-swap BounceTech `GlobalStorage`. Backstop for the unlikely
@@ -624,9 +624,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit TokenGraduating(tokenAddress, tokensForLP, ltFromPair, lpBurned, unsoldBurned);
     }
 
-    /// @notice Phase 2: seed the HyperSwap LP and lock it. Permissionless —
+    /// @notice Phase 2: seed the V2 LP and lock it. Permissionless —
     ///         keeper drives the happy path; anyone can rescue a stuck token.
-    /// @dev Bypasses the HyperSwap V2 router and calls `pair.mint(lpLock)`
+    /// @dev Bypasses the V2 router and calls `pair.mint(lpLock)`
     ///      directly. This is brick-proof against a front-runner pre-creating
     ///      the pair and dust-seeding it between phases.
     function finalizeGraduation(
@@ -638,15 +638,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address lt = info.ltAddress;
         PendingGraduation memory p = pendingGraduation[tokenAddress];
 
+        address lpPair = _ensureUniswapV2Pair(tokenAddress, lt);
+        uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair);
+
         info.lifecycle = Lifecycle.Graduated;
+        graduatedPair[tokenAddress] = lpPair;
         delete pendingGraduation[tokenAddress];
 
-        address hyperPair = _ensureHyperswapPair(tokenAddress, lt);
-        uint256 liquidity = _seedHyperswapDirect(tokenAddress, lt, hyperPair, p.tokensForLP, p.ltFromPair);
-        graduatedPair[tokenAddress] = hyperPair;
-        LPLock(lpLock).recordLock(tokenAddress, hyperPair, liquidity);
+        LPLock(lpLock).recordLock(tokenAddress, lpPair, liquidity);
 
-        emit TokenGraduated(tokenAddress, hyperPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
+        emit TokenGraduated(tokenAddress, lpPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
     }
 
     /// @dev Burns unsold curve tokens, drains LT, computes `tokensForLP` for
@@ -679,21 +680,21 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
     }
 
-    function _ensureHyperswapPair(
+    function _ensureUniswapV2Pair(
         address tokenA,
         address tokenB
     ) internal returns (address pair) {
-        IUniswapV2Factory hsFactory = IUniswapV2Factory(hyperswapFactory);
-        pair = hsFactory.getPair(tokenA, tokenB);
+        IUniswapV2Factory v2Factory = IUniswapV2Factory(uniswapV2Factory);
+        pair = v2Factory.getPair(tokenA, tokenB);
         if (pair == address(0)) {
-            pair = hsFactory.createPair(tokenA, tokenB);
+            pair = v2Factory.createPair(tokenA, tokenB);
         }
     }
 
     /// @dev Direct `transfer → pair.mint`, bypassing the V2 router so a
     ///      front-runner who pre-seeds reserves can't brick the call. Skewed
     ///      LP ratio from a hostile pre-seed is bounded and arbed out post-grad.
-    function _seedHyperswapDirect(
+    function _seedUniswapV2Direct(
         address tokenAddress,
         address lt,
         address pair,

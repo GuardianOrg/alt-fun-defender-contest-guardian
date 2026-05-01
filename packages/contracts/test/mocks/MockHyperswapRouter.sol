@@ -164,7 +164,7 @@ contract MockHyperswapFactory {
         pairs[tokenB][tokenA] = pair;
     }
 
-    /// @dev Matches `IUniswapV2Factory.createPair` so `Bonding._ensureHyperswapPair`
+    /// @dev Matches `IUniswapV2Factory.createPair` so `Bonding._ensureUniswapV2Pair`
     ///      can deploy a pair on-the-fly during `finalizeGraduation` without
     ///      going through the router.
     function createPair(
