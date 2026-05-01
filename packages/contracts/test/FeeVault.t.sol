@@ -355,8 +355,9 @@ contract FeeVaultTest is Test {
 
     function test_setFeeTo_updatesValue() public {
         address newFeeTo = makeAddr("newFeeTo");
-        vm.expectEmit(true, false, false, false);
-        emit FeeVault.FeeToUpdated(newFeeTo);
+        address oldFeeTo = vault.feeTo();
+        vm.expectEmit(true, true, false, false);
+        emit FeeVault.FeeToUpdated(oldFeeTo, newFeeTo);
         vault.setFeeTo(newFeeTo);
         assertEq(vault.feeTo(), newFeeTo);
     }

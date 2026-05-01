@@ -21,7 +21,7 @@ contract Factory is Initializable, AccessControlUpgradeable {
     address public router;
 
     event PairCreated(address indexed tokenA, address indexed tokenB, address indexed pair, uint256 index);
-    event RouterUpdated(address indexed router);
+    event RouterUpdated(address indexed oldRouter, address indexed newRouter);
 
     error ZeroAddress();
     error NoRouter();
@@ -64,7 +64,8 @@ contract Factory is Initializable, AccessControlUpgradeable {
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (router_ == address(0)) revert ZeroAddress();
         if (pairCount > 0) revert RouterFrozen();
+        address old = router;
         router = router_;
-        emit RouterUpdated(router_);
+        emit RouterUpdated(old, router_);
     }
 }

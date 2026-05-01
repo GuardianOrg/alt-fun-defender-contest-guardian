@@ -50,7 +50,7 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event DonationsSwept(address indexed feeTo, uint256 amount);
     event DepositorAdded(address indexed depositor);
     event DepositorRemoved(address indexed depositor);
-    event FeeToUpdated(address indexed feeTo);
+    event FeeToUpdated(address indexed oldFeeTo, address indexed newFeeTo);
 
     error NotDepositor();
     error NothingToClaim();
@@ -159,8 +159,9 @@ contract FeeVault is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address feeTo_
     ) external onlyOwner {
         if (feeTo_ == address(0)) revert ZeroAddress();
+        address old = feeTo;
         feeTo = feeTo_;
-        emit FeeToUpdated(feeTo_);
+        emit FeeToUpdated(old, feeTo_);
     }
 
     // ─── Views ───────────────────────────────────────────────────────────

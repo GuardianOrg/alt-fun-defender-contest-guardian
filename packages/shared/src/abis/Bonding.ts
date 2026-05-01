@@ -428,19 +428,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "hyperswapFactory",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -454,7 +441,7 @@ export const BondingAbi = [
         "internalType": "address"
       },
       {
-        "name": "hyperswapFactory_",
+        "name": "uniswapV2Factory_",
         "type": "address",
         "internalType": "address"
       },
@@ -850,15 +837,10 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setHyperswap",
+    "name": "setTokenImplementation",
     "inputs": [
       {
-        "name": "newFactory",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "newLpLock",
+        "name": "newImpl",
         "type": "address",
         "internalType": "address"
       }
@@ -868,10 +850,15 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "setTokenImplementation",
+    "name": "setUniswapV2",
     "inputs": [
       {
-        "name": "newImpl",
+        "name": "newFactory",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newLpLock",
         "type": "address",
         "internalType": "address"
       }
@@ -922,6 +909,19 @@ export const BondingAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "uniswapV2Factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -978,25 +978,6 @@ export const BondingAbi = [
       },
       {
         "name": "newCreator",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "HyperswapUpdated",
-    "inputs": [
-      {
-        "name": "hyperswapFactory",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "lpLock",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -1249,6 +1230,37 @@ export const BondingAbi = [
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "UniswapV2Updated",
+    "inputs": [
+      {
+        "name": "oldUniswapV2Factory",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newUniswapV2Factory",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "oldLpLock",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "newLpLock",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false

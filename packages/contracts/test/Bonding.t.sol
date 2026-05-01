@@ -935,8 +935,10 @@ contract BondingTest is DeployHelper {
     function test_setUniswapV2_emitsEvent() public {
         address newFactory = makeAddr("newUniswapV2Factory");
         address newLpLock = _deployFreshLpLock(true);
-        vm.expectEmit(true, true, false, false);
-        emit Bonding.UniswapV2Updated(newFactory, newLpLock);
+        address oldFactory = bonding.uniswapV2Factory();
+        address oldLpLock = bonding.lpLock();
+        vm.expectEmit(true, true, false, true);
+        emit Bonding.UniswapV2Updated(oldFactory, newFactory, oldLpLock, newLpLock);
         bonding.setUniswapV2(newFactory, newLpLock);
     }
 
