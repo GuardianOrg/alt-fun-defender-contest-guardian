@@ -58,7 +58,7 @@ Two-column: left (form) | right (live preview card).
 1. **Choose pair:** direction (LONG/SHORT) → underlying asset grid → leverage selector (2x, 3x, 5x). 5x needs extra confirmation.
 2. **Token details:** name, ticker, description, image upload.
 3. **Seed buy** (mandatory, `≥ $20` — `Zap.MIN_SEED_USDC`): USDC amount with preset buttons. UI must disable Launch when the input is below the floor; the contract reverts with `BelowMinSeed` otherwise.
-4. **Review & launch:** approve USDC (if seed buy) → `Bonding.launch()` → `POST /tokens` → redirect to token page.
+4. **Review & launch:** the seed buy is mandatory, so the user must always grant USDC allowance to `Zap` — either by signing an EIP-2612 permit consumed by `Zap.createTokenWithPermit` (one-tx happy path) or by pre-approving USDC and calling `Zap.createToken` (two-tx fallback when the wallet refuses to sign typed data). Either path emits `TokenCreated` (`Zap`) + `TokenLaunched` (`Bonding`) + `Buy` (`Zap`, the seed buy) → `POST /tokens` → redirect to token page.
 
 ---
 
