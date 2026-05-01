@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
 /// @notice On-chain mirror of the frontend vanity miner. Brute-forces a
 ///         `userSalt` such that the predicted clone address ends in
