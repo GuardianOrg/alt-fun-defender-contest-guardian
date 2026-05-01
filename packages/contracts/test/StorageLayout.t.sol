@@ -13,7 +13,7 @@ import {Test} from "forge-std/Test.sol";
 ///      See `packages/contracts/AGENTS.md#storage-layout`.
 contract StorageLayoutTest is Test {
     /// @dev Mirrors the ERC-7201 derivation:
-    ///      keccak256(abi.encode(uint256(keccak256(id)) - 1)) & ~bytes32(uint256(0xff))
+    ///      keccak256(abi.encode(uint256(keccak256(bytes(id))) - 1)) & ~bytes32(uint256(0xff))
     function _erc7201(
         string memory id
     ) internal pure returns (bytes32) {
