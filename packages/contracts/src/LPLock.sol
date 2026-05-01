@@ -17,6 +17,12 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
 
     mapping(address => LockInfo) public locks;
 
+    /// @dev Locker allowlist for `recordLock`. Add-only via `addLocker` —
+    ///      there is no removal path. A live revoke would brick every
+    ///      in-flight `Bonding.finalizeGraduation` (token permanently stuck
+    ///      in `Lifecycle.Graduating`, no on-chain recovery), so the only way
+    ///      to retire a locker is a UUPS upgrade — which surfaces on-chain
+    ///      ahead of time instead of as a one-tx kill switch.
     mapping(address => bool) public isLocker;
 
     /// @dev Storage gap → 50 slots total. Append new state variables before
@@ -24,11 +30,12 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
     uint256[48] private __gap;
 
     event LPLocked(address indexed token, address indexed lpPair, uint256 amount);
-    event LockerUpdated(address indexed locker, bool authorized);
+    event LockerAdded(address indexed locker);
 
     error NotAuthorized();
     error InsufficientLPBalance();
     error AlreadyLocked();
+    error LockerAlreadyAdded();
 
     constructor() {
         _disableInitializers();
@@ -53,12 +60,15 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
         emit LPLocked(token, lpPair, amount);
     }
 
-    function setLocker(
-        address locker,
-        bool authorized
+    /// @notice Authorise a new `recordLock` caller. Add-only by design — see
+    ///         the natspec on `isLocker` for why there's no `removeLocker`.
+    function addLocker(
+        address locker
     ) external onlyOwner {
-        isLocker[locker] = authorized;
-        emit LockerUpdated(locker, authorized);
+        if (locker == address(0)) revert NotAuthorized();
+        if (isLocker[locker]) revert LockerAlreadyAdded();
+        isLocker[locker] = true;
+        emit LockerAdded(locker);
     }
 
     function getLock(

@@ -32,6 +32,19 @@ export const ZapAbi = [
   },
   {
     "type": "function",
+    "name": "MIN_SEED_USDC",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MIN_USDC_AMOUNT",
     "inputs": [],
     "outputs": [
@@ -592,19 +605,6 @@ export const ZapAbi = [
   },
   {
     "type": "function",
-    "name": "setUniswapV2Router",
-    "inputs": [
-      {
-        "name": "uniswapV2Router_",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -912,25 +912,6 @@ export const ZapAbi = [
   },
   {
     "type": "event",
-    "name": "UniswapV2RouterUpdated",
-    "inputs": [
-      {
-        "name": "oldUniswapV2Router",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newUniswapV2Router",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "Upgraded",
     "inputs": [
       {
@@ -956,6 +937,11 @@ export const ZapAbi = [
   {
     "type": "error",
     "name": "BelowMinAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BelowMinSeed",
     "inputs": []
   },
   {

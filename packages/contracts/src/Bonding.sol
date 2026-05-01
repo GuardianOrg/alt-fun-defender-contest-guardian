@@ -36,6 +36,12 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     Factory public factory;
     Router public router;
 
+    /// @dev Set once at `initialize` and immutable thereafter — there is no
+    ///      live setter. Hot-swapping the post-graduation venue or LP lock
+    ///      would let an admin silently reroute any token already in
+    ///      `Lifecycle.Graduating` between phase 1 and `finalizeGraduation`.
+    ///      Migrating to a new HyperSwap fork or LP lock requires a UUPS
+    ///      upgrade so the change is visible on-chain ahead of time.
     address public uniswapV2Factory;
     address public lpLock;
 
@@ -223,9 +229,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
-    event UniswapV2Updated(
-        address indexed oldUniswapV2Factory, address indexed newUniswapV2Factory, address oldLpLock, address newLpLock
-    );
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
 
     error TokenNotTrading();
@@ -247,9 +250,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     error InvalidDescriptionLength();
     error InvalidImageLength();
     error InvalidUrlLength();
-    /// @dev New `lpLock` hasn't allowlisted this Bonding as a locker.
-    ///      `setUniswapV2` would otherwise brick every in-flight graduation.
-    error LpLockNotConfigured();
     error NotVanityAddress(address tokenAddr);
     /// @dev `ltAddress` not in the BounceTech `Factory.ltExists` mapping
     ///      (arbitrary contract, or an LT BounceTech has since `redeployLt`'d).
@@ -583,23 +583,6 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     }
 
     // ─── Admin ───────────────────────────────────────────────────────────
-
-    /// @notice Hot-swap UniswapV2-compatible factory + LP lock. Reverts unless
-    ///         the new `lpLock` already allowlists this Bonding — otherwise the
-    ///         next `finalizeGraduation` would brick. Owners must
-    ///         `lpLock.setLocker(bonding, true)` first.
-    function setUniswapV2(
-        address newFactory,
-        address newLpLock
-    ) external onlyOwner {
-        if (newFactory == address(0) || newLpLock == address(0)) revert ZeroAddress();
-        if (!LPLock(newLpLock).isLocker(address(this))) revert LpLockNotConfigured();
-        address oldFactory = uniswapV2Factory;
-        address oldLpLock = lpLock;
-        uniswapV2Factory = newFactory;
-        lpLock = newLpLock;
-        emit UniswapV2Updated(oldFactory, newFactory, oldLpLock, newLpLock);
-    }
 
     /// @notice Hot-swap BounceTech `GlobalStorage`. Backstop for the unlikely
     ///         case BounceTech redeploys it (factory rotations flow through

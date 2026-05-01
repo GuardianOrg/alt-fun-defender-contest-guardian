@@ -53,6 +53,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
 
     Bonding public bonding;
     IERC20 public usdc;
+    /// @dev Set once at `initialize` and immutable thereafter — there is no
+    ///      live setter. Migrating to a different HyperSwap fork requires a
+    ///      UUPS upgrade so the change is visible on-chain ahead of time.
     IUniswapV2Router02 public uniswapV2Router;
     FeeVault public feeVault;
 
@@ -78,7 +81,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
     event BondingUpdated(address indexed oldBonding, address indexed newBonding);
-    event UniswapV2RouterUpdated(address indexed oldUniswapV2Router, address indexed newUniswapV2Router);
     event FeeVaultUpdated(address indexed oldFeeVault, address indexed newFeeVault);
     event FeesUpdated(
         uint256 oldBuyFeeBps,
@@ -448,15 +450,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         address old = address(bonding);
         bonding = Bonding(bonding_);
         emit BondingUpdated(old, bonding_);
-    }
-
-    function setUniswapV2Router(
-        address uniswapV2Router_
-    ) external onlyOwner {
-        if (uniswapV2Router_ == address(0)) revert ZeroAddress();
-        address old = address(uniswapV2Router);
-        uniswapV2Router = IUniswapV2Router02(uniswapV2Router_);
-        emit UniswapV2RouterUpdated(old, uniswapV2Router_);
     }
 
     /// @notice Hot-swap the FeeVault. Reverts unless the new vault already

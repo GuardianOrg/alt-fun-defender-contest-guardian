@@ -89,7 +89,7 @@ contract Deploy is Script {
         factory.setRouter(address(router));
         factory.grantRole(factory.BONDING_ROLE(), bondingProxy);
         router.grantRole(router.BONDING_ROLE(), bondingProxy);
-        LPLock(lpLockProxy).setLocker(bondingProxy, true);
+        LPLock(lpLockProxy).addLocker(bondingProxy);
         FeeVault(feeVaultProxy).addDepositor(zapProxy);
         Bonding(bondingProxy).addRouter(zapProxy);
 

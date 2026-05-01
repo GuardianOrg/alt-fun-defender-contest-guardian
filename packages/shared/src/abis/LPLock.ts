@@ -19,6 +19,19 @@ export const LPLockAbi = [
   },
   {
     "type": "function",
+    "name": "addLocker",
+    "inputs": [
+      {
+        "name": "locker",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "getLock",
     "inputs": [
       {
@@ -165,24 +178,6 @@ export const LPLockAbi = [
   },
   {
     "type": "function",
-    "name": "setLocker",
-    "inputs": [
-      {
-        "name": "locker",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "authorized",
-        "type": "bool",
-        "internalType": "bool"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -252,19 +247,13 @@ export const LPLockAbi = [
   },
   {
     "type": "event",
-    "name": "LockerUpdated",
+    "name": "LockerAdded",
     "inputs": [
       {
         "name": "locker",
         "type": "address",
         "indexed": true,
         "internalType": "address"
-      },
-      {
-        "name": "authorized",
-        "type": "bool",
-        "indexed": false,
-        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -346,6 +335,11 @@ export const LPLockAbi = [
   {
     "type": "error",
     "name": "InvalidInitialization",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LockerAlreadyAdded",
     "inputs": []
   },
   {

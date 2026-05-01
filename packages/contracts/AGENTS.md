@@ -122,7 +122,7 @@ These contracts will be audited and re-read by adversaries. Auditor attention is
 - Contract-level natspec orients a reader (one paragraph: what it is, what's load-bearing, where to look for the deep dive). Don't reproduce the spec.
 - One source of truth: if a struct field's natspec already explains a width-choice rationale, the producing function shouldn't repeat it. Either link or stay silent.
 - Section banners (`// ─── X ───`) are fine in long files (>300 lines, e.g. `Bonding.sol`, `Zap.sol`); drop them in short files.
-- Errors should be self-documenting via their name (`UnknownLeveragedToken`, `LpLockNotConfigured`). Add an `@dev` only when the trigger condition isn't obvious from the name.
+- Errors should be self-documenting via their name (`UnknownLeveragedToken`, `LockerAlreadyAdded`). Add an `@dev` only when the trigger condition isn't obvious from the name.
 
 ## Deploying to HyperEVM
 

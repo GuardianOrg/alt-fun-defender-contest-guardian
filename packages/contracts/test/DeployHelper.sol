@@ -155,7 +155,7 @@ abstract contract DeployHelper is Test {
         factory.setRouter(address(curveRouter));
         factory.grantRole(factory.BONDING_ROLE(), address(bonding));
         curveRouter.grantRole(curveRouter.BONDING_ROLE(), address(bonding));
-        lpLockContract.setLocker(address(bonding), true);
+        lpLockContract.addLocker(address(bonding));
     }
 
     // ─── Config-scaled trade-size helpers ────────────────────────────────
