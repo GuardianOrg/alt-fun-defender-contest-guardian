@@ -97,12 +97,22 @@ export function readVanityCache(key: string): VanityCacheEntry | null {
  * drop the oldest until we're under `MAX_ENTRIES - 1` (so the upcoming
  * write fits). Done synchronously because we're already in storage code
  * and concurrent tabs are guarded by the browser's per-key atomicity.
+ *
+ * Two-phase scan: we collect every `vanity:*` key into an array first,
+ * then process them. localStorage is index-based, so calling
+ * `removeItem` mid-iteration (e.g. dropping a malformed row) shifts
+ * subsequent indices and causes the loop to skip entries. Snapshotting
+ * the keys up front avoids the skip and keeps the eviction strict.
  */
 function evictOldestIfNeeded(ls: Storage): void {
-  const entries: Array<{ key: string; savedAt: number }> = [];
+  const allKeys: string[] = [];
   for (let i = 0; i < ls.length; i++) {
     const k = ls.key(i);
-    if (!k || !k.startsWith(KEY_PREFIX)) continue;
+    if (k && k.startsWith(KEY_PREFIX)) allKeys.push(k);
+  }
+
+  const entries: Array<{ key: string; savedAt: number }> = [];
+  for (const k of allKeys) {
     const raw = ls.getItem(k);
     if (!raw) continue;
     try {
@@ -116,6 +126,7 @@ function evictOldestIfNeeded(ls: Storage): void {
       ls.removeItem(k);
     }
   }
+
   if (entries.length < MAX_ENTRIES) return;
   entries.sort((a, b) => a.savedAt - b.savedAt);
   const toEvict = entries.length - (MAX_ENTRIES - 1);

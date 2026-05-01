@@ -233,6 +233,15 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
   }
   if (msg.type !== "init") return;
 
+  // Early re-entrancy bail-out. A duplicate `init` while the previous
+  // loop is still draining must NOT reconfigure shared globals
+  // (`stopped`, `targetZeros`) — the running loop reads them and
+  // would silently flip into a half-reconfigured state. We also skip
+  // the keccak / Uint8Array allocations for free. In practice the
+  // host always `terminate()`s before re-spawning, so this branch
+  // exists purely for misuse safety.
+  if (mining) return;
+
   stopped = false;
   targetZeros = msg.initialTargetZeros;
 
@@ -258,7 +267,6 @@ self.addEventListener("message", (event: MessageEvent<WorkerInbound>) => {
   const saltBuf = new Uint8Array(32);
   crypto.getRandomValues(saltBuf);
 
-  if (mining) return;
   mining = true;
   void runMiner({
     mixBuf,

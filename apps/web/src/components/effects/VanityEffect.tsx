@@ -138,26 +138,26 @@ export default function VanityEffect(props: VanityEffectProps) {
   const showParticles
     = tier.effect === "particles" && inView && !reducedMotion;
 
-  // None tier is the common case; render children verbatim with no
-  // wrapper at all to avoid DOM bloat across hundreds of token rows.
-  if (tier.id === "none") {
+  // Wrapper-presence policy:
+  //   - When the consumer asks for an explicit `as` mode OR passes a
+  //     `className`, we always render a wrapper div, even at the
+  //     `none` tier. Tier transitions during a session (e.g. /create
+  //     while the miner finds a higher-tier salt) then just toggle
+  //     classes on a stable DOM node — no remount, no lost focus on
+  //     descendant inputs, and `className` keeps doing layout work.
+  //   - When neither is set AND the tier is `none`, we render
+  //     children verbatim. This is the homepage-list fast path:
+  //     hundreds of base-tier token rows pay zero wrapper cost.
+  //   - When neither is set but the tier has effects, we still need a
+  //     wrapper for ::before / ::after to attach to, so we default to
+  //     `block`.
+  const consumerWantsWrapper
+    = props.as !== undefined && props.as !== "contents"
+      || !!props.className;
+  if (tier.id === "none" && !consumerWantsWrapper) {
     return <>{props.children}</>;
   }
 
-  const wrapperBase
-    = props.as === "inline"
-      ? styles.wrapperInline
-      : props.as === "block"
-        ? styles.wrapperBlock
-        : styles.wrapper;
-
-  // `display: contents` means we can't use ::before / ::after on the
-  // wrapper itself (they'd have nowhere to render). For those modes we
-  // rely on the child carrying the tier class via a sibling
-  // pseudo-wrapper — but the simpler approach is to require `inline` /
-  // `block` whenever a CSS-tier effect needs to render. We default to
-  // block when a tier with effects is used, since `display: contents`
-  // would silently skip them.
   const effectiveAs
     = props.as ?? (tier.effect === "none" ? "contents" : "block");
   const effectiveBase
@@ -165,7 +165,7 @@ export default function VanityEffect(props: VanityEffectProps) {
       ? styles.wrapperInline
       : effectiveAs === "block"
         ? styles.wrapperBlock
-        : wrapperBase;
+        : styles.wrapper;
 
   const className = [effectiveBase, styles[tier.id], styles[props.size]]
     .concat(props.className ?? [])
