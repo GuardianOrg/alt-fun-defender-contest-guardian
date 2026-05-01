@@ -665,7 +665,13 @@ export const ZapAbi = [
     "name": "BondingUpdated",
     "inputs": [
       {
-        "name": "bonding",
+        "name": "oldBonding",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newBonding",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -709,7 +715,13 @@ export const ZapAbi = [
     "name": "FeeVaultUpdated",
     "inputs": [
       {
-        "name": "feeVault",
+        "name": "oldFeeVault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newFeeVault",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -722,19 +734,37 @@ export const ZapAbi = [
     "name": "FeesUpdated",
     "inputs": [
       {
-        "name": "buyFeeBps",
+        "name": "oldBuyFeeBps",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "sellFeeBps",
+        "name": "newBuyFeeBps",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "creatorFeeBps",
+        "name": "oldSellFeeBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newSellFeeBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "oldCreatorFeeBps",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newCreatorFeeBps",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -885,7 +915,13 @@ export const ZapAbi = [
     "name": "UniswapV2RouterUpdated",
     "inputs": [
       {
-        "name": "uniswapV2Router",
+        "name": "oldUniswapV2Router",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newUniswapV2Router",
         "type": "address",
         "indexed": true,
         "internalType": "address"

@@ -196,7 +196,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     event RouterAdded(address indexed router);
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
-    event UniswapV2Updated(address indexed uniswapV2Factory, address indexed lpLock);
+    event UniswapV2Updated(
+        address indexed oldUniswapV2Factory, address indexed newUniswapV2Factory, address oldLpLock, address newLpLock
+    );
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
 
     error TokenNotTrading();
@@ -528,9 +530,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ) external onlyOwner {
         if (newFactory == address(0) || newLpLock == address(0)) revert ZeroAddress();
         if (!LPLock(newLpLock).isLocker(address(this))) revert LpLockNotConfigured();
+        address oldFactory = uniswapV2Factory;
+        address oldLpLock = lpLock;
         uniswapV2Factory = newFactory;
         lpLock = newLpLock;
-        emit UniswapV2Updated(newFactory, newLpLock);
+        emit UniswapV2Updated(oldFactory, newFactory, oldLpLock, newLpLock);
     }
 
     /// @notice Hot-swap BounceTech `GlobalStorage`. Backstop for the unlikely

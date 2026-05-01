@@ -397,7 +397,13 @@ export const FactoryAbi = [
     "name": "RouterUpdated",
     "inputs": [
       {
-        "name": "router",
+        "name": "oldRouter",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newRouter",
         "type": "address",
         "indexed": true,
         "internalType": "address"

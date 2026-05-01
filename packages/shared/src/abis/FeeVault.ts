@@ -451,7 +451,13 @@ export const FeeVaultAbi = [
     "name": "FeeToUpdated",
     "inputs": [
       {
-        "name": "feeTo",
+        "name": "oldFeeTo",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newFeeTo",
         "type": "address",
         "indexed": true,
         "internalType": "address"

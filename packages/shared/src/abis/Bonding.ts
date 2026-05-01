@@ -1239,15 +1239,27 @@ export const BondingAbi = [
     "name": "UniswapV2Updated",
     "inputs": [
       {
-        "name": "uniswapV2Factory",
+        "name": "oldUniswapV2Factory",
         "type": "address",
         "indexed": true,
         "internalType": "address"
       },
       {
-        "name": "lpLock",
+        "name": "newUniswapV2Factory",
         "type": "address",
         "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "oldLpLock",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "newLpLock",
+        "type": "address",
+        "indexed": false,
         "internalType": "address"
       }
     ],

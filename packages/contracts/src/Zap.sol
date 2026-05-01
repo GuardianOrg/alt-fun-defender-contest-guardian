@@ -61,10 +61,17 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     event Sell(address indexed token, address indexed seller, uint256 tokensIn, uint256 usdcOut);
     event Referred(address indexed token, address indexed trader, address indexed referrer, uint256 usdcAmount);
     event TokenCreated(address indexed token, address indexed creator, address indexed ltAddress);
-    event BondingUpdated(address indexed bonding);
-    event UniswapV2RouterUpdated(address indexed uniswapV2Router);
-    event FeeVaultUpdated(address indexed feeVault);
-    event FeesUpdated(uint256 buyFeeBps, uint256 sellFeeBps, uint256 creatorFeeBps);
+    event BondingUpdated(address indexed oldBonding, address indexed newBonding);
+    event UniswapV2RouterUpdated(address indexed oldUniswapV2Router, address indexed newUniswapV2Router);
+    event FeeVaultUpdated(address indexed oldFeeVault, address indexed newFeeVault);
+    event FeesUpdated(
+        uint256 oldBuyFeeBps,
+        uint256 newBuyFeeBps,
+        uint256 oldSellFeeBps,
+        uint256 newSellFeeBps,
+        uint256 oldCreatorFeeBps,
+        uint256 newCreatorFeeBps
+    );
     /// @dev Buy's leftover-LT redeem reverted (typically below `MIN_USDC_AMOUNT`)
     ///      and the LT was returned as-is. Frontend uses this to surface "you
     ///      got LT instead of USDC because the leftover was below the $10 floor".
@@ -415,16 +422,18 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external onlyOwner {
         if (bonding_ == address(0)) revert ZeroAddress();
         if (!Bonding(bonding_).isRouter(address(this))) revert BondingNotConfigured();
+        address old = address(bonding);
         bonding = Bonding(bonding_);
-        emit BondingUpdated(bonding_);
+        emit BondingUpdated(old, bonding_);
     }
 
     function setUniswapV2Router(
         address uniswapV2Router_
     ) external onlyOwner {
         if (uniswapV2Router_ == address(0)) revert ZeroAddress();
+        address old = address(uniswapV2Router);
         uniswapV2Router = IUniswapV2Router02(uniswapV2Router_);
-        emit UniswapV2RouterUpdated(uniswapV2Router_);
+        emit UniswapV2RouterUpdated(old, uniswapV2Router_);
     }
 
     /// @notice Hot-swap the FeeVault. Reverts unless the new vault already
@@ -436,8 +445,9 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
     ) external onlyOwner {
         if (feeVault_ == address(0)) revert ZeroAddress();
         if (!FeeVault(feeVault_).isDepositor(address(this))) revert VaultNotConfigured();
+        address old = address(feeVault);
         feeVault = FeeVault(feeVault_);
-        emit FeeVaultUpdated(feeVault_);
+        emit FeeVaultUpdated(old, feeVault_);
     }
 
     function setFees(
@@ -446,10 +456,13 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         uint256 creatorFeeBps_
     ) external onlyOwner {
         if (buyFeeBps_ > MAX_FEE_BPS || sellFeeBps_ > MAX_FEE_BPS || creatorFeeBps_ > BPS_DENOM) revert InvalidFee();
+        uint256 oldBuyFeeBps = buyFeeBps;
+        uint256 oldSellFeeBps = sellFeeBps;
+        uint256 oldCreatorFeeBps = creatorFeeBps;
         buyFeeBps = buyFeeBps_;
         sellFeeBps = sellFeeBps_;
         creatorFeeBps = creatorFeeBps_;
-        emit FeesUpdated(buyFeeBps_, sellFeeBps_, creatorFeeBps_);
+        emit FeesUpdated(oldBuyFeeBps, buyFeeBps_, oldSellFeeBps, sellFeeBps_, oldCreatorFeeBps, creatorFeeBps_);
     }
 
     function _authorizeUpgrade(
