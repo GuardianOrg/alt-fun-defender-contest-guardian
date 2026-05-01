@@ -285,7 +285,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
             : _sellOnCurve(tokenAddress, tokenAmount);
 
         uint256 grossUsdcEstimate = (ltReceived * IBounceLeveragedToken(lt).exchangeRate()) / 1e18;
-        if (grossUsdcEstimate < MIN_USDC_AMOUNT) revert BelowMinAmount();
+        if (grossUsdcEstimate / 1e12 < MIN_USDC_AMOUNT) revert BelowMinAmount();
 
         // Redeem into this zap (not the user) so we can deduct the fee.
         uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
