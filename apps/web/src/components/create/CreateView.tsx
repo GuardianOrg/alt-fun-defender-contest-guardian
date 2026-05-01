@@ -11,6 +11,7 @@ import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
+import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
@@ -200,17 +201,24 @@ export default function CreateView() {
               </div>
             )}
 
-            <Button
-              variant="primary"
-              size="lg"
-              fullWidth
-              busy={isBusy || waitingForVanity}
-              disabled={launchStep === "confirmed" || vanity.status === "error"}
-              className={launchStep === "confirmed" ? styles.launchButtonConfirmed : undefined}
-              onClick={handleSubmit}
+            <VanityEffect
+              zeros={vanity.best?.zeros ?? 0}
+              size="button"
+              as="block"
+              className={styles.launchButtonWrap}
             >
-              {buttonLabel()}
-            </Button>
+              <Button
+                variant="primary"
+                size="lg"
+                fullWidth
+                busy={isBusy || waitingForVanity}
+                disabled={launchStep === "confirmed" || vanity.status === "error"}
+                className={launchStep === "confirmed" ? styles.launchButtonConfirmed : undefined}
+                onClick={handleSubmit}
+              >
+                {buttonLabel()}
+              </Button>
+            </VanityEffect>
 
             {isBusy && (
               <div className={styles.busyRow}>
@@ -252,7 +260,8 @@ export default function CreateView() {
         asset={asset}
         leverage={leverage}
         imagePreview={imagePreview}
-        predictedAddress={vanity.result?.address ?? null}
+        predictedAddress={vanity.best?.address ?? null}
+        vanityZeros={vanity.best?.zeros ?? 0}
         vanityStatus={vanity.status}
       />
     </div>

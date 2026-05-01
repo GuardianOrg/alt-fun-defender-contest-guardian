@@ -11,6 +11,8 @@ import {
   formatPercentOrDash,
   formatUsdOrDash,
 } from "../../utils/format";
+import { tierFor } from "../../utils/vanityTier";
+import VanityEffect from "../effects/VanityEffect";
 import ProgressBar from "../shared/ProgressBar";
 
 import type { Token } from "../../services/types";
@@ -42,6 +44,12 @@ export default function TokenRow({ token }: Props) {
   const buyW = Math.min(organic, filled);
   const levW = Math.max(filled - buyW, 0);
   const isLtMover = levW > 15;
+  // Vanity tier overrides the ordinary mint/red/amber border for tokens
+  // whose mined address has bonus trailing zeros. The "none" tier
+  // short-circuits inside `<VanityEffect>` so 99% of rows pay zero
+  // wrapper cost.
+  const vanityTier = tierFor(token.address);
+  const hasVanityTier = vanityTier.id !== "none";
 
   const handleNavigate = () => navigate(tokenPath(token.address));
 
@@ -52,7 +60,7 @@ export default function TokenRow({ token }: Props) {
     }
   };
 
-  return (
+  const rowEl = (
     <div
       className={cn(
         styles.row,
@@ -153,5 +161,12 @@ export default function TokenRow({ token }: Props) {
         <span className={styles.mcapValue}>{formatUsdOrDash(stats.mcapUsd)}</span>
       </div>
     </div>
+  );
+
+  if (!hasVanityTier) return rowEl;
+  return (
+    <VanityEffect tier={vanityTier} size="row" as="block">
+      {rowEl}
+    </VanityEffect>
   );
 }

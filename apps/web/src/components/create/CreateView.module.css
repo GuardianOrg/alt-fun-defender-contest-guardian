@@ -119,6 +119,18 @@ button.launchButtonConfirmed:disabled {
   opacity: 1;
 }
 
+/*
+ * Launch-button vanity wrapper. The wrapper takes ownership of `width`
+ * so the button still spans full width even when wrapped in a tier
+ * effect (`VanityEffect` defaults to `display: block` for `as="block"`,
+ * but child <Button> already has `fullWidth` so this is just belt &
+ * braces — also gives the tier border a sensible radius to inherit).
+ */
+.launchButtonWrap {
+  width: 100%;
+  border-radius: 0.5rem;
+}
+
 .busyRow {
   display: flex;
   align-items: center;

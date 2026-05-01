@@ -8,6 +8,8 @@ import {
   formatPercentOrDash,
   formatUsdOrDash,
 } from "../../utils/format";
+import { tierFor } from "../../utils/vanityTier";
+import VanityEffect from "../effects/VanityEffect";
 
 import type { Token } from "../../services/types";
 
@@ -46,39 +48,51 @@ export default function SearchResultsList({
           };
           const stats = getStats(t.address);
           const up = (stats.change24h ?? 0) >= 0;
+          const vanityTier = tierFor(t.address);
+          const row = (
+            <div
+              key={t.address}
+              data-result-index={i}
+              className={cn(
+                styles.resultRow,
+                i === highlightedIndex && styles.resultRowHighlighted,
+              )}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(t.address)}
+              onKeyDown={handleKeyDown}
+              onMouseEnter={() => onHighlight(i)}
+            >
+              <div className={styles.resultIcon}>{t.emoji}</div>
+              <div>
+                <div className={styles.resultName}>{t.name}</div>
+                <div className={styles.resultLtName}>{t.ltName}</div>
+              </div>
+              <div className={styles.resultRight}>
+                <div
+                  className={cn(
+                    styles.resultChange,
+                    up ? styles.changeUp : styles.changeDown,
+                  )}
+                >
+                  {formatPercentOrDash(stats.change24h)}
+                </div>
+                <div className={styles.resultMcap}>
+                  {formatUsdOrDash(stats.mcapUsd)}
+                </div>
+              </div>
+            </div>
+          );
+          if (vanityTier.id === "none") return row;
           return (
-          <div
-            key={t.address}
-            data-result-index={i}
-            className={cn(
-              styles.resultRow,
-              i === highlightedIndex && styles.resultRowHighlighted,
-            )}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect(t.address)}
-            onKeyDown={handleKeyDown}
-            onMouseEnter={() => onHighlight(i)}
-          >
-            <div className={styles.resultIcon}>{t.emoji}</div>
-            <div>
-              <div className={styles.resultName}>{t.name}</div>
-              <div className={styles.resultLtName}>{t.ltName}</div>
-            </div>
-            <div className={styles.resultRight}>
-              <div
-                className={cn(
-                  styles.resultChange,
-                  up ? styles.changeUp : styles.changeDown,
-                )}
-              >
-                {formatPercentOrDash(stats.change24h)}
-              </div>
-              <div className={styles.resultMcap}>
-                {formatUsdOrDash(stats.mcapUsd)}
-              </div>
-            </div>
-          </div>
+            <VanityEffect
+              key={t.address}
+              tier={vanityTier}
+              size="row"
+              as="block"
+            >
+              {row}
+            </VanityEffect>
           );
         })
       ) : (

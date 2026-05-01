@@ -10,6 +10,8 @@ import {
   formatPercentOrDash,
   formatUsdOrDash,
 } from "../../utils/format";
+import { tierFor } from "../../utils/vanityTier";
+import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
 
 import type { Token } from "../../services/types";
@@ -30,21 +32,25 @@ export default function HeroSection({ token }: Props) {
     copyToClipboard(text);
   };
 
+  const vanityTier = tierFor(token.address);
+
   return (
     <div className={styles.wrapper}>
-      <div className={styles.avatar}>
-        {token.image && !imgError ? (
-          <img
-            key={token.image}
-            src={token.image}
-            alt={token.name}
-            className={styles.avatarImage}
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          token.emoji || "🪙"
-        )}
-      </div>
+      <VanityEffect tier={vanityTier} size="hero" as="block">
+        <div className={styles.avatar}>
+          {token.image && !imgError ? (
+            <img
+              key={token.image}
+              src={token.image}
+              alt={token.name}
+              className={styles.avatarImage}
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            token.emoji || "🪙"
+          )}
+        </div>
+      </VanityEffect>
 
       <div className={styles.nameBlock}>
         <div className={styles.nameRow}>
