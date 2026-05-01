@@ -104,7 +104,7 @@ These contracts will be audited and re-read by adversaries. Auditor attention is
 - Front-run / DoS / MEV rationale (e.g. why a parameter is immutable, why a path bypasses the router, why a `try/catch` defuses a permit grief).
 - Cross-system constraints that would break if violated (e.g. "must stay in sync with `vanity.ts`", "frontend / API replicate this length cap pre-flight").
 - Numerical-encoding footguns (`uint256` vs `uint128` choices, scaling factors, BPS denominators).
-- Non-obvious storage-layout requirements (gap sizing, append-only ordering for upgradeable contracts).
+- Non-obvious storage-layout requirements (see [Storage layout](#storage-layout) below — namespace IDs, slot pinning, append-only struct fields).
 - Anything an auditor would reasonably ask "why this and not the obvious thing?" about.
 
 **Cut:**
@@ -123,6 +123,29 @@ These contracts will be audited and re-read by adversaries. Auditor attention is
 - One source of truth: if a struct field's natspec already explains a width-choice rationale, the producing function shouldn't repeat it. Either link or stay silent.
 - Section banners (`// ─── X ───`) are fine in long files (>300 lines, e.g. `Bonding.sol`, `Zap.sol`); drop them in short files.
 - Errors should be self-documenting via their name (`UnknownLeveragedToken`, `LockerAlreadyAdded`). Add an `@dev` only when the trigger condition isn't obvious from the name.
+
+## Storage layout
+
+All four UUPS-upgradeable contracts (`Bonding`, `Zap`, `FeeVault`, `LPLock`) use [ERC-7201](https://eips.ethereum.org/EIPS/eip-7201) namespaced storage. There are **no `__gap` arrays** anywhere — adding state never requires arithmetic on a gap-length constant.
+
+| Contract | Namespace | Slot |
+|---|---|---|
+| `Bonding` | `altfun.storage.Bonding` | `0x8b5754e13e604f53718538385c40d9546a4725ba57a2e3447377e5a0d65c8e00` |
+| `Zap` | `altfun.storage.Zap` | `0x6efaff3d1fa34cdc0d13358102d3377232e1768dd473564521de8a1148608500` |
+| `FeeVault` | `altfun.storage.FeeVault` | `0xa926bb40d5eda4681728c5a36d6763beef85e2d2279081fc5cff7e744da2d700` |
+| `LPLock` | `altfun.storage.LPLock` | `0x57e36a555d9dab2c98f4867e0f00fcc9beedb947224d36563fd15d5248644d00` |
+
+[`test/StorageLayout.t.sol`](test/StorageLayout.t.sol) recomputes each slot from its namespace string and asserts equality with the in-source constant — drift in either side fails CI before any other test runs.
+
+**Rules when adding state:**
+
+1. Add the field to the existing `<Contract>Storage` struct **at the end** (don't reorder, don't insert in the middle — same constraint as gapped layouts had, just without the bookkeeping).
+2. State lives **only** in the namespaced struct. Constants and immutables stay at file scope (they're not in storage so the rule doesn't apply).
+3. If you need a public accessor for a field, write an explicit getter — the namespaced struct fields can't be `public`.
+4. **Never change a namespace string** on a deployed contract. The slot is hashed from the string; a one-character change relocates every field and bricks the proxy. If you genuinely need a new layout, design a fresh namespace (e.g. `altfun.storage.BondingV2`) and write a `reinitializer` that migrates the relevant slots.
+5. OZ parents (`OwnableUpgradeable`, `Initializable`, `UUPSUpgradeable`, `Ownable2StepUpgradeable`) already use ERC-7201 internally with their own `openzeppelin.storage.*` namespaces, so they cannot collide with ours.
+
+**External ABI:** the migration preserves every public getter signature. Mappings of structs (`pendingGraduation`, `LPLock.locks`) keep their tuple-returning shape via explicit getters that mirror what the auto-generated public-mapping getter used to produce — indexer / frontend bindings are byte-identical.
 
 ## Deploying to HyperEVM
 

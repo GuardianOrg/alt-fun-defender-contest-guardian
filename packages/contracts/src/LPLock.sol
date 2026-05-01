@@ -13,6 +13,11 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///      pending owner) before it takes effect — single-step transfer to a
 ///      fat-fingered or contract-incompatible address would otherwise brick
 ///      every owner-only path on the live proxy.
+///
+///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
+///      mutable state lives in `LPLockStorage` at `_LP_LOCK_STORAGE_LOCATION`.
+///      See `packages/contracts/AGENTS.md#storage-layout` for the project-wide
+///      convention and the `test/StorageLayout.t.sol` slot-derivation test.
 contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
     struct LockInfo {
         address lpPair;
@@ -20,19 +25,28 @@ contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
         uint256 lockedAt;
     }
 
-    mapping(address => LockInfo) public locks;
+    /// @custom:storage-location erc7201:altfun.storage.LPLock
+    struct LPLockStorage {
+        mapping(address token => LockInfo) locks;
+        /// @dev Locker allowlist for `recordLock`. Add-only via `addLocker` —
+        ///      there is no removal path. A live revoke would brick every
+        ///      in-flight `Bonding.finalizeGraduation` (token permanently
+        ///      stuck in `Lifecycle.Graduating`, no on-chain recovery), so
+        ///      the only way to retire a locker is a UUPS upgrade — which
+        ///      surfaces on-chain ahead of time instead of as a one-tx kill
+        ///      switch.
+        mapping(address account => bool) isLocker;
+    }
 
-    /// @dev Locker allowlist for `recordLock`. Add-only via `addLocker` —
-    ///      there is no removal path. A live revoke would brick every
-    ///      in-flight `Bonding.finalizeGraduation` (token permanently stuck
-    ///      in `Lifecycle.Graduating`, no on-chain recovery), so the only way
-    ///      to retire a locker is a UUPS upgrade — which surfaces on-chain
-    ///      ahead of time instead of as a one-tx kill switch.
-    mapping(address => bool) public isLocker;
+    // keccak256(abi.encode(uint256(keccak256("altfun.storage.LPLock")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _LP_LOCK_STORAGE_LOCATION =
+        0x57e36a555d9dab2c98f4867e0f00fcc9beedb947224d36563fd15d5248644d00;
 
-    /// @dev Storage gap → 50 slots total. Append new state variables before
-    ///      this gap and shrink the length to match.
-    uint256[48] private __gap;
+    function _s() private pure returns (LPLockStorage storage $) {
+        assembly {
+            $.slot := _LP_LOCK_STORAGE_LOCATION
+        }
+    }
 
     event LPLocked(address indexed token, address indexed lpPair, uint256 amount);
     event LockerAdded(address indexed locker);
@@ -59,28 +73,46 @@ contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
         address lpPair,
         uint256 amount
     ) external {
-        if (!isLocker[msg.sender]) revert NotAuthorized();
-        if (locks[token].amount != 0) revert AlreadyLocked();
+        LPLockStorage storage $ = _s();
+        if (!$.isLocker[msg.sender]) revert NotAuthorized();
+        if ($.locks[token].amount != 0) revert AlreadyLocked();
         if (IERC20(lpPair).balanceOf(address(this)) < amount) revert InsufficientLPBalance();
-        locks[token] = LockInfo({lpPair: lpPair, amount: amount, lockedAt: block.timestamp});
+        $.locks[token] = LockInfo({lpPair: lpPair, amount: amount, lockedAt: block.timestamp});
         emit LPLocked(token, lpPair, amount);
     }
 
     /// @notice Authorise a new `recordLock` caller. Add-only by design — see
-    ///         the natspec on `isLocker` for why there's no `removeLocker`.
+    ///         the natspec on `LPLockStorage.isLocker` for why there's no
+    ///         `removeLocker`.
     function addLocker(
         address locker
     ) external onlyOwner {
         if (locker == address(0)) revert ZeroAddress();
-        if (isLocker[locker]) revert LockerAlreadyAdded();
-        isLocker[locker] = true;
+        LPLockStorage storage $ = _s();
+        if ($.isLocker[locker]) revert LockerAlreadyAdded();
+        $.isLocker[locker] = true;
         emit LockerAdded(locker);
+    }
+
+    /// @notice Mirrors the auto-generated getter for the pre-ERC-7201 public
+    ///         `locks` mapping so the external ABI is unchanged.
+    function locks(
+        address token
+    ) external view returns (address lpPair, uint256 amount, uint256 lockedAt) {
+        LockInfo storage info = _s().locks[token];
+        return (info.lpPair, info.amount, info.lockedAt);
+    }
+
+    function isLocker(
+        address account
+    ) external view returns (bool) {
+        return _s().isLocker[account];
     }
 
     function getLock(
         address token
     ) external view returns (address lpPair, uint256 amount, uint256 lockedAt) {
-        LockInfo storage info = locks[token];
+        LockInfo storage info = _s().locks[token];
         return (info.lpPair, info.amount, info.lockedAt);
     }
 

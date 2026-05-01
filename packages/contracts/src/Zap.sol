@@ -27,6 +27,10 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 ///      pending owner) before it takes effect — single-step transfer to a
 ///      fat-fingered or contract-incompatible address would otherwise brick
 ///      every owner-only path on the live proxy.
+///
+///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
+///      mutable state lives in `ZapStorage` at `_ZAP_STORAGE_LOCATION`.
+///      See `packages/contracts/AGENTS.md#storage-layout`.
 contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -56,22 +60,31 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ///         Front-end mirrors this constant in `MIN_USDC_BUY_AMOUNT`.
     uint256 public constant MIN_SEED_USDC = 20e6;
 
-    Bonding public bonding;
-    IERC20 public usdc;
-    /// @dev Set once at `initialize` and immutable thereafter — there is no
-    ///      live setter. Migrating to a different HyperSwap fork requires a
-    ///      UUPS upgrade so the change is visible on-chain ahead of time.
-    IUniswapV2Router02 public uniswapV2Router;
-    FeeVault public feeVault;
+    /// @custom:storage-location erc7201:altfun.storage.Zap
+    struct ZapStorage {
+        Bonding bonding;
+        IERC20 usdc;
+        /// @dev Set once at `initialize` and immutable thereafter — there is
+        ///      no live setter. Migrating to a different HyperSwap fork
+        ///      requires a UUPS upgrade so the change is visible on-chain
+        ///      ahead of time.
+        IUniswapV2Router02 uniswapV2Router;
+        FeeVault feeVault;
+        uint256 buyFeeBps;
+        uint256 sellFeeBps;
+        /// @notice Share of total fee routed to creator (bps); remainder is
+        ///         protocol.
+        uint256 creatorFeeBps;
+    }
 
-    uint256 public buyFeeBps;
-    uint256 public sellFeeBps;
-    /// @notice Share of total fee routed to creator (bps); remainder is protocol.
-    uint256 public creatorFeeBps;
+    // keccak256(abi.encode(uint256(keccak256("altfun.storage.Zap")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant _ZAP_STORAGE_LOCATION = 0x6efaff3d1fa34cdc0d13358102d3377232e1768dd473564521de8a1148608500;
 
-    /// @dev Storage gap → 50 slots total. Append new state variables before
-    ///      this gap and shrink the length to match.
-    uint256[43] private __gap;
+    function _s() private pure returns (ZapStorage storage $) {
+        assembly {
+            $.slot := _ZAP_STORAGE_LOCATION
+        }
+    }
 
     struct PermitData {
         uint256 value;
@@ -131,16 +144,20 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 sellFeeBps_,
         uint256 creatorFeeBps_
     ) external initializer {
-        if (bonding_ == address(0) || usdc_ == address(0) || uniswapV2Router_ == address(0) || feeVault_ == address(0)) revert ZeroAddress();
+        if (bonding_ == address(0) || usdc_ == address(0) || uniswapV2Router_ == address(0) || feeVault_ == address(0))
+        {
+            revert ZeroAddress();
+        }
         if (buyFeeBps_ > MAX_FEE_BPS || sellFeeBps_ > MAX_FEE_BPS || creatorFeeBps_ > BPS_DENOM) revert InvalidFee();
         __Ownable_init(msg.sender);
-        bonding = Bonding(bonding_);
-        usdc = IERC20(usdc_);
-        uniswapV2Router = IUniswapV2Router02(uniswapV2Router_);
-        feeVault = FeeVault(feeVault_);
-        buyFeeBps = buyFeeBps_;
-        sellFeeBps = sellFeeBps_;
-        creatorFeeBps = creatorFeeBps_;
+        ZapStorage storage $ = _s();
+        $.bonding = Bonding(bonding_);
+        $.usdc = IERC20(usdc_);
+        $.uniswapV2Router = IUniswapV2Router02(uniswapV2Router_);
+        $.feeVault = FeeVault(feeVault_);
+        $.buyFeeBps = buyFeeBps_;
+        $.sellFeeBps = sellFeeBps_;
+        $.creatorFeeBps = creatorFeeBps_;
     }
 
     /// @param seedUsdcAmount USDC for the mandatory seed buy. Must be
@@ -159,7 +176,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 seedUsdcAmount,
         PermitData calldata p
     ) external nonReentrant returns (address tokenAddr) {
-        _tryPermit(address(usdc), msg.sender, p);
+        _tryPermit(address(_s().usdc), msg.sender, p);
         return _createTokenInternal(params, seedUsdcAmount);
     }
 
@@ -179,7 +196,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address referrer,
         PermitData calldata p
     ) external nonReentrant returns (uint256 tokensOut) {
-        _tryPermit(address(usdc), msg.sender, p);
+        _tryPermit(address(_s().usdc), msg.sender, p);
         return _buyInternal(tokenAddress, usdcAmount, minTokensOut, referrer);
     }
 
@@ -211,7 +228,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // Mandatory seed buy. See `MIN_SEED_USDC` for the no-cap rationale.
         if (seedUsdcAmount < MIN_SEED_USDC) revert BelowMinSeed();
 
-        (tokenAddr,) = bonding.launch(params, msg.sender);
+        (tokenAddr,) = _s().bonding.launch(params, msg.sender);
         emit TokenCreated(tokenAddr, msg.sender, params.ltAddress);
 
         // The seed buy is what arms the bypass into `Bonding`'s launch
@@ -231,8 +248,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (usdcAmount == 0) revert InvalidInput();
         if (tokenAddress == address(0)) revert InvalidInput();
         if (usdcAmount < MIN_USDC_AMOUNT) revert BelowMinAmount();
-        if (bonding.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
-        if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
+        Bonding bonding_ = _s().bonding;
+        if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
+        if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
         uint256 amountInUsed;
         uint256 actualFee;
@@ -241,7 +259,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         if (tokensOut < minTokensOut) revert SlippageExceeded();
 
         if (actualFee > 0) {
-            _accrueFee(tokenAddress, bonding.creatorOf(tokenAddress), actualFee, true);
+            _accrueFee(tokenAddress, bonding_.creatorOf(tokenAddress), actualFee, true);
         }
 
         emit Buy(tokenAddress, msg.sender, usdcAmount, tokensOut);
@@ -260,17 +278,19 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address tokenAddress,
         uint256 usdcAmount
     ) internal returns (uint256 tokensOut, uint256 amountInUsed, uint256 actualFee) {
-        address lt = _ltOf(tokenAddress);
+        ZapStorage storage $ = _s();
+        address lt = $.bonding.ltOf(tokenAddress);
 
-        usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
+        $.usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
 
-        uint256 feeOnGross = (usdcAmount * buyFeeBps) / BPS_DENOM;
+        uint256 buyFeeBps_ = $.buyFeeBps;
+        uint256 feeOnGross = (usdcAmount * buyFeeBps_) / BPS_DENOM;
         uint256 netUsdc = usdcAmount - feeOnGross;
 
-        usdc.forceApprove(lt, netUsdc);
+        $.usdc.forceApprove(lt, netUsdc);
         uint256 ltMinted = IBounceLeveragedToken(lt).mint(address(this), netUsdc, 0);
 
-        if (bonding.isGraduated(tokenAddress)) {
+        if ($.bonding.isGraduated(tokenAddress)) {
             tokensOut = _buyOnUniswapV2(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
@@ -279,7 +299,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
 
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
 
-        actualFee = ltMinted == 0 ? 0 : (usdcAmount * buyFeeBps * amountInUsed) / (BPS_DENOM * ltMinted);
+        actualFee = ltMinted == 0 ? 0 : (usdcAmount * buyFeeBps_ * amountInUsed) / (BPS_DENOM * ltMinted);
         uint256 feeRefund = feeOnGross - actualFee;
 
         // Refund leftover LT as USDC. Fall back to LT if redeem reverts (e.g.
@@ -293,14 +313,8 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             }
         }
         if (feeRefund > 0) {
-            usdc.safeTransfer(msg.sender, feeRefund);
+            $.usdc.safeTransfer(msg.sender, feeRefund);
         }
-    }
-
-    function _ltOf(
-        address tokenAddress
-    ) internal view returns (address lt) {
-        return bonding.ltOf(tokenAddress);
     }
 
     function _sellInternal(
@@ -310,14 +324,16 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ) internal returns (uint256 usdcOut) {
         if (tokenAmount == 0) revert InvalidInput();
         if (tokenAddress == address(0)) revert InvalidInput();
-        if (bonding.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
-        if (bonding.isGraduating(tokenAddress)) revert TokenIsGraduating();
+        ZapStorage storage $ = _s();
+        Bonding bonding_ = $.bonding;
+        if (bonding_.creatorOf(tokenAddress) == address(0)) revert TokenNotTrading();
+        if (bonding_.isGraduating(tokenAddress)) revert TokenIsGraduating();
 
-        address lt = _ltOf(tokenAddress);
+        address lt = bonding_.ltOf(tokenAddress);
 
         IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenAmount);
 
-        uint256 ltReceived = bonding.isGraduated(tokenAddress)
+        uint256 ltReceived = bonding_.isGraduated(tokenAddress)
             ? _sellOnUniswapV2(tokenAddress, lt, tokenAmount)
             : _sellOnCurve(tokenAddress, tokenAmount);
 
@@ -327,15 +343,15 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // Redeem into this zap (not the user) so we can deduct the fee.
         uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
-        uint256 fee = (grossUsdc * sellFeeBps) / BPS_DENOM;
+        uint256 fee = (grossUsdc * $.sellFeeBps) / BPS_DENOM;
         usdcOut = grossUsdc - fee;
 
         if (usdcOut < minUsdcOut) revert SlippageExceeded();
 
-        usdc.safeTransfer(msg.sender, usdcOut);
+        $.usdc.safeTransfer(msg.sender, usdcOut);
 
         if (fee > 0) {
-            _accrueFee(tokenAddress, bonding.creatorOf(tokenAddress), fee, false);
+            _accrueFee(tokenAddress, bonding_.creatorOf(tokenAddress), fee, false);
         }
 
         emit Sell(tokenAddress, msg.sender, tokenAmount, usdcOut);
@@ -352,10 +368,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 feeAmount,
         bool isBuy
     ) internal {
-        uint256 creatorShare = (feeAmount * creatorFeeBps) / BPS_DENOM;
+        ZapStorage storage $ = _s();
+        uint256 creatorShare = (feeAmount * $.creatorFeeBps) / BPS_DENOM;
         uint256 protocolShare = feeAmount - creatorShare;
-        usdc.safeTransfer(address(feeVault), feeAmount);
-        feeVault.accrue(token, creator, creatorShare, protocolShare, isBuy);
+        $.usdc.safeTransfer(address($.feeVault), feeAmount);
+        $.feeVault.accrue(token, creator, creatorShare, protocolShare, isBuy);
     }
 
     // ─── Internal: Permit ────────────────────────────────────────────────
@@ -381,12 +398,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address lt,
         uint256 ltAmount
     ) internal returns (uint256 tokensOut, uint256 amountInUsed) {
-        Router curveRouter = bonding.router();
+        Bonding bonding_ = _s().bonding;
+        Router curveRouter = bonding_.router();
         IERC20(lt).forceApprove(address(curveRouter), ltAmount);
         // Slippage check happens after the refund path in `_buyInternal`.
         // `msg.sender` here is the user-EOA that called `Zap.buy`; passed
         // through as `trader` for the emitted `Trade` event.
-        (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
+        (tokensOut, amountInUsed) = bonding_.buy(ltAmount, tokenAddress, 0, msg.sender);
         IERC20(lt).forceApprove(address(curveRouter), 0);
     }
 
@@ -394,9 +412,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address tokenAddress,
         uint256 tokenAmount
     ) internal returns (uint256 ltReceived) {
-        Router curveRouter = bonding.router();
+        Bonding bonding_ = _s().bonding;
+        Router curveRouter = bonding_.router();
         IERC20(tokenAddress).forceApprove(address(curveRouter), tokenAmount);
-        ltReceived = bonding.sell(tokenAmount, tokenAddress, 0, msg.sender);
+        ltReceived = bonding_.sell(tokenAmount, tokenAddress, 0, msg.sender);
     }
 
     // ─── Internal: V2 Trades ────────────────────────────────────────────
@@ -410,10 +429,11 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         address tokenOut,
         uint256 amountIn
     ) internal returns (uint256 amountOut) {
+        Bonding bonding_ = _s().bonding;
         // `graduatedPair` is keyed by the launched token only; check `tokenIn`
         // first (sell direction) then fall back to `tokenOut` (buy direction).
-        address pair = bonding.graduatedPair(tokenIn);
-        if (pair == address(0)) pair = bonding.graduatedPair(tokenOut);
+        address pair = bonding_.graduatedPair(tokenIn);
+        if (pair == address(0)) pair = bonding_.graduatedPair(tokenOut);
 
         (uint112 reserve0, uint112 reserve1,) = IUniswapV2Pair(pair).getReserves();
         bool inIsToken0 = IUniswapV2Pair(pair).token0() == tokenIn;
@@ -452,8 +472,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ) external onlyOwner {
         if (bonding_ == address(0)) revert ZeroAddress();
         if (!Bonding(bonding_).isRouter(address(this))) revert BondingNotConfigured();
-        address old = address(bonding);
-        bonding = Bonding(bonding_);
+        ZapStorage storage $ = _s();
+        address old = address($.bonding);
+        $.bonding = Bonding(bonding_);
         emit BondingUpdated(old, bonding_);
     }
 
@@ -466,8 +487,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ) external onlyOwner {
         if (feeVault_ == address(0)) revert ZeroAddress();
         if (!FeeVault(feeVault_).isDepositor(address(this))) revert VaultNotConfigured();
-        address old = address(feeVault);
-        feeVault = FeeVault(feeVault_);
+        ZapStorage storage $ = _s();
+        address old = address($.feeVault);
+        $.feeVault = FeeVault(feeVault_);
         emit FeeVaultUpdated(old, feeVault_);
     }
 
@@ -477,13 +499,44 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 creatorFeeBps_
     ) external onlyOwner {
         if (buyFeeBps_ > MAX_FEE_BPS || sellFeeBps_ > MAX_FEE_BPS || creatorFeeBps_ > BPS_DENOM) revert InvalidFee();
-        uint256 oldBuyFeeBps = buyFeeBps;
-        uint256 oldSellFeeBps = sellFeeBps;
-        uint256 oldCreatorFeeBps = creatorFeeBps;
-        buyFeeBps = buyFeeBps_;
-        sellFeeBps = sellFeeBps_;
-        creatorFeeBps = creatorFeeBps_;
+        ZapStorage storage $ = _s();
+        uint256 oldBuyFeeBps = $.buyFeeBps;
+        uint256 oldSellFeeBps = $.sellFeeBps;
+        uint256 oldCreatorFeeBps = $.creatorFeeBps;
+        $.buyFeeBps = buyFeeBps_;
+        $.sellFeeBps = sellFeeBps_;
+        $.creatorFeeBps = creatorFeeBps_;
         emit FeesUpdated(oldBuyFeeBps, buyFeeBps_, oldSellFeeBps, sellFeeBps_, oldCreatorFeeBps, creatorFeeBps_);
+    }
+
+    // ─── Views ───────────────────────────────────────────────────────────
+
+    function bonding() external view returns (Bonding) {
+        return _s().bonding;
+    }
+
+    function usdc() external view returns (IERC20) {
+        return _s().usdc;
+    }
+
+    function uniswapV2Router() external view returns (IUniswapV2Router02) {
+        return _s().uniswapV2Router;
+    }
+
+    function feeVault() external view returns (FeeVault) {
+        return _s().feeVault;
+    }
+
+    function buyFeeBps() external view returns (uint256) {
+        return _s().buyFeeBps;
+    }
+
+    function sellFeeBps() external view returns (uint256) {
+        return _s().sellFeeBps;
+    }
+
+    function creatorFeeBps() external view returns (uint256) {
+        return _s().creatorFeeBps;
     }
 
     function _authorizeUpgrade(
