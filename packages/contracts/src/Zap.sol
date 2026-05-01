@@ -249,7 +249,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // leftover below `MIN_USDC_AMOUNT`).
         uint256 ltLeft = ltMinted - amountInUsed;
         if (ltLeft > 0) {
-            IERC20(lt).forceApprove(lt, ltLeft);
             try IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {}
             catch {
                 IERC20(lt).safeTransfer(msg.sender, ltLeft);
@@ -289,7 +288,6 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         if (grossUsdcEstimate < MIN_USDC_AMOUNT) revert BelowMinAmount();
 
         // Redeem into this zap (not the user) so we can deduct the fee.
-        IERC20(lt).forceApprove(lt, ltReceived);
         uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
         uint256 fee = (grossUsdc * sellFeeBps) / BPS_DENOM;
@@ -352,6 +350,7 @@ contract Zap is UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
         // `msg.sender` here is the user-EOA that called `Zap.buy`; passed
         // through as `trader` for the emitted `Trade` event.
         (tokensOut, amountInUsed) = bonding.buy(ltAmount, tokenAddress, 0, msg.sender);
+        IERC20(lt).forceApprove(address(curveRouter), 0);
     }
 
     function _sellOnCurve(
