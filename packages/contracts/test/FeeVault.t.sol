@@ -279,10 +279,20 @@ contract FeeVaultTest is Test {
         assertEq(vault.protocolBalance(), 0);
     }
 
-    function test_claimProtocol_onlyOwner() public {
+    function test_claimProtocol_permissionless() public {
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 100 ether);
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), creator, 20 ether, 80 ether, false);
+
+        // A stranger triggers the payout; funds still go to the admin-set feeTo.
         vm.prank(stranger);
-        vm.expectRevert();
-        vault.claimProtocol();
+        uint256 claimed = vault.claimProtocol();
+
+        assertEq(claimed, 80 ether);
+        assertEq(usdc.balanceOf(feeTo), 80 ether);
+        assertEq(usdc.balanceOf(stranger), 0);
+        assertEq(vault.protocolBalance(), 0);
     }
 
     function test_claimProtocol_revertsWhenEmpty() public {
@@ -330,11 +340,16 @@ contract FeeVaultTest is Test {
         vault.sweepDonations();
     }
 
-    function test_sweepDonations_onlyOwner() public {
+    function test_sweepDonations_permissionless() public {
         usdc.mint(address(vault), 50 ether);
+
+        // A stranger triggers the sweep; funds still go to the admin-set feeTo.
         vm.prank(stranger);
-        vm.expectRevert();
-        vault.sweepDonations();
+        uint256 swept = vault.sweepDonations();
+
+        assertEq(swept, 50 ether);
+        assertEq(usdc.balanceOf(feeTo), 50 ether);
+        assertEq(usdc.balanceOf(stranger), 0);
     }
 
     function test_sweepDonations_unmasksUnderfundedAccrual() public {
