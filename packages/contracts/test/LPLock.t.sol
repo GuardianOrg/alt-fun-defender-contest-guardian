@@ -70,7 +70,7 @@ contract LPLockTest is Test {
     }
 
     function test_addLocker_revertsOnZeroAddress() public {
-        vm.expectRevert(LPLock.NotAuthorized.selector);
+        vm.expectRevert(LPLock.ZeroAddress.selector);
         lpLock.addLocker(address(0));
     }
 
@@ -80,9 +80,15 @@ contract LPLockTest is Test {
     }
 
     function test_setLocker_hasNoLiveSetter() public {
+        // Owner `call` (not `staticcall`) with non-zero args: a missing
+        // selector hits the empty fallback and returns no revert data, while
+        // a reintroduced setter would revert with a typed error or a 4-byte
+        // selector and trip the `revertData.length` assertion.
         bytes4 setLockerSelector = bytes4(keccak256("setLocker(address,bool)"));
-        (bool ok,) = address(lpLock).call(abi.encodeWithSelector(setLockerSelector, bonding, false));
+        (bool ok, bytes memory revertData) =
+            address(lpLock).call(abi.encodeWithSelector(setLockerSelector, bonding, false));
         assertFalse(ok, "setLocker must not exist on LPLock");
+        assertEq(revertData.length, 0, "setLocker reverted with data -- selector still routes");
     }
 
     // ─── recordLock ──────────────────────────────────────────────────────

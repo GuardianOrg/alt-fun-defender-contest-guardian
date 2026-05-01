@@ -639,9 +639,14 @@ contract ZapTest is DeployHelper {
     // see the natspec on the storage slot in `Zap.sol`. Migrating to a
     // different HyperSwap fork requires a UUPS upgrade.
     function test_uniswapV2Router_hasNoLiveSetter() public {
+        // Owner `call` (not `staticcall`) with non-zero args: a missing
+        // selector hits the empty fallback and returns no revert data, while
+        // a reintroduced setter would revert with a typed error or a 4-byte
+        // selector and trip the `revertData.length` assertion.
         bytes4 selector = bytes4(keccak256("setUniswapV2Router(address)"));
-        (bool ok,) = address(zap).call(abi.encodeWithSelector(selector, address(1)));
+        (bool ok, bytes memory revertData) = address(zap).call(abi.encodeWithSelector(selector, address(1)));
         assertFalse(ok, "setUniswapV2Router must not exist on Zap");
+        assertEq(revertData.length, 0, "setUniswapV2Router reverted with data -- selector still routes");
     }
 
     // ─── UUPS Upgrade ────────────────────────────────────────────────────

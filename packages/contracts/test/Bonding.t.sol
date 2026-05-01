@@ -920,11 +920,18 @@ contract BondingTest is DeployHelper {
     // requires a UUPS upgrade so the change is visible on-chain ahead of
     // time and cannot brick or silently reroute any in-flight graduation.
 
-    function test_uniswapV2Factory_hasNoLiveSetter() public view {
+    function test_uniswapV2Factory_hasNoLiveSetter() public {
         // `setUniswapV2(address,address)` selector — must not exist on the proxy.
+        // Use a normal `call` from the owner with non-zero args: `staticcall`
+        // would also revert against a state-mutating setter and could mask its
+        // reintroduction. A missing selector hits the empty fallback and
+        // returns no revert data; a reintroduced setter would revert with a
+        // typed error or a 4-byte selector, which we detect via revertData.
         bytes4 setUniswapV2Selector = bytes4(keccak256("setUniswapV2(address,address)"));
-        (bool ok,) = address(bonding).staticcall(abi.encodeWithSelector(setUniswapV2Selector, address(0), address(0)));
+        (bool ok, bytes memory revertData) =
+            address(bonding).call(abi.encodeWithSelector(setUniswapV2Selector, address(1), address(2)));
         assertFalse(ok, "setUniswapV2 must not exist on Bonding");
+        assertEq(revertData.length, 0, "setUniswapV2 reverted with data -- selector still routes");
     }
 
     // ─── Graduation Threshold Initialisation Tests ───────────────────────

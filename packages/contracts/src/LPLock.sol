@@ -36,6 +36,7 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
     error InsufficientLPBalance();
     error AlreadyLocked();
     error LockerAlreadyAdded();
+    error ZeroAddress();
 
     constructor() {
         _disableInitializers();
@@ -65,7 +66,7 @@ contract LPLock is UUPSUpgradeable, OwnableUpgradeable {
     function addLocker(
         address locker
     ) external onlyOwner {
-        if (locker == address(0)) revert NotAuthorized();
+        if (locker == address(0)) revert ZeroAddress();
         if (isLocker[locker]) revert LockerAlreadyAdded();
         isLocker[locker] = true;
         emit LockerAdded(locker);
