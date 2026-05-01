@@ -61,10 +61,10 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 
 Dual trigger — fires on whichever hits first:
 
-- **USD trigger:** `(storedAssetReserve - virtualLtReserve) × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold).
-- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached).
+- **USD trigger:** `(storedAssetReserve - virtualLtReserve) × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold). Reads the pair's STORED reserves; the launch-time `virtualLtReserve` is recovered on-the-fly as `Pair.k() / Token.TOTAL_SUPPLY()` because `_pool.k = totalSupply * virtualLtReserve` is locked in at `Pair.mint` and never modified by swaps.
+- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached). This IS a live `balanceOf` read but is donation-resistant in the opposite direction — token donations can only INCREASE the balance and can never satisfy `== 0`. Any donated tokens are unconditionally burned by `_prepareGraduationLiquidity`.
 
-Both triggers read STORED reserves, never live `IERC20.balanceOf` — direct LT donations to the pair don't count toward graduation and don't enter the LP. Checked in `Bonding.canGraduate()` on every buy; executed in `Bonding._graduate()` immediately when true.
+Direct LT donations to the pair don't count toward the USD threshold and don't enter the LP — they stay in the curve pair under the trust assumption that `BONDING_ROLE` is only ever held by `Bonding`. Checked in `Bonding.canGraduate()` on every buy; executed in `Bonding._graduate()` immediately when true.
 
 ### Dynamic LP Seeding (zero price gap)
 
@@ -76,7 +76,7 @@ Our approach: compute the exact `tokensForLP` at graduation time so the LP opens
 
 1. Read `(reserve0, reserve1)` from the Pair **before** any state mutation.
 2. Burn any unsold real curve tokens from the pair (`unsoldBurned`). This also burns any tokens donated to the pair via direct ERC20 transfer.
-3. Compute `ltFromPair = reserve1 - virtualLtReserve` — the real LT raised by the curve, excluding the launch-time virtual seed AND any LT donated to the pair. Drain exactly that amount via `Router.graduate(token, ltFromPair)`. Donated LT remains locked in the curve pair forever (only `Router` can call `Pair.transferAsset`, and it has no drain path post-graduation).
+3. Recover `virtualLtReserve = Pair.k() / Token.TOTAL_SUPPLY()` and compute `ltFromPair = reserve1 - virtualLtReserve` — the real LT raised by the curve, excluding the launch-time virtual seed AND any LT donated to the pair. Drain exactly that amount via `Router.graduate(token, ltFromPair)`. Donated LT remains in the curve pair, reachable only via `Pair.transferAsset` which is gated by `Router`'s `BONDING_ROLE`.
 4. Compute `tokensForLP = (ltFromPair × reserve0) / reserve1` — the unique amount that sets the LP price `ltFromPair / tokensForLP` equal to the last curve price `reserve1 / reserve0`. Capped at `lpReserveTotal` as a defensive guard (parabola math proves `tokensForLP ≤ lpReserveTotal` by construction).
 5. Burn `lpReserveTotal − tokensForLP` from `Bonding`'s held reserve (`lpBurned`).
 6. `addLiquidity(tokensForLP, ltFromPair)` on HyperSwap V2 → LP tokens go to `LPLock`.

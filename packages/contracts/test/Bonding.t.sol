@@ -961,45 +961,6 @@ contract BondingTest is DeployHelper {
         bonding.setUniswapV2(address(hyperswapFactory), newLpLock);
     }
 
-    // ─── migrateVirtualLtReserve Tests ───────────────────────────────────
-    //
-    // One-shot owner-only writer used during the proxy upgrade that
-    // introduced `TokenInfo.virtualLtReserve`. New launches populate the
-    // slot in `launch()` so the guards here primarily protect operator-error
-    // paths during migration of legacy in-flight tokens.
-
-    function test_migrateVirtualLtReserve_onlyOwner() public {
-        (address tokenAddr,) = _launchTokenNoSeed();
-        vm.prank(trader);
-        vm.expectRevert();
-        bonding.migrateVirtualLtReserve(tokenAddr, 1 ether);
-    }
-
-    function test_migrateVirtualLtReserve_revertsForUnknownToken() public {
-        address unknown = makeAddr("never-launched");
-        vm.expectRevert(Bonding.TokenNotTrading.selector);
-        bonding.migrateVirtualLtReserve(unknown, 1 ether);
-    }
-
-    function test_migrateVirtualLtReserve_revertsIfAlreadyMigrated() public {
-        (address tokenAddr,) = _launchTokenNoSeed();
-        // Fresh launches already have `virtualLtReserve != 0` from `launch()`,
-        // so any migration call must revert. This is the idempotency guard
-        // that prevents a one-shot writer from being weaponised against an
-        // already-migrated token.
-        vm.expectRevert(Bonding.InvalidInput.selector);
-        bonding.migrateVirtualLtReserve(tokenAddr, 1 ether);
-    }
-
-    function test_migrateVirtualLtReserve_revertsOnZeroValue() public {
-        address unknown = makeAddr("never-launched-2");
-        // Even an unknown token short-circuits via `TokenNotTrading`, so this
-        // also serves as a reachability check for the zero-value guard at
-        // the public-API surface.
-        vm.expectRevert(Bonding.TokenNotTrading.selector);
-        bonding.migrateVirtualLtReserve(unknown, 0);
-    }
-
     // ─── Graduation Threshold Initialisation Tests ───────────────────────
     //
     // `graduationThresholdUsd` is set once at `initialize` time and has no

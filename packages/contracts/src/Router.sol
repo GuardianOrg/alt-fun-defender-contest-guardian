@@ -171,9 +171,18 @@ contract Router is Initializable, AccessControlUpgradeable {
     /// @dev    Donation-resistant: passing an explicit `amount` instead of
     ///         draining `assetBalance()` ensures any LT that was donated
     ///         directly to the pair via `IERC20.transfer` is left behind and
-    ///         excluded from LP seeding. The leftover is effectively burned —
-    ///         after graduation, only `Router` can call `Pair.transferAsset`,
-    ///         and `Router` has no code path to drain a graduated pair.
+    ///         excluded from LP seeding.
+    ///
+    ///         "Locked" here is a trust-assumption claim, not an on-chain
+    ///         guarantee. `Pair.transferAsset` is gated by `onlyRouter`, and
+    ///         `Router` only exposes it via this function and `sell`. Both
+    ///         require `BONDING_ROLE`, which only `Bonding` holds. `Bonding`
+    ///         in turn only calls `graduate` from
+    ///         `_prepareGraduationLiquidity` — which is unreachable once the
+    ///         token's lifecycle has flipped past `Curve`. So the leftover
+    ///         is unreachable as long as (a) `BONDING_ROLE` is not granted
+    ///         to any other address, and (b) future `Bonding` upgrades
+    ///         preserve the lifecycle gate.
     function graduate(
         address token,
         uint256 amount

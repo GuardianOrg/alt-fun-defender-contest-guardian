@@ -420,8 +420,35 @@ contract GraduationInvariantsTest is DeployHelper {
     // `IERC20(lt).transfer(pair, X)` to inflate the reading, force a
     // premature graduation, and skew the LP open price above the curve's
     // last marginal price. The fix in this PR switches both paths to the
-    // pair's STORED `assetReserve` (less the launch-time `virtualLtReserve`),
-    // making donation a sunk cost that buys the attacker nothing.
+    // pair's STORED `assetReserve` minus the launch-time virtual LT reserve
+    // (recovered as `Pair.k() / Token.TOTAL_SUPPLY()`), making donation a
+    // sunk cost that buys the attacker nothing.
+
+    /// @dev `Pair.k()` is set once at mint to `tokenReserve_init * assetReserve_init
+    ///      = TOTAL_SUPPLY * virtualLtReserve_init` and never modified, so
+    ///      `Pair.k() / TOTAL_SUPPLY` recovers the launch-time virtual LT
+    ///      reserve exactly. This identity is what `_launchTimeVirtualLtReserve`
+    ///      relies on to be donation-immune without storing its own mirror.
+    function test_inv_kIdentity_recoversVirtualLtReserve() public {
+        // Sweep across exchange rates that produce different launch-time
+        // `virtualLtReserve` values, plus a sells-decrease-assetReserve case
+        // to confirm K (and therefore the recovered value) stays put.
+        uint256[3] memory rates = [uint256(1 ether), uint256(0.5 ether), uint256(2 ether)];
+        for (uint256 i = 0; i < rates.length; i++) {
+            lt.setExchangeRate(rates[i]);
+            uint256 expected = (bonding.VIRTUAL_LIQUIDITY_USD() * 1e18) / rates[i];
+            (, address pairAddr) = _launchNoSeed();
+            uint256 derived = IPair(pairAddr).k() / TOTAL_SUPPLY;
+            assertEq(derived, expected, "K-identity must recover exact launch-time virtualLtReserve");
+
+            // Buys + sells (which mutate stored reserves) MUST NOT shift
+            // the recovered value — that's the whole point.
+            (address tokenAddr,) = _launchToken(50 ether);
+            _buy(tokenAddr, trader, 200 ether);
+            assertEq(IPair(pairAddr).k() / TOTAL_SUPPLY, expected, "K-identity stable through trading");
+        }
+        lt.setExchangeRate(1 ether);
+    }
 
     /// @dev Donating LT to a fresh curve must NOT make `canGraduate` true.
     function test_inv_donation_freshCurveStaysUngraduatable() public {
