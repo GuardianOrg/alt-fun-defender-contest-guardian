@@ -51,7 +51,6 @@ export default function SearchResultsList({
           const vanityTier = tierFor(t.address);
           const row = (
             <div
-              key={t.address}
               data-result-index={i}
               className={cn(
                 styles.resultRow,

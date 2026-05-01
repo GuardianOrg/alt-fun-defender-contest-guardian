@@ -41,11 +41,6 @@ function resolveTier(props: VanityEffectProps): VanityTier {
 }
 
 /**
- * Hook: returns true whenever the wrapped element is at least partially
- * in the viewport. Used to gate expensive particle effects so a
- * 50-token homepage list doesn't fire 50 emitters off-screen.
- */
-/**
  * Returns whether the wrapped element is currently in (or near) the
  * viewport. Defaults to `true` so high-tier effects render
  * immediately on mount; the observer only flips it to `false` if the
