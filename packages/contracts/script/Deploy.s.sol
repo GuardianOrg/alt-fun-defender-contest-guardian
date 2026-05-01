@@ -90,8 +90,8 @@ contract Deploy is Script {
         factory.grantRole(factory.BONDING_ROLE(), bondingProxy);
         router.grantRole(router.BONDING_ROLE(), bondingProxy);
         LPLock(lpLockProxy).setLocker(bondingProxy, true);
-        Bonding(bondingProxy).addRouter(zapProxy);
         FeeVault(feeVaultProxy).addDepositor(zapProxy);
+        Bonding(bondingProxy).addRouter(zapProxy);
 
         console.log("--- Deployment complete ---");
         console.log("USDC:", USDC);
