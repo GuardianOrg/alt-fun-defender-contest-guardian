@@ -375,6 +375,31 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
     }
 
+    /// @dev Regression for issue #313. The sell-side guard compares an
+    ///      18-dp gross USD estimate to the 6-dp `MIN_USDC_AMOUNT`, so it
+    ///      must normalise scales before comparing. Without normalisation,
+    ///      sells whose 18-dp estimate sits between `1e7` (the raw
+    ///      `MIN_USDC_AMOUNT` literal) and `1e19` ($10 in 18dp) bypass the
+    ///      guard on mainnet, and the LT then reverts with the undecodable
+    ///      `0x05eb05ac` selector instead.
+    function test_sell_belowMinAmount_normalisesDecimalScale() public {
+        address tokenAddr = _createToken(0);
+        uint256 tokensOut = _buyViaRouter(tokenAddr, trader, _smallBuyUsdc());
+
+        // Sell a tiny slice (~0.1% of holdings). At default exchangeRate
+        // (1e18 = $1/LT), this yields well under $10 worth of LT. With
+        // 18-dp mock USDC, `grossUsdcEstimate` lands in the dead zone the
+        // un-normalised guard misses (>> 1e7, but < 1e19). The fix divides
+        // by 1e12 first, so the sub-`$10` sell is rejected up front.
+        uint256 sellAmount = tokensOut / 1000;
+
+        vm.startPrank(trader);
+        Token(tokenAddr).approve(address(zap), sellAmount);
+        vm.expectRevert(Zap.BelowMinAmount.selector);
+        zap.sell(tokenAddr, sellAmount, 0);
+        vm.stopPrank();
+    }
+
     function test_buy_emitsLeftoverLTReturnedOnRedeemFailure() public {
         address tokenAddr = _createToken(0);
 
@@ -686,7 +711,11 @@ contract ZapTest is DeployHelper {
     function testFuzz_roundTrip_neverProfits(
         uint256 usdcAmount
     ) public {
-        usdcAmount = bound(usdcAmount, 1 ether, _mediumBuyUsdc());
+        // Lower bound clears the `$10` `MIN_USDC_AMOUNT` floor on both the
+        // buy AND the sell side — the round-trip nets ~`$0.50` to fees +
+        // slippage, so `$11` in is enough to keep the sell-side gross
+        // estimate above the floor.
+        usdcAmount = bound(usdcAmount, 11 ether, _mediumBuyUsdc());
         address tokenAddr = _createToken(0);
 
         uint256 tokensOut = _buyViaRouter(tokenAddr, trader, usdcAmount);
