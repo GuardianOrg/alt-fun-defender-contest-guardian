@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import styles from "./VanityEffect.module.css";
 import { tierFor, tierForZeros, type VanityTier } from "../../utils/vanityTier";
@@ -103,6 +103,27 @@ export default function VanityEffect(props: VanityEffectProps) {
   const inView = useInView(ref);
   const reducedMotion = usePrefersReducedMotion();
 
+  /**
+   * Mirror the child's computed `border-radius` onto the wrapper so the
+   * tier border (`::before`, which uses `border-radius: inherit`) hugs
+   * the child precisely. Without this, every consumer would have to
+   * remember to set a matching radius on the wrapper.
+   *
+   * Using a callback ref so the radius is applied synchronously on
+   * mount — no first-frame flash with square corners on a rounded
+   * child.
+   */
+  const setRef = useCallback((el: HTMLDivElement | null) => {
+    ref.current = el;
+    if (!el) return;
+    const child = el.firstElementChild as HTMLElement | null;
+    if (!child) return;
+    const radius = window.getComputedStyle(child).borderRadius;
+    if (radius && radius !== "0px") {
+      el.style.borderRadius = radius;
+    }
+  }, []);
+
   const showParticles
     = tier.effect === "particles" && inView && !reducedMotion;
 
@@ -141,7 +162,7 @@ export default function VanityEffect(props: VanityEffectProps) {
     .join(" ");
 
   return (
-    <div ref={ref} className={className}>
+    <div ref={setRef} className={className}>
       {props.children}
       {showParticles && (
         <Suspense fallback={null}>

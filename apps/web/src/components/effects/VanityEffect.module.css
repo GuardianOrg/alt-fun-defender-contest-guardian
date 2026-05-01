@@ -17,6 +17,11 @@
  * Lower tiers (bronze → diamond) are pure CSS. Higher tiers
  * (lightning+) compose the same border CSS plus a particle overlay
  * (rendered by `VanityParticles`).
+ *
+ * The wrapper inherits its `border-radius` from the wrapped child via a
+ * JS measurement in `VanityEffect.tsx` (writes `style.borderRadius`),
+ * so the tier border always hugs the child precisely. The ::before /
+ * ::after pseudo elements use `border-radius: inherit` to pick that up.
  */
 
 /* ─── Base wrapper ─────────────────────────────────────────────────── */
@@ -46,15 +51,50 @@
 }
 
 /*
- * Row-size effects sit *inside* the row's bounding box (inset: 0) so a
- * vertical list of tier-bronze rows doesn't bleed into its neighbours.
- * Card / button / hero get a small outset for prominence (handled
- * inline in each tier rule below).
+ * Universal ::before / ::after tier-border attachment. Keeping these
+ * in one place means every tier picks up the same anchor styling and
+ * we only override the gradient + animation per tier below.
+ *
+ * `inset: 0` for all sizes so the border sits flush with the child;
+ * a vertical list of tier rows doesn't bleed into its neighbours.
+ * `padding` sets the visible border thickness; the `mask` trick
+ * carves out the centre so only the padded ring is painted.
  */
-.row::before,
-.row::after {
-  inset: 0 !important;
+.bronze::before, .silver::before, .gold::before, .platinum::before,
+.diamond::before, .lightning::before, .inferno::before, .obsidian::before,
+.cosmic::before, .singularity::before,
+.bronze::after, .silver::after, .gold::after, .platinum::after,
+.diamond::after, .lightning::after, .inferno::after, .obsidian::after,
+.cosmic::after, .singularity::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
 }
+
+.bronze::before, .silver::before, .gold::before, .platinum::before,
+.diamond::before, .lightning::before, .inferno::before, .obsidian::before,
+.cosmic::before, .singularity::before {
+  /* Border thickness — defaults; overridden per tier where needed. */
+  padding: 1.5px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Force tier wrappers to be relative so the pseudos anchor correctly. */
+.bronze, .silver, .gold, .platinum, .diamond,
+.lightning, .inferno, .obsidian, .cosmic, .singularity {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Hero variant: a touch thicker border for visual prominence. */
+.hero::before { padding: 2px; }
+/* Icon variant: thinner so it doesn't overwhelm a 32px chip. */
+.icon::before { padding: 1.5px; }
 
 /* ─── Shared keyframes ─────────────────────────────────────────────── */
 
@@ -82,115 +122,46 @@
 
 /* ─── Bronze: subtle warm metallic border ──────────────────────────── */
 
-.bronze {
-  --tier-color: #c87f3a;
-  --tier-color-soft: rgba(200, 127, 58, 0.45);
-}
-
-.bronze.row,
-.bronze.card,
-.bronze.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.bronze.row::before,
-.bronze.card::before,
-.bronze.button::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
+.bronze::before {
   background: linear-gradient(
     135deg,
     rgba(200, 127, 58, 0.1) 0%,
-    rgba(200, 127, 58, 0.7) 50%,
+    rgba(200, 127, 58, 0.85) 50%,
     rgba(200, 127, 58, 0.1) 100%
   );
   background-size: 200% 200%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: shimmer 6s linear infinite;
-  z-index: 0;
 }
 
-.bronze.icon,
-.bronze.hero {
+.bronze::after {
   box-shadow:
-    0 0 0 1px rgba(200, 127, 58, 0.7),
-    0 0 12px rgba(200, 127, 58, 0.45);
-  border-radius: inherit;
+    0 0 12px rgba(200, 127, 58, 0.45),
+    inset 0 0 8px rgba(200, 127, 58, 0.1);
 }
 
-/* ─── Silver: cool shimmer rotation ────────────────────────────────── */
+/* ─── Silver: cool conic shimmer rotation ──────────────────────────── */
 
-.silver {
-  --tier-color: #c8d0d8;
-  --tier-color-soft: rgba(200, 208, 216, 0.5);
-}
-
-.silver.row,
-.silver.card,
-.silver.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.silver.row::before,
-.silver.card::before,
-.silver.button::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
+.silver::before {
   background: conic-gradient(
     from 0deg,
     rgba(200, 208, 216, 0.15),
-    rgba(255, 255, 255, 0.85),
-    rgba(160, 180, 200, 0.4),
-    rgba(255, 255, 255, 0.85),
+    rgba(255, 255, 255, 0.95),
+    rgba(160, 180, 200, 0.45),
+    rgba(255, 255, 255, 0.95),
     rgba(200, 208, 216, 0.15)
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: spin 8s linear infinite;
 }
 
-.silver.icon,
-.silver.hero {
+.silver::after {
   box-shadow:
-    0 0 0 1.5px rgba(220, 230, 240, 0.85),
-    0 0 14px rgba(180, 200, 220, 0.5);
-  border-radius: inherit;
+    0 0 14px rgba(180, 200, 220, 0.5),
+    inset 0 0 6px rgba(180, 200, 220, 0.1);
 }
 
 /* ─── Gold: pulsing border + soft glow ─────────────────────────────── */
 
-.gold {
-  --tier-color: #ffd24d;
-  --tier-color-soft: rgba(255, 210, 77, 0.55);
-}
-
-.gold.row,
-.gold.card,
-.gold.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.gold.row::before,
-.gold.card::before,
-.gold.button::before {
-  content: "";
-  position: absolute;
-  inset: -1.5px;
-  border-radius: inherit;
+.gold::before {
   padding: 1.5px;
   background: linear-gradient(
     120deg,
@@ -199,57 +170,19 @@
     rgba(255, 210, 77, 0.4) 100%
   );
   background-size: 250% 250%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: shimmer 4s linear infinite;
 }
 
-.gold.row::after,
-.gold.card::after,
-.gold.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.gold::after {
   box-shadow:
-    0 0 14px rgba(255, 210, 77, 0.6),
+    0 0 16px rgba(255, 210, 77, 0.7),
     inset 0 0 14px rgba(255, 210, 77, 0.18);
-  animation: pulseGlow 2.4s ease-in-out infinite;
-}
-
-.gold.icon,
-.gold.hero {
-  box-shadow:
-    0 0 0 2px rgba(255, 210, 77, 0.9),
-    0 0 18px rgba(255, 210, 77, 0.6);
-  border-radius: inherit;
   animation: pulseGlow 2.4s ease-in-out infinite;
 }
 
 /* ─── Platinum: chrome with animated mask shimmer ─────────────────── */
 
-.platinum {
-  --tier-color: #e0f0ff;
-  --tier-color-soft: rgba(224, 240, 255, 0.55);
-}
-
-.platinum.row,
-.platinum.card,
-.platinum.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.platinum.row::before,
-.platinum.card::before,
-.platinum.button::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
+.platinum::before {
   padding: 2px;
   background: linear-gradient(
     100deg,
@@ -260,55 +193,18 @@
     #b8d4f0 100%
   );
   background-size: 300% 100%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: shimmer 3.5s linear infinite;
 }
 
-.platinum.row::after,
-.platinum.card::after,
-.platinum.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.platinum::after {
   box-shadow:
-    0 0 18px rgba(192, 224, 255, 0.7),
-    inset 0 0 18px rgba(192, 224, 255, 0.2);
-}
-
-.platinum.icon,
-.platinum.hero {
-  box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.95),
-    0 0 22px rgba(192, 224, 255, 0.7);
-  border-radius: inherit;
+    0 0 20px rgba(192, 224, 255, 0.75),
+    inset 0 0 18px rgba(192, 224, 255, 0.22);
 }
 
 /* ─── Diamond: prismatic conic gradient (holographic) ─────────────── */
 
-.diamond {
-  --tier-color: #ffffff;
-  --tier-color-soft: rgba(255, 255, 255, 0.55);
-}
-
-.diamond.row,
-.diamond.card,
-.diamond.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.diamond.row::before,
-.diamond.card::before,
-.diamond.button::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
+.diamond::before {
   padding: 2px;
   background: conic-gradient(
     from 0deg,
@@ -319,22 +215,11 @@
     #b66dff,
     #ff61b6
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: spin 6s linear infinite;
-  filter: saturate(1.2);
+  filter: saturate(1.3);
 }
 
-.diamond.row::after,
-.diamond.card::after,
-.diamond.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.diamond::after {
   background: linear-gradient(
     115deg,
     transparent 30%,
@@ -346,39 +231,14 @@
   background-size: 250% 100%;
   animation: shimmer 4s linear infinite;
   mix-blend-mode: overlay;
-}
-
-.diamond.icon,
-.diamond.hero {
   box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.9),
-    0 0 22px rgba(180, 200, 255, 0.7),
-    0 0 44px rgba(255, 100, 200, 0.35);
-  border-radius: inherit;
-  animation: pulseGlow 3s ease-in-out infinite;
+    0 0 20px rgba(180, 200, 255, 0.65),
+    0 0 40px rgba(255, 100, 200, 0.3);
 }
 
-/* ─── Lightning: electric blue/white border (paired with particles) ── */
+/* ─── Lightning: electric blue/white border ───────────────────────── */
 
-.lightning {
-  --tier-color: #6ed8ff;
-  --tier-color-soft: rgba(110, 216, 255, 0.65);
-}
-
-.lightning.row,
-.lightning.card,
-.lightning.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.lightning.row::before,
-.lightning.card::before,
-.lightning.button::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
+.lightning::before {
   padding: 2px;
   background: linear-gradient(
     90deg,
@@ -389,58 +249,19 @@
     #1a3050 100%
   );
   background-size: 250% 100%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: shimmer 1.8s linear infinite, flicker 0.7s steps(2, end) infinite;
 }
 
-.lightning.row::after,
-.lightning.card::after,
-.lightning.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.lightning::after {
   box-shadow:
     0 0 18px rgba(110, 216, 255, 0.85),
     inset 0 0 14px rgba(110, 216, 255, 0.25);
   animation: flicker 0.9s steps(2, end) infinite;
 }
 
-.lightning.icon,
-.lightning.hero {
-  box-shadow:
-    0 0 0 2px #6ed8ff,
-    0 0 18px rgba(110, 216, 255, 0.9),
-    0 0 36px rgba(110, 216, 255, 0.4);
-  border-radius: inherit;
-  animation: flicker 1.1s steps(2, end) infinite;
-}
+/* ─── Inferno: fire red/orange/yellow ─────────────────────────────── */
 
-/* ─── Inferno: fire red/orange/yellow (paired with particles) ─────── */
-
-.inferno {
-  --tier-color: #ff7a3a;
-  --tier-color-soft: rgba(255, 122, 58, 0.65);
-}
-
-.inferno.row,
-.inferno.card,
-.inferno.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.inferno.row::before,
-.inferno.card::before,
-.inferno.button::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
+.inferno::before {
   padding: 2px;
   background: linear-gradient(
     90deg,
@@ -451,21 +272,10 @@
     #6e1a00 100%
   );
   background-size: 300% 100%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: shimmer 2.2s linear infinite;
 }
 
-.inferno.row::after,
-.inferno.card::after,
-.inferno.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.inferno::after {
   box-shadow:
     0 0 22px rgba(255, 122, 58, 0.85),
     0 0 44px rgba(255, 58, 0, 0.4),
@@ -473,98 +283,32 @@
   animation: flicker 1.3s ease-in-out infinite;
 }
 
-.inferno.icon,
-.inferno.hero {
-  box-shadow:
-    0 0 0 2px #ff7a3a,
-    0 0 22px rgba(255, 122, 58, 0.9),
-    0 0 44px rgba(255, 58, 0, 0.5);
-  border-radius: inherit;
-  animation: flicker 1.3s ease-in-out infinite;
-}
+/* ─── Obsidian: dark with cold sparks ─────────────────────────────── */
 
-/* ─── Obsidian: dark with cold sparks (paired with particles) ─────── */
-
-.obsidian {
-  --tier-color: #0a0a14;
-  --tier-color-soft: rgba(255, 255, 255, 0.55);
-}
-
-.obsidian.row,
-.obsidian.card,
-.obsidian.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.obsidian.row::before,
-.obsidian.card::before,
-.obsidian.button::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
+.obsidian::before {
   padding: 2px;
   background: linear-gradient(
     135deg,
     #000000 0%,
-    #1a1a2e 25%,
-    #404060 50%,
-    #1a1a2e 75%,
+    #1a1a2e 20%,
+    #5a5a8e 50%,
+    #1a1a2e 80%,
     #000000 100%
   );
   background-size: 250% 250%;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: shimmer 5s linear infinite;
 }
 
-.obsidian.row::after,
-.obsidian.card::after,
-.obsidian.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.obsidian::after {
   box-shadow:
-    0 0 14px rgba(0, 0, 0, 0.95),
-    0 0 32px rgba(40, 40, 80, 0.6),
+    0 0 16px rgba(0, 0, 0, 0.95),
+    0 0 36px rgba(60, 60, 100, 0.55),
     inset 0 0 18px rgba(0, 0, 0, 0.85);
 }
 
-.obsidian.icon,
-.obsidian.hero {
-  box-shadow:
-    0 0 0 2px rgba(20, 20, 30, 0.95),
-    0 0 16px rgba(0, 0, 0, 0.95),
-    0 0 32px rgba(80, 80, 120, 0.55);
-  border-radius: inherit;
-}
+/* ─── Cosmic: violet/cyan nebula ──────────────────────────────────── */
 
-/* ─── Cosmic: violet/cyan nebula (paired with stars particles) ────── */
-
-.cosmic {
-  --tier-color: #b66dff;
-  --tier-color-soft: rgba(182, 109, 255, 0.65);
-}
-
-.cosmic.row,
-.cosmic.card,
-.cosmic.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.cosmic.row::before,
-.cosmic.card::before,
-.cosmic.button::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
+.cosmic::before {
   padding: 2px;
   background: conic-gradient(
     from 0deg,
@@ -576,22 +320,11 @@
     #6e2dbb,
     #2a0a4a
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: spin 12s linear infinite;
-  filter: saturate(1.3);
+  filter: saturate(1.4);
 }
 
-.cosmic.row::after,
-.cosmic.card::after,
-.cosmic.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.cosmic::after {
   background: radial-gradient(
     ellipse at 30% 40%,
     rgba(182, 109, 255, 0.18),
@@ -608,37 +341,9 @@
   animation: pulseGlow 4s ease-in-out infinite;
 }
 
-.cosmic.icon,
-.cosmic.hero {
-  box-shadow:
-    0 0 0 2px rgba(182, 109, 255, 0.9),
-    0 0 22px rgba(182, 109, 255, 0.7),
-    0 0 44px rgba(77, 200, 255, 0.45);
-  border-radius: inherit;
-  animation: pulseGlow 4s ease-in-out infinite;
-}
+/* ─── Singularity: black hole / event horizon ─────────────────────── */
 
-/* ─── Singularity: black hole / event horizon (paired with vortex) ── */
-
-.singularity {
-  --tier-color: #ffffff;
-  --tier-color-soft: rgba(255, 255, 255, 0.85);
-}
-
-.singularity.row,
-.singularity.card,
-.singularity.button {
-  position: relative;
-  isolation: isolate;
-}
-
-.singularity.row::before,
-.singularity.card::before,
-.singularity.button::before {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: inherit;
+.singularity::before {
   padding: 3px;
   background: conic-gradient(
     from 0deg,
@@ -652,22 +357,11 @@
     #ff61b6 315deg,
     #ffffff 360deg
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
   animation: spin 4s linear infinite;
-  filter: saturate(1.5) brightness(1.2);
+  filter: saturate(1.6) brightness(1.2);
 }
 
-.singularity.row::after,
-.singularity.card::after,
-.singularity.button::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+.singularity::after {
   background: radial-gradient(
     circle at 50% 50%,
     transparent 50%,
@@ -680,80 +374,15 @@
   animation: pulseGlow 2.5s ease-in-out infinite;
 }
 
-.singularity.icon,
-.singularity.hero {
-  box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 1),
-    0 0 24px rgba(255, 255, 255, 0.85),
-    0 0 48px rgba(255, 97, 182, 0.6),
-    0 0 72px rgba(77, 200, 255, 0.45);
-  border-radius: inherit;
-  animation: pulseGlow 2.5s ease-in-out infinite;
-}
-
 /* ─── Reduced-motion override ──────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .bronze.row::before,
-  .bronze.card::before,
-  .bronze.button::before,
-  .silver.row::before,
-  .silver.card::before,
-  .silver.button::before,
-  .gold.row::before,
-  .gold.card::before,
-  .gold.button::before,
-  .gold.row::after,
-  .gold.card::after,
-  .gold.button::after,
-  .platinum.row::before,
-  .platinum.card::before,
-  .platinum.button::before,
-  .diamond.row::before,
-  .diamond.card::before,
-  .diamond.button::before,
-  .diamond.row::after,
-  .diamond.card::after,
-  .diamond.button::after,
-  .lightning.row::before,
-  .lightning.card::before,
-  .lightning.button::before,
-  .lightning.row::after,
-  .lightning.card::after,
-  .lightning.button::after,
-  .inferno.row::before,
-  .inferno.card::before,
-  .inferno.button::before,
-  .inferno.row::after,
-  .inferno.card::after,
-  .inferno.button::after,
-  .obsidian.row::before,
-  .obsidian.card::before,
-  .obsidian.button::before,
-  .cosmic.row::before,
-  .cosmic.card::before,
-  .cosmic.button::before,
-  .cosmic.row::after,
-  .cosmic.card::after,
-  .cosmic.button::after,
-  .singularity.row::before,
-  .singularity.card::before,
-  .singularity.button::before,
-  .singularity.row::after,
-  .singularity.card::after,
-  .singularity.button::after,
-  .gold.icon,
-  .gold.hero,
-  .diamond.icon,
-  .diamond.hero,
-  .lightning.icon,
-  .lightning.hero,
-  .inferno.icon,
-  .inferno.hero,
-  .cosmic.icon,
-  .cosmic.hero,
-  .singularity.icon,
-  .singularity.hero {
+  .bronze::before, .silver::before, .gold::before, .platinum::before,
+  .diamond::before, .lightning::before, .inferno::before, .obsidian::before,
+  .cosmic::before, .singularity::before,
+  .bronze::after, .silver::after, .gold::after, .platinum::after,
+  .diamond::after, .lightning::after, .inferno::after, .obsidian::after,
+  .cosmic::after, .singularity::after {
     animation: none !important;
     background-position: 50% 50% !important;
   }

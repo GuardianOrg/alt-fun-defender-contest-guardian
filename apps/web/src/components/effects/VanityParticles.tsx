@@ -14,8 +14,13 @@ import type { ISourceOptions } from "@tsparticles/engine";
  * component.
  *
  * Each preset is hand-tuned to compose with the matching CSS border so
- * the two layers reinforce each other (e.g. the inferno border's flicker
- * matches the ember plume rising out of the bottom).
+ * the two layers reinforce each other (e.g. the inferno border's
+ * flicker matches the ember plume rising out of the bottom).
+ *
+ * Particles are confined to the wrapper via `fullScreen.enable: false`
+ * + `position: absolute; inset: 0` on the host element. The `Particles`
+ * component creates its own canvas inside that overlay, sized to the
+ * wrapper's bounding box.
  */
 
 let engineReady: Promise<void> | null = null;
@@ -23,28 +28,22 @@ let engineReady: Promise<void> | null = null;
 /**
  * Lazy-initialise the tsparticles engine exactly once across the page.
  * Each tier registers its own preset bundle on first use; the engine
- * itself is shared. Subsequent `<VanityParticles>` mounts await the same
- * promise, so we never double-load presets.
+ * itself is shared. Subsequent `<VanityParticles>` mounts await the
+ * same promise, so we never double-load presets.
  */
 async function ensureEngine(tierId: VanityTierId): Promise<void> {
   if (!engineReady) {
     engineReady = initParticlesEngine(async (engine) => {
-      // The "slim" bundle isn't needed — the preset packages each pull in
-      // exactly the movers / shapers / interactions they require. We just
-      // load the presets we'll potentially use; that's roughly equivalent
-      // to ~20 plugins total but they're tree-shaken into separate
-      // chunks via dynamic import.
       const { loadFirePreset } = await import("@tsparticles/preset-fire");
       const { loadStarsPreset } = await import("@tsparticles/preset-stars");
       await loadFirePreset(engine);
       await loadStarsPreset(engine);
+    }).catch((err) => {
+      console.error("[VanityParticles] engine init failed", err);
+      throw err;
     });
   }
   await engineReady;
-  // Per-tier additional loaders could be plumbed here. For now, the
-  // hand-rolled configs (lightning, obsidian, singularity) reuse the
-  // generic shapes/movers already pulled in by the fire/stars presets,
-  // so no further loading is needed.
   void tierId;
 }
 
@@ -76,19 +75,16 @@ function isParticleTier(id: VanityTierId): id is ParticleTierId {
 }
 
 function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
-  // Density scales with the visual size of the wrapper. Smaller wrappers
-  // get fewer particles so a homepage row of icon-sized chips doesn't end
-  // up with hundreds of emitters.
+  // Particle counts scale with wrapper visual size. Smaller wrappers
+  // use fewer particles so a homepage row of icon-sized chips doesn't
+  // end up firing hundreds of emitters.
   const densityScale
-    = size === "icon" ? 0.4
-      : size === "row" ? 0.7
-        : size === "card" ? 0.9
-          : size === "button" ? 0.85
-            : 1; // hero
+    = size === "icon" ? 0.5
+      : size === "row" ? 0.85
+        : size === "card" ? 1.1
+          : size === "button" ? 1
+            : 1.3; // hero
 
-  // Common base — transparent background, no FPS limit (lets the browser
-  // throttle naturally), no full-screen takeover (we want it confined to
-  // the wrapper).
   const base: ISourceOptions = {
     fullScreen: { enable: false },
     background: { color: "transparent" },
@@ -99,31 +95,35 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
   };
 
   if (tierId === "lightning") {
+    // Bright cyan sparks ricocheting around with thin links between
+    // close particles, giving an "arcing electricity" feel. Higher
+    // particle count + stronger link visibility than the previous
+    // tuning so the effect shows up clearly even on a small chip.
     return {
       ...base,
       particles: {
-        number: { value: Math.round(20 * densityScale) },
-        color: { value: ["#6ed8ff", "#ffffff", "#a8e8ff"] },
+        number: { value: Math.round(35 * densityScale) },
+        color: { value: ["#6ed8ff", "#ffffff", "#a8e8ff", "#cdf2ff"] },
         shape: { type: "circle" },
         opacity: {
-          value: { min: 0.4, max: 1 },
+          value: { min: 0.6, max: 1 },
           animation: { enable: true, speed: 4, sync: false },
         },
-        size: { value: { min: 0.5, max: 2 } },
+        size: { value: { min: 1, max: 3 } },
         move: {
           enable: true,
-          speed: { min: 1, max: 3 },
+          speed: { min: 1.5, max: 4 },
           direction: "none",
           random: true,
           straight: false,
-          outModes: { default: "out" },
+          outModes: { default: "bounce" },
         },
         links: {
           enable: true,
-          distance: 60,
+          distance: 80,
           color: "#6ed8ff",
-          opacity: 0.6,
-          width: 1,
+          opacity: 0.85,
+          width: 1.2,
           triangles: { enable: false },
         },
       },
@@ -131,35 +131,68 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
   }
 
   if (tierId === "inferno") {
+    // Bottom-up ember plume. Hand-rolled rather than relying on the
+    // `preset: "fire"` config alone, because the preset assumes a
+    // full-screen container — overriding number / movement /
+    // emitter explicitly so the plume scales sensibly down to row
+    // size.
     return {
       ...base,
-      preset: "fire",
       particles: {
-        number: { value: Math.round(40 * densityScale) },
+        number: { value: 0 }, // emitter populates
+        color: { value: ["#ffd24d", "#ff7a3a", "#ff3a00", "#ffffff"] },
+        shape: { type: "circle" },
+        opacity: {
+          value: { min: 0.3, max: 0.95 },
+          animation: { enable: true, speed: 1.5, sync: false, startValue: "max", destroy: "min" },
+        },
+        size: {
+          value: { min: 1, max: 4 },
+          animation: { enable: true, speed: 4, startValue: "max", destroy: "min", sync: false },
+        },
         move: {
-          speed: { min: 1, max: 3 },
+          enable: true,
+          speed: { min: 2, max: 5 },
+          direction: "top",
+          random: false,
+          straight: false,
+          outModes: { default: "destroy" },
+        },
+        life: {
+          duration: { value: { min: 0.6, max: 1.4 } },
+          count: 1,
         },
       },
+      emitters: [
+        {
+          position: { x: 50, y: 100 },
+          rate: { delay: 0.08, quantity: Math.max(2, Math.round(3 * densityScale)) },
+          size: { width: 70, height: 0, mode: "percent" },
+        },
+      ],
     };
   }
 
   if (tierId === "obsidian") {
+    // Slow, sparse white motes drifting against the dark border.
+    // Bright contrast so they show up against any background.
     return {
       ...base,
       particles: {
-        number: { value: Math.round(30 * densityScale) },
-        color: { value: ["#ffffff", "#c0c0e0", "#e0e0ff"] },
+        number: { value: Math.round(40 * densityScale) },
+        color: { value: ["#ffffff", "#d8d8f0", "#a8a8d0"] },
         shape: { type: "circle" },
         opacity: {
-          value: { min: 0, max: 0.85 },
-          animation: { enable: true, speed: 1.5, sync: false, startValue: "min" },
+          value: { min: 0.1, max: 0.95 },
+          animation: { enable: true, speed: 1.2, sync: false, startValue: "min" },
         },
-        size: { value: { min: 0.3, max: 1.4 } },
+        size: { value: { min: 0.6, max: 2 } },
         move: {
           enable: true,
-          speed: { min: 0.2, max: 0.7 },
+          speed: { min: 0.3, max: 1 },
           direction: "none",
           random: true,
+          straight: false,
           outModes: { default: "out" },
         },
       },
@@ -167,55 +200,71 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
   }
 
   if (tierId === "cosmic") {
+    // Dense violet/cyan/magenta star field, slowly twinkling.
     return {
       ...base,
-      preset: "stars",
       particles: {
-        number: { value: Math.round(80 * densityScale) },
-        color: { value: ["#b66dff", "#4dc8ff", "#ff61b6", "#ffffff"] },
-        size: { value: { min: 0.5, max: 1.6 } },
-        move: { speed: { min: 0.1, max: 0.5 } },
+        number: { value: Math.round(120 * densityScale) },
+        color: { value: ["#b66dff", "#4dc8ff", "#ff61b6", "#ffffff", "#ffd24d"] },
+        shape: { type: "circle" },
+        opacity: {
+          value: { min: 0.2, max: 1 },
+          animation: { enable: true, speed: 2, sync: false },
+        },
+        size: { value: { min: 0.5, max: 2.2 } },
+        move: {
+          enable: true,
+          speed: { min: 0.1, max: 0.6 },
+          direction: "none",
+          random: true,
+          outModes: { default: "out" },
+        },
+        twinkle: {
+          particles: { enable: true, frequency: 0.05, opacity: 1 },
+        },
       },
     };
   }
 
-  // singularity: vortex pulling particles toward the center
+  // Singularity: vortex pulling particles toward the centre, with
+  // colourful trails being consumed.
   return {
     ...base,
     particles: {
-      number: { value: Math.round(60 * densityScale) },
-      color: { value: ["#ffffff", "#ff61b6", "#b66dff", "#4dc8ff", "#ffd24d"] },
+      number: { value: 0 },
+      color: { value: ["#ffffff", "#ff61b6", "#b66dff", "#4dc8ff", "#ffd24d", "#ff7a3a"] },
       shape: { type: "circle" },
       opacity: {
-        value: { min: 0.4, max: 1 },
+        value: { min: 0.5, max: 1 },
         animation: { enable: true, speed: 2, sync: false },
       },
-      size: { value: { min: 0.4, max: 2 } },
+      size: {
+        value: { min: 0.6, max: 2.4 },
+        animation: { enable: true, speed: 3, startValue: "max", destroy: "min", sync: false },
+      },
       move: {
         enable: true,
-        speed: { min: 1, max: 4 },
+        speed: { min: 1.5, max: 4 },
         direction: "none",
         random: false,
         straight: false,
         outModes: { default: "destroy" },
         attract: {
           enable: true,
-          distance: 200,
-          rotate: { x: 600, y: 1200 },
+          distance: 250,
+          rotate: { x: 700, y: 1400 },
         },
+      },
+      life: {
+        duration: { value: { min: 1.2, max: 2.4 } },
+        count: 1,
       },
     },
     emitters: [
       {
         position: { x: 50, y: 50 },
-        rate: { delay: 0.1, quantity: 2 },
+        rate: { delay: 0.05, quantity: Math.max(2, Math.round(3 * densityScale)) },
         size: { width: 100, height: 100, mode: "percent" },
-        particles: {
-          move: {
-            angle: { value: 360, offset: 0 },
-            direction: "none",
-          },
-        },
       },
     ],
   };
@@ -223,12 +272,26 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
 
 export default function VanityParticles({ tierId, size }: Props) {
   const [ready, setReady] = useState(false);
+  // Stable per-instance id so multiple tier wrappers on the same page
+  // (e.g. the dev showcase, where one tier renders four times across
+  // row/hero/icon/button) don't collide on the tsparticles container
+  // id. Generated once on mount and cached for the lifetime of the
+  // component.
+  const [instanceId] = useState(() =>
+    Math.random().toString(36).slice(2, 10),
+  );
 
   useEffect(() => {
     let cancelled = false;
-    ensureEngine(tierId).then(() => {
-      if (!cancelled) setReady(true);
-    });
+    ensureEngine(tierId)
+      .then(() => {
+        if (!cancelled) setReady(true);
+      })
+      .catch(() => {
+        // Engine init failure is logged inside `ensureEngine`. The
+        // border + glow CSS still applies, so the user sees a
+        // tier-shaped chrome — particles are graceful-degradation.
+      });
     return () => {
       cancelled = true;
     };
@@ -244,7 +307,7 @@ export default function VanityParticles({ tierId, size }: Props) {
 
   return (
     <Particles
-      id={`vanity-${tierId}-${size}`}
+      id={`vanity-${tierId}-${size}-${instanceId}`}
       className={styles.particleOverlay}
       options={options}
     />

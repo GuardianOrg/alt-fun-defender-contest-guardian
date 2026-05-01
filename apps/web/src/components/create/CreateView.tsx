@@ -11,6 +11,7 @@ import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
+import { tierForZeros, VANITY_BASE_ZEROS } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
 
@@ -67,6 +68,26 @@ export default function CreateView() {
     }, delay);
     return () => clearTimeout(timer);
   }, [launchStep, tokenAddress, launchWarning, navigate]);
+
+  // Dev-only mining telemetry. Logs every status transition + every new
+  // best-tier hit so you can watch the bonus-mining loop progress while
+  // the create page is open. Strip if it gets noisy.
+  useEffect(() => {
+    console.log(
+      `[vanity] status=${vanity.status} attempts=${vanity.attempts.toLocaleString()} elapsed=${(vanity.elapsedMs / 1000).toFixed(1)}s`,
+    );
+  }, [vanity.status, vanity.attempts, vanity.elapsedMs]);
+
+  useEffect(() => {
+    if (!vanity.best) return;
+    const totalZeros = vanity.best.zeros;
+    const bonus = totalZeros - VANITY_BASE_ZEROS;
+    const tier = tierForZeros(totalZeros);
+    console.log(
+      `%c[vanity] new best  tier=${tier.label}  zeros=${totalZeros} (+${bonus} bonus)  address=${vanity.best.address}`,
+      "color: #4de8b4; font-weight: bold",
+    );
+  }, [vanity.best]);
 
   const handleSubmit = async () => {
     if (!isConnected) {
