@@ -1,0 +1,390 @@
+/*
+ * Vanity tier visual effects.
+ *
+ * Each tier × size combination produces a wrapper that paints a
+ * progressively rarer ambient effect around its child. The wrapper is
+ * `position: relative` and uses `::before` / `::after` pseudo-elements
+ * for the actual decoration so the consumer's layout doesn't shift when
+ * the tier changes.
+ *
+ * Sizes:
+ *   - `icon`: tight halo around a 32-48px token image
+ *   - `row`: full-width border + glow on a list row
+ *   - `hero`: large border + glow on the token detail avatar (~120px)
+ *   - `button`: animated border around the launch CTA
+ *   - `card`: same as `row` but tuned for the live preview's token card
+ *
+ * Lower tiers (bronze → diamond) are pure CSS. Higher tiers
+ * (lightning+) compose the same border CSS plus a particle overlay
+ * (rendered by `VanityParticles`).
+ *
+ * The wrapper inherits its `border-radius` from the wrapped child via a
+ * JS measurement in `VanityEffect.tsx` (writes `style.borderRadius`),
+ * so the tier border always hugs the child precisely. The ::before /
+ * ::after pseudo elements use `border-radius: inherit` to pick that up.
+ */
+
+/* ─── Base wrapper ─────────────────────────────────────────────────── */
+
+.wrapper {
+  position: relative;
+  display: contents;
+}
+
+.wrapperInline {
+  position: relative;
+  display: inline-flex;
+}
+
+.wrapperBlock {
+  position: relative;
+  display: block;
+}
+
+.particleOverlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/*
+ * Universal ::before / ::after tier-border attachment. Keeping these
+ * in one place means every tier picks up the same anchor styling and
+ * we only override the gradient + animation per tier below.
+ *
+ * `inset: 0` for all sizes so the border sits flush with the child;
+ * a vertical list of tier rows doesn't bleed into its neighbours.
+ * `padding` sets the visible border thickness; the `mask` trick
+ * carves out the centre so only the padded ring is painted.
+ */
+.bronze::before, .silver::before, .gold::before, .platinum::before,
+.diamond::before, .lightning::before, .inferno::before, .obsidian::before,
+.cosmic::before, .singularity::before,
+.bronze::after, .silver::after, .gold::after, .platinum::after,
+.diamond::after, .lightning::after, .inferno::after, .obsidian::after,
+.cosmic::after, .singularity::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.bronze::before, .silver::before, .gold::before, .platinum::before,
+.diamond::before, .lightning::before, .inferno::before, .obsidian::before,
+.cosmic::before, .singularity::before {
+  /* Border thickness — defaults; overridden per tier where needed. */
+  padding: 1.5px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Force tier wrappers to be relative so the pseudos anchor correctly. */
+.bronze, .silver, .gold, .platinum, .diamond,
+.lightning, .inferno, .obsidian, .cosmic, .singularity {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Hero variant: a touch thicker border for visual prominence. */
+.hero::before { padding: 2px; }
+/* Icon variant: thinner so it doesn't overwhelm a 32px chip. */
+.icon::before { padding: 1.5px; }
+
+/* ─── Shared keyframes ─────────────────────────────────────────────── */
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  20% { opacity: 0.85; }
+  45% { opacity: 0.95; }
+  70% { opacity: 0.78; }
+}
+
+/* ─── Bronze: subtle warm metallic border ──────────────────────────── */
+
+.bronze::before {
+  background: linear-gradient(
+    135deg,
+    rgba(200, 127, 58, 0.1) 0%,
+    rgba(200, 127, 58, 0.85) 50%,
+    rgba(200, 127, 58, 0.1) 100%
+  );
+  background-size: 200% 200%;
+  animation: shimmer 6s linear infinite;
+}
+
+.bronze::after {
+  box-shadow:
+    0 0 12px rgba(200, 127, 58, 0.45),
+    inset 0 0 8px rgba(200, 127, 58, 0.1);
+}
+
+/* ─── Silver: cool conic shimmer rotation ──────────────────────────── */
+
+.silver::before {
+  background: conic-gradient(
+    from 0deg,
+    rgba(200, 208, 216, 0.15),
+    rgba(255, 255, 255, 0.95),
+    rgba(160, 180, 200, 0.45),
+    rgba(255, 255, 255, 0.95),
+    rgba(200, 208, 216, 0.15)
+  );
+  animation: spin 8s linear infinite;
+}
+
+.silver::after {
+  box-shadow:
+    0 0 14px rgba(180, 200, 220, 0.5),
+    inset 0 0 6px rgba(180, 200, 220, 0.1);
+}
+
+/* ─── Gold: pulsing border + soft glow ─────────────────────────────── */
+
+.gold::before {
+  padding: 1.5px;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 210, 77, 0.4) 0%,
+    rgba(255, 230, 130, 1) 50%,
+    rgba(255, 210, 77, 0.4) 100%
+  );
+  background-size: 250% 250%;
+  animation: shimmer 4s linear infinite;
+}
+
+.gold::after {
+  box-shadow:
+    0 0 16px rgba(255, 210, 77, 0.7),
+    inset 0 0 14px rgba(255, 210, 77, 0.18);
+  animation: pulseGlow 2.4s ease-in-out infinite;
+}
+
+/* ─── Platinum: chrome with animated mask shimmer ─────────────────── */
+
+.platinum::before {
+  padding: 2px;
+  background: linear-gradient(
+    100deg,
+    #b8d4f0 0%,
+    #ffffff 25%,
+    #c0e0ff 50%,
+    #ffffff 75%,
+    #b8d4f0 100%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 3.5s linear infinite;
+}
+
+.platinum::after {
+  box-shadow:
+    0 0 20px rgba(192, 224, 255, 0.75),
+    inset 0 0 18px rgba(192, 224, 255, 0.22);
+}
+
+/* ─── Diamond: prismatic conic gradient (holographic) ─────────────── */
+
+.diamond::before {
+  padding: 2px;
+  background: conic-gradient(
+    from 0deg,
+    #ff61b6,
+    #ffd24d,
+    #4de8b4,
+    #4dc8ff,
+    #b66dff,
+    #ff61b6
+  );
+  animation: spin 6s linear infinite;
+  filter: saturate(1.3);
+}
+
+.diamond::after {
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.18) 45%,
+    rgba(255, 255, 255, 0.35) 50%,
+    rgba(255, 255, 255, 0.18) 55%,
+    transparent 70%
+  );
+  background-size: 250% 100%;
+  animation: shimmer 4s linear infinite;
+  mix-blend-mode: overlay;
+  box-shadow:
+    0 0 20px rgba(180, 200, 255, 0.65),
+    0 0 40px rgba(255, 100, 200, 0.3);
+}
+
+/* ─── Lightning: electric blue/white border ───────────────────────── */
+
+.lightning::before {
+  padding: 2px;
+  background: linear-gradient(
+    90deg,
+    #1a3050 0%,
+    #6ed8ff 20%,
+    #ffffff 50%,
+    #6ed8ff 80%,
+    #1a3050 100%
+  );
+  background-size: 250% 100%;
+  animation: shimmer 1.8s linear infinite, flicker 0.7s steps(2, end) infinite;
+}
+
+.lightning::after {
+  box-shadow:
+    0 0 18px rgba(110, 216, 255, 0.85),
+    inset 0 0 14px rgba(110, 216, 255, 0.25);
+  animation: flicker 0.9s steps(2, end) infinite;
+}
+
+/* ─── Inferno: fire red/orange/yellow ─────────────────────────────── */
+
+.inferno::before {
+  padding: 2px;
+  background: linear-gradient(
+    90deg,
+    #6e1a00 0%,
+    #ff3a00 25%,
+    #ffb43a 50%,
+    #ff3a00 75%,
+    #6e1a00 100%
+  );
+  background-size: 300% 100%;
+  animation: shimmer 2.2s linear infinite;
+}
+
+.inferno::after {
+  box-shadow:
+    0 0 22px rgba(255, 122, 58, 0.85),
+    0 0 44px rgba(255, 58, 0, 0.4),
+    inset 0 0 18px rgba(255, 122, 58, 0.22);
+  animation: flicker 1.3s ease-in-out infinite;
+}
+
+/* ─── Obsidian: dark with cold sparks ─────────────────────────────── */
+
+.obsidian::before {
+  padding: 2px;
+  background: linear-gradient(
+    135deg,
+    #000000 0%,
+    #1a1a2e 20%,
+    #5a5a8e 50%,
+    #1a1a2e 80%,
+    #000000 100%
+  );
+  background-size: 250% 250%;
+  animation: shimmer 5s linear infinite;
+}
+
+.obsidian::after {
+  box-shadow:
+    0 0 16px rgba(0, 0, 0, 0.95),
+    0 0 36px rgba(60, 60, 100, 0.55),
+    inset 0 0 18px rgba(0, 0, 0, 0.85);
+}
+
+/* ─── Cosmic: violet/cyan nebula ──────────────────────────────────── */
+
+.cosmic::before {
+  padding: 2px;
+  background: conic-gradient(
+    from 0deg,
+    #2a0a4a,
+    #6e2dbb,
+    #4dc8ff,
+    #b66dff,
+    #ff61b6,
+    #6e2dbb,
+    #2a0a4a
+  );
+  animation: spin 12s linear infinite;
+  filter: saturate(1.4);
+}
+
+.cosmic::after {
+  background: radial-gradient(
+    ellipse at 30% 40%,
+    rgba(182, 109, 255, 0.18),
+    transparent 60%
+  ),
+  radial-gradient(
+    ellipse at 70% 70%,
+    rgba(77, 200, 255, 0.18),
+    transparent 60%
+  );
+  box-shadow:
+    0 0 22px rgba(182, 109, 255, 0.7),
+    0 0 44px rgba(77, 200, 255, 0.4);
+  animation: pulseGlow 4s ease-in-out infinite;
+}
+
+/* ─── Singularity: black hole / event horizon ─────────────────────── */
+
+.singularity::before {
+  padding: 3px;
+  background: conic-gradient(
+    from 0deg,
+    #ffffff 0deg,
+    #ff61b6 45deg,
+    #b66dff 90deg,
+    #4dc8ff 135deg,
+    #4de8b4 180deg,
+    #ffd24d 225deg,
+    #ff7a3a 270deg,
+    #ff61b6 315deg,
+    #ffffff 360deg
+  );
+  animation: spin 4s linear infinite;
+  filter: saturate(1.6) brightness(1.2);
+}
+
+.singularity::after {
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 50%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
+  box-shadow:
+    0 0 32px rgba(255, 255, 255, 0.85),
+    0 0 64px rgba(255, 97, 182, 0.55),
+    0 0 96px rgba(77, 200, 255, 0.4);
+  animation: pulseGlow 2.5s ease-in-out infinite;
+}
+
+/* ─── Reduced-motion override ──────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .bronze::before, .silver::before, .gold::before, .platinum::before,
+  .diamond::before, .lightning::before, .inferno::before, .obsidian::before,
+  .cosmic::before, .singularity::before,
+  .bronze::after, .silver::after, .gold::after, .platinum::after,
+  .diamond::after, .lightning::after, .inferno::after, .obsidian::after,
+  .cosmic::after, .singularity::after {
+    animation: none !important;
+    background-position: 50% 50% !important;
+  }
+}

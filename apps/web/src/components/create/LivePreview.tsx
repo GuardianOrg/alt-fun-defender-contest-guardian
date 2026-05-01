@@ -10,6 +10,8 @@ import { useAssetCandles, useAssetChange } from "../../hooks/useAssets";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { type VanityStatus } from "../../hooks/useVanityAddress";
 import { cn, formatUsd, getLtDisplayName, shortenAddress } from "../../utils/format";
+import { tierForZeros } from "../../utils/vanityTier";
+import VanityEffect from "../effects/VanityEffect";
 
 import type { Direction } from "../../services/types";
 
@@ -22,6 +24,14 @@ interface Props {
   leverage: Leverage;
   imagePreview: string | null;
   predictedAddress: string | null;
+  /**
+   * Total trailing-zero count of the best-mined address. Drives the
+   * tier preview on the live token card so the user sees exactly what
+   * their token will look like once launched. The bonus-mining loop in
+   * `useVanityAddress` only ever raises this value mid-session, so the
+   * preview can only get more impressive, never less.
+   */
+  vanityZeros: number;
   vanityStatus: VanityStatus;
 }
 
@@ -33,8 +43,10 @@ export default function LivePreview({
   leverage,
   imagePreview,
   predictedAddress,
+  vanityZeros,
   vanityStatus,
 }: Props) {
+  const vanityTier = tierForZeros(vanityZeros);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isLong = direction === "long";
   const ltName = getLtDisplayName(asset, leverage, direction);
@@ -106,13 +118,14 @@ export default function LivePreview({
           live preview
         </div>
 
-        <div
-          className={cn(
-            styles.tokenCard,
-            isLong ? styles.tokenCardLong : styles.tokenCardShort,
-          )}
-        >
-          <div className={styles.tokenCardHeader}>
+        <VanityEffect tier={vanityTier} size="card" as="block">
+          <div
+            className={cn(
+              styles.tokenCard,
+              isLong ? styles.tokenCardLong : styles.tokenCardShort,
+            )}
+          >
+            <div className={styles.tokenCardHeader}>
             <div className={styles.tokenImage}>
               {imagePreview ? (
                 <img
@@ -183,7 +196,8 @@ export default function LivePreview({
               <div className={styles.addressValue}>—</div>
             )}
           </div>
-        </div>
+          </div>
+        </VanityEffect>
 
         <div className={styles.chartCard}>
           <div className={styles.chartHeader}>

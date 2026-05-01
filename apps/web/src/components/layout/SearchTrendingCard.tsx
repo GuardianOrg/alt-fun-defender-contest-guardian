@@ -8,6 +8,8 @@ import {
   formatPercentOrDash,
   formatUsdOrDash,
 } from "../../utils/format";
+import { tierFor } from "../../utils/vanityTier";
+import VanityEffect from "../effects/VanityEffect";
 
 import type { Token } from "../../services/types";
 
@@ -39,7 +41,8 @@ export default function SearchTrendingCard({
     }
   };
 
-  return (
+  const vanityTier = tierFor(token.address);
+  const card = (
     <div
       ref={cardRef}
       className={cn(
@@ -88,5 +91,12 @@ export default function SearchTrendingCard({
         </div>
       </div>
     </div>
+  );
+
+  if (vanityTier.id === "none") return card;
+  return (
+    <VanityEffect tier={vanityTier} size="card" as="block">
+      {card}
+    </VanityEffect>
   );
 }

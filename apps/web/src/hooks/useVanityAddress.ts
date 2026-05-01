@@ -2,43 +2,51 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { metadataHash, VANITY_SUFFIX } from "@launchpad/shared";
 import { useQuery } from "@tanstack/react-query";
-import { createPublicClient, getAddress, http, type Address, type Hex } from "viem";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  isAddress,
+  isHex,
+  type Address,
+  type Hex,
+} from "viem";
 
 import { useWallet } from "./useWallet";
+import {
+  readVanityCache,
+  vanityKey,
+  writeVanityCache,
+} from "./vanityStorage";
 import { hyperEVM } from "../config/chains";
 import { BondingAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
 
 import type { WorkerOutbound } from "../workers/vanity.worker";
 
-// Dedicated read-only client for the impl lookup. Mirrors the per-hook
-// pattern in `useGraduationThreshold` etc. — the read is infrequent and
-// doesn't justify a shared client.
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
   transport: http(rpcUrl),
 });
 
-// `Bonding.tokenImplementation` is owner-rotatable via `setTokenImplementation`
-// — explicitly designed to be hot-swapped to ship a new Token impl without
-// disturbing already-launched tokens. If we hardcoded the impl into worker
-// init, every launch would silently revert with `NotVanityAddress` after a
-// rotation (the miner would compute salts against the stale `initCodeHash`)
-// until every user refreshed against a redeployed frontend. Reading it from
-// chain on hook init closes that gap.
-//
-// We deliberately *don't* read `VANITY_TRAILING_ZEROS()` from chain — it's
-// a `uint256 public constant` baked into bytecode, so the only way it
-// changes is a Bonding redeploy, which already requires bumping the
-// `@launchpad/shared` `VANITY_SUFFIX` constant in lockstep.
 const IMPL_STALE_MS = 5 * 60 * 1000;
 const IMPL_GC_MS = 30 * 60 * 1000;
 
+/**
+ * The `VANITY_SUFFIX` shared module is the source of truth for the
+ * on-chain minimum (`"00000"` → 5 zeros). We mine for that minimum, then
+ * keep mining indefinitely for progressively rarer addresses, with each
+ * extra zero ~16x harder than the last. The "best-so-far" salt is
+ * usable for launch the moment we hit the base; everything beyond that
+ * is a cosmetic flex (drives the tier system in `vanityTier.ts`).
+ */
+const BASE_TARGET_ZEROS = VANITY_SUFFIX.length;
+
 export type VanityStatus =
   | "idle" // no wallet connected, no mining
-  | "mining" // workers are searching
-  | "found" // a salt has been mined
+  | "mining" // workers are searching, no salt yet
+  | "ready" // a launch-eligible salt exists; mining continues for a better one
   | "error"; // worker spawn failed (extremely rare)
 
 export interface VanityResult {
@@ -46,68 +54,68 @@ export interface VanityResult {
   salt: Hex;
   /** Predicted token address — purely informational for the UI. */
   address: Address;
+  /** Total trailing-zero count of `address` (always ≥ `BASE_TARGET_ZEROS`). */
+  zeros: number;
 }
 
 export interface UseVanityAddressReturn {
   status: VanityStatus;
-  result: VanityResult | null;
+  /** The best (highest-zero) salt mined so far, or null while still mining. */
+  best: VanityResult | null;
   attempts: number;
   /** Total ms since mining started; resets on each restart. */
   elapsedMs: number;
   /**
-   * Resolves once the miner has found a vanity salt for the given
-   * `(name, ticker)` tuple. There is *no fallback* — `Bonding._deployAndSeed`
-   * enforces the `VANITY_SUFFIX` invariant on-chain and would revert with
-   * `NotVanityAddress` for any other salt. The promise never settles to a
-   * "random" salt.
+   * Resolves once the miner has at least the launch-eligible salt for the
+   * given `(name, ticker)` tuple. There is *no fallback* —
+   * `Bonding._deployAndSeed` enforces the `VANITY_SUFFIX` invariant
+   * on-chain and would revert with `NotVanityAddress` for any other salt.
+   * The promise never settles to a "random" salt.
    *
-   * The arguments must be the exact strings the caller will pass into
-   * `Bonding.LaunchParams` — typically the trimmed live form values, not
-   * the debounced ones the hook was constructed with. If they differ from
-   * the currently-mining tuple, this function force-restarts mining for
-   * the given tuple and waits for the new result, so that a user who
-   * clicks Launch inside the consumer's debounce window still gets a salt
-   * mined for the value that will actually hit the chain.
+   * Returns whichever best-so-far salt is current at resolve time —
+   * background mining keeps pushing for rarer addresses, but `ensureSalt`
+   * doesn't wait for those: the user's launch click cashes in the current
+   * best. If a higher-tier salt arrives a millisecond later it's lost,
+   * which is fine — the user already chose to launch.
    */
   ensureSalt: (name: string, ticker: string) => Promise<VanityResult>;
   /** Imperative restart (e.g. after impl rotation or wallet change). */
   restart: () => void;
 }
 
-/**
- * Spawns one Web Worker per CPU core and races them to find a salt whose
- * predicted clone address ends with `VANITY_SUFFIX` (`"00000"` in
- * production — every launched token's address renders as `0x…00000`).
- * Starts once the wallet is connected and the user has entered both a
- * name and a ticker — the on-chain mix binds the salt to `(creator,
- * name, ticker)` so we can't begin mining without those.
- *
- * Expected mining cost: ~16^suffixLen attempts. With 5-char suffix
- * that's ~1 M — sub-second on a typical multi-core dev machine, low
- * single-digit seconds on weaker hardware. Mining runs in the background
- * while the user fills in description / image / seed buy, so the
- * user-visible wait is usually zero.
- *
- * Re-mines when any of `(creator, tokenImplementation, name, ticker)`
- * changes. The caller is expected to pass debounced `name`/`ticker` so
- * typing doesn't thrash the worker pool; `ensureSalt` accepts the live
- * (un-debounced) values and force-restarts mining if those differ from
- * what the pool was last spawned for, closing the race where a user
- * clicks Launch within the debounce window.
- *
- * No fallback path: every launched token MUST satisfy the vanity
- * invariant on-chain (`Bonding._checkVanity`). If mining hasn't
- * completed by the time the user clicks Launch, `ensureSalt` waits —
- * the UI surfaces a "FINDING YOUR ADDRESS…" state for as long as that
- * takes.
- */
-// Single user-facing message for any miner failure (spawn-time or runtime).
-// Both paths land the hook in `status === "error"` and pending callers see
-// the same message — distinguishing between "couldn't construct Worker" and
-// "Worker threw at runtime" doesn't help the user, the remediation is the
-// same.
 const MINER_ERROR_MESSAGE =
   "Vanity address miner failed. Please refresh and try again.";
+
+/**
+ * Validate untrusted cache shape (other tabs, dev-tools, future versions
+ * of this app, etc.) before promoting it to a `VanityResult`. Returns
+ * null on any structural issue rather than throwing — `getAddress` and
+ * the salt-format check would crash the create flow if we didn't guard
+ * against tampering / corrupt rows.
+ */
+function parseCacheEntry(
+  raw: { salt: Hex; address: Address; zeros: number } | null | undefined,
+): VanityResult | null {
+  if (!raw) return null;
+  if (typeof raw.zeros !== "number" || raw.zeros < BASE_TARGET_ZEROS) {
+    return null;
+  }
+  if (typeof raw.salt !== "string" || !isHex(raw.salt) || raw.salt.length !== 66) {
+    return null;
+  }
+  if (typeof raw.address !== "string" || !isAddress(raw.address)) {
+    return null;
+  }
+  try {
+    return {
+      salt: raw.salt,
+      address: getAddress(raw.address),
+      zeros: raw.zeros,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export interface UseVanityAddressArgs {
   /** Token name as the user has it in the form. Mining waits for non-empty. */
@@ -122,12 +130,6 @@ export function useVanityAddress({
 }: UseVanityAddressArgs): UseVanityAddressReturn {
   const { address } = useWallet();
 
-  // Live `Bonding.tokenImplementation`. On RPC failure (`isError`) we fall
-  // back to the compile-time address rather than refusing to mine — that's
-  // strictly better than blocking, since the only thing the user loses is
-  // resilience against a *concurrent* impl rotation. The pre-existing
-  // hardcoded behaviour was the same fallback; we're only adding the
-  // happy-path read.
   const implQuery = useQuery({
     queryKey: ["bondingTokenImplementation", ADDRESSES.bonding],
     queryFn: async (): Promise<Address> => {
@@ -148,30 +150,36 @@ export function useVanityAddress({
       : undefined;
 
   const [status, setStatus] = useState<VanityStatus>("idle");
-  const [result, setResult] = useState<VanityResult | null>(null);
+  const [best, setBest] = useState<VanityResult | null>(null);
   const [attempts, setAttempts] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
 
   const workersRef = useRef<Worker[]>([]);
   const startTimeRef = useRef<number>(0);
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Tracks the (creator, impl, name, ticker) tuple that the currently-running
-  // pool was spawned for. Lets the auto-start effect skip spurious re-spawns
-  // when TanStack Query refetches and returns an unchanged impl, or when an
-  // unrelated render reuses the same metadata — without this guard, the
-  // periodic refetch could discard a `found` result and force the user to
-  // wait for re-mining for no reason.
+  // Tracks the currently-running pool's metadata so we don't re-spawn on
+  // unrelated re-renders (e.g. a TanStack refetch returning the same impl).
   const lastSpawnRef = useRef<{
     creator: Address;
     impl: Address;
     name: string;
     ticker: string;
   } | null>(null);
-  // Pending listeners waiting on `ensureSalt`. We keep a list so multiple
-  // simultaneous awaiters (rare, but possible if a user double-clicks
-  // Launch) all settle from the same terminal event. Each entry holds both
-  // halves of the promise so a `teardown` (wallet disconnect, restart,
-  // unmount) can reject them instead of leaving callers hanging.
+  // Synchronous mirror of `best`. Two reasons we keep this alongside the
+  // React state:
+  //   1. Worker message handlers race themselves on back-to-back finds —
+  //      `setBest` is async, so without a ref we'd accept improvements
+  //      against a stale `best.zeros`.
+  //   2. The `ensureSalt` fast path (just-restarted with a cache-seeded
+  //      best) needs the freshly-installed `VanityResult` synchronously.
+  //      Re-reading from `localStorage` would work in the happy path but
+  //      degrades to a wait if storage is cleared / evicted between
+  //      `start` and `ensureSalt`.
+  const bestRef = useRef<VanityResult | null>(null);
+  // Cache key for the active (creator, name, ticker) tuple. Recomputed on
+  // each `start` so we don't re-derive it per `found` event.
+  const cacheKeyRef = useRef<string | null>(null);
+  // Pending listeners waiting on `ensureSalt`.
   const pendingResolversRef = useRef<
     Array<{
       resolve: (r: VanityResult) => void;
@@ -193,12 +201,13 @@ export function useVanityAddress({
       clearInterval(tickIntervalRef.current);
       tickIntervalRef.current = null;
     }
-    // Cancel any in-flight `ensureSalt` awaiters. If the user disconnects
-    // their wallet (or the component unmounts) while Launch is pending,
-    // the caller's `await` would otherwise never settle — the miner is
-    // gone but no `found` event is ever going to arrive. On `found` the
-    // resolvers array is drained *before* teardown, so this is a no-op
-    // in the happy path.
+    // Clear the cache key so the cross-tab `storage` listener can't
+    // resurrect `best` / `status` for a tuple this tab is no longer
+    // mining (wallet disconnect, metadata cleared, unmount). `start()`
+    // re-installs a fresh key on its next call, so this is safe to do
+    // unconditionally — teardown is the sole "stop everything"
+    // chokepoint.
+    cacheKeyRef.current = null;
     if (pendingResolversRef.current.length > 0) {
       const pending = pendingResolversRef.current;
       pendingResolversRef.current = [];
@@ -216,8 +225,27 @@ export function useVanityAddress({
       tokenTicker: string,
     ): boolean => {
       teardown();
-      setStatus("mining");
-      setResult(null);
+
+      // Seed from cache if we have a previously-mined salt for this exact
+      // tuple. Workers will then start mining for `cached.zeros + 1` and
+      // only re-emit `found` when they beat that. The user gets an
+      // instant "ready" state on revisit.
+      //
+      // Cache values are user-writable (other tabs, dev-tools, browser
+      // extensions) so we validate the shape strictly before trusting
+      // them. A bad row (mangled hex, dropped fields, casing tampering)
+      // gets ignored and overwritten on the next legitimate `found`.
+      const key = vanityKey(creator, implementation, tokenName, tokenTicker);
+      cacheKeyRef.current = key;
+      const cached = readVanityCache(key);
+      const initialBest = parseCacheEntry(cached);
+      const initialTargetZeros = initialBest
+        ? initialBest.zeros + 1
+        : BASE_TARGET_ZEROS;
+
+      bestRef.current = initialBest;
+      setBest(initialBest);
+      setStatus(initialBest ? "ready" : "mining");
       setAttempts(0);
       setElapsedMs(0);
       startTimeRef.current = performance.now();
@@ -226,47 +254,31 @@ export function useVanityAddress({
         setElapsedMs(performance.now() - startTimeRef.current);
       }, 100);
 
-      // Shared failure path for any worker crash *after* spawn (uncaught
-      // exception in the hot loop, missing `crypto.getRandomValues`, CSP
-      // killing module load, structured-clone failure on postMessage, …).
-      // Without this the hook would stay in "mining" forever and any
-      // pending `ensureSalt` await would never settle, leaving the UI
-      // stuck on "FINDING YOUR ADDRESS…".
-      //
-      // Guarded by `workersRef.current.length` so a late stray error from
-      // a sibling worker — fired *after* a successful `found` already
-      // tore down the pool — can't clobber `status: "found"` back to
-      // "error". Teardown is the canonical "we're done" signal.
       const handlePoolFailure = (err: unknown) => {
         if (workersRef.current.length === 0) return;
         console.error("[useVanityAddress] worker failed at runtime", err);
+        // If we already have a launch-eligible cached salt, a worker
+        // crash mid-mining is non-fatal — the user can still launch with
+        // the cached best. Stay in "ready" rather than flipping to
+        // "error". The launch path resolves `ensureSalt` from `bestRef`.
+        if (bestRef.current && bestRef.current.zeros >= BASE_TARGET_ZEROS) {
+          teardown();
+          return;
+        }
         setStatus("error");
-        // Drain *before* teardown so awaiters get the specific runtime
-        // error rather than the generic "cancelled" message teardown
-        // emits when it finds resolvers still pending.
         const pending = pendingResolversRef.current;
         pendingResolversRef.current = [];
         pending.forEach(({ reject }) => reject(new Error(MINER_ERROR_MESSAGE)));
         teardown();
       };
 
-      // `Web Worker` constructor support: we wrap in try/catch because some
-      // restricted browser contexts (sandboxed iframes, very old browsers)
-      // can't spawn workers. In that case we transition to "error" — the
-      // launch button stays disabled until the user retries on a browser
-      // that supports workers. There's no random-salt fallback because the
-      // contract enforces the vanity suffix.
       const workers: Worker[] = [];
       try {
         const cores = Math.min(
           Math.max(navigator.hardwareConcurrency ?? 4, 1),
-          8, // Cap at 8: more workers means more startup overhead than gain
-          //   for sub-second searches.
+          8,
         );
         for (let i = 0; i < cores; i++) {
-          // Vite handles this `new URL(..., import.meta.url)` form natively
-          // — it bundles the worker as a separate chunk and serves it with
-          // the right MIME type in dev.
           const worker = new Worker(
             new URL("../workers/vanity.worker.ts", import.meta.url),
             { type: "module" },
@@ -275,39 +287,66 @@ export function useVanityAddress({
             "message",
             (event: MessageEvent<WorkerOutbound>) => {
               const msg = event.data;
-              // Both `progress` and `found` carry `attemptsDelta` (work done
-              // since this worker's previous tick). Summing the deltas across
-              // every worker's events gives a correct pool-wide total without
-              // the hook needing per-worker state. The worker contract
-              // guarantees deltas never overlap.
               if (msg.type === "progress") {
                 setAttempts((prev) => prev + msg.attemptsDelta);
-              } else if (msg.type === "found") {
+                return;
+              }
+              if (msg.type === "found") {
                 setAttempts((prev) => prev + msg.attemptsDelta);
+                // Race guard: a sibling worker may have already posted a
+                // higher-tier `found` while this one was in flight. Only
+                // accept strict improvements.
+                const currentZeros = bestRef.current?.zeros ?? 0;
+                if (msg.zeros <= currentZeros) return;
+
                 const winning: VanityResult = {
                   salt: msg.salt,
                   address: getAddress(msg.address),
+                  zeros: msg.zeros,
                 };
-                setResult(winning);
-                setStatus("found");
-                // Drain resolvers *before* teardown so the cancel-on-teardown
-                // path doesn't turn a legitimate `found` into a rejection.
-                const pending = pendingResolversRef.current;
-                pendingResolversRef.current = [];
-                pending.forEach(({ resolve }) => resolve(winning));
-                teardown();
+                bestRef.current = winning;
+                setBest(winning);
+                setStatus("ready");
+
+                // Persist for the next visit. Best-effort; failures are
+                // swallowed inside `writeVanityCache`.
+                if (cacheKeyRef.current) {
+                  writeVanityCache(cacheKeyRef.current, {
+                    salt: winning.salt,
+                    address: winning.address,
+                    zeros: winning.zeros,
+                    savedAt: Date.now(),
+                  });
+                }
+
+                // Drain any pending `ensureSalt` callers immediately —
+                // we now have a launch-eligible salt. Higher-tier finds
+                // later just upgrade `best` for tier rendering; we
+                // don't make new launchers wait for them.
+                if (pendingResolversRef.current.length > 0) {
+                  const pending = pendingResolversRef.current;
+                  pendingResolversRef.current = [];
+                  pending.forEach(({ resolve }) => resolve(winning));
+                }
+
+                // Broadcast to every sibling worker so they don't waste
+                // cycles re-discovering this threshold. Workers also
+                // self-bump locally on found, this is belt-and-braces.
+                const nextTarget = msg.zeros + 1;
+                workersRef.current.forEach((w) => {
+                  try {
+                    w.postMessage({
+                      type: "bumpTarget",
+                      targetZeros: nextTarget,
+                    });
+                  } catch {
+                    // Worker may have died; ignore.
+                  }
+                });
               }
             },
           );
-          // `error` fires for uncaught exceptions inside the worker
-          // (including module-load failures). `messageerror` fires when a
-          // posted message can't be deserialized — vanishingly rare for
-          // our plain-object protocol, but listening costs nothing and
-          // closes a hang vector.
           worker.addEventListener("error", (event) => {
-            // Stop the event from bubbling to `window.onerror` — we've
-            // already handled it and don't want it surfacing as an
-            // uncaught error in the host page.
             event.preventDefault();
             handlePoolFailure(event.error ?? event.message ?? event);
           });
@@ -321,30 +360,30 @@ export function useVanityAddress({
             implementation,
             bondingProxy: ADDRESSES.bonding,
             creator,
-            // Pre-hash in the host before entering the worker hot loop so
-            // it only ever moves 32-byte words — matches `Bonding._mixSalt`'s
-            // pre-hashed inputs.
             nameHash: metadataHash(tokenName),
             tickerHash: metadataHash(tokenTicker),
-            suffix: VANITY_SUFFIX,
+            initialTargetZeros,
             workerIndex: i,
             workerCount: cores,
           });
           workers.push(worker);
         }
       } catch (spawnErr) {
-        // Synchronous spawn failure (sandboxed iframe / CSP / very old
-        // browser). Roll back the optimistic state we set above so the
-        // hook doesn't sit in `mining` forever, AND drain any pending
-        // `ensureSalt` resolvers — without that drain, callers that
-        // pushed before us hang on a pool that no longer exists, and
-        // callers that push *after* us (e.g. the `ensureSalt` flush
-        // path) would too unless they also check our return value.
         console.error("[useVanityAddress] worker spawn failed", spawnErr);
         workers.forEach((w) => w.terminate());
         if (tickIntervalRef.current) {
           clearInterval(tickIntervalRef.current);
           tickIntervalRef.current = null;
+        }
+        // If we have a cached launch-eligible salt, a spawn failure
+        // shouldn't strand the user — they can still launch with the
+        // cache. Stay in `ready` and resolve any pending `ensureSalt`.
+        if (initialBest) {
+          const pending = pendingResolversRef.current;
+          pendingResolversRef.current = [];
+          pending.forEach(({ resolve }) => resolve(initialBest));
+          workersRef.current = [];
+          return false;
         }
         setStatus("error");
         const pending = pendingResolversRef.current;
@@ -363,11 +402,6 @@ export function useVanityAddress({
   );
 
   const refetchImpl = implQuery.refetch;
-  // Manual restart bypasses the TanStack `staleTime` cache by forcing a
-  // refetch — the whole point of `restart` is "I think state may be stale,
-  // give me a clean slate". Without the refetch, a user hitting Restart
-  // within 5min of a previous read would still spawn against a potentially
-  // outdated impl, defeating the rotation safety we're adding here.
   const restart = useCallback(() => {
     if (!address) return;
     if (!name || !ticker) return;
@@ -388,32 +422,25 @@ export function useVanityAddress({
 
   // Auto-start once `(wallet, impl, name, ticker)` are all available, and
   // auto-tear-down on disconnect or unmount. Re-spawns whenever any of the
-  // four change — `lastSpawnRef` ensures we don't restart on unrelated
-  // re-renders (e.g. a TanStack refetch returning the same impl) and
-  // therefore don't discard an in-progress mine or a `found` result.
+  // four change.
   useEffect(() => {
     if (!address) {
       teardown();
       setStatus("idle");
-      setResult(null);
+      setBest(null);
+      bestRef.current = null;
       lastSpawnRef.current = null;
       return;
     }
-    // Show "mining" eagerly so the LivePreview spinner doesn't blip back to
-    // the idle "—" placeholder during the (sub-second) impl read on first
-    // wallet connect. The timer / attempt counter still only start when
-    // workers actually spawn, which keeps the displayed hashrate accurate.
     if (!effectiveImpl) {
-      setStatus((prev) => (prev === "found" ? prev : "mining"));
+      setStatus((prev) => (prev === "ready" ? prev : "mining"));
       return;
     }
-    // Mining requires a concrete `(name, ticker)` because both are mixed
-    // into the salt on-chain. With either still empty we sit idle — the
-    // CreateView gates the Launch button on non-empty values anyway.
     if (!name || !ticker) {
       teardown();
       setStatus("idle");
-      setResult(null);
+      setBest(null);
+      bestRef.current = null;
       lastSpawnRef.current = null;
       return;
     }
@@ -437,6 +464,46 @@ export function useVanityAddress({
     };
   }, [address, name, ticker, effectiveImpl, start, teardown]);
 
+  // Keep `best` in sync if another tab updates the cache for the same
+  // tuple while this tab is mining — without this, the second tab would
+  // re-mine threshold-N hits for an entry the first tab already pushed
+  // past.
+  useEffect(() => {
+    const handler = (event: StorageEvent) => {
+      if (!event.key || !event.key.startsWith("vanity:")) return;
+      if (event.key !== cacheKeyRef.current) return;
+      if (!event.newValue) return;
+      // `event.newValue` is untrusted (other tabs, dev-tools, browser
+      // extensions, future schema versions) — validate the payload
+      // strictly before promoting it. Bad rows are silently dropped.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(event.newValue);
+      } catch {
+        return;
+      }
+      const upgraded = parseCacheEntry(
+        parsed as { salt: Hex; address: Address; zeros: number } | null,
+      );
+      if (!upgraded) return;
+      const currentZeros = bestRef.current?.zeros ?? 0;
+      if (upgraded.zeros <= currentZeros) return;
+      bestRef.current = upgraded;
+      setBest(upgraded);
+      setStatus("ready");
+      const nextTarget = upgraded.zeros + 1;
+      workersRef.current.forEach((w) => {
+        try {
+          w.postMessage({ type: "bumpTarget", targetZeros: nextTarget });
+        } catch {
+          // Worker may have died; ignore.
+        }
+      });
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
+
   const ensureSalt = useCallback(
     (requestedName: string, requestedTicker: string): Promise<VanityResult> => {
       if (!requestedName || !requestedTicker) {
@@ -452,10 +519,6 @@ export function useVanityAddress({
         && last.name === requestedName
         && last.ticker === requestedTicker;
 
-      // Caller raced the consumer-side debounce: they want a salt for a
-      // (name, ticker) we haven't started mining for yet. Force-restart the
-      // pool against the requested tuple before resolving so we never hand
-      // back a salt mined for a stale value.
       if (!minedForRequested) {
         if (!address || !effectiveImpl) {
           return Promise.reject(
@@ -471,16 +534,21 @@ export function useVanityAddress({
           name: requestedName,
           ticker: requestedTicker,
         };
-        // `start` returns `false` on synchronous spawn failure (sandboxed
-        // iframe, etc.) — without this guard the resolver we'd push below
-        // would hang forever, since no worker exists to fire `found` and
-        // `start`'s catch path has already drained the pre-existing queue.
         const started = start(
           creator,
           effectiveImpl,
           requestedName,
           requestedTicker,
         );
+        // `start` synchronously installs the cached best (if any) into
+        // `bestRef` before returning, so this fast-path resolution
+        // doesn't race with the async `setBest` state update — and
+        // doesn't depend on the cache row still being present in
+        // localStorage either.
+        const seeded = bestRef.current;
+        if (seeded && seeded.zeros >= BASE_TARGET_ZEROS) {
+          return Promise.resolve(seeded);
+        }
         if (!started) {
           return Promise.reject(new Error(MINER_ERROR_MESSAGE));
         }
@@ -489,12 +557,14 @@ export function useVanityAddress({
         });
       }
 
-      if (result) return Promise.resolve(result);
+      // Same metadata as the running pool — read the freshest best from
+      // the ref rather than the (possibly one render behind) state.
+      const current = bestRef.current;
+      if (current && current.zeros >= BASE_TARGET_ZEROS) {
+        return Promise.resolve(current);
+      }
 
       return new Promise<VanityResult>((resolve, reject) => {
-        // If mining errored (spawn failure or runtime crash in a worker),
-        // reject immediately so the UI can surface the error rather than
-        // hang forever waiting on a `found` event that's never coming.
         if (status === "error") {
           reject(new Error(MINER_ERROR_MESSAGE));
           return;
@@ -502,12 +572,12 @@ export function useVanityAddress({
         pendingResolversRef.current.push({ resolve, reject });
       });
     },
-    [address, effectiveImpl, result, start, status],
+    [address, effectiveImpl, start, status],
   );
 
   return {
     status,
-    result,
+    best,
     attempts,
     elapsedMs,
     ensureSalt,

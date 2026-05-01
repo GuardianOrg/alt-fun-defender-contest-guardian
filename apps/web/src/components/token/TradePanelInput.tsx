@@ -1,6 +1,8 @@
 import styles from "./TradePanel.module.css";
 import { QUICK_AMOUNTS, SELL_PERCENT_OPTIONS } from "../../config/constants";
 import { cn } from "../../utils/format";
+import { tierFor } from "../../utils/vanityTier";
+import VanityEffect from "../effects/VanityEffect";
 import UsdcIcon from "../icons/UsdcIcon";
 
 import type { SellQuote } from "../../services/tradeRouter";
@@ -26,6 +28,23 @@ export default function TradePanelInput({
   token,
 }: Props) {
   const ticker = token.ticker;
+  const vanityTier = tierFor(token.address);
+  const coinIcon = (
+    <div
+      className={cn(
+        styles.coinIcon,
+        mode === "buy" ? styles.coinUsdc : styles.coinRed,
+      )}
+    >
+      {mode === "buy" ? (
+        <UsdcIcon className={styles.coinImg} />
+      ) : token.image ? (
+        <img src={token.image} alt="" className={styles.coinImg} />
+      ) : (
+        token.emoji
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -46,20 +65,13 @@ export default function TradePanelInput({
           <span className={styles.denomLabel}>
             {mode === "buy" ? "USDC" : ticker}
           </span>
-          <div
-            className={cn(
-              styles.coinIcon,
-              mode === "buy" ? styles.coinUsdc : styles.coinRed,
-            )}
-          >
-            {mode === "buy" ? (
-              <UsdcIcon className={styles.coinImg} />
-            ) : token.image ? (
-              <img src={token.image} alt="" className={styles.coinImg} />
-            ) : (
-              token.emoji
-            )}
-          </div>
+          {mode === "sell" && vanityTier.id !== "none" ? (
+            <VanityEffect tier={vanityTier} size="icon" as="inline">
+              {coinIcon}
+            </VanityEffect>
+          ) : (
+            coinIcon
+          )}
         </div>
       </div>
 

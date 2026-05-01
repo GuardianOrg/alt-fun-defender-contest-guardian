@@ -119,6 +119,15 @@ button.launchButtonConfirmed:disabled {
   opacity: 1;
 }
 
+/*
+ * Launch-button vanity wrapper. Width-only; the tier border-radius is
+ * mirrored onto this wrapper from the child <Button> by `VanityEffect`
+ * automatically, so we don't need to hard-code it here.
+ */
+.launchButtonWrap {
+  width: 100%;
+}
+
 .busyRow {
   display: flex;
   align-items: center;
