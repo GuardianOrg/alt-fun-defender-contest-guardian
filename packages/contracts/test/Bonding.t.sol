@@ -550,6 +550,14 @@ contract BondingTest is DeployHelper {
         assertFalse(bonding.canGraduate(tokenAddr), "Should not be graduatable initially");
     }
 
+    function test_viewHelpers_returnFalseForUnknownToken() public view {
+        address unknown = address(0xdead);
+        assertFalse(bonding.isTrading(unknown), "isTrading should be false for unknown");
+        assertFalse(bonding.isGraduating(unknown), "isGraduating should be false for unknown");
+        assertFalse(bonding.isGraduated(unknown), "isGraduated should be false for unknown");
+        assertFalse(bonding.canGraduate(unknown), "canGraduate should be false for unknown");
+    }
+
     function test_canGraduate_returnsTrueWhenThresholdMet() public {
         (address tokenAddr,) = _launchToken();
 
