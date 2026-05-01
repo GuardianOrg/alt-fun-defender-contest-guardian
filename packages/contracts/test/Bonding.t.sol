@@ -824,14 +824,15 @@ contract BondingTest is DeployHelper {
     //
     // `Bonding.initialize` rejects any zero address among its dependency
     // parameters. A misconfigured deploy would otherwise land in production
-    // with `factory` / `router` / `uniswapV2Factory` / `lpLock` / token
-    // implementation set to zero, bricking core paths with cryptic
-    // low-level reverts deep in delegate calls.
+    // with `factory` / `router` / `uniswapV2Factory` / `uniswapV2Router` /
+    // `lpLock` / token implementation set to zero, bricking core paths
+    // with cryptic low-level reverts deep in delegate calls.
 
     function _bondingInitCall(
         address factory_,
         address router_,
         address uniswapV2Factory_,
+        address uniswapV2Router_,
         address lpLock_,
         address tokenImpl_
     ) internal view returns (bytes memory) {
@@ -841,6 +842,7 @@ contract BondingTest is DeployHelper {
                 factory_,
                 router_,
                 uniswapV2Factory_,
+                uniswapV2Router_,
                 lpLock_,
                 tokenImpl_,
                 TEST_GRADUATION_THRESHOLD_USD,
@@ -852,7 +854,12 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroFactory() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(0), address(curveRouter), address(hyperswapFactory), address(lpLockContract), address(tokenImpl)
+            address(0),
+            address(curveRouter),
+            address(hyperswapFactory),
+            address(hyperswapRouter),
+            address(lpLockContract),
+            address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -861,7 +868,12 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroRouter() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(0), address(hyperswapFactory), address(lpLockContract), address(tokenImpl)
+            address(factory),
+            address(0),
+            address(hyperswapFactory),
+            address(hyperswapRouter),
+            address(lpLockContract),
+            address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -870,7 +882,26 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroUniswapV2Factory() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(curveRouter), address(0), address(lpLockContract), address(tokenImpl)
+            address(factory),
+            address(curveRouter),
+            address(0),
+            address(hyperswapRouter),
+            address(lpLockContract),
+            address(tokenImpl)
+        );
+        vm.expectRevert(Bonding.ZeroAddress.selector);
+        new ERC1967Proxy(address(freshImpl), init);
+    }
+
+    function test_initialize_revertsOnZeroUniswapV2Router() public {
+        Bonding freshImpl = new Bonding();
+        bytes memory init = _bondingInitCall(
+            address(factory),
+            address(curveRouter),
+            address(hyperswapFactory),
+            address(0),
+            address(lpLockContract),
+            address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -879,7 +910,12 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroLpLock() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(curveRouter), address(hyperswapFactory), address(0), address(tokenImpl)
+            address(factory),
+            address(curveRouter),
+            address(hyperswapFactory),
+            address(hyperswapRouter),
+            address(0),
+            address(tokenImpl)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -888,7 +924,12 @@ contract BondingTest is DeployHelper {
     function test_initialize_revertsOnZeroTokenImplementation() public {
         Bonding freshImpl = new Bonding();
         bytes memory init = _bondingInitCall(
-            address(factory), address(curveRouter), address(hyperswapFactory), address(lpLockContract), address(0)
+            address(factory),
+            address(curveRouter),
+            address(hyperswapFactory),
+            address(hyperswapRouter),
+            address(lpLockContract),
+            address(0)
         );
         vm.expectRevert(Bonding.ZeroAddress.selector);
         new ERC1967Proxy(address(freshImpl), init);
@@ -902,6 +943,7 @@ contract BondingTest is DeployHelper {
                 address(factory),
                 address(curveRouter),
                 address(hyperswapFactory),
+                address(hyperswapRouter),
                 address(lpLockContract),
                 address(tokenImpl),
                 TEST_GRADUATION_THRESHOLD_USD,
@@ -912,13 +954,21 @@ contract BondingTest is DeployHelper {
         new ERC1967Proxy(address(freshImpl), init);
     }
 
+    function test_initialize_persistsUniswapV2Router() public view {
+        // `uniswapV2Router` is wired at `initialize` time and immutable
+        // thereafter (no setter, no upgrade-without-reinit path).
+        // Sanity-check the live wiring matches `DeployHelper`.
+        assertEq(bonding.uniswapV2Router(), address(hyperswapRouter));
+    }
+
     // ─── HyperSwap config immutability ──────────────────────────────────
     //
-    // `uniswapV2Factory` and `lpLock` are set once at `initialize` and have
-    // no live setter — see the natspec on those storage slots in
-    // `Bonding.sol`. Migrating to a different HyperSwap fork or LP lock
-    // requires a UUPS upgrade so the change is visible on-chain ahead of
-    // time and cannot brick or silently reroute any in-flight graduation.
+    // `uniswapV2Factory`, `uniswapV2Router`, and `lpLock` are set once at
+    // `initialize` and have no live setter — see the natspec on those
+    // storage slots in `Bonding.sol`. Migrating to a different HyperSwap
+    // fork or LP lock requires a UUPS upgrade so the change is visible
+    // on-chain ahead of time and cannot brick or silently reroute any
+    // in-flight graduation.
 
     function test_uniswapV2Factory_hasNoLiveSetter() public {
         // `setUniswapV2(address,address)` selector — must not exist on the proxy.
@@ -932,6 +982,19 @@ contract BondingTest is DeployHelper {
             address(bonding).call(abi.encodeWithSelector(setUniswapV2Selector, address(1), address(2)));
         assertFalse(ok, "setUniswapV2 must not exist on Bonding");
         assertEq(revertData.length, 0, "setUniswapV2 reverted with data -- selector still routes");
+    }
+
+    function test_uniswapV2Router_hasNoLiveSetter() public {
+        // Mirror of the `setUniswapV2` immutability check for the router
+        // slot. The earlier #343 design exposed `setUniswapV2Router` as a
+        // one-shot post-deploy hook; that's been folded into `initialize`,
+        // and re-introducing the setter would be a regression of the
+        // immutability contract documented on the storage struct field.
+        bytes4 setUniswapV2RouterSelector = bytes4(keccak256("setUniswapV2Router(address)"));
+        (bool ok, bytes memory revertData) =
+            address(bonding).call(abi.encodeWithSelector(setUniswapV2RouterSelector, address(1)));
+        assertFalse(ok, "setUniswapV2Router must not exist on Bonding");
+        assertEq(revertData.length, 0, "setUniswapV2Router reverted with data -- selector still routes");
     }
 
     // ─── Graduation Threshold Initialisation Tests ───────────────────────
@@ -954,6 +1017,7 @@ contract BondingTest is DeployHelper {
                 address(factory),
                 address(curveRouter),
                 address(hyperswapFactory),
+                address(hyperswapRouter),
                 address(lpLockContract),
                 address(tokenImpl),
                 bonding.VIRTUAL_LIQUIDITY_USD() - 1,
@@ -973,6 +1037,7 @@ contract BondingTest is DeployHelper {
                 address(factory),
                 address(curveRouter),
                 address(hyperswapFactory),
+                address(hyperswapRouter),
                 address(lpLockContract),
                 address(tokenImpl),
                 floor,

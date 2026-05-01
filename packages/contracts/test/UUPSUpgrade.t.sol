@@ -143,7 +143,14 @@ contract UUPSUpgradeTest is DeployHelper {
         Bonding impl = new Bonding();
         vm.expectRevert();
         impl.initialize(
-            address(1), address(2), address(3), address(4), address(5), TEST_GRADUATION_THRESHOLD_USD, address(6)
+            address(1),
+            address(2),
+            address(3),
+            address(4),
+            address(5),
+            address(6),
+            TEST_GRADUATION_THRESHOLD_USD,
+            address(7)
         );
     }
 
