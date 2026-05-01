@@ -126,10 +126,17 @@ export function useVanityAddress({
     name: string;
     ticker: string;
   } | null>(null);
-  // Mirrors `best.zeros` for synchronous access inside worker message
-  // handlers (state updates are async, so we'd race ourselves on rapid
-  // back-to-back finds).
-  const bestZerosRef = useRef<number>(0);
+  // Synchronous mirror of `best`. Two reasons we keep this alongside the
+  // React state:
+  //   1. Worker message handlers race themselves on back-to-back finds —
+  //      `setBest` is async, so without a ref we'd accept improvements
+  //      against a stale `best.zeros`.
+  //   2. The `ensureSalt` fast path (just-restarted with a cache-seeded
+  //      best) needs the freshly-installed `VanityResult` synchronously.
+  //      Re-reading from `localStorage` would work in the happy path but
+  //      degrades to a wait if storage is cleared / evicted between
+  //      `start` and `ensureSalt`.
+  const bestRef = useRef<VanityResult | null>(null);
   // Cache key for the active (creator, name, ticker) tuple. Recomputed on
   // each `start` so we don't re-derive it per `found` event.
   const cacheKeyRef = useRef<string | null>(null);
@@ -192,7 +199,7 @@ export function useVanityAddress({
         ? initialBest.zeros + 1
         : BASE_TARGET_ZEROS;
 
-      bestZerosRef.current = initialBest ? initialBest.zeros : 0;
+      bestRef.current = initialBest;
       setBest(initialBest);
       setStatus(initialBest ? "ready" : "mining");
       setAttempts(0);
@@ -209,9 +216,8 @@ export function useVanityAddress({
         // If we already have a launch-eligible cached salt, a worker
         // crash mid-mining is non-fatal — the user can still launch with
         // the cached best. Stay in "ready" rather than flipping to
-        // "error". The launch path will resolve `ensureSalt` from
-        // `bestRef`.
-        if (bestZerosRef.current >= BASE_TARGET_ZEROS) {
+        // "error". The launch path resolves `ensureSalt` from `bestRef`.
+        if (bestRef.current && bestRef.current.zeros >= BASE_TARGET_ZEROS) {
           teardown();
           return;
         }
@@ -246,14 +252,15 @@ export function useVanityAddress({
                 // Race guard: a sibling worker may have already posted a
                 // higher-tier `found` while this one was in flight. Only
                 // accept strict improvements.
-                if (msg.zeros <= bestZerosRef.current) return;
+                const currentZeros = bestRef.current?.zeros ?? 0;
+                if (msg.zeros <= currentZeros) return;
 
-                bestZerosRef.current = msg.zeros;
                 const winning: VanityResult = {
                   salt: msg.salt,
                   address: getAddress(msg.address),
                   zeros: msg.zeros,
                 };
+                bestRef.current = winning;
                 setBest(winning);
                 setStatus("ready");
 
@@ -377,7 +384,7 @@ export function useVanityAddress({
       teardown();
       setStatus("idle");
       setBest(null);
-      bestZerosRef.current = 0;
+      bestRef.current = null;
       lastSpawnRef.current = null;
       return;
     }
@@ -389,7 +396,7 @@ export function useVanityAddress({
       teardown();
       setStatus("idle");
       setBest(null);
-      bestZerosRef.current = 0;
+      bestRef.current = null;
       lastSpawnRef.current = null;
       return;
     }
@@ -429,13 +436,14 @@ export function useVanityAddress({
           zeros: number;
         };
         if (typeof parsed.zeros !== "number") return;
-        if (parsed.zeros <= bestZerosRef.current) return;
-        bestZerosRef.current = parsed.zeros;
+        const currentZeros = bestRef.current?.zeros ?? 0;
+        if (parsed.zeros <= currentZeros) return;
         const upgraded: VanityResult = {
           salt: parsed.salt,
           address: getAddress(parsed.address),
           zeros: parsed.zeros,
         };
+        bestRef.current = upgraded;
         setBest(upgraded);
         setStatus("ready");
         const nextTarget = parsed.zeros + 1;
@@ -490,23 +498,14 @@ export function useVanityAddress({
           requestedName,
           requestedTicker,
         );
-        // `start` may have already populated `best` from cache; if so,
-        // resolve immediately. Otherwise queue and wait for the first
-        // `found`.
-        if (bestZerosRef.current >= BASE_TARGET_ZEROS) {
-          // `bestRef` isn't a thing; read latest from `start`'s side
-          // effects via `pendingResolversRef`-free fast path.
-          // We need the actual VanityResult — re-read from cache since
-          // we just seeded from there.
-          const key = vanityKey(creator, requestedName, requestedTicker);
-          const cached = readVanityCache(key);
-          if (cached && cached.zeros >= BASE_TARGET_ZEROS) {
-            return Promise.resolve({
-              salt: cached.salt,
-              address: getAddress(cached.address),
-              zeros: cached.zeros,
-            });
-          }
+        // `start` synchronously installs the cached best (if any) into
+        // `bestRef` before returning, so this fast-path resolution
+        // doesn't race with the async `setBest` state update — and
+        // doesn't depend on the cache row still being present in
+        // localStorage either.
+        const seeded = bestRef.current;
+        if (seeded && seeded.zeros >= BASE_TARGET_ZEROS) {
+          return Promise.resolve(seeded);
         }
         if (!started) {
           return Promise.reject(new Error(MINER_ERROR_MESSAGE));
@@ -516,8 +515,11 @@ export function useVanityAddress({
         });
       }
 
-      if (best && best.zeros >= BASE_TARGET_ZEROS) {
-        return Promise.resolve(best);
+      // Same metadata as the running pool — read the freshest best from
+      // the ref rather than the (possibly one render behind) state.
+      const current = bestRef.current;
+      if (current && current.zeros >= BASE_TARGET_ZEROS) {
+        return Promise.resolve(current);
       }
 
       return new Promise<VanityResult>((resolve, reject) => {
@@ -528,7 +530,7 @@ export function useVanityAddress({
         pendingResolversRef.current.push({ resolve, reject });
       });
     },
-    [address, effectiveImpl, best, start, status],
+    [address, effectiveImpl, start, status],
   );
 
   return {
