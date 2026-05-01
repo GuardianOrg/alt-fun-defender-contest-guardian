@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Bonding} from "../src/Bonding.sol";
-import {LPLock} from "../src/LPLock.sol";
 import {Token} from "../src/Token.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
 import {DeployHelper} from "./DeployHelper.sol";
@@ -913,61 +912,26 @@ contract BondingTest is DeployHelper {
         new ERC1967Proxy(address(freshImpl), init);
     }
 
-    // ─── setUniswapV2 Admin Tests ───────────────────────────────────────
+    // ─── HyperSwap config immutability ──────────────────────────────────
+    //
+    // `uniswapV2Factory` and `lpLock` are set once at `initialize` and have
+    // no live setter — see the natspec on those storage slots in
+    // `Bonding.sol`. Migrating to a different HyperSwap fork or LP lock
+    // requires a UUPS upgrade so the change is visible on-chain ahead of
+    // time and cannot brick or silently reroute any in-flight graduation.
 
-    function test_setUniswapV2_onlyOwner() public {
-        vm.prank(trader);
-        vm.expectRevert();
-        bonding.setUniswapV2(address(hyperswapFactory), address(lpLockContract));
-    }
-
-    function _deployFreshLpLock(
-        bool authorizeBonding
-    ) internal returns (address) {
-        LPLock impl = new LPLock();
-        bytes memory init = abi.encodeCall(LPLock.initialize, (owner));
-        LPLock fresh = LPLock(address(new ERC1967Proxy(address(impl), init)));
-        if (authorizeBonding) {
-            fresh.setLocker(address(bonding), true);
-        }
-        return address(fresh);
-    }
-
-    function test_setUniswapV2_updatesValues() public {
-        address newFactory = makeAddr("newUniswapV2Factory");
-        address newLpLock = _deployFreshLpLock(true);
-        bonding.setUniswapV2(newFactory, newLpLock);
-        assertEq(bonding.uniswapV2Factory(), newFactory);
-        assertEq(bonding.lpLock(), newLpLock);
-    }
-
-    function test_setUniswapV2_emitsEvent() public {
-        address newFactory = makeAddr("newUniswapV2Factory");
-        address newLpLock = _deployFreshLpLock(true);
-        address oldFactory = bonding.uniswapV2Factory();
-        address oldLpLock = bonding.lpLock();
-        vm.expectEmit(true, true, false, true);
-        emit Bonding.UniswapV2Updated(oldFactory, newFactory, oldLpLock, newLpLock);
-        bonding.setUniswapV2(newFactory, newLpLock);
-    }
-
-    function test_setUniswapV2_revertsOnZeroFactory() public {
-        vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.setUniswapV2(address(0), address(lpLockContract));
-    }
-
-    function test_setUniswapV2_revertsOnZeroLpLock() public {
-        vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.setUniswapV2(address(hyperswapFactory), address(0));
-    }
-
-    function test_setUniswapV2_revertsWhenLpLockNotAuthorized() public {
-        // Fresh LPLock that hasn't called `setLocker(bonding, true)`. Without the
-        // sanity check, this would silently succeed and brick every subsequent
-        // `finalizeGraduation` for tokens already in `Graduating`.
-        address newLpLock = _deployFreshLpLock(false);
-        vm.expectRevert(Bonding.LpLockNotConfigured.selector);
-        bonding.setUniswapV2(address(hyperswapFactory), newLpLock);
+    function test_uniswapV2Factory_hasNoLiveSetter() public {
+        // `setUniswapV2(address,address)` selector — must not exist on the proxy.
+        // Use a normal `call` from the owner with non-zero args: `staticcall`
+        // would also revert against a state-mutating setter and could mask its
+        // reintroduction. A missing selector hits the empty fallback and
+        // returns no revert data; a reintroduced setter would revert with a
+        // typed error or a 4-byte selector, which we detect via revertData.
+        bytes4 setUniswapV2Selector = bytes4(keccak256("setUniswapV2(address,address)"));
+        (bool ok, bytes memory revertData) =
+            address(bonding).call(abi.encodeWithSelector(setUniswapV2Selector, address(1), address(2)));
+        assertFalse(ok, "setUniswapV2 must not exist on Bonding");
+        assertEq(revertData.length, 0, "setUniswapV2 reverted with data -- selector still routes");
     }
 
     // ─── Graduation Threshold Initialisation Tests ───────────────────────

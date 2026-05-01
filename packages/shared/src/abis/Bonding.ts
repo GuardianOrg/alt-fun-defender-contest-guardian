@@ -32,6 +32,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "LAUNCH_TRADING_DELAY_BLOCKS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "LP_RESERVE",
     "inputs": [],
     "outputs": [
@@ -626,6 +639,25 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "launchBlock",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "lpLock",
     "inputs": [],
     "outputs": [
@@ -841,24 +873,6 @@ export const BondingAbi = [
     "inputs": [
       {
         "name": "newImpl",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
-    "name": "setUniswapV2",
-    "inputs": [
-      {
-        "name": "newFactory",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "newLpLock",
         "type": "address",
         "internalType": "address"
       }
@@ -1236,37 +1250,6 @@ export const BondingAbi = [
   },
   {
     "type": "event",
-    "name": "UniswapV2Updated",
-    "inputs": [
-      {
-        "name": "oldUniswapV2Factory",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "newUniswapV2Factory",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "oldLpLock",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      },
-      {
-        "name": "newLpLock",
-        "type": "address",
-        "indexed": false,
-        "internalType": "address"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "Upgraded",
     "inputs": [
       {
@@ -1368,11 +1351,6 @@ export const BondingAbi = [
   },
   {
     "type": "error",
-    "name": "LpLockNotConfigured",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "MustKeepOneRouter",
     "inputs": []
   },
@@ -1468,6 +1446,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "TokenNotTrading",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "TradingNotOpen",
     "inputs": []
   },
   {

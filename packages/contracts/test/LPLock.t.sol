@@ -32,7 +32,7 @@ contract LPLockTest is Test {
         lpToken = new MockERC20("LP Token", "LP");
         pairAddr = address(lpToken);
 
-        lpLock.setLocker(bonding, true);
+        lpLock.addLocker(bonding);
     }
 
     // ─── Initialization ──────────────────────────────────────────────────
@@ -46,27 +46,49 @@ contract LPLockTest is Test {
         lpLock.initialize(unauthorized);
     }
 
-    // ─── setLocker ───────────────────────────────────────────────────────
+    // ─── addLocker ───────────────────────────────────────────────────────
+    //
+    // `addLocker` is add-only by design — there is no `removeLocker`. A live
+    // revoke would brick every in-flight `Bonding.finalizeGraduation`
+    // (issue #311 Variant 1). Migrating to a different locker requires a
+    // UUPS upgrade.
 
-    function test_setLocker_grantsLockerRole() public view {
+    function test_addLocker_grantsLockerRole() public view {
         assertTrue(lpLock.isLocker(bonding));
     }
 
-    function test_setLocker_revokesLockerRole() public {
-        lpLock.setLocker(bonding, false);
-        assertFalse(lpLock.isLocker(bonding));
-    }
-
-    function test_setLocker_emitsEvent() public {
+    function test_addLocker_emitsEvent() public {
         vm.expectEmit(true, false, false, true);
-        emit LPLock.LockerUpdated(unauthorized, true);
-        lpLock.setLocker(unauthorized, true);
+        emit LPLock.LockerAdded(unauthorized);
+        lpLock.addLocker(unauthorized);
     }
 
-    function test_setLocker_onlyOwner() public {
+    function test_addLocker_onlyOwner() public {
         vm.prank(unauthorized);
         vm.expectRevert();
-        lpLock.setLocker(unauthorized, true);
+        lpLock.addLocker(unauthorized);
+    }
+
+    function test_addLocker_revertsOnZeroAddress() public {
+        vm.expectRevert(LPLock.ZeroAddress.selector);
+        lpLock.addLocker(address(0));
+    }
+
+    function test_addLocker_revertsWhenAlreadyAdded() public {
+        vm.expectRevert(LPLock.LockerAlreadyAdded.selector);
+        lpLock.addLocker(bonding);
+    }
+
+    function test_setLocker_hasNoLiveSetter() public {
+        // Owner `call` (not `staticcall`) with non-zero args: a missing
+        // selector hits the empty fallback and returns no revert data, while
+        // a reintroduced setter would revert with a typed error or a 4-byte
+        // selector and trip the `revertData.length` assertion.
+        bytes4 setLockerSelector = bytes4(keccak256("setLocker(address,bool)"));
+        (bool ok, bytes memory revertData) =
+            address(lpLock).call(abi.encodeWithSelector(setLockerSelector, bonding, false));
+        assertFalse(ok, "setLocker must not exist on LPLock");
+        assertEq(revertData.length, 0, "setLocker reverted with data -- selector still routes");
     }
 
     // ─── recordLock ──────────────────────────────────────────────────────
