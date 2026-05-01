@@ -110,13 +110,12 @@ contract TwoPhaseGraduationTest is DeployHelper {
         (address tokenAddr,) = _launchToken();
         _enterGraduating(tokenAddr);
 
-        (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned, uint64 pendingSince) =
+        (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
             bonding.pendingGraduation(tokenAddr);
 
         assertTrue(tokensForLP > 0, "tokensForLP must be cached for phase 2");
         assertTrue(ltFromPair > 0, "ltFromPair must be cached");
         assertTrue(unsoldBurned + lpBurned > 0, "at least one of unsold/lpBurned must be > 0");
-        assertEq(pendingSince, uint64(block.timestamp));
     }
 
     function test_phase1_buy_during_pending_reverts() public {
@@ -172,10 +171,9 @@ contract TwoPhaseGraduationTest is DeployHelper {
 
         bonding.finalizeGraduation(tokenAddr);
 
-        (uint256 tokensForLP, uint256 ltFromPair,,, uint64 pendingSince) = bonding.pendingGraduation(tokenAddr);
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
         assertEq(tokensForLP, 0);
         assertEq(ltFromPair, 0);
-        assertEq(pendingSince, 0);
     }
 
     function test_phase2_emits_TokenGraduated() public {
@@ -257,7 +255,7 @@ contract TwoPhaseGraduationTest is DeployHelper {
         // Drive the curve into the `Graduating` window.
         _enterGraduating(tokenAddr);
 
-        (uint256 tokensForLP, uint256 ltFromPair,,,) = bonding.pendingGraduation(tokenAddr);
+        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
         assertTrue(tokensForLP > 0 && ltFromPair > 0);
 
         // Pre-create the HyperSwap pair, deposit dust from both sides, mint LP

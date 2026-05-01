@@ -132,12 +132,14 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///         creation is permissionless and a malicious LT returning a tiny
     ///         `exchangeRate` could legitimately push it past 2^128 — a
     ///         narrowing cast would strand real LT in phase 2.
+    /// @dev    No `pendingSince` / freshness timestamp by design — see the
+    ///         "exchange-rate drift between phase 1 and phase 2" note on
+    ///         `finalizeGraduation` for the audit-acceptance rationale.
     struct PendingGraduation {
         uint256 tokensForLP;
         uint256 ltFromPair;
         uint256 lpBurned;
         uint256 unsoldBurned;
-        uint64 pendingSince;
     }
 
     struct LaunchParams {
@@ -643,13 +645,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      tests).
     function pendingGraduation(
         address token_
-    )
-        external
-        view
-        returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned, uint64 pendingSince)
-    {
+    ) external view returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
         PendingGraduation storage p = _s().pendingGraduation[token_];
-        return (p.tokensForLP, p.ltFromPair, p.lpBurned, p.unsoldBurned, p.pendingSince);
+        return (p.tokensForLP, p.ltFromPair, p.lpBurned, p.unsoldBurned);
     }
 
     function launchBlock(
@@ -795,12 +793,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
             _prepareGraduationLiquidity(tokenAddress);
 
         $.pendingGraduation[tokenAddress] = PendingGraduation({
-            tokensForLP: tokensForLP,
-            ltFromPair: ltFromPair,
-            lpBurned: lpBurned,
-            unsoldBurned: unsoldBurned,
-            // forge-lint: disable-next-line(unsafe-typecast)
-            pendingSince: uint64(block.timestamp)
+            tokensForLP: tokensForLP, ltFromPair: ltFromPair, lpBurned: lpBurned, unsoldBurned: unsoldBurned
         });
 
         emit TokenGraduating(tokenAddress, tokensForLP, ltFromPair, lpBurned, unsoldBurned);
@@ -811,6 +804,22 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     /// @dev Bypasses the V2 router and calls `pair.mint(lpLock)`
     ///      directly. This is brick-proof against a front-runner pre-creating
     ///      the pair and dust-seeding it between phases.
+    /// @dev Exchange-rate drift between phase 1 and phase 2 is accepted by
+    ///      design (issue #309, audit findings F-07 / IN-03). The cached
+    ///      `(tokensForLP, ltFromPair)` are pure pair-state arithmetic — see
+    ///      `_prepareGraduationLiquidity`, which never reads `exchangeRate()`
+    ///      — so the LP opens at the exact LT-per-token ratio the curve
+    ///      closed at, regardless of how long phase 2 takes. What drifts is
+    ///      only the USD denomination of the LT side, which is inherent to
+    ///      using a leveraged token as the curve reserve: holders accept that
+    ///      exposure when they buy in. A keeper Worker drives finalize within
+    ///      ~60s of `TokenGraduating`, so the practical drift window is
+    ///      single-digit seconds. We deliberately do NOT add a freshness
+    ///      timestamp / staleness gate here: the audit-recommended recompute
+    ///      path would return byte-identical values (its inputs are frozen
+    ///      while `Lifecycle.Graduating`), and re-pricing the LP at the live
+    ///      `exchangeRate()` would break the zero-gap-in-LT-units invariant
+    ///      enforced by `test/GraduationInvariants.t.sol`.
     function finalizeGraduation(
         address tokenAddress
     ) external nonReentrant {

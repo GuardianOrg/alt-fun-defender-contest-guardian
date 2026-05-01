@@ -738,11 +738,6 @@ export const BondingAbi = [
         "name": "unsoldBurned",
         "type": "uint256",
         "internalType": "uint256"
-      },
-      {
-        "name": "pendingSince",
-        "type": "uint64",
-        "internalType": "uint64"
       }
     ],
     "stateMutability": "view"
