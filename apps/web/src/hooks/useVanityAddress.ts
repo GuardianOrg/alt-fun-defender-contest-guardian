@@ -162,6 +162,13 @@ export function useVanityAddress({
       clearInterval(tickIntervalRef.current);
       tickIntervalRef.current = null;
     }
+    // Clear the cache key so the cross-tab `storage` listener can't
+    // resurrect `best` / `status` for a tuple this tab is no longer
+    // mining (wallet disconnect, metadata cleared, unmount). `start()`
+    // re-installs a fresh key on its next call, so this is safe to do
+    // unconditionally — teardown is the sole "stop everything"
+    // chokepoint.
+    cacheKeyRef.current = null;
     if (pendingResolversRef.current.length > 0) {
       const pending = pendingResolversRef.current;
       pendingResolversRef.current = [];
