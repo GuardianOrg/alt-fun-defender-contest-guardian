@@ -467,19 +467,25 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     function isTrading(
         address token_
     ) external view returns (bool) {
-        return _tokenInfo[token_].lifecycle == Lifecycle.Curve;
+        TokenInfo storage info = _tokenInfo[token_];
+        if (info.creator == address(0)) return false;
+        return info.lifecycle == Lifecycle.Curve;
     }
 
     function isGraduating(
         address token_
     ) external view returns (bool) {
-        return _tokenInfo[token_].lifecycle == Lifecycle.Graduating;
+        TokenInfo storage info = _tokenInfo[token_];
+        if (info.creator == address(0)) return false;
+        return info.lifecycle == Lifecycle.Graduating;
     }
 
     function isGraduated(
         address token_
     ) external view returns (bool) {
-        return _tokenInfo[token_].lifecycle == Lifecycle.Graduated;
+        TokenInfo storage info = _tokenInfo[token_];
+        if (info.creator == address(0)) return false;
+        return info.lifecycle == Lifecycle.Graduated;
     }
 
     /// @notice Dual graduation triggers: USD (LT reserve × exchangeRate ≥
@@ -488,6 +494,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address token_
     ) public view returns (bool) {
         TokenInfo storage info = _tokenInfo[token_];
+        if (info.creator == address(0)) return false;
         if (info.lifecycle != Lifecycle.Curve) return false;
 
         address pair = info.pair;
