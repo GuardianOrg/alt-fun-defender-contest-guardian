@@ -78,7 +78,12 @@ export interface VanityTier {
  */
 export const TIER_TABLE: readonly VanityTier[] = [
   { id: "none", label: "Common", minBonus: 0, rarity: 0, effect: "none" },
-  { id: "bronze", label: "Bronze", minBonus: 1, rarity: 1, effect: "css" },
+  // +1 bonus (6 zeros) is too easy on a JS worker pool (~6s mean) to
+  // feel like a flex, so it stays in the `none` tier. Bronze kicks in
+  // at +2 (7 zeros, ~90s mean on a multi-core CPU / ~3ms on a GPU
+  // cluster), which is the first count that takes long enough to
+  // actually feel earned.
+  { id: "bronze", label: "Bronze", minBonus: 2, rarity: 1, effect: "css" },
   { id: "silver", label: "Silver", minBonus: 3, rarity: 2, effect: "css" },
   { id: "gold", label: "Gold", minBonus: 4, rarity: 3, effect: "css" },
   { id: "platinum", label: "Platinum", minBonus: 5, rarity: 4, effect: "css" },

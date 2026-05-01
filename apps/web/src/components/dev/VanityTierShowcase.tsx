@@ -178,9 +178,7 @@ export default function VanityTierShowcase() {
               ? "0"
               : tier.id === "singularity"
                 ? "+11..+35"
-                : tier.id === "bronze"
-                  ? "+1, +2"
-                  : `+${tier.minBonus}`;
+                : `+${tier.minBonus}`;
           const totalZeros = totalZerosFor(tier);
           const sampleAddress = syntheticAddress(totalZeros);
           const localSec = meanSecondsForZeros(totalZeros, RATE_LOCAL_PER_SEC);

@@ -27,17 +27,33 @@ let engineReady: Promise<void> | null = null;
 
 /**
  * Lazy-initialise the tsparticles engine exactly once across the page.
- * Each tier registers its own preset bundle on first use; the engine
- * itself is shared. Subsequent `<VanityParticles>` mounts await the
- * same promise, so we never double-load presets.
+ *
+ * We deliberately use the `slim` bundle (not `basic`) because our
+ * custom configs use features the fire/stars *presets* don't pull in
+ * by themselves: particle-links (lightning), particle-attract
+ * (singularity), the life updater (inferno + singularity destroy
+ * timers), and the bounce out-mode (lightning ricochet). On top of
+ * slim we add the emitters plugin so the inferno bottom-up plume and
+ * the singularity vortex emitter work. The fire / stars preset
+ * configs themselves are still loaded for reference / future use.
+ *
+ * Without slim, the relevant config keys are silently ignored —
+ * particles render a blank canvas inside the wrapper, which is what
+ * users see as "only the border + glow showing".
  */
 async function ensureEngine(tierId: VanityTierId): Promise<void> {
   if (!engineReady) {
     engineReady = initParticlesEngine(async (engine) => {
+      const { loadSlim } = await import("@tsparticles/slim");
+      const { loadEmittersPlugin } = await import(
+        "@tsparticles/plugin-emitters"
+      );
       const { loadFirePreset } = await import("@tsparticles/preset-fire");
       const { loadStarsPreset } = await import("@tsparticles/preset-stars");
-      await loadFirePreset(engine);
-      await loadStarsPreset(engine);
+      await loadSlim(engine, false);
+      await loadEmittersPlugin(engine, false);
+      await loadFirePreset(engine, false);
+      await loadStarsPreset(engine, false);
     }).catch((err) => {
       console.error("[VanityParticles] engine init failed", err);
       throw err;
@@ -200,7 +216,9 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
   }
 
   if (tierId === "cosmic") {
-    // Dense violet/cyan/magenta star field, slowly twinkling.
+    // Dense violet/cyan/magenta star field, slowly drifting. The
+    // pulsing-opacity animation effectively gives a "twinkle" without
+    // needing the separate twinkle plugin.
     return {
       ...base,
       particles: {
@@ -208,8 +226,13 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
         color: { value: ["#b66dff", "#4dc8ff", "#ff61b6", "#ffffff", "#ffd24d"] },
         shape: { type: "circle" },
         opacity: {
-          value: { min: 0.2, max: 1 },
-          animation: { enable: true, speed: 2, sync: false },
+          value: { min: 0.15, max: 1 },
+          animation: {
+            enable: true,
+            speed: 2.5,
+            sync: false,
+            startValue: "random",
+          },
         },
         size: { value: { min: 0.5, max: 2.2 } },
         move: {
@@ -218,9 +241,6 @@ function configFor(tierId: ParticleTierId, size: VanitySize): ISourceOptions {
           direction: "none",
           random: true,
           outModes: { default: "out" },
-        },
-        twinkle: {
-          particles: { enable: true, frequency: 0.05, opacity: 1 },
         },
       },
     };
