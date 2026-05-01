@@ -52,8 +52,22 @@ jobs:
         continue-on-error: true
 
   contracts:
-    name: Contracts (forge fmt + test)
+    # Foundry parallelises across contracts but each contract runs single
+    # threaded, so on a 2-vCPU runner the suite is bottlenecked by the slowest
+    # individual contract (BondingTest ~165s, ZapTest ~126s,
+    # GraduationInvariantsTest ~128s, ClonesTest ~75s). Sharding across two
+    # GitHub jobs lets the heavy contracts run in parallel with everything else
+    # and roughly halves wall time without touching any Solidity.
+    name: Contracts (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: heavy
+            args: --match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest)$"
+          - shard: light
+            args: --no-match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest)$"
     steps:
       - uses: actions/checkout@v6
 
@@ -71,6 +85,7 @@ jobs:
           restore-keys: foundry-${{ runner.os }}-
 
       - name: forge fmt --check
+        if: matrix.shard == 'light'
         working-directory: packages/contracts
         run: forge fmt --check
 
@@ -78,7 +93,7 @@ jobs:
         working-directory: packages/contracts
         env:
           FOUNDRY_PROFILE: ci
-        run: forge test
+        run: forge test ${{ matrix.args }}
 
   api-smoke:
     name: API Smoke Test
