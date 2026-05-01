@@ -67,10 +67,10 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 
 Dual trigger — fires on whichever hits first:
 
-- **USD trigger:** `assetBalance × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold).
-- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached).
+- **USD trigger:** `(storedAssetReserve - virtualLtReserve) × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold). Reads the pair's STORED reserves; the launch-time `virtualLtReserve` is recovered on-the-fly as `Pair.k() / Token.TOTAL_SUPPLY()` because `_pool.k = totalSupply * virtualLtReserve` is locked in at `Pair.mint` and never modified by swaps.
+- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached). This IS a live `balanceOf` read but is donation-resistant in the opposite direction — token donations can only INCREASE the balance and can never satisfy `== 0`. Any donated tokens are unconditionally burned by `_prepareGraduationLiquidity`.
 
-Checked in `Bonding.canGraduate()` on every buy; executed in `Bonding._graduate()` immediately when true.
+Direct LT donations to the pair don't count toward the USD threshold and don't enter the LP — they stay in the curve pair under the trust assumption that `BONDING_ROLE` is only ever held by `Bonding`. Checked in `Bonding.canGraduate()` on every buy; executed in `Bonding._graduate()` immediately when true.
 
 ### Dynamic LP Seeding (zero price gap)
 
@@ -81,8 +81,8 @@ Our approach: compute the exact `tokensForLP` at graduation time so the LP opens
 `_graduate()` performs, in order:
 
 1. Read `(reserve0, reserve1)` from the Pair **before** any state mutation.
-2. Burn any unsold real curve tokens from the pair (`unsoldBurned`).
-3. Drain all real LT from the pair via `Router.graduate()` (`ltFromPair`).
+2. Burn any unsold real curve tokens from the pair (`unsoldBurned`). This also burns any tokens donated to the pair via direct ERC20 transfer.
+3. Recover `virtualLtReserve = Pair.k() / Token.TOTAL_SUPPLY()` and compute `ltFromPair = reserve1 - virtualLtReserve` — the real LT raised by the curve, excluding the launch-time virtual seed AND any LT donated to the pair. Drain exactly that amount via `Router.graduate(token, ltFromPair)`. Donated LT remains in the curve pair, reachable only via `Pair.transferAsset` which is gated by `Router`'s `BONDING_ROLE`.
 4. Compute `tokensForLP = (ltFromPair × reserve0) / reserve1` — the unique amount that sets the LP price `ltFromPair / tokensForLP` equal to the last curve price `reserve1 / reserve0`. Capped at `lpReserveTotal` as a defensive guard (parabola math proves `tokensForLP ≤ lpReserveTotal` by construction).
 5. Burn `lpReserveTotal − tokensForLP` from `Bonding`'s held reserve (`lpBurned`).
 6. `addLiquidity(tokensForLP, ltFromPair)` on HyperSwap V2 → LP tokens go to `LPLock`.
@@ -96,9 +96,10 @@ All enforced by `test/GraduationInvariants.t.sol`:
 | 1 | Zero price gap | `ltFromPair × reserve0End ≈ tokensInLP × reserve1End` within 1 bps |
 | 2 | Conservation | `tokensInLP + lpBurned == LP_RESERVE` (250M) |
 | 3 | Parabola cap | `tokensInLP ≤ LP_RESERVE` always (guaranteed by virtual reserve setup) |
-| 4 | Pair drained | `tokenBalance() == 0` and `assetBalance() == 0` post-graduation |
+| 4 | Pair drained | `tokenBalance() == 0` post-graduation. `assetBalance() == 0` only when no donations occurred — any LT donated directly to the pair is excluded from LP seeding and remains locked in the pair. |
 | 5 | Both triggers work | Supply trigger fires below `$12K`; USD trigger fires with supply remaining |
 | 6 | Overflow refund | Oversized buys charge only `amountInUsed`, not requested amount |
+| 7 | Donation resistance | Direct LT donations to the pair don't trigger graduation and don't skew LP open price; donated LT stays locked in the curve pair |
 
 After graduation, all trades continue through `Zap` via HyperSwap. The pool is TOKEN/LT so leveraged exposure persists.
 

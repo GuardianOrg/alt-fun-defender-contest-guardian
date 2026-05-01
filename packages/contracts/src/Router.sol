@@ -164,14 +164,32 @@ contract Router is Initializable, AccessControlUpgradeable {
         assetOut = reserveAsset - (k / newReserveToken);
     }
 
-    /// @notice Drain the pair's real LT balance to the caller. Called by
-    ///         `Bonding._prepareGraduationLiquidity` during graduation.
+    /// @notice Transfer exactly `amount` of LT out of the pair to the caller.
+    ///         Called by `Bonding._prepareGraduationLiquidity` during graduation
+    ///         with `amount = stored assetReserve - virtualLtReserve` (i.e. the
+    ///         real LT raised by the curve, excluding the virtual seed).
+    /// @dev    Donation-resistant: passing an explicit `amount` instead of
+    ///         draining `assetBalance()` ensures any LT that was donated
+    ///         directly to the pair via `IERC20.transfer` is left behind and
+    ///         excluded from LP seeding.
+    ///
+    ///         "Locked" here is a trust-assumption claim, not an on-chain
+    ///         guarantee. `Pair.transferAsset` is gated by `onlyRouter`, and
+    ///         `Router` only exposes it via this function and `sell`. Both
+    ///         require `BONDING_ROLE`, which only `Bonding` holds. `Bonding`
+    ///         in turn only calls `graduate` from
+    ///         `_prepareGraduationLiquidity` — which is unreachable once the
+    ///         token's lifecycle has flipped past `Curve`. So the leftover
+    ///         is unreachable as long as (a) `BONDING_ROLE` is not granted
+    ///         to any other address, and (b) future `Bonding` upgrades
+    ///         preserve the lifecycle gate.
     function graduate(
-        address token
-    ) external onlyRole(BONDING_ROLE) returns (uint256 amount) {
+        address token,
+        uint256 amount
+    ) external onlyRole(BONDING_ROLE) {
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
-        amount = IPair(pairAddr).assetBalance();
+        if (pairAddr == address(0)) revert PairNotFound();
         IPair(pairAddr).transferAsset(msg.sender, amount);
     }
 }
