@@ -197,6 +197,29 @@ contract FeeVaultTest is Test {
         vault.accrue(address(0xbeef), creator, 1, 0, true);
     }
 
+    function test_accrue_revertsIfCreatorIsZeroWithCreatorAmount() public {
+        // Defense-in-depth: prevent stranded balances on `creatorBalance[address(0)]`.
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 100 ether);
+
+        vm.prank(depositor);
+        vm.expectRevert(FeeVault.ZeroAddress.selector);
+        vault.accrue(address(0xbeef), address(0), 20 ether, 80 ether, true);
+    }
+
+    function test_accrue_allowsZeroCreatorWhenCreatorAmountIsZero() public {
+        // Pure protocol-fee accrual must still work even when no creator is
+        // attached, since the zero-address guard is gated on `creatorAmount > 0`.
+        vault.addDepositor(depositor);
+        usdc.mint(address(vault), 80 ether);
+
+        vm.prank(depositor);
+        vault.accrue(address(0xbeef), address(0), 0, 80 ether, true);
+
+        assertEq(vault.protocolBalance(), 80 ether);
+        assertEq(vault.creatorBalance(address(0)), 0);
+    }
+
     function test_accrue_tracksTotalAccruedCreator() public {
         address creator2 = makeAddr("creator2");
         vault.addDepositor(depositor);
