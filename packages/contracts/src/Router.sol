@@ -180,6 +180,7 @@ contract Router is Initializable, AccessControlUpgradeable {
     ) external onlyRole(BONDING_ROLE) {
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
+        if (pairAddr == address(0)) revert PairNotFound();
         IPair(pairAddr).transferAsset(msg.sender, amount);
     }
 }

@@ -123,9 +123,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         ///      the curve. Stored `Pair.assetReserve` always equals
         ///      `virtualLtReserve + real LT raised`; subtracting this gives
         ///      donation-immune access to the real-raised amount used by
-        ///      `canGraduate` and graduation LP seeding. See the donation /
-        ///      zero-gap analysis in
-        ///      `test/DonationGraduation.t.sol`.
+        ///      `canGraduate` and graduation LP seeding. Donation-resistance
+        ///      regression coverage lives in `test/GraduationInvariants.t.sol`
+        ///      (donation section).
         uint256 virtualLtReserve;
     }
 
@@ -295,10 +295,17 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
     ///         old code path. Without it, those tokens' graduations would
     ///         compute `realLtRaised = assetReserve - 0` and try to drain
     ///         more LT than the pair physically holds.
+    ///
+    ///         Bounds the input by the pair's stored `assetReserve` so an
+    ///         operator typo can't push `virtualLtReserve_` past the upper
+    ///         bound and cause the underflow at every later
+    ///         `assetReserve - virtualLtReserve` site, which would brick
+    ///         every subsequent buy and graduation on that token.
     /// @param token            Curve-phase token to migrate.
     /// @param virtualLtReserve_ The launch-time virtual reserve, recoverable
     ///        off-chain from the launch-tx exchange rate as
-    ///        `(VIRTUAL_LIQUIDITY_USD * 1e18) / launchExchangeRate`.
+    ///        `(VIRTUAL_LIQUIDITY_USD * 1e18) / launchExchangeRate`. Must be
+    ///        ≤ the pair's current stored `assetReserve`.
     function migrateVirtualLtReserve(
         address token,
         uint256 virtualLtReserve_
@@ -308,6 +315,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         if (info.lifecycle != Lifecycle.Curve) revert InvalidInput();
         if (info.virtualLtReserve != 0) revert InvalidInput();
         if (virtualLtReserve_ == 0) revert InvalidInput();
+        (, uint256 assetReserve) = IPair(info.pair).getReserves();
+        if (virtualLtReserve_ > assetReserve) revert InvalidInput();
         info.virtualLtReserve = virtualLtReserve_;
     }
 

@@ -340,6 +340,13 @@ contract RouterTest is Test {
         assertEq(asset2.balanceOf(bondingRole), 0, "Zero-amount graduate is a no-op");
     }
 
+    function test_graduate_revertsForUnknownPair() public {
+        address fakeToken = makeAddr("fakeToken");
+        vm.prank(bondingRole);
+        vm.expectRevert(Router.PairNotFound.selector);
+        router.graduate(fakeToken, 0);
+    }
+
     // ─── Fuzz Tests ──────────────────────────────────────────────────────
 
     function testFuzz_getAmountOut_buy_neverExceedsReserve(
