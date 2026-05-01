@@ -119,6 +119,14 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string image;
         string[3] urls;
         Lifecycle lifecycle;
+        /// @dev Launch-time virtual LT reserve, frozen for the lifetime of
+        ///      the curve. Stored `Pair.assetReserve` always equals
+        ///      `virtualLtReserve + real LT raised`; subtracting this gives
+        ///      donation-immune access to the real-raised amount used by
+        ///      `canGraduate` and graduation LP seeding. See the donation /
+        ///      zero-gap analysis in
+        ///      `test/DonationGraduation.t.sol`.
+        uint256 virtualLtReserve;
     }
 
     /// @notice Snapshot of LP-bound amounts cached at end of phase 1, consumed
@@ -277,6 +285,32 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit BounceGlobalStorageUpdated(address(0), bounceGlobalStorage_);
     }
 
+    /// @notice One-shot migration for tokens launched before `virtualLtReserve`
+    ///         existed in `TokenInfo`. Owner-only and one-way: callable only
+    ///         while the slot is still zero, so a bad value can be corrected
+    ///         pre-graduation but not weaponised against a token that has
+    ///         already been migrated.
+    /// @dev    Required because `virtualLtReserve` is set in `launch()` going
+    ///         forward, but the slot is `0` for any TokenInfo written by the
+    ///         old code path. Without it, those tokens' graduations would
+    ///         compute `realLtRaised = assetReserve - 0` and try to drain
+    ///         more LT than the pair physically holds.
+    /// @param token            Curve-phase token to migrate.
+    /// @param virtualLtReserve_ The launch-time virtual reserve, recoverable
+    ///        off-chain from the launch-tx exchange rate as
+    ///        `(VIRTUAL_LIQUIDITY_USD * 1e18) / launchExchangeRate`.
+    function migrateVirtualLtReserve(
+        address token,
+        uint256 virtualLtReserve_
+    ) external onlyOwner {
+        TokenInfo storage info = _tokenInfo[token];
+        if (info.creator == address(0)) revert TokenNotTrading();
+        if (info.lifecycle != Lifecycle.Curve) revert InvalidInput();
+        if (info.virtualLtReserve != 0) revert InvalidInput();
+        if (virtualLtReserve_ == 0) revert InvalidInput();
+        info.virtualLtReserve = virtualLtReserve_;
+    }
+
     // ─── Launch ──────────────────────────────────────────────────────────
 
     function launch(
@@ -306,8 +340,11 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         _storeTokenInfo(tokenAddr, address(0), params, creator_);
 
-        pair = _deployAndSeed(tokenAddr, saltMixed, params.name, params.ticker, params.ltAddress);
-        _tokenInfo[tokenAddr].pair = pair;
+        uint256 virtualLtReserve;
+        (pair, virtualLtReserve) = _deployAndSeed(tokenAddr, saltMixed, params.name, params.ticker, params.ltAddress);
+        TokenInfo storage info = _tokenInfo[tokenAddr];
+        info.pair = pair;
+        info.virtualLtReserve = virtualLtReserve;
 
         uint256 k = IPair(pair).k();
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k);
@@ -319,7 +356,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         string calldata name_,
         string calldata ticker_,
         address ltAddress
-    ) internal returns (address pair) {
+    ) internal returns (address pair, uint256 virtualLtReserve) {
         Clones.cloneDeterministic(tokenImplementation, saltMixed);
 
         Token(tokenAddr).initialize(name_, ticker_, address(this));
@@ -331,7 +368,7 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
 
         uint256 exchangeRate = IBounceLeveragedToken(ltAddress).exchangeRate();
         if (exchangeRate == 0) revert ZeroExchangeRate();
-        uint256 virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
+        virtualLtReserve = (VIRTUAL_LIQUIDITY_USD * 1e18) / exchangeRate;
 
         IERC20(tokenAddr).forceApprove(address(router), curveSupply);
         // Virtual tokenReserve = full totalSupply; only curveSupply (75%) actually transferred.
@@ -378,6 +415,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         }
     }
 
+    /// @dev `pair` and `virtualLtReserve` are written to zero here and patched
+    ///      by `launch` once `_deployAndSeed` returns the real values. Splitting
+    ///      the writes keeps `launch` from threading the LT/exchangeRate read
+    ///      (and its rare `ZeroExchangeRate` revert path) through this helper.
     function _storeTokenInfo(
         address tokenAddr,
         address pair,
@@ -393,7 +434,8 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             description: params.description,
             image: params.image,
             urls: params.urls,
-            lifecycle: Lifecycle.Curve
+            lifecycle: Lifecycle.Curve,
+            virtualLtReserve: 0
         });
     }
 
@@ -490,8 +532,16 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         return info.lifecycle == Lifecycle.Graduated;
     }
 
-    /// @notice Dual graduation triggers: USD (LT reserve × exchangeRate ≥
+    /// @notice Dual graduation triggers: USD (real LT raised × exchangeRate ≥
     ///         threshold) or supply (all curve tokens sold).
+    /// @dev    Uses the pair's STORED `assetReserve` (less the launch-time
+    ///         `virtualLtReserve`) — never `IERC20.balanceOf(pair)`. Reading
+    ///         the live balance would let anyone `IERC20.transfer(pair, X)`
+    ///         and inflate the reading to force a premature graduation; the
+    ///         stored reserve only moves through `Pair.swap`. The supply
+    ///         trigger (`tokenBalance() == 0`) is donation-immune in the
+    ///         opposite direction: pushing tokens INTO the pair can't
+    ///         satisfy "== 0", and only the curve buy flow drains tokens.
     function canGraduate(
         address token_
     ) public view returns (bool) {
@@ -502,7 +552,9 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         address pair = info.pair;
         if (IPair(pair).tokenBalance() == 0) return true;
 
-        uint256 valueUsd = (IPair(pair).assetBalance() * IBounceLeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
+        (, uint256 assetReserve) = IPair(pair).getReserves();
+        uint256 realLtRaised = assetReserve - info.virtualLtReserve;
+        uint256 valueUsd = (realLtRaised * IBounceLeveragedToken(info.ltAddress).exchangeRate()) / 1e18;
         return valueUsd >= graduationThresholdUsd;
     }
 
@@ -661,18 +713,30 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
         emit TokenGraduated(tokenAddress, lpPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
     }
 
-    /// @dev Burns unsold curve tokens, drains LT, computes `tokensForLP` for
-    ///      zero-gap LP seeding, burns the LP excess.
+    /// @dev Burns unsold curve tokens, drains real raised LT, computes
+    ///      `tokensForLP` for zero-gap LP seeding, burns the LP excess.
     ///
-    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve`.
-    ///      With virtual `tokenReserve = totalSupply` and `curveSupply = 75%`, the
-    ///      parabola `tokensForLP(sold) = sold·(S−sold)/S` peaks at
+    ///      Price equality: `tokensForLP / ltFromPair = tokenReserve / assetReserve`,
+    ///      with `ltFromPair = assetReserve - virtualLtReserve` (the LT
+    ///      actually raised by the curve, excluding the launch-time virtual
+    ///      seed). Substituting gives LP price = `assetReserve / tokenReserve`
+    ///      = curve close marginal price. Donations of LT directly to the
+    ///      pair are excluded from `ltFromPair` and stay locked in the pair
+    ///      forever (only `Router` can call `transferAsset`, and it has no
+    ///      drain path post-graduation).
+    ///
+    ///      Token-side donations are handled by `unsoldBurned`: any tokens
+    ///      sitting in the pair beyond the curve's accounting are burned.
+    ///
+    ///      With virtual `tokenReserve = totalSupply` and `curveSupply = 75%`,
+    ///      the parabola `tokensForLP(sold) = sold·(S−sold)/S` peaks at
     ///      `S/4 = LP_RESERVE` when `sold = S/2`, so `tokensForLP ≤ LP_RESERVE`
     ///      is mathematically invariant. The cap is defensive.
     function _prepareGraduationLiquidity(
         address tokenAddress
     ) internal returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
-        address pairAddr = _tokenInfo[tokenAddress].pair;
+        TokenInfo storage info = _tokenInfo[tokenAddress];
+        address pairAddr = info.pair;
         (uint256 tokenReserve, uint256 assetReserve) = IPair(pairAddr).getReserves();
 
         unsoldBurned = IERC20(tokenAddress).balanceOf(pairAddr);
@@ -680,7 +744,10 @@ contract Bonding is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reentran
             Token(tokenAddress).burn(pairAddr, unsoldBurned);
         }
 
-        ltFromPair = router.graduate(tokenAddress);
+        ltFromPair = assetReserve - info.virtualLtReserve;
+        if (ltFromPair > 0) {
+            router.graduate(tokenAddress, ltFromPair);
+        }
 
         tokensForLP = assetReserve == 0 ? 0 : (ltFromPair * tokenReserve) / assetReserve;
         if (tokensForLP > LP_RESERVE) tokensForLP = LP_RESERVE;

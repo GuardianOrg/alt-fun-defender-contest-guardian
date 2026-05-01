@@ -412,4 +412,104 @@ contract GraduationInvariantsTest is DeployHelper {
 
         lt.setExchangeRate(1 ether); // reset for subsequent runs
     }
+
+    // ─── 9. Donation resistance (issue #307) ─────────────────────────────
+    //
+    // The historical implementation read `IERC20.balanceOf(pair)` for the
+    // graduation USD trigger and for graduation LP seeding. Anyone could
+    // `IERC20(lt).transfer(pair, X)` to inflate the reading, force a
+    // premature graduation, and skew the LP open price above the curve's
+    // last marginal price. The fix in this PR switches both paths to the
+    // pair's STORED `assetReserve` (less the launch-time `virtualLtReserve`),
+    // making donation a sunk cost that buys the attacker nothing.
+
+    /// @dev Donating LT to a fresh curve must NOT make `canGraduate` true.
+    function test_inv_donation_freshCurveStaysUngraduatable() public {
+        (address tokenAddr, address pairAddr) = _launchNoSeed();
+
+        uint256 thresholdUsd = bonding.graduationThresholdUsd();
+        uint256 donation = _ltForUsd(thresholdUsd * 5);
+
+        address attacker = makeAddr("attacker");
+        lt.mintDirect(attacker, donation);
+        vm.prank(attacker);
+        IERC20(address(lt)).transfer(pairAddr, donation);
+
+        assertFalse(bonding.canGraduate(tokenAddr), "fresh curve must not be graduatable from a pure LT donation");
+    }
+
+    /// @dev Donating LT next to a partially-filled curve must NOT push the
+    ///      USD trigger over the threshold.
+    function test_inv_donation_doesNotTrigUsdGraduation() public {
+        (address tokenAddr, address pairAddr) = _launchToken(_defaultSeedLt());
+
+        uint256 stageLt = _ltStageBeforeGraduation();
+        _buy(tokenAddr, trader, stageLt);
+
+        assertFalse(bonding.canGraduate(tokenAddr), "pre-donation curve below threshold");
+
+        uint256 donation = _ltForUsd(bonding.graduationThresholdUsd() * 2);
+        address attacker = makeAddr("attacker");
+        lt.mintDirect(attacker, donation);
+        vm.prank(attacker);
+        IERC20(address(lt)).transfer(pairAddr, donation);
+
+        assertFalse(
+            bonding.canGraduate(tokenAddr), "donation must not satisfy the USD trigger; only stored reserve counts"
+        );
+    }
+
+    /// @dev When graduation eventually fires legitimately on a curve that
+    ///      has been donated to, the LP must still open at the curve's last
+    ///      marginal price (zero-gap), and the donation must remain locked
+    ///      in the curve pair (not flow into the LP).
+    function test_inv_donation_zeroGapPreserved() public {
+        (address tokenAddr, address pairAddr) = _launchToken(_defaultSeedLt());
+        _buy(tokenAddr, trader, _ltStageBeforeGraduation());
+
+        uint256 donation = _ltForUsd(bonding.graduationThresholdUsd());
+        address attacker = makeAddr("attacker");
+        lt.mintDirect(attacker, donation);
+        vm.prank(attacker);
+        IERC20(address(lt)).transfer(pairAddr, donation);
+
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        GraduationSnapshot memory s = _graduateAndCapture(tokenAddr, pairAddr, trader2, _ltGraduationTrigger());
+
+        _assertZeroGap(s);
+        _assertParabolaCap(s);
+        _assertConservation(s);
+
+        assertEq(IPair(pairAddr).assetBalance(), donation, "donated LT must remain locked in the curve pair");
+    }
+
+    /// @dev Fuzz: arbitrary donations of LT before graduation must never
+    ///      break the zero-gap invariant or skew the LP price.
+    function testFuzz_inv_donationDoesNotBreakZeroGap(
+        uint256 donationRaw,
+        uint256 stageRaw
+    ) public {
+        uint256 stagePct = bound(stageRaw, 30, 80); // % of threshold staged before donation
+        uint256 donationUsd = bound(donationRaw, 0, bonding.graduationThresholdUsd() * 3);
+
+        (address tokenAddr, address pairAddr) = _launchToken(_defaultSeedLt());
+        _buy(tokenAddr, trader, _ltForUsd((bonding.graduationThresholdUsd() * stagePct) / 100));
+
+        if (donationUsd > 0) {
+            uint256 donation = _ltForUsd(donationUsd);
+            address attacker = makeAddr("attacker");
+            lt.mintDirect(attacker, donation);
+            vm.prank(attacker);
+            IERC20(address(lt)).transfer(pairAddr, donation);
+        }
+
+        lt.setExchangeRate(_ratePumpForStagedGraduation() * 2);
+        GraduationSnapshot memory s = _graduateAndCapture(tokenAddr, pairAddr, trader2, _ltGraduationTrigger());
+
+        _assertZeroGap(s);
+        _assertParabolaCap(s);
+        _assertConservation(s);
+
+        lt.setExchangeRate(1 ether);
+    }
 }

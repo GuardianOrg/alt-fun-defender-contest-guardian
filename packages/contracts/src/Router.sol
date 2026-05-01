@@ -164,14 +164,22 @@ contract Router is Initializable, AccessControlUpgradeable {
         assetOut = reserveAsset - (k / newReserveToken);
     }
 
-    /// @notice Drain the pair's real LT balance to the caller. Called by
-    ///         `Bonding._prepareGraduationLiquidity` during graduation.
+    /// @notice Transfer exactly `amount` of LT out of the pair to the caller.
+    ///         Called by `Bonding._prepareGraduationLiquidity` during graduation
+    ///         with `amount = stored assetReserve - virtualLtReserve` (i.e. the
+    ///         real LT raised by the curve, excluding the virtual seed).
+    /// @dev    Donation-resistant: passing an explicit `amount` instead of
+    ///         draining `assetBalance()` ensures any LT that was donated
+    ///         directly to the pair via `IERC20.transfer` is left behind and
+    ///         excluded from LP seeding. The leftover is effectively burned —
+    ///         after graduation, only `Router` can call `Pair.transferAsset`,
+    ///         and `Router` has no code path to drain a graduated pair.
     function graduate(
-        address token
-    ) external onlyRole(BONDING_ROLE) returns (uint256 amount) {
+        address token,
+        uint256 amount
+    ) external onlyRole(BONDING_ROLE) {
         address asset = assetTokenFor(token);
         address pairAddr = factory.getPair(token, asset);
-        amount = IPair(pairAddr).assetBalance();
         IPair(pairAddr).transferAsset(msg.sender, amount);
     }
 }

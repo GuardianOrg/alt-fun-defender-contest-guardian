@@ -294,29 +294,41 @@ contract RouterTest is Test {
 
     // ─── Graduate Tests ──────────────────────────────────────────────────
 
-    function test_graduate_drainsAssetBalance() public {
-        // Fund the pair with real asset tokens (simulating buys)
+    function test_graduate_transfersExactAmount() public {
         asset.mint(pairAddr, 5000 ether);
 
         uint256 pairBalance = IPair(pairAddr).assetBalance();
-        assertTrue(pairBalance > 0, "Pair should have asset balance");
+        assertTrue(pairBalance >= 3000 ether, "Pair should have asset balance");
+
+        uint256 transferAmount = 3000 ether;
+        vm.prank(bondingRole);
+        router.graduate(address(token), transferAmount);
+
+        assertEq(asset.balanceOf(bondingRole), transferAmount, "Caller receives exactly `amount`");
+        assertEq(IPair(pairAddr).assetBalance(), pairBalance - transferAmount, "Excess (donation) stays in pair");
+    }
+
+    function test_graduate_leavesDonationBehind() public {
+        // The whole point of the new signature: passing an explicit amount
+        // means anything `IERC20.transfer`-donated to the pair stays put.
+        uint256 raised = 4000 ether;
+        uint256 donated = 1500 ether;
+        asset.mint(pairAddr, raised + donated);
 
         vm.prank(bondingRole);
-        uint256 amount = router.graduate(address(token));
+        router.graduate(address(token), raised);
 
-        assertEq(amount, pairBalance, "Should drain full asset balance");
-        assertEq(asset.balanceOf(bondingRole), amount, "Assets should go to caller");
-        assertEq(IPair(pairAddr).assetBalance(), 0, "Pair should have no assets left");
+        assertEq(asset.balanceOf(bondingRole), raised, "Only the requested amount is drained");
+        assertEq(IPair(pairAddr).assetBalance(), donated, "Donation remains locked in pair");
     }
 
     function test_graduate_revertsWithoutBondingRole() public {
         vm.prank(stranger);
         vm.expectRevert();
-        router.graduate(address(token));
+        router.graduate(address(token), 0);
     }
 
-    function test_graduate_returnsZeroWhenNoBalance() public {
-        // Create a fresh pair with no real asset balance
+    function test_graduate_zeroAmountIsNoop() public {
         MockERC20 token2 = new MockERC20("Token2", "TK2");
         MockERC20 asset2 = new MockERC20("Asset2", "LT2");
 
@@ -324,8 +336,8 @@ contract RouterTest is Test {
         factory.createPair(address(token2), address(asset2));
 
         vm.prank(bondingRole);
-        uint256 amount = router.graduate(address(token2));
-        assertEq(amount, 0, "Should return 0 when pair has no asset balance");
+        router.graduate(address(token2), 0);
+        assertEq(asset2.balanceOf(bondingRole), 0, "Zero-amount graduate is a no-op");
     }
 
     // ─── Fuzz Tests ──────────────────────────────────────────────────────
