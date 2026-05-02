@@ -297,7 +297,7 @@ contract HostilePreSeedTest is DeployHelper {
         // +10% margin absorbs integer-rounding so this stays green across
         // future VIRTUAL_LIQUIDITY_USD retunes without manual bumping.
         uint256 targetTokens = 18_750_000 ether;
-        uint256 minLt = (_initialVirtualLt() * targetTokens) / (Token.TOTAL_SUPPLY - targetTokens);
+        uint256 minLt = (_initialVirtualLt() * targetTokens) / (1_000_000_000 ether - targetTokens);
         (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens((minLt * 110) / 100);
         _attackerMintPreSeed(pair, tokenAddr, targetTokens, 15 ether);
 
