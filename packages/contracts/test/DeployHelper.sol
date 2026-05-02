@@ -43,9 +43,9 @@ abstract contract DeployHelper is Test {
 
     /// @dev Test-suite graduation threshold. Pegged to `3×` the contract's
     ///      `VIRTUAL_LIQUIDITY_USD` so the USD trigger is reachable on the
-    ///      mock $100 virtual-liquidity curves the suite spins up. Production
-    ///      uses a much higher absolute number — see `Deploy.s.sol`.
-    uint256 constant TEST_GRADUATION_THRESHOLD_USD = 300 ether;
+    ///      mock $4K virtual-liquidity curves the suite spins up. Matches
+    ///      the production deploy value — see `Deploy.s.sol`.
+    uint256 constant TEST_GRADUATION_THRESHOLD_USD = 12_000 ether;
 
     /// @dev Per-test salt counter so successive `_mineVanitySalt` calls in
     ///      a single test pick up where the previous one left off. Tests

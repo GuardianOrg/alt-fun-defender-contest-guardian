@@ -292,9 +292,14 @@ contract HostilePreSeedTest is DeployHelper {
     ///      a 454 bps opening gap). Verifies the rebalance handles the
     ///      "50% of curve close" scenario from `IN-02`.
     function test_mintPreSeed_pentestScaledCase_zeroGap() public {
-        // 5 LT @ rate 1 buys ~47M TOKEN at curve start — covers the 18.75M needed.
-        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(5 ether);
-        _attackerMintPreSeed(pair, tokenAddr, 18_750_000 ether, 15 ether);
+        // Derive the minimum LT to acquire 18.75M TOKEN from a fresh constant-
+        // product curve: ltIn = virtualLt × tokensOut / (totalSupply − tokensOut).
+        // +10% margin absorbs integer-rounding so this stays green across
+        // future VIRTUAL_LIQUIDITY_USD retunes without manual bumping.
+        uint256 targetTokens = 18_750_000 ether;
+        uint256 minLt = (_initialVirtualLt() * targetTokens) / (1_000_000_000 ether - targetTokens);
+        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens((minLt * 110) / 100);
+        _attackerMintPreSeed(pair, tokenAddr, targetTokens, 15 ether);
 
         _enterGraduating(tokenAddr);
         CurveClose memory snap = _snapshotCurveClose(tokenAddr);
