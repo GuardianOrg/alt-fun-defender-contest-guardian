@@ -982,9 +982,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///           intervention `pair.mint(lpLock)`'s `min(amount0·S/r0,
     ///           amount1·S/r1)` formula would (a) open the LP off
     ///           curve-close-price and (b) donate the larger arm to the
-    ///           attacker's pre-existing LP. We rebalance via a router
-    ///           swap toward the curve-close ratio, then deposit the
-    ///           remaining inventory via the router's `quote()`-based
+    ///           attacker's pre-existing LP. We rebalance via a direct
+    ///           `pair.swap` toward the curve-close ratio, then deposit
+    ///           the remaining inventory via the router's `quote()`-based
     ///           `addLiquidity` — which only pulls the optimal amounts
     ///           at the post-swap ratio, so neither side becomes a
     ///           `min()` donation. Off-ratio TOKEN remainder is burned;
@@ -994,10 +994,26 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      Brick resistance: the rebalance swap input is capped at our
     ///      per-side budget; the swap is precondition-checked to skip
     ///      when V2's fee-charging `getAmountOut` would round to zero
-    ///      (which would otherwise revert `swapExactTokensForTokens`);
-    ///      the deposit uses `addLiquidity(min=1, min=1)`; and the
-    ///      empty/donation regimes don't touch the router. So a hostile
-    ///      pre-seed of any shape cannot DoS `finalizeGraduation`.
+    ///      (which would otherwise revert `pair.swap` with
+    ///      `INSUFFICIENT_OUTPUT_AMOUNT`); the deposit uses
+    ///      `addLiquidity(min=1, min=1)`; and the empty/donation regimes
+    ///      don't touch the router or `pair.swap`. So a hostile pre-seed
+    ///      of any shape cannot DoS `finalizeGraduation`.
+    ///
+    ///      Asymmetric router usage: **the rebalance swap is direct-to-pair
+    ///      (`pair.swap`), not router-mediated.** HyperSwap mainnet's V2
+    ///      router replaces every canonical swap function with FoT-only
+    ///      variants that take a non-standard `referrer` argument
+    ///      (selectors `ac3893ba` / `b4822be3` / `52aa4c22` — see
+    ///      `packages/contracts/AGENTS.md` "HyperSwap Router non-standard
+    ///      ABI"). `Zap._swapOnUniswapV2` already uses `pair.swap` for the
+    ///      same reason; matching the pattern keeps both in sync and
+    ///      removes a HyperSwap-specific footgun. The deposit leg DOES
+    ///      use `router.addLiquidity` because that function IS canonical
+    ///      V2 on HyperSwap (verified selector `e8e33700`) and the
+    ///      router's `quote()`-based optimal-split logic is non-trivial
+    ///      to safely reimplement.
+    ///
     ///      Phase 1 is unchanged (the rebalance fires only in phase 2
     ///      when reserves are non-zero), so the small-block gas budget
     ///      is preserved.
@@ -1008,107 +1024,134 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 tokensForLP,
         uint256 ltFromPair
     ) internal returns (uint256 liquidity) {
-        BondingStorage storage $ = _s();
-        address lpLock_ = $.lpLock;
-
         // Regime 2 — sweep any donation pre-seed back to the protocol so it
         // doesn't pollute the post-swap ratio. No-op on a freshly-created
         // pair (balance == reserves == 0).
-        IUniswapV2Pair(pair).skim(lpLock_);
+        IUniswapV2Pair(pair).skim(_s().lpLock);
 
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
-        bool tokenIs0 = IUniswapV2Pair(pair).token0() == tokenAddress;
-        (uint256 reserveToken, uint256 reserveLT) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
-
         // Regime 1 — pristine pair, direct mint at exact curve-close ratio.
-        if (reserveToken == 0 && reserveLT == 0) {
+        if (r0 == 0 && r1 == 0) {
             IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
             IERC20(lt).safeTransfer(pair, ltFromPair);
-            return IUniswapV2Pair(pair).mint(lpLock_);
+            return IUniswapV2Pair(pair).mint(_s().lpLock);
         }
 
         // Regime 3 — mint pre-seed: rebalance, then deposit balanced subset.
-        return _seedRebalancingViaRouter(tokenAddress, lt, lpLock_, reserveToken, reserveLT, tokensForLP, ltFromPair);
+        // `lpLock_` re-read from storage inside `_routerDepositAndDispose`.
+        // Reserves and token-ordering re-read inside `_seedRebalancing` to
+        // keep this function's stack pressure under solc's 16-slot ceiling
+        // without `viaIR`.
+        return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+    }
+
+    /// @dev Memory bag for `_seedRebalancing` → `_pairRebalance` so the call
+    ///      doesn't blow stack-too-deep (8 → 8 args wouldn't fit otherwise
+    ///      under solc's no-viaIR codegen).
+    struct RebalanceParams {
+        address pair;
+        address tokenIn;
+        bool tokenInIs0;
+        uint256 reserveIn;
+        uint256 reserveOut;
+        uint256 targetN;
+        uint256 targetD;
+        uint256 maxSwap;
     }
 
     /// @dev Hostile-mint-pre-seed branch of `_seedUniswapV2Direct`. Split
     ///      out because (a) it's the cold path (~99% of graduations hit
     ///      the empty-pair branch above) and (b) the local-variable density
     ///      would otherwise blow stack-too-deep.
-    function _seedRebalancingViaRouter(
+    function _seedRebalancing(
         address tokenAddress,
         address lt,
-        address lpLock_,
-        uint256 reserveToken,
-        uint256 reserveLT,
+        address pair,
         uint256 tokensForLP,
         uint256 ltFromPair
     ) internal returns (uint256 liquidity) {
-        address routerAddr = _s().uniswapV2Router;
-
+        (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
+        bool tokenIs0 = IUniswapV2Pair(pair).token0() == tokenAddress;
+        (uint256 reserveToken, uint256 reserveLT) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
         // Direction: pool TOKEN-rich vs target ⇒ swap LT in (TOKEN out).
         // Pool LT-rich ⇒ swap TOKEN in (LT out). Bounded by uint112 reserves
         // and curve-close-shape targets, both products fit in uint256.
         if (reserveToken * ltFromPair > reserveLT * tokensForLP) {
-            _routerRebalance(routerAddr, lt, tokenAddress, reserveLT, reserveToken, ltFromPair, tokensForLP, ltFromPair);
+            // Pool TOKEN-rich. tokenIn = lt, tokenOut = tokenAddress.
+            // tokenInIs0 = (lt is token0) = !tokenIs0.
+            _pairRebalance(
+                RebalanceParams({
+                    pair: pair,
+                    tokenIn: lt,
+                    tokenInIs0: !tokenIs0,
+                    reserveIn: reserveLT,
+                    reserveOut: reserveToken,
+                    targetN: ltFromPair,
+                    targetD: tokensForLP,
+                    maxSwap: ltFromPair
+                })
+            );
         } else if (reserveToken * ltFromPair < reserveLT * tokensForLP) {
-            _routerRebalance(
-                routerAddr, tokenAddress, lt, reserveToken, reserveLT, tokensForLP, ltFromPair, tokensForLP
+            // Pool LT-rich. tokenIn = tokenAddress, tokenInIs0 = tokenIs0.
+            _pairRebalance(
+                RebalanceParams({
+                    pair: pair,
+                    tokenIn: tokenAddress,
+                    tokenInIs0: tokenIs0,
+                    reserveIn: reserveToken,
+                    reserveOut: reserveLT,
+                    targetN: tokensForLP,
+                    targetD: ltFromPair,
+                    maxSwap: tokensForLP
+                })
             );
         }
         // else: pool already at curve-close ratio (rare — e.g. attacker
         // pre-seeded at exactly target). Skip swap, deposit directly.
 
-        return _routerDepositAndDispose(tokenAddress, lt, lpLock_, routerAddr);
+        return _routerDepositAndDispose(tokenAddress, lt);
     }
 
-    /// @dev Rebalance leg: compute no-fee swap input, cap at budget, execute
-    ///      via `router.swapExactTokensForTokens`. The router applies the V2
-    ///      0.3% fee internally, so post-swap pool ratio drifts ~30 bps from
-    ///      the no-fee target; the subsequent balanced-subset deposit
-    ///      neutralises that residual via `quote()` at post-swap reserves.
+    /// @dev Rebalance leg: compute no-fee swap input, cap at budget,
+    ///      execute via direct `pair.swap`. Bypasses the V2 router because
+    ///      HyperSwap mainnet's router has no canonical
+    ///      `swapExactTokensForTokens` — only FoT-with-`referrer` variants
+    ///      with a non-standard ABI (see
+    ///      `packages/contracts/AGENTS.md`). Same direct-to-pair pattern
+    ///      `Zap._swapOnUniswapV2` uses for the same reason.
     ///
-    ///      Pre-execution we mirror V2's fee-charging `getAmountOut` and
-    ///      skip the swap if it would round to zero (a tiny `s` against
-    ///      an extremely imbalanced pool). Without this
-    ///      `swapExactTokensForTokens` would revert with
-    ///      `INSUFFICIENT_OUTPUT_AMOUNT` and bubble up through
-    ///      `finalizeGraduation`. Skipping is safe — the subsequent
-    ///      `addLiquidity` still defuses the LP-capture attack via its
-    ///      `quote()`-based optimal split, just opens at the (sub-bp)
-    ///      residual skew the swap would have closed. Whether the skip
-    ///      fired is observable post-hoc by comparing the cached
-    ///      `tokensForLP / ltFromPair` ratio in the `TokenGraduating`
-    ///      event against the resulting pool reserves.
+    ///      We compute the V2 fee-charging amount-out ourselves
+    ///      (`(s · 997 · rOut) / (rIn · 1000 + s · 997)`) and pass it as
+    ///      the output to `pair.swap`. The pair's K-invariant check uses
+    ///      the canonical V2 0.3% fee math, so a wrong `expectedOut`
+    ///      would revert there.
     ///
-    ///      Approval is reset to zero immediately after the swap. The
-    ///      router consumes the full `s` so the post-swap allowance is
-    ///      already zero, but resetting explicitly keeps the
-    ///      "no dangling allowances from `Bonding`" invariant easy to
-    ///      audit at a glance.
-    function _routerRebalance(
-        address routerAddr,
-        address tokenIn,
-        address tokenOut,
-        uint256 reserveIn,
-        uint256 reserveOut,
-        uint256 targetN,
-        uint256 targetD,
-        uint256 maxSwap
+    ///      The `expectedOut == 0` precheck is necessary because
+    ///      `pair.swap` reverts with `INSUFFICIENT_OUTPUT_AMOUNT` when
+    ///      both output amounts are zero — happens for tiny `s` against
+    ///      an extremely imbalanced pool. Skipping is safe — the
+    ///      subsequent `addLiquidity` still defuses the LP-capture
+    ///      attack via its `quote()`-based optimal split, just opens at
+    ///      the (sub-bp) residual skew the swap would have closed.
+    ///      Whether the skip fired is observable post-hoc by comparing
+    ///      the cached `tokensForLP / ltFromPair` ratio in the
+    ///      `TokenGraduating` event against the resulting pool reserves.
+    ///
+    ///      No router approval needed (we transfer to the pair directly),
+    ///      so no allowance hygiene to worry about.
+    function _pairRebalance(
+        RebalanceParams memory p
     ) internal {
-        uint256 s = _noFeeSwapInput(reserveIn, reserveOut, targetN, targetD, maxSwap);
+        uint256 s = _noFeeSwapInput(p.reserveIn, p.reserveOut, p.targetN, p.targetD, p.maxSwap);
         if (s == 0) return;
 
         uint256 amountInWithFee = s * 997;
-        uint256 expectedOut = (amountInWithFee * reserveOut) / (reserveIn * 1000 + amountInWithFee);
+        uint256 expectedOut = (amountInWithFee * p.reserveOut) / (p.reserveIn * 1000 + amountInWithFee);
         if (expectedOut == 0) return;
 
-        IERC20(tokenIn).forceApprove(routerAddr, s);
-        address[] memory path = new address[](2);
-        path[0] = tokenIn;
-        path[1] = tokenOut;
-        IUniswapV2Router02(routerAddr).swapExactTokensForTokens(s, 1, path, address(this), block.timestamp);
-        IERC20(tokenIn).forceApprove(routerAddr, 0);
+        IERC20(p.tokenIn).safeTransfer(p.pair, s);
+        (uint256 amount0Out, uint256 amount1Out) = p.tokenInIs0 ? (uint256(0), expectedOut) : (expectedOut, uint256(0));
+        IUniswapV2Pair(p.pair).swap(amount0Out, amount1Out, address(this), new bytes(0));
     }
 
     /// @dev Deposit leg: add liquidity at the post-swap pool ratio via the
@@ -1120,7 +1163,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      `min0=1, min1=1` is intentional. Slippage protection on
     ///      `addLiquidity` exists to defend against a third party moving
     ///      the pool ratio between quote and execution; here we just set
-    ///      the ratio ourselves in `_routerRebalance` in the same atomic
+    ///      the ratio ourselves in `_pairRebalance` in the same atomic
     ///      tx, so there's no third party to defend against. The `=1`
     ///      (rather than `=0`) trips V2 router's degenerate-ratio guard
     ///      so the call can't silently land at near-zero.
@@ -1131,10 +1174,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      keeps the no-dangling-allowance invariant tidy.
     function _routerDepositAndDispose(
         address tokenAddress,
-        address lt,
-        address lpLock_,
-        address routerAddr
+        address lt
     ) internal returns (uint256 liquidity) {
+        BondingStorage storage $ = _s();
+        address routerAddr = $.uniswapV2Router;
+        address lpLock_ = $.lpLock;
         uint256 remToken = IERC20(tokenAddress).balanceOf(address(this));
         uint256 remLT = IERC20(lt).balanceOf(address(this));
 

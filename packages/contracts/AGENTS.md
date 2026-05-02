@@ -90,6 +90,37 @@ This is the most bespoke piece of the protocol. Full rationale + invariants live
 
 **If you change `_enterGraduating`, `finalizeGraduation`, `_prepareGraduationLiquidity`, `_seedUniswapV2Direct` (or any of its `_seedRebalancingViaRouter` / `_routerRebalance` / `_routerDepositAndDispose` / `_noFeeSwapInput` helpers), `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol`, `test/TwoPhaseGraduation.t.sol`, `test/HostilePreSeed.t.sol`, and `test/NoFeeSwapInput.t.sol`. All 7 zero-gap invariants must still pass; the phase-1-fits-in-small-block budget assertion (1.8M) must still hold; the brick-resistance + attacker-no-profit tests must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
 
+## HyperSwap Router non-standard ABI (Read This Before Adding Any Router Call)
+
+HyperSwap's mainnet V2 router (`0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A`) is **not** a vanilla `UniswapV2Router02`. The selector dispatch table omits every canonical swap function and replaces them with three FoT-only variants that take a non-standard `address referrer` argument inserted between `to` and `deadline`:
+
+| Selector | Function (HyperSwap) | Canonical V2 equivalent (NOT exposed) |
+|---|---|---|
+| `0xac3893ba` | `swapExactTokensForTokensSupportingFeeOnTransferTokens(uint,uint,address[],address,address,uint)` | `swapExactTokensForTokens(...)` (`0x38ed1739`) |
+| `0xb4822be3` | `swapExactETHForTokensSupportingFeeOnTransferTokens(uint,address[],address,address,uint)` | `swapExactETHForTokens(...)` (`0x7ff36ab5`) |
+| `0x52aa4c22` | `swapExactTokensForETHSupportingFeeOnTransferTokens(uint,uint,address[],address,address,uint)` | `swapExactTokensForETH(...)` (`0x18cbafe5`) |
+
+**Calling the canonical selector reverts with no data** (selector not in the dispatch table → fallback). This was the root cause of issue #343's near-miss — the original PR called `router.swapExactTokensForTokens(...)` and would have bricked every hostile-pre-seed defense path on day one of mainnet.
+
+**The protocol's rule: never call a swap function on the V2 router.** Both `Bonding._pairRebalance` (the hostile-pre-seed rebalance) and `Zap._swapOnUniswapV2` (post-grad user trades) go direct to the pair via `pair.swap(amount0Out, amount1Out, to, "")`. We compute the V2 fee-charging amount-out ourselves; the pair's K-invariant check enforces correctness. This is independent of HyperSwap's router quirks and works on any V2 fork.
+
+What IS canonical on the HyperSwap router and safe to call:
+
+- `factory()` (`0xc45a0155`) — used in `Deploy.s.sol` to derive the V2 factory address from the router constant.
+- `addLiquidity(address,address,uint256,uint256,uint256,uint256,address,uint256)` (`0xe8e33700`) — canonical V2 signature. Used by `Bonding._routerDepositAndDispose` for the hostile-pre-seed defense's deposit leg, because the router's `quote()`-based optimal-split logic is non-trivial to reimplement and the function is verified canonical.
+- `WETH()`, `quote()`, `getAmountsOut()`, `removeLiquidity*` family — all canonical, but the protocol doesn't currently use them.
+
+The full deployed-router selector list (16 functions total) and the verification methodology (bytecode `PUSH4-EQ` extraction + `eth_call` empirical tests) is preserved in the issue #343 review history. To re-verify in the future:
+
+```bash
+R=0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A
+cast code --rpc-url "$HYPEREVM_RPC_URL" $R | grep -oiE '63[0-9a-f]{8}14' | sort -u | sed 's/^63//;s/14$//'
+```
+
+[`packages/contracts/src/interfaces/IUniswapV2Router02.sol`](src/interfaces/IUniswapV2Router02.sol) deliberately exposes only `factory()` and `addLiquidity(...)` — the two methods we actually use AND that exist on the deployed router. If you need to add another, FIRST verify the selector via `cast code | grep` and add a comment with the empirical evidence.
+
+[`test/mocks/MockHyperswapRouter.sol`](test/mocks/MockHyperswapRouter.sol) mirrors the HyperSwap surface: canonical `addLiquidity` plus the FoT-with-`referrer` token-token variant. The mock does NOT implement canonical `swapExactTokensForTokens` (matches reality), so any code that accidentally calls it will fail at test time with a clear "function not found" rather than only failing on production deploy.
+
 ## HyperSwap Pre-Seed Defense (Read This Before Touching `_seedUniswapV2Direct`)
 
 Issue #308. The whole sub-system inside `_seedUniswapV2Direct` exists to defuse one specific attack class. It's the most subtle code in the package. Read this before touching any of the helpers (`_seedRebalancingViaRouter`, `_routerRebalance`, `_routerDepositAndDispose`, `_noFeeSwapInput`).
@@ -143,18 +174,20 @@ Attacker called `IERC20(token).transfer(pair, X)` without ever calling `pair.min
 Attacker called `pair.mint(attacker)` against a self-funded dust seed. Reserves are non-zero at a hostile ratio. We:
 
 1. **Compute the swap input** that would drive the pool ratio back to the curve-close ratio under the no-fee constant-product model: `s = sqrt(reserveIn · reserveOut · targetN / targetD) − reserveIn`, capped at our per-side budget. Implementation in `_noFeeSwapInput`. Closed-form via OZ `Math.sqrt + Math.mulDiv`; no binary search, no convergence loop.
-2. **Execute the swap** via `router.swapExactTokensForTokens(s, 1, ...)`. The router applies the V2 0.3% fee internally, so the post-swap ratio drifts ~30 bps from our no-fee target — the subsequent `addLiquidity` absorbs that residual.
-3. **Deposit the remaining inventory** via `router.addLiquidity(rest, 1, 1, lpLock, ...)`. The router's `quote()`-based optimal split deposits only the matched-ratio subset; neither side becomes a `min()` donation. Off-ratio remainder stays in `Bonding`.
+2. **Execute the swap directly on the pair** via `pair.swap(amount0Out, amount1Out, address(this), "")`. We compute the V2 fee-charging amount-out ourselves and pass it as the output. **Bypasses the router** — HyperSwap's V2 router has no canonical `swapExactTokensForTokens` (see "HyperSwap Router non-standard ABI" above). Same direct-to-pair pattern Zap uses for post-grad user swaps. Implementation in `_pairRebalance`.
+3. **Deposit the remaining inventory** via `router.addLiquidity(rest, 1, 1, lpLock, ...)`. The router's `quote()`-based optimal split deposits only the matched-ratio subset; neither side becomes a `min()` donation. Off-ratio remainder stays in `Bonding`. The router's `addLiquidity` IS canonical V2 on HyperSwap (verified selector `0xe8e33700`), so this leg is safe to keep on the router and gets the `quote()` math for free.
 4. **Dispose the off-ratio remainder.** TOKEN side burned (`Bonding` is the Token owner). LT side accumulates in `Bonding` for owner sweep via `rescueLT(lt, to, amount)` — emits `LTRescued(token, to, amount)` for observability.
 
-Why the third step matters: **mass conservation prevents fixing both the price and the deposit.** If the pool starts off-target and our inventory is on-target, we cannot end with both at-target reserves AND a fully-deposited inventory — something has to absorb the imbalance. Step 3 is where it goes.
+Why the **asymmetric router usage** (pair for swap, router for addLiquidity): the swap is unsafe to send through the router because HyperSwap's swap ABI is non-standard; the deposit IS safe because HyperSwap's `addLiquidity` ABI is canonical AND the `quote()`-based optimal-split logic is the part that defuses the LP-capture attack. We get the best of both — no HyperSwap-specific footgun on the swap, no reimplementation burden on the deposit.
+
+Why the fourth step matters: **mass conservation prevents fixing both the price and the deposit.** If the pool starts off-target and our inventory is on-target, we cannot end with both at-target reserves AND a fully-deposited inventory — something has to absorb the imbalance. Step 4 is where it goes.
 
 ### Brick-resistance contract
 
 `_seedUniswapV2Direct` MUST never revert under any pre-seed shape. The brick-resistance contract is the load-bearing security property — auditors prioritise it above the LP-capture defense, because a brick locks every holder in `Graduating` forever. The pre-seed defense is layered to honour this:
 
 - **Regime 1/2 don't touch the router.** Even if the V2 router is misbehaving, the empty + donation paths run on direct pair calls.
-- **`_routerRebalance` precondition-checks the swap.** `_noFeeSwapInput` may return a tiny `s` against an extremely imbalanced pool where V2's fee-charging `getAmountOut` rounds down to zero, which would revert `swapExactTokensForTokens` with `INSUFFICIENT_OUTPUT_AMOUNT`. We mirror V2's `(s · 997 · rOut) / (rIn · 1000 + s · 997)` formula and skip the swap if it would round to zero. Skipping is safe — the subsequent `addLiquidity` still defuses the LP-capture attack via `quote()`-based split, just opens at the (sub-bp) residual skew the swap would have closed.
+- **`_pairRebalance` precondition-checks the swap.** `_noFeeSwapInput` may return a tiny `s` against an extremely imbalanced pool where V2's fee-charging `getAmountOut` rounds down to zero, which would revert `pair.swap` with `INSUFFICIENT_OUTPUT_AMOUNT`. We mirror V2's `(s · 997 · rOut) / (rIn · 1000 + s · 997)` formula and skip the swap if it would round to zero. Skipping is safe — the subsequent `addLiquidity` still defuses the LP-capture attack via `quote()`-based split, just opens at the (sub-bp) residual skew the swap would have closed.
 - **`_routerDepositAndDispose` uses `min0=1, min1=1`.** Slippage protection on `addLiquidity` exists to defend against a third party moving the pool ratio between quote and execution; here we set the ratio ourselves in `_routerRebalance` in the same atomic tx, so there's no third party to defend against. The `=1` (rather than `=0`) trips V2's degenerate-ratio guard so the call can't silently land at near-zero.
 - **No external dependency on the router slot being correct post-deploy.** `uniswapV2Router` is set at `initialize` time alongside `uniswapV2Factory` and is rejected if zero. There's no live setter — rotation requires a UUPS upgrade so the change is visible on-chain ahead of any in-flight graduation.
 
@@ -162,7 +195,7 @@ Tested end-to-end by `test_brickResistance_arbitraryPreSeed_finalizeAlwaysSuccee
 
 ### Attacker P&L outcome
 
-After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-back-to-true-price step that the attacker wanted to extract from is gone (we already arb'd it during the rebalance, paying the V2 0.3% fee back to ourselves as ~99% LP holder). Attacker's LP claim ≈ what they put in, modulo the `MINIMUM_LIQUIDITY` lock and a tiny share of the fee they paid. **Net P&L ≤ 0** — the attack is cost-negative. Asserted by `testFuzz_attacker_cannotProfit` over 64 random pre-seed shapes.
+After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-back-to-true-price step that the attacker wanted to extract from is gone (we already arb'd it during the rebalance, paying the V2 0.3% fee back to ourselves as ~99% LP holder via the pair's K-invariant accounting). Attacker's LP claim ≈ what they put in, modulo the `MINIMUM_LIQUIDITY` lock and a tiny share of the fee they paid. **Net P&L ≤ 0** — the attack is cost-negative. Asserted by `testFuzz_attacker_cannotProfit` over 64 random pre-seed shapes.
 
 ### Pool-open precision
 
@@ -178,9 +211,8 @@ The defense exposed latent inaccuracies in `test/mocks/MockHyperswapRouter.sol` 
 
 - `MockHyperswapPair.mint` enforces V2's `MINIMUM_LIQUIDITY = 1000` on first mint (locked to a `0xdead` sentinel since OZ ERC20 v5 rejects `_mint(address(0))`). Matches canonical V2.
 - `MockHyperswapPair.skim` implemented (was missing entirely).
-- `MockHyperswapRouter.addLiquidity` rewritten to mirror canonical UniswapV2Router02 `quote()`-based optimal split + canonical `pair.mint`. The previous mock overwrote reserves directly via `setReserves`, silently bypassing the K invariant.
-- `MockHyperswapRouter._computeAmountOut` applies the canonical V2 0.3% fee (was fee-free).
-- `MockHyperswapFactory.createPair` authorises the trusted router on every created pair (mirrors real V2 where the router address is canonical and any pair on the network can be swapped through it).
+- `MockHyperswapRouter` rewritten to mirror the deployed HyperSwap surface specifically (see "HyperSwap Router non-standard ABI" above) — canonical `addLiquidity` + the FoT-with-`referrer` token-token variant; canonical `swapExactTokensForTokens` and `getAmountsOut` removed because the real router doesn't expose them. This means any test code that accidentally calls a canonical swap signature fails at compile time / "function not found" — the original PR #343 review caught a related bug because the mock had been faking canonical swap behaviour.
+- `MockHyperswapPair`'s `setRouter` / `mintRaw` / `routerTransfer` / `setReserves` helpers removed — they only existed to support the now-deleted canonical-`swapExactTokensForTokens` mock implementation.
 
 ### Tests you MUST re-run if you change any of this
 

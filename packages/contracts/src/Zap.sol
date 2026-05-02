@@ -421,9 +421,15 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     // ─── Internal: V2 Trades ────────────────────────────────────────────
 
     /// @dev Direct-to-pair swap, bypassing the V2 router. HyperSwap's mainnet
-    ///      router has no `swapExactTokensForTokens` (only HYPE-paired
-    ///      `swap*Supporting…` variants with a non-standard `referrer`),
-    ///      so we go direct to the pair.
+    ///      router has no canonical swap functions — every swap variant in
+    ///      the dispatch table is FoT-only and takes a non-standard
+    ///      `address referrer` argument inserted between `to` and `deadline`
+    ///      (selectors `0xac3893ba` for token-token, `0xb4822be3` for
+    ///      ETH-to-token, `0x52aa4c22` for token-to-ETH). Going direct to
+    ///      the pair sidesteps that quirk entirely. `Bonding._pairRebalance`
+    ///      uses the same direct-to-pair pattern for the same reason. Full
+    ///      ABI breakdown: `packages/contracts/AGENTS.md` "HyperSwap Router
+    ///      non-standard ABI".
     function _swapOnUniswapV2(
         address tokenIn,
         address tokenOut,
