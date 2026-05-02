@@ -340,6 +340,10 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 grossUsdcEstimate = (ltReceived * IBounceLeveragedToken(lt).exchangeRate()) / 1e18;
         if (grossUsdcEstimate / 1e12 < MIN_USDC_AMOUNT) revert BelowMinAmount();
 
+        // Intentional v1 tradeoff: sells only use BounceTech's atomic
+        // `redeem()` path (no `prepareRedeem` fallback/queue in Zap). If the
+        // LT idle-USDC buffer is temporarily depleted, `redeem` reverts and
+        // users must retry in smaller chunks after buffer replenishment.
         // Redeem into this zap (not the user) so we can deduct the fee.
         uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
