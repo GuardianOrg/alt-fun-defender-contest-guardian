@@ -171,9 +171,12 @@ contract TwoPhaseGraduationTest is DeployHelper {
 
         bonding.finalizeGraduation(tokenAddr);
 
-        (uint256 tokensForLP, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+        (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) =
+            bonding.pendingGraduation(tokenAddr);
         assertEq(tokensForLP, 0);
         assertEq(ltFromPair, 0);
+        assertEq(lpBurned, 0);
+        assertEq(unsoldBurned, 0);
     }
 
     function test_phase2_emits_TokenGraduated() public {

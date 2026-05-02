@@ -639,10 +639,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         return _s().graduatedPair[token_];
     }
 
-    /// @dev Mirrors the auto-generated getter for the pre-ERC-7201 public
-    ///      `pendingGraduation` mapping (returns the struct fields as a
-    ///      tuple, matching the original ABI consumed by the indexer and
-    ///      tests).
+    /// @dev Replaces the auto-generated getter for the pre-ERC-7201 public
+    ///      `pendingGraduation` mapping; needed because the storage now lives
+    ///      inside the namespaced `BondingStorage` struct. Only consumed by
+    ///      Solidity tests today — the off-chain stack (indexer, keeper, API,
+    ///      web) keys off the `TokenGraduating` / `TokenGraduated` events.
     function pendingGraduation(
         address token_
     ) external view returns (uint256 tokensForLP, uint256 ltFromPair, uint256 lpBurned, uint256 unsoldBurned) {
