@@ -171,6 +171,7 @@ baseAssetBalance() → uint256               // Idle USDC available for atomic r
 ### Key Constraints
 
 - **Atomic redeems only.** We do NOT use `prepareRedeem()`. All sells go through `redeem()` which is atomic but limited by the LT's idle USDC buffer (`baseAssetBalance()`).
+- **Intentional v1 tradeoff:** this atomic-only sell path is deliberate (no async redeem queue in `Zap`) to keep UX/protocol complexity low. During buffer depletion windows sells can temporarily revert and should be retried in chunks after replenishment.
 - **Buffer-limited sells:** If a sell would redeem more USDC than `baseAssetBalance()`, `redeem()` reverts with `InsufficientBalance`. The frontend must check `baseAssetBalance()` before selling and cap sell amounts accordingly.
 - **Sell in chunks:** When a user wants to sell more than the buffer allows, they sell in smaller amounts. BounceTech's automation layer replenishes the idle USDC buffer in ~10 seconds after each redeem, so the user can sell again shortly.
 - **Minimum mint/redeem: `$10` USDC.** Amounts below this revert with `0x05eb05ac`. The frontend must enforce this minimum on buy/sell inputs.

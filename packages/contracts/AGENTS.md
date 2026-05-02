@@ -13,6 +13,8 @@ Graduation → Bonding._graduate() → HyperSwap V2 pool (token/LT) → LP locke
 
 For the LT interface and constraints (atomic-redeem-only, idle USDC buffer, `$10` minimum) see the BounceTech LT Integration section in the root [`AGENTS.md`](../../AGENTS.md#bouncetech-lt-integration). External references: [BounceTech docs](https://docs.bounce.tech/), [integration guide](https://docs.bounce.tech/technical/integration-guide), [contract source](https://github.com/bounce-tech/bounce-smart-contracts).
 
+Atomic-redeem-only sells are an intentional v1 tradeoff. `Zap` does not implement `prepareRedeem` fallback queues; during LT idle-buffer depletion windows sells can revert and users are expected to retry in chunks after replenishment.
+
 ## Two "router" concepts — read this before touching either
 
 The codebase has two distinct things called "router" and they have very different
