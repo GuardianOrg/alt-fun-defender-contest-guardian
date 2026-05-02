@@ -108,11 +108,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 oldCreatorFeeBps,
         uint256 newCreatorFeeBps
     );
-    /// @dev Buy's leftover-LT redeem reverted (typically below `MIN_USDC_AMOUNT`)
-    ///      and the LT was returned as-is. Frontend uses this to surface "you
-    ///      got LT instead of USDC because the leftover was below the $10 floor".
-    event LeftoverLTReturned(address indexed user, uint256 amount);
-
     error InvalidInput();
     error SlippageExceeded();
     error ZeroAddress();
@@ -302,15 +297,14 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         actualFee = ltMinted == 0 ? 0 : (usdcAmount * buyFeeBps_ * amountInUsed) / (BPS_DENOM * ltMinted);
         uint256 feeRefund = feeOnGross - actualFee;
 
-        // Refund leftover LT as USDC. Fall back to LT if redeem reverts (e.g.
-        // leftover below `MIN_USDC_AMOUNT`).
+        // Refund leftover LT as USDC. Users must never end up holding LT, so
+        // we propagate any redeem failure (typically the leftover sitting
+        // below BounceTech's `$10` redeem floor) instead of falling back to a
+        // direct LT transfer. The frontend pre-flights buy size against the
+        // remaining curve depth to avoid stranding users on this revert.
         uint256 ltLeft = ltMinted - amountInUsed;
         if (ltLeft > 0) {
-            try IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0) {}
-            catch {
-                IERC20(lt).safeTransfer(msg.sender, ltLeft);
-                emit LeftoverLTReturned(msg.sender, ltLeft);
-            }
+            IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0);
         }
         if (feeRefund > 0) {
             $.usdc.safeTransfer(msg.sender, feeRefund);

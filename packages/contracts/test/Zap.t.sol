@@ -522,7 +522,7 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
     }
 
-    function test_buy_emitsLeftoverLTReturnedOnRedeemFailure() public {
+    function test_buy_revertsWhenLeftoverLTRedeemFails() public {
         address tokenAddr = _createToken(0);
 
         // A buy that crosses the graduation threshold leaves leftover LT
@@ -531,23 +531,20 @@ contract ZapTest is DeployHelper {
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
 
-        // Force the leftover-LT `redeem` call to revert so the Zap falls
-        // back to a direct LT transfer. Mirrors the production case where
-        // `ltLeft` is below the LT's `$10` redeem floor.
+        // Force the leftover-LT `redeem` call to revert. Mirrors the
+        // production case where `ltLeft` is below the LT's `$10` redeem
+        // floor. Users must never end up holding LT, so the Zap propagates
+        // the revert instead of falling back to a direct LT transfer.
         vm.mockCallRevert(address(lt), abi.encodeWithSelector(IBounceLeveragedToken.redeem.selector), "");
 
         vm.startPrank(trader);
         usdc.approve(address(zap), buyAmount);
-
-        // We don't pin the exact `amount`; we only assert the user is correct.
-        vm.expectEmit(true, false, false, false);
-        emit Zap.LeftoverLTReturned(trader, 0);
+        vm.expectRevert();
         zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
 
-        // The leftover LT must end up in the user's wallet, not the zap.
-        assertGt(lt.balanceOf(trader), 0, "User should hold the refunded LT");
-        assertEq(lt.balanceOf(address(zap)), 0, "Zap should not retain leftover LT");
+        assertEq(lt.balanceOf(trader), 0, "User must not be left holding LT");
+        assertEq(lt.balanceOf(address(zap)), 0, "Zap must not retain LT");
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────
