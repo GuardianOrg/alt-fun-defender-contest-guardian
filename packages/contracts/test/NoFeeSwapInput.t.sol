@@ -212,6 +212,8 @@ contract NoFeeSwapInputTest is Test {
         // Try reserveIn=1e30, reserveOut=1, s=1: amountInWithFee=997, amountOut = 997 / (1e30·1000 + 997) = 0.
         uint256 amountInWithFee = 1 * 997;
         uint256 expectedOut = (amountInWithFee * 1) / (1e30 * 1000 + amountInWithFee);
-        assertEq(expectedOut, 0, "V2 amountOut rounds to zero for s=1, rIn=1e30, rOut=1 -- the guard's reason for being");
+        assertEq(
+            expectedOut, 0, "V2 amountOut rounds to zero for s=1, rIn=1e30, rOut=1 -- the guard's reason for being"
+        );
     }
 }

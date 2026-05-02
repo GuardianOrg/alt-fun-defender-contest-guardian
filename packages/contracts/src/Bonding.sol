@@ -1028,9 +1028,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         }
 
         // Regime 3 — mint pre-seed: rebalance, then deposit balanced subset.
-        return _seedRebalancingViaRouter(
-            tokenAddress, lt, lpLock_, reserveToken, reserveLT, tokensForLP, ltFromPair
-        );
+        return _seedRebalancingViaRouter(tokenAddress, lt, lpLock_, reserveToken, reserveLT, tokensForLP, ltFromPair);
     }
 
     /// @dev Hostile-mint-pre-seed branch of `_seedUniswapV2Direct`. Split
