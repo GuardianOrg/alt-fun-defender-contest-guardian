@@ -45,7 +45,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
+    uint256 public constant VIRTUAL_LIQUIDITY_USD = 4000 ether;
 
     uint256 public constant CURVE_BPS = 7500;
     uint256 public constant LP_RESERVE_BPS = 2500;

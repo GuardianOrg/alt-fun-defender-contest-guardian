@@ -292,8 +292,9 @@ contract HostilePreSeedTest is DeployHelper {
     ///      a 454 bps opening gap). Verifies the rebalance handles the
     ///      "50% of curve close" scenario from `IN-02`.
     function test_mintPreSeed_pentestScaledCase_zeroGap() public {
-        // 5 LT @ rate 1 buys ~47M TOKEN at curve start — covers the 18.75M needed.
-        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(5 ether);
+        // 100 LT @ rate 1 buys ~24M TOKEN at curve start ($4K virtual
+        // liquidity) — covers the 18.75M needed with margin.
+        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(100 ether);
         _attackerMintPreSeed(pair, tokenAddr, 18_750_000 ether, 15 ether);
 
         _enterGraduating(tokenAddr);

@@ -23,7 +23,7 @@ const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real se
 /// Mirrors `Bonding.VIRTUAL_LIQUIDITY_USD`. Exported so tests can derive
 /// expected curve outputs without re-hardcoding the value (which would
 /// silently drift the moment the on-chain dial moves).
-export const VIRTUAL_LIQUIDITY_USD = 100;
+export const VIRTUAL_LIQUIDITY_USD = 4_000;
 const BUY_FEE_BPS = 50; // 0.5%
 
 export interface SeedBuyStats {
