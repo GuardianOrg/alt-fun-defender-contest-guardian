@@ -20,9 +20,10 @@ const TOTAL_SUPPLY = 1_000_000_000;
 const CURVE_BPS = 7500;
 const BPS_DENOM = 10_000;
 const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real sellable cap
-/// Mirrors `Bonding.VIRTUAL_LIQUIDITY_USD`. Exported so tests can derive
-/// expected curve outputs without re-hardcoding the value (which would
-/// silently drift the moment the on-chain dial moves).
+/// Mirrors the USD magnitude of `Bonding.VIRTUAL_LIQUIDITY_USD` as a plain
+/// JS integer (USD dollars), not the on-chain 18-dp wei representation.
+/// Exported so tests can derive expected curve outputs without re-hardcoding
+/// the value (which would silently drift the moment the on-chain dial moves).
 export const VIRTUAL_LIQUIDITY_USD = 4_000;
 const BUY_FEE_BPS = 50; // 0.5%
 
