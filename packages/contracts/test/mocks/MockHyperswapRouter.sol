@@ -4,20 +4,35 @@ pragma solidity ^0.8.24;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/// @dev Mock HyperSwap V2 pair, behaviourally faithful to canonical
+///      `UniswapV2Pair` for the methods the protocol exercises:
+///      `mint`, `swap`, `skim`, `getReserves`, `token0/1`, `transfer`.
+///      Implementation mirrors the upstream contract — including the
+///      `MINIMUM_LIQUIDITY = 1000` first-mint lock and the K-invariant
+///      check inside `swap` — so any test pre-seed shape that the real V2
+///      pair would reject also reverts here.
 contract MockHyperswapPair is ERC20 {
     uint112 private _reserve0;
     uint112 private _reserve1;
     address public token0;
     address public token1;
-    address public authorizedRouter;
+
+    /// @dev UniswapV2's `MINIMUM_LIQUIDITY`. The first mint to a virgin pair
+    ///      locks this many LP tokens permanently and requires
+    ///      `sqrt(amount0 * amount1) > MINIMUM_LIQUIDITY`. Real V2 burns to
+    ///      `address(0)`; OZ ERC20 v5 rejects `_mint(0)`, so we lock to a
+    ///      sentinel `dead` address instead.
+    uint256 internal constant MINIMUM_LIQUIDITY = 1000;
+    address internal constant DEAD = address(0xdead);
 
     constructor() ERC20("HyperSwap LP", "HS-LP") {}
 
-    /// @dev Direct-deposit mint matching UniswapV2 semantics: the caller has
-    ///      pre-transferred token0/token1 to this pair; we derive the deposit
-    ///      from `balanceOf(this) - reserves`, mint LP tokens to `to`, and
-    ///      update reserves. Used by `Bonding.finalizeGraduation` (router-bypass
-    ///      LP seeding) and tested in `TwoPhaseGraduation.t.sol`.
+    /// @dev Direct-deposit mint matching UniswapV2 semantics: caller has
+    ///      pre-transferred token0/token1 to this pair; we derive the
+    ///      deposit from `balanceOf(this) - reserves`, mint LP tokens to
+    ///      `to`, and update reserves. Used by `Bonding.finalizeGraduation`
+    ///      (Regimes 1 & 2) and by the mock router's `addLiquidity`
+    ///      delegate (Regime 3 deposit leg).
     function mint(
         address to
     ) external returns (uint256 liquidity) {
@@ -31,7 +46,8 @@ contract MockHyperswapPair is ERC20 {
 
         uint256 totalSupply_ = totalSupply();
         if (totalSupply_ == 0) {
-            liquidity = _sqrt(amount0 * amount1);
+            liquidity = _sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
+            _mint(DEAD, MINIMUM_LIQUIDITY);
         } else {
             uint256 liquidity0 = (amount0 * totalSupply_) / reserve0;
             uint256 liquidity1 = (amount1 * totalSupply_) / reserve1;
@@ -45,72 +61,14 @@ contract MockHyperswapPair is ERC20 {
         _reserve1 = uint112(balance1);
     }
 
-    /// @dev Legacy bookkeeping path used by the router's `addLiquidity` mock
-    ///      (which manages reserves itself). Kept under a different name so the
-    ///      UniswapV2-style `mint(to)` above is unambiguous.
-    function mintRaw(
-        address to,
-        uint256 amount
-    ) external {
-        _mint(to, amount);
-    }
-
-    function _sqrt(
-        uint256 y
-    ) internal pure returns (uint256 z) {
-        if (y > 3) {
-            z = y;
-            uint256 x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
-        }
-    }
-
-    function setTokens(
-        address t0,
-        address t1
-    ) external {
-        token0 = t0;
-        token1 = t1;
-    }
-
-    function setRouter(
-        address router_
-    ) external {
-        authorizedRouter = router_;
-    }
-
-    function setReserves(
-        uint112 r0,
-        uint112 r1
-    ) external {
-        _reserve0 = r0;
-        _reserve1 = r1;
-    }
-
-    function getReserves() external view returns (uint112, uint112, uint32) {
-        return (_reserve0, _reserve1, uint32(block.timestamp));
-    }
-
-    function routerTransfer(
-        address token,
-        address to,
-        uint256 amount
-    ) external {
-        require(msg.sender == authorizedRouter, "only router");
-        IERC20(token).transfer(to, amount);
-    }
-
     /// @dev Standard UniswapV2-style swap. Caller is expected to have
     ///      pre-transferred the input tokens to this pair before calling.
-    ///      Used by `Zap`'s direct-to-pair swap path. Mirrors the reference
-    ///      `UniswapV2Pair.swap` ordering (transfer outputs first, then derive
-    ///      inputs from post-transfer balances and enforce the K invariant) so
-    ///      bad `amountOut` calculations actually revert here.
+    ///      Used by `Zap._swapOnUniswapV2` (post-grad swaps) and by
+    ///      `Bonding._pairRebalance` (hostile-pre-seed defense rebalance).
+    ///      Mirrors the reference `UniswapV2Pair.swap` ordering (transfer
+    ///      outputs first, then derive inputs from post-transfer balances
+    ///      and enforce the K invariant) so a wrong `amountOut` actually
+    ///      reverts here.
     function swap(
         uint256 amount0Out,
         uint256 amount1Out,
@@ -143,6 +101,47 @@ contract MockHyperswapPair is ERC20 {
         _reserve0 = uint112(balance0);
         _reserve1 = uint112(balance1);
     }
+
+    /// @dev Standard UniswapV2 `skim`: transfer any balance in excess of
+    ///      stored reserves to `to`. Used by `Bonding.finalizeGraduation`
+    ///      to sweep pure-donation pre-seeds before the rebalance.
+    function skim(
+        address to
+    ) external {
+        IERC20 t0 = IERC20(token0);
+        IERC20 t1 = IERC20(token1);
+        uint256 excess0 = t0.balanceOf(address(this)) - uint256(_reserve0);
+        uint256 excess1 = t1.balanceOf(address(this)) - uint256(_reserve1);
+        if (excess0 > 0) t0.transfer(to, excess0);
+        if (excess1 > 0) t1.transfer(to, excess1);
+    }
+
+    function getReserves() external view returns (uint112, uint112, uint32) {
+        return (_reserve0, _reserve1, uint32(block.timestamp));
+    }
+
+    function setTokens(
+        address t0,
+        address t1
+    ) external {
+        token0 = t0;
+        token1 = t1;
+    }
+
+    function _sqrt(
+        uint256 y
+    ) internal pure returns (uint256 z) {
+        if (y > 3) {
+            z = y;
+            uint256 x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
+        }
+    }
 }
 
 contract MockHyperswapFactory {
@@ -174,15 +173,38 @@ contract MockHyperswapFactory {
         require(pairs[tokenA][tokenB] == address(0), "MockFactory: PAIR_EXISTS");
         MockHyperswapPair newPair = new MockHyperswapPair();
         newPair.setTokens(tokenA, tokenB);
-        // No router authorization here — the post-grad swap path uses
-        // `pair.swap(...)` directly which doesn't gate on router auth.
         pairs[tokenA][tokenB] = address(newPair);
         pairs[tokenB][tokenA] = address(newPair);
         pair = address(newPair);
     }
 }
 
-/// @dev Mock UniswapV2Router02 for graduation and post-grad swap tests
+/// @notice Mock of HyperSwap mainnet's V2 router
+///         (`0xb4a9C4e6Ea8E2191d2FA5B380452a634Fb21240A`).
+/// @dev    HyperSwap's deployed router is NOT a vanilla UniswapV2Router02 —
+///         it strips every canonical swap function and replaces them with
+///         FoT-only variants that take a non-standard `address referrer`
+///         argument. This mock mirrors that surface so tests catch any
+///         protocol code that accidentally tries to use the canonical
+///         signatures (which would revert with no data on real HyperSwap).
+///
+///         What's exposed:
+///           - `factory()` (canonical)
+///           - `addLiquidity(token-token)` (canonical V2)
+///           - `swapExactTokensForTokensSupportingFeeOnTransferTokens(uint,uint,address[],address,address,uint)`
+///             — the FoT-with-`referrer` variant; included for ABI fidelity,
+///             not currently used by the protocol (we route swaps through
+///             `pair.swap` directly — see `Bonding._pairRebalance` and
+///             `Zap._swapOnUniswapV2`)
+///
+///         What's NOT exposed (intentionally — matches deployed HyperSwap):
+///           - `swapExactTokensForTokens` (canonical) — missing on real router
+///           - `swapTokensForExactTokens` — missing
+///           - `getAmountsOut` / `getAmountsIn` — not used by protocol
+///           - `removeLiquidity*` family — protocol never withdraws LP
+///
+///         Full deployed-router selector breakdown in
+///         `packages/contracts/AGENTS.md` "HyperSwap Router non-standard ABI".
 contract MockHyperswapRouter {
     MockHyperswapFactory private immutable _factory;
 
@@ -194,117 +216,116 @@ contract MockHyperswapRouter {
         return address(_factory);
     }
 
+    /// @dev Mirrors `UniswapV2Router02.addLiquidity` semantics. Computes
+    ///      the optimal `(amountA, amountB)` at the current reserve ratio
+    ///      via V2's `quote()` formula, pulls only the optimal amounts
+    ///      via `transferFrom`, and `pair.mint`s LP. Off-ratio remainder
+    ///      stays with the caller — this is what makes
+    ///      `Bonding._routerDepositAndDispose` immune to the `min()`
+    ///      donation when the pool is at a hostile pre-seed ratio.
     function addLiquidity(
         address tokenA,
         address tokenB,
         uint256 amountADesired,
         uint256 amountBDesired,
-        uint256,
-        uint256,
+        uint256 amountAMin,
+        uint256 amountBMin,
         address to,
         uint256
     ) external returns (uint256 amountA, uint256 amountB, uint256 liquidity) {
-        IERC20(tokenA).transferFrom(msg.sender, address(this), amountADesired);
-        IERC20(tokenB).transferFrom(msg.sender, address(this), amountBDesired);
-
-        address existing = _factory.pairs(tokenA, tokenB);
-        MockHyperswapPair pair;
-        if (existing == address(0)) {
-            pair = new MockHyperswapPair();
-            pair.setTokens(tokenA, tokenB);
-            pair.setRouter(address(this));
-            _factory.registerPair(tokenA, tokenB, address(pair));
-        } else {
-            pair = MockHyperswapPair(existing);
-        }
-
-        IERC20(tokenA).transfer(address(pair), amountADesired);
-        IERC20(tokenB).transfer(address(pair), amountBDesired);
-        pair.setReserves(uint112(amountADesired), uint112(amountBDesired));
-
-        liquidity = _sqrt(amountADesired * amountBDesired);
-        pair.mintRaw(to, liquidity);
-
-        return (amountADesired, amountBDesired, liquidity);
+        MockHyperswapPair pair = _ensurePair(tokenA, tokenB);
+        (amountA, amountB) = _optimalAmounts(pair, tokenA, amountADesired, amountBDesired, amountAMin, amountBMin);
+        IERC20(tokenA).transferFrom(msg.sender, address(pair), amountA);
+        IERC20(tokenB).transferFrom(msg.sender, address(pair), amountB);
+        liquidity = pair.mint(to);
     }
 
-    function swapExactTokensForTokens(
+    /// @notice HyperSwap's non-standard FoT-with-`referrer` variant.
+    /// @dev    Mirrors selector `0xac3893ba` from the deployed router.
+    ///         The protocol does NOT call this — both `Bonding` and `Zap`
+    ///         route swaps through `pair.swap` directly to sidestep the
+    ///         non-standard ABI. The mock implements the FoT semantics
+    ///         (slippage check is a final-balance check on `to`) for
+    ///         completeness so a future caller that DOES use this would
+    ///         exhibit production-faithful behaviour in tests.
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
         uint256 amountIn,
         uint256 amountOutMin,
         address[] calldata path,
         address to,
-        uint256
-    ) external returns (uint256[] memory amounts) {
+        address, /* referrer */
+        uint256 /* deadline */
+    ) external {
         require(path.length == 2, "MockRouter: path must be length 2");
-        address pairAddr = _factory.pairs(path[0], path[1]);
-        require(pairAddr != address(0), "MockRouter: pair not found");
+        MockHyperswapPair pair = MockHyperswapPair(_factory.pairs(path[0], path[1]));
+        require(address(pair) != address(0), "MockRouter: pair not found");
 
-        IERC20(path[0]).transferFrom(msg.sender, pairAddr, amountIn);
-
-        uint256 amountOut = _computeAmountOut(pairAddr, path[0], amountIn);
-        require(amountOut >= amountOutMin, "MockRouter: insufficient output");
-
-        MockHyperswapPair(pairAddr).routerTransfer(path[1], to, amountOut);
-        _updateReserves(pairAddr, path[0], amountIn, amountOut);
-
-        amounts = new uint256[](2);
-        amounts[0] = amountIn;
-        amounts[1] = amountOut;
+        IERC20(path[0]).transferFrom(msg.sender, address(pair), amountIn);
+        uint256 balanceBefore = IERC20(path[1]).balanceOf(to);
+        _swapToken1Out(pair, path[0], amountIn, to);
+        require(IERC20(path[1]).balanceOf(to) - balanceBefore >= amountOutMin, "MockRouter: INSUFFICIENT_OUTPUT_AMOUNT");
     }
 
-    function getAmountsOut(
+    /// @dev Direction-agnostic pair-swap helper for the FoT variant.
+    ///      Computes the canonical V2 fee-charging amountOut from current
+    ///      reserves and dispatches `pair.swap(...)` with the appropriate
+    ///      `amount0Out` / `amount1Out` slot populated.
+    function _swapToken1Out(
+        MockHyperswapPair pair,
+        address tokenIn,
         uint256 amountIn,
-        address[] calldata path
-    ) external view returns (uint256[] memory amounts) {
-        require(path.length == 2, "MockRouter: path must be length 2");
-        address pairAddr = _factory.pairs(path[0], path[1]);
-        require(pairAddr != address(0), "MockRouter: pair not found");
-
-        amounts = new uint256[](2);
-        amounts[0] = amountIn;
-        amounts[1] = _computeAmountOut(pairAddr, path[0], amountIn);
-    }
-
-    function _computeAmountOut(
-        address pairAddr,
-        address tokenIn,
-        uint256 amountIn
-    ) internal view returns (uint256) {
-        MockHyperswapPair pair = MockHyperswapPair(pairAddr);
-        (uint112 r0, uint112 r1,) = pair.getReserves();
-        bool isZero = pair.token0() == tokenIn;
-        uint256 rIn = isZero ? r0 : r1;
-        uint256 rOut = isZero ? r1 : r0;
-        return (amountIn * rOut) / (rIn + amountIn);
-    }
-
-    function _updateReserves(
-        address pairAddr,
-        address tokenIn,
-        uint256 amtIn,
-        uint256 amtOut
+        address to
     ) internal {
-        MockHyperswapPair pair = MockHyperswapPair(pairAddr);
         (uint112 r0, uint112 r1,) = pair.getReserves();
-        if (pair.token0() == tokenIn) {
-            pair.setReserves(uint112(uint256(r0) + amtIn), uint112(uint256(r1) - amtOut));
+        bool inIs0 = pair.token0() == tokenIn;
+        uint256 rIn = inIs0 ? uint256(r0) : uint256(r1);
+        uint256 rOut = inIs0 ? uint256(r1) : uint256(r0);
+        uint256 amountInWithFee = amountIn * 997;
+        uint256 amountOut = (amountInWithFee * rOut) / (rIn * 1000 + amountInWithFee);
+        (uint256 a0, uint256 a1) = inIs0 ? (uint256(0), amountOut) : (amountOut, uint256(0));
+        pair.swap(a0, a1, to, new bytes(0));
+    }
+
+    function _ensurePair(
+        address tokenA,
+        address tokenB
+    ) internal returns (MockHyperswapPair pair) {
+        address pairAddr = _factory.pairs(tokenA, tokenB);
+        if (pairAddr == address(0)) {
+            pair = new MockHyperswapPair();
+            pair.setTokens(tokenA, tokenB);
+            _factory.registerPair(tokenA, tokenB, address(pair));
         } else {
-            pair.setReserves(uint112(uint256(r0) - amtOut), uint112(uint256(r1) + amtIn));
+            pair = MockHyperswapPair(pairAddr);
         }
     }
 
-    function _sqrt(
-        uint256 y
-    ) internal pure returns (uint256 z) {
-        if (y > 3) {
-            z = y;
-            uint256 x = y / 2 + 1;
-            while (x < z) {
-                z = x;
-                x = (y / x + x) / 2;
-            }
-        } else if (y != 0) {
-            z = 1;
+    /// @dev Mirrors `UniswapV2Router02._addLiquidity` quote()-based optimal
+    ///      split. Empty pair: caller's full desired amounts. Non-empty:
+    ///      compute the optimal counter-side at the current reserve ratio
+    ///      and revert if it falls below the caller's `min` slippage band.
+    function _optimalAmounts(
+        MockHyperswapPair pair,
+        address tokenA,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        uint256 amountAMin,
+        uint256 amountBMin
+    ) internal view returns (uint256 amountA, uint256 amountB) {
+        (uint112 r0, uint112 r1,) = pair.getReserves();
+        bool aIs0 = pair.token0() == tokenA;
+        (uint256 reserveA, uint256 reserveB) = aIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+        if (reserveA == 0 && reserveB == 0) {
+            return (amountADesired, amountBDesired);
         }
+        uint256 amountBOptimal = (amountADesired * reserveB) / reserveA;
+        if (amountBOptimal <= amountBDesired) {
+            require(amountBOptimal >= amountBMin, "MockRouter: B<min");
+            return (amountADesired, amountBOptimal);
+        }
+        uint256 amountAOptimal = (amountBDesired * reserveA) / reserveB;
+        require(amountAOptimal <= amountADesired, "MockRouter: A>desired");
+        require(amountAOptimal >= amountAMin, "MockRouter: A<min");
+        return (amountAOptimal, amountBDesired);
     }
 }

@@ -24,4 +24,21 @@ interface IUniswapV2Pair {
     function mint(
         address to
     ) external returns (uint256 liquidity);
+
+    /// @notice Force the pair to send any token balance in excess of stored
+    ///         `reserve0/reserve1` to `to`. Used by `Bonding.finalizeGraduation`
+    ///         to sweep pure-donation pre-seeds (raw `transfer` to the pair
+    ///         without `mint`) before the rebalance, so donated tokens don't
+    ///         pollute the post-swap ratio computation. Pure-mint pre-seeds
+    ///         leave `balance == reserves` and are unaffected.
+    function skim(
+        address to
+    ) external;
+
+    /// @notice ERC20 LP total supply / balance. Used by tests to assert
+    ///         attacker-LP-share invariants; production reads `mint`'s return.
+    function totalSupply() external view returns (uint256);
+    function balanceOf(
+        address account
+    ) external view returns (uint256);
 }

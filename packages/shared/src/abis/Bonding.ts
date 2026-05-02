@@ -466,6 +466,11 @@ export const BondingAbi = [
         "internalType": "address"
       },
       {
+        "name": "uniswapV2Router_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "lpLock_",
         "type": "address",
         "internalType": "address"
@@ -824,6 +829,29 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "rescueLT",
+    "inputs": [
+      {
+        "name": "ltToken",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "router",
     "inputs": [],
     "outputs": [
@@ -954,6 +982,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "uniswapV2Router",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "upgradeToAndCall",
     "inputs": [
       {
@@ -1023,6 +1064,31 @@ export const BondingAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LTRescued",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "to",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false

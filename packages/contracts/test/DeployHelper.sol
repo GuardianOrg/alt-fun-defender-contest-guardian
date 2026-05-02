@@ -140,6 +140,7 @@ abstract contract DeployHelper is Test {
                 address(factory),
                 address(curveRouter),
                 address(hyperswapFactory),
+                address(hyperswapRouter),
                 address(lpLockContract),
                 address(tokenImpl),
                 TEST_GRADUATION_THRESHOLD_USD,

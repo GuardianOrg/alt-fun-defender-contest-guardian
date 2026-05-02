@@ -67,8 +67,9 @@ contract Deploy is Script {
         console.log("Token (impl):", address(tokenImpl));
 
         address uniswapV2Factory = IUniswapV2Router02(UNISWAP_V2_ROUTER).factory();
-        address bondingProxy =
-            _deployBonding(address(factory), address(router), uniswapV2Factory, lpLockProxy, address(tokenImpl));
+        address bondingProxy = _deployBonding(
+            address(factory), address(router), uniswapV2Factory, UNISWAP_V2_ROUTER, lpLockProxy, address(tokenImpl)
+        );
         console.log("Bonding (proxy):", bondingProxy);
 
         // Deploy FeeVault (proxy). `feeTo = deployer` initially — rotate via
@@ -102,6 +103,7 @@ contract Deploy is Script {
         address factory_,
         address router_,
         address uniswapV2Factory_,
+        address uniswapV2Router_,
         address lpLock_,
         address tokenImplementation_
     ) internal returns (address) {
@@ -112,6 +114,7 @@ contract Deploy is Script {
                 factory_,
                 router_,
                 uniswapV2Factory_,
+                uniswapV2Router_,
                 lpLock_,
                 tokenImplementation_,
                 GRADUATION_THRESHOLD_USD,
