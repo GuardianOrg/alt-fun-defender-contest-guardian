@@ -1088,7 +1088,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
                     reserveOut: reserveToken,
                     targetN: ltFromPair,
                     targetD: tokensForLP,
-                    maxSwap: ltFromPair
+                    maxSwap: _swapBudget(ltFromPair)
                 })
             );
         } else if (reserveToken * ltFromPair < reserveLT * tokensForLP) {
@@ -1102,7 +1102,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
                     reserveOut: reserveLT,
                     targetN: tokensForLP,
                     targetD: ltFromPair,
-                    maxSwap: tokensForLP
+                    maxSwap: _swapBudget(tokensForLP)
                 })
             );
         }
@@ -1110,6 +1110,31 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // pre-seeded at exactly target). Skip swap, deposit directly.
 
         return _routerDepositAndDispose(tokenAddress, lt);
+    }
+
+    /// @dev Cap the rebalance swap at 99% of the available side's budget,
+    ///      so the subsequent `addLiquidity` always has a non-zero amount
+    ///      of BOTH sides to deposit. Without this, an extreme hostile
+    ///      pre-seed (massively imbalanced reserves) drives the
+    ///      unconstrained `_noFeeSwapInput` past our per-side budget,
+    ///      `_pairRebalance` clamps to the full budget, and the swap
+    ///      consumes 100% of one side. `_routerDepositAndDispose` then
+    ///      skips `addLiquidity` (`remToken == 0` or `remLT == 0`),
+    ///      `finalizeGraduation` returns `liquidity = 0`, and
+    ///      `LPLock.recordLock(...)` records a zero-sized lock — the
+    ///      attacker's pre-existing LP becomes 100% of the pool. Reserving
+    ///      1% guarantees the deposit leg always lands AND mints non-zero
+    ///      LP at the post-swap ratio. The 1% comes off the swap, not the
+    ///      deposit — for any realistic pre-seed `s_unconstrained` is
+    ///      orders of magnitude below `maxSwap`, so the cap doesn't bind
+    ///      and behaviour is unchanged. It only kicks in for catastrophic
+    ///      pre-seeds beyond our budget capacity, where the alternative
+    ///      is bricking. See `test_catastrophicPreSeed_capPreservesNonZeroLpLock`
+    ///      in `test/HostilePreSeed.t.sol`.
+    function _swapBudget(
+        uint256 budget
+    ) internal pure returns (uint256) {
+        return (budget * 99) / 100;
     }
 
     /// @dev Rebalance leg: compute no-fee swap input, cap at budget,

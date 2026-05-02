@@ -378,6 +378,44 @@ contract HostilePreSeedTest is DeployHelper {
         assertTrue(bonding.isGraduated(tokenAddr));
     }
 
+    /// @notice Catastrophic-pre-seed regression: an attacker with overwhelming
+    ///         capital pre-seeds the pool such that the no-fee swap input
+    ///         to drive the ratio back to curve-close exceeds our per-side
+    ///         budget. Without the 99% `_swapBudget` cap, `_pairRebalance`
+    ///         would clamp the swap at the full budget, consume 100% of one
+    ///         side of our inventory, and leave `_routerDepositAndDispose`
+    ///         with `remToken == 0` (or `remLT == 0`); `addLiquidity` would
+    ///         skip, `liquidity` would return 0, and `LPLock.recordLock`
+    ///         would record a zero-sized lock — the attacker's pre-existing
+    ///         LP would become 100% of the pool's LP supply.
+    /// @dev    Pre-seed `(1000 ether TOKEN, 1e9 ether LT)` is sized to
+    ///         deterministically trigger the `_swapBudget` cap on a
+    ///         standard test graduation. The attacker has poured ~$1B of
+    ///         LT into the pre-seed (way beyond any realistic attack
+    ///         budget) — at this scale the rebalance can't fully reach
+    ///         the curve-close ratio with our per-side budget. The cap
+    ///         leaves 1% of the swap-side budget for the deposit, so
+    ///         `addLiquidity` always lands and LPLock holds a non-zero
+    ///         (if proportionally small) LP claim. Brick-resistance
+    ///         preserved; attacker doesn't get 100% of the pool.
+    function test_catastrophicPreSeed_capPreservesNonZeroLpLock() public {
+        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(1 ether);
+        // Mint enough TOKEN to the attacker to seed the catastrophic shape
+        // (test fixture only gives ~9.9M ether from a 1-ether LT spend at
+        // curve start, but we need 1000 ether — well within that envelope).
+        _attackerMintPreSeed(pair, tokenAddr, 1000 ether, 1_000_000_000 ether);
+
+        _enterGraduating(tokenAddr);
+        bonding.finalizeGraduation(tokenAddr); // must not revert despite cap firing
+
+        assertTrue(bonding.isGraduated(tokenAddr));
+        assertGt(
+            pair.balanceOf(address(lpLockContract)),
+            0,
+            "LPLock must hold some LP -- without the swap-budget cap this would be 0"
+        );
+    }
+
     // ─── Leftover recovery (rescueLT admin sweep) ────────────────────────
 
     /// @dev After a rebalance, LT leftover sits in `Bonding`'s balance.
@@ -385,16 +423,26 @@ contract HostilePreSeedTest is DeployHelper {
     ///      leftover is burned during finalize, so it never accumulates.
     ///      Asserts the on-chain `LTRescued` event so the destination of
     ///      every sweep is observable in indexer / monitoring.
+    /// @dev    Pre-seed shape `(1 ether TOKEN, 30 ether LT)` is chosen
+    ///         deterministically so the swap rebalances the pool fully to
+    ///         the curve-close ratio with budget to spare; the deposit
+    ///         then matches against the pool ratio, fully consuming our
+    ///         TOKEN side and leaving an LT remainder. The earlier
+    ///         `(1 wei, 30 ether)` shape was so extremely LT-rich that
+    ///         the rebalance swap was tiny and the deposit ended up
+    ///         consuming all our LT instead — leftover was 0 and the
+    ///         test silently no-op'd. With `(1 ether, 30 ether)` the
+    ///         leftover is reliably > 0 (~30 ether of LT — close to the
+    ///         attacker's pre-seed amount).
     function test_leftoverRecovery_rescueLT_movesLeftoverToReceiverAndEmits() public {
         (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(1 ether);
-        // LT-rich pre-seed produces LT leftover after the rebalance.
-        _attackerMintPreSeed(pair, tokenAddr, 1, 30 ether);
+        _attackerMintPreSeed(pair, tokenAddr, 1 ether, 30 ether);
 
         _enterGraduating(tokenAddr);
         bonding.finalizeGraduation(tokenAddr);
 
         uint256 leftover = lt.balanceOf(address(bonding));
-        if (leftover == 0) return; // no leftover this scenario; test is a no-op
+        assertGt(leftover, 0, "test setup: pre-seed shape must deterministically produce LT leftover");
 
         address receiver = makeAddr("treasury");
         vm.expectEmit(true, true, false, true, address(bonding));
