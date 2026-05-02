@@ -44,8 +44,6 @@ type Query {
   hyperswapPairIndexs(where: hyperswapPairIndexFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): hyperswapPairIndexPage!
   tokenBalance(id: String!): tokenBalance
   tokenBalances(where: tokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenBalancePage!
-  protocolConfig(id: String!): protocolConfig
-  protocolConfigs(where: protocolConfigFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): protocolConfigPage!
   tokenSnapshot(id: String!): tokenSnapshot
   tokenSnapshots(where: tokenSnapshotFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenSnapshotPage!
   _meta: Meta
@@ -1109,64 +1107,6 @@ input tokenBalanceFilter {
   balance_lt: BigInt
   balance_gte: BigInt
   balance_lte: BigInt
-}
-
-type protocolConfig {
-  id: String!
-  graduationThresholdUsd: BigInt!
-  blockNumber: BigInt!
-  timestamp: BigInt!
-}
-
-type protocolConfigPage {
-  items: [protocolConfig!]!
-  pageInfo: PageInfo!
-  totalCount: Int!
-}
-
-input protocolConfigFilter {
-  AND: [protocolConfigFilter]
-  OR: [protocolConfigFilter]
-  id: String
-  id_not: String
-  id_in: [String]
-  id_not_in: [String]
-  id_contains: String
-  id_not_contains: String
-  id_starts_with: String
-  id_ends_with: String
-  id_not_starts_with: String
-  id_not_ends_with: String
-  id_contains_nocase: String
-  id_not_contains_nocase: String
-  id_starts_with_nocase: String
-  id_ends_with_nocase: String
-  id_not_starts_with_nocase: String
-  id_not_ends_with_nocase: String
-  graduationThresholdUsd: BigInt
-  graduationThresholdUsd_not: BigInt
-  graduationThresholdUsd_in: [BigInt]
-  graduationThresholdUsd_not_in: [BigInt]
-  graduationThresholdUsd_gt: BigInt
-  graduationThresholdUsd_lt: BigInt
-  graduationThresholdUsd_gte: BigInt
-  graduationThresholdUsd_lte: BigInt
-  blockNumber: BigInt
-  blockNumber_not: BigInt
-  blockNumber_in: [BigInt]
-  blockNumber_not_in: [BigInt]
-  blockNumber_gt: BigInt
-  blockNumber_lt: BigInt
-  blockNumber_gte: BigInt
-  blockNumber_lte: BigInt
-  timestamp: BigInt
-  timestamp_not: BigInt
-  timestamp_in: [BigInt]
-  timestamp_not_in: [BigInt]
-  timestamp_gt: BigInt
-  timestamp_lt: BigInt
-  timestamp_gte: BigInt
-  timestamp_lte: BigInt
 }
 
 type tokenSnapshot {
