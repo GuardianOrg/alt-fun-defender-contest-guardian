@@ -4,17 +4,10 @@
 
 # Internal feedback
 
-- AI Audit
-- My audit
-- Internal team audit
-
 # Audit
 
 - Transfer domain name
 - Landing page
-- 1s chart
-- Default to 1m chart (not 1 day)
-- On the chart, I'd switch the visible time interval options here to 1m, 15m, 1h then hide the other ones (the ones we're currently showing 1d, 5d, 1m) behind "interval". Feels like we're hiding the intervals that are useful currently and showing ones that have little to no use. Also, I assumed 1m meant 1 minute (currently it's 1 month) which led to some confusion on the UI
 - Option to enlarge token icon when clicked
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
 - Let's remove the 5x leverage warning

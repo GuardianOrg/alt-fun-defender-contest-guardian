@@ -132,12 +132,15 @@ describe("apiKeyAuth middleware", () => {
   it("returns 429 for anonymous requests when per-IP rate limit is exceeded", async () => {
     const app = createApp();
 
-    // The anonymous rate limit is 60 req/min. Send 61 requests from the same IP.
+    // Simulate production: real client IP + a non-loopback Host so the
+    // local-dev bypass doesn't kick in. The anonymous rate limit is
+    // 60 req/min — send 61 from the same IP.
     const ip = "203.0.113.42";
+    const prodHeaders = { "CF-Connecting-IP": ip, Host: "api.altfun.com" };
     for (let i = 0; i < 60; i++) {
       const res = await app.request(
         "/test",
-        { headers: { "CF-Connecting-IP": ip } },
+        { headers: prodHeaders },
         makeEnv(),
       );
       expect(res.status).toBe(200);
@@ -146,7 +149,7 @@ describe("apiKeyAuth middleware", () => {
     // 61st request should be rate limited
     const res = await app.request(
       "/test",
-      { headers: { "CF-Connecting-IP": ip } },
+      { headers: prodHeaders },
       makeEnv(),
     );
     expect(res.status).toBe(429);
@@ -155,21 +158,41 @@ describe("apiKeyAuth middleware", () => {
     expect(res.headers.get("Retry-After")).toBeTruthy();
   });
 
+  it("bypasses anonymous rate limiting for localhost requests (local dev)", async () => {
+    const app = createApp();
+
+    // Under `wrangler dev` Miniflare populates `CF-Connecting-IP` with
+    // a loopback address, so ALL local traffic shares one bucket and the
+    // frontend 429s within seconds of opening the app. We bypass the
+    // limiter when the Host header is a loopback. Send well past
+    // `ANON_RATE_LIMIT` requests and confirm none get rate-limited.
+    for (let i = 0; i < 120; i++) {
+      const res = await app.request(
+        "/test",
+        { headers: { Host: "localhost:8787", "CF-Connecting-IP": "127.0.0.1" } },
+        makeEnv(),
+      );
+      expect(res.status).toBe(200);
+    }
+  });
+
   it("does not rate limit anonymous requests from different IPs", async () => {
     const app = createApp();
 
-    // Send requests from two different IPs — each should be under the limit
+    // Send requests from two different IPs — each should be under the limit.
+    // Use a non-loopback Host so the local-dev bypass doesn't short-circuit.
+    const prodHost = { Host: "api.altfun.com" };
     for (let i = 0; i < 30; i++) {
       const res1 = await app.request(
         "/test",
-        { headers: { "CF-Connecting-IP": "10.0.0.1" } },
+        { headers: { ...prodHost, "CF-Connecting-IP": "10.0.0.1" } },
         makeEnv(),
       );
       expect(res1.status).toBe(200);
 
       const res2 = await app.request(
         "/test",
-        { headers: { "CF-Connecting-IP": "10.0.0.2" } },
+        { headers: { ...prodHost, "CF-Connecting-IP": "10.0.0.2" } },
         makeEnv(),
       );
       expect(res2.status).toBe(200);

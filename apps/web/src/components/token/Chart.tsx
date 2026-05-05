@@ -28,12 +28,13 @@ interface Props {
 
 export default function Chart({ token }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  // Default to the original 1D timeframe so returning users see the chart
-  // they're used to. Picking an interval switches `mode.kind` to "interval"
-  // and the timeframe buttons deselect; picking a timeframe swings it back.
+  // Default to a 1m interval — matches what the leader of the space (pump.fun)
+  // opens with and gives intra-candle resolution from the moment a token loads.
+  // Picking a timeframe switches `mode.kind` to "timeframe" (and the period
+  // strip below the chart highlights); picking an interval swings it back.
   const [mode, setMode] = useState<ChartMode>({
-    kind: "timeframe",
-    value: "1d",
+    kind: "interval",
+    seconds: 60,
   });
 
   const [intervalMenuOpen, setIntervalMenuOpen] = useState(false);
@@ -97,23 +98,6 @@ export default function Chart({ token }: Props) {
   return (
     <>
       <div className={styles.toolbar}>
-        <div className={styles.intervalGroup}>
-          {TIMEFRAMES.map((tf) => (
-            <button
-              key={tf.value}
-              className={cn(
-                styles.intervalBtn,
-                isTimeframeActive(tf.value) && styles.intervalBtnActive,
-              )}
-              onClick={() =>
-                setMode({ kind: "timeframe", value: tf.value })
-              }
-            >
-              {tf.label}
-            </button>
-          ))}
-        </div>
-
         <div className={styles.intervalPicker} ref={intervalRef}>
           <button
             type="button"
@@ -196,6 +180,24 @@ export default function Chart({ token }: Props) {
           </div>
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />
+      </div>
+      <div className={styles.periodBar}>
+        <div className={styles.intervalGroup}>
+          {TIMEFRAMES.map((tf) => (
+            <button
+              key={tf.value}
+              className={cn(
+                styles.intervalBtn,
+                isTimeframeActive(tf.value) && styles.intervalBtnActive,
+              )}
+              onClick={() =>
+                setMode({ kind: "timeframe", value: tf.value })
+              }
+            >
+              {tf.label}
+            </button>
+          ))}
+        </div>
       </div>
     </>
   );

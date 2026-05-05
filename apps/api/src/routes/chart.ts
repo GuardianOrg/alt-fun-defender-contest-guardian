@@ -33,27 +33,30 @@ const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
 // Must stay in sync with CHART_INTERVAL_SECONDS in
 // `apps/web/src/services/api.ts`.
 const VALID_INTERVAL_SECONDS = new Set<number>([
+  5,        // 5s
+  15,       // 15s
+  30,       // 30s
   60,       // 1m
-  180,      // 3m
   300,      // 5m
   900,      // 15m
+  1_800,    // 30m
   3_600,    // 1h
-  7_200,    // 2h
   14_400,   // 4h
-  28_800,   // 8h
+  21_600,   // 6h
   43_200,   // 12h
   86_400,   // 1D
-  259_200,  // 3D
-  604_800,  // 1W
 ]);
 
-// Number of candle buckets rendered when the client picks an interval without
-// a timeframe. 120 keeps the wall of bars reasonable on a typical chart
-// viewport (and well under MAX_CANDLES for the largest interval).
-const INTERVAL_MODE_BAR_COUNT = 120;
-
-const MIN_CANDLE_SECONDS = 60;
+const MIN_CANDLE_SECONDS = 5;
 const MAX_CANDLES = 500;
+
+// Maximum number of historical candles the API will hydrate per request.
+// The frontend defaults its visible viewport to a much smaller window (120
+// candles for interval mode, the timeframe window for timeframe mode) but
+// loads everything below so users can zoom/scroll left without re-fetching.
+// Caps the LT-rate `generate_series` row count at `MAX_HISTORY_CANDLES × 3`
+// (see `sampleSec` below) regardless of how far back the token launched.
+const MAX_HISTORY_CANDLES = 1_500;
 
 interface PonderTokenSnapshot {
   curveSupply: string;
@@ -178,17 +181,15 @@ chart.get("/:address", async (c) => {
   const address = rawAddress.toLowerCase();
 
   // Two request shapes are supported:
-  //   - `?timeframe=1d|5d|1m` (+ optional `?interval=<sec>` override) — window
-  //     is fixed by the timeframe, candle width defaults per-timeframe.
-  //   - `?interval=<sec>` alone — candle width is picked by the client, window
-  //     auto-sizes to INTERVAL_MODE_BAR_COUNT buckets so the chart has a
-  //     sensible default viewport.
-  // Defaults to `timeframe=1d` when neither is provided, matching the
-  // pre-interval-selector behaviour.
+  //   - `?timeframe=1d|5d|1m` (+ optional `?interval=<sec>` override) — candle
+  //     width defaults per-timeframe.
+  //   - `?interval=<sec>` alone — candle width is picked by the client.
+  // Defaults to `interval=60` (1m) when neither is provided. The data range
+  // we return is independent of these knobs (see `historySec` below) — they
+  // only control the candle bucket size; the viewport is a frontend concern.
   const rawTimeframe = c.req.query("timeframe");
   const rawInterval = c.req.query("interval");
 
-  let windowSec: number;
   let candleSec: number;
 
   // Strict integer parser — rejects partial-numeric values like "60abc"
@@ -210,9 +211,8 @@ chart.get("/:address", async (c) => {
       );
     }
     candleSec = parsed;
-    windowSec = candleSec * INTERVAL_MODE_BAR_COUNT;
-  } else {
-    const timeframe = (rawTimeframe ?? "1d") as string;
+  } else if (rawTimeframe !== undefined) {
+    const timeframe = rawTimeframe;
     if (!VALID_TIMEFRAMES.includes(timeframe as Timeframe)) {
       return c.json(
         formatError(
@@ -223,7 +223,7 @@ chart.get("/:address", async (c) => {
     }
 
     const tf = timeframe as Timeframe;
-    windowSec = TIMEFRAME_SECONDS[tf];
+    const windowSec = TIMEFRAME_SECONDS[tf];
     candleSec = DEFAULT_CANDLE_SECONDS[tf];
     if (rawInterval) {
       const parsed = parseStrictInt(rawInterval);
@@ -231,9 +231,19 @@ chart.get("/:address", async (c) => {
         candleSec = Math.max(parsed, Math.ceil(windowSec / MAX_CANDLES));
       }
     }
+  } else {
+    // Neither knob — default candle width is 1m (matches the frontend's
+    // default `ChartMode` of `{ kind: "interval", seconds: 60 }`).
+    candleSec = 60;
   }
 
-  const sampleSec = Math.max(10, Math.floor(candleSec / 10));
+  // ~3 LT-rate samples per candle is enough to capture intra-candle high/low
+  // without flooding the BounceTech `generate_series` query. `Math.ceil`
+  // (not `floor`) so 5s candles use sampleSec=2 (3 samples per candle) — a
+  // floor here would yield sampleSec=1 and double the row count from
+  // `MAX_HISTORY_CANDLES × 3` (~4500) to `× 5` (~7500). Floor of 1s preserves
+  // monotonic step size for the 5s case (otherwise ceil(5/3) is already 2).
+  const sampleSec = Math.max(1, Math.ceil(candleSec / 3));
 
   const db = createDb(c.env.DATABASE_URL);
   const [dbToken] = await db
@@ -277,7 +287,16 @@ chart.get("/:address", async (c) => {
     : 0;
 
   const nowSec = Math.floor(Date.now() / 1000);
-  const fromSec = nowSec - windowSec;
+  // Hydrate the full history the client needs for free zoom/scroll, capped at
+  // `MAX_HISTORY_CANDLES × candleSec` so the LT-rate query doesn't fan out for
+  // old tokens on fine intervals. The viewport window is purely a frontend
+  // concern — see `apps/web/src/hooks/useChart.ts` setVisibleRange.
+  const historySec = candleSec * MAX_HISTORY_CANDLES;
+  const earliestFromSec = nowSec - historySec;
+  const fromSec =
+    launchTimestamp > 0
+      ? Math.max(earliestFromSec, launchTimestamp)
+      : earliestFromSec;
 
   const checksummedLt = getAddress(ltAddress);
 

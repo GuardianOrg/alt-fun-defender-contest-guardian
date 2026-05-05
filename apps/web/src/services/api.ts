@@ -233,38 +233,40 @@ export type ChartTimeframe = "1d" | "5d" | "1m";
 /**
  * Allowed candle-width values (seconds) surfaced in the interval picker.
  * Must stay in sync with `VALID_INTERVAL_SECONDS` in
- * `apps/api/src/routes/chart.ts`.
+ * `apps/api/src/routes/chart.ts`. Roughly mirrors the pump.fun set with
+ * `5s` as the floor (sub-`5s` resolution isn't useful given our 2s LT
+ * tick cadence and the curve's snapshot-per-trade write rate).
  */
 export const CHART_INTERVAL_SECONDS = [
+  5,        // 5s
+  15,       // 15s
+  30,       // 30s
   60,       // 1m
-  180,      // 3m
   300,      // 5m
   900,      // 15m
+  1_800,    // 30m
   3_600,    // 1h
-  7_200,    // 2h
   14_400,   // 4h
-  28_800,   // 8h
+  21_600,   // 6h
   43_200,   // 12h
   86_400,   // 1D
-  259_200,  // 3D
-  604_800,  // 1W
 ] as const;
 
 export type ChartIntervalSeconds = (typeof CHART_INTERVAL_SECONDS)[number];
 
 export const CHART_INTERVAL_LABELS: Record<ChartIntervalSeconds, string> = {
+  5: "5s",
+  15: "15s",
+  30: "30s",
   60: "1m",
-  180: "3m",
   300: "5m",
   900: "15m",
+  1_800: "30m",
   3_600: "1h",
-  7_200: "2h",
   14_400: "4h",
-  28_800: "8h",
+  21_600: "6h",
   43_200: "12h",
   86_400: "1D",
-  259_200: "3D",
-  604_800: "1W",
 };
 
 /**
@@ -331,7 +333,7 @@ export interface ChartSnapshot {
 
 export function fetchChart(
   address: string,
-  mode: ChartMode = { kind: "timeframe", value: "1d" },
+  mode: ChartMode = { kind: "interval", seconds: 60 },
 ): Promise<ChartSnapshot> {
   const { query } = getChartModeConfig(mode);
   return apiFetch(`/api/v1/chart/${address}?${query}`);

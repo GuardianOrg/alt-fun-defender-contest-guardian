@@ -41,12 +41,10 @@ export function useChart({
   // cheaper than `setData()` on every 2s price tick.
   const lastCandlesRef = useRef<CandlestickData[] | null>(null);
   const lastModeKeyRef = useRef<string | null>(null);
-  // Wall-clock `to` set by the most recent full resync's setVisibleRange. Live
-  // ticks keep this static; once it lags real time by more than a candle's
-  // duration we fall through to a full resync to re-pad whitespace on the right
-  // and re-anchor the viewport. Without this the chart slowly stops tracking
-  // real time as the tab is left open.
-  const lastVisibleToRef = useRef<number | null>(null);
+  // True after the first non-loading effect run for a given chart instance.
+  // Distinguishes "very first time we have data" (need to anchor viewport)
+  // from "WS reconnect refetch" (should preserve user's current zoom/scroll).
+  const hasAnchoredRef = useRef(false);
 
   const { windowSec, candleSec, key: modeKey } = getChartModeConfig(mode);
 
@@ -72,7 +70,11 @@ export function useChart({
       timeScale: {
         borderColor: rgba(COLORS.mint, 0.1),
         timeVisible: true,
-        secondsVisible: false,
+        // Let lightweight-charts pick the right tick-mark granularity; on
+        // sub-minute intervals (5s/15s/30s) it'll surface seconds, on
+        // larger ones it auto-falls back to HH:MM. Hardcoding `false`
+        // hid useful precision on the new sub-minute intervals.
+        secondsVisible: true,
       },
     });
 
@@ -111,7 +113,15 @@ export function useChart({
     if (loading) {
       seriesRef.current.setData([]);
       lastCandlesRef.current = null;
-      lastVisibleToRef.current = null;
+      // Reset the anchor refs so the next non-loading run is treated as a
+      // fresh viewport. `TokenDetailView` reuses the same `<Chart>` instance
+      // across `:address` changes (no `key` prop on the Chart component),
+      // so without this, navigating from token A → B in the same interval
+      // mode would skip the `isFirstAnchor || modeChanged` branch and
+      // inherit token A's pan/zoom (or appear blank if B's history doesn't
+      // overlap A's old visible range).
+      hasAnchoredRef.current = false;
+      lastModeKeyRef.current = null;
       return;
     }
 
@@ -124,23 +134,26 @@ export function useChart({
     });
 
     const prev = lastCandlesRef.current;
-    const modeChanged = lastModeKeyRef.current !== modeKey;
+    const prevModeKey = lastModeKeyRef.current;
+    // Treat an explicit user-driven mode swap as a modeChange. The very first
+    // run also has `prevModeKey === null` but we handle that separately via
+    // `hasAnchoredRef` so reconnect-driven resyncs don't get classified as a
+    // mode change.
+    const modeChanged = prevModeKey !== null && prevModeKey !== modeKey;
+    const isFirstAnchor = !hasAnchoredRef.current;
     lastModeKeyRef.current = modeKey;
 
     // Detect whether this is a live-tick update (same anchor + non-shrinking
     // tail) vs. a full resync (mode change, initial load, reconnect).
     // On live ticks we call `series.update()` for cheap OHLC merges;
-    // otherwise we re-pad and `setData()` from scratch.
+    // otherwise we re-pad and `setData()` from scratch. We deliberately do
+    // NOT trigger a periodic full resync just because wall-clock has advanced
+    // past the last set viewport — lightweight-charts shifts the visible
+    // range automatically as new bars arrive (`shiftVisibleRangeOnNewBar`),
+    // and a periodic resync would clobber any zoom/scroll the user has done.
     const nowSec = Math.floor(Date.now() / 1000);
-    // Force a full resync once wall-clock has advanced by a full candle past
-    // the viewport set at the last resync — keeps setVisibleRange's `to`
-    // tracking real time and ensures fresh right-side whitespace padding.
-    const viewportStale =
-      lastVisibleToRef.current !== null &&
-      nowSec - lastVisibleToRef.current >= candleSec;
     const isLiveTick =
       !modeChanged &&
-      !viewportStale &&
       prev !== null &&
       prev.length > 0 &&
       candles.length >= prev.length &&
@@ -149,7 +162,14 @@ export function useChart({
     if (isLiveTick && seriesRef.current) {
       // Apply the last previously-known candle (may have been merged) plus
       // any new tail candles (roll-overs). `update()` is an upsert keyed by
-      // time — merges if present, appends if not.
+      // time — merges if present, appends if not. Crucially, this only works
+      // when the series's last data point is at or before the OLD last candle
+      // time — which is why we deliberately do not right-pad whitespace
+      // beyond `lastCandleTime` in `setData` below. Right-pad whitespace
+      // would push the series's last time forward and make
+      // `series.update(oldLastTime)` throw `Cannot update oldest data`,
+      // which was the root cause of the 5s-interval crash (sub-minute
+      // candles roll fast enough that this fired on the very next tick).
       const startIdx = Math.max(0, (prev as CandlestickData[]).length - 1);
       for (let i = startIdx; i < candles.length; i++) {
         seriesRef.current.update(candles[i]);
@@ -158,36 +178,65 @@ export function useChart({
       return;
     }
 
-    const from = Math.floor((nowSec - windowSec) / candleSec) * candleSec;
+    const viewportFrom =
+      Math.floor((nowSec - windowSec) / candleSec) * candleSec;
 
-    // Pad the series with whitespace slots spanning the full window so the
-    // candles stay anchored to the right with uniform width even when we have
-    // less data than the selected window. Without this, lightweight-charts
-    // clamps setVisibleRange to the data range and stretches the candles to
-    // fill the whole chart area.
+    // The API now hydrates up to MAX_HISTORY_CANDLES of history (see
+    // `apps/api/src/routes/chart.ts`), so the typical case is `candles[0]`
+    // sitting at or before `viewportFrom` — no left-pad needed. Only pad
+    // when the token is fresh and the visible viewport extends earlier than
+    // any candle we have.
+    //
+    // Crucially we do NOT right-pad whitespace beyond the last candle.
+    // Doing so would push the series's `lastTime` forward, and the live-tick
+    // path above calls `series.update(oldLastCandle)` which lightweight-charts
+    // rejects with `Cannot update oldest data` whenever `oldLastCandle.time`
+    // is strictly less than the series's `lastTime`. With no right-pad, the
+    // series's last data point is always a real candle (or nothing for fresh
+    // tokens), so update() is always at-or-after the series tail. We anchor
+    // the viewport via `setVisibleLogicalRange` below (bar-index based)
+    // instead of a time-based range so the bar density stays correct
+    // regardless of how far the data tail sits from `nowSec`.
     const firstCandleTime =
       candles.length > 0 ? (candles[0].time as number) : nowSec + candleSec;
-    const lastCandleTime =
-      candles.length > 0
-        ? (candles[candles.length - 1].time as number)
-        : from - candleSec;
 
     const padded: (CandlestickData | WhitespaceData)[] = [];
-    for (let t = from; t < firstCandleTime; t += candleSec) {
-      padded.push({ time: t as unknown as Time });
+    if (firstCandleTime > viewportFrom) {
+      for (let t = viewportFrom; t < firstCandleTime; t += candleSec) {
+        padded.push({ time: t as unknown as Time });
+      }
     }
     padded.push(...candles);
-    for (let t = lastCandleTime + candleSec; t <= nowSec; t += candleSec) {
-      padded.push({ time: t as unknown as Time });
-    }
 
     seriesRef.current.setData(padded);
     lastCandlesRef.current = candles;
 
-    chartRef.current.timeScale().setVisibleRange({
-      from: from as unknown as CandlestickData["time"],
-      to: nowSec as unknown as CandlestickData["time"],
-    });
-    lastVisibleToRef.current = nowSec;
+    // Re-anchor the viewport on the very first non-loading render and on
+    // mode change. Subsequent full resyncs (e.g. WS reconnect snapshot
+    // refetch) preserve whatever zoom/scroll the user has set; `setData`
+    // doesn't reset the visible range so we just leave it alone.
+    //
+    // Use `setVisibleLogicalRange` (bar-index based) rather than
+    // `setVisibleRange` (time based). With time-based ranges the chart
+    // implicitly derives bar density from the time-span ÷ data-span ratio,
+    // which clamps weirdly when the requested `to` extends past the last
+    // candle (which it now does — we deliberately don't right-pad
+    // whitespace anymore, see comment on the live-tick path above). The
+    // visible result was MASSIVE candles on 5s and hairline candles on 4h.
+    // Logical ranges sidestep all that: we say "show the last N bars" and
+    // the chart sizes them to fill the canvas regardless of where the
+    // data tail actually ends.
+    if (isFirstAnchor || modeChanged) {
+      const barCount = Math.max(1, Math.ceil(windowSec / candleSec));
+      const totalBars = padded.length;
+      // `setVisibleLogicalRange` accepts fractional indices. `to` slightly
+      // past the last bar leaves a small right margin so the latest bar
+      // doesn't collide with the price-scale axis.
+      chartRef.current.timeScale().setVisibleLogicalRange({
+        from: totalBars - barCount,
+        to: totalBars - 1 + 2,
+      });
+      hasAnchoredRef.current = true;
+    }
   }, [candles, modeKey, windowSec, candleSec, loading]);
 }
