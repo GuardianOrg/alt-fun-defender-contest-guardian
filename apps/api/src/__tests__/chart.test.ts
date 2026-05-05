@@ -305,8 +305,7 @@ describe("GET /chart/:address", () => {
     const app = createApp();
 
     const supported = [
-      60, 180, 300, 900, 3_600, 7_200, 14_400, 28_800, 43_200, 86_400,
-      259_200, 604_800,
+      5, 15, 30, 60, 300, 900, 1_800, 3_600, 14_400, 21_600, 43_200, 86_400,
     ];
 
     for (const seconds of supported) {

@@ -34,9 +34,31 @@ function purgeExpiredWindows() {
 export async function apiKeyAuth(c: Context<{ Bindings: AppBindings }>, next: Next) {
   const headerKey = c.req.header("X-API-Key");
   if (!headerKey) {
+    // Local dev escape hatch: when running under `wrangler dev` the API is
+    // hit directly from the local frontend (and from curl) and Miniflare
+    // populates `CF-Connecting-IP` with the loopback address, which would
+    // otherwise bucket every tab + every WS reconnect + every chart
+    // refresh under a single key and 429 within seconds of opening the
+    // app. Detect dev via the `Host` header (impossible to spoof in
+    // production — Cloudflare rewrites it to the deployed worker host)
+    // and skip the limiter. Production traffic is unaffected.
+    const host = (c.req.header("Host") ?? "").toLowerCase();
+    const isDevHost =
+      host.startsWith("localhost") ||
+      host.startsWith("127.0.0.1") ||
+      host.startsWith("[::1]") ||
+      host.startsWith("0.0.0.0");
+    if (isDevHost) {
+      await next();
+      return;
+    }
+
     purgeExpiredWindows();
 
-    const ip = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For") ?? "unknown";
+    const ip =
+      c.req.header("CF-Connecting-IP") ??
+      c.req.header("X-Forwarded-For") ??
+      "unknown";
     const now = Date.now();
     let window = anonRateLimitMap.get(ip);
     if (!window || now >= window.resetAt) {
