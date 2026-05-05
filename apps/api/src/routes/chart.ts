@@ -237,10 +237,13 @@ chart.get("/:address", async (c) => {
     candleSec = 60;
   }
 
-  // 3 LT-rate samples per candle is enough to capture intra-candle high/low
-  // without flooding the BounceTech `generate_series` query. Floor at 1s for
-  // 5s/15s/30s candles where `candleSec / 3` would otherwise round to 0.
-  const sampleSec = Math.max(1, Math.floor(candleSec / 3));
+  // ~3 LT-rate samples per candle is enough to capture intra-candle high/low
+  // without flooding the BounceTech `generate_series` query. `Math.ceil`
+  // (not `floor`) so 5s candles use sampleSec=2 (3 samples per candle) — a
+  // floor here would yield sampleSec=1 and double the row count from
+  // `MAX_HISTORY_CANDLES × 3` (~4500) to `× 5` (~7500). Floor of 1s preserves
+  // monotonic step size for the 5s case (otherwise ceil(5/3) is already 2).
+  const sampleSec = Math.max(1, Math.ceil(candleSec / 3));
 
   const db = createDb(c.env.DATABASE_URL);
   const [dbToken] = await db

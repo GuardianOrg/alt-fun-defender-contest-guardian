@@ -281,6 +281,55 @@ describe("GET /chart/:address", () => {
     }
   });
 
+  it("defaults to 1-minute candles when neither timeframe nor interval is set", async () => {
+    // The route's no-query default is part of the public API contract — it
+    // changed from `timeframe=1d` (5-minute candles) to `interval=60`
+    // (1-minute candles) in the sub-minute-intervals rework to match the
+    // frontend's new default `ChartMode`. Pin it so a regression here is
+    // caught instead of leaking out as a quiet UX change for direct API
+    // consumers.
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          // k = TOTAL_SUPPLY × virtualLtAtLaunch (matches the happy-path test).
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          timestamp: String(nowSec - 600),
+        },
+      });
+
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 480), exchange_rate: "2000000000000000000" },
+      { ts: String(nowSec - 360), exchange_rate: "2000000000000000000" },
+      { ts: String(nowSec - 240), exchange_rate: "2000000000000000000" },
+      { ts: String(nowSec - 120), exchange_rate: "2000000000000000000" },
+    ]);
+
+    mockPonderPaginatedQuery.mockResolvedValue({ items: [], truncated: false });
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      data: { candles: { time: number }[] };
+    };
+    expect(body.status).toBe("success");
+    expect(body.data.candles.length).toBeGreaterThan(0);
+    // Candle times are `floor(sampleTs / candleSec) * candleSec` server-side
+    // (`buildCandles`), so on the 1m default every bucket time must be a
+    // multiple of 60.
+    for (const candle of body.data.candles) {
+      expect(candle.time % 60).toBe(0);
+    }
+  });
+
   it("accepts all valid timeframes", async () => {
     mockPonderQuery
       .mockResolvedValue({ __typename: "Query" });

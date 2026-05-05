@@ -113,6 +113,15 @@ export function useChart({
     if (loading) {
       seriesRef.current.setData([]);
       lastCandlesRef.current = null;
+      // Reset the anchor refs so the next non-loading run is treated as a
+      // fresh viewport. `TokenDetailView` reuses the same `<Chart>` instance
+      // across `:address` changes (no `key` prop on the Chart component),
+      // so without this, navigating from token A → B in the same interval
+      // mode would skip the `isFirstAnchor || modeChanged` branch and
+      // inherit token A's pan/zoom (or appear blank if B's history doesn't
+      // overlap A's old visible range).
+      hasAnchoredRef.current = false;
+      lastModeKeyRef.current = null;
       return;
     }
 
