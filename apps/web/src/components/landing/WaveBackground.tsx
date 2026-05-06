@@ -183,11 +183,12 @@ const Z_OFFSET = -18;
 const X_OFFSET = 3;
 
 /* Camera framing — chosen empirically to land the densest wireframe area in
- * the lower-right and a soft horizon roughly 25% from the top, matching
- * `landing-banner.jpeg`. ~12° pitch + low eye gives strong foreshorten so
- * the perspective-compressed cells densify toward the horizon. */
-const EYE: Vec3 = [-3, 2.0, 7];
-const TARGET: Vec3 = [3, -1.5, -8];
+ * the lower-right and a soft horizon roughly 18–20% from the top of the
+ * frame so the upper portion still has water surface (rather than empty
+ * sky). Eye lifted + target dropped gives ~20° pitch, which is steep enough
+ * to read the surface as a plane rather than a near-parallel slab. */
+const EYE: Vec3 = [-3, 3.4, 7];
+const TARGET: Vec3 = [3, -2.0, -6];
 const UP: Vec3 = [0, 1, 0];
 const FOV = (60 * Math.PI) / 180;
 
