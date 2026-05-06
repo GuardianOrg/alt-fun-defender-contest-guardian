@@ -1,0 +1,19 @@
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+/* Static fallback when WebGL is unavailable. */
+.fallback {
+  position: absolute;
+  inset: 0;
+  background-image: url("/landing-banner.jpeg");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}

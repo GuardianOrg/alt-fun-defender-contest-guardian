@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import styles from "./LandingOverlay.module.css";
+import WaveBackground from "./WaveBackground";
 
 const BYPASS_KEY = "altfun-landing-bypass";
 const BYPASS_SECRET = "altfun";
@@ -103,7 +104,7 @@ export default function LandingOverlay() {
 
   return (
     <div className={styles.overlay} role="dialog" aria-label="Alt Fun landing">
-      <div className={styles.bg} aria-hidden="true" />
+      <WaveBackground />
       <div className={styles.scrim} aria-hidden="true" />
       <div className={styles.vignette} aria-hidden="true" />
 

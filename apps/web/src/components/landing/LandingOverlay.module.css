@@ -10,25 +10,15 @@
   font-family: var(--font-mono);
 }
 
-.bg {
-  position: absolute;
-  inset: 0;
-  background-image: url("/landing-banner.jpeg");
-  background-repeat: no-repeat;
-  background-size: cover;
-  background-position: center;
-  pointer-events: none;
-}
-
 /* Soft centred dim so the heading reads cleanly without dulling the wireframe. */
 .scrim {
   position: absolute;
   inset: 0;
   pointer-events: none;
   background: radial-gradient(
-    ellipse 70% 60% at 50% 45%,
-    rgba(6, 30, 28, 0.55) 0%,
-    rgba(6, 30, 28, 0.2) 60%,
+    ellipse 65% 55% at 45% 45%,
+    rgba(6, 30, 28, 0.45) 0%,
+    rgba(6, 30, 28, 0.15) 60%,
     rgba(6, 30, 28, 0) 100%
   );
 }
@@ -255,9 +245,5 @@
     padding: 1rem 1.25rem 1.5rem;
     font-size: 12px;
     flex-wrap: wrap;
-  }
-
-  .bg {
-    background-position: center bottom;
   }
 }
