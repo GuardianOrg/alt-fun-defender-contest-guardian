@@ -30,6 +30,9 @@ export default function SearchModal() {
       align="top"
       panelClassName={styles.modal}
     >
+      <h2 id="search-modal-title" className={styles.srOnly}>
+        Search tokens
+      </h2>
       <div className={styles.searchBar}>
         <svg
           className={styles.searchIcon}
@@ -46,7 +49,6 @@ export default function SearchModal() {
         </svg>
         <input
           ref={inputRef}
-          id="search-modal-title"
           className={styles.searchInput}
           placeholder="Search tokens, tickers…"
           value={query}

@@ -46,6 +46,9 @@
   --shadow-red-glow: 0 0 16px rgba(240, 80, 80, 0.25);
   --shadow-inner-mint: inset 0 0 8px rgba(77, 232, 180, 0.15);
   --shadow-panel: 0 1px 4px rgba(0, 0, 0, 0.3);
+
+  /* Scrim — full-page dimmer behind modals/lightboxes. */
+  --scrim: rgba(0, 0, 0, 0.6);
 }
 
 *,

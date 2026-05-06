@@ -4,6 +4,32 @@ import { useCallback, useEffect, useRef } from "react";
 import styles from "./Modal.module.css";
 import { cn } from "../../utils/format";
 
+/**
+ * Module-level reference counter for the body-scroll lock. Modals that
+ * mount while another is already open must not blindly restore the
+ * original `overflow` on unmount — that would unlock the page while
+ * the still-open modal is showing. The first modal to mount snapshots
+ * the previous value; the last one to unmount restores it.
+ */
+let scrollLockCount = 0;
+let previousBodyOverflow: string | null = null;
+
+function acquireScrollLock() {
+  if (scrollLockCount === 0) {
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  scrollLockCount += 1;
+}
+
+function releaseScrollLock() {
+  scrollLockCount = Math.max(0, scrollLockCount - 1);
+  if (scrollLockCount === 0) {
+    document.body.style.overflow = previousBodyOverflow ?? "";
+    previousBodyOverflow = null;
+  }
+}
+
 interface Props {
   children: ReactNode;
   onClose: () => void;
@@ -38,6 +64,7 @@ export default function Modal({
   hideCloseButton = false,
 }: Props) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const handleOverlayClick = (e: MouseEvent) => {
     if (e.target === e.currentTarget) onClose();
@@ -76,12 +103,19 @@ export default function Modal({
   );
 
   useEffect(() => {
+    // Snapshot the element that triggered the open so we can restore focus
+    // to it when the modal closes — preserves screen-reader context and
+    // keeps keyboard users from getting stranded.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+
     document.addEventListener("keydown", handleKey);
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    acquireScrollLock();
+
     return () => {
       document.removeEventListener("keydown", handleKey);
-      document.body.style.overflow = previousOverflow;
+      releaseScrollLock();
+      previouslyFocused?.focus?.();
     };
   }, [handleKey]);
 
@@ -94,7 +128,11 @@ export default function Modal({
       aria-labelledby={ariaLabelledBy}
       onClick={handleOverlayClick}
     >
-      <div className={cn(styles.panel, panelClassName)}>
+      <div
+        ref={panelRef}
+        className={cn(styles.panel, panelClassName)}
+        tabIndex={-1}
+      >
         {!hideCloseButton && (
           <ModalCloseButton onClose={onClose} className={styles.floatingClose} />
         )}
