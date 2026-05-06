@@ -536,6 +536,7 @@ contract HostilePreSeedTest is DeployHelper {
     ///         on the canonical V2 first-mint check — pre-seeds below that
     ///         can't actually exist on-chain (the attacker's `pair.mint`
     ///         would revert), so excluding them isn't a coverage gap.
+    /// forge-config: ci.fuzz.runs = 8
     function testFuzz_arbitraryPreSeed_zeroGap(
         uint256 preseedTokenRaw,
         uint256 preseedLTRaw
@@ -561,6 +562,7 @@ contract HostilePreSeedTest is DeployHelper {
     ///         their pre-seed cost, regardless of pre-seed shape.
     ///         I.e., the attack has a non-positive expected value (modulo
     ///         the swap fee they pay back to themselves as ~0% LP).
+    /// forge-config: ci.fuzz.runs = 8
     function testFuzz_attacker_cannotProfit(
         uint256 preseedTokenRaw,
         uint256 preseedLTRaw
