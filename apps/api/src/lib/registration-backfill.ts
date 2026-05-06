@@ -82,12 +82,15 @@ export async function runRegistrationBackfill(env: AppBindings): Promise<void> {
       //     Log loudly so admins notice abuse but don't retry.
       //   - `lt_unknown`: BounceTech directory drift. Will retry next tick.
       //   - `rpc_error` / `db_error`: transient. Retried next tick.
+      //   - `unknown`: unhandled (e.g. Drizzle/pg error). Log loudly so we
+      //     notice — these typically indicate a schema drift or RPC bug
+      //     that will silently brick every new launch until investigated.
       const code = err instanceof RegistrationError ? err.code : "unknown";
-      const level = code === "image_invalid" ? "warn" : "info";
+      const level = code === "image_invalid" || code === "unknown" ? "warn" : "info";
       log(level, "registration_backfill_skip", {
         token: row.address,
         code,
-        error: err instanceof Error ? err.message : String(err),
+        ...describeError(err),
       });
     }
   }
@@ -134,4 +137,37 @@ function log(
       timestamp: new Date().toISOString(),
     }),
   );
+}
+
+/**
+ * Drizzle wraps every postgres failure in a `DrizzleQueryError` whose
+ * `.message` is just `"Failed query: <sql>"` — the actual reason ("value
+ * too long for type character varying(8)", "duplicate key value violates
+ * unique constraint", etc.) lives on `.cause.message`. Without unwrapping
+ * we silently lose the only useful diagnostic in the cron logs and a
+ * schema drift can brick every new launch indefinitely.
+ *
+ * Walks the cause chain so wrapping libraries don't hide the root error.
+ */
+function describeError(err: unknown): {
+  error: string;
+  rootError?: string;
+  errorCode?: string;
+} {
+  if (!(err instanceof Error)) {
+    return { error: String(err) };
+  }
+
+  let root: Error = err;
+  while (root.cause instanceof Error) {
+    root = root.cause;
+  }
+
+  const rootCode = (root as Error & { code?: unknown }).code;
+  const out: { error: string; rootError?: string; errorCode?: string } = {
+    error: err.message,
+  };
+  if (root !== err) out.rootError = root.message;
+  if (typeof rootCode === "string") out.errorCode = rootCode;
+  return out;
 }
