@@ -23,6 +23,24 @@
   flex-shrink: 0;
   box-shadow: var(--shadow-panel);
   overflow: hidden;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+}
+
+.avatarClickable {
+  cursor: zoom-in;
+  transition: border-color 0.15s ease;
+}
+
+.avatarClickable:hover {
+  border-color: var(--mint);
+  transform: scale(1.04);
+}
+
+.avatarClickable:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
 }
 
 .avatarImage {
@@ -207,5 +225,31 @@
 .shareWrapper {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.lightbox {
+  width: min(90vw, 32rem);
+  align-items: center;
+  justify-content: center;
+}
+
+.lightboxEmoji {
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(8rem, 30vw, 16rem);
+  line-height: 1;
+  background: var(--bg-2);
+}
+
+.lightboxImage {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 90vh;
+  object-fit: contain;
+  background: var(--bg-2);
 }
 

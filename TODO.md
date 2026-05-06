@@ -7,8 +7,8 @@
 # Audit
 
 - Transfer domain name
+- Update Logo on Site
 - Landing page
-- Option to enlarge token icon when clicked
 - In between Test and HYPE 5x Long put /HYPE5L So it’s Test/HYPE5L HYPE 5x Long Or could not add the HYPE5L
 - Let's remove the 5x leverage warning
 - Add price option to chart also so users can toggle between, like on Dexscreener
