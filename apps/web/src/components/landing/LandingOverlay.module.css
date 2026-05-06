@@ -1,0 +1,249 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #061e1c;
+  color: var(--txt);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+}
+
+/* Soft centred dim so the heading reads cleanly without dulling the wireframe. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 65% 55% at 45% 45%,
+    rgba(6, 30, 28, 0.45) 0%,
+    rgba(6, 30, 28, 0.15) 60%,
+    rgba(6, 30, 28, 0) 100%
+  );
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(0, 0, 0, 0.5) 100%
+  );
+}
+
+.top {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 2rem;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  user-select: none;
+}
+
+.logo img {
+  height: 36px;
+  width: 36px;
+  filter: drop-shadow(0 0 12px rgba(77, 232, 180, 0.3));
+}
+
+.live {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  font-weight: 600;
+}
+
+.liveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 8px rgba(77, 232, 180, 0.7);
+  animation: livep 2s ease-in-out infinite;
+}
+
+.main {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  gap: 1.75rem;
+}
+
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--mint);
+  font-weight: 600;
+  border: 1px solid var(--border-2);
+  padding: 0.5rem 0.875rem;
+  border-radius: 3px;
+  background: rgba(77, 232, 180, 0.04);
+  filter: drop-shadow(0 0 8px rgba(77, 232, 180, 0.15));
+}
+
+.heading {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2.5rem, 7vw, 5.5rem);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--txt);
+  text-wrap: balance;
+  max-width: 18ch;
+}
+
+.headingAccent {
+  display: block;
+  font-style: italic;
+  font-weight: 500;
+  color: var(--mint);
+  filter: drop-shadow(0 0 18px rgba(77, 232, 180, 0.35));
+  margin-top: 0.25em;
+}
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--txt-3);
+  letter-spacing: 0.02em;
+  max-width: 36ch;
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.875rem 1.75rem;
+  background: rgba(77, 232, 180, 0.04);
+  border: 1px solid var(--mint);
+  color: var(--txt);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+  box-shadow:
+    0 0 0 rgba(77, 232, 180, 0),
+    inset 0 0 0 rgba(77, 232, 180, 0);
+  margin-top: 0.5rem;
+}
+
+.cta:hover {
+  background: rgba(77, 232, 180, 0.12);
+  box-shadow:
+    0 0 24px rgba(77, 232, 180, 0.35),
+    inset 0 0 12px rgba(77, 232, 180, 0.08);
+  transform: translateY(-1px);
+}
+
+.cta svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ctaArrow {
+  transition: transform 0.15s ease;
+}
+
+.cta:hover .ctaArrow {
+  transform: translateX(3px);
+}
+
+.footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  padding: 1.5rem 2rem 2rem;
+  font-size: 13px;
+  color: var(--txt-2);
+}
+
+.footerLink {
+  color: var(--txt-2);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  transition: color 0.15s ease;
+  padding: 0.25rem 0.5rem;
+}
+
+.footerLink:hover {
+  color: var(--mint);
+  text-shadow: 0 0 8px rgba(77, 232, 180, 0.35);
+}
+
+.footerSep {
+  color: var(--txt-4);
+  user-select: none;
+}
+
+@media (max-width: 640px) {
+  .top {
+    padding: 1rem 1.25rem;
+  }
+
+  .logo img {
+    height: 32px;
+    width: 32px;
+  }
+
+  .live {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  .main {
+    padding: 1rem 1.25rem;
+    gap: 1.25rem;
+  }
+
+  .heading {
+    font-size: clamp(2.25rem, 11vw, 3.5rem);
+    max-width: 12ch;
+  }
+
+  .tag {
+    font-size: 13px;
+  }
+
+  .cta {
+    padding: 0.75rem 1.25rem;
+    font-size: 13px;
+  }
+
+  .footer {
+    gap: 0.5rem;
+    padding: 1rem 1.25rem 1.5rem;
+    font-size: 12px;
+    flex-wrap: wrap;
+  }
+}

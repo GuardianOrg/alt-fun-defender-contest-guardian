@@ -12,6 +12,7 @@ import {
 import styles from "./App.module.css";
 import { CREATE_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
 import CreateView from "../components/create/CreateView";
+import LandingOverlay from "../components/landing/LandingOverlay";
 import AssetTape from "../components/layout/AssetTape";
 import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
@@ -141,6 +142,7 @@ const App = () => {
           <QueryClientProvider client={queryClient}>
             <WagmiProvider config={wagmiConfig}>
               <RouterProvider router={router} />
+              <LandingOverlay />
             </WagmiProvider>
           </QueryClientProvider>
         </PrivyProvider>
