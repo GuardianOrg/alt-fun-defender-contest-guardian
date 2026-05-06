@@ -381,6 +381,7 @@ contract GraduationInvariantsTest is DeployHelper {
     /// @dev Fuzz over seed buys and exchange rates. Verifies that no matter how or when the
     ///      curve graduates, the pair is drained, the lp reserve conservation holds, and the
     ///      hyperswap pair is always created successfully.
+    /// forge-config: ci.fuzz.runs = 8
     function testFuzz_inv_graduationAlwaysClean(
         uint256 seedLtRaw,
         uint256 rateBumpRaw,
@@ -534,6 +535,7 @@ contract GraduationInvariantsTest is DeployHelper {
 
     /// @dev Fuzz: arbitrary donations of LT before graduation must never
     ///      break the zero-gap invariant or skew the LP price.
+    /// forge-config: ci.fuzz.runs = 8
     function testFuzz_inv_donationDoesNotBreakZeroGap(
         uint256 donationRaw,
         uint256 stageRaw

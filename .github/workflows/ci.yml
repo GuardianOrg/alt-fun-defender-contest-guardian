@@ -54,20 +54,25 @@ jobs:
   contracts:
     # Foundry parallelises across contracts but each contract runs single
     # threaded, so on a 2-vCPU runner the suite is bottlenecked by the slowest
-    # individual contract (BondingTest ~165s, ZapTest ~126s,
-    # GraduationInvariantsTest ~128s, ClonesTest ~75s). Sharding across two
-    # GitHub jobs lets the heavy contracts run in parallel with everything else
-    # and roughly halves wall time without touching any Solidity.
+    # individual contract. We bin-pack the suites across three shards so the
+    # slowest single contract per shard is roughly the same — cuts total CI
+    # wall time well below what a single heavy shard could achieve under
+    # 2-vCPU contention. The CI foundry profile (`fuzz.runs = 24`) plus
+    # per-test natspec overrides on the slowest fuzz tests (HostilePreSeed,
+    # GraduationInvariants graduation-cycle fuzz) is what keeps each shard
+    # under ~2 minutes; nightly runs the default profile for full coverage.
     name: Contracts (${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - shard: heavy
-            args: --match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest)$"
-          - shard: light
-            args: --no-match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest)$"
+          - shard: graduation
+            args: --match-contract "^(HostilePreSeedTest|GraduationInvariantsTest)$"
+          - shard: bonding
+            args: --match-contract "^(BondingTest|ClonesTest)$"
+          - shard: rest
+            args: --no-match-contract "^(HostilePreSeedTest|GraduationInvariantsTest|BondingTest|ClonesTest)$"
     steps:
       - uses: actions/checkout@v6
 
@@ -85,7 +90,7 @@ jobs:
           restore-keys: foundry-${{ runner.os }}-
 
       - name: forge fmt --check
-        if: matrix.shard == 'light'
+        if: matrix.shard == 'rest'
         working-directory: packages/contracts
         run: forge fmt --check
 
