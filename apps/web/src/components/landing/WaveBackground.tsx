@@ -321,10 +321,14 @@ export default function WaveBackground() {
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
 
+    /* Honour `prefers-reduced-motion` by slowing the ocean down rather than
+     * freezing it — a fully static surface reads as "broken" and the motion
+     * is a slow ambient swell well within what reduced-motion guidance is
+     * about (it's not parallax, strobe, or fast translation). */
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let frozenTime = reduced.matches ? 6.0 : null;
+    let speed = reduced.matches ? 0.35 : 1.0;
     const onMotionChange = () => {
-      frozenTime = reduced.matches ? 6.0 : null;
+      speed = reduced.matches ? 0.35 : 1.0;
     };
     reduced.addEventListener("change", onMotionChange);
 
@@ -333,8 +337,7 @@ export default function WaveBackground() {
     const start = performance.now();
 
     const draw = () => {
-      const t =
-        frozenTime !== null ? frozenTime : (performance.now() - start) / 1000;
+      const t = ((performance.now() - start) / 1000) * speed;
       gl.uniform1f(uTime, t);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawElements(gl.LINES, indices.length, gl.UNSIGNED_INT, 0);
