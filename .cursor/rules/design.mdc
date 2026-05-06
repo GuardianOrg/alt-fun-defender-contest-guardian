@@ -71,6 +71,7 @@ Do not invent a new shade by writing `rgba(234, 250, 244, 0.x)`. If you need som
 - When adding a button, extend `shared/Button` rather than rolling a new one. If the existing Button doesn't fit the use case, say so in the PR and add a variant.
 - Tables use the `TokenTable` grid pattern: fixed pixel columns for symbols/metadata, `1fr` for the stretch column, right-aligned numeric columns with `justify-content: flex-end`.
 - Placeholders are centrally styled in `index.css`. Don't override with a component-local `::placeholder` rule.
+- **Every dim-the-page popup uses `shared/Modal`** (overlay, panel chrome, close button, esc / click-outside / focus trap / scroll lock are all owned by `Modal`). Per-modal CSS only sets width/max-height via `panelClassName`; it must not redeclare background, border, radius, shadow, or animation. Close button is always the "esc" badge — never a `×` icon, never both. Full guidance in [`apps/web/AGENTS.md` — Modals & overlays](../../apps/web/AGENTS.md#modals--overlays-mandatory).
 
 ## Accessibility
 

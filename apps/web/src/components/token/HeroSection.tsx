@@ -13,6 +13,7 @@ import {
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
+import Modal from "../shared/Modal";
 
 import type { Token } from "../../services/types";
 
@@ -24,6 +25,7 @@ export default function HeroSection({ token }: Props) {
   const { copied, copy: copyCA } = useCopyState();
   const { copied: copiedDev, copy: copyDev } = useCopyState();
   const [imgError, setImgError] = useState(false);
+  const [enlarged, setEnlarged] = useState(false);
   const stats = useTokenMarketStats(token.address);
   const up = (stats.change24h ?? 0) >= 0;
 
@@ -34,11 +36,19 @@ export default function HeroSection({ token }: Props) {
 
   const vanityTier = tierFor(token.address);
 
+  const hasImage = Boolean(token.image && !imgError);
+  const fallbackEmoji = token.emoji || "🪙";
+
   return (
     <div className={styles.wrapper}>
       <VanityEffect tier={vanityTier} size="hero" as="block">
-        <div className={styles.avatar}>
-          {token.image && !imgError ? (
+        <button
+          type="button"
+          className={cn(styles.avatar, styles.avatarClickable)}
+          onClick={() => setEnlarged(true)}
+          aria-label={`Enlarge ${token.name} image`}
+        >
+          {hasImage ? (
             <img
               key={token.image}
               src={token.image}
@@ -47,9 +57,9 @@ export default function HeroSection({ token }: Props) {
               onError={() => setImgError(true)}
             />
           ) : (
-            token.emoji || "🪙"
+            fallbackEmoji
           )}
-        </div>
+        </button>
       </VanityEffect>
 
       <div className={styles.nameBlock}>
@@ -187,6 +197,23 @@ export default function HeroSection({ token }: Props) {
           Share
         </Button>
       </div>
+
+      {enlarged && (
+        <Modal
+          onClose={() => setEnlarged(false)}
+          panelClassName={styles.lightbox}
+        >
+          {hasImage ? (
+            <img
+              src={token.image}
+              alt={token.name}
+              className={styles.lightboxImage}
+            />
+          ) : (
+            <div className={styles.lightboxEmoji}>{fallbackEmoji}</div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
