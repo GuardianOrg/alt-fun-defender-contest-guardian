@@ -54,10 +54,12 @@ jobs:
   contracts:
     # Foundry parallelises across contracts but each contract runs single
     # threaded, so on a 2-vCPU runner the suite is bottlenecked by the slowest
-    # individual contract (BondingTest ~165s, ZapTest ~126s,
-    # GraduationInvariantsTest ~128s, ClonesTest ~75s). Sharding across two
-    # GitHub jobs lets the heavy contracts run in parallel with everything else
-    # and roughly halves wall time without touching any Solidity.
+    # individual contract. Heavy shard groups every fuzz-heavy / graduation-
+    # exercising suite (Bonding, Zap, GraduationInvariants, Clones,
+    # HostilePreSeed) so they run concurrently inside one job; light shard
+    # mops up everything else (small unit suites, all sub-second).
+    # The CI foundry profile (`fuzz.runs = 24`) is what lets the heavy shard
+    # finish in ~3 minutes; nightly runs the default profile for full coverage.
     name: Contracts (${{ matrix.shard }})
     runs-on: ubuntu-latest
     strategy:
@@ -65,9 +67,9 @@ jobs:
       matrix:
         include:
           - shard: heavy
-            args: --match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest)$"
+            args: --match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest|HostilePreSeedTest)$"
           - shard: light
-            args: --no-match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest)$"
+            args: --no-match-contract "^(BondingTest|ZapTest|GraduationInvariantsTest|ClonesTest|HostilePreSeedTest)$"
     steps:
       - uses: actions/checkout@v6
 
