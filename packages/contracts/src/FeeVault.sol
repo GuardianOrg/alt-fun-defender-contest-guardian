@@ -22,8 +22,7 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 ///
 ///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
 ///      mutable state lives in `FeeVaultStorage` at
-///      `_FEE_VAULT_STORAGE_LOCATION`. See
-///      `packages/contracts/AGENTS.md#storage-layout`.
+///      `_FEE_VAULT_STORAGE_LOCATION`.
 contract FeeVault is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;

@@ -31,8 +31,7 @@ pragma solidity 0.8.24;
 ///
 ///         If you are tempted to add another router method to this interface,
 ///         FIRST verify the selector is present in the deployed router's
-///         bytecode. The full HyperSwap router surface is documented in
-///         `packages/contracts/AGENTS.md` "HyperSwap Router non-standard ABI".
+///         bytecode (`cast code <router> | grep -oiE '63[0-9a-f]{8}14'`).
 interface IUniswapV2Router02 {
     function factory() external view returns (address);
 
