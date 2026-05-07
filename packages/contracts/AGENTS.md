@@ -178,7 +178,7 @@ Attacker called `pair.mint(attacker)` against a self-funded dust seed. Reserves 
 1. **Compute the swap input** that would drive the pool ratio back to the curve-close ratio under the no-fee constant-product model: `s = sqrt(reserveIn · reserveOut · targetN / targetD) − reserveIn`, capped at our per-side budget. Implementation in `_noFeeSwapInput`. Closed-form via OZ `Math.sqrt + Math.mulDiv`; no binary search, no convergence loop.
 2. **Execute the swap directly on the pair** via `pair.swap(amount0Out, amount1Out, address(this), "")`. We compute the V2 fee-charging amount-out ourselves and pass it as the output. **Bypasses the router** — HyperSwap's V2 router has no canonical `swapExactTokensForTokens` (see "HyperSwap Router non-standard ABI" above). Same direct-to-pair pattern Zap uses for post-grad user swaps. Implementation in `_pairRebalance`.
 3. **Deposit the remaining inventory** via `router.addLiquidity(rest, 1, 1, lpLock, ...)`. The router's `quote()`-based optimal split deposits only the matched-ratio subset; neither side becomes a `min()` donation. Off-ratio remainder stays in `Bonding`. The router's `addLiquidity` IS canonical V2 on HyperSwap (verified selector `0xe8e33700`), so this leg is safe to keep on the router and gets the `quote()` math for free.
-4. **Dispose the off-ratio remainder.** TOKEN side burned (`Bonding` is the Token owner). LT side accumulates in `Bonding` for owner sweep via `rescueLT(lt, to, amount)` — emits `LTRescued(token, to, amount)` for observability.
+4. **Dispose the off-ratio remainder.** TOKEN side burned (`Bonding` is the Token owner). LT side auto-swept to the protocol owner by `finalizeGraduation`'s post-bookend — emits `LTRescued(lt, owner, amount)` for observability. See "Auto-sweep bookends" below.
 
 Why the **asymmetric router usage** (pair for swap, router for addLiquidity): the swap is unsafe to send through the router because HyperSwap's swap ABI is non-standard; the deposit IS safe because HyperSwap's `addLiquidity` ABI is canonical AND the `quote()`-based optimal-split logic is the part that defuses the LP-capture attack. We get the best of both — no HyperSwap-specific footgun on the swap, no reimplementation burden on the deposit.
 
@@ -203,9 +203,16 @@ After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-bac
 
 `PRICE_MATCH_EPS_BPS = 50` in `test/HostilePreSeed.t.sol`. Honest graduations open at 0 bps gap (Regime 1, exact direct mint). Hostile-pre-seed graduations open within 50 bps — the structural ceiling is the V2 fee landing between rebalance and deposit (~30 bps) plus integer rounding in the router's `quote()`-based split (~10 bps). 50 bps is well inside "exploit denied" — arbitrage closes the gap within blocks and the attacker still loses pre-seed value. Documented in the assertion's natspec.
 
-### `rescueLT` admin sweep
+### Auto-sweep bookends — closes the cross-token contamination class (issue #11)
 
-Honest graduations never reach Regime 3, so LT never lands in `Bonding`. For attacked graduations, off-ratio LT remainder accumulates and is sweepable by the owner via `rescueLT(ltToken, to, amount)`. The `to` parameter is intentionally arbitrary — typical destination is `FeeVault`, but the owner already has UUPS-upgrade authority so an open ERC20 sweep doesn't meaningfully expand the trust surface. Every sweep emits `LTRescued(token, to, amount)` so the destination is observable on-chain. Coverage: `test_leftoverRecovery_rescueLT_movesLeftoverToReceiverAndEmits`, `test_rescueLT_revertsForNonOwner`, `test_rescueLT_revertsOnZeroAddress`.
+Honest graduations never reach Regime 3, so LT never lands in `Bonding` and the bookends are no-ops. For attacked graduations the off-ratio LT remainder is auto-swept to the protocol owner inside `finalizeGraduation`, in two places:
+
+- **Pre-bookend (`_sweepLTToOwner(lt, p.ltFromPair)`).** Narrows Bonding's LT balance down to exactly the amount Phase 1 transferred in via `Router.graduate`. Anything beyond that — residue from an earlier hostile-pre-seed graduation on the same LT, a misdirected user transfer, an MEV searcher front-running between phases — flows to the owner before `_seedUniswapV2Direct` can read `balanceOf(this)`.
+- **Post-bookend (`_sweepLTToOwner(lt, 0)`).** Cleans up THIS graduation's own rebalance residue (Regime 3) so the steady-state LT balance is zero between graduations.
+
+The pre-bookend is what closes audit issue #11: without it, Token A's residue could be silently consumed into Token B's locked LP via `_routerDepositAndDispose`'s `addLiquidity` when Token B graduates with a TOKEN-rich pre-seed (LT becomes the binding side, full Bonding LT balance gets pulled in). With it, contamination is structurally impossible — Token B's deposit can only see the LT this graduation raised.
+
+Both sweeps emit `LTRescued(lt, owner, amount)` for indexer observability. The owner's UUPS-upgrade authority remains the escape hatch for any LT that gets stuck for an LT no future graduation will ever finalize against (rare; deprecated LT scenario). Coverage: `test_leftoverRecovery_autoSweptToOwnerOnFinalize`, `test_autoSweep_noOpOnHappyPath`, `test_priorLeftover_notConsumedByLaterGraduation_sameLT`.
 
 ### Mock-suite changes worth knowing
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Vm} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
@@ -26,8 +27,8 @@ import {MockHyperswapPair, MockHyperswapFactory} from "./mocks/MockHyperswapRout
 ///        • post-mint pool ratio matches curve close within tolerance
 ///        • our LP reaches LPLock; attacker LP value bounded by their
 ///          pre-seed cost (no extraction from our deposit)
-///        • TOKEN-side leftover is burned; LT-side leftover is held
-///          in `Bonding` and recoverable via `rescueLT`
+///        • TOKEN-side leftover is burned; LT-side leftover is
+///          auto-swept to the protocol owner by `finalizeGraduation`
 ///
 ///      Where these tests overlap with `TwoPhaseGraduation.t.sol`'s
 ///      original brick-resistance coverage, the assertions here are
@@ -421,55 +422,113 @@ contract HostilePreSeedTest is DeployHelper {
         );
     }
 
-    // ─── Leftover recovery (rescueLT admin sweep) ────────────────────────
+    // ─── Leftover recovery (auto-sweep to owner) ─────────────────────────
 
-    /// @dev After a rebalance, LT leftover sits in `Bonding`'s balance.
-    ///      Owner can sweep it via `rescueLT(lt, to, amount)`. TOKEN
-    ///      leftover is burned during finalize, so it never accumulates.
-    ///      Asserts the on-chain `LTRescued` event so the destination of
-    ///      every sweep is observable in indexer / monitoring.
-    /// @dev    Pre-seed shape `(1 ether TOKEN, 30 ether LT)` is chosen
-    ///         deterministically so the swap rebalances the pool fully to
-    ///         the curve-close ratio with budget to spare; the deposit
-    ///         then matches against the pool ratio, fully consuming our
-    ///         TOKEN side and leaving an LT remainder. The earlier
-    ///         `(1 wei, 30 ether)` shape was so extremely LT-rich that
-    ///         the rebalance swap was tiny and the deposit ended up
-    ///         consuming all our LT instead — leftover was 0 and the
-    ///         test silently no-op'd. With `(1 ether, 30 ether)` the
-    ///         leftover is reliably > 0 (~30 ether of LT — close to the
-    ///         attacker's pre-seed amount).
-    function test_leftoverRecovery_rescueLT_movesLeftoverToReceiverAndEmits() public {
+    /// @dev After a rebalance, the off-ratio LT remainder is auto-swept
+    ///      to the protocol owner inside `finalizeGraduation` (post-bookend),
+    ///      not held in `Bonding` for a separate admin call. TOKEN leftover
+    ///      is still burned. Asserts the on-chain `LTRescued` event so the
+    ///      sweep is observable in indexer / monitoring.
+    /// @dev Pre-seed shape `(1 ether TOKEN, 30 ether LT)` is chosen
+    ///      deterministically so the swap rebalances the pool fully to
+    ///      the curve-close ratio with budget to spare; the deposit
+    ///      then matches against the pool ratio, fully consuming our
+    ///      TOKEN side and leaving an LT remainder. With this shape the
+    ///      leftover is reliably > 0 (~30 ether of LT — close to the
+    ///      attacker's pre-seed amount).
+    function test_leftoverRecovery_autoSweptToOwnerOnFinalize() public {
         (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(1 ether);
         _attackerMintPreSeed(pair, tokenAddr, 1 ether, 30 ether);
 
         _enterGraduating(tokenAddr);
+
+        uint256 ownerLTBefore = lt.balanceOf(owner);
+        // We don't know `leftover` ahead of time (it's a function of the
+        // V2 fee-rounded rebalance + addLiquidity quote()), so check
+        // selector + indexed args; the topic for `to` pins it to `owner`.
+        vm.expectEmit(true, true, false, false, address(bonding));
+        emit Bonding.LTRescued(address(lt), owner, 0);
         bonding.finalizeGraduation(tokenAddr);
 
-        uint256 leftover = lt.balanceOf(address(bonding));
-        assertGt(leftover, 0, "test setup: pre-seed shape must deterministically produce LT leftover");
-
-        address receiver = makeAddr("treasury");
-        vm.expectEmit(true, true, false, true, address(bonding));
-        emit Bonding.LTRescued(address(lt), receiver, leftover);
-        bonding.rescueLT(address(lt), receiver, leftover);
-
-        assertEq(lt.balanceOf(receiver), leftover, "rescueLT must transfer to receiver");
-        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared");
+        uint256 swept = lt.balanceOf(owner) - ownerLTBefore;
+        assertGt(swept, 0, "auto-sweep must move leftover LT to the owner");
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared post-finalize");
     }
 
-    function test_rescueLT_revertsForNonOwner() public {
-        vm.prank(stranger);
-        vm.expectRevert();
-        bonding.rescueLT(address(lt), stranger, 1);
+    /// @dev On the empty-pair fast path (no pre-seed) there is no LT in
+    ///      Bonding at either bookend, so the auto-sweep must be a no-op
+    ///      and `LTRescued` must not fire. Guards against accidentally
+    ///      paying for a transfer on every honest graduation.
+    function test_autoSweep_noOpOnHappyPath() public {
+        (address tokenAddr,) = _launchToken();
+        _enterGraduating(tokenAddr);
+
+        uint256 ownerLTBefore = lt.balanceOf(owner);
+        vm.recordLogs();
+        bonding.finalizeGraduation(tokenAddr);
+
+        // Walk the emitted logs and assert no `LTRescued` topic.
+        bytes32 ltRescuedTopic = keccak256("LTRescued(address,address,uint256)");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(bonding) && logs[i].topics.length > 0) {
+                require(logs[i].topics[0] != ltRescuedTopic, "honest graduation must not emit LTRescued");
+            }
+        }
+        assertEq(lt.balanceOf(owner), ownerLTBefore, "owner LT balance unchanged on happy path");
     }
 
-    function test_rescueLT_revertsOnZeroAddress() public {
-        vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.rescueLT(address(0), address(this), 1);
+    /// @notice Cross-token LT contamination regression. Two tokens A and B
+    ///         share the same LT. A graduates with a hostile pre-seed shape
+    ///         that leaves LT residue. B then graduates with a TOKEN-rich
+    ///         pre-seed: without the auto-sweep bookends,
+    ///         `_routerDepositAndDispose`'s `balanceOf(this)` would consume
+    ///         A's residue into B's locked LP via `addLiquidity`. With the
+    ///         bookends, residue flows to the owner before B's deposit can
+    ///         see it, and B's LP receives only what B's curve raised.
+    function test_priorLeftover_notConsumedByLaterGraduation_sameLT() public {
+        // Token A: catastrophic pre-seed that deterministically produces
+        // residue (mirrors `test_catastrophicPreSeed_capPreservesNonZeroLpLock`).
+        (address tokenA, MockHyperswapPair pairA) = _setupWithAttackerTokens(1 ether);
+        _attackerMintPreSeed(pairA, tokenA, 1000 ether, 1_000_000_000 ether);
+        _enterGraduating(tokenA);
 
-        vm.expectRevert(Bonding.ZeroAddress.selector);
-        bonding.rescueLT(address(lt), address(0), 1);
+        uint256 ownerLTBeforeA = lt.balanceOf(owner);
+        bonding.finalizeGraduation(tokenA);
+        uint256 sweptFromA = lt.balanceOf(owner) - ownerLTBeforeA;
+        assertGt(sweptFromA, 0, "test setup: Token A must produce LT residue (swept to owner)");
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding holds no LT between graduations");
+
+        // Owner returns the residue to Bonding to simulate the pre-fix
+        // accumulation pattern (residue sitting in Bonding awaiting a
+        // future graduation). This is what would have been there if the
+        // pre-bookend sweep had not run, so Token B's finalize must defuse
+        // it identically.
+        vm.prank(owner);
+        lt.transfer(address(bonding), sweptFromA);
+        assertEq(lt.balanceOf(address(bonding)), sweptFromA, "test setup: residue planted");
+
+        // Token B: TOKEN-rich pre-seed on the same LT — the binding shape
+        // for the contamination class (LT-side becomes the binding side
+        // in `addLiquidity`, so the residue would otherwise be consumed).
+        (address tokenB, MockHyperswapPair pairB) = _setupWithAttackerTokens(5 ether);
+        _attackerMintPreSeed(pairB, tokenB, 100_000 ether, 1 ether);
+        _enterGraduating(tokenB);
+        CurveClose memory snapB = _snapshotCurveClose(tokenB);
+
+        uint256 ownerLTBeforeB = lt.balanceOf(owner);
+        bonding.finalizeGraduation(tokenB);
+
+        // Pre-bookend swept the planted residue. Post-bookend handled
+        // any of B's own rebalance leftover. Owner received at least the
+        // planted amount back — i.e. residue did NOT end up in B's LP.
+        uint256 sweptFromB = lt.balanceOf(owner) - ownerLTBeforeB;
+        assertGe(sweptFromB, sweptFromA, "owner must recover the planted residue (it did not contaminate token B's LP)");
+
+        // B's pool still opens at curve close — the planted residue
+        // didn't shift the deposit ratio either.
+        _assertZeroPriceGap(address(pairB), tokenB, snapB);
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared after B finalize");
     }
 
     // ─── Token leftover is burned (supply conservation) ──────────────────

@@ -254,8 +254,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
-    /// @notice Emitted by `rescueLT` so the destination of any LT sweep
-    ///         is observable on-chain (the function takes an arbitrary `to`).
+    /// @notice Emitted by `finalizeGraduation`'s auto-sweep when LT residue
+    ///         (rebalance leftover from the hostile-pre-seed defense, or any
+    ///         pre-existing LT that wasn't earmarked for this graduation) is
+    ///         transferred to the protocol owner. Honest graduations don't
+    ///         emit this — there's no residue to sweep.
     event LTRescued(address indexed token, address indexed to, uint256 amount);
 
     error TokenNotTrading();
@@ -746,32 +749,6 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         return _s().routers.values();
     }
 
-    /// @notice Owner sweep for LT dust accumulated in this contract from the
-    ///         hostile-pre-seed rebalance path in `_routerDepositAndDispose`.
-    ///         For honest graduations this is a no-op (no LT ever lands in
-    ///         `Bonding`). For tokens whose graduation tripped a mint-style
-    ///         pre-seed attack, the off-ratio LT remainder accumulates here
-    ///         as protocol revenue and is sweepable to `to` (typically the
-    ///         protocol's `FeeVault`, which has `sweepDonations()` for this
-    ///         exact pattern).
-    /// @dev    Bonding never holds LT in normal operation: curve trading
-    ///         routes LT through `Pair`/`Router`, and graduation moves
-    ///         raised LT directly from the curve `Pair` to the HyperSwap
-    ///         `Pair` inside `_seedUniswapV2Direct`. Anything sitting in
-    ///         this contract's LT balance is therefore rebalance dust or
-    ///         a mistaken transfer — both safe to sweep. Owner already has
-    ///         UUPS-upgrade authority, so an open ERC20 sweep doesn't
-    ///         meaningfully expand the trust surface.
-    function rescueLT(
-        address ltToken,
-        address to,
-        uint256 amount
-    ) external onlyOwner {
-        if (to == address(0) || ltToken == address(0)) revert ZeroAddress();
-        IERC20(ltToken).safeTransfer(to, amount);
-        emit LTRescued(ltToken, to, amount);
-    }
-
     // ─── Internals ───────────────────────────────────────────────────────
 
     /// @dev Anti-snipe gate. Inside the launch tx the seed buy fires the
@@ -851,19 +828,18 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      directly. This is brick-proof against a front-runner pre-creating
     ///      the pair and dust-seeding it between phases.
     /// @dev Exchange-rate drift between phase 1 and phase 2 is accepted by
-    ///      design (issue #309, audit findings F-07 / IN-03). The cached
-    ///      `(tokensForLP, ltFromPair)` are pure pair-state arithmetic — see
-    ///      `_prepareGraduationLiquidity`, which never reads `exchangeRate()`
-    ///      — so the LP opens at the exact LT-per-token ratio the curve
-    ///      closed at, regardless of how long phase 2 takes. What drifts is
-    ///      only the USD denomination of the LT side, which is inherent to
-    ///      using a leveraged token as the curve reserve: holders accept that
-    ///      exposure when they buy in. A keeper Worker drives finalize within
-    ///      ~60s of `TokenGraduating`, so the practical drift window is
-    ///      single-digit seconds. We deliberately do NOT add a freshness
-    ///      timestamp / staleness gate here: the audit-recommended recompute
-    ///      path would return byte-identical values (its inputs are frozen
-    ///      while `Lifecycle.Graduating`), and re-pricing the LP at the live
+    ///      design. The cached `(tokensForLP, ltFromPair)` are pure pair-
+    ///      state arithmetic — see `_prepareGraduationLiquidity`, which
+    ///      never reads `exchangeRate()` — so the LP opens at the exact
+    ///      LT-per-token ratio the curve closed at, regardless of how long
+    ///      phase 2 takes. What drifts is only the USD denomination of the
+    ///      LT side, which is inherent to using a leveraged token as the
+    ///      curve reserve: holders accept that exposure when they buy in.
+    ///      A keeper Worker drives finalize within ~60s of `TokenGraduating`,
+    ///      so the practical drift window is single-digit seconds. No
+    ///      freshness timestamp / staleness gate: a recompute would return
+    ///      byte-identical values (inputs are frozen while
+    ///      `Lifecycle.Graduating`), and re-pricing the LP at the live
     ///      `exchangeRate()` would break the zero-gap-in-LT-units invariant
     ///      enforced by `test/GraduationInvariants.t.sol`.
     function finalizeGraduation(
@@ -876,8 +852,12 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt = info.ltAddress;
         PendingGraduation memory p = $.pendingGraduation[tokenAddress];
 
+        _sweepLTToOwner(lt, p.ltFromPair);
+
         address lpPair = _ensureUniswapV2Pair(tokenAddress, lt);
         uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair);
+
+        _sweepLTToOwner(lt, 0);
 
         info.lifecycle = Lifecycle.Graduated;
         $.graduatedPair[tokenAddress] = lpPair;
@@ -886,6 +866,25 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         LPLock($.lpLock).recordLock(tokenAddress, lpPair, liquidity);
 
         emit TokenGraduated(tokenAddress, lpPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
+    }
+
+    /// @dev Send LT held by this contract above `keep` to the owner,
+    ///      emitting `LTRescued`. Called at both bookends of
+    ///      `finalizeGraduation` to isolate per-token LT handling:
+    ///      pre-sweep with `keep = p.ltFromPair` keeps residue from
+    ///      earlier graduations on the same LT out of this token's LP
+    ///      budget; post-sweep with `keep = 0` drains this graduation's
+    ///      own rebalance leftover. No-op on the empty-pair fast path.
+    function _sweepLTToOwner(
+        address lt,
+        uint256 keep
+    ) internal {
+        uint256 bal = IERC20(lt).balanceOf(address(this));
+        if (bal <= keep) return;
+        uint256 amount = bal - keep;
+        address recipient = owner();
+        IERC20(lt).safeTransfer(recipient, amount);
+        emit LTRescued(lt, recipient, amount);
     }
 
     /// @dev Burns unsold curve tokens, drains real raised LT, computes
@@ -988,8 +987,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///           `addLiquidity` — which only pulls the optimal amounts
     ///           at the post-swap ratio, so neither side becomes a
     ///           `min()` donation. Off-ratio TOKEN remainder is burned;
-    ///           off-ratio LT remainder accumulates here for owner sweep
-    ///           via `rescueLT`.
+    ///           off-ratio LT remainder is auto-swept to the owner by
+    ///           `finalizeGraduation`'s post-bookend (see its natspec).
     ///
     ///      Brick resistance: the rebalance swap input is capped at our
     ///      per-side budget; the swap is precondition-checked to skip
@@ -1182,8 +1181,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     /// @dev Deposit leg: add liquidity at the post-swap pool ratio via the
     ///      router. The router's `quote()`-based balanced split only pulls
     ///      the optimal amounts (no `min()` donation); off-ratio remainder
-    ///      stays in this contract and is disposed: TOKEN burned, LT held
-    ///      for `rescueLT`.
+    ///      stays in this contract and is disposed: TOKEN burned here, LT
+    ///      auto-swept to the owner by `finalizeGraduation`'s post-bookend.
     ///
     ///      `min0=1, min1=1` is intentional. Slippage protection on
     ///      `addLiquidity` exists to defend against a third party moving
@@ -1223,9 +1222,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (leftoverToken > 0) {
             Token(tokenAddress).burn(address(this), leftoverToken);
         }
-        // LT remainder is third-party — we cannot burn it. It stays in this
-        // contract for the owner to sweep via `rescueLT`. Honest graduations
-        // never reach this code path, so this is zero outside attack scenarios.
+        // LT remainder is third-party — we cannot burn it. It stays in
+        // this contract until `finalizeGraduation`'s post-bookend sweeps
+        // it to the owner. Honest graduations never reach this code path,
+        // so the residue is zero outside attack scenarios.
     }
 
     /// @dev Smallest swap input that drives the pool's reserve ratio
