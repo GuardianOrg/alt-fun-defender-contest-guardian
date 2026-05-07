@@ -283,6 +283,16 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 netUsdc = usdcAmount - feeOnGross;
 
         $.usdc.forceApprove(lt, netUsdc);
+        // BounceTech LTs are mint-pausable (but NOT redeem-pausable). When
+        // the LT operator pauses minting, this call reverts, so every buy
+        // through Zap — curve and post-grad alike — DoSes for that token
+        // while sells keep working (sells go through `redeem`, not `mint`).
+        // This is an accepted v1 tradeoff: a sell-only market is preferable
+        // to freezing both sides, since holders can still exit to USDC.
+        // Post-grad, anyone holding LT directly can also still buy by
+        // swapping on the HyperSwap TOKEN/LT pair, bypassing Zap. We do not
+        // mirror BounceTech's pause flag in `Zap` (it would couple our
+        // pausing surface to theirs and add storage with no security gain).
         uint256 ltMinted = IBounceLeveragedToken(lt).mint(address(this), netUsdc, 0);
 
         if ($.bonding.isGraduated(tokenAddress)) {
