@@ -522,29 +522,57 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
     }
 
-    function test_buy_revertsWhenLeftoverLTRedeemFails() public {
+    /// @dev Issue #12: the cap-binding buy must not round-trip leftover LT
+    ///      through `redeem`. With `LT.redeem` mocked to revert, the
+    ///      graduating buy must still succeed.
+    function test_buy_capPath_doesNotInvokeLTRedeem() public {
         address tokenAddr = _createToken(0);
 
-        // A buy that crosses the graduation threshold leaves leftover LT
-        // (the curve caps consumption). Sized at ~2× threshold to guarantee
-        // a non-zero refund.
         uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
         usdc.mint(trader, buyAmount);
 
-        // Force the leftover-LT `redeem` call to revert. Mirrors the
-        // production case where `ltLeft` is below the LT's `$10` redeem
-        // floor. Users must never end up holding LT, so the Zap propagates
-        // the revert instead of falling back to a direct LT transfer.
         vm.mockCallRevert(address(lt), abi.encodeWithSelector(IBounceLeveragedToken.redeem.selector), "");
 
         vm.startPrank(trader);
         usdc.approve(address(zap), buyAmount);
-        vm.expectRevert();
         zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
 
         assertEq(lt.balanceOf(trader), 0, "User must not be left holding LT");
-        assertEq(lt.balanceOf(address(zap)), 0, "Zap must not retain LT");
+        // Sub-wei rounding residue from `_computeBuy`'s round-up of
+        // `amountInUsed`. Sits below BounceTech's `$10` redeem floor.
+        assertLt(lt.balanceOf(address(zap)), 1e6, "Zap LT residue must be dust");
+        assertTrue(bonding.isGraduated(tokenAddr) || bonding.isGraduating(tokenAddr));
+    }
+
+    function test_buy_capPath_refundsUnusedUsdcDirectly() public {
+        address tokenAddr = _createToken(0);
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderUsdcBefore = usdc.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        uint256 usdcSpent = traderUsdcBefore - usdc.balanceOf(trader);
+        assertLt(usdcSpent, buyAmount, "Cap-binding buy must refund unused USDC");
+        assertGt(usdc.balanceOf(trader), 0, "Trader must hold the refunded USDC");
+    }
+
+    function test_buy_nonCapPath_spendsFullUsdc() public {
+        address tokenAddr = _createToken(0);
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(trader, buyAmount);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(trader), 0, "Non-cap buy should spend full USDC");
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────

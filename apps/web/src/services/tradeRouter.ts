@@ -2,8 +2,9 @@ import {
   BondingAbi,
   FactoryAbi,
   LeveragedTokenAbi,
+  RouterAbi,
 } from "@launchpad/shared";
-import { createPublicClient, formatUnits, http } from "viem";
+import { createPublicClient, formatUnits, http, parseUnits } from "viem";
 
 
 import { FEES } from "../config/constants";
@@ -71,6 +72,15 @@ export interface BuyQuote {
   priceImpactPct: number;
   youPay: number;
   youReceive: string;
+  /**
+   * USDC the curve will actually consume. Equals `youPay` for normal buys;
+   * smaller when the buy crosses graduation and the on-chain `Router.buy`
+   * caps consumption at remaining real supply. The unconsumed remainder is
+   * refunded by `Zap._executeBuy` (see issue #12).
+   */
+  usdcUsed: number;
+  /** True when the curve cap binds (graduating buy). */
+  capped: boolean;
 }
 
 export interface SellQuote {
@@ -250,30 +260,55 @@ const liveTradeRouter: ITradeRouterService = {
       const netUsdc = usdcAmount - curveFee;
       const ltIn = netUsdc / exRate;
 
-      // `Pair.swap` (curve) and HyperSwap V2 use the same constant-product
-      // math; the only difference post-graduation is the V2 0.30% fee on
-      // input. Apply it as an effective input shrink so the same formula
-      // works for both venues.
-      const effectiveLtIn = graduated
-        ? (ltIn * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM
-        : ltIn;
-      const tokensOut =
-        ltReserveFloat > 0
-          ? (tokenReserveFloat * effectiveLtIn) /
-            (ltReserveFloat + effectiveLtIn)
-          : 0;
+      let tokensOut: number;
+      let usdcUsed = netUsdc;
+      let capped = false;
+
+      if (graduated) {
+        // Post-grad: HyperSwap V2 0.30% fee on input. previewBuy is
+        // curve-only so we keep the JS math here.
+        const effectiveLtIn = (ltIn * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM;
+        tokensOut =
+          ltReserveFloat > 0
+            ? (tokenReserveFloat * effectiveLtIn) /
+              (ltReserveFloat + effectiveLtIn)
+            : 0;
+      } else {
+        // Curve path: defer to `Router.previewBuy` so the quote honours the
+        // overflow cap on graduating buys (matches `Zap._executeBuy`).
+        const ltInWei = parseUnits(ltIn.toFixed(18), 18);
+        const [amountInUsedWei, tokensOutWei] = (await publicClient.readContract({
+          address: ADDRESSES.router,
+          abi: RouterAbi,
+          functionName: "previewBuy",
+          args: [tokenAddr, ltInWei],
+        })) as readonly [bigint, bigint];
+
+        tokensOut = parseFloat(formatUnits(tokensOutWei, 18));
+        const ltUsed = parseFloat(formatUnits(amountInUsedWei, 18));
+        capped = amountInUsedWei < ltInWei;
+        if (capped) usdcUsed = ltUsed * exRate;
+      }
+
       const priceImpact =
         ltReserveFloat > 0 ? (ltIn / ltReserveFloat) * 100 : 0;
+
+      // Cap-binding curve buys: only the consumed slice is charged the curve
+      // fee on-chain, the remainder is refunded as USDC. `youPay` shows the
+      // user's net spend so the displayed total isn't misleading.
+      const youPay = capped ? usdcUsed + usdcUsed * FEES.curveBuy : usdcAmount;
 
       return {
         tokensOut: tokensOut.toLocaleString(undefined, {
           maximumFractionDigits: 0,
         }),
-        curveFee,
-        totalFee: curveFee,
+        curveFee: capped ? usdcUsed * FEES.curveBuy : curveFee,
+        totalFee: capped ? usdcUsed * FEES.curveBuy : curveFee,
         priceImpactPct: parseFloat(priceImpact.toFixed(2)),
-        youPay: usdcAmount,
+        youPay,
         youReceive: `${(tokensOut / 1e6).toFixed(1)}M`,
+        usdcUsed,
+        capped,
       };
     } catch {
       return null;

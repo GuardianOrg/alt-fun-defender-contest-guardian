@@ -33,7 +33,7 @@ contract MockLeveragedToken is ERC20 {
         uint256
     ) external returns (uint256 ltAmount) {
         ERC20(baseAsset).transferFrom(msg.sender, address(this), baseAmount);
-        ltAmount = (baseAmount * 1e18) / _exchangeRate;
+        ltAmount = baseToLtAmount(baseAmount);
         _mint(to, ltAmount);
     }
 
@@ -43,8 +43,20 @@ contract MockLeveragedToken is ERC20 {
         uint256
     ) external returns (uint256 baseAmount) {
         _burn(msg.sender, ltAmount);
-        baseAmount = (ltAmount * _exchangeRate) / 1e18;
+        baseAmount = ltToBaseAmount(ltAmount);
         ERC20(baseAsset).transfer(to, baseAmount);
+    }
+
+    function baseToLtAmount(
+        uint256 baseAmount
+    ) public view returns (uint256) {
+        return (baseAmount * 1e18) / _exchangeRate;
+    }
+
+    function ltToBaseAmount(
+        uint256 ltAmount
+    ) public view returns (uint256) {
+        return (ltAmount * _exchangeRate) / 1e18;
     }
 
     function baseAssetBalance() external view returns (uint256) {

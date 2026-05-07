@@ -264,11 +264,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         }
     }
 
-    /// @dev Pull USDC, mint LT on the net amount, execute the buy, refund the
-    ///      pro-rata fee + leftover LT, deliver tokens. Returns `actualFee` in
-    ///      USDC awaiting `_accrueFee`; `feeRefund` has already been paid.
-    ///      Pro-rating matters when an inline graduation caps the LT consumed:
-    ///      the fee scales with the LT actually spent, not the gross USDC in.
+    /// @dev On the curve path, pre-sizes the LT mint against the overflow cap
+    ///      via `Router.previewBuy`. The closing buy of a graduation refunds
+    ///      unused USDC directly instead of round-tripping leftover LT
+    ///      through `redeem` and paying BounceTech's redemption fee
+    ///      (`baseAmount × redemptionFee × targetLeverage`) on the overshoot.
+    ///      `mint(b)` is defined as `baseToLtAmount(b)` on the LT, so the
+    ///      preview is exact.
     function _executeBuy(
         address tokenAddress,
         uint256 usdcAmount
@@ -282,7 +284,6 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         uint256 feeOnGross = (usdcAmount * buyFeeBps_) / BPS_DENOM;
         uint256 netUsdc = usdcAmount - feeOnGross;
 
-        $.usdc.forceApprove(lt, netUsdc);
         // BounceTech LTs are mint-pausable (but NOT redeem-pausable). When
         // the LT operator pauses minting, this call reverts, so every buy
         // through Zap — bonding curve and post-graduation alike — DoSes for
@@ -294,28 +295,40 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // bypassing Zap. We do not mirror BounceTech's pause flag in
         // `Zap` (it would couple our pausing surface to theirs and add
         // storage with no security gain).
-        uint256 ltMinted = IBounceLeveragedToken(lt).mint(address(this), netUsdc, 0);
-
+        uint256 baseToConvert;
+        uint256 ltMinted;
         if ($.bonding.isGraduated(tokenAddress)) {
+            baseToConvert = netUsdc;
+            $.usdc.forceApprove(lt, baseToConvert);
+            ltMinted = IBounceLeveragedToken(lt).mint(address(this), baseToConvert, 0);
             tokensOut = _buyOnUniswapV2(tokenAddress, lt, ltMinted);
             amountInUsed = ltMinted;
         } else {
+            uint256 ltIfFull = IBounceLeveragedToken(lt).baseToLtAmount(netUsdc);
+            (uint256 ltNeeded,) = $.bonding.router().previewBuy(tokenAddress, ltIfFull);
+
+            if (ltNeeded >= ltIfFull) {
+                baseToConvert = netUsdc;
+            } else {
+                baseToConvert = IBounceLeveragedToken(lt).ltToBaseAmount(ltNeeded);
+                if (baseToConvert > netUsdc) baseToConvert = netUsdc;
+            }
+
+            $.usdc.forceApprove(lt, baseToConvert);
+            ltMinted = IBounceLeveragedToken(lt).mint(address(this), baseToConvert, 0);
             (tokensOut, amountInUsed) = _buyOnCurve(tokenAddress, lt, ltMinted);
         }
 
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
 
-        actualFee = ltMinted == 0 ? 0 : (usdcAmount * buyFeeBps_ * amountInUsed) / (BPS_DENOM * ltMinted);
+        // Pro-rate in USDC space: after pre-sizing `amountInUsed ≈ ltMinted`,
+        // so the user's actual spend ratio is `baseToConvert / netUsdc`.
+        actualFee = (usdcAmount * buyFeeBps_ * baseToConvert) / (BPS_DENOM * netUsdc);
         uint256 feeRefund = feeOnGross - actualFee;
 
-        // Refund leftover LT as USDC. Users must never end up holding LT, so
-        // we propagate any redeem failure (typically the leftover sitting
-        // below BounceTech's `$10` redeem floor) instead of falling back to a
-        // direct LT transfer. The frontend pre-flights buy size against the
-        // remaining curve depth to avoid stranding users on this revert.
-        uint256 ltLeft = ltMinted - amountInUsed;
-        if (ltLeft > 0) {
-            IBounceLeveragedToken(lt).redeem(msg.sender, ltLeft, 0);
+        uint256 usdcLeft = netUsdc - baseToConvert;
+        if (usdcLeft > 0) {
+            $.usdc.safeTransfer(msg.sender, usdcLeft);
         }
         if (feeRefund > 0) {
             $.usdc.safeTransfer(msg.sender, feeRefund);
