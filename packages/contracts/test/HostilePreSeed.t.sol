@@ -551,6 +551,41 @@ contract HostilePreSeedTest is DeployHelper {
         assertEq(reserveLtB, ltB, "B pool LT reserve");
     }
 
+    /// @notice Mirror of `test_concurrentGraduations_sameLT_doNotMixEscrows`
+    ///         but finalizes B before A. The implementation has no
+    ///         per-call ordering state, so behaviour must be identical;
+    ///         this test makes the symmetry explicit and would catch a
+    ///         future asymmetric regression.
+    function test_concurrentGraduations_sameLT_doNotMixEscrows_reverse() public {
+        (address tokenA,) = _launchToken();
+        _enterGraduating(tokenA);
+        (uint256 tokensForLPA, uint256 ltA,,) = bonding.pendingGraduation(tokenA);
+
+        (address tokenB,) = _launchToken();
+        _enterGraduating(tokenB);
+        (uint256 tokensForLPB, uint256 ltB,,) = bonding.pendingGraduation(tokenB);
+        assertEq(lt.balanceOf(address(bonding)), ltA + ltB, "Bonding holds both escrows");
+        assertTrue(bonding.isGraduating(tokenA) && bonding.isGraduating(tokenB), "both Graduating");
+
+        bonding.finalizeGraduation(tokenB);
+        assertTrue(bonding.isGraduated(tokenB));
+        assertEq(lt.balanceOf(address(bonding)), ltA, "Bonding still holds A's escrow intact");
+
+        address pairB = bonding.graduatedPair(tokenB);
+        (uint256 reserveTokenB, uint256 reserveLtB) = _readReservesByToken(pairB, tokenB);
+        assertEq(reserveTokenB, tokensForLPB, "B pool TOKEN reserve");
+        assertEq(reserveLtB, ltB, "B pool LT reserve");
+
+        bonding.finalizeGraduation(tokenA);
+        assertTrue(bonding.isGraduated(tokenA));
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance fully drained");
+
+        address pairA = bonding.graduatedPair(tokenA);
+        (uint256 reserveTokenA, uint256 reserveLtA) = _readReservesByToken(pairA, tokenA);
+        assertEq(reserveTokenA, tokensForLPA, "A pool TOKEN reserve");
+        assertEq(reserveLtA, ltA, "A pool LT reserve");
+    }
+
     // ─── Token leftover is burned (supply conservation) ──────────────────
 
     /// @dev TOKEN leftover from the off-ratio remainder of our deposit

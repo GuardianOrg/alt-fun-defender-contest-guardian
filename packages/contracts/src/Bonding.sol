@@ -254,11 +254,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
-    /// @notice Emitted by `finalizeGraduation`'s auto-sweep when LT residue
-    ///         (rebalance leftover from the hostile-pre-seed defense, or any
-    ///         pre-existing LT that wasn't earmarked for this graduation) is
-    ///         transferred to the protocol owner. Honest graduations don't
-    ///         emit this — there's no residue to sweep.
+    /// @notice Emitted by `finalizeGraduation`'s auto-sweep when this
+    ///         graduation's rebalance leftover (Regime 3 hostile-pre-seed
+    ///         defense) is transferred to the protocol owner. LT escrowed
+    ///         for concurrent graduations or sitting as stray dust is
+    ///         retained in `Bonding` (it's `protectedLT`, off-limits to
+    ///         the sweep). Honest graduations don't emit this — there's
+    ///         no residue.
     event LTRescued(address indexed token, address indexed to, uint256 amount);
 
     error TokenNotTrading();
@@ -857,7 +859,12 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // via `Router.graduate`) or to stray dust. Either way it is
         // off-limits to this graduation's deposit and sweep — see
         // `_routerDepositAndDispose` and `_sweepLTToOwner`.
-        uint256 protectedLT = IERC20(lt).balanceOf(address(this)) - p.ltFromPair;
+        // Saturating subtract: a balance below `p.ltFromPair` shouldn't
+        // be reachable in normal operation, but we keep finalize from
+        // bricking on a Panic if any future code path or non-canonical
+        // LT briefly violates the invariant.
+        uint256 ltBalance = IERC20(lt).balanceOf(address(this));
+        uint256 protectedLT = ltBalance > p.ltFromPair ? ltBalance - p.ltFromPair : 0;
 
         address lpPair = _ensureUniswapV2Pair(tokenAddress, lt);
         uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair, protectedLT);
