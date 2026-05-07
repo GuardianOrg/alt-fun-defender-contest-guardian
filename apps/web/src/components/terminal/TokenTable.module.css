@@ -18,7 +18,7 @@
 
 .tableHead {
   display: grid;
-  grid-template-columns: 52px 1fr 72px 1fr 80px;
+  grid-template-columns: 1fr 72px 1fr 80px;
   height: 22px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
@@ -30,8 +30,8 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--txt-2);
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
   display: flex;
   align-items: center;
   border-right: 1px solid var(--border);
@@ -40,10 +40,6 @@
 
 .headCell:last-child {
   border-right: 0;
-}
-
-.headCellRight {
-  justify-content: flex-end;
 }
 
 @media (max-width: 768px) {
