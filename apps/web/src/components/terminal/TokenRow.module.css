@@ -1,7 +1,9 @@
 .row {
-  display: grid;
-  grid-template-columns: 1fr 72px 1fr 80px;
-  padding: 0.8rem 0;
+  display: flex;
+  gap: 1.6rem;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 0.8rem;
   cursor: pointer;
 }
 
@@ -53,8 +55,8 @@
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  padding: 0 0.8rem;
-  overflow: hidden;
+  width: 160px;
+  flex-shrink: 0;
 }
 
 .iconWrap {
@@ -90,8 +92,6 @@
   flex-direction: column;
   justify-content: center;
   gap: 0.2rem;
-  overflow: hidden;
-  min-width: 0;
 }
 
 .nameRow {
@@ -100,16 +100,67 @@
   gap: 0.4rem;
 }
 
-.tokenName {
+.tokenTicker {
   font-family: var(--font-mono);
   font-size: 15px;
   font-weight: 700;
   color: var(--txt);
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tokenFullName {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--txt-2);
+  white-space: nowrap;
+}
+
+.underlyingCell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 76px;
+  flex-shrink: 0;
+}
+
+.underlyingLogo {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.underlyingName {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--txt);
+  white-space: nowrap;
+}
+
+.directionCell {
+  display: flex;
+  align-items: center;
+  width: 150px;
+  flex-shrink: 0;
+}
+
+.directionBadge {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.directionLong {
+  color: var(--mint);
+}
+
+.directionShort {
+  color: var(--red);
 }
 
 .leverageBadge {
@@ -174,12 +225,11 @@
   color: rgba(240, 80, 80, 0.6);
 }
 
-/* 24h change cell */
 .changeCell {
   display: flex;
   align-items: center;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
+  width: 70px;
+  flex-shrink: 0;
 }
 
 .changeValue {
@@ -200,16 +250,15 @@
 .progressCell {
   display: flex;
   align-items: center;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  overflow: hidden;
+  width: 170px;
+  flex-shrink: 0;
 }
 
 .mcapCell {
   display: flex;
   align-items: center;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
+  width: 90px;
+  flex-shrink: 0;
 }
 
 .mcapValue {

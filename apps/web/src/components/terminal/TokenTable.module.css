@@ -9,20 +9,40 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
 .scrollArea {
   flex: 1;
-  overflow-y: auto;
+  overflow: auto;
+}
+
+/*
+ * Each row (and the header) is a flex container with the same fixed cell
+ * widths. `gap: 1.6rem` is the minimum spacing between columns, and
+ * `justify-content: space-between` distributes any extra horizontal space
+ * evenly between them — so on wide viewports the columns "breathe" out to
+ * the edges, and on narrow viewports they stay packed at the 1.6rem gap and
+ * the surrounding `.scrollArea` provides a horizontal scrollbar.
+ */
+.tableInner {
+  display: flex;
+  flex-direction: column;
+  min-width: max-content;
 }
 
 .tableHead {
-  display: grid;
-  grid-template-columns: 1fr 72px 1fr 80px;
+  display: flex;
+  gap: 1.6rem;
+  justify-content: space-between;
+  align-items: center;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-1);
-  padding: 0.8rem 0;
+  padding: 0.8rem 0.8rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .headCell {
@@ -30,22 +50,28 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--txt-2);
-  padding: 0 0.8rem;
   display: flex;
   align-items: center;
   font-family: var(--font-mono);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.headCell:last-child {
-  border-right: 0;
+.headCell:nth-child(1) {
+  width: 160px;
 }
-
-@media (max-width: 768px) {
-  .scrollArea {
-    overflow-x: auto;
-  }
-
-  .tableHead {
-    min-width: 500px;
-  }
+.headCell:nth-child(2) {
+  width: 76px;
+}
+.headCell:nth-child(3) {
+  width: 150px;
+}
+.headCell:nth-child(4) {
+  width: 70px;
+}
+.headCell:nth-child(5) {
+  width: 170px;
+}
+.headCell:nth-child(6) {
+  width: 90px;
 }

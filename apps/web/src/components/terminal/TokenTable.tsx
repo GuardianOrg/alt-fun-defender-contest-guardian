@@ -8,7 +8,14 @@ import { selectActiveFilter } from "../../state/uiSlice";
 function TableHead() {
   return (
     <div className={styles.tableHead}>
-      {["TOKEN", "24H", "PROGRESS", "MCAP"].map((h) => (
+      {[
+        "ALTCOIN",
+        "UNDERLYING",
+        "DIRECTION / LEVERAGE",
+        "24H CHANGE",
+        "PROGRESS",
+        "MCAP",
+      ].map((h) => (
         <div key={h} className={styles.headCell}>
           {h}
         </div>
@@ -24,11 +31,13 @@ export default function TokenTable() {
   return (
     <div className={styles.wrapper}>
       <div className={styles.column}>
-        <TableHead />
         <div className={styles.scrollArea}>
-          {tokens?.map((t) => (
-            <TokenRow key={t.address} token={t} />
-          ))}
+          <div className={styles.tableInner}>
+            <TableHead />
+            {tokens?.map((t) => (
+              <TokenRow key={t.address} token={t} />
+            ))}
+          </div>
         </div>
       </div>
     </div>

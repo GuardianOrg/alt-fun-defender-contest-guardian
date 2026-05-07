@@ -5,6 +5,10 @@ import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
+import HYPE from "../../assets/Logos/HYPE.svg";
+import ETH from "../../assets/Logos/ETH.svg";
+import BTC from "../../assets/Logos/BTC.svg";
+import SOL from "../../assets/Logos/SOL.svg";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import { cn, formatPercentOrDash, formatUsdOrDash } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
@@ -12,6 +16,8 @@ import VanityEffect from "../effects/VanityEffect";
 import ProgressBar from "../shared/ProgressBar";
 
 import type { Token } from "../../services/types";
+
+const UNDERLYING_LOGOS: Record<string, string> = { HYPE, ETH, BTC, SOL };
 
 interface Props {
   token: Token;
@@ -97,15 +103,7 @@ export default function TokenRow({ token }: Props) {
         </div>
         <div className={styles.nameWrap}>
           <div className={styles.nameRow}>
-            <span className={styles.tokenName}>{token.name}</span>
-            <span
-              className={cn(
-                styles.leverageBadge,
-                isShort ? styles.leverageShort : styles.leverageLong,
-              )}
-            >
-              {token.leverage}&times;
-            </span>
+            <span className={styles.tokenTicker}>{token.ticker}</span>
             {isGraduating && (
               <span
                 className={cn(
@@ -117,16 +115,35 @@ export default function TokenRow({ token }: Props) {
               </span>
             )}
           </div>
-          <span
-            className={cn(
-              styles.ltName,
-              isShort ? styles.ltNameShort : styles.ltNameLong,
-            )}
-          >
-            {token.ltName.toUpperCase()}
+          <span className={styles.tokenFullName}>
+            {token.name}
             {isGraduated && " \u00B7 GRADUATED"}
           </span>
         </div>
+      </div>
+
+      {/* Underlying asset */}
+      <div className={styles.underlyingCell}>
+        {UNDERLYING_LOGOS[token.underlying] && (
+          <img
+            src={UNDERLYING_LOGOS[token.underlying]}
+            alt=""
+            className={styles.underlyingLogo}
+          />
+        )}
+        <span className={styles.underlyingName}>{token.underlying}</span>
+      </div>
+
+      {/* Direction / leverage */}
+      <div className={styles.directionCell}>
+        <span
+          className={cn(
+            styles.directionBadge,
+            isShort ? styles.directionShort : styles.directionLong,
+          )}
+        >
+          {token.underlying} {token.leverage}x {isShort ? "Short" : "Long"}
+        </span>
       </div>
 
       {/* 24h change */}
