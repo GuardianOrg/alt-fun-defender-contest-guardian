@@ -19,10 +19,10 @@
 .tableHead {
   display: grid;
   grid-template-columns: 1fr 72px 1fr 80px;
-  height: 22px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-1);
+  padding: 0.8rem 0;
 }
 
 .headCell {
