@@ -425,8 +425,8 @@ contract HostilePreSeedTest is DeployHelper {
     // ─── Leftover recovery (auto-sweep to owner) ─────────────────────────
 
     /// @dev After a rebalance, the off-ratio LT remainder is auto-swept
-    ///      to the protocol owner inside `finalizeGraduation` (post-bookend),
-    ///      not held in `Bonding` for a separate admin call. TOKEN leftover
+    ///      to the protocol owner inside `finalizeGraduation` rather than
+    ///      held in `Bonding` for a separate admin call. TOKEN leftover
     ///      is still burned. Asserts the on-chain `LTRescued` event so the
     ///      sweep is observable in indexer / monitoring.
     /// @dev Pre-seed shape `(1 ether TOKEN, 30 ether LT)` is chosen
@@ -456,7 +456,7 @@ contract HostilePreSeedTest is DeployHelper {
     }
 
     /// @dev On the empty-pair fast path (no pre-seed) there is no LT in
-    ///      Bonding at either bookend, so the auto-sweep must be a no-op
+    ///      Bonding at the post-sweep, so the auto-sweep must be a no-op
     ///      and `LTRescued` must not fire. Guards against accidentally
     ///      paying for a transfer on every honest graduation.
     function test_autoSweep_noOpOnHappyPath() public {
@@ -478,57 +478,77 @@ contract HostilePreSeedTest is DeployHelper {
         assertEq(lt.balanceOf(owner), ownerLTBefore, "owner LT balance unchanged on happy path");
     }
 
-    /// @notice Cross-token LT contamination regression. Two tokens A and B
-    ///         share the same LT. A graduates with a hostile pre-seed shape
-    ///         that leaves LT residue. B then graduates with a TOKEN-rich
-    ///         pre-seed: without the auto-sweep bookends,
-    ///         `_routerDepositAndDispose`'s `balanceOf(this)` would consume
-    ///         A's residue into B's locked LP via `addLiquidity`. With the
-    ///         bookends, residue flows to the owner before B's deposit can
-    ///         see it, and B's LP receives only what B's curve raised.
-    function test_priorLeftover_notConsumedByLaterGraduation_sameLT() public {
-        // Token A: catastrophic pre-seed that deterministically produces
-        // residue (mirrors `test_catastrophicPreSeed_capPreservesNonZeroLpLock`).
-        (address tokenA, MockHyperswapPair pairA) = _setupWithAttackerTokens(1 ether);
-        _attackerMintPreSeed(pairA, tokenA, 1000 ether, 1_000_000_000 ether);
-        _enterGraduating(tokenA);
+    /// @notice Stray-LT contamination guard. Simulates LT sitting in Bonding
+    ///         that doesn't belong to any current graduation (e.g. a
+    ///         misdirected transfer, or — historically — leftover from a
+    ///         prior hostile-pre-seed graduation under buggier code).
+    ///         Token B then graduates with a TOKEN-rich pre-seed on the
+    ///         same LT. Without the `protectedLT` guard,
+    ///         `_routerDepositAndDispose` would consume the stray LT into
+    ///         B's locked LP via `addLiquidity`. With it, the stray LT is
+    ///         off-limits to the deposit AND the post-sweep, so it stays
+    ///         in Bonding and B's pool opens with only B's curve raised.
+    function test_strayLt_notConsumedByLaterGraduation_sameLT() public {
+        // Plant some LT directly into Bonding to simulate contamination.
+        uint256 stray = 30 ether;
+        lt.mintDirect(address(bonding), stray);
+        assertEq(lt.balanceOf(address(bonding)), stray, "test setup: stray LT planted");
 
-        uint256 ownerLTBeforeA = lt.balanceOf(owner);
-        bonding.finalizeGraduation(tokenA);
-        uint256 sweptFromA = lt.balanceOf(owner) - ownerLTBeforeA;
-        assertGt(sweptFromA, 0, "test setup: Token A must produce LT residue (swept to owner)");
-        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding holds no LT between graduations");
-
-        // Owner returns the residue to Bonding to simulate the pre-fix
-        // accumulation pattern (residue sitting in Bonding awaiting a
-        // future graduation). This is what would have been there if the
-        // pre-bookend sweep had not run, so Token B's finalize must defuse
-        // it identically.
-        vm.prank(owner);
-        lt.transfer(address(bonding), sweptFromA);
-        assertEq(lt.balanceOf(address(bonding)), sweptFromA, "test setup: residue planted");
-
-        // Token B: TOKEN-rich pre-seed on the same LT — the binding shape
-        // for the contamination class (LT-side becomes the binding side
-        // in `addLiquidity`, so the residue would otherwise be consumed).
+        // Token B: TOKEN-rich pre-seed (LT-side binding in deposit, so
+        // without the guard the stray LT would be pulled into the LP).
         (address tokenB, MockHyperswapPair pairB) = _setupWithAttackerTokens(5 ether);
         _attackerMintPreSeed(pairB, tokenB, 100_000 ether, 1 ether);
         _enterGraduating(tokenB);
         CurveClose memory snapB = _snapshotCurveClose(tokenB);
 
-        uint256 ownerLTBeforeB = lt.balanceOf(owner);
         bonding.finalizeGraduation(tokenB);
 
-        // Pre-bookend swept the planted residue. Post-bookend handled
-        // any of B's own rebalance leftover. Owner received at least the
-        // planted amount back — i.e. residue did NOT end up in B's LP.
-        uint256 sweptFromB = lt.balanceOf(owner) - ownerLTBeforeB;
-        assertGe(sweptFromB, sweptFromA, "owner must recover the planted residue (it did not contaminate token B's LP)");
+        // Stray LT is preserved in Bonding (not deposited, not swept to
+        // owner) — it's `protectedLT` from B's perspective.
+        assertEq(lt.balanceOf(address(bonding)), stray, "stray LT must remain in Bonding (protected from B)");
 
-        // B's pool still opens at curve close — the planted residue
-        // didn't shift the deposit ratio either.
+        // B's pool still opens at curve close — the stray LT didn't shift
+        // the deposit ratio.
         _assertZeroPriceGap(address(pairB), tokenB, snapB);
-        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared after B finalize");
+    }
+
+    /// @notice Concurrent graduations on the same LT must not mix escrows.
+    ///         When Token A and Token B both reach `Lifecycle.Graduating`
+    ///         before either finalizes, Phase 1 has transferred BOTH
+    ///         `ltFromPair_A` and `ltFromPair_B` into Bonding. The
+    ///         finalize flow snapshots `protectedLT = balanceOf - p.ltFromPair`
+    ///         at the top, plumbs it through to the deposit allowance
+    ///         and the post-sweep, so A's finalize can't deposit or
+    ///         sweep B's escrow.
+    function test_concurrentGraduations_sameLT_doNotMixEscrows() public {
+        (address tokenA,) = _launchToken();
+        _enterGraduating(tokenA);
+        (uint256 tokensForLPA, uint256 ltA,,) = bonding.pendingGraduation(tokenA);
+        assertEq(lt.balanceOf(address(bonding)), ltA, "Bonding holds A's escrow");
+
+        (address tokenB,) = _launchToken();
+        _enterGraduating(tokenB);
+        (uint256 tokensForLPB, uint256 ltB,,) = bonding.pendingGraduation(tokenB);
+        assertEq(lt.balanceOf(address(bonding)), ltA + ltB, "Bonding holds both escrows");
+        assertTrue(bonding.isGraduating(tokenA) && bonding.isGraduating(tokenB), "both Graduating");
+
+        bonding.finalizeGraduation(tokenA);
+        assertTrue(bonding.isGraduated(tokenA));
+        assertEq(lt.balanceOf(address(bonding)), ltB, "Bonding still holds B's escrow intact");
+
+        address pairA = bonding.graduatedPair(tokenA);
+        (uint256 reserveTokenA, uint256 reserveLtA) = _readReservesByToken(pairA, tokenA);
+        assertEq(reserveTokenA, tokensForLPA, "A pool TOKEN reserve");
+        assertEq(reserveLtA, ltA, "A pool LT reserve");
+
+        bonding.finalizeGraduation(tokenB);
+        assertTrue(bonding.isGraduated(tokenB));
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance fully drained");
+
+        address pairB = bonding.graduatedPair(tokenB);
+        (uint256 reserveTokenB, uint256 reserveLtB) = _readReservesByToken(pairB, tokenB);
+        assertEq(reserveTokenB, tokensForLPB, "B pool TOKEN reserve");
+        assertEq(reserveLtB, ltB, "B pool LT reserve");
     }
 
     // ─── Token leftover is burned (supply conservation) ──────────────────

@@ -178,7 +178,7 @@ Attacker called `pair.mint(attacker)` against a self-funded dust seed. Reserves 
 1. **Compute the swap input** that would drive the pool ratio back to the curve-close ratio under the no-fee constant-product model: `s = sqrt(reserveIn · reserveOut · targetN / targetD) − reserveIn`, capped at our per-side budget. Implementation in `_noFeeSwapInput`. Closed-form via OZ `Math.sqrt + Math.mulDiv`; no binary search, no convergence loop.
 2. **Execute the swap directly on the pair** via `pair.swap(amount0Out, amount1Out, address(this), "")`. We compute the V2 fee-charging amount-out ourselves and pass it as the output. **Bypasses the router** — HyperSwap's V2 router has no canonical `swapExactTokensForTokens` (see "HyperSwap Router non-standard ABI" above). Same direct-to-pair pattern Zap uses for post-grad user swaps. Implementation in `_pairRebalance`.
 3. **Deposit the remaining inventory** via `router.addLiquidity(rest, 1, 1, lpLock, ...)`. The router's `quote()`-based optimal split deposits only the matched-ratio subset; neither side becomes a `min()` donation. Off-ratio remainder stays in `Bonding`. The router's `addLiquidity` IS canonical V2 on HyperSwap (verified selector `0xe8e33700`), so this leg is safe to keep on the router and gets the `quote()` math for free.
-4. **Dispose the off-ratio remainder.** TOKEN side burned (`Bonding` is the Token owner). LT side auto-swept to the protocol owner by `finalizeGraduation`'s post-bookend — emits `LTRescued(lt, owner, amount)` for observability. See "Auto-sweep bookends" below.
+4. **Dispose the off-ratio remainder.** TOKEN side burned (`Bonding` is the Token owner). LT side auto-swept to the protocol owner by `finalizeGraduation`'s post-sweep — emits `LTRescued(lt, owner, amount)` for observability. See "Per-graduation LT isolation" below.
 
 Why the **asymmetric router usage** (pair for swap, router for addLiquidity): the swap is unsafe to send through the router because HyperSwap's swap ABI is non-standard; the deposit IS safe because HyperSwap's `addLiquidity` ABI is canonical AND the `quote()`-based optimal-split logic is the part that defuses the LP-capture attack. We get the best of both — no HyperSwap-specific footgun on the swap, no reimplementation burden on the deposit.
 
@@ -203,16 +203,18 @@ After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-bac
 
 `PRICE_MATCH_EPS_BPS = 50` in `test/HostilePreSeed.t.sol`. Honest graduations open at 0 bps gap (Regime 1, exact direct mint). Hostile-pre-seed graduations open within 50 bps — the structural ceiling is the V2 fee landing between rebalance and deposit (~30 bps) plus integer rounding in the router's `quote()`-based split (~10 bps). 50 bps is well inside "exploit denied" — arbitrage closes the gap within blocks and the attacker still loses pre-seed value. Documented in the assertion's natspec.
 
-### Auto-sweep bookends — closes the cross-token contamination class (issue #11)
+### Per-graduation LT isolation
 
-Honest graduations never reach Regime 3, so LT never lands in `Bonding` and the bookends are no-ops. For attacked graduations the off-ratio LT remainder is auto-swept to the protocol owner inside `finalizeGraduation`, in two places:
+`finalizeGraduation` snapshots `protectedLT = balanceOf(this) - p.ltFromPair` at the top: any LT in `Bonding` beyond this graduation's earmark is either another concurrent graduation's escrow (Phase 1 already moved it in via `Router.graduate`) or stray dust. Both must stay out of THIS graduation's LP and post-sweep.
 
-- **Pre-bookend (`_sweepLTToOwner(lt, p.ltFromPair)`).** Narrows Bonding's LT balance down to exactly the amount Phase 1 transferred in via `Router.graduate`. Anything beyond that — residue from an earlier hostile-pre-seed graduation on the same LT, a misdirected user transfer, an MEV searcher front-running between phases — flows to the owner before `_seedUniswapV2Direct` can read `balanceOf(this)`.
-- **Post-bookend (`_sweepLTToOwner(lt, 0)`).** Cleans up THIS graduation's own rebalance residue (Regime 3) so the steady-state LT balance is zero between graduations.
+That snapshot is plumbed through `_seedUniswapV2Direct` → `_seedRebalancing` → `_routerDepositAndDispose`, where the deposit allowance is capped at `balanceOf(this) - protectedLT`. Then a single `_sweepLTToOwner(lt, protectedLT)` at the end of `finalizeGraduation` sends only THIS graduation's rebalance residue to the protocol owner, leaving any concurrent-graduation escrow / stray dust untouched. Honest empty-pair graduations have no residue at the post-sweep so it's a no-op there.
 
-The pre-bookend is what closes audit issue #11: without it, Token A's residue could be silently consumed into Token B's locked LP via `_routerDepositAndDispose`'s `addLiquidity` when Token B graduates with a TOKEN-rich pre-seed (LT becomes the binding side, full Bonding LT balance gets pulled in). With it, contamination is structurally impossible — Token B's deposit can only see the LT this graduation raised.
+Two scenarios this guards against:
 
-Both sweeps emit `LTRescued(lt, owner, amount)` for indexer observability. The owner's UUPS-upgrade authority remains the escape hatch for any LT that gets stuck for an LT no future graduation will ever finalize against (rare; deprecated LT scenario). Coverage: `test_leftoverRecovery_autoSweptToOwnerOnFinalize`, `test_autoSweep_noOpOnHappyPath`, `test_priorLeftover_notConsumedByLaterGraduation_sameLT`.
+- **Concurrent graduations on the same LT.** Two tokens A and B share an LT and both reach `Lifecycle.Graduating` before either finalizes (the keeper takes ~60s and popular LTs see overlap). Without `protectedLT`, A's finalize would treat the full balance as its own and either sweep B's escrow to the owner (bricking B's later finalize) or — for hostile-pre-seed graduations — deposit it into A's locked LP. With it, A only ever sees `ltFromPair_A` and B is preserved.
+- **Cross-token LT residue (audit issue #11).** Old residue or a misdirected transfer sitting in `Bonding` would otherwise be visible to `_routerDepositAndDispose`'s `balanceOf(this)` read and could be silently consumed into a future graduation's locked LP. With `protectedLT`, contamination stays in `Bonding` and the deposit only sees this graduation's earmark.
+
+The auto-sweep emits `LTRescued(lt, owner, amount)` for indexer observability. Coverage: `test_leftoverRecovery_autoSweptToOwnerOnFinalize`, `test_autoSweep_noOpOnHappyPath`, `test_concurrentGraduations_sameLT_doNotMixEscrows`, `test_strayLt_notConsumedByLaterGraduation_sameLT`.
 
 ### Mock-suite changes worth knowing
 

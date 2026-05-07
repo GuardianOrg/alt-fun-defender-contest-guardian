@@ -829,29 +829,6 @@ export const BondingAbi = [
   },
   {
     "type": "function",
-    "name": "rescueLT",
-    "inputs": [
-      {
-        "name": "ltToken",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "to",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "amount",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [],
-    "stateMutability": "nonpayable"
-  },
-  {
-    "type": "function",
     "name": "router",
     "inputs": [],
     "outputs": [

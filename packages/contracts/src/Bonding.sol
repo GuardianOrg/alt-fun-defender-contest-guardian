@@ -206,11 +206,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         ///      at 1s blocks) and packs four launches per slot.
         mapping(address token => uint64) launchBlock;
         /// @dev V2 router used in the hostile-pre-seed defense path of
-        ///      `_seedUniswapV2Direct` (issue #308). Set at `initialize`
-        ///      and immutable thereafter — rotation requires a UUPS
-        ///      upgrade so the change is visible on-chain ahead of any
-        ///      in-flight graduation, same contract as `uniswapV2Factory`.
-        ///      The empty-pair fast path bypasses the router entirely.
+        ///      `_seedUniswapV2Direct`. Set at `initialize` and immutable
+        ///      thereafter — rotation requires a UUPS upgrade so the
+        ///      change is visible on-chain ahead of any in-flight
+        ///      graduation, same contract as `uniswapV2Factory`. The
+        ///      empty-pair fast path bypasses the router entirely.
         address uniswapV2Router;
     }
 
@@ -852,12 +852,17 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt = info.ltAddress;
         PendingGraduation memory p = $.pendingGraduation[tokenAddress];
 
-        _sweepLTToOwner(lt, p.ltFromPair);
+        // Anything in this contract beyond `p.ltFromPair` belongs to a
+        // concurrent graduation on the same LT (Phase 1 transferred it
+        // via `Router.graduate`) or to stray dust. Either way it is
+        // off-limits to this graduation's deposit and sweep — see
+        // `_routerDepositAndDispose` and `_sweepLTToOwner`.
+        uint256 protectedLT = IERC20(lt).balanceOf(address(this)) - p.ltFromPair;
 
         address lpPair = _ensureUniswapV2Pair(tokenAddress, lt);
-        uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair);
+        uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair, protectedLT);
 
-        _sweepLTToOwner(lt, 0);
+        _sweepLTToOwner(lt, protectedLT);
 
         info.lifecycle = Lifecycle.Graduated;
         $.graduatedPair[tokenAddress] = lpPair;
@@ -869,12 +874,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     }
 
     /// @dev Send LT held by this contract above `keep` to the owner,
-    ///      emitting `LTRescued`. Called at both bookends of
-    ///      `finalizeGraduation` to isolate per-token LT handling:
-    ///      pre-sweep with `keep = p.ltFromPair` keeps residue from
-    ///      earlier graduations on the same LT out of this token's LP
-    ///      budget; post-sweep with `keep = 0` drains this graduation's
-    ///      own rebalance leftover. No-op on the empty-pair fast path.
+    ///      emitting `LTRescued`. Called at the end of
+    ///      `finalizeGraduation` with `keep = protectedLT` (any escrow
+    ///      that doesn't belong to this graduation), so only THIS
+    ///      graduation's rebalance residue lands on the owner. No-op on
+    ///      the empty-pair fast path (nothing to sweep).
     function _sweepLTToOwner(
         address lt,
         uint256 keep
@@ -1021,7 +1025,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt,
         address pair,
         uint256 tokensForLP,
-        uint256 ltFromPair
+        uint256 ltFromPair,
+        uint256 protectedLT
     ) internal returns (uint256 liquidity) {
         // Regime 2 — sweep any donation pre-seed back to the protocol so it
         // doesn't pollute the post-swap ratio. No-op on a freshly-created
@@ -1041,7 +1046,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // Reserves and token-ordering re-read inside `_seedRebalancing` to
         // keep this function's stack pressure under solc's 16-slot ceiling
         // without `viaIR`.
-        return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+        return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair, protectedLT);
     }
 
     /// @dev Memory bag for `_seedRebalancing` → `_pairRebalance` so the call
@@ -1067,7 +1072,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt,
         address pair,
         uint256 tokensForLP,
-        uint256 ltFromPair
+        uint256 ltFromPair,
+        uint256 protectedLT
     ) internal returns (uint256 liquidity) {
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
         bool tokenIs0 = IUniswapV2Pair(pair).token0() == tokenAddress;
@@ -1108,7 +1114,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // else: pool already at curve-close ratio (rare — e.g. attacker
         // pre-seeded at exactly target). Skip swap, deposit directly.
 
-        return _routerDepositAndDispose(tokenAddress, lt);
+        return _routerDepositAndDispose(tokenAddress, lt, protectedLT);
     }
 
     /// @dev Cap the rebalance swap at 99% of the available side's budget,
@@ -1198,13 +1204,20 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      keeps the no-dangling-allowance invariant tidy.
     function _routerDepositAndDispose(
         address tokenAddress,
-        address lt
+        address lt,
+        uint256 protectedLT
     ) internal returns (uint256 liquidity) {
         BondingStorage storage $ = _s();
         address routerAddr = $.uniswapV2Router;
         address lpLock_ = $.lpLock;
         uint256 remToken = IERC20(tokenAddress).balanceOf(address(this));
-        uint256 remLT = IERC20(lt).balanceOf(address(this));
+        // Subtract `protectedLT` (LT that doesn't belong to this graduation
+        // — concurrent escrows or stray dust, snapshotted at the top of
+        // `finalizeGraduation`) so the deposit allowance can never pull
+        // another graduation's earmark or accidentally absorb dust into a
+        // locked LP.
+        uint256 ltBal = IERC20(lt).balanceOf(address(this));
+        uint256 remLT = ltBal > protectedLT ? ltBal - protectedLT : 0;
 
         if (remToken > 0 && remLT > 0) {
             IERC20(tokenAddress).forceApprove(routerAddr, remToken);
