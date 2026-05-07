@@ -389,6 +389,24 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         emit TokenLaunched(tokenAddr, creator_, params.ltAddress, params.name, params.ticker, k);
     }
 
+    /// @dev Launch-time `exchangeRate()` snapshot permanently shapes the
+    ///      curve via `K = TOTAL_SUPPLY * virtualLtReserve`. The
+    ///      `VIRTUAL_LIQUIDITY_USD / rate` division pins the opening market
+    ///      cap at `~$4K` regardless of the LT's price; what the snapshot
+    ///      fixes is the curve's USD-denominated depth, which then drifts
+    ///      with the LT.
+    ///
+    ///      Drift is accepted: it's inherent to using a leveraged token as
+    ///      the reserve (same drift class as the phase-1 → phase-2 gap on
+    ///      `finalizeGraduation`). A donation attack on the LT's
+    ///      `baseAssetBalance` to skew the snapshot is cost-negative — the
+    ///      donation is irrevocable and the only direct victim is the
+    ///      creator's `MIN_SEED_USDC`-floored seed buy.
+    ///
+    ///      No `(min, max)` band on `LaunchParams` by design: a band
+    ///      introduces a launch-failure mode users can't diagnose and forces
+    ///      the frontend into a default tolerance that's either too tight
+    ///      (legitimate launches fail) or too loose (decorative).
     function _deployAndSeed(
         address tokenAddr,
         bytes32 saltMixed,
