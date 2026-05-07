@@ -16,58 +16,6 @@
   overflow-y: auto;
 }
 
-.columnHeader {
-  display: flex;
-  align-items: center;
-  height: 26px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border-2);
-}
-
-.countCell {
-  font-size: 11px;
-  color: var(--txt-3);
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  border-right: 1px solid var(--border);
-  height: 100%;
-  display: flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.sortActive {
-  font-size: 11px;
-  color: var(--txt);
-  padding-left: 0.625rem;
-  padding-right: 0.625rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
-.sortItem {
-  font-size: 11px;
-  color: var(--txt-3);
-  padding-left: 0.625rem;
-  padding-right: 0.625rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-  letter-spacing: 0.06em;
-}
-
-.sortItem:hover {
-  color: var(--txt);
-}
-
 .tableHead {
   display: grid;
   grid-template-columns: 52px 1fr 72px 1fr 80px;

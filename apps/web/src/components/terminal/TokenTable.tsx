@@ -6,17 +6,6 @@ import { useTokens } from "../../hooks/useTokens";
 import { selectActiveFilter } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 
-function ColumnHeader({ count }: { count: number }) {
-  return (
-    <div className={styles.columnHeader}>
-      <div className={styles.countCell}>{count} tokens</div>
-      <div className={styles.sortActive}>TRENDING</div>
-      <div className={styles.sortItem}>NEWEST</div>
-      <div className={styles.sortItem}>PROGRESS</div>
-    </div>
-  );
-}
-
 function TableHead() {
   return (
     <div className={styles.tableHead}>
@@ -42,7 +31,6 @@ export default function TokenTable() {
   return (
     <div className={styles.wrapper}>
       <div className={styles.column}>
-        <ColumnHeader count={tokens?.length ?? 0} />
         <TableHead />
         <div className={styles.scrollArea}>
           {tokens?.map((t) => (
