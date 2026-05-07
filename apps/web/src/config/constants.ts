@@ -41,14 +41,7 @@ export const SELL_PERCENT_OPTIONS = [10, 25, 50, 75, 100] as const;
 
 export const SEED_PCT_OPTIONS = [0.5, 1, 2, 3, 5] as const;
 
-export const UNDERLYING_ASSETS = [
-  "HYPE",
-  "ETH",
-  "BTC",
-  "SOL",
-  "ARB",
-  "OP",
-] as const;
+export const UNDERLYING_ASSETS = ["HYPE", "ETH", "BTC", "SOL"] as const;
 export type UnderlyingAsset = (typeof UNDERLYING_ASSETS)[number];
 
 export const LEVERAGE_OPTIONS = [2, 3, 5] as const;

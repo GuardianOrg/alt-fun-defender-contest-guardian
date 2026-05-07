@@ -29,7 +29,7 @@
 .assetRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.8rem;
   padding-left: 0.8rem;
   padding-right: 0.8rem;
   padding-top: 0.6rem;
@@ -39,6 +39,18 @@
     color 0.15s ease,
     background-color 0.15s ease,
     border-color 0.15s ease;
+}
+
+.assetLogo {
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.assetMeta {
+  display: flex;
+  flex-direction: column;
 }
 
 .assetRow:hover {
@@ -75,6 +87,7 @@
   font-weight: 600;
   color: var(--txt);
   font-variant-numeric: tabular-nums;
+  margin-left: auto;
 }
 
 .pairsHeader {
