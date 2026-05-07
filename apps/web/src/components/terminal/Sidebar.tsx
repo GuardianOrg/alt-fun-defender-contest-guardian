@@ -2,12 +2,18 @@ import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
 import { CREATE_PATH } from "../../app/routes";
+import HYPE from "../../assets/Logos/HYPE.svg";
+import ETH from "../../assets/Logos/ETH.svg";
+import BTC from "../../assets/Logos/BTC.svg";
+import SOL from "../../assets/Logos/SOL.svg";
 import {
   useAssets,
   usePlatformStats,
   usePairFilters,
 } from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
+
+const ASSET_LOGOS: Record<string, string> = { HYPE, ETH, BTC, SOL };
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -28,7 +34,14 @@ export default function Sidebar() {
               i < assets.length - 1 && styles.assetRowBorder,
             )}
           >
-            <div>
+            {ASSET_LOGOS[a.name] && (
+              <img
+                src={ASSET_LOGOS[a.name]}
+                alt=""
+                className={styles.assetLogo}
+              />
+            )}
+            <div className={styles.assetMeta}>
               <div className={styles.assetName}>{a.name}</div>
               <div
                 className={cn(
