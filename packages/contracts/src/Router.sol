@@ -105,6 +105,21 @@ contract Router is Initializable, AccessControlUpgradeable {
         IPair(pairAddr).swap(0, tokensOut, amountInUsed, 0);
     }
 
+    /// @notice External view of `_computeBuy`. Returns `(amountInUsed,
+    ///         tokensOut)` for a hypothetical LT-in buy of `amountIn`,
+    ///         honouring the same overflow cap as `buy()`. Used by `Zap` to
+    ///         pre-size the LT mint and by the frontend for buy-quote previews.
+    function previewBuy(
+        address token,
+        uint256 amountIn
+    ) external view returns (uint256 amountInUsed, uint256 tokensOut) {
+        if (amountIn == 0) revert ZeroAmount();
+        address asset = assetTokenFor(token);
+        address pairAddr = factory.getPair(token, asset);
+        if (pairAddr == address(0)) revert PairNotFound();
+        return _computeBuy(pairAddr, amountIn);
+    }
+
     /// @dev Capped: `amountInUsed` is back-calculated from the K invariant
     ///      (rounded up so the curve never under-charges).
     function _computeBuy(

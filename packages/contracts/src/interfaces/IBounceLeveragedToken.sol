@@ -28,6 +28,19 @@ interface IBounceLeveragedToken is IERC20 {
     /// @notice USD per LT unit, 18-dp.
     function exchangeRate() external view returns (uint256);
 
+    /// @notice Equals the LT amount that `mint(_, baseAmount, _)` will produce
+    ///         at the current `exchangeRate()`.
+    function baseToLtAmount(
+        uint256 baseAmount
+    ) external view returns (uint256);
+
+    /// @notice Inverse of `baseToLtAmount`. The round-trip
+    ///         `baseToLtAmount(ltToBaseAmount(x))` may differ from `x` by 1
+    ///         wei due to integer-division rounding.
+    function ltToBaseAmount(
+        uint256 ltAmount
+    ) external view returns (uint256);
+
     function targetLeverage() external view returns (uint256);
 
     function isLong() external view returns (bool);

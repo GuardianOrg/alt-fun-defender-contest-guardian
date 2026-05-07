@@ -56,4 +56,18 @@ export const LeveragedTokenAbi = [
     inputs: [],
     outputs: [{ name: "", type: "string" }],
   },
+  {
+    type: "function",
+    name: "baseToLtAmount",
+    stateMutability: "view",
+    inputs: [{ name: "baseAmount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "ltToBaseAmount",
+    stateMutability: "view",
+    inputs: [{ name: "ltAmount", type: "uint256" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
 ] as const;
