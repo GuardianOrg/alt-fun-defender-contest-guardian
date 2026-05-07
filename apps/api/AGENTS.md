@@ -69,7 +69,7 @@ The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdo
 ## Durable Objects
 
 - `WebSocketDO` — fans out WS messages to subscribed clients. Supports global and per-subject routing (keyed by token or LT address).
-- `LtTicker` — self-rescheduling alarm at 2s cadence. Reads the latest BounceTech LT exchange rates from `token_snapshots_v1` and broadcasts changed rates to the `price` channel per-LT. Kickstarted by a 1-minute Cron Trigger hitting `/ensure`, which is a no-op if an alarm is already scheduled. Heartbeat state is exposed at `GET /api/v1/admin/lt-ticker` for health checks.
+- `LtTicker` — self-rescheduling alarm at 1s cadence (matched to BounceTech's ~1s write cadence on `token_snapshots_v1`). Reads the latest BounceTech LT exchange rates and broadcasts changed rates to the `price` channel per-LT. Kickstarted by a 1-minute Cron Trigger hitting `/ensure`, which is a no-op if an alarm is already scheduled. Heartbeat state is exposed at `GET /api/v1/admin/lt-ticker` for health checks.
 
 ## Functional Spec
 

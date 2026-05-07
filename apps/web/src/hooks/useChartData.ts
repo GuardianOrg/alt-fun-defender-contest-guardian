@@ -90,7 +90,7 @@ interface PriceWsPayload {
  *   2. Subscribes to the `trade` WS channel (token-scoped) to update the live
  *      ratio as trades land on-chain.
  *   3. Subscribes to the `price` WS channel (LT-scoped) to update the live
- *      exchange rate from the `LtTicker` DO's 2s cadence.
+ *      exchange rate from the `LtTicker` DO's 1s cadence.
  *   4. Recomputes `price = ratio × exchangeRate` on each input change and
  *      folds the result into the in-progress candle. Opens a new candle at
  *      bucket boundaries so time keeps moving even without new inputs.

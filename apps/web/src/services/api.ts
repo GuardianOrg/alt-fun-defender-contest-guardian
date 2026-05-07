@@ -234,7 +234,7 @@ export type ChartTimeframe = "1d" | "5d" | "1m";
  * Allowed candle-width values (seconds) surfaced in the interval picker.
  * Must stay in sync with `VALID_INTERVAL_SECONDS` in
  * `apps/api/src/routes/chart.ts`. Roughly mirrors the pump.fun set with
- * `5s` as the floor (sub-`5s` resolution isn't useful given our 2s LT
+ * `5s` as the floor (sub-`5s` resolution isn't useful given our 1s LT
  * tick cadence and the curve's snapshot-per-trade write rate).
  */
 export const CHART_INTERVAL_SECONDS = [

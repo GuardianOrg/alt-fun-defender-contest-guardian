@@ -8,9 +8,11 @@ import { tokens } from "../db/schema.js";
 
 import type { AppBindings } from "../lib/types.js";
 
-const TICK_INTERVAL_MS = 2_000;
+const TICK_INTERVAL_MS = 1_000;
 const LT_REFRESH_INTERVAL_MS = 60_000;
-const HEARTBEAT_LOG_EVERY_N_TICKS = 30;
+// 60 ticks × 1s = 60s heartbeat log cadence. Keep this expressed in seconds
+// rather than ticks if `TICK_INTERVAL_MS` ever changes again.
+const HEARTBEAT_LOG_EVERY_N_TICKS = 60;
 
 interface LtRateRow {
   token_address: string;
@@ -38,7 +40,7 @@ interface HeartbeatState {
  *   4. Diffs against an in-memory `lastSeen` map and broadcasts only changed
  *      rates to the `price` channel, keyed by LT address for per-LT routing.
  *
- * Cadence is intentionally matched to BounceTech's ~2s write cadence on
+ * Cadence is intentionally matched to BounceTech's ~1s write cadence on
  * `token_snapshots_v1` — polling faster just returns duplicate values.
  *
  * The DO self-kickstarts on construction: if no alarm is scheduled when the
