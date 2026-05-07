@@ -38,7 +38,7 @@ export function useChart({
   // Track the last candle array we applied so we can distinguish a live tick
   // (last element mutated) from a full resync (mode change / refetch).
   // Live ticks use `series.update()` which is an OHLC merge — dramatically
-  // cheaper than `setData()` on every 2s price tick.
+  // cheaper than `setData()` on every 1s price tick.
   const lastCandlesRef = useRef<CandlestickData[] | null>(null);
   const lastModeKeyRef = useRef<string | null>(null);
   // True after the first non-loading effect run for a given chart instance.

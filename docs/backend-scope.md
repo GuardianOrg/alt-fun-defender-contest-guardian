@@ -94,7 +94,7 @@ Single endpoint: `WSS /ws`. Clients subscribe to channels.
 | Event | Description | Subscription |
 |---|---|---|
 | `trade` | Every buy/sell on the bonding curve | Global or per-token |
-| `price` | LT exchange rate tick (from `LtTicker` DO, ~2s cadence) | Per-LT (routing key is the LT contract address) |
+| `price` | LT exchange rate tick (from `LtTicker` DO, ~1s cadence) | Per-LT (routing key is the LT contract address) |
 | `graduation` | Token graduated | Global |
 | `newToken` | Token launched | Global |
 | `stats` | Platform stats update | Global (every 10-30s) |
@@ -135,7 +135,7 @@ The split exists because `Bonding:Trade` records the LT actually consumed by the
 
 ### `price` payload
 
-Produced by the `LtTicker` Durable Object, which wakes every 2 seconds via a self-rescheduling alarm, reads the latest `exchange_rate` per LT from BounceTech's `token_snapshots_v1` (LATERAL query), and broadcasts only LTs whose rate changed since the previous tick. Routing key is the LT contract address, not the bonding token address — a single LT update fans out to all tokens that share it.
+Produced by the `LtTicker` Durable Object, which wakes every 1 second via a self-rescheduling alarm (matched to BounceTech's ~1s write cadence), reads the latest `exchange_rate` per LT from BounceTech's `token_snapshots_v1` (LATERAL query), and broadcasts only LTs whose rate changed since the previous tick. Routing key is the LT contract address, not the bonding token address — a single LT update fans out to all tokens that share it.
 
 ```json
 {
