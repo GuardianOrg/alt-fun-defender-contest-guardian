@@ -25,9 +25,10 @@ import {
  *
  * If you change the length here, keep the on-chain sources of truth in
  * sync: `Bonding.VANITY_TRAILING_ZEROS` (and the derived `_VANITY_MASK`
- * used by `Bonding._checkVanity`) plus `VanityMining.TRAILING_ZEROS`
- * (whose mask is derived in Yul). Diverging any of those bricks token
- * creation.
+ * used by `Bonding._checkVanity`) plus `TRAILING_ZEROS` in
+ * `packages/contracts/test/lib/VanityMining.sol` (the Solidity-side
+ * miner used by Foundry tests and the E2E script — whose mask is
+ * derived in Yul). Diverging any of those bricks token creation.
  */
 export const VANITY_SUFFIX = "00000";
 

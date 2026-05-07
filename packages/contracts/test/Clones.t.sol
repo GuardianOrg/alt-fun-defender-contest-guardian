@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Bonding} from "../src/Bonding.sol";
 import {Token} from "../src/Token.sol";
 import {DeployHelper} from "./DeployHelper.sol";
-import {VanityMining} from "../src/lib/VanityMining.sol";
+import {VanityMining} from "./lib/VanityMining.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 
 /// @notice EIP-1167 cloning + vanity-salt behaviour for the launchpad.
@@ -396,7 +396,8 @@ contract ClonesTest is DeployHelper {
 /// @dev Minimal stand-in for a `Token` impl with a different `TOTAL_SUPPLY`.
 ///      Used by `test_setTokenImplementation_revertsOnMismatchedTotalSupply`
 ///      to exercise the supply-equality guard. Only `TOTAL_SUPPLY` is needed
-///      because the guard runs before the `VanityMining` probe.
+///      because that's the only field `setTokenImplementation` reads off the
+///      candidate impl.
 contract TokenWithDifferentTotalSupply {
     uint256 public constant TOTAL_SUPPLY = 999;
 }
