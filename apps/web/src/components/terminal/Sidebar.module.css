@@ -17,10 +17,10 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--mint);
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  padding-top: 0.375rem;
-  padding-bottom: 0.375rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
   background: var(--mint-bg);
   border-bottom: 1px solid var(--border);
   font-weight: 500;
@@ -30,10 +30,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
   cursor: pointer;
   transition:
     color 0.15s ease,
@@ -59,7 +59,7 @@
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  margin-top: 0.125rem;
+  margin-top: 0.2rem;
 }
 
 .assetChangeUp {
@@ -82,21 +82,21 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--txt-3);
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  padding-top: 0.375rem;
-  padding-bottom: 0.375rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
   font-weight: 500;
 }
 
 .pairRow {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
+  gap: 0.4rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
   cursor: pointer;
   transition:
     color 0.15s ease,
@@ -128,7 +128,7 @@
 }
 
 .ctaSection {
-  padding: 0.75rem;
+  padding: 0.8rem;
   margin-top: auto;
 }
 
@@ -136,14 +136,14 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.625rem;
+  gap: 0.6rem;
   background: rgba(77, 232, 180, 0.05);
   border: 1px solid var(--border-2);
   border-radius: 3px;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  padding-top: 0.625rem;
-  padding-bottom: 0.625rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
   cursor: pointer;
   transition: all 0.15s ease;
   font-family: var(--font-mono);
@@ -166,7 +166,7 @@
 .ctaText {
   display: flex;
   flex-direction: column;
-  gap: 0.125rem;
+  gap: 0.2rem;
 }
 
 .ctaTitle {
