@@ -353,6 +353,26 @@ contract ZapTest is DeployHelper {
         zap.buy(tokenAddr, belowMin, 0, address(0));
     }
 
+    /// @dev Regression for the post-fee floor leak. `_buyInternal` checks the
+    ///      gross `usdcAmount` against `MIN_USDC_AMOUNT`, but the LT mint
+    ///      consumes `netUsdc = usdcAmount − feeOnGross`. With `buyFeeBps = 50`
+    ///      a gross of `10e6` yields `netUsdc = 9_950_000 < MIN_USDC_AMOUNT`,
+    ///      so without the post-fee guard the LT reverts with the undecodable
+    ///      `0x05eb05ac` selector instead of `BelowMinAmount`.
+    function test_buy_revertsInPostFeeDirtyBand() public {
+        address tokenAddr = _createToken(0);
+        uint256 dirtyBandInput = zap.MIN_USDC_AMOUNT();
+        usdc.mint(trader, dirtyBandInput);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), dirtyBandInput);
+        vm.expectRevert(Zap.BelowMinAmount.selector);
+        zap.buy(tokenAddr, dirtyBandInput, 0, address(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(trader), dirtyBandInput, "USDC should not have moved");
+    }
+
     function test_buy_revertsOnSlippage() public {
         address tokenAddr = _createToken(0);
         uint256 buyAmount = _smallBuyUsdc();
