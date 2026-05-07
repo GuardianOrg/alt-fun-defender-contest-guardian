@@ -2,9 +2,9 @@ import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
 import { CREATE_PATH } from "../../app/routes";
-import HYPE from "../../assets/Logos/HYPE.svg";
-import ETH from "../../assets/Logos/ETH.svg";
 import BTC from "../../assets/Logos/BTC.svg";
+import ETH from "../../assets/Logos/ETH.svg";
+import HYPE from "../../assets/Logos/HYPE.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import {
   useAssets,
