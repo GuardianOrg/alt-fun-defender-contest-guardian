@@ -31,15 +31,7 @@ export default function AssetTape() {
     ));
 
   return (
-    <div
-      className={styles.tape}
-      role="marquee"
-      aria-label="Live asset prices"
-    >
-      <div className={styles.liveTag} aria-hidden="true">
-        <div className={styles.liveDot} />
-        LIVE
-      </div>
+    <div className={styles.tape} role="marquee" aria-label="Live asset prices">
       <div className={styles.scrollWrap}>
         <div className={styles.scrollTrack}>
           {Array.from({ length: REPEAT_COUNT }, (_, setIdx) =>

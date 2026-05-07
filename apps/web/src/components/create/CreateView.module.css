@@ -3,6 +3,7 @@
   grid-template-columns: 1fr 380px;
   flex: 1;
   overflow: hidden;
+  margin-top: 1.6rem;
 }
 
 .formColumn {

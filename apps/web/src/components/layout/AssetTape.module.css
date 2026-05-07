@@ -1,6 +1,7 @@
 .tape {
   height: 32px;
   overflow: hidden;
+  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -8,32 +9,7 @@
   flex-shrink: 0;
   isolation: isolate;
   transform: translateZ(0);
-}
-
-.liveTag {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--mint);
-  background: var(--mint-bg);
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  border-right: 1px solid var(--border-2);
-  flex-shrink: 0;
-  font-weight: 500;
-  gap: 0.4rem;
-  z-index: 1;
-}
-
-.liveDot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-  background: var(--mint);
-  animation: livep 2s ease-in-out infinite;
+  margin-top: 1.6rem;
 }
 
 .scrollWrap {

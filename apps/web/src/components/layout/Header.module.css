@@ -1,12 +1,10 @@
 .header {
   display: flex;
   align-items: center;
-  height: 56px;
   background: var(--bg-1);
-  border-bottom: 1px solid var(--border-2);
-
   flex-shrink: 0;
   position: relative;
+  margin-top: 1.6rem;
 }
 
 .logo {
