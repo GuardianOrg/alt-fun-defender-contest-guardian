@@ -278,11 +278,17 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         ZapStorage storage $ = _s();
         address lt = $.bonding.ltOf(tokenAddress);
 
-        $.usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
-
         uint256 buyFeeBps_ = $.buyFeeBps;
         uint256 feeOnGross = (usdcAmount * buyFeeBps_) / BPS_DENOM;
         uint256 netUsdc = usdcAmount - feeOnGross;
+        // The LT floor applies to the post-fee amount forwarded to `mint`, not
+        // the gross input — `_buyInternal`'s pre-check on `usdcAmount` leaves a
+        // ~5-cent dirty band (`[MIN, MIN / (1 − buyFeeBps/BPS_DENOM)]`) where
+        // the gross passes but `mint` reverts with the undecodable
+        // `0x05eb05ac` selector that the pre-check exists to suppress.
+        if (netUsdc < MIN_USDC_AMOUNT) revert BelowMinAmount();
+
+        $.usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
 
         // BounceTech LTs are mint-pausable (but NOT redeem-pausable). When
         // the LT operator pauses minting, this call reverts, so every buy

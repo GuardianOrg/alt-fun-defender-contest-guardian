@@ -6,11 +6,7 @@ import { useNavigate } from "react-router";
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
-import {
-  cn,
-  formatPercentOrDash,
-  formatUsdOrDash,
-} from "../../utils/format";
+import { cn, formatPercentOrDash, formatUsdOrDash } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import ProgressBar from "../shared/ProgressBar";
@@ -85,53 +81,52 @@ export default function TokenRow({ token }: Props) {
       onKeyDown={handleKeyDown}
       aria-label={`${token.name} — ${formatPercentOrDash(stats.change24h)} — market cap ${formatUsdOrDash(stats.mcapUsd)}`}
     >
-      {/* Icon */}
-      <div className={styles.iconCell}>
-        {token.image && !imgError ? (
-          <img
-            key={token.image}
-            src={token.image}
-            alt={token.name}
-            className={styles.tokenImage}
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <span className={styles.tokenEmoji}>{token.emoji || "🪙"}</span>
-        )}
-      </div>
-
-      {/* Name + LT pair + graduating badge */}
-      <div className={styles.nameCell}>
-        <div className={styles.nameRow}>
-          <span className={styles.tokenName}>{token.name}</span>
-          <span
-            className={cn(
-              styles.leverageBadge,
-              isShort ? styles.leverageShort : styles.leverageLong,
-            )}
-          >
-            {token.leverage}&times;
-          </span>
-          {isGraduating && (
-            <span
-              className={cn(
-                styles.gradBadge,
-                isShort ? styles.gradBadgeShort : styles.gradBadgeLong,
-              )}
-            >
-              GRAD
-            </span>
+      <div className={styles.tokenCell}>
+        <div className={styles.iconWrap}>
+          {token.image && !imgError ? (
+            <img
+              key={token.image}
+              src={token.image}
+              alt={token.name}
+              className={styles.tokenImage}
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <span className={styles.tokenEmoji}>{token.emoji || "🪙"}</span>
           )}
         </div>
-        <span
-          className={cn(
-            styles.ltName,
-            isShort ? styles.ltNameShort : styles.ltNameLong,
-          )}
-        >
-          {token.ltName.toUpperCase()}
-          {isGraduated && " \u00B7 GRADUATED"}
-        </span>
+        <div className={styles.nameWrap}>
+          <div className={styles.nameRow}>
+            <span className={styles.tokenName}>{token.name}</span>
+            <span
+              className={cn(
+                styles.leverageBadge,
+                isShort ? styles.leverageShort : styles.leverageLong,
+              )}
+            >
+              {token.leverage}&times;
+            </span>
+            {isGraduating && (
+              <span
+                className={cn(
+                  styles.gradBadge,
+                  isShort ? styles.gradBadgeShort : styles.gradBadgeLong,
+                )}
+              >
+                GRAD
+              </span>
+            )}
+          </div>
+          <span
+            className={cn(
+              styles.ltName,
+              isShort ? styles.ltNameShort : styles.ltNameLong,
+            )}
+          >
+            {token.ltName.toUpperCase()}
+            {isGraduated && " \u00B7 GRADUATED"}
+          </span>
+        </div>
       </div>
 
       {/* 24h change */}
@@ -158,7 +153,9 @@ export default function TokenRow({ token }: Props) {
 
       {/* MCAP */}
       <div className={styles.mcapCell}>
-        <span className={styles.mcapValue}>{formatUsdOrDash(stats.mcapUsd)}</span>
+        <span className={styles.mcapValue}>
+          {formatUsdOrDash(stats.mcapUsd)}
+        </span>
       </div>
     </div>
   );

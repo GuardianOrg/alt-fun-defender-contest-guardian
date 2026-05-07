@@ -1,8 +1,8 @@
 .fieldGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  gap: 0.8rem;
+  margin-bottom: 1.2rem;
 }
 
 .label {
@@ -10,11 +10,11 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--txt-3);
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.4rem;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.6rem;
   font-weight: 500;
 }
 
@@ -29,7 +29,7 @@
   background: rgba(16, 37, 32, 0.6);
   border: 1px solid var(--border);
   border-radius: 0;
-  padding: 0.625rem 0.875rem;
+  padding: 0.6rem 0.8rem;
   font-size: 13px;
   color: var(--txt);
   font-family: var(--font-mono);
@@ -47,7 +47,7 @@
 }
 
 .fieldBlock {
-  margin-bottom: 1rem;
+  margin-bottom: 1.2rem;
 }
 
 .textarea {
@@ -56,7 +56,7 @@
   background: rgba(16, 37, 32, 0.6);
   border: 1px solid var(--border);
   border-radius: 0;
-  padding: 0.625rem 0.875rem;
+  padding: 0.6rem 0.8rem;
   font-size: 13px;
   color: var(--txt);
   font-family: var(--font-mono);
@@ -123,7 +123,7 @@
 .uploadIcon {
   font-size: 1.25rem;
   line-height: 1.75rem;
-  margin-bottom: 0.375rem;
+  margin-bottom: 0.4rem;
   opacity: 0.5;
 }
 
@@ -141,8 +141,8 @@
 .previewZone {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.75rem;
+  gap: 1.2rem;
+  padding: 0.8rem;
   border: 1px solid var(--border-2);
   background: rgba(16, 37, 32, 0.4);
 }
@@ -157,7 +157,7 @@
 .previewActions {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .fileInput {
@@ -165,8 +165,8 @@
 }
 
 .imageError {
-  margin-top: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  margin-top: 0.6rem;
+  padding: 0.6rem 0.8rem;
   border: 1px solid rgba(255, 100, 100, 0.4);
   background: rgba(255, 100, 100, 0.08);
   color: #ff8a8a;
@@ -177,12 +177,12 @@
 .socialToggle {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   font-size: 13px;
   color: var(--txt-2);
   cursor: pointer;
-  padding: 0.625rem 0.875rem;
-  margin-top: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  margin-top: 0.8rem;
   border: 1px solid var(--border);
   border-radius: 0;
   background: rgba(16, 37, 32, 0.4);
@@ -217,17 +217,17 @@
 
 .socialPanel {
   border-left: 2px solid rgba(77, 232, 180, 0.2);
-  padding-left: 1rem;
-  margin-left: 0.75rem;
-  margin-top: 0.75rem;
+  padding-left: 1.2rem;
+  margin-left: 0.8rem;
+  margin-top: 0.8rem;
 }
 
 .socialPanel > * + * {
-  margin-top: 0.75rem;
+  margin-top: 0.8rem;
 }
 
 .socialFieldGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 0.75rem;
+  gap: 0.8rem;
 }

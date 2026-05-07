@@ -11,97 +11,14 @@
   overflow: hidden;
 }
 
-.columnShort {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-left: 1px solid var(--border-2);
-}
-
 .scrollArea {
   flex: 1;
   overflow-y: auto;
 }
 
-.columnHeader {
-  display: flex;
-  align-items: center;
-  height: 26px;
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border-2);
-}
-
-.directionBadge {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  padding-left: 1rem;
-  padding-right: 1rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  border-right: 1px solid var(--border);
-  font-family: var(--font-mono);
-}
-
-.directionLong {
-  background: rgba(77, 232, 180, 0.06);
-  color: var(--mint);
-}
-
-.directionShort {
-  background: rgba(240, 80, 80, 0.05);
-  color: var(--red);
-}
-
-.countCell {
-  font-size: 11px;
-  color: var(--txt-3);
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  border-right: 1px solid var(--border);
-  height: 100%;
-  display: flex;
-  align-items: center;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
-.sortActive {
-  font-size: 11px;
-  color: var(--txt);
-  padding-left: 0.625rem;
-  padding-right: 0.625rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-}
-
-.sortItem {
-  font-size: 11px;
-  color: var(--txt-3);
-  padding-left: 0.625rem;
-  padding-right: 0.625rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-  letter-spacing: 0.06em;
-}
-
-.sortItem:hover {
-  color: var(--txt);
-}
-
 .tableHead {
   display: grid;
-  grid-template-columns: 52px 1fr 72px 1fr 80px;
+  grid-template-columns: 1fr 72px 1fr 80px;
   height: 22px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
@@ -113,11 +30,9 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--txt-2);
-  padding-left: 0.5rem;
-  padding-right: 0.5rem;
+  padding: 0 0.8rem;
   display: flex;
   align-items: center;
-  border-right: 1px solid var(--border);
   font-family: var(--font-mono);
 }
 
@@ -125,20 +40,7 @@
   border-right: 0;
 }
 
-.headCellRight {
-  justify-content: flex-end;
-}
-
 @media (max-width: 768px) {
-  .wrapper {
-    flex-direction: column;
-  }
-
-  .columnShort {
-    border-left: 0;
-    border-top: 1px solid var(--border-2);
-  }
-
   .scrollArea {
     overflow-x: auto;
   }
