@@ -11,14 +11,6 @@
   overflow: hidden;
 }
 
-.columnShort {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-left: 1px solid var(--border-2);
-}
-
 .scrollArea {
   flex: 1;
   overflow-y: auto;
@@ -30,29 +22,6 @@
   height: 26px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border-2);
-}
-
-.directionBadge {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  padding-left: 1rem;
-  padding-right: 1rem;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  border-right: 1px solid var(--border);
-  font-family: var(--font-mono);
-}
-
-.directionLong {
-  background: rgba(77, 232, 180, 0.06);
-  color: var(--mint);
-}
-
-.directionShort {
-  background: rgba(240, 80, 80, 0.05);
-  color: var(--red);
 }
 
 .countCell {
@@ -130,15 +99,6 @@
 }
 
 @media (max-width: 768px) {
-  .wrapper {
-    flex-direction: column;
-  }
-
-  .columnShort {
-    border-left: 0;
-    border-top: 1px solid var(--border-2);
-  }
-
   .scrollArea {
     overflow-x: auto;
   }

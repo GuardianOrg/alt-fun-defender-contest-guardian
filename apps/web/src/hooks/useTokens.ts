@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { tokenService } from "../services/tokenService";
 
-import type { Direction, TokenFilter } from "../services/types";
+import type { TokenFilter } from "../services/types";
 
 /**
  * Token list for the home page + search modal. The server handles all
@@ -15,16 +15,6 @@ export function useTokens(filter?: TokenFilter) {
   return useQuery({
     queryKey: ["tokens", filter],
     queryFn: () => tokenService.getTokens(filter),
-  });
-}
-
-export function useTokensByDirection(
-  direction: Direction,
-  filter?: TokenFilter,
-) {
-  return useQuery({
-    queryKey: ["tokens", direction, filter],
-    queryFn: () => tokenService.getTokensByDirection(direction, filter),
     refetchInterval: 10_000,
   });
 }
