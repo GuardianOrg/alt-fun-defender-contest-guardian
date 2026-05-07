@@ -293,19 +293,23 @@ const liveTradeRouter: ITradeRouterService = {
       const priceImpact =
         ltReserveFloat > 0 ? (ltIn / ltReserveFloat) * 100 : 0;
 
-      // Cap-binding curve buys: only the consumed slice is charged the curve
-      // fee on-chain, the remainder is refunded as USDC. `youPay` shows the
-      // user's net spend so the displayed total isn't misleading.
-      const youPay = capped ? usdcUsed + usdcUsed * FEES.curveBuy : usdcAmount;
+      // Cap-binding curve buys: `usdcUsed` is the *net* (post-fee) USDC the
+      // curve consumed. The on-chain fee is charged against the matching
+      // gross — `Zap._executeBuy` ratios `feeOnGross` by `baseToConvert /
+      // netUsdc`, equivalent to `actualFee = grossConsumed - usdcUsed`
+      // where `grossConsumed = usdcUsed / (1 - bps)`. Computing the fee as
+      // `usdcUsed * bps` would understate it (fee on net, not gross).
+      const grossConsumed = capped ? usdcUsed / (1 - FEES.curveBuy) : usdcAmount;
+      const cappedCurveFee = capped ? grossConsumed - usdcUsed : curveFee;
 
       return {
         tokensOut: tokensOut.toLocaleString(undefined, {
           maximumFractionDigits: 0,
         }),
-        curveFee: capped ? usdcUsed * FEES.curveBuy : curveFee,
-        totalFee: capped ? usdcUsed * FEES.curveBuy : curveFee,
+        curveFee: cappedCurveFee,
+        totalFee: cappedCurveFee,
         priceImpactPct: parseFloat(priceImpact.toFixed(2)),
-        youPay,
+        youPay: grossConsumed,
         youReceive: `${(tokensOut / 1e6).toFixed(1)}M`,
         usdcUsed,
         capped,

@@ -310,7 +310,14 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             if (ltNeeded >= ltIfFull) {
                 baseToConvert = netUsdc;
             } else {
+                // `ltToBaseAmount` floors. Bump up so `mint(baseToConvert)`
+                // yields ≥ `ltNeeded` and the cap-binding buy actually
+                // drains the curve — otherwise the closing buy can miss
+                // graduation by 1-2 wei worth of LT / threshold.
                 baseToConvert = IBounceLeveragedToken(lt).ltToBaseAmount(ltNeeded);
+                if (IBounceLeveragedToken(lt).baseToLtAmount(baseToConvert) < ltNeeded) {
+                    baseToConvert += 1;
+                }
                 if (baseToConvert > netUsdc) baseToConvert = netUsdc;
             }
 
