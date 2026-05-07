@@ -39,6 +39,7 @@ Default to no comment. Only add one when the code can't speak for itself.
 - **Don't duplicate `AGENTS.md` / `docs/`.** Contract-level natspec should orient a reader, not re-derive what's already in the spec — link to it instead.
 - **Section banners (`// ─── X ───`)** are fine in long files (>300 lines) where they help navigation; drop them in short files.
 - **No "this is intentional" filler.** If a `try/catch` swallows by design, the natspec on the function should say so once; the body shouldn't repeat it.
+- **`*.module.css` files: keep them silent.** Selector names already say what's being styled, and CSS rarely surfaces non-obvious *why*. Skip top-of-file rationale, `/* ─── Section ─── */` banners, and per-rule narration. Leave a comment **only** when something is genuinely surprising and the next reader would otherwise undo it (e.g. a browser-quirk workaround like `border-collapse: separate` being required for sticky `<thead>`). One terse line is enough — never multi-line rationale.
 - Smart-contract comment guidance is stricter (audit-readability matters) — see [`packages/contracts/AGENTS.md`](packages/contracts/AGENTS.md#comment-style).
 
 ## Terminology

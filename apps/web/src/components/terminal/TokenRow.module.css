@@ -1,10 +1,8 @@
 .row {
   display: grid;
-  grid-template-columns: 52px 1fr 72px 1fr 80px;
+  grid-template-columns: 1fr 72px 1fr 80px;
   height: 58px;
   cursor: pointer;
-  border-bottom: 1px solid var(--border);
-  border-left: 3px solid transparent;
 }
 
 .graduatingLong {
@@ -51,18 +49,27 @@
   border-left-color: var(--amber);
 }
 
-/* Icon cell */
-.iconCell {
+.tokenCell {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0rem 0.75rem;
+  overflow: hidden;
+}
+
+.iconWrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-right: 1px solid var(--border);
+  flex-shrink: 0;
+  width: 4rem;
+  height: 4rem;
 }
 
 .tokenImage {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.375rem;
+  width: 4rem;
+  height: 4rem;
+  border-radius: 0.75rem;
   object-fit: cover;
   transition: transform 200ms ease;
 }
@@ -78,16 +85,13 @@
   transform: scale(1.1);
 }
 
-/* Name cell */
-.nameCell {
+.nameWrap {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 0.125rem;
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  border-right: 1px solid var(--border);
   overflow: hidden;
+  min-width: 0;
 }
 
 .nameRow {
@@ -174,10 +178,8 @@
 .changeCell {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   padding-left: 0.75rem;
   padding-right: 0.75rem;
-  border-right: 1px solid var(--border);
 }
 
 .changeValue {
@@ -195,21 +197,17 @@
   color: var(--red);
 }
 
-/* Progress cell */
 .progressCell {
   display: flex;
   align-items: center;
   padding-left: 0.75rem;
   padding-right: 0.75rem;
-  border-right: 1px solid var(--border);
   overflow: hidden;
 }
 
-/* MCAP cell */
 .mcapCell {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   padding-left: 0.75rem;
   padding-right: 0.75rem;
 }
