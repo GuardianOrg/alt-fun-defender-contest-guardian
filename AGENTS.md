@@ -56,12 +56,14 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 
 Fees are charged by `Zap` in USDC on every buy/sell — curve **and** post-graduation — and forwarded to the dedicated `FeeVault` contract. Creators and the protocol each claim their pooled USDC balance directly from the vault; `Zap` (the user-facing router) holds no fee state, so it can be upgraded or swapped via the `Bonding._routers` allowlist without affecting outstanding balances (the vault keeps a depositor allowlist). This "hot-swap" applies only to the `Zap` layer — the internal AMM `Router.sol` is frozen at deploy time (see [`packages/contracts/AGENTS.md`](packages/contracts/AGENTS.md#two-router-concepts--read-this-before-touching-either)).
 
-| Fee | Rate | Split | Charged where |
-|---|---|---|---|
-| Router buy | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
-| Router sell | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
-| HyperSwap swap (post-grad) | 0.3% | HyperSwap LPs (Alt Fun takes 0%) | HyperSwap V2 pair |
-| LT redemption | BounceTech internal | No additional Alt Fun fee | BounceTech LT |
+| Fee | Applies to | Rate | Split | Charged where |
+|---|---|---|---|---|
+| Alt Fun buy | Every buy (curve **and** post-grad) | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
+| Alt Fun sell | Every sell (curve **and** post-grad) | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
+| HyperSwap LP fee | Post-grad only, **on top of** the 0.5% Alt Fun fee | 0.3% | HyperSwap LPs (Alt Fun takes 0% of this) | HyperSwap V2 pair |
+| LT redemption | Every sell (LT → USDC inside `Zap`) | BounceTech internal | No additional Alt Fun fee | BounceTech LT |
+
+The Alt Fun 0.5% is **not** lifted at graduation. Post-grad trades are routed through `Zap` exactly like curve trades — the only difference is which venue `Zap` swaps against (HyperSwap V2 instead of `Bonding`/`Router.sol`). Auditors: this is intentional. Lifting fees post-grad would silently halve protocol+creator revenue the moment a token graduates and is the exact opposite of what we want.
 
 ---
 

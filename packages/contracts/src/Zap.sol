@@ -30,7 +30,6 @@ import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 ///
 ///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
 ///      mutable state lives in `ZapStorage` at `_ZAP_STORAGE_LOCATION`.
-///      See `packages/contracts/AGENTS.md#storage-layout`.
 contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -278,6 +277,12 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         ZapStorage storage $ = _s();
         address lt = $.bonding.ltOf(tokenAddress);
 
+        // Fee is charged on EVERY buy — bonding curve AND post-graduation.
+        // This is intentional. Lifting the fee post-grad would silently
+        // halve protocol+creator revenue the moment a token graduates and is
+        // the opposite of what we want. The `if (isGraduated) ...` branch
+        // below selects the venue (HyperSwap V2 vs. internal AMM `Router.sol`),
+        // not the fee policy.
         uint256 buyFeeBps_ = $.buyFeeBps;
         uint256 feeOnGross = (usdcAmount * buyFeeBps_) / BPS_DENOM;
         uint256 netUsdc = usdcAmount - feeOnGross;
@@ -378,6 +383,9 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         // Redeem into this zap (not the user) so we can deduct the fee.
         uint256 grossUsdc = IBounceLeveragedToken(lt).redeem(address(this), ltReceived, 0);
 
+        // Symmetric with `_executeBuy`: fee charged on EVERY sell — curve
+        // AND post-graduation. The `isGraduated` branch above selects the
+        // venue, not the fee policy. See `_executeBuy` for the rationale.
         uint256 fee = (grossUsdc * $.sellFeeBps) / BPS_DENOM;
         usdcOut = grossUsdc - fee;
 
@@ -462,9 +470,7 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     ///      (selectors `0xac3893ba` for token-token, `0xb4822be3` for
     ///      ETH-to-token, `0x52aa4c22` for token-to-ETH). Going direct to
     ///      the pair sidesteps that quirk entirely. `Bonding._pairRebalance`
-    ///      uses the same direct-to-pair pattern for the same reason. Full
-    ///      ABI breakdown: `packages/contracts/AGENTS.md` "HyperSwap Router
-    ///      non-standard ABI".
+    ///      uses the same direct-to-pair pattern for the same reason.
     function _swapOnUniswapV2(
         address tokenIn,
         address tokenOut,

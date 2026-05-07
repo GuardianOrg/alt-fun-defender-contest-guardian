@@ -26,11 +26,15 @@ import {VanityMining} from "./lib/VanityMining.sol";
 /// @title Bonding
 /// @notice Constant-product bonding curve for the launchpad. Each token pairs with a
 ///         BounceTech Leveraged Token (LT) as its reserve asset.
-/// @dev Forked from Virtuals Protocol `Bonding.sol`. Full design (virtual reserves,
-///      dual-trigger graduation, two-phase split, dynamic LP seeding, brick-resistance
-///      invariants) lives in `packages/contracts/AGENTS.md` and `docs/contracts-scope.md`.
-///      Read those before touching `_enterGraduating`, `finalizeGraduation`, or
-///      `_prepareGraduationLiquidity`.
+/// @dev Forked from Virtuals Protocol `Bonding.sol`. Key design pillars: virtual
+///      reserves on the curve `Pair`, dual-trigger graduation (USD threshold OR
+///      curve sellout), two-phase graduation split (phase 1 inline in the
+///      threshold-crossing buy, phase 2 permissionless and big-block), dynamic
+///      LP seeding (zero-gap between curve close and LP open), and
+///      brick-resistance against hostile pre-seeds of the post-grad pair. The
+///      most subtle code paths are `_enterGraduating`, `finalizeGraduation`,
+///      and `_prepareGraduationLiquidity` — natspec on each function below
+///      contains the rationale.
 /// @dev Owner is the protocol multisig. Uses `Ownable2StepUpgradeable` so a
 ///      bad `transferOwnership` can be cancelled (or simply ignored by the
 ///      pending owner) before it takes effect — single-step transfer to a
@@ -39,8 +43,7 @@ import {VanityMining} from "./lib/VanityMining.sol";
 ///
 ///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
 ///      mutable state lives in `BondingStorage` at
-///      `_BONDING_STORAGE_LOCATION`. See
-///      `packages/contracts/AGENTS.md#storage-layout`.
+///      `_BONDING_STORAGE_LOCATION`.
 contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -77,10 +80,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///
     ///      The on-chain mask `_VANITY_MASK` below derives from this
     ///      constant so they cannot drift apart. If you change the length
-    ///      here you MUST also update the matching `VANITY_SUFFIX` string
-    ///      in `packages/shared/src/vanity.ts` and the `TRAILING_ZEROS`
-    ///      mirror in `VanityMining.sol`. Diverging any of those bricks
-    ///      token creation.
+    ///      here you MUST also update the matching `TRAILING_ZEROS` mirror
+    ///      in `VanityMining.sol` and any off-chain miner that produces
+    ///      candidate salts. Diverging any of those bricks token creation.
     uint256 public constant VANITY_TRAILING_ZEROS = 5;
 
     /// @dev Bitmask covering the low `(VANITY_TRAILING_ZEROS * 4)` bits of
@@ -186,8 +188,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         /// @dev Graduation fires when real LT reserve × exchangeRate ≥ this.
         ///      Set once at `initialize` and immutable thereafter: a live
         ///      setter would let an MEV searcher sandwich the parameter
-        ///      change against every currently-trading token (issue #269).
-        ///      Tuning requires a UUPS upgrade with a `reinitializer`.
+        ///      change against every currently-trading token. Tuning
+        ///      requires a UUPS upgrade with a `reinitializer`.
         uint256 graduationThresholdUsd;
         mapping(address token => TokenInfo) tokenInfo;
         mapping(address token => address) graduatedPair;
@@ -783,9 +785,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      seed >50% of a curve and burn the result post-launch as a supply
     ///      sink — capping would block that pattern, and the cap is
     ///      trivially bypassable anyway via a second wallet at
-    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. See root
-    ///      `AGENTS.md` for the threat-model writeup. Auditors: this is
-    ///      intentional, not an oversight.
+    ///      `launchBlock + LAUNCH_TRADING_DELAY_BLOCKS + 1`. Auditors: this
+    ///      is intentional, not an oversight.
     function _enforceLaunchDelay(
         address tokenAddress
     ) internal {
@@ -860,8 +861,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      freshness timestamp / staleness gate: a recompute would return
     ///      byte-identical values (inputs are frozen while
     ///      `Lifecycle.Graduating`), and re-pricing the LP at the live
-    ///      `exchangeRate()` would break the zero-gap-in-LT-units invariant
-    ///      enforced by `test/GraduationInvariants.t.sol`.
+    ///      `exchangeRate()` would break the zero-gap-in-LT-units invariant.
     function finalizeGraduation(
         address tokenAddress
     ) external nonReentrant {
@@ -1031,10 +1031,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      Asymmetric router usage: **the rebalance swap is direct-to-pair
     ///      (`pair.swap`), not router-mediated.** HyperSwap mainnet's V2
     ///      router replaces every canonical swap function with FoT-only
-    ///      variants that take a non-standard `referrer` argument
-    ///      (selectors `ac3893ba` / `b4822be3` / `52aa4c22` — see
-    ///      `packages/contracts/AGENTS.md` "HyperSwap Router non-standard
-    ///      ABI"). `Zap._swapOnUniswapV2` already uses `pair.swap` for the
+    ///      variants that take a non-standard `referrer` argument (selectors
+    ///      `ac3893ba` / `b4822be3` / `52aa4c22`).
+    ///      `Zap._swapOnUniswapV2` already uses `pair.swap` for the
     ///      same reason; matching the pattern keeps both in sync and
     ///      removes a HyperSwap-specific footgun. The deposit leg DOES
     ///      use `router.addLiquidity` because that function IS canonical
@@ -1159,8 +1158,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      orders of magnitude below `maxSwap`, so the cap doesn't bind
     ///      and behaviour is unchanged. It only kicks in for catastrophic
     ///      pre-seeds beyond our budget capacity, where the alternative
-    ///      is bricking. See `test_catastrophicPreSeed_capPreservesNonZeroLpLock`
-    ///      in `test/HostilePreSeed.t.sol`.
+    ///      is bricking.
     function _swapBudget(
         uint256 budget
     ) internal pure returns (uint256) {
@@ -1171,8 +1169,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      execute via direct `pair.swap`. Bypasses the V2 router because
     ///      HyperSwap mainnet's router has no canonical
     ///      `swapExactTokensForTokens` — only FoT-with-`referrer` variants
-    ///      with a non-standard ABI (see
-    ///      `packages/contracts/AGENTS.md`). Same direct-to-pair pattern
+    ///      with a non-standard ABI. Same direct-to-pair pattern
     ///      `Zap._swapOnUniswapV2` uses for the same reason.
     ///
     ///      We compute the V2 fee-charging amount-out ourselves

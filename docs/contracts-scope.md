@@ -44,9 +44,9 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 ## Buy Flow
 
 1. `Zap.buy(tokenAddress, usdcAmount, minTokensOut, referrer)`
-2. Router pulls `usdcAmount` USDC and deducts the 0.5% fee up-front (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator)
+2. `Zap` pulls `usdcAmount` USDC and deducts the 0.5% Alt Fun fee up-front (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator). The fee is charged on every buy — curve **and** post-graduation — not just curve trades.
 3. Net USDC is minted to LT
-4. If on curve: routes through `Bonding.buy()`. If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). Fee is charged on both paths — symmetric with sells.
+4. If on curve: routes through `Bonding.buy()` (the internal AMM `Router.sol`). If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). The 0.5% Alt Fun fee is identical on both paths; post-grad, HyperSwap also charges its own 0.3% LP fee on the swap leg, on top of the Alt Fun fee.
 5. Tokens sent to user; any leftover LT (capped-buy case) is redeemed back to USDC and refunded along with the pro-rata fee refund
 
 **Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` then refunds any unused LT to the buyer by calling `IBounceLeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
@@ -54,9 +54,9 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 ## Sell Flow
 
 1. `Zap.sell(tokenAddress, tokenAmount, minUsdcOut)`
-2. If on curve: routes through `Bonding.sell()`. If graduated: swaps on HyperSwap V2.
-3. LT redeemed atomically via `redeem()` → gross USDC into the router
-4. Router deducts the 0.5% fee (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator); net USDC sent to user in the same tx
+2. If on curve: routes through `Bonding.sell()` (the internal AMM `Router.sol`). If graduated: swaps on HyperSwap V2 (which charges a 0.3% LP fee on the swap leg, on top of the Alt Fun fee deducted below).
+3. LT redeemed atomically via `redeem()` → gross USDC into `Zap`
+4. `Zap` deducts the 0.5% Alt Fun fee (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator) — identical on curve and post-grad — and sends net USDC to the user in the same tx
    - Sell amount is limited by the LT's idle USDC buffer (`baseAssetBalance()`)
    - Frontend checks buffer and caps sell amounts; users sell in chunks if needed
    - BounceTech automation replenishes the buffer in ~10s after each redeem
