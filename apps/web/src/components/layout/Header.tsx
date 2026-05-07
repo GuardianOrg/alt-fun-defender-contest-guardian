@@ -3,9 +3,9 @@ import { useNavigate, useLocation } from "react-router";
 
 import styles from "./Header.module.css";
 import { CREATE_PATH } from "../../app/routes";
+import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 import { useWallet } from "../../hooks/useWallet";
 import { setSearchOpen, setEarningsOpen } from "../../state/uiSlice";
-import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 
 export default function Header() {
   const navigate = useNavigate();
