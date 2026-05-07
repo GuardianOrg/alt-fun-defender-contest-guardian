@@ -24,19 +24,23 @@ export default function CommandBar({ tokenCount }: Props) {
 
   return (
     <div className={styles.bar}>
-      {TABS.map((tab) => (
-        <button
-          key={tab.filter}
-          className={cn(
-            styles.tab,
-            activeFilter === tab.filter && styles.tabActive,
-          )}
-          onClick={() => dispatch(setActiveFilter(tab.filter))}
-        >
-          {tab.label}
-          {activeFilter === tab.filter && <span className={styles.indicator} />}
-        </button>
-      ))}
+      <div className={styles.tabs}>
+        {TABS.map((tab) => (
+          <button
+            key={tab.filter}
+            className={cn(
+              styles.tab,
+              activeFilter === tab.filter && styles.tabActive,
+            )}
+            onClick={() => dispatch(setActiveFilter(tab.filter))}
+          >
+            <span>{tab.label}</span>
+            {activeFilter === tab.filter && (
+              <span className={styles.indicator} />
+            )}
+          </button>
+        ))}
+      </div>
       <div className={styles.liveSection}>
         <div className={styles.liveDot} />
         <span className={styles.liveText}>{tokenCount} tokens live</span>

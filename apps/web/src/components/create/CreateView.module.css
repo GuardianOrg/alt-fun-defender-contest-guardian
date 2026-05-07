@@ -3,10 +3,13 @@
   grid-template-columns: 1fr 380px;
   flex: 1;
   overflow: hidden;
+  margin: 1.6rem 1.2rem 1.2rem 1.2rem;
+  gap: 1.6rem;
 }
 
 .formColumn {
   overflow-y: auto;
+  border: 1px solid var(--border);
 }
 
 .pageHeader {

@@ -137,6 +137,7 @@
   flex-direction: column;
   background: var(--bg-1);
   box-shadow: var(--shadow-panel);
+  border: 1px solid var(--border);
 }
 
 .volWarning {
@@ -232,7 +233,9 @@
 }
 
 @keyframes graduatingSpin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .toggleBar {

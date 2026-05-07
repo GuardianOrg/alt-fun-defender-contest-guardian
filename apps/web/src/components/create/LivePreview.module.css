@@ -1,7 +1,7 @@
 .wrapper {
   background: linear-gradient(to bottom, var(--bg-1), var(--bg));
-  border-left: 1px solid var(--border);
   overflow-y: auto;
+  border: 1px solid var(--border);
 }
 
 .content {

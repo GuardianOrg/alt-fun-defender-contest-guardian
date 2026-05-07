@@ -46,6 +46,19 @@ export default function Header() {
       )}
 
       <div className={styles.rightSide}>
+        {isConnected ? (
+          <button
+            className={styles.walletAddress}
+            onClick={() => dispatch(setEarningsOpen(true))}
+          >
+            <span className={styles.fullText}>{shortAddress}</span>
+            <span className={styles.shortText}>{tinyAddress}</span>
+          </button>
+        ) : (
+          <button className={styles.walletAddress} onClick={connect}>
+            Connect Wallet
+          </button>
+        )}
         {isConnected &&
           (isCreate ? (
             <button className={styles.creatingBtn}>
@@ -62,19 +75,6 @@ export default function Header() {
               <span className={styles.shortText}>create</span>
             </button>
           ))}
-        {isConnected ? (
-          <button
-            className={styles.walletAddress}
-            onClick={() => dispatch(setEarningsOpen(true))}
-          >
-            <span className={styles.fullText}>{shortAddress}</span>
-            <span className={styles.shortText}>{tinyAddress}</span>
-          </button>
-        ) : (
-          <button className={styles.walletAddress} onClick={connect}>
-            Connect Wallet
-          </button>
-        )}
       </div>
     </header>
   );
