@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-
 import { useDispatch } from "react-redux";
 import { useNavigate, useLocation } from "react-router";
 
@@ -7,73 +5,22 @@ import styles from "./Header.module.css";
 import { CREATE_PATH } from "../../app/routes";
 import { useWallet } from "../../hooks/useWallet";
 import { setSearchOpen, setEarningsOpen } from "../../state/uiSlice";
-import { cn } from "../../utils/format";
-
-const TABS = [
-  { label: "MARKETS", path: "/" },
-  { label: "PROFILE", action: "earnings" as const },
-];
+import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 
 export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const dispatch = useDispatch();
-  const { isConnected, shortAddress, connect } = useWallet();
-  const [clock, setClock] = useState("--:--:-- UTC");
-
-  useEffect(() => {
-    const tick = () => {
-      const n = new Date();
-      setClock(
-        `${String(n.getUTCHours()).padStart(2, "0")}:${String(n.getUTCMinutes()).padStart(2, "0")}:${String(n.getUTCSeconds()).padStart(2, "0")} UTC`,
-      );
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, []);
+  const { isConnected, address, shortAddress, connect } = useWallet();
+  const tinyAddress = address ? `${address.slice(0, 5)}…` : undefined;
 
   const isCreate = location.pathname === CREATE_PATH;
 
   return (
     <header className={styles.header}>
       <div className={styles.logo} onClick={() => navigate("/")}>
-        <span className={styles.logoMint}>ALT</span>
-        <span className={styles.logoTxt}>FUN</span>
+        <AltFunLogo size={36} />
       </div>
-
-      <div className={styles.tagline}>
-        <span className={styles.taglineMint}>leverage</span>
-        <span className={styles.taglineSep}>&times;</span>
-        <span className={styles.taglineTxt}>memes</span>
-      </div>
-
-      <nav className={styles.nav}>
-        {TABS.map((tab) => {
-          const hasPath = "path" in tab;
-          const isActive =
-            hasPath && tab.path === "/" && location.pathname === "/";
-          return (
-            <button
-              key={tab.label}
-              className={cn(
-                styles.navButton,
-                isActive && styles.navButtonActive,
-              )}
-              onClick={() => {
-                if ("action" in tab && tab.action === "earnings") {
-                  dispatch(setEarningsOpen(true));
-                } else if (hasPath && tab.path !== "#") {
-                  navigate(tab.path!);
-                }
-              }}
-            >
-              {tab.label}
-              {isActive && <span className={styles.activeIndicator} />}
-            </button>
-          );
-        })}
-      </nav>
 
       {!isCreate && (
         <div
@@ -93,36 +40,38 @@ export default function Header() {
             <circle cx="11" cy="11" r="7" />
             <path d="m20 20-3.5-3.5" />
           </svg>
-          <span className={styles.searchText}>Search tokens&hellip;</span>
+          <span className={styles.searchText}>Search for altcoins&hellip;</span>
           <span className={styles.searchKbd}>⌘K</span>
         </div>
       )}
 
       <div className={styles.rightSide}>
-        <span className={styles.clock}>{clock}</span>
-        {isConnected ? (
-          <>
-            <span
-              className={styles.walletAddress}
-              onClick={() => dispatch(setEarningsOpen(true))}
+        {isConnected &&
+          (isCreate ? (
+            <button className={styles.creatingBtn}>
+              <span>+</span>
+              <span>creating token</span>
+            </button>
+          ) : (
+            <button
+              className={styles.launchBtn}
+              onClick={() => navigate(CREATE_PATH)}
             >
-              {shortAddress}
-            </span>
-            {isCreate ? (
-              <button className={styles.creatingBtn}>
-                &#x26A1; creating token
-              </button>
-            ) : (
-              <button
-                className={styles.launchBtn}
-                onClick={() => navigate(CREATE_PATH)}
-              >
-                &#x26A1; launch a levered token
-              </button>
-            )}
-          </>
+              <span>+</span>
+              <span className={styles.fullText}>create a levered token</span>
+              <span className={styles.shortText}>create</span>
+            </button>
+          ))}
+        {isConnected ? (
+          <button
+            className={styles.walletAddress}
+            onClick={() => dispatch(setEarningsOpen(true))}
+          >
+            <span className={styles.fullText}>{shortAddress}</span>
+            <span className={styles.shortText}>{tinyAddress}</span>
+          </button>
         ) : (
-          <button className={styles.connectButtonPrimary} onClick={connect}>
+          <button className={styles.walletAddress} onClick={connect}>
             Connect Wallet
           </button>
         )}

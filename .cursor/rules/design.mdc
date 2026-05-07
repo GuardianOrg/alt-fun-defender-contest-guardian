@@ -55,7 +55,7 @@ Do not invent a new shade by writing `rgba(234, 250, 244, 0.x)`. If you need som
 ## Spacing, borders, radii
 
 - Border radius: `0`, `2px`, or `3px`. Pills (`9999px`) only for dots/indicators.
-- Spacing scale is `0.125rem` / `0.25rem` / `0.375rem` / `0.5rem` / `0.625rem` / `0.75rem` / `1rem` / `1.25rem`. Don't introduce `1.5rem` or `2rem` just because it "feels airier" — the density is intentional.
+- Spacing scale is a **doubling rem scale**: `0.1rem` / `0.2rem` / `0.4rem` / `0.8rem` / `1.2rem` / `1.6rem` / `2.4rem` / `3.2rem`. Stick to these steps — never reach for `0.5rem`, `0.75rem`, `1rem`, `1.5rem`, etc. just because they "feel" right. The density and rhythm are intentional. (`1.2rem` is the half-step between `0.8rem` and `1.6rem` and is allowed for header / row gutters.)
 - Panel separators are 1px solid `var(--border)` / `var(--border-2)`. Do not use `box-shadow` for separation.
 
 ## Motion
