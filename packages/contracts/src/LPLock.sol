@@ -16,8 +16,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 ///
 ///      Storage uses ERC-7201 namespaced layout (no `__gap` needed). All
 ///      mutable state lives in `LPLockStorage` at `_LP_LOCK_STORAGE_LOCATION`.
-///      See `packages/contracts/AGENTS.md#storage-layout` for the project-wide
-///      convention and the `test/StorageLayout.t.sol` slot-derivation test.
 contract LPLock is UUPSUpgradeable, Ownable2StepUpgradeable {
     struct LockInfo {
         address lpPair;

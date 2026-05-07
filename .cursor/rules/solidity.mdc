@@ -20,6 +20,34 @@ Do NOT skip these steps. Do NOT leave formatting or CI failures for the user to 
 - Events for all state mutations
 - Use OpenZeppelin contracts from `lib/` (git submodules)
 
+## Public-Facing Source — No Internal References (MANDATORY)
+
+`packages/contracts/src/**/*.sol` is the only part of the repo that ships publicly (audit reports, Etherscan verification, third-party reviewers). Treat every comment as something an external reader will see with NO access to the rest of the repo.
+
+**NEVER reference these from `src/` Solidity files:**
+- Internal markdown docs: `AGENTS.md`, `docs/*.md`, `TODO.md`, `README.md` (anywhere in the repo).
+- Internal repo paths: `apps/...`, `packages/<anything>/src/...`, `packages/<anything>/test/...`, `packages/<anything>/script/...`, `packages/shared/...`, `.cursor/...`, `.github/...`.
+- Sibling-package source files by path: `packages/shared/src/vanity.ts`, `apps/web/src/...`, etc.
+- GitHub issue/PR numbers (`issue #269`, `PR #343`, `(see #310)`) — the issue tracker is private.
+- Internal repo URLs: `github.com/<our-org>/...`, `linear.app/...`, internal Notion / Slack links.
+- Repo-internal task management language: "see TODO.md", "tracked in Linear", etc.
+
+**OK to reference:**
+- Other `.sol` files in `packages/contracts/src/` by contract / function / library name (e.g. `VanityMining.sol`, `Bonding._enterGraduating`, `Pair.swap`). These ship together.
+- External public sources: BounceTech / OpenZeppelin / Foundry GitHub URLs, EIP numbers, Hyperliquid public docs.
+- Generic architecture roles: "the frontend", "the indexer", "the keeper Worker", "the off-chain miner". These describe operational context without leaking repo structure.
+- Test file names within the same `packages/contracts/test/` tree are tolerated **only when the test asserts a load-bearing invariant the comment is invoking** (e.g. "the brick-resistance contract is enforced by `test/HostilePreSeed.t.sol`"). Default to NOT referencing them — auditors won't see the test file unless we share it separately.
+
+**When you would have written an `AGENTS.md` cross-reference, instead:**
+- Inline the relevant rationale in the natspec on the function / storage field itself, OR
+- Trust the contract-level natspec (which orients readers to the load-bearing pieces) and stay silent.
+
+**Same constraint applies to any string baked into bytecode:** error messages, `revert(reason)` strings, event arg defaults — never embed an internal path.
+
+This rule applies only to `packages/contracts/src/`. The contracts package's own `AGENTS.md`, `test/`, `script/`, and other sibling files are free to reference whatever they like — they don't ship.
+
+**Audit your changes:** before declaring a `.sol` edit done, grep the modified file(s) for `AGENTS`, `docs/`, `apps/`, `packages/[a-z]+/src`, `issue\s*#\d+`, `\.ts\b`, `TODO\.md`. Any hit in `src/` is a defect to fix in the same edit.
+
 ## Security Checklist
 Before any PR, verify:
 - Reentrancy guards on external calls that transfer value
