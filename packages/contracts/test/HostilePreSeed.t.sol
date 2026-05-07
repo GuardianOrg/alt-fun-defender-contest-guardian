@@ -13,8 +13,12 @@ import {MockHyperswapPair, MockHyperswapFactory} from "./mocks/MockHyperswapRout
 ///        1. **Pure-donation pre-seed.** Attacker calls
 ///           `IERC20(token).transfer(pair, X)` without ever calling
 ///           `pair.mint`. Reserves stay at zero; balance > 0. The
-///           protocol's `pair.skim(lpLock)` call sweeps the donation
-///           BACK to LPLock and the rebalance branch is never entered.
+///           protocol's `pair.skim(address(this))` call pulls the
+///           donation into `Bonding`; donated TOKEN is then burned in
+///           the empty-pair fall-through and donated LT is auto-swept
+///           to the owner by `finalizeGraduation`'s `_sweepLTToOwner`
+///           post-bookend. NOT routed to `LPLock` — `LPLock` has no
+///           rescue path, so anything sent there is permanently stuck.
 ///        2. **Mint pre-seed (the issue).** Attacker calls `pair.mint`
 ///           against a self-funded dust seed. Reserves are non-zero at
 ///           a hostile ratio; without the rebalance branch, our
@@ -214,16 +218,17 @@ contract HostilePreSeedTest is DeployHelper {
         assertEq(IERC20(tokenAddr).balanceOf(address(bonding)), 0, "no TOKEN leftover on happy path");
     }
 
-    // ─── Pure-donation pre-seed (skim handles it) ────────────────────────
+    // ─── Pure-donation pre-seed (skim → owner sweep / burn) ──────────────
 
-    /// @dev Donation-only pre-seed: attacker transfers tokens to the pair
+    /// @dev Donation-only LT pre-seed: attacker transfers LT to the pair
     ///      WITHOUT calling `pair.mint`. Reserves stay at zero. Our skim
-    ///      sweeps the donation back to LPLock; the empty-pair fast path
-    ///      then runs unchanged.
-    function test_donationPreSeed_skimsBackToLPLock() public {
+    ///      pulls the donation into `Bonding`; the empty-pair fast path
+    ///      then runs, and the post-bookend `_sweepLTToOwner` routes the
+    ///      donation to the protocol owner — NOT to `LPLock`, which has
+    ///      no rescue path.
+    function test_donationPreSeed_lt_sweptToOwner() public {
         (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(0);
 
-        // Attacker donates 30 LT to the pair. Reserves stay zero.
         uint256 donation = 30 ether;
         lt.mintDirect(attacker, donation);
         vm.prank(attacker);
@@ -236,12 +241,57 @@ contract HostilePreSeedTest is DeployHelper {
 
         _enterGraduating(tokenAddr);
         CurveClose memory snap = _snapshotCurveClose(tokenAddr);
+
+        uint256 ownerLTBefore = lt.balanceOf(owner);
+        uint256 lpLockLTBefore = lt.balanceOf(address(lpLockContract));
+        vm.expectEmit(true, true, false, false, address(bonding));
+        emit Bonding.LTRescued(address(lt), owner, 0);
         bonding.finalizeGraduation(tokenAddr);
 
-        // The donation went to lpLock (the skim recipient).
-        assertEq(lt.balanceOf(address(lpLockContract)), donation, "donation must land on LPLock");
+        assertEq(lt.balanceOf(owner) - ownerLTBefore, donation, "donation LT must reach owner via sweep");
+        assertEq(
+            lt.balanceOf(address(lpLockContract)), lpLockLTBefore, "donation must NOT land on LPLock (no rescue path)"
+        );
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared post-finalize");
 
         // Pool opens at curve-close price (skim → empty-pair fast path).
+        _assertZeroPriceGap(address(pair), tokenAddr, snap);
+    }
+
+    /// @dev Donation-only TOKEN pre-seed: attacker spends curve LT to
+    ///      acquire TOKEN, then donates it directly to the HyperSwap pair
+    ///      without minting. Reserves stay at zero. Our skim pulls the
+    ///      donation into `Bonding`; the empty-pair fast path mints LP at
+    ///      the exact curve-close ratio, and the donated TOKEN is burned
+    ///      (not stuck in `LPLock`, not deposited as a `min()` donation).
+    ///      Supply conservation: total TOKEN supply post-finalize equals
+    ///      `tokensForLP` minted into LP — every other token is burned.
+    function test_donationPreSeed_token_burned() public {
+        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(1 ether);
+
+        uint256 donation = IERC20(tokenAddr).balanceOf(attacker);
+        require(donation > 0, "test setup: attacker must hold TOKEN to donate");
+        vm.prank(attacker);
+        IERC20(tokenAddr).transfer(address(pair), donation);
+
+        (uint112 r0Pre, uint112 r1Pre,) = pair.getReserves();
+        assertEq(r0Pre, 0, "donation must not move stored reserves");
+        assertEq(r1Pre, 0);
+        assertEq(IERC20(tokenAddr).balanceOf(address(pair)), donation, "donation in pair balance");
+
+        _enterGraduating(tokenAddr);
+        CurveClose memory snap = _snapshotCurveClose(tokenAddr);
+
+        uint256 lpLockTokenBefore = IERC20(tokenAddr).balanceOf(address(lpLockContract));
+        bonding.finalizeGraduation(tokenAddr);
+
+        assertEq(IERC20(tokenAddr).balanceOf(address(bonding)), 0, "Bonding TOKEN balance cleared (donation burned)");
+        assertEq(
+            IERC20(tokenAddr).balanceOf(address(lpLockContract)),
+            lpLockTokenBefore,
+            "donation must NOT land on LPLock as raw TOKEN"
+        );
+
         _assertZeroPriceGap(address(pair), tokenAddr, snap);
     }
 
@@ -347,12 +397,19 @@ contract HostilePreSeedTest is DeployHelper {
     // ─── Combined attack: mint pre-seed + donation on top ────────────────
 
     /// @dev Worst-case attacker: mints pre-seed AND adds extra donation.
-    ///      Both the skim AND rebalance branches fire.
+    ///      Both the skim AND rebalance branches fire. Skim pulls the
+    ///      donation into `Bonding` where it joins the rebalance flow.
+    ///      Per audit-issue #9 — the safety property is that the
+    ///      donation is NEVER stuck in `LPLock` (which has no rescue).
+    ///      Disposition: any portion the rebalance / `addLiquidity`
+    ///      consumes ends up in the locked LP (fine — boosts pool
+    ///      depth); the rest is auto-swept to the protocol owner via
+    ///      `_sweepLTToOwner`. Donation accounted for in full,
+    ///      `Bonding` ends empty, `LPLock` holds zero raw LT.
     function test_combinedAttack_skimAndRebalance_zeroGap() public {
         (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(5 ether);
         _attackerMintPreSeed(pair, tokenAddr, 50_000 ether, 5 ether);
 
-        // Then donate even more on top (no mint).
         uint256 donation = 20 ether;
         lt.mintDirect(attacker, donation);
         vm.prank(attacker);
@@ -360,13 +417,17 @@ contract HostilePreSeedTest is DeployHelper {
 
         _enterGraduating(tokenAddr);
         CurveClose memory snap = _snapshotCurveClose(tokenAddr);
+
+        uint256 lpLockLTBefore = lt.balanceOf(address(lpLockContract));
         bonding.finalizeGraduation(tokenAddr);
 
         _assertZeroPriceGap(address(pair), tokenAddr, snap);
 
-        // Donation portion (20 ether) should have ended up on LPLock via skim.
-        // Lower bound: at least the donation amount routed to LPLock.
-        assertGe(lt.balanceOf(address(lpLockContract)), donation, "skim must have transferred donation to LPLock");
+        // Donation is never stuck on `LPLock` (no rescue path). It is
+        // either consumed by the rebalance/deposit flow (folded into
+        // locked LP — protocol-positive) or auto-swept to the owner.
+        assertEq(lt.balanceOf(address(lpLockContract)), lpLockLTBefore, "donation must NOT land on LPLock");
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared post-finalize");
     }
 
     // ─── Brick resistance is preserved ───────────────────────────────────
