@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-/// @notice On-chain mirror of the frontend vanity miner. Brute-forces a
-///         `userSalt` such that the predicted clone address ends in
+/// @notice Solidity-side mirror of the frontend vanity miner
+///         (`packages/shared/src/vanity.ts`). Brute-forces a `userSalt`
+///         such that the predicted clone address ends in
 ///         `VANITY_TRAILING_ZEROS = 5` zero hex chars (i.e. `0x…00000`).
-///         Used by `Bonding.setTokenImplementation` to verify a new impl
-///         can produce a launch-ready clone before bricking user launches,
-///         and by Foundry tests / the E2E deploy script to generate real
-///         launch-ready salts.
+///         Test/script-only: used by Foundry tests (`DeployHelper`,
+///         `Clones.t.sol`) and the E2E deploy script (`E2ETest.s.sol`) to
+///         generate real launch-ready salts. Not referenced by any
+///         production contract — production launches mine off-chain in
+///         the JS Web Worker pool and submit the salt to `Bonding.launch`.
 ///
 ///         Pure value match — digits 0-9 render identically regardless of
 ///         EIP-55 checksum casing, so no second keccak step is needed.

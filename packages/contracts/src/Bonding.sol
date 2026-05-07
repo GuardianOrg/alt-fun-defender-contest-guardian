@@ -21,7 +21,6 @@ import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
 import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
 import {IUniswapV2Router02} from "./interfaces/IUniswapV2Router02.sol";
 import {LPLock} from "./LPLock.sol";
-import {VanityMining} from "./lib/VanityMining.sol";
 
 /// @title Bonding
 /// @notice Constant-product bonding curve for the launchpad. Each token pairs with a
@@ -78,9 +77,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      The on-chain mask `_VANITY_MASK` below derives from this
     ///      constant so they cannot drift apart. If you change the length
     ///      here you MUST also update the matching `VANITY_SUFFIX` string
-    ///      in `packages/shared/src/vanity.ts` and the `TRAILING_ZEROS`
-    ///      mirror in `VanityMining.sol`. Diverging any of those bricks
-    ///      token creation.
+    ///      in `packages/shared/src/vanity.ts` (production miner) and the
+    ///      `TRAILING_ZEROS` mirror in `test/lib/VanityMining.sol`
+    ///      (test/script miner). Diverging any of those bricks token
+    ///      creation.
     uint256 public constant VANITY_TRAILING_ZEROS = 5;
 
     /// @dev Bitmask covering the low `(VANITY_TRAILING_ZEROS * 4)` bits of
@@ -733,10 +733,6 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (Token(newImpl).TOTAL_SUPPLY() != Token($.tokenImplementation).TOTAL_SUPPLY()) {
             revert InvalidInput();
         }
-        // Probe that the new impl can produce a vanity-suffixed clone. If
-        // structurally broken, fail here rather than silently bricking every
-        // user's `launch()`.
-        VanityMining.mine(address(0x1), bytes32(0), bytes32(0), newImpl, address(this), 0);
         address old = $.tokenImplementation;
         $.tokenImplementation = newImpl;
         emit TokenImplementationUpdated(old, newImpl);

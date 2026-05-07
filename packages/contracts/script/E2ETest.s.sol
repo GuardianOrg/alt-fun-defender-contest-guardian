@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Bonding} from "../src/Bonding.sol";
 import {Zap} from "../src/Zap.sol";
 import {IPair} from "../src/interfaces/IPair.sol";
-import {VanityMining} from "../src/lib/VanityMining.sol";
+import {VanityMining} from "../test/lib/VanityMining.sol";
 
 contract E2ETest is Script {
     /// @dev Pinned LT on HyperEVM mainnet — same `HYPE2L` used by the test

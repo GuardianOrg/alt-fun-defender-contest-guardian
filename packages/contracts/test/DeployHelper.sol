@@ -14,7 +14,7 @@ import {MockBounceGlobalStorage} from "./mocks/MockBounceGlobalStorage.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
 import {MockHyperswapRouter, MockHyperswapFactory} from "./mocks/MockHyperswapRouter.sol";
-import {VanityMining} from "../src/lib/VanityMining.sol";
+import {VanityMining} from "./lib/VanityMining.sol";
 
 /// @notice Shared deployment wiring for Bonding-based test suites.
 /// Deploys mocks, factory, router, LPLock proxy, Bonding proxy, and FeeVault proxy with roles configured.
