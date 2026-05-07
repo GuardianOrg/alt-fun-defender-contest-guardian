@@ -79,10 +79,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///
     ///      The on-chain mask `_VANITY_MASK` below derives from this
     ///      constant so they cannot drift apart. If you change the length
-    ///      here you MUST also update the matching `VANITY_SUFFIX` string
-    ///      in `packages/shared/src/vanity.ts` (production miner) and the
-    ///      `TRAILING_ZEROS` mirror in `test/lib/VanityMining.sol`
-    ///      (test/script miner). Diverging any of those bricks token
+    ///      here you MUST also update the matching value in the frontend
+    ///      production miner and the Solidity test miner — both must
+    ///      mirror this constant. Diverging any of those bricks token
     ///      creation.
     uint256 public constant VANITY_TRAILING_ZEROS = 5;
 
