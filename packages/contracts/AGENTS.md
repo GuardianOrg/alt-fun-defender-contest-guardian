@@ -169,7 +169,7 @@ Pristine path: `transfer(pair, tokensForLP) + transfer(pair, ltFromPair) + pair.
 
 #### Regime 2 — pure-donation pre-seed
 
-Attacker called `IERC20(token).transfer(pair, X)` without ever calling `pair.mint`. Reserves stay at zero; only the pair's balance moved. We call `pair.skim(lpLock)` first — V2's `skim` transfers excess balance over reserves to the recipient — so the donated tokens flow to LPLock as protocol revenue. Path then collapses to Regime 1.
+Attacker called `IERC20(token).transfer(pair, X)` without ever calling `pair.mint`. Reserves stay at zero; only the pair's balance moved. We call `pair.skim(address(this))` first — V2's `skim` transfers excess balance over reserves to the recipient — so the donation flows back into `Bonding`. Path then collapses to Regime 1, with the empty-pair branch's tail burning any donated TOKEN and `finalizeGraduation`'s `_sweepLTToOwner` post-bookend routing donated LT to the protocol owner. The skim recipient is deliberately NOT `LPLock`: `LPLock` has no withdraw / rescue path in v1, so anything sent there is permanently stuck — auditing-issue #9. `protectedLT` is snapshotted in `finalizeGraduation` BEFORE `_seedUniswapV2Direct` runs, so the donation is correctly classified as rebalance residue rather than concurrent-graduation escrow.
 
 #### Regime 3 — mint pre-seed (the actual exploit)
 

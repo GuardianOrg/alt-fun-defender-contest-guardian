@@ -1002,8 +1002,16 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///           curve-close price. Zero gap by construction.
     ///        2. **Pure-donation pre-seed.** Attacker `transfer`'d to the
     ///           pair without `mint` (balance > 0, reserves == 0).
-    ///           `pair.skim(lpLock)` sweeps the donation back to the
-    ///           protocol; path then collapses to (1).
+    ///           `pair.skim(address(this))` pulls the donation into
+    ///           `Bonding`; path then collapses to (1). Donated TOKEN is
+    ///           burned alongside the empty-pair mint; donated LT is
+    ///           handled by `finalizeGraduation`'s post-bookend
+    ///           `_sweepLTToOwner` (which uses `protectedLT` snapshotted
+    ///           BEFORE skim, so the donation is correctly classified as
+    ///           rebalance residue rather than concurrent-graduation
+    ///           escrow). NEVER routed to `LPLock` — `LPLock` has no
+    ///           rescue path in v1, so anything that lands there is
+    ///           permanently stuck.
     ///        3. **Mint pre-seed (the actual issue).** Attacker called
     ///           `pair.mint` against a self-funded dust seed, baking a
     ///           hostile (TOKEN, LT) ratio into the pool. Without
@@ -1053,17 +1061,29 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 ltFromPair,
         uint256 protectedLT
     ) internal returns (uint256 liquidity) {
-        // Regime 2 — sweep any donation pre-seed back to the protocol so it
-        // doesn't pollute the post-swap ratio. No-op on a freshly-created
-        // pair (balance == reserves == 0).
-        IUniswapV2Pair(pair).skim(_s().lpLock);
+        // Regime 2 — pull any donation pre-seed into this contract so it
+        // doesn't pollute the post-swap ratio. Routed to `address(this)`
+        // (NOT `lpLock`) so donated TOKEN can be burned and donated LT
+        // can be swept to the owner via `_sweepLTToOwner` — `LPLock` has
+        // no rescue path, so anything sent there is permanently stuck.
+        // No-op on a freshly-created pair (balance == reserves == 0).
+        IUniswapV2Pair(pair).skim(address(this));
 
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
         // Regime 1 — pristine pair, direct mint at exact curve-close ratio.
         if (r0 == 0 && r1 == 0) {
             IERC20(tokenAddress).safeTransfer(pair, tokensForLP);
             IERC20(lt).safeTransfer(pair, ltFromPair);
-            return IUniswapV2Pair(pair).mint(_s().lpLock);
+            liquidity = IUniswapV2Pair(pair).mint(_s().lpLock);
+            // Burn any TOKEN remainder skimmed from a pure-donation
+            // pre-seed (Regime 2 → 1 fall-through). LT remainder is
+            // handled by `finalizeGraduation`'s `_sweepLTToOwner` post-
+            // bookend; no extra call needed here.
+            uint256 leftoverToken = IERC20(tokenAddress).balanceOf(address(this));
+            if (leftoverToken > 0) {
+                Token(tokenAddress).burn(address(this), leftoverToken);
+            }
+            return liquidity;
         }
 
         // Regime 3 — mint pre-seed: rebalance, then deposit balanced subset.
