@@ -2,10 +2,15 @@ import baseConfig from "@launchpad/config/eslint/base";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
-import importPlugin from "eslint-plugin-import";
+import importX from "eslint-plugin-import-x";
 import tseslint from "typescript-eslint";
 import { globalIgnores } from "eslint/config";
 
+// `eslint-plugin-import-x` is a maintained fork of `eslint-plugin-import` that
+// supports ESLint 9 and 10. The legacy plugin still calls APIs ESLint 10
+// removed (`sourceCode.getTokenOrCommentBefore`), so `import/order` blows up
+// with a `TypeError` on every CI run. Rule names are renamed `import` →
+// `import-x` to match the plugin's published namespace.
 export default tseslint.config([
   globalIgnores(["dist", "example", "e2e"]),
   ...baseConfig,
@@ -14,14 +19,15 @@ export default tseslint.config([
     extends: [
       reactHooks.configs.flat["recommended-latest"],
       reactRefresh.configs.vite,
-      importPlugin.flatConfigs.recommended,
+      importX.flatConfigs.recommended,
+      importX.flatConfigs.typescript,
     ],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
     },
     settings: {
-      "import/resolver": {
+      "import-x/resolver": {
         typescript: {
           alwaysTryTypes: true,
           project: "./tsconfig.json",
@@ -31,7 +37,7 @@ export default tseslint.config([
     rules: {
       "react-hooks/immutability": "off",
       "react-hooks/set-state-in-effect": "off",
-      "import/order": [
+      "import-x/order": [
         "error",
         {
           groups: [

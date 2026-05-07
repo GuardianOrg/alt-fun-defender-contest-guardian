@@ -206,11 +206,11 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         ///      at 1s blocks) and packs four launches per slot.
         mapping(address token => uint64) launchBlock;
         /// @dev V2 router used in the hostile-pre-seed defense path of
-        ///      `_seedUniswapV2Direct` (issue #308). Set at `initialize`
-        ///      and immutable thereafter — rotation requires a UUPS
-        ///      upgrade so the change is visible on-chain ahead of any
-        ///      in-flight graduation, same contract as `uniswapV2Factory`.
-        ///      The empty-pair fast path bypasses the router entirely.
+        ///      `_seedUniswapV2Direct`. Set at `initialize` and immutable
+        ///      thereafter — rotation requires a UUPS upgrade so the
+        ///      change is visible on-chain ahead of any in-flight
+        ///      graduation, same contract as `uniswapV2Factory`. The
+        ///      empty-pair fast path bypasses the router entirely.
         address uniswapV2Router;
     }
 
@@ -254,8 +254,13 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     event RouterRemoved(address indexed router);
     event TokenImplementationUpdated(address indexed oldImpl, address indexed newImpl);
     event BounceGlobalStorageUpdated(address indexed oldGlobalStorage, address indexed newGlobalStorage);
-    /// @notice Emitted by `rescueLT` so the destination of any LT sweep
-    ///         is observable on-chain (the function takes an arbitrary `to`).
+    /// @notice Emitted by `finalizeGraduation`'s auto-sweep when this
+    ///         graduation's rebalance leftover (Regime 3 hostile-pre-seed
+    ///         defense) is transferred to the protocol owner. LT escrowed
+    ///         for concurrent graduations or sitting as stray dust is
+    ///         retained in `Bonding` (it's `protectedLT`, off-limits to
+    ///         the sweep). Honest graduations don't emit this — there's
+    ///         no residue.
     event LTRescued(address indexed token, address indexed to, uint256 amount);
 
     error TokenNotTrading();
@@ -764,32 +769,6 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         return _s().routers.values();
     }
 
-    /// @notice Owner sweep for LT dust accumulated in this contract from the
-    ///         hostile-pre-seed rebalance path in `_routerDepositAndDispose`.
-    ///         For honest graduations this is a no-op (no LT ever lands in
-    ///         `Bonding`). For tokens whose graduation tripped a mint-style
-    ///         pre-seed attack, the off-ratio LT remainder accumulates here
-    ///         as protocol revenue and is sweepable to `to` (typically the
-    ///         protocol's `FeeVault`, which has `sweepDonations()` for this
-    ///         exact pattern).
-    /// @dev    Bonding never holds LT in normal operation: curve trading
-    ///         routes LT through `Pair`/`Router`, and graduation moves
-    ///         raised LT directly from the curve `Pair` to the HyperSwap
-    ///         `Pair` inside `_seedUniswapV2Direct`. Anything sitting in
-    ///         this contract's LT balance is therefore rebalance dust or
-    ///         a mistaken transfer — both safe to sweep. Owner already has
-    ///         UUPS-upgrade authority, so an open ERC20 sweep doesn't
-    ///         meaningfully expand the trust surface.
-    function rescueLT(
-        address ltToken,
-        address to,
-        uint256 amount
-    ) external onlyOwner {
-        if (to == address(0) || ltToken == address(0)) revert ZeroAddress();
-        IERC20(ltToken).safeTransfer(to, amount);
-        emit LTRescued(ltToken, to, amount);
-    }
-
     // ─── Internals ───────────────────────────────────────────────────────
 
     /// @dev Anti-snipe gate. Inside the launch tx the seed buy fires the
@@ -869,19 +848,18 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      directly. This is brick-proof against a front-runner pre-creating
     ///      the pair and dust-seeding it between phases.
     /// @dev Exchange-rate drift between phase 1 and phase 2 is accepted by
-    ///      design (issue #309, audit findings F-07 / IN-03). The cached
-    ///      `(tokensForLP, ltFromPair)` are pure pair-state arithmetic — see
-    ///      `_prepareGraduationLiquidity`, which never reads `exchangeRate()`
-    ///      — so the LP opens at the exact LT-per-token ratio the curve
-    ///      closed at, regardless of how long phase 2 takes. What drifts is
-    ///      only the USD denomination of the LT side, which is inherent to
-    ///      using a leveraged token as the curve reserve: holders accept that
-    ///      exposure when they buy in. A keeper Worker drives finalize within
-    ///      ~60s of `TokenGraduating`, so the practical drift window is
-    ///      single-digit seconds. We deliberately do NOT add a freshness
-    ///      timestamp / staleness gate here: the audit-recommended recompute
-    ///      path would return byte-identical values (its inputs are frozen
-    ///      while `Lifecycle.Graduating`), and re-pricing the LP at the live
+    ///      design. The cached `(tokensForLP, ltFromPair)` are pure pair-
+    ///      state arithmetic — see `_prepareGraduationLiquidity`, which
+    ///      never reads `exchangeRate()` — so the LP opens at the exact
+    ///      LT-per-token ratio the curve closed at, regardless of how long
+    ///      phase 2 takes. What drifts is only the USD denomination of the
+    ///      LT side, which is inherent to using a leveraged token as the
+    ///      curve reserve: holders accept that exposure when they buy in.
+    ///      A keeper Worker drives finalize within ~60s of `TokenGraduating`,
+    ///      so the practical drift window is single-digit seconds. No
+    ///      freshness timestamp / staleness gate: a recompute would return
+    ///      byte-identical values (inputs are frozen while
+    ///      `Lifecycle.Graduating`), and re-pricing the LP at the live
     ///      `exchangeRate()` would break the zero-gap-in-LT-units invariant
     ///      enforced by `test/GraduationInvariants.t.sol`.
     function finalizeGraduation(
@@ -894,8 +872,22 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt = info.ltAddress;
         PendingGraduation memory p = $.pendingGraduation[tokenAddress];
 
+        // Anything in this contract beyond `p.ltFromPair` belongs to a
+        // concurrent graduation on the same LT (Phase 1 transferred it
+        // via `Router.graduate`) or to stray dust. Either way it is
+        // off-limits to this graduation's deposit and sweep — see
+        // `_routerDepositAndDispose` and `_sweepLTToOwner`.
+        // Saturating subtract: a balance below `p.ltFromPair` shouldn't
+        // be reachable in normal operation, but we keep finalize from
+        // bricking on a Panic if any future code path or non-canonical
+        // LT briefly violates the invariant.
+        uint256 ltBalance = IERC20(lt).balanceOf(address(this));
+        uint256 protectedLT = ltBalance > p.ltFromPair ? ltBalance - p.ltFromPair : 0;
+
         address lpPair = _ensureUniswapV2Pair(tokenAddress, lt);
-        uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair);
+        uint256 liquidity = _seedUniswapV2Direct(tokenAddress, lt, lpPair, p.tokensForLP, p.ltFromPair, protectedLT);
+
+        _sweepLTToOwner(lt, protectedLT);
 
         info.lifecycle = Lifecycle.Graduated;
         $.graduatedPair[tokenAddress] = lpPair;
@@ -904,6 +896,24 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         LPLock($.lpLock).recordLock(tokenAddress, lpPair, liquidity);
 
         emit TokenGraduated(tokenAddress, lpPair, liquidity, p.tokensForLP, p.lpBurned, p.unsoldBurned);
+    }
+
+    /// @dev Send LT held by this contract above `keep` to the owner,
+    ///      emitting `LTRescued`. Called at the end of
+    ///      `finalizeGraduation` with `keep = protectedLT` (any escrow
+    ///      that doesn't belong to this graduation), so only THIS
+    ///      graduation's rebalance residue lands on the owner. No-op on
+    ///      the empty-pair fast path (nothing to sweep).
+    function _sweepLTToOwner(
+        address lt,
+        uint256 keep
+    ) internal {
+        uint256 bal = IERC20(lt).balanceOf(address(this));
+        if (bal <= keep) return;
+        uint256 amount = bal - keep;
+        address recipient = owner();
+        IERC20(lt).safeTransfer(recipient, amount);
+        emit LTRescued(lt, recipient, amount);
     }
 
     /// @dev Burns unsold curve tokens, drains real raised LT, computes
@@ -1006,8 +1016,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///           `addLiquidity` — which only pulls the optimal amounts
     ///           at the post-swap ratio, so neither side becomes a
     ///           `min()` donation. Off-ratio TOKEN remainder is burned;
-    ///           off-ratio LT remainder accumulates here for owner sweep
-    ///           via `rescueLT`.
+    ///           off-ratio LT remainder is auto-swept to the owner by
+    ///           `finalizeGraduation`'s post-bookend (see its natspec).
     ///
     ///      Brick resistance: the rebalance swap input is capped at our
     ///      per-side budget; the swap is precondition-checked to skip
@@ -1040,7 +1050,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt,
         address pair,
         uint256 tokensForLP,
-        uint256 ltFromPair
+        uint256 ltFromPair,
+        uint256 protectedLT
     ) internal returns (uint256 liquidity) {
         // Regime 2 — sweep any donation pre-seed back to the protocol so it
         // doesn't pollute the post-swap ratio. No-op on a freshly-created
@@ -1060,7 +1071,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // Reserves and token-ordering re-read inside `_seedRebalancing` to
         // keep this function's stack pressure under solc's 16-slot ceiling
         // without `viaIR`.
-        return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair);
+        return _seedRebalancing(tokenAddress, lt, pair, tokensForLP, ltFromPair, protectedLT);
     }
 
     /// @dev Memory bag for `_seedRebalancing` → `_pairRebalance` so the call
@@ -1086,7 +1097,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         address lt,
         address pair,
         uint256 tokensForLP,
-        uint256 ltFromPair
+        uint256 ltFromPair,
+        uint256 protectedLT
     ) internal returns (uint256 liquidity) {
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
         bool tokenIs0 = IUniswapV2Pair(pair).token0() == tokenAddress;
@@ -1127,7 +1139,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         // else: pool already at curve-close ratio (rare — e.g. attacker
         // pre-seeded at exactly target). Skip swap, deposit directly.
 
-        return _routerDepositAndDispose(tokenAddress, lt);
+        return _routerDepositAndDispose(tokenAddress, lt, protectedLT);
     }
 
     /// @dev Cap the rebalance swap at 99% of the available side's budget,
@@ -1200,8 +1212,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     /// @dev Deposit leg: add liquidity at the post-swap pool ratio via the
     ///      router. The router's `quote()`-based balanced split only pulls
     ///      the optimal amounts (no `min()` donation); off-ratio remainder
-    ///      stays in this contract and is disposed: TOKEN burned, LT held
-    ///      for `rescueLT`.
+    ///      stays in this contract and is disposed: TOKEN burned here, LT
+    ///      auto-swept to the owner by `finalizeGraduation`'s post-bookend.
     ///
     ///      `min0=1, min1=1` is intentional. Slippage protection on
     ///      `addLiquidity` exists to defend against a third party moving
@@ -1217,13 +1229,20 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      keeps the no-dangling-allowance invariant tidy.
     function _routerDepositAndDispose(
         address tokenAddress,
-        address lt
+        address lt,
+        uint256 protectedLT
     ) internal returns (uint256 liquidity) {
         BondingStorage storage $ = _s();
         address routerAddr = $.uniswapV2Router;
         address lpLock_ = $.lpLock;
         uint256 remToken = IERC20(tokenAddress).balanceOf(address(this));
-        uint256 remLT = IERC20(lt).balanceOf(address(this));
+        // Subtract `protectedLT` (LT that doesn't belong to this graduation
+        // — concurrent escrows or stray dust, snapshotted at the top of
+        // `finalizeGraduation`) so the deposit allowance can never pull
+        // another graduation's earmark or accidentally absorb dust into a
+        // locked LP.
+        uint256 ltBal = IERC20(lt).balanceOf(address(this));
+        uint256 remLT = ltBal > protectedLT ? ltBal - protectedLT : 0;
 
         if (remToken > 0 && remLT > 0) {
             IERC20(tokenAddress).forceApprove(routerAddr, remToken);
@@ -1241,9 +1260,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         if (leftoverToken > 0) {
             Token(tokenAddress).burn(address(this), leftoverToken);
         }
-        // LT remainder is third-party — we cannot burn it. It stays in this
-        // contract for the owner to sweep via `rescueLT`. Honest graduations
-        // never reach this code path, so this is zero outside attack scenarios.
+        // LT remainder is third-party — we cannot burn it. It stays in
+        // this contract until `finalizeGraduation`'s post-bookend sweeps
+        // it to the owner. Honest graduations never reach this code path,
+        // so the residue is zero outside attack scenarios.
     }
 
     /// @dev Smallest swap input that drives the pool's reserve ratio
