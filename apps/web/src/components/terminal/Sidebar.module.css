@@ -145,54 +145,60 @@
   margin-top: auto;
 }
 
+/* Mirrors the Landing/Header CTA: solid mint border, faint mint wash, and a
+ * lift + glow on hover. Kept as a square (no border-radius) and on a small
+ * scale to fit the sidebar column without dominating it. */
 .ctaButton {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  background: rgba(77, 232, 180, 0.05);
-  border: 1px solid var(--border-2);
-  border-radius: 3px;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.6rem;
-  padding-bottom: 0.6rem;
+  gap: 0.8rem;
+  background: var(--mint);
+  border: 1px solid var(--mint);
+  padding: 0.8rem 1rem;
   cursor: pointer;
-  transition: all 0.15s ease;
   font-family: var(--font-mono);
   text-align: left;
+  color: #061e1c;
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+  box-shadow: 0 0 0 rgba(77, 232, 180, 0);
 }
 
 .ctaButton:hover {
-  background: rgba(77, 232, 180, 0.1);
-  border-color: rgba(77, 232, 180, 0.4);
-  box-shadow: var(--shadow-inner-mint);
+  background: var(--mint-hover);
+  border-color: var(--mint-hover);
+  box-shadow: 0 0 24px rgba(77, 232, 180, 0.45);
+  transform: translateY(-1px);
 }
 
 .ctaEmoji {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--mint);
+  color: #061e1c;
 }
 
 .ctaText {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.15rem;
 }
 
 .ctaTitle {
   font-size: 13px;
   font-weight: 700;
-  color: var(--mint);
-  letter-spacing: 0.05em;
+  color: #061e1c;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .ctaSub {
   font-size: 11px;
-  color: var(--txt-3);
+  color: rgba(6, 30, 28, 0.7);
+  letter-spacing: 0.02em;
 }
 
 @media (max-width: 768px) {
