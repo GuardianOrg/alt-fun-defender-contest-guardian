@@ -89,15 +89,17 @@ Admin endpoints use `X-Admin-Key` header with a shared secret stored as a Cloudf
 
 ## WebSocket
 
-Single endpoint: `WSS /ws`. Clients subscribe to channels.
+Single endpoint: `WSS /ws?channel=<name>&token=<addr?>&apiKey=<key?>`. Clients open one connection per `(channel, token?)` subject they care about; each connection lands on its own subject-sharded `WebSocketDO` instance — see `apps/api/AGENTS.md` and issue #395 for the sharding rationale. The frontend `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes these connections behind the same `subscribe(channel, handler, token?)` API, so callers don't need to manage them directly.
 
 | Event | Description | Subscription |
 |---|---|---|
-| `trade` | Every buy/sell on the bonding curve | Global or per-token |
-| `price` | LT exchange rate tick (from `LtTicker` DO, ~1s cadence) | Per-LT (routing key is the LT contract address) |
-| `graduation` | Token graduated | Global |
-| `newToken` | Token launched | Global |
-| `stats` | Platform stats update | Global (every 10-30s) |
+| `trade` | Every buy/sell on the bonding curve | Global (`token` omitted → wildcard shard) or per-token |
+| `price` | LT exchange rate tick (from `LtTicker` DO, ~1s cadence) | Per-LT (`token` is the LT contract address) |
+| `graduation` | Token graduated | Per-token (or wildcard) |
+| `newToken` | Token launched | Global (`token` ignored) |
+| `stats` | Platform stats update | Global (every 10-30s; `token` ignored) |
+
+For per-token channels, the API broadcasts every event to **two** shards: the token's own shard and the channel's wildcard shard. Per-IP connection limits (10 concurrent) are enforced by a separate `WsIpLimiter` DO before the upgrade is accepted, since no individual subject shard sees all of an IP's connections.
 
 ### `trade` payload
 

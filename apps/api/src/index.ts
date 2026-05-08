@@ -30,7 +30,10 @@ import openApiSpec from "./openapi/spec.js";
 
 import type { AppBindings } from "./lib/types.js";
 
-export { WebSocketDO } from "./websocket/durable-object.js";
+import { WebSocketDO, shardKeyFor } from "./websocket/durable-object.js";
+import { WsIpLimiter, tryAcquireIpSlot } from "./websocket/ip-limiter.js";
+
+export { WebSocketDO, WsIpLimiter };
 export { LtTicker } from "./websocket/lt-ticker.js";
 
 const app = new Hono<{ Bindings: AppBindings }>();
@@ -130,26 +133,70 @@ app.post("/api/v1/webhook/indexer", async (c) => {
   return c.json(formatSuccess({ broadcasted: true }));
 });
 
+/**
+ * WebSocket upgrade endpoint. Sharded by `(channel, token?)` — each
+ * connection lives on a single subject shard so broadcasts only fan out to
+ * the connections that opted in. See `websocket/durable-object.ts` for the
+ * shard-routing rationale (issue #395).
+ *
+ * Required query params:
+ *   - `channel`  — one of `trade`, `price`, `graduation`, `newToken`, `stats`.
+ *   - `token`    — optional, lowercased token / LT address. Per-token
+ *                  channels with no `token` join the wildcard shard and
+ *                  receive every event on the channel.
+ *   - `apiKey`   — optional, forwarded to the DO for auth.
+ *
+ * The per-IP connection limit is enforced *before* the upgrade by the
+ * dedicated `WsIpLimiter` DO, since no single shard sees all of an IP's
+ * connections anymore.
+ */
 app.get("/ws", async (c) => {
   const upgradeHeader = c.req.header("Upgrade");
   if (upgradeHeader?.toLowerCase() !== "websocket") {
     return c.json(formatError("Expected WebSocket upgrade"), 426);
   }
 
-  const id = c.env.WEBSOCKET_DO.idFromName("global");
+  const reqUrl = new URL(c.req.url);
+  const channel = reqUrl.searchParams.get("channel");
+  const token = reqUrl.searchParams.get("token");
+  if (!channel) {
+    return c.json(
+      formatError("Missing required query param `channel`"),
+      400,
+    );
+  }
+
+  const clientIp =
+    c.req.header("CF-Connecting-IP") ??
+    c.req.header("X-Forwarded-For") ??
+    "unknown";
+
+  // Per-IP global cap. Reject before the upgrade so the ws handshake never
+  // succeeds for a rate-limited IP — crucial because the upgrade itself is
+  // the resource we're trying to bound.
+  const slot = await tryAcquireIpSlot(c.env.WS_IP_LIMITER_DO, clientIp);
+  if (!slot.ok) {
+    return c.json(formatError("Too many connections from this IP"), 429);
+  }
+
+  const shardKey = shardKeyFor(channel, token);
+  const id = c.env.WEBSOCKET_DO.idFromName(shardKey);
   const stub = c.env.WEBSOCKET_DO.get(id);
 
-  // Forward client IP and optional API key to the Durable Object
   const headers = new Headers(c.req.raw.headers);
-  const clientIp = c.req.header("CF-Connecting-IP") ?? c.req.header("X-Forwarded-For") ?? "unknown";
   headers.set("X-Client-IP", clientIp);
 
-  const apiKey = new URL(c.req.url).searchParams.get("apiKey");
+  const apiKey = reqUrl.searchParams.get("apiKey");
   if (apiKey) {
     headers.set("X-WS-API-Key", apiKey);
   }
 
-  const doRequest = new Request(c.req.raw.url, {
+  // Stamp the shard key on the URL so the DO knows its own subject (used
+  // for log context — `idFromName` is one-way).
+  const doUrl = new URL(c.req.raw.url);
+  doUrl.searchParams.set("shard", shardKey);
+
+  const doRequest = new Request(doUrl.toString(), {
     method: c.req.raw.method,
     headers,
   });

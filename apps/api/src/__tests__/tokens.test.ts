@@ -114,6 +114,7 @@ function makeEnv(bucket: MockBucket = makeBucket()): AppBindings {
       idFromName: () => "id",
       get: () => ({ fetch: vi.fn().mockResolvedValue(new Response("ok")) }),
     } as unknown as DurableObjectNamespace,
+    WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
     LT_TICKER_DO: {} as DurableObjectNamespace,
     AI: {} as Ai,
   };

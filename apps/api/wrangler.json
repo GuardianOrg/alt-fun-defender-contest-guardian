@@ -26,6 +26,10 @@
       {
         "name": "LT_TICKER_DO",
         "class_name": "LtTicker"
+      },
+      {
+        "name": "WS_IP_LIMITER_DO",
+        "class_name": "WsIpLimiter"
       }
     ]
   },
@@ -37,6 +41,10 @@
     {
       "tag": "v2",
       "new_classes": ["LtTicker"]
+    },
+    {
+      "tag": "v3",
+      "new_classes": ["WsIpLimiter"]
     }
   ],
   "triggers": {

@@ -1,26 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
 
-interface ChannelSub {
-  /** When true, receives all messages on this channel regardless of token. */
-  global: boolean;
-  /** Token addresses this subscription is scoped to (empty = global only). */
-  tokens: Set<string>;
-}
+import { releaseIpSlot } from "./ip-limiter.js";
 
-interface ConnectionMeta {
-  channels: Map<string, ChannelSub>;
-  /** Client IP address for per-IP tracking. */
-  ip: string;
-  /** Optional API key provided at connection or via first message. */
-  apiKey: string | null;
-  /** Timestamp of last activity (message received or pong). */
-  lastActivity: number;
-  /** Whether we are waiting for a pong response to our ping. */
-  awaitingPong: boolean;
-}
+import type { AppBindings } from "../lib/types.js";
 
-/** Maximum concurrent WebSocket connections allowed per IP address. */
-const MAX_CONNECTIONS_PER_IP = 10;
+/** Sentinel routing key for global / wildcard subscribers on per-token channels. */
+export const ALL_TOKENS_KEY = "__all__";
+
+/** Channels that are inherently global (no per-token routing). */
+const GLOBAL_CHANNELS = new Set(["newToken", "stats"]);
 
 /** Interval between idle-check sweeps (ms). */
 const IDLE_CHECK_INTERVAL_MS = 60_000;
@@ -31,24 +19,100 @@ const IDLE_PING_THRESHOLD_MS = 120_000;
 /** Connections that don't respond to a ping within this duration are closed (ms). */
 const PONG_TIMEOUT_MS = 30_000;
 
+interface ConnectionMeta {
+  /** Client IP address — needed to release the per-IP slot on close. */
+  ip: string;
+  /** Optional API key provided at connection or via first message. */
+  apiKey: string | null;
+  /** Timestamp of last activity (message received or pong). */
+  lastActivity: number;
+  /** Whether we are waiting for a pong response to our ping. */
+  awaitingPong: boolean;
+}
+
 /**
- * WebSocket Durable Object — manages real-time client subscriptions.
- * Canonical channel list is defined in the channelMap above and documented in docs/backend-scope.md.
+ * Compute the deterministic shard key for a `(channel, tokenAddress?)` tuple.
  *
- * Security features:
- * - Per-IP connection limits (MAX_CONNECTIONS_PER_IP)
- * - Optional API key authentication (query param or first message)
- * - Idle connection timeout with ping/pong
- * - Structured logging for monitoring
+ * - Global channels (`newToken`, `stats`) ignore `tokenAddress`.
+ * - Per-token channels (`trade`, `price`, `graduation`) shard by the
+ *   lowercased token address. A missing `tokenAddress` is the wildcard
+ *   shard for that channel — clients subscribing without a token live there
+ *   and receive every event on the channel.
+ *
+ * Exported for tests and for the `/ws` route to compute the routing key.
  */
-export class WebSocketDO extends DurableObject {
+export function shardKeyFor(channel: string, tokenAddress?: string | null): string {
+  if (GLOBAL_CHANNELS.has(channel)) {
+    return `${channel}:${ALL_TOKENS_KEY}`;
+  }
+  const key = (tokenAddress ?? "").toLowerCase();
+  if (!key) return `${channel}:${ALL_TOKENS_KEY}`;
+  return `${channel}:${key}`;
+}
+
+/**
+ * Compute the shards a broadcast event must be delivered to.
+ *
+ * For per-token channels, an event with a `tokenAddress` must reach:
+ *   1. The token's own shard (subscribers scoped to that token).
+ *   2. The wildcard `__all__` shard (clients subscribed to the channel
+ *      with no token specified — e.g. the home-page global trade feed).
+ *
+ * Returning the deduped set keeps the global-channel and missing-token
+ * cases simple (single shard).
+ */
+export function broadcastShardsFor(
+  channel: string,
+  tokenAddress?: string | null,
+): string[] {
+  if (GLOBAL_CHANNELS.has(channel) || !tokenAddress) {
+    return [shardKeyFor(channel, tokenAddress)];
+  }
+  const tokenShard = shardKeyFor(channel, tokenAddress);
+  const wildcardShard = `${channel}:${ALL_TOKENS_KEY}`;
+  return tokenShard === wildcardShard
+    ? [tokenShard]
+    : [tokenShard, wildcardShard];
+}
+
+/**
+ * Subject-scoped WebSocket Durable Object.
+ *
+ * One DO instance per `(channel, tokenAddress)` shard — see `shardKeyFor`.
+ * Every connection on a given instance has already opted into exactly that
+ * subject, so `broadcast()` is a flat fan-out with no per-connection filter.
+ *
+ * Architecture context (issue #395):
+ * Previously a single `idFromName("global")` instance held *every* WS
+ * connection in the fleet. Every event iterated every connection looking
+ * for matching subscriptions — an N×M loop pinned to one isolate, with the
+ * memory ceiling and event-loop saturation of any single CF Durable Object.
+ *
+ * The shard-by-subject design replaces that with O(N) DOs, each handling
+ * its own slice. The frontend opens one WS per `(channel, token)` it cares
+ * about (multiplexing handled in `apps/web/src/services/websocket.ts`),
+ * which keeps each connection co-located with the only events it wants.
+ *
+ * Per-IP limits used to live in this DO; now they live in `WsIpLimiter`
+ * (a single global DO that owns the IP→count map). The `/ws` route acquires
+ * a slot before routing the upgrade here; this DO releases it on close.
+ *
+ * Security features kept here:
+ * - Optional API key authentication (header on connect or first message).
+ * - Idle connection timeout with ping/pong.
+ * - Structured logging for monitoring.
+ */
+export class WebSocketDO extends DurableObject<AppBindings> {
   private connections: Map<WebSocket, ConnectionMeta> = new Map();
-  private ipConnectionCounts: Map<string, number> = new Map();
   private idleCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private subjectKey: string | null = null;
 
   private ensureIdleCheck() {
     if (this.idleCheckInterval) return;
-    this.idleCheckInterval = setInterval(() => this.checkIdleConnections(), IDLE_CHECK_INTERVAL_MS);
+    this.idleCheckInterval = setInterval(
+      () => this.checkIdleConnections(),
+      IDLE_CHECK_INTERVAL_MS,
+    );
   }
 
   private stopIdleCheck() {
@@ -61,7 +125,10 @@ export class WebSocketDO extends DurableObject {
   private checkIdleConnections() {
     const now = Date.now();
     for (const [ws, meta] of this.connections) {
-      if (meta.awaitingPong && now - meta.lastActivity > IDLE_PING_THRESHOLD_MS + PONG_TIMEOUT_MS) {
+      if (
+        meta.awaitingPong &&
+        now - meta.lastActivity > IDLE_PING_THRESHOLD_MS + PONG_TIMEOUT_MS
+      ) {
         this.log("info", "closing_idle_connection", {
           ip: meta.ip,
           apiKey: meta.apiKey,
@@ -86,7 +153,6 @@ export class WebSocketDO extends DurableObject {
       }
     }
 
-    // Stop the interval if there are no connections
     if (this.connections.size === 0) {
       this.stopIdleCheck();
     }
@@ -96,20 +162,21 @@ export class WebSocketDO extends DurableObject {
     const meta = this.connections.get(ws);
     if (!meta) return;
 
-    const count = this.ipConnectionCounts.get(meta.ip) ?? 0;
-    if (count <= 1) {
-      this.ipConnectionCounts.delete(meta.ip);
-    } else {
-      this.ipConnectionCounts.set(meta.ip, count - 1);
-    }
-
     this.connections.delete(ws);
+
+    // Fire-and-forget the per-IP release. We can't await inside
+    // `webSocketClose`, so a transient limiter-DO failure leaks a slot
+    // until the limiter's idle TTL sweep — acceptable.
+    if (this.env.WS_IP_LIMITER_DO) {
+      releaseIpSlot(this.env.WS_IP_LIMITER_DO, meta.ip).catch(() => {
+        // Ignored — leaked slot, see comment above.
+      });
+    }
 
     this.log("info", "connection_closed", {
       ip: meta.ip,
       apiKey: meta.apiKey,
-      totalConnections: this.connections.size,
-      ipConnections: this.ipConnectionCounts.get(meta.ip) ?? 0,
+      shardConnections: this.connections.size,
     });
   }
 
@@ -118,7 +185,8 @@ export class WebSocketDO extends DurableObject {
       level,
       event,
       timestamp: new Date().toISOString(),
-      totalConnections: this.connections.size,
+      shard: this.subjectKey,
+      shardConnections: this.connections.size,
       ...data,
     };
     console.log(JSON.stringify(entry));
@@ -127,13 +195,15 @@ export class WebSocketDO extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
+    // The shard key isn't derivable from the DO id (idFromName is one-way),
+    // so the caller stamps it on the request. We capture it on the first
+    // call for log context. Cheap and idempotent.
+    const subject = url.searchParams.get("shard");
+    if (subject) this.subjectKey = subject;
+
     if (url.pathname === "/broadcast" && request.method === "POST") {
-      const body = (await request.json()) as {
-        channel: string;
-        data: unknown;
-        tokenAddress?: string;
-      };
-      this.broadcast(body.channel, body.data, body.tokenAddress);
+      const body = (await request.json()) as { data: unknown; channel: string };
+      this.broadcast(body.channel, body.data);
       return new Response("ok", { status: 200 });
     }
 
@@ -145,44 +215,31 @@ export class WebSocketDO extends DurableObject {
     const clientIp = request.headers.get("X-Client-IP") ?? "unknown";
     const apiKey = request.headers.get("X-WS-API-Key") ?? null;
 
-    // Enforce per-IP connection limit
-    const currentCount = this.ipConnectionCounts.get(clientIp) ?? 0;
-    if (currentCount >= MAX_CONNECTIONS_PER_IP) {
-      this.log("warn", "connection_rejected", {
-        ip: clientIp,
-        apiKey,
-        reason: "ip_limit_exceeded",
-        ipConnections: currentCount,
-      });
-      return new Response(
-        JSON.stringify({ error: "Too many connections from this IP" }),
-        { status: 429, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
     this.ctx.acceptWebSocket(server);
 
     const meta: ConnectionMeta = {
-      channels: new Map(),
       ip: clientIp,
       apiKey,
       lastActivity: Date.now(),
       awaitingPong: false,
     };
     this.connections.set(server, meta);
-    this.ipConnectionCounts.set(clientIp, currentCount + 1);
 
     this.ensureIdleCheck();
 
     this.log("info", "connection_opened", {
       ip: clientIp,
       apiKey,
-      totalConnections: this.connections.size,
-      ipConnections: currentCount + 1,
+      shardConnections: this.connections.size,
     });
+
+    // Optimistic implicit-subscribe: every connection on this DO already
+    // wants exactly this subject, so confirm it immediately. The frontend
+    // can still send a redundant `subscribe` for backwards compat.
+    server.send(JSON.stringify({ type: "subscribed", shard: this.subjectKey }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -199,7 +256,6 @@ export class WebSocketDO extends DurableObject {
       const meta = this.connections.get(ws);
       if (!meta) return;
 
-      // Update activity timestamp on any message
       meta.lastActivity = Date.now();
 
       if (data.type === "ping") {
@@ -212,7 +268,6 @@ export class WebSocketDO extends DurableObject {
         return;
       }
 
-      // Allow API key to be sent as first message for clients that can't set query params
       if (data.type === "auth" && data.apiKey) {
         meta.apiKey = data.apiKey;
         ws.send(JSON.stringify({ type: "authenticated" }));
@@ -223,43 +278,35 @@ export class WebSocketDO extends DurableObject {
         return;
       }
 
+      // Sharded model: subscriptions are determined at connect time by the
+      // shard the connection landed on. Treat redundant subscribe/unsubscribe
+      // messages as a no-op confirmation so legacy clients keep working.
       if (data.type === "subscribe" && data.channel) {
-        let chanSub = meta.channels.get(data.channel);
-        if (!chanSub) {
-          chanSub = { global: false, tokens: new Set() };
-          meta.channels.set(data.channel, chanSub);
-        }
-        if (data.token) {
-          chanSub.tokens.add(data.token);
-        } else {
-          chanSub.global = true;
-        }
-        this.log("info", "channel_subscribed", {
-          ip: meta.ip,
-          apiKey: meta.apiKey,
-          channel: data.channel,
-          token: data.token ?? null,
-        });
-        ws.send(JSON.stringify({ type: "subscribed", channel: data.channel }));
+        ws.send(
+          JSON.stringify({
+            type: "subscribed",
+            channel: data.channel,
+            token: data.token ?? null,
+          }),
+        );
         return;
       }
 
       if (data.type === "unsubscribe" && data.channel) {
-        const chanSub = meta.channels.get(data.channel);
-        if (chanSub) {
-          if (data.token) {
-            chanSub.tokens.delete(data.token);
-          } else {
-            chanSub.global = false;
-          }
-          if (!chanSub.global && chanSub.tokens.size === 0) {
-            meta.channels.delete(data.channel);
-          }
-        }
-        ws.send(JSON.stringify({ type: "unsubscribed", channel: data.channel }));
+        // Real "unsubscribe" in the sharded model is "close this WS". We
+        // ack the message but the client is responsible for closing the
+        // connection if it no longer wants events on this shard.
+        ws.send(
+          JSON.stringify({
+            type: "unsubscribed",
+            channel: data.channel,
+            token: data.token ?? null,
+          }),
+        );
+        return;
       }
     } catch {
-      // Ignore malformed messages
+      // Ignore malformed messages.
     }
   }
 
@@ -271,17 +318,28 @@ export class WebSocketDO extends DurableObject {
     this.removeConnection(ws);
   }
 
-  broadcast(channel: string, data: unknown, tokenAddress?: string) {
+  /**
+   * Flat fan-out to every connection on this shard. There is no per-event
+   * filter loop because every connection already wants events for this
+   * subject.
+   *
+   * The `channel` field is preserved on the wire so the frontend's
+   * multiplexer can route the payload to the right handler when one shard
+   * handles a single subject (always the case today).
+   */
+  broadcast(channel: string, data: unknown) {
     const payload = JSON.stringify({ channel, data });
-    for (const [ws, meta] of this.connections) {
-      const chanSub = meta.channels.get(channel);
-      if (!chanSub) continue;
-      if (tokenAddress && !chanSub.global && !chanSub.tokens.has(tokenAddress)) continue;
+    for (const [ws] of this.connections) {
       try {
         ws.send(payload);
       } catch {
         this.removeConnection(ws);
       }
     }
+  }
+
+  /** Test-only accessor for connection count. */
+  get connectionCount(): number {
+    return this.connections.size;
   }
 }
