@@ -2,100 +2,33 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  padding: 0.6rem 1.2rem;
+  justify-content: space-between;
+  padding: 0.8rem 1.2rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-1);
   gap: 1.2rem;
   overflow: hidden;
 }
 
-.avatar {
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 0.75rem;
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  line-height: 2rem;
-  flex-shrink: 0;
-  box-shadow: var(--shadow-panel);
-  overflow: hidden;
-  padding: 0;
-  color: inherit;
-  font-family: inherit;
-}
-
-.avatarClickable {
-  cursor: zoom-in;
-  transition: border-color 0.15s ease;
-}
-
-.avatarClickable:hover {
-  border-color: var(--mint);
-  transform: scale(1.04);
-}
-
-.avatarClickable:focus-visible {
-  outline: 2px solid var(--mint);
-  outline-offset: 2px;
-}
-
-.avatarImage {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.nameBlock {
-  flex-shrink: 0;
-  min-width: 0;
-}
-
-.nameRow {
+/* Left cluster: CA pill + mint share button. */
+.leftGroup {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-}
-
-.tokenName {
-  font-family: var(--font-display);
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--txt);
-  line-height: 1;
-}
-
-.ltBadge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 0.4rem;
-  border-radius: 0.375rem;
-  background: rgba(77, 232, 180, 0.08);
-  color: rgba(77, 232, 180, 0.8);
-  letter-spacing: 0.04em;
-  border: 1px solid rgba(77, 232, 180, 0.15);
-}
-
-.metaRow {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-top: 0.2rem;
+  flex-shrink: 0;
 }
 
 .addrBlock {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 2px 0.4rem;
+  padding: 0.35rem 0.6rem;
   border-radius: 0.25rem;
   cursor: pointer;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
+  font-family: inherit;
+  color: inherit;
   transition:
     color 0.15s ease,
     background-color 0.15s ease,
@@ -104,14 +37,6 @@
 
 .addrBlock:hover {
   border-color: var(--mint);
-}
-
-.addrLabel {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--txt-4);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .addrText {
@@ -134,99 +59,142 @@
   color: var(--mint);
 }
 
-.socialLinks {
-  display: flex;
-  gap: 0.2rem;
-}
-
-.socialLink {
-  font-size: 11px;
-  color: var(--txt-4);
-  cursor: pointer;
-  padding: 0 0.2rem;
-  border-radius: 0.25rem;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.socialLink:hover {
-  color: var(--mint);
-}
-
-.divider {
-  width: 1px;
-  height: 2rem;
-  background: var(--border);
-  flex-shrink: 0;
-}
-
-.mcapBlock {
-  flex-shrink: 0;
-}
-
-.mcapValue {
-  font-family: var(--font-display);
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--txt);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.changeRow {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  margin-top: 0.2rem;
-}
-
-.changeValue {
-  font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.changeUp {
-  color: var(--mint);
-}
-
-.changeDown {
-  color: var(--red);
-}
-
-.changePeriod {
-  font-size: 11px;
-  color: var(--txt-4);
-}
-
-.statsRow {
+/* Right cluster: image + name stack. */
+.rightGroup {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  font-size: 11px;
-  color: var(--txt-3);
   flex-shrink: 0;
+  min-width: 0;
+  height: 100%;
 }
 
-.statValue {
-  font-variant-numeric: tabular-nums;
+.avatar {
+  width: 6rem;
+  height: 6rem;
+  border-radius: 0.75rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
 }
 
-.statHighlight {
+.avatarClickable {
+  cursor: zoom-in;
+  transition:
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.avatarClickable:hover {
+  border-color: var(--mint);
+  transform: scale(1.04);
+}
+
+.avatarClickable:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.avatarImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nameStack {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 0.4rem 0;
+}
+
+.tickerNameContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.ticker {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--txt);
+  line-height: 1.05;
+}
+
+.fullName {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  font-weight: 300;
+  color: var(--txt-2);
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+
+.byDev {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+  font-family: var(--font-mono);
+  color: var(--txt-3);
+}
+
+.byLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--txt-3);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.byLink:hover {
   color: var(--txt-2);
 }
 
-.statAmber {
-  color: var(--amber);
+.byLabel {
+  font-size: 11px;
+  letter-spacing: 0.02em;
 }
 
-.shareWrapper {
-  margin-left: auto;
-  flex-shrink: 0;
+.byAddr {
+  font-size: 11px;
+  font-weight: 600;
+  color: inherit;
 }
 
+.byIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.byIconDefault {
+  color: var(--txt-3);
+}
+
+.byIconCopied {
+  color: var(--mint);
+}
+
+/* Lightbox modal — kept from previous version. */
 .lightbox {
   width: min(90vw, 32rem);
   align-items: center;
@@ -252,4 +220,3 @@
   object-fit: contain;
   background: var(--bg-2);
 }
-

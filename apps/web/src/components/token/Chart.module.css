@@ -256,6 +256,60 @@
   height: 100%;
 }
 
+.mcapOverlay {
+  position: absolute;
+  top: 1.6rem;
+  left: 1.6rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mcapLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--txt-3);
+}
+
+.mcapValue {
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.mcapChange {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 0.1rem;
+}
+
+.mcapChangeUp {
+  color: var(--mint);
+}
+
+.mcapChangeDown {
+  color: var(--red);
+}
+
+.axisLabel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+  padding: 0.3rem 0.6rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--txt-3);
+  background: var(--bg-1);
+}
+
 .loadingState {
   position: absolute;
   inset: 0;

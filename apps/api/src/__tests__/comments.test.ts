@@ -220,6 +220,30 @@ describe("POST /tokens/:address/comments", () => {
     expect(body.error).toBe("Session signature has expired");
   });
 
+  it("returns 401 when expiresAt exceeds the max session lifetime (replay cap)", async () => {
+    const app = createApp();
+    // Far-future expiry the client tried to sneak past the server (issue #393).
+    const farFutureExpiresAt = Date.now() + 365 * 24 * 60 * 60 * 1000;
+    const res = await app.request(
+      `/tokens/${VALID_TOKEN}/comments`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author: VALID_AUTHOR,
+          content: "hello",
+          signature: "0xabc",
+          expiresAt: farFutureExpiresAt,
+        }),
+      },
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { status: string; error: string | null; data: unknown };
+    expect(body.error).toBe("Session signature lifetime exceeds maximum");
+  });
+
   it("returns 401 when signature is invalid", async () => {
     mockedRecoverMessageAddress.mockRejectedValue(new Error("bad sig"));
 
