@@ -40,6 +40,37 @@ export function formatPercent(value: number): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+/**
+ * Signed USD price delta (e.g. trailing-24h asset move). Magnitude-aware
+ * so a delta renders at granularity appropriate to the underlying price:
+ *   - abs ≥ 10,000   → integer with locale separators (`+$1,234`)
+ *   - abs ≥ 100      → integer (`+$150`)
+ *   - abs ≥ 0.01     → 2 decimals (`+$1.50`, `+$0.50`) — handles every
+ *                      mainstream crypto / equity move at sensible cent
+ *                      precision
+ *   - sub-cent       → 4 significant digits, fixed (non-scientific) so
+ *                      kPEPE-class deltas (~$1e-6 / token) still convey
+ *                      a meaningful number
+ *
+ * Negative values render with a leading `-`; an exact zero (or a
+ * non-finite input from a degraded feed) is `$0.00` with no sign so we
+ * never surface a misleading `+$0`.
+ */
+export function formatPriceChange(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return "$0.00";
+  const sign = value > 0 ? "+" : "-";
+  const abs = Math.abs(value);
+  if (abs >= 10_000) return `${sign}$${Math.round(abs).toLocaleString()}`;
+  if (abs >= 100) return `${sign}$${abs.toFixed(0)}`;
+  if (abs >= 0.01) return `${sign}$${abs.toFixed(2)}`;
+  // Sub-cent: pick decimals so we land on ~4 significant figures, never
+  // collapsing to "+$0.00" on tiny but real moves. Mirrors
+  // `formatPriceUsd`'s sub-cent treatment.
+  const exp = Math.floor(Math.log10(abs));
+  const decimals = Math.min(20, 3 - exp);
+  return `${sign}$${abs.toFixed(decimals)}`;
+}
+
 /** Format a nullable USD value, rendering `—` when null/undefined. */
 export function formatUsdOrDash(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";

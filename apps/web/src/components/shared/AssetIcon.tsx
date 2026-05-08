@@ -4,12 +4,18 @@ import { getAssetDisplayName } from "@launchpad/shared";
 
 import styles from "./AssetIcon.module.css";
 import BTC from "../../assets/Logos/BTC.svg";
+import DOGE from "../../assets/Logos/doge.svg";
 import ETH from "../../assets/Logos/ETH.svg";
 import HYPE from "../../assets/Logos/HYPE.svg";
+import kPepe from "../../assets/Logos/kPEPE.svg";
 import nvidia from "../../assets/Logos/nvidia.svg";
 import paxg from "../../assets/Logos/paxg.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
+import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
+import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
+import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
+import xyz_XYZ100 from "../../assets/Logos/xyz_XYZ100.svg";
 import zec from "../../assets/Logos/zec.svg";
 import { cn } from "../../utils/format";
 
@@ -30,6 +36,13 @@ const ASSET_LOGOS: Record<string, string> = {
   ZEC: zec,
   "xyz:SP500": SP500,
   "xyz:NVDA": nvidia,
+  DOGE,
+  kPEPE: kPepe,
+  "xyz:BRENTOIL": xyz_BRENTOIL,
+  "xyz:GOLD": xyz_GOLD,
+  "xyz:SILVER": xyz_SILVER,
+  "xyz:XYZ100": xyz_XYZ100,
+  "xyz:CL": xyz_BRENTOIL,
 };
 
 interface Props {

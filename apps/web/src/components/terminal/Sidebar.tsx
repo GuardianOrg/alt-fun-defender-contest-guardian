@@ -32,7 +32,9 @@ export default function Sidebar() {
           >
             <AssetIcon asset={a.name} size={24} className={styles.assetLogo} />
             <div className={styles.assetMeta}>
-              <div className={styles.assetName}>{getAssetDisplayName(a.name)}</div>
+              <div className={styles.assetName}>
+                {getAssetDisplayName(a.name)}
+              </div>
               <div
                 className={cn(
                   styles.assetChange,

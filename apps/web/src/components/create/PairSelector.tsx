@@ -4,8 +4,9 @@ import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import { COLORS, rgba } from "../../config/colors";
 import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
-import { useAssetChanges } from "../../hooks/useAssets";
-import { cn, getLtDisplayName } from "../../utils/format";
+import { useAssetChanges, useAssetPriceChanges } from "../../hooks/useAssets";
+import { cn, formatPriceChange, getLtDisplayName } from "../../utils/format";
+import AssetIcon from "../shared/AssetIcon";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
 import type { Direction } from "../../services/types";
@@ -28,6 +29,7 @@ export default function PairSelector({
   onLeverageChange,
 }: Props) {
   const assetChanges = useAssetChanges();
+  const assetPriceChanges = useAssetPriceChanges();
   const isLong = direction === "long";
   const baseChg = assetChanges[asset];
   const chg =
@@ -140,9 +142,9 @@ export default function PairSelector({
       <label className={styles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
         {UNDERLYING_ASSETS.map((a) => {
-          const change = assetChanges[a];
-          const hasData = change != null;
-          const up = hasData && change >= 0;
+          const priceChange = assetPriceChanges[a];
+          const hasData = priceChange != null;
+          const up = hasData && priceChange >= 0;
           const selected = a === asset;
           return (
             <button
@@ -158,18 +160,24 @@ export default function PairSelector({
               onClick={() => onAssetChange(a)}
               title={a}
             >
-              <div className={styles.assetName}>{getAssetDisplayName(a)}</div>
-              <div
-                className={cn(
-                  styles.assetChg,
-                  hasData
-                    ? up ? styles.textMint : styles.textRed
-                    : styles.textMuted,
-                )}
-              >
-                {hasData
-                  ? `${up ? "+" : ""}${change.toFixed(2)}%`
-                  : "—"}
+              <AssetIcon
+                asset={a}
+                size={22}
+                className={styles.assetLogo}
+                monogramRatio={0.46}
+              />
+              <div className={styles.assetMeta}>
+                <div className={styles.assetName}>{getAssetDisplayName(a)}</div>
+                <div
+                  className={cn(
+                    styles.assetChg,
+                    hasData
+                      ? up ? styles.textMint : styles.textRed
+                      : styles.textMuted,
+                  )}
+                >
+                  {hasData ? formatPriceChange(priceChange) : "—"}
+                </div>
               </div>
             </button>
           );
