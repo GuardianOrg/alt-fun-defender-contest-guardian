@@ -265,29 +265,33 @@ describe("broadcastToChannel fan-out", () => {
         logs.push(typeof arg === "string" ? arg : JSON.stringify(arg));
       });
 
-    const { ns, stubFetch } = makeWsNs();
-    let calls = 0;
-    stubFetch.mockImplementation(async () => {
-      calls += 1;
-      if (calls === 1) {
-        return new Response("boom", {
-          status: 500,
-          statusText: "Internal",
-        });
-      }
-      return new Response("ok", { status: 200 });
-    });
-    const env: AppBindings = { ...makeEnv(), WEBSOCKET_DO: ns };
+    try {
+      const { ns, stubFetch } = makeWsNs();
+      let calls = 0;
+      stubFetch.mockImplementation(async () => {
+        calls += 1;
+        if (calls === 1) {
+          return new Response("boom", {
+            status: 500,
+            statusText: "Internal",
+          });
+        }
+        return new Response("ok", { status: 200 });
+      });
+      const env: AppBindings = { ...makeEnv(), WEBSOCKET_DO: ns };
 
-    await expect(
-      broadcastToChannel(env, "trade", { x: 1 }, "0xABC"),
-    ).resolves.toBeUndefined();
-    expect(stubFetch).toHaveBeenCalledTimes(2);
+      await expect(
+        broadcastToChannel(env, "trade", { x: 1 }, "0xABC"),
+      ).resolves.toBeUndefined();
+      expect(stubFetch).toHaveBeenCalledTimes(2);
 
-    const warned = logs.find((l) => l.includes("broadcast_shard_failed"));
-    expect(warned).toBeDefined();
-    expect(warned).toContain("500");
-
-    spy.mockRestore();
+      const warned = logs.find((l) => l.includes("broadcast_shard_failed"));
+      expect(warned).toBeDefined();
+      expect(warned).toContain("500");
+    } finally {
+      // Always restore the spy so a failed assertion above can't leak
+      // a `console.log` mock into later tests.
+      spy.mockRestore();
+    }
   });
 });
