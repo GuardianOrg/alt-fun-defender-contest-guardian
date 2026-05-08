@@ -238,7 +238,7 @@ describe("broadcastToChannel fan-out", () => {
     expect(idFromName).toHaveBeenCalledWith(`trade:${ALL_TOKENS_KEY}`);
   });
 
-  it("does not throw when one shard fetch fails", async () => {
+  it("does not throw when one shard fetch rejects (transport error)", async () => {
     const { ns, stubFetch } = makeWsNs();
     let calls = 0;
     stubFetch.mockImplementation(async () => {
@@ -252,5 +252,42 @@ describe("broadcastToChannel fan-out", () => {
       broadcastToChannel(env, "trade", { x: 1 }, "0xABC"),
     ).resolves.toBeUndefined();
     expect(stubFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats a non-OK shard response as a fan-out failure (without throwing)", async () => {
+    // Spy on console.log to confirm we surface the warn structured log
+    // instead of silently dropping the broadcast (the stub.fetch promise
+    // resolves on a 500, so the failure has to be detected from `res.ok`).
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, "log")
+      .mockImplementation((arg: unknown) => {
+        logs.push(typeof arg === "string" ? arg : JSON.stringify(arg));
+      });
+
+    const { ns, stubFetch } = makeWsNs();
+    let calls = 0;
+    stubFetch.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("boom", {
+          status: 500,
+          statusText: "Internal",
+        });
+      }
+      return new Response("ok", { status: 200 });
+    });
+    const env: AppBindings = { ...makeEnv(), WEBSOCKET_DO: ns };
+
+    await expect(
+      broadcastToChannel(env, "trade", { x: 1 }, "0xABC"),
+    ).resolves.toBeUndefined();
+    expect(stubFetch).toHaveBeenCalledTimes(2);
+
+    const warned = logs.find((l) => l.includes("broadcast_shard_failed"));
+    expect(warned).toBeDefined();
+    expect(warned).toContain("500");
+
+    spy.mockRestore();
   });
 });

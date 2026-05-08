@@ -31,7 +31,25 @@ import openApiSpec from "./openapi/spec.js";
 import type { AppBindings } from "./lib/types.js";
 
 import { WebSocketDO, shardKeyFor } from "./websocket/durable-object.js";
-import { WsIpLimiter, tryAcquireIpSlot } from "./websocket/ip-limiter.js";
+import {
+  WsIpLimiter,
+  tryAcquireIpSlot,
+  releaseIpSlot,
+} from "./websocket/ip-limiter.js";
+
+/**
+ * Whitelisted WS channel names. Anything else is rejected with 400 *before*
+ * we burn an IP-limiter slot — a typo like `?channel=trdae` should fail
+ * fast and not consume one of the caller's 10 global connection slots or
+ * spawn a never-fanned-out shard DO.
+ */
+const VALID_WS_CHANNELS: ReadonlySet<string> = new Set([
+  "trade",
+  "price",
+  "graduation",
+  "newToken",
+  "stats",
+]);
 
 export { WebSocketDO, WsIpLimiter };
 export { LtTicker } from "./websocket/lt-ticker.js";
@@ -165,6 +183,11 @@ app.get("/ws", async (c) => {
       400,
     );
   }
+  if (!VALID_WS_CHANNELS.has(channel)) {
+    // Reject *before* acquiring an IP slot — a typo'd channel must not
+    // burn one of the caller's 10 global slots or spawn a dead shard.
+    return c.json(formatError(`Unsupported channel: ${channel}`), 400);
+  }
 
   const clientIp =
     c.req.header("CF-Connecting-IP") ??
@@ -179,29 +202,52 @@ app.get("/ws", async (c) => {
     return c.json(formatError("Too many connections from this IP"), 429);
   }
 
-  const shardKey = shardKeyFor(channel, token);
-  const id = c.env.WEBSOCKET_DO.idFromName(shardKey);
-  const stub = c.env.WEBSOCKET_DO.get(id);
+  // Once the slot is acquired we must release it on every failure path
+  // *before* the WS is accepted by the shard DO. After a successful
+  // 101-Upgrade, the slot is released by the shard DO's `webSocketClose`
+  // handler. Any other branch (DO throw, non-101 response from validation
+  // or auth failure inside the DO) would otherwise leak limiter capacity
+  // until the IP eventually gets stuck at 429.
+  const releaseOnFailure = () =>
+    releaseIpSlot(c.env.WS_IP_LIMITER_DO, clientIp).catch(() => {
+      // Best effort — a stuck limiter just leaks the slot until its
+      // idle TTL sweep. Worse to throw and crash the request.
+    });
 
-  const headers = new Headers(c.req.raw.headers);
-  headers.set("X-Client-IP", clientIp);
+  try {
+    const shardKey = shardKeyFor(channel, token);
+    const id = c.env.WEBSOCKET_DO.idFromName(shardKey);
+    const stub = c.env.WEBSOCKET_DO.get(id);
 
-  const apiKey = reqUrl.searchParams.get("apiKey");
-  if (apiKey) {
-    headers.set("X-WS-API-Key", apiKey);
+    const headers = new Headers(c.req.raw.headers);
+    headers.set("X-Client-IP", clientIp);
+
+    const apiKey = reqUrl.searchParams.get("apiKey");
+    if (apiKey) {
+      headers.set("X-WS-API-Key", apiKey);
+    }
+
+    // Stamp the shard key on the URL so the DO knows its own subject
+    // (used for log context — `idFromName` is one-way).
+    const doUrl = new URL(c.req.raw.url);
+    doUrl.searchParams.set("shard", shardKey);
+
+    const doRequest = new Request(doUrl.toString(), {
+      method: c.req.raw.method,
+      headers,
+    });
+
+    const response = await stub.fetch(doRequest);
+    if (response.status !== 101) {
+      // Any non-Upgrade response means the DO didn't take ownership of
+      // the connection — release the slot ourselves.
+      c.executionCtx.waitUntil(releaseOnFailure());
+    }
+    return response;
+  } catch (err) {
+    c.executionCtx.waitUntil(releaseOnFailure());
+    throw err;
   }
-
-  // Stamp the shard key on the URL so the DO knows its own subject (used
-  // for log context — `idFromName` is one-way).
-  const doUrl = new URL(c.req.raw.url);
-  doUrl.searchParams.set("shard", shardKey);
-
-  const doRequest = new Request(doUrl.toString(), {
-    method: c.req.raw.method,
-    headers,
-  });
-
-  return stub.fetch(doRequest);
 });
 
 app.notFound((c) => c.json(formatError("Not Found"), 404));
