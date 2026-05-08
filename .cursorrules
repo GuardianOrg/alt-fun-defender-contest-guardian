@@ -61,19 +61,24 @@ Default to no comment. Only add one when the code can't speak for itself.
 - When discovering new work that can't be done immediately, add it to `TODO.md`.
 
 ## CI Verification (MANDATORY)
-After making any code changes, you MUST run the appropriate CI command from the repo root before responding. If it fails, fix it before responding. Never leave the user to discover CI failures after pushing.
+After making any code changes, you MUST run lint, typecheck, test, and build before responding — but **only for the packages you actually touched**. Running the full repo `npm run ci` is wasteful (contract tests in particular are slow) and is forbidden unless your change spans every package or you touched the root tooling.
 
-The smart-contract test suite (`forge test`) is the slowest thing in CI by an order of magnitude, so we deliberately split local CI to match how GitHub's workflow splits its jobs (`js-checks` vs `contracts`):
+Use Turbo's `--filter` flag scoped to the package(s) you edited. Examples:
 
-| Command | Scope | Run when… |
-|---|---|---|
-| `npm run ci` | Lint + typecheck + test + build for every workspace **except** `@launchpad/contracts` | Default after any code change. Use this whenever your edits don't touch `.sol` files. |
-| `npm run ci:contracts` | `forge fmt --check` + `forge test` (the contracts package only) | Run **in addition to** `npm run ci` whenever you've edited a `.sol` file under `packages/contracts/` or its Foundry config (`foundry.toml`, `remappings.txt`). Non-Solidity edits in that package (e.g. `AGENTS.md`) don't trigger this — see the explicit trigger list below. |
-| `npm run ci:full` | Everything above in one shot | Only when you've changed both contracts AND something else and want a single command. |
+- Edited only `apps/api/`:
+  `npx turbo run lint typecheck test build --filter=@launchpad/api`
+- Edited `apps/web/`:
+  `npx turbo run lint typecheck test build --filter=@launchpad/web`
+- Edited `packages/contracts/`:
+  `npx turbo run lint typecheck test build --filter=@launchpad/contracts`
+  (only this scope runs Foundry tests)
+- Edited `packages/shared/` (touched by most consumers):
+  `npx turbo run lint typecheck test build --filter=@launchpad/shared...` (the `...` includes downstream dependents)
+- Edited multiple unrelated packages: pass multiple `--filter` flags.
 
-**Do not run `npm run ci:full` (or `npm run ci:contracts`) unless your changeset actually modifies smart-contract code.** Re-running the slow Foundry suite for a CSS tweak or an API edit wastes minutes per turn for no signal — neither GitHub CI nor any reviewer benefits from it. Turbo's cache will skip a re-run on subsequent invocations, but the first uncached run still pays the full cost.
+If the package has no `test` task it's a no-op — that's fine. Never skip the scoped check, and never substitute it with a partial subset (e.g. lint only). If it fails, fix it before responding.
 
-If you're unsure whether your edits count as "smart-contract changes": the trigger is any `.sol` file under `packages/contracts/src/`, `packages/contracts/test/`, or `packages/contracts/script/`, plus `foundry.toml` and `remappings.txt`. Edits to `packages/contracts/AGENTS.md` or other non-Solidity files in that package do not require running `npm run ci:contracts`.
+**Do not run contract Foundry tests unless you actually changed `packages/contracts/`.** They're slow and add nothing when you're editing TypeScript.
 
 ## Prohibitions
 

@@ -1,4 +1,4 @@
-import { buildSessionMessage } from "@launchpad/shared";
+import { buildSessionMessage, sanitizeTwitterHandle } from "@launchpad/shared";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -23,16 +23,46 @@ const updateProfileSchema = z.object({
     .max(280, "Bio too long (max 280 chars)")
     .optional()
     .default(""),
+  // Stored as a bare Twitter / X handle (see issue #400). We accept any
+  // common form on the wire — `@alice`, `alice`, `https://x.com/alice`,
+  // `https://twitter.com/alice/status/123` — and reject anything that
+  // doesn't reduce to a valid handle (e.g. `javascript:alert(1)`,
+  // `https://x.com.evil.tld/foo`). The handle is what gets persisted; the
+  // frontend always rebuilds the URL via `buildTwitterUrl`.
   twitterUrl: z
     .string()
     .max(200, "Twitter URL too long (max 200 chars)")
     .optional()
-    .default(""),
+    .default("")
+    .superRefine((value, ctx) => {
+      if (value.trim() === "") return;
+      if (sanitizeTwitterHandle(value) === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Must be a Twitter / X handle or x.com URL",
+        });
+      }
+    })
+    .transform((value) => sanitizeTwitterHandle(value)),
   signature: z.string().min(1, "Signature is required"),
   expiresAt: z.number().finite("Invalid expiresAt"),
 });
 
 const profilesRoute = new Hono<{ Bindings: AppBindings }>();
+
+/**
+ * Pre-#400 rows may still hold raw URLs in `twitterUrl` (e.g.
+ * `https://twitter.com/alice` or, worse, `javascript:...`). The PUT
+ * handler now stores the bare handle, but historical rows haven't been
+ * migrated. Sanitising on read collapses both shapes to the canonical
+ * handle so every response the frontend sees is safe to feed into
+ * `buildTwitterUrl`. An empty / unsafe stored value reads back as `null`,
+ * matching the "no profile" branch above.
+ */
+function sanitizeProfileForResponse<T extends { twitterUrl?: string | null }>(profile: T): T {
+  const handle = sanitizeTwitterHandle(profile.twitterUrl ?? "");
+  return { ...profile, twitterUrl: handle === "" ? null : handle };
+}
 
 profilesRoute.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
@@ -61,7 +91,7 @@ profilesRoute.get("/:address", async (c) => {
     );
   }
 
-  return c.json(formatSuccess(profile));
+  return c.json(formatSuccess(sanitizeProfileForResponse(profile)));
 });
 
 profilesRoute.put(
@@ -117,7 +147,7 @@ profilesRoute.put(
       })
       .returning();
 
-    return c.json(formatSuccess(profile));
+    return c.json(formatSuccess(sanitizeProfileForResponse(profile)));
   },
 );
 

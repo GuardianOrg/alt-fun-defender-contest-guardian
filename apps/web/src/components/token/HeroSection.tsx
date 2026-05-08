@@ -1,5 +1,7 @@
 import { useState } from "react";
 
+import { buildTelegramUrl, buildTwitterUrl, buildWebsiteUrl } from "@launchpad/shared";
+
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
@@ -38,6 +40,17 @@ export default function HeroSection({ token }: Props) {
 
   const hasImage = Boolean(token.image && !imgError);
   const fallbackEmoji = token.emoji || "🪙";
+
+  // The API stores handles for Twitter/Telegram and a canonical URL for the
+  // website (see issue #400 and `packages/shared/src/social-links.ts`). We
+  // *also* run them through the safe builders here so legacy DB rows that
+  // still hold raw URLs round-trip into a normalised `https://x.com/<handle>`
+  // / `https://t.me/<path>` and any value that can't be reduced to a safe
+  // href simply doesn't render — never falls through to a clickable phishing
+  // or `javascript:` link.
+  const twitterUrl = buildTwitterUrl(token.socialLinks?.twitter);
+  const telegramUrl = buildTelegramUrl(token.socialLinks?.telegram);
+  const websiteUrl = buildWebsiteUrl(token.socialLinks?.website);
 
   return (
     <div className={styles.wrapper}>
@@ -86,11 +99,9 @@ export default function HeroSection({ token }: Props) {
             </span>
           </div>
           <div className={styles.socialLinks}>
-            {token.socialLinks?.twitter && (
+            {twitterUrl && (
               <a
-                href={token.socialLinks.twitter.startsWith("http")
-                  ? token.socialLinks.twitter
-                  : `https://x.com/${token.socialLinks.twitter.replace(/^@/, "")}`}
+                href={twitterUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.socialLink}
@@ -98,11 +109,9 @@ export default function HeroSection({ token }: Props) {
                 𝕏
               </a>
             )}
-            {token.socialLinks?.telegram && (
+            {telegramUrl && (
               <a
-                href={token.socialLinks.telegram.startsWith("http")
-                  ? token.socialLinks.telegram
-                  : `https://${token.socialLinks.telegram}`}
+                href={telegramUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.socialLink}
@@ -110,11 +119,9 @@ export default function HeroSection({ token }: Props) {
                 TG
               </a>
             )}
-            {token.socialLinks?.website && (
+            {websiteUrl && (
               <a
-                href={token.socialLinks.website.startsWith("http")
-                  ? token.socialLinks.website
-                  : `https://${token.socialLinks.website}`}
+                href={websiteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={styles.socialLink}
