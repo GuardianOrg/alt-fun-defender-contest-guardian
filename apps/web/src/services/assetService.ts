@@ -89,12 +89,18 @@ interface CandleObject {
   v: string;
 }
 
-let cached24hPrices: { data: Record<string, number>; ts: number } | null = null;
+interface AssetChange {
+  percent: number;
+  dollar: number;
+}
+
+let cached24hPrices: { data: Record<string, AssetChange>; ts: number } | null =
+  null;
 const CHANGE_CACHE_TTL = 60_000;
 
 async function fetch24hChanges(
   currentMids: Record<string, string>,
-): Promise<Record<string, number>> {
+): Promise<Record<string, AssetChange>> {
   if (cached24hPrices && Date.now() - cached24hPrices.ts < CHANGE_CACHE_TTL) {
     return cached24hPrices.data;
   }
@@ -102,7 +108,7 @@ async function fetch24hChanges(
   const now = Date.now();
   const dayAgo = now - 24 * 60 * 60 * 1000;
 
-  const changes: Record<string, number> = {};
+  const changes: Record<string, AssetChange> = {};
 
   const requests = TRACKED_ASSETS.map(async (coin) => {
     const dex = getHyperliquidDex(coin);
@@ -123,13 +129,16 @@ async function fetch24hChanges(
       if (candles.length > 0) {
         const openPrice = parseFloat(candles[0].o);
         const currentPrice = parseFloat(currentMids[coin] ?? "0");
-        const change = computeChange24h(openPrice, currentPrice);
-        if (change != null) {
-          changes[coin] = change;
+        const percent = computeChange24h(openPrice, currentPrice);
+        if (percent != null && Number.isFinite(currentPrice)) {
+          changes[coin] = {
+            percent,
+            dollar: currentPrice - openPrice,
+          };
         }
       }
     } catch {
-      changes[coin] = 0;
+      changes[coin] = { percent: 0, dollar: 0 };
     }
   });
 
@@ -171,13 +180,15 @@ const liveAssetService: IAssetService = {
       const changes = await fetch24hChanges(mids);
       return TRACKED_ASSETS.map((name) => {
         const mid = parseFloat(mids[name] ?? "");
+        const ch = changes[name];
         return {
           name,
           // `formatPrice(NaN)` would render `$NaN` — fall back to a dash
           // for assets that are missing from both feeds (degraded xyz dex,
           // newly-added asset before our list catches up, etc.).
           priceUsd: Number.isFinite(mid) && mid > 0 ? formatPrice(mid) : "—",
-          change24h: changes[name] ?? 0,
+          change24h: ch?.percent ?? 0,
+          priceChange24h: ch?.dollar ?? 0,
         };
       });
     } catch {
@@ -185,6 +196,7 @@ const liveAssetService: IAssetService = {
         name,
         priceUsd: "—",
         change24h: 0,
+        priceChange24h: 0,
       }));
     }
   },

@@ -33,6 +33,25 @@ export function useAssetChange(asset: UnderlyingAsset): number | undefined {
   return changes[asset];
 }
 
+/**
+ * Trailing-24h **dollar** price delta per tracked asset (i.e. `currentMid -
+ * openPrice24hAgo`). Mirrors `useAssetChanges` but in absolute USD instead
+ * of percent — used by the create-flow pair selector to surface raw moves
+ * (e.g. "+$51.45") alongside the asset logos.
+ */
+export function useAssetPriceChanges(): Record<string, number | undefined> {
+  const { data: assets } = useAssets();
+  return useMemo(() => {
+    const map: Record<string, number | undefined> = {};
+    if (assets) {
+      for (const a of assets) {
+        map[a.name] = a.priceChange24h;
+      }
+    }
+    return map;
+  }, [assets]);
+}
+
 export function useAssetCandles(asset: UnderlyingAsset) {
   return useQuery({
     queryKey: ["assetCandles", asset],

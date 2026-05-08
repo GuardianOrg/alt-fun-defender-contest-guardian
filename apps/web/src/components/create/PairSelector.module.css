@@ -122,13 +122,26 @@
 }
 
 .assetButton {
-  padding: 0.6rem 0.8rem;
+  padding: 0.6rem 0.7rem;
   border-radius: 0;
   cursor: pointer;
   border: 1px solid;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: left;
   transition: all 0.15s ease;
   font-family: var(--font-mono);
+}
+
+.assetLogo {
+  flex-shrink: 0;
+}
+
+.assetMeta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .assetButtonMintSelected {
@@ -154,14 +167,18 @@
 
 .assetName {
   font-size: 0.875rem;
-  line-height: 1.25rem;
+  line-height: 1.15rem;
   font-weight: 700;
   color: var(--txt);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .assetChg {
-  font-size: 13px;
-  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.15;
+  margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
 

@@ -73,7 +73,11 @@ export interface Token {
 export interface Asset {
   name: UnderlyingAsset;
   priceUsd: string;
+  /** Percent change over the trailing 24h window (e.g. `1.23` = +1.23%). */
   change24h: number;
+  /** Absolute USD price change over the trailing 24h window
+   *  (`currentMid - 24hAgoOpen`). Same sign as `change24h`. */
+  priceChange24h: number;
 }
 
 export interface Holder {
