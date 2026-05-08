@@ -19,7 +19,35 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
 }
 
 const COMMENT_RATE_LIMIT_MS = 3_000;
+// Per-isolate rate limiter. Not shared across isolates/regions — adequate for
+// v1, but should move to Durable Objects or KV for strict global enforcement
+// (an attacker can multiply throughput by issuing requests across CF regions).
 const commentRateLimit = new Map<string, number>();
+// Hard cap on map size to bound memory under a burst of unique (author, token)
+// pairs arriving inside a single rate-limit window (where `purgeExpiredEntries`
+// has nothing to evict). When exceeded, the oldest insertion is dropped — Map
+// preserves insertion order, so `keys().next()` returns the oldest key.
+const COMMENT_RATE_LIMIT_MAX_ENTRIES = 10_000;
+let lastCommentRateLimitPurge = Date.now();
+
+function purgeExpiredCommentRateLimits(now: number) {
+  if (now - lastCommentRateLimitPurge < COMMENT_RATE_LIMIT_MS) return;
+  lastCommentRateLimitPurge = now;
+  for (const [key, lastCommentAt] of commentRateLimit) {
+    if (now - lastCommentAt >= COMMENT_RATE_LIMIT_MS) {
+      commentRateLimit.delete(key);
+    }
+  }
+}
+
+function recordCommentRateLimit(key: string, now: number) {
+  commentRateLimit.set(key, now);
+  while (commentRateLimit.size > COMMENT_RATE_LIMIT_MAX_ENTRIES) {
+    const oldestKey = commentRateLimit.keys().next().value;
+    if (oldestKey === undefined) break;
+    commentRateLimit.delete(oldestKey);
+  }
+}
 
 const createCommentSchema = z.object({
   author: z.string().refine(isAddress, "Invalid author address"),
@@ -92,9 +120,12 @@ commentsRoute.post(
       return c.json(formatError("Signature does not match author"), 401);
     }
 
+    const now = Date.now();
+    purgeExpiredCommentRateLimits(now);
+
     const rateLimitKey = `${normalizedAuthor}:${tokenAddress.toLowerCase()}`;
     const lastCommentAt = commentRateLimit.get(rateLimitKey);
-    if (lastCommentAt !== undefined && Date.now() - lastCommentAt < COMMENT_RATE_LIMIT_MS) {
+    if (lastCommentAt !== undefined && now - lastCommentAt < COMMENT_RATE_LIMIT_MS) {
       return c.json(
         formatError("Rate limit exceeded: 1 comment per 3s per wallet per token"),
         429,
@@ -111,7 +142,7 @@ commentsRoute.post(
       })
       .returning();
 
-    commentRateLimit.set(rateLimitKey, Date.now());
+    recordCommentRateLimit(rateLimitKey, Date.now());
 
     return c.json(formatSuccess(comment), 201);
   },
