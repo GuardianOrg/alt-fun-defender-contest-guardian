@@ -196,8 +196,13 @@ describe("POST /images — image upload", () => {
     expect(body.status).toBe("success");
     // Stored URL is origin-agnostic so the same DB row renders against
     // any environment's API origin (dev, preview, prod). See issue #450.
-    expect((body.data as Record<string, unknown>).url).toMatch(/^\/images\/tokens\//);
-    expect((body.data as Record<string, unknown>).key).toMatch(/^tokens\//);
+    // Asserting `url === /images/${key}` (rather than just prefixing both)
+    // pins the response down to a single coherent shape — a future
+    // refactor can't accidentally return a `url` and `key` for different
+    // objects.
+    const data = body.data as { url: string; key: string };
+    expect(data.key).toMatch(/^tokens\//);
+    expect(data.url).toBe(`/images/${data.key}`);
 
     expect(mockR2Put).toHaveBeenCalledTimes(1);
     const [key, , options] = mockR2Put.mock.calls[0];

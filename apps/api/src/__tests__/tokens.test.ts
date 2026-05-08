@@ -372,6 +372,7 @@ describe("POST /tokens — address-only registration", () => {
       makeOnChainInfo({ image: `/images/${VALID_KEY}` }),
     );
     mockBounceTechLtList();
+    const bucket = makeBucket();
     mockDbReturning.mockResolvedValueOnce([{
       address: VALID_ADDRESS,
       name: "Test Token",
@@ -399,9 +400,13 @@ describe("POST /tokens — address-only registration", () => {
       passThroughOnException: vi.fn(),
       props: {},
     } as unknown as ExecutionContext;
-    const res = await app.fetch(req, makeEnv(), executionCtx);
+    const res = await app.fetch(req, makeEnv(bucket), executionCtx);
 
     expect(res.status).toBe(201);
+    // The R2-existence gate must run on the relative-path branch too —
+    // otherwise an attacker could stamp `/images/tokens/<unknown-key>`
+    // on-chain and slip past the moderation pipeline.
+    expect(bucket.head).toHaveBeenCalledWith(VALID_KEY);
     const insertCall = mockInsertValues.mock.calls[0]?.[0] as { imageUrl?: string } | undefined;
     expect(insertCall?.imageUrl).toBe(`/images/${VALID_KEY}`);
   });
