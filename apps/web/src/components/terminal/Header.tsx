@@ -1,23 +1,34 @@
 import WaveBackground from "../landing/WaveBackground";
 import styles from "./Header.module.css";
 
-interface Props {
-  title?: string;
-  subtitle?: string;
-}
-
-export default function Header({
-  title = "Terminal",
-  subtitle = "Discover and trade tokens backed by Hyperliquid perps.",
-}: Props) {
+export default function Header() {
   return (
     <header className={styles.header}>
-      <WaveBackground />
+      <div className={styles.waveLayer} aria-hidden="true">
+        <WaveBackground scale={1.6} />
+      </div>
       <div className={styles.scrim} aria-hidden="true" />
       <div className={styles.vignette} aria-hidden="true" />
       <div className={styles.content}>
-        <h1 className={styles.title}>{title}</h1>
-        <p className={styles.subtitle}>{subtitle}</p>
+        <h1 className={styles.title}>
+          <span>Launch coins</span>
+          <span className={styles.titleSlash} aria-hidden="true">
+            /
+          </span>
+          <span className={styles.titleAccent}>backed by perps</span>
+        </h1>
+        <span className={styles.subtitleContainer}>
+          <p className={styles.subtitle}>
+            Every token is backed by a{" "}
+            <span className={styles.mint}>non-liquidated position</span> on
+            Hyperliquid.
+          </p>
+          <p className={styles.subtitleItalic}>
+            Your token pumps even when nobody&apos;s buying — when the
+            underlying moves, your coin moves{" "}
+            <span className={styles.mint}>2-5x harder</span>.
+          </p>
+        </span>
       </div>
     </header>
   );

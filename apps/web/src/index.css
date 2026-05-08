@@ -38,7 +38,7 @@
 
   /* Fonts */
   --font-mono: "JetBrains Mono", "Courier New", Courier, monospace;
-  --font-display: "Oswald", Impact, "Arial Narrow", sans-serif;
+  --font-display: "Geist", "Inter", system-ui, sans-serif;
 
   /* Shadows */
   --shadow-mint-glow: 0 0 16px rgba(77, 232, 180, 0.25);
