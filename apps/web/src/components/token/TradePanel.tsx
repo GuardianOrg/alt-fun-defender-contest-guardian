@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 import { MIN_USDC_BUY_AMOUNT, MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http, parseUnits } from "viem";
@@ -18,8 +18,9 @@ import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
-import { cn, shortenAddress } from "../../utils/format";
+import { cn, formatTokenAmount, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
+import { buildTxAction, useToast } from "../shared/Toast";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
@@ -43,12 +44,31 @@ export default function TradePanel({ token }: Props) {
   const [sellQuote, setSellQuote] = useState<SellQuote | null>(null);
   const [maxBalance, setMaxBalance] = useState<string | null>(null);
   const [maxBalanceWei, setMaxBalanceWei] = useState<bigint | null>(null);
+  // USDC balance is tracked independently of `maxBalance` because the latter
+  // swaps to the token balance in sell mode. We always want to know the
+  // user's USDC balance so the buy-side insufficient-funds check works
+  // regardless of which mode the panel is currently in.
+  const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
 
   const { address } = useAccount();
   const { isConnected, connect } = useWallet();
   const referrer = useReferral();
   const { step, txHash, error, executeBuy, executeSell, reset } =
     useTradeRouter();
+  const { pushToast } = useToast();
+  // Snapshot of the trade-side amounts at submit time, consumed once when
+  // the tx confirms. Held in a ref so the captured values don't get clobbered
+  // by the post-confirm reset (`setAmount("")`, quote teardown) before the
+  // toast effect runs.
+  const pendingTradeRef = useRef<
+    | {
+        mode: "buy" | "sell";
+        tokenAmount: number;
+        usdcAmount: number;
+        ticker: string;
+      }
+    | null
+  >(null);
 
   const amtNum = parseFloat(amount) || 0;
 
@@ -59,6 +79,16 @@ export default function TradePanel({ token }: Props) {
   const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_BUY_AMOUNT;
   const sellBelowMinimum = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.usdcOut < MIN_USDC_SELL_AMOUNT;
   const sellExceedsBuffer = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.exceedsBuffer;
+  // Insufficient USDC for buys. Only flag once the balance has loaded so we
+  // don't disable the button during the initial fetch (or for users who
+  // haven't connected — the wallet-connect CTA path takes priority).
+  const usdcBalanceNum = usdcBalance !== null ? parseFloat(usdcBalance) : null;
+  const insufficientUsdc =
+    isConnected &&
+    mode === "buy" &&
+    amtNum > 0 &&
+    usdcBalanceNum !== null &&
+    amtNum > usdcBalanceNum;
 
   useEffect(() => {
     if (!amtNum || amtNum <= 0) {
@@ -89,27 +119,47 @@ export default function TradePanel({ token }: Props) {
   }, [amtNum, mode, token.address, token.leverage, slippage]);
 
   const loadBalance = useCallback(async () => {
-    if (!address) return;
+    if (!address) {
+      setUsdcBalance(null);
+      return;
+    }
+    // Always fetch USDC balance — the insufficient-funds guard must work in
+    // both modes regardless of which balance `maxBalance` is currently
+    // pointing at. In buy mode `maxBalance` IS the USDC balance, so we
+    // reuse the same read for both.
     try {
+      const usdcRaw = (await hyperEvmClient.readContract({
+        address: ADDRESSES.usdc,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [address],
+      })) as bigint;
+      const usdcFormatted = formatUnits(usdcRaw, USDC_DECIMALS);
+      setUsdcBalance(usdcFormatted);
+
       if (mode === "buy") {
-        const balance = await hyperEvmClient.readContract({
-          address: ADDRESSES.usdc,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [address],
-        }) as bigint;
-        setMaxBalance(formatUnits(balance, USDC_DECIMALS));
-        setMaxBalanceWei(balance);
-      } else {
-        const balance = await hyperEvmClient.readContract({
-          address: token.address as `0x${string}`,
-          abi: erc20Abi,
-          functionName: "balanceOf",
-          args: [address],
-        }) as bigint;
-        setMaxBalance(formatUnits(balance, 18));
-        setMaxBalanceWei(balance);
+        setMaxBalance(usdcFormatted);
+        setMaxBalanceWei(usdcRaw);
+        return;
       }
+    } catch {
+      setUsdcBalance(null);
+      if (mode === "buy") {
+        setMaxBalance(null);
+        setMaxBalanceWei(null);
+        return;
+      }
+    }
+
+    try {
+      const balance = (await hyperEvmClient.readContract({
+        address: token.address as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "balanceOf",
+        args: [address],
+      })) as bigint;
+      setMaxBalance(formatUnits(balance, 18));
+      setMaxBalanceWei(balance);
     } catch {
       setMaxBalance(null);
       setMaxBalanceWei(null);
@@ -128,11 +178,23 @@ export default function TradePanel({ token }: Props) {
     if (!amtNum) return;
 
     if (mode === "buy") {
+      pendingTradeRef.current = {
+        mode: "buy",
+        tokenAmount: buyQuote?.tokensOutRaw ?? 0,
+        usdcAmount: amtNum,
+        ticker: token.ticker,
+      };
       executeBuy(token.address, amtNum, slippage, referrer);
     } else {
       const parsed = parseUnits(amount, 18);
       const tokenAmountWei =
         maxBalanceWei !== null && parsed > maxBalanceWei ? maxBalanceWei : parsed;
+      pendingTradeRef.current = {
+        mode: "sell",
+        tokenAmount: parseFloat(formatUnits(tokenAmountWei, 18)),
+        usdcAmount: sellQuote?.usdcOut ?? 0,
+        ticker: token.ticker,
+      };
       executeSell(token.address, tokenAmountWei, slippage);
     }
   };
@@ -140,13 +202,23 @@ export default function TradePanel({ token }: Props) {
   useEffect(() => {
     if (step === "confirmed") {
       loadBalance();
+      if (txHash && pendingTradeRef.current) {
+        const trade = pendingTradeRef.current;
+        pendingTradeRef.current = null;
+        pushToast({
+          variant: "success",
+          title: `${trade.mode === "buy" ? "Bought" : "Sold"} ${formatTokenAmount(trade.tokenAmount)} ${trade.ticker}`,
+          subtitle: `For ${formatUsd(trade.usdcAmount)} USDC`,
+          action: buildTxAction(txHash),
+        });
+      }
       const t = setTimeout(() => {
         reset();
         setAmount("");
       }, 3000);
       return () => clearTimeout(t);
     }
-  }, [step, reset, loadBalance]);
+  }, [step, txHash, reset, loadBalance, pushToast]);
 
   const isBusy = step === "approving" || step === "signing" || step === "executing";
 
@@ -155,6 +227,7 @@ export default function TradePanel({ token }: Props) {
     if (belowMinimum) return `MINIMUM $${MIN_USDC_BUY_AMOUNT} USDC`;
     if (sellBelowMinimum) return `MINIMUM $${MIN_USDC_SELL_AMOUNT} USDC`;
     if (sellExceedsBuffer) return "EXCEEDS AVAILABLE LIQUIDITY";
+    if (insufficientUsdc) return "INSUFFICIENT USDC";
     if (step === "signing") return "SIGN IN WALLET…";
     if (step === "approving") return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
@@ -272,6 +345,31 @@ export default function TradePanel({ token }: Props) {
           token={token}
         />
 
+        {isConnected && mode === "buy" && (
+          <div className={styles.balanceRow}>
+            <span className={styles.balanceLabel}>USDC balance</span>
+            <span className={styles.balanceValue}>
+              {usdcBalance !== null
+                ? `$${parseFloat(usdcBalance).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}`
+                : "—"}
+            </span>
+          </div>
+        )}
+
+        {isConnected && mode === "sell" && (
+          <div className={styles.balanceRow}>
+            <span className={styles.balanceLabel}>{ticker} balance</span>
+            <span className={styles.balanceValue}>
+              {maxBalance !== null
+                ? `${formatTokenAmount(parseFloat(maxBalance))} ${ticker}`
+                : "—"}
+            </span>
+          </div>
+        )}
+
         {amtNum > 0 && (
           <TradePanelQuote
             mode={mode}
@@ -296,6 +394,17 @@ export default function TradePanel({ token }: Props) {
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Minimum sell is ${MIN_USDC_SELL_AMOUNT} USDC
+          </div>
+        )}
+
+        {insufficientUsdc && (
+          <div className={styles.errorBox}>
+            <span className={styles.errorIcon}>⚠</span>
+            Insufficient USDC — wallet holds $
+            {parseFloat(usdcBalance ?? "0").toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </div>
         )}
 
@@ -338,7 +447,13 @@ export default function TradePanel({ token }: Props) {
           variant={mode === "buy" ? "primary" : "danger"}
           fullWidth
           busy={isBusy}
-          disabled={step === "confirmed" || belowMinimum || sellBelowMinimum || sellExceedsBuffer}
+          disabled={
+            step === "confirmed" ||
+            belowMinimum ||
+            sellBelowMinimum ||
+            sellExceedsBuffer ||
+            insufficientUsdc
+          }
           className={step === "confirmed" ? styles.ctaConfirmed : undefined}
           onClick={doTrade}
         >

@@ -35,7 +35,7 @@ export const TOKEN_SUPPLY = 1_000_000_000;
 
 export const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02] as const;
 
-export const QUICK_AMOUNTS = [50, 100, 500, 1000] as const;
+export const QUICK_AMOUNTS = [25, 50, 100, 250] as const;
 
 export const SELL_PERCENT_OPTIONS = [10, 25, 50, 75, 100] as const;
 

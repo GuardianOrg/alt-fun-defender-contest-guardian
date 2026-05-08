@@ -365,18 +365,9 @@
   align-self: flex-start;
   font-size: 11px;
   color: var(--txt-3);
-  cursor: pointer;
   background: transparent;
   border: 0;
   font-family: var(--font-mono);
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.denomToggle:hover {
-  color: var(--mint);
 }
 
 .amountWrap {
@@ -410,6 +401,19 @@
 
 .amountInput::placeholder {
   color: var(--txt-4);
+}
+
+/* Hide native number-input spinner arrows. Chrome/Safari/Edge render the
+   inner up/down buttons; Firefox uses the textfield appearance + moz spin. */
+.amountInput::-webkit-outer-spin-button,
+.amountInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.amountInput[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 .denomTag {
@@ -527,6 +531,29 @@
 .maxBtn:hover {
   border-color: rgba(77, 232, 180, 0.4);
   background: rgba(77, 232, 180, 0.04);
+}
+
+.balanceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--txt-3);
+  padding: 0.2rem 0;
+}
+
+.balanceLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 10px;
+  color: var(--txt-4);
+}
+
+.balanceValue {
+  color: var(--txt-2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .estimate {

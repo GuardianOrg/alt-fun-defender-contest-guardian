@@ -1,0 +1,122 @@
+.viewport {
+  position: fixed;
+  top: 1.6rem;
+  right: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  z-index: 1100;
+  pointer-events: none;
+  max-width: calc(100vw - 3.2rem);
+}
+
+.toast {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: flex-start;
+  gap: 0.8rem;
+  min-width: 280px;
+  max-width: 360px;
+  padding: 0.8rem 1.2rem;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  box-shadow: var(--shadow-panel);
+  font-family: var(--font-mono);
+  animation: modalin 0.15s ease;
+}
+
+.iconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.toastSuccess .iconWrap {
+  color: var(--mint);
+}
+
+.toastError .iconWrap {
+  color: var(--red);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.subtitle {
+  font-size: 11px;
+  color: var(--txt-3);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.action {
+  margin-top: 0.4rem;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mint);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+  transition:
+    color 0.15s ease,
+    opacity 0.15s ease;
+  opacity: 0.85;
+}
+
+.action:hover {
+  opacity: 1;
+  color: var(--mint-hover);
+}
+
+.close {
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  color: var(--txt-4);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.2rem;
+  transition: color 0.15s ease;
+}
+
+.close:hover {
+  color: var(--txt);
+}
+
+@media (max-width: 768px) {
+  .viewport {
+    top: auto;
+    bottom: 1.2rem;
+    left: 1.2rem;
+    right: 1.2rem;
+    align-items: stretch;
+  }
+
+  .toast {
+    max-width: none;
+    min-width: 0;
+  }
+}

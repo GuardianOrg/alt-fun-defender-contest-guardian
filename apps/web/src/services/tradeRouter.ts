@@ -2,7 +2,6 @@ import {
   BondingAbi,
   FactoryAbi,
   LeveragedTokenAbi,
-  RouterAbi,
 } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http, parseUnits } from "viem";
 
@@ -27,6 +26,20 @@ const CurvePairAbi = [
       { name: "reserve0", type: "uint256" },
       { name: "reserve1", type: "uint256" },
     ],
+  },
+  {
+    name: "k",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    name: "tokenBalance",
+    type: "function",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
   },
 ] as const;
 
@@ -66,7 +79,16 @@ export type TxStep = TransactionStep | "executing";
 export type LaunchStep = TransactionStep | "deploying";
 
 export interface BuyQuote {
+  /**
+   * Pre-formatted display string for the token amount the buyer receives.
+   * Uses adaptive precision so sub-token amounts (small buys on
+   * high-supply tokens) don't round to "0" the way a fixed
+   * `maximumFractionDigits: 0` would.
+   */
   tokensOut: string;
+  /** Raw token amount the buyer receives (no formatting). Use when callers
+   *  need to do arithmetic; UI surfaces should prefer `tokensOut`. */
+  tokensOutRaw: number;
   curveFee: number;
   totalFee: number;
   priceImpactPct: number;
@@ -229,7 +251,12 @@ const liveTradeRouter: ITradeRouterService = {
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
         await getPairContext(tokenAddr);
 
-      const [reserves, exchangeRate] = await Promise.all([
+      // Curve path also needs `k` and `tokenBalance` so we can run
+      // `Router._computeBuy`'s xy=k math entirely in JS (see below). On the
+      // graduated/HyperSwap path the swap formula is the standard V2 one
+      // and we don't have a `k()` getter to read, so we just fetch
+      // reserves + exchangeRate.
+      const [reserves, exchangeRate, kRaw, tokenBalanceRaw] = await Promise.all([
         graduated
           ? (publicClient.readContract({
               address: pairAddress,
@@ -246,6 +273,20 @@ const liveTradeRouter: ITradeRouterService = {
           abi: LeveragedTokenAbi,
           functionName: "exchangeRate",
         }) as Promise<bigint>,
+        graduated
+          ? Promise.resolve(0n)
+          : (publicClient.readContract({
+              address: pairAddress,
+              abi: CurvePairAbi,
+              functionName: "k",
+            }) as Promise<bigint>),
+        graduated
+          ? Promise.resolve(0n)
+          : (publicClient.readContract({
+              address: pairAddress,
+              abi: CurvePairAbi,
+              functionName: "tokenBalance",
+            }) as Promise<bigint>),
       ]);
 
       const [reserve0, reserve1] = reserves;
@@ -256,6 +297,17 @@ const liveTradeRouter: ITradeRouterService = {
       const ltReserveFloat = parseFloat(formatUnits(ltReserve, 18));
       const tokenReserveFloat = parseFloat(formatUnits(tokenReserve, 18));
 
+      // Defensive guard. A degraded LT (`exchangeRate()` returning 0) would
+      // produce `Infinity` for `ltIn` below, then `parseUnits("Infinity")`
+      // throws and the outer catch silently returns null — leaving the UI
+      // stuck on "you receive …". Surface it instead.
+      if (!Number.isFinite(exRate) || exRate <= 0) {
+        throw new Error(
+          `LT ${ltAddress} returned non-positive exchangeRate (${exchangeRate}). ` +
+            `Cannot quote buy.`,
+        );
+      }
+
       const curveFee = usdcAmount * FEES.curveBuy;
       const netUsdc = usdcAmount - curveFee;
       const ltIn = netUsdc / exRate;
@@ -265,8 +317,7 @@ const liveTradeRouter: ITradeRouterService = {
       let capped = false;
 
       if (graduated) {
-        // Post-grad: HyperSwap V2 0.30% fee on input. previewBuy is
-        // curve-only so we keep the JS math here.
+        // Post-grad: HyperSwap V2 0.30% fee on input.
         const effectiveLtIn = (ltIn * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM;
         tokensOut =
           ltReserveFloat > 0
@@ -274,15 +325,49 @@ const liveTradeRouter: ITradeRouterService = {
               (ltReserveFloat + effectiveLtIn)
             : 0;
       } else {
-        // Curve path: defer to `Router.previewBuy` so the quote honours the
-        // overflow cap on graduating buys (matches `Zap._executeBuy`).
+        // Curve path: replicate `Router._computeBuy` in BigInt so we don't
+        // depend on `Router.previewBuy` being callable. Mirroring the math
+        // (rather than calling the on-chain view) eliminates a class of
+        // silent quote failures we were seeing where the on-chain call
+        // reverted/returned malformed data and the outer try/catch
+        // collapsed it to a null quote ("you receive …").
+        //
+        //   amountInUsed   = ltInWei
+        //   newAssetRes    = ltReserve + amountInUsed
+        //   tokensOutWei   = tokenReserve − (k / newAssetRes)
+        //   if (tokensOutWei > tokenBalance) {
+        //     tokensOutWei      = tokenBalance     (overflow cap)
+        //     cappedTokenRes    = tokenReserve − tokensOutWei
+        //     cappedAssetRes    = ceilDiv(k, cappedTokenRes)
+        //     amountInUsed      = cappedAssetRes − ltReserve
+        //   }
+        //
+        // Use a Number→BigInt path with a fixed 18-decimal scale via
+        // `parseUnits`. `Number(ltIn).toFixed(18)` ≈ 16 sig figs is fine
+        // for the magnitudes we deal with (LT amounts < 1e9 tokens).
+        if (kRaw === 0n) {
+          throw new Error(
+            `Curve pair ${pairAddress} has k=0 (uninitialised). ` +
+              `Cannot quote buy.`,
+          );
+        }
+
         const ltInWei = parseUnits(ltIn.toFixed(18), 18);
-        const [amountInUsedWei, tokensOutWei] = (await publicClient.readContract({
-          address: ADDRESSES.router,
-          abi: RouterAbi,
-          functionName: "previewBuy",
-          args: [tokenAddr, ltInWei],
-        })) as readonly [bigint, bigint];
+        const newAssetReserveWei = ltReserve + ltInWei;
+        let tokensOutWei = tokenReserve - kRaw / newAssetReserveWei;
+        let amountInUsedWei = ltInWei;
+
+        if (tokensOutWei > tokenBalanceRaw) {
+          tokensOutWei = tokenBalanceRaw;
+          const cappedTokenReserve = tokenReserve - tokensOutWei;
+          if (cappedTokenReserve === 0n) {
+            throw new Error("Overflow cap degenerate (cappedTokenReserve=0)");
+          }
+          // Solidity `(k + cappedTokenReserve - 1) / cappedTokenReserve`
+          const cappedAssetReserve =
+            (kRaw + cappedTokenReserve - 1n) / cappedTokenReserve;
+          amountInUsedWei = cappedAssetReserve - ltReserve;
+        }
 
         tokensOut = parseFloat(formatUnits(tokensOutWei, 18));
         const ltUsed = parseFloat(formatUnits(amountInUsedWei, 18));
@@ -302,10 +387,20 @@ const liveTradeRouter: ITradeRouterService = {
       const grossConsumed = capped ? usdcUsed / (1 - FEES.curveBuy) : usdcAmount;
       const cappedCurveFee = capped ? grossConsumed - usdcUsed : curveFee;
 
+      // Adaptive precision: small buys on high-supply tokens can produce
+      // sub-1 token outputs that would round to "0" with a fixed
+      // `maximumFractionDigits: 0`. Show 4dp under 1 token, 2dp under 100,
+      // 0dp at scale (where commas + integer rounding read cleanly).
+      const fractionDigits =
+        tokensOut === 0 ? 0 : tokensOut < 1 ? 4 : tokensOut < 100 ? 2 : 0;
+      const tokensOutFormatted = tokensOut.toLocaleString(undefined, {
+        maximumFractionDigits: fractionDigits,
+        minimumFractionDigits: 0,
+      });
+
       return {
-        tokensOut: tokensOut.toLocaleString(undefined, {
-          maximumFractionDigits: 0,
-        }),
+        tokensOut: tokensOutFormatted,
+        tokensOutRaw: tokensOut,
         curveFee: cappedCurveFee,
         totalFee: cappedCurveFee,
         priceImpactPct: parseFloat(priceImpact.toFixed(2)),
@@ -314,7 +409,12 @@ const liveTradeRouter: ITradeRouterService = {
         usdcUsed,
         capped,
       };
-    } catch {
+    } catch (err) {
+      // Without this log a misconfigured RPC / missing pair / degraded LT
+      // shows up to the user as "you receive …" with no diagnostic in the
+      // network tab. Keep the `return null` so the UI handles "no quote"
+      // gracefully, but make the cause findable in console.
+      console.error("getQuoteBuy failed:", err);
       return null;
     }
   },
