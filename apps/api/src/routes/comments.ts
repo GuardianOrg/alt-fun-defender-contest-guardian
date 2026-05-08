@@ -100,7 +100,10 @@ commentsRoute.post(
 
     const body = c.req.valid("json");
 
-    const now = Date.now();
+    // `let` because the rate-limit block below refreshes `now` after the
+    // async signature recovery — a fresher timestamp is more accurate for
+    // the per-wallet/token rate-limit window.
+    let now = Date.now();
     if (now >= body.expiresAt) {
       return c.json(formatError("Session signature has expired"), 401);
     }
@@ -129,7 +132,7 @@ commentsRoute.post(
       return c.json(formatError("Signature does not match author"), 401);
     }
 
-    const now = Date.now();
+    now = Date.now();
     purgeExpiredCommentRateLimits(now);
 
     const rateLimitKey = `${normalizedAuthor}:${tokenAddress.toLowerCase()}`;
