@@ -111,6 +111,12 @@ export function useChartData(
 
   const ratioRef = useRef(0);
   const exchangeRateRef = useRef(0);
+  // Tracks the address the live refs were last anchored to. When `address`
+  // changes (user navigates A → B) we must fully reset; for same-token
+  // refetches (mode change, WS reconnect) the WS-driven refs are typically
+  // newer than the snapshot's currentRatio/currentExchangeRate and must be
+  // preserved. See the regression note inside the fetch effect for why.
+  const refsAnchoredAddressRef = useRef<string | null>(null);
 
   const { candleSec, key: modeKey } = getChartModeConfig(mode);
 
@@ -130,12 +136,30 @@ export function useChartData(
     let cancelled = false;
     setLoading(true);
 
+    const isAddressChange = refsAnchoredAddressRef.current !== address;
+
     fetchChart(address, modeRef.current)
       .then((snapshot) => {
         if (cancelled) return;
 
-        ratioRef.current = snapshot.currentRatio;
-        exchangeRateRef.current = snapshot.currentExchangeRate;
+        // Only adopt the snapshot's ratio/exchangeRate when:
+        //   - this is the first fetch for the address, OR
+        //   - we have no live value yet (refs at 0).
+        // For same-token refetches (mode change, WS reconnect) the WS keeps
+        // these refs current. Overwriting them with the snapshot's values
+        // is unsafe because the API reads from the indexer, which can lag
+        // the chain by a couple of seconds — long enough to clobber a
+        // freshly-pumped ratio with a pre-buy value. That regression is
+        // exactly what made buy candles "disappear" after a few seconds:
+        // the in-progress big green body collapsed back to its open as
+        // subsequent live ticks recomputed `mcap = staleRatio × rate`.
+        if (isAddressChange || ratioRef.current <= 0) {
+          ratioRef.current = snapshot.currentRatio;
+        }
+        if (isAddressChange || exchangeRateRef.current <= 0) {
+          exchangeRateRef.current = snapshot.currentExchangeRate;
+        }
+        refsAnchoredAddressRef.current = address;
 
         const mapped: CandlestickData[] = snapshot.candles.map((c) => ({
           time: c.time as unknown as CandlestickData["time"],
@@ -145,7 +169,23 @@ export function useChartData(
           close: c.close * TOKEN_SUPPLY,
         }));
 
-        setCandles(mapped);
+        // Overlay the latest live mcap onto the snapshot's tail before we
+        // hand the array to the chart. Without this, even with the refs
+        // preserved above, the in-progress live candle would be replaced
+        // by the snapshot's stale last-candle close until the next WS
+        // tick lands — which on a quiet token can be many seconds and is
+        // exactly when the user notices the candle "vanishing".
+        let nextCandles = mapped;
+        const ratio = ratioRef.current;
+        const rate = exchangeRateRef.current;
+        if (ratio > 0 && rate > 0) {
+          const mcap = ratio * rate * TOKEN_SUPPLY;
+          const nowSec = Math.floor(Date.now() / 1000);
+          const { candleSec: cs } = getChartModeConfig(modeRef.current);
+          nextCandles = mergePriceIntoCandles(mapped, mcap, nowSec, cs);
+        }
+
+        setCandles(nextCandles);
         setLoading(false);
       })
       .catch(() => {
