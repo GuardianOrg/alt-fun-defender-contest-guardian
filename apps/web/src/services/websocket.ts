@@ -153,11 +153,16 @@ class SubjectSocket {
 
   private scheduleReconnect(): void {
     if (this.disposed || this.reconnectTimer) return;
+    // Capture the current backoff for *this* timer, then advance the
+    // multiplier only after the reconnect has been attempted. Without
+    // this snapshot the first reconnect would use `INITIAL_RECONNECT_MS *
+    // 2 = 2000ms` instead of the intended `1000ms`.
+    const delay = this.reconnectMs;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.reconnectMs = Math.min(this.reconnectMs * 2, MAX_RECONNECT_MS);
       this.connect();
-    }, this.reconnectMs);
+      this.reconnectMs = Math.min(this.reconnectMs * 2, MAX_RECONNECT_MS);
+    }, delay);
   }
 
   private cleanup(): void {

@@ -104,4 +104,19 @@ describe("tryAcquireIpSlot / releaseIpSlot helpers", () => {
     expect(ns.idFromName).toHaveBeenCalledWith("ws-ip-limiter");
     expect(fetched).toEqual(["/acquire", "/release"]);
   });
+
+  it("swallows errors in releaseIpSlot (true fire-and-forget)", async () => {
+    const ns = {
+      idFromName: vi.fn(() => "id"),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async () => {
+          throw new Error("limiter unreachable");
+        }),
+      })),
+    } as unknown as DurableObjectNamespace;
+
+    // Must not throw — callers wire this into webSocketClose / waitUntil
+    // and a transient limiter-DO failure should never bubble out.
+    await expect(releaseIpSlot(ns, "1.1.1.1")).resolves.toBeUndefined();
+  });
 });

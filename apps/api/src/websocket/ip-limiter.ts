@@ -128,16 +128,25 @@ export async function tryAcquireIpSlot(
 /**
  * Fire-and-forget release. Callers should attach this to
  * `executionCtx.waitUntil` or call inside `webSocketClose` — never block on it.
+ *
+ * Errors are swallowed here so the function lives up to its "fire-and-forget"
+ * docstring: a transient limiter-DO failure must not bubble into a caller
+ * who is just trying to clean up a closed connection. A leaked slot is
+ * recovered by the limiter's idle TTL sweep.
  */
 export async function releaseIpSlot(
   namespace: DurableObjectNamespace,
   ip: string,
 ): Promise<void> {
-  const id = namespace.idFromName("ws-ip-limiter");
-  const stub = namespace.get(id);
-  await stub.fetch("https://internal/release", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ip }),
-  });
+  try {
+    const id = namespace.idFromName("ws-ip-limiter");
+    const stub = namespace.get(id);
+    await stub.fetch("https://internal/release", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip }),
+    });
+  } catch {
+    // Intentional: see docstring. Leaked slot reclaimed by sweep.
+  }
 }
