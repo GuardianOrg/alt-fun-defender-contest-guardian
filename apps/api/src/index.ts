@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { prettyJSON } from "hono/pretty-json";
 import { swaggerUI } from "@hono/swagger-ui";
@@ -26,6 +25,7 @@ import profiles from "./routes/profiles.js";
 import chart from "./routes/chart.js";
 import marketData from "./routes/market-data.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
+import { corsMiddleware } from "./middleware/cors.js";
 import openApiSpec from "./openapi/spec.js";
 
 import type { AppBindings } from "./lib/types.js";
@@ -36,7 +36,7 @@ export { LtTicker } from "./websocket/lt-ticker.js";
 const app = new Hono<{ Bindings: AppBindings }>();
 
 app.use("*", logger());
-app.use("*", cors());
+app.use("*", corsMiddleware);
 app.use("*", prettyJSON());
 
 /**
