@@ -43,7 +43,13 @@ async function fetchRawBalancesFromChain(
   walletAddress: string,
 ): Promise<RawBalance[]> {
   const tokens = await fetchTokens(100);
-  if (tokens.length === 0) return [];
+  // Empty catalogue almost certainly means the API is down (we always have
+  // ≥1 token in production). Throw so `useBalances` falls through to the
+  // indexer-backed API fallback rather than silently rendering "No
+  // positions yet".
+  if (tokens.length === 0) {
+    throw new Error("Token catalogue unavailable");
+  }
 
   const balanceCalls = tokens.map((token) => ({
     address: token.address as `0x${string}`,
