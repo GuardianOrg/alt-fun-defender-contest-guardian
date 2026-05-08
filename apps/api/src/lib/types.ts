@@ -5,6 +5,14 @@ export interface AppBindings {
   PONDER_URL: string;
   IMAGES_BUCKET: R2Bucket;
   WEBSOCKET_DO: DurableObjectNamespace;
+  /**
+   * Per-IP WebSocket connection-count tracker (`WsIpLimiter`). Lives at the
+   * fixed name `"ws-ip-limiter"`. Queried by the `/ws` route to enforce
+   * `MAX_CONNECTIONS_PER_IP` *before* the upgrade is accepted, since the
+   * subject-sharded `WEBSOCKET_DO` shards no longer see all of an IP's
+   * connections in one place. See `websocket/ip-limiter.ts`.
+   */
+  WS_IP_LIMITER_DO: DurableObjectNamespace;
   LT_TICKER_DO: DurableObjectNamespace;
   AI: Ai;
   /**

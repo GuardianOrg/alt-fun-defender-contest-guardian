@@ -100,6 +100,9 @@ commentsRoute.post(
 
     const body = c.req.valid("json");
 
+    // `let` because the rate-limit block below refreshes `now` after the
+    // async signature recovery — a fresher timestamp is more accurate for
+    // the per-wallet/token rate-limit window.
     let now = Date.now();
     if (now >= body.expiresAt) {
       return c.json(formatError("Session signature has expired"), 401);

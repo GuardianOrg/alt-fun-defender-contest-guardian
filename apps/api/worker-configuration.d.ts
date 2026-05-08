@@ -4,7 +4,7 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
-		durableNamespaces: "WebSocketDO" | "LtTicker";
+		durableNamespaces: "WebSocketDO" | "LtTicker" | "WsIpLimiter";
 	}
 	interface Env {
 		IMAGES_BUCKET: R2Bucket;
@@ -17,6 +17,7 @@ declare namespace Cloudflare {
 		HYPEREVM_RPC_URL: string;
 		WEBSOCKET_DO: DurableObjectNamespace<import("./src/index").WebSocketDO>;
 		LT_TICKER_DO: DurableObjectNamespace<import("./src/index").LtTicker>;
+		WS_IP_LIMITER_DO: DurableObjectNamespace<import("./src/index").WsIpLimiter>;
 	}
 }
 interface Env extends Cloudflare.Env {}
