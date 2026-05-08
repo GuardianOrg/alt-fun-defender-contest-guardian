@@ -194,7 +194,9 @@ describe("POST /images — image upload", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
     expect(body.status).toBe("success");
-    expect((body.data as Record<string, unknown>).url).toMatch(/^https?:\/\/.+\/images\/tokens\//);
+    // Stored URL is origin-agnostic so the same DB row renders against
+    // any environment's API origin (dev, preview, prod). See issue #450.
+    expect((body.data as Record<string, unknown>).url).toMatch(/^\/images\/tokens\//);
     expect((body.data as Record<string, unknown>).key).toMatch(/^tokens\//);
 
     expect(mockR2Put).toHaveBeenCalledTimes(1);

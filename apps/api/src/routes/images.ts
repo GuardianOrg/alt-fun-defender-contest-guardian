@@ -194,8 +194,18 @@ images.post("/", async (c) => {
     httpMetadata: { contentType: file.type },
   });
 
-  const origin = new URL(c.req.url).origin;
-  const url = `${origin}/images/${key}`;
+  // Return an origin-agnostic path rather than an absolute URL. The
+  // returned `url` is what the creator stamps into `LaunchParams.image`
+  // on-chain, so anything we put here travels through the contract and
+  // back into every API environment that reads it later. Stamping the
+  // request's own origin would freeze a single hostname into the
+  // on-chain record — fine in production but disastrous in local dev,
+  // where a token created against `http://localhost:8787` would surface
+  // a broken image on the deployed site (issue #450). The frontend
+  // resolves relative URLs against its configured `API_BASE`, so a path
+  // like `/images/tokens/<key>` works in every environment whose API
+  // serves the same R2 bucket.
+  const url = `/images/${key}`;
 
   if (moderationResult.flaggedForReview) {
     // Borderline — store but flag for admin review

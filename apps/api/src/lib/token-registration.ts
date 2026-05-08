@@ -270,48 +270,59 @@ async function fetchOnChainInfo(
 
 /**
  * Strict R2-only image validation. The image URL must:
- *   1. Parse as a URL.
+ *   1. Be either an absolute URL or a root-relative path.
  *   2. Have a path under `/images/tokens/` — the prefix `POST /api/v1/images`
  *      writes to.
  *   3. Resolve to an object that actually exists in our R2 bucket.
  *
- * After the R2 HEAD succeeds the URL is **canonicalized** to `apiOrigin`
- * (when supplied). The route handler always supplies its request origin,
- * so the legitimate frontend → API path always stores a URL on our own
- * domain — defending against an on-chain bypass where someone calls
- * `Zap.createToken` directly with `https://attacker.com/images/tokens/<key>`
- * and a key that happens to exist in our R2.
+ * After the R2 HEAD succeeds we **strip** any caller-supplied origin and
+ * store the bare path `/images/tokens/<key>`. Storing relative defends
+ * against the bypass where someone calls `Zap.createToken` directly with
+ * `https://attacker.com/images/tokens/<valid-key>` (the attacker's host
+ * never reaches the DB) and — more commonly — keeps tokens created
+ * against a non-production API origin (e.g. `http://localhost:8787`)
+ * loadable on every other environment that reads the same row.
+ * Frontends resolve the relative URL against their own `API_BASE`, so a
+ * single stored path renders correctly in dev, preview, and production
+ * without an env-specific canonical hostname.
  *
- * The cron backfill does NOT supply `apiOrigin` today (we don't have a
- * stable canonical hostname yet — we're on a `*.workers.dev` URL that's
- * about to move to a custom domain). For the tokens it picks up, it
- * stores the validated raw URL. The residual risk is narrow: it requires
- * an attacker to (a) bypass our frontend, (b) know a valid R2 key, and
- * (c) avoid calling the register endpoint themselves so only the cron
- * processes the token. Once we have a stable hostname this becomes a
- * one-line fix: import `API_PUBLIC_ORIGIN` from `@launchpad/shared` and
- * pass it to `registerTokenFromChain` from the cron caller.
+ * Both absolute URLs (legacy uploads + on-chain bypass attempts) and
+ * relative paths (new uploads, post-#450) are accepted on input —
+ * only the stored form is normalized.
  *
  * Empty image is allowed (creator chose not to upload one). Any URL that
  * fails the checks results in a `RegistrationError` — we don't quietly
  * strip-and-store, because doing so would conceal a contract-level
  * moderation bypass.
+ *
+ * `apiOrigin` is unused today; kept on the signature so the route and
+ * cron callers can keep passing their request origin without churning
+ * call sites if we ever need it again.
  */
 async function validateImageUrl(
   env: AppBindings,
   raw: string,
-  apiOrigin: string | undefined,
+  _apiOrigin: string | undefined,
 ): Promise<string> {
   if (raw === "") return "";
 
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new RegistrationError("image_invalid", "Image URL is not a valid URL", 422);
+  // Accept both absolute URLs and root-relative paths. Anything else
+  // (protocol-relative, query-only, fragment-only, bare strings) falls
+  // through to the URL parser and is rejected uniformly.
+  let pathname: string;
+  if (raw.startsWith("/")) {
+    pathname = raw;
+  } else {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      throw new RegistrationError("image_invalid", "Image URL is not a valid URL", 422);
+    }
+    pathname = url.pathname;
   }
 
-  if (!url.pathname.startsWith(IMAGE_PATH_PREFIX)) {
+  if (!pathname.startsWith(IMAGE_PATH_PREFIX)) {
     throw new RegistrationError(
       "image_invalid",
       "Image URL must point to the Alt Fun image bucket",
@@ -320,7 +331,7 @@ async function validateImageUrl(
   }
 
   // R2 key is everything after `/images/`.
-  const key = url.pathname.slice("/images/".length);
+  const key = pathname.slice("/images/".length);
   if (!key.startsWith(IMAGE_KEY_PREFIX) || key.length === IMAGE_KEY_PREFIX.length) {
     throw new RegistrationError("image_invalid", "Image URL is malformed", 422);
   }
@@ -334,11 +345,7 @@ async function validateImageUrl(
     );
   }
 
-  // Canonicalize: replace whatever origin the caller stamped with ours so
-  // the DB always stores a URL we control. If `apiOrigin` is unavailable
-  // (cron without IMAGES_PUBLIC_URL configured), fall back to the raw URL —
-  // still verified to be a key in our bucket, just not origin-enforced.
-  return apiOrigin ? `${apiOrigin}/images/${key}` : raw;
+  return `/images/${key}`;
 }
 
 async function resolveLtMeta(
