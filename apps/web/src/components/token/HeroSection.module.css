@@ -39,14 +39,6 @@
   border-color: var(--mint);
 }
 
-.addrLabel {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--txt-4);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .addrText {
   font-size: 12px;
   font-family: var(--font-mono);
