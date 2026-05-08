@@ -64,29 +64,6 @@
   white-space: nowrap;
 }
 
-.walletCell {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-.walletAvatar {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 9999px;
-  flex-shrink: 0;
-  object-fit: cover;
-  background: var(--bg-2);
-}
-
-.walletAvatarPlaceholder {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 9999px;
-  flex-shrink: 0;
-  background: var(--bg-3, var(--bg-2));
-}
-
 .walletAddress {
   color: var(--txt);
   font-weight: 500;

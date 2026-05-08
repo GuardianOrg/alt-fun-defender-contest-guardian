@@ -100,7 +100,7 @@ commentsRoute.post(
 
     const body = c.req.valid("json");
 
-    const now = Date.now();
+    let now = Date.now();
     if (now >= body.expiresAt) {
       return c.json(formatError("Session signature has expired"), 401);
     }
@@ -129,7 +129,9 @@ commentsRoute.post(
       return c.json(formatError("Signature does not match author"), 401);
     }
 
-    const now = Date.now();
+    // Refresh the timestamp after the (potentially slow) signature recovery
+    // so a slot that expired during recovery doesn't falsely rate-limit.
+    now = Date.now();
     purgeExpiredCommentRateLimits(now);
 
     const rateLimitKey = `${normalizedAuthor}:${tokenAddress.toLowerCase()}`;

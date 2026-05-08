@@ -32,12 +32,9 @@ export default function TradesTab({ token }: { token: Token }) {
           return (
             <tr key={t.id} className={styles.tradeRow}>
               <td className={styles.tdLeft}>
-                <div className={styles.walletCell}>
-                  <div className={styles.walletAvatarPlaceholder} />
-                  <span className={styles.walletAddress}>
-                    {t.walletAddress}
-                  </span>
-                </div>
+                <span className={styles.walletAddress}>
+                  {t.walletAddress}
+                </span>
               </td>
               <td
                 className={cn(
