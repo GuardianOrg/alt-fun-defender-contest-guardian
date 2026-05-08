@@ -6,19 +6,23 @@ import { TOKEN_SUPPLY } from "../config/constants";
 import { fetchChart, getChartModeConfig } from "../services/api";
 import { getWebSocketClient } from "../services/websocket";
 
-import type { ChartMode } from "../services/api";
+import type { ChartMode, ChartUnit } from "../services/api";
 import type { CandlestickData, Time } from "lightweight-charts";
 
 /**
- * Pure helper: fold a live `mcap` value into the in-progress candle, rolling
- * over into a new bucket at interval boundaries. Exported for unit testing.
+ * Pure helper: fold a live OHLC tick value into the in-progress candle,
+ * rolling over into a new bucket at interval boundaries. Exported for unit
+ * testing. The `value` is whatever scale the candles are stored at —
+ * either market cap (price × supply) or per-token USD price; the helper is
+ * unit-agnostic.
  */
 export function mergePriceIntoCandles(
   prev: CandlestickData[],
-  mcap: number,
+  value: number,
   nowSec: number,
   candleSec: number,
 ): CandlestickData[] {
+  const mcap = value;
   const bucketTs = Math.floor(nowSec / candleSec) * candleSec;
 
   if (prev.length === 0) {
@@ -105,6 +109,7 @@ export function useChartData(
   address: string,
   ltAddress: string,
   mode: ChartMode,
+  unit: ChartUnit = "mcap",
 ): UseChartDataResult {
   const [candles, setCandles] = useState<CandlestickData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +118,12 @@ export function useChartData(
   const exchangeRateRef = useRef(0);
 
   const { candleSec, key: modeKey } = getChartModeConfig(mode);
+  // Multiplier between API-side per-token price and the candle scale we hand
+  // to lightweight-charts. `mcap` mode multiplies through `TOKEN_SUPPLY`
+  // (1B), `price` mode keeps the raw USD/token value. Toggling re-runs the
+  // historical fetch effect via `unit` in its dep list so the existing
+  // candles are remapped — no extra state machine needed.
+  const unitMultiplier = unit === "mcap" ? TOKEN_SUPPLY : 1;
 
   // Hold the latest `mode` in a ref so the fetch effect can depend on the
   // stable `modeKey` string (which uniquely identifies the mode) rather than
@@ -139,10 +150,10 @@ export function useChartData(
 
         const mapped: CandlestickData[] = snapshot.candles.map((c) => ({
           time: c.time as unknown as CandlestickData["time"],
-          open: c.open * TOKEN_SUPPLY,
-          high: c.high * TOKEN_SUPPLY,
-          low: c.low * TOKEN_SUPPLY,
-          close: c.close * TOKEN_SUPPLY,
+          open: c.open * unitMultiplier,
+          high: c.high * unitMultiplier,
+          low: c.low * unitMultiplier,
+          close: c.close * unitMultiplier,
         }));
 
         setCandles(mapped);
@@ -157,7 +168,7 @@ export function useChartData(
     return () => {
       cancelled = true;
     };
-  }, [address, modeKey, syncEpoch]);
+  }, [address, modeKey, syncEpoch, unitMultiplier]);
 
   useEffect(() => {
     const ws = getWebSocketClient();
@@ -172,10 +183,12 @@ export function useChartData(
       if (ratio <= 0 || rate <= 0) return;
 
       const priceUsd = ratio * rate;
-      const mcap = priceUsd * TOKEN_SUPPLY;
+      const value = priceUsd * unitMultiplier;
       const nowSec = Math.floor(Date.now() / 1000);
 
-      setCandles((prev) => mergePriceIntoCandles(prev, mcap, nowSec, candleSec));
+      setCandles((prev) =>
+        mergePriceIntoCandles(prev, value, nowSec, candleSec),
+      );
     };
 
     const unsubTrade = ws.subscribe(
@@ -232,7 +245,7 @@ export function useChartData(
       unsubPrice();
       unsubReconnect();
     };
-  }, [address, ltAddress, candleSec]);
+  }, [address, ltAddress, candleSec, unitMultiplier]);
 
   const currentMcap =
     candles.length > 0 ? (candles[candles.length - 1].close as number) : 0;

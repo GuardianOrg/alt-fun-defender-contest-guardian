@@ -9,9 +9,9 @@ import {
 
 import { COLORS, rgba } from "../config/colors";
 import { getChartModeConfig } from "../services/api";
-import { formatUsd } from "../utils/format";
+import { formatPriceUsd, formatUsd } from "../utils/format";
 
-import type { ChartMode } from "../services/api";
+import type { ChartMode, ChartUnit } from "../services/api";
 import type {
   IChartApi,
   ISeriesApi,
@@ -25,6 +25,7 @@ interface UseChartOptions {
   candles: CandlestickData[];
   mode: ChartMode;
   loading: boolean;
+  unit: ChartUnit;
 }
 
 export function useChart({
@@ -32,6 +33,7 @@ export function useChart({
   candles,
   mode,
   loading,
+  unit,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -128,8 +130,11 @@ export function useChart({
     seriesRef.current.applyOptions({
       priceFormat: {
         type: "custom",
-        formatter: formatUsd,
-        minMove: 0.01,
+        // `mcap` mode is dollars-and-cents; `price` mode is sub-cent USD/token
+        // (1B-supply tokens) so we drop the minMove floor and switch to a
+        // significant-digit formatter that doesn't collapse to `$0.00`.
+        formatter: unit === "price" ? formatPriceUsd : formatUsd,
+        minMove: unit === "price" ? 1e-12 : 0.01,
       },
     });
 
@@ -238,5 +243,5 @@ export function useChart({
       });
       hasAnchoredRef.current = true;
     }
-  }, [candles, modeKey, windowSec, candleSec, loading]);
+  }, [candles, modeKey, windowSec, candleSec, loading, unit]);
 }
