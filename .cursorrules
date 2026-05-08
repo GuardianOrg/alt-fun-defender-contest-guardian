@@ -68,7 +68,7 @@ The smart-contract test suite (`forge test`) is the slowest thing in CI by an or
 | Command | Scope | Run when… |
 |---|---|---|
 | `npm run ci` | Lint + typecheck + test + build for every workspace **except** `@launchpad/contracts` | Default after any code change. Use this whenever your edits don't touch `.sol` files. |
-| `npm run ci:contracts` | `forge fmt --check` + `forge test` (the contracts package only) | Run **in addition to** `npm run ci` whenever you've edited any file under `packages/contracts/`. |
+| `npm run ci:contracts` | `forge fmt --check` + `forge test` (the contracts package only) | Run **in addition to** `npm run ci` whenever you've edited a `.sol` file under `packages/contracts/` or its Foundry config (`foundry.toml`, `remappings.txt`). Non-Solidity edits in that package (e.g. `AGENTS.md`) don't trigger this — see the explicit trigger list below. |
 | `npm run ci:full` | Everything above in one shot | Only when you've changed both contracts AND something else and want a single command. |
 
 **Do not run `npm run ci:full` (or `npm run ci:contracts`) unless your changeset actually modifies smart-contract code.** Re-running the slow Foundry suite for a CSS tweak or an API edit wastes minutes per turn for no signal — neither GitHub CI nor any reviewer benefits from it. Turbo's cache will skip a re-run on subsequent invocations, but the first uncached run still pays the full cost.
