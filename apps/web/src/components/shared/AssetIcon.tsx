@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { getAssetDisplayName } from "@launchpad/shared";
 
@@ -59,6 +59,11 @@ export default function AssetIcon({
   monogramRatio = 0.52,
 }: Props) {
   const [imgError, setImgError] = useState(false);
+  // Reset the error flag when the asset prop changes so a previous logo
+  // failure doesn't permanently force the new asset onto the monogram
+  // fallback (matters when the same `<AssetIcon>` instance is reused
+  // across rows / list virtualisation).
+  useEffect(() => setImgError(false), [asset]);
   const logo = ASSET_LOGOS[asset];
   const display = getAssetDisplayName(asset);
   const dimensionStyle = { width: size, height: size };
