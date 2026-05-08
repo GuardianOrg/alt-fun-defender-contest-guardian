@@ -132,19 +132,27 @@ commentsRoute.post(
       );
     }
 
-    const db = createDb(c.env.DATABASE_URL);
-    const [comment] = await db
-      .insert(comments)
-      .values({
-        tokenAddress,
-        author: normalizedAuthor,
-        content: body.content,
-      })
-      .returning();
+    // Reserve the limiter slot before awaiting I/O so two concurrent requests
+    // for the same (author, token) cannot both pass the check above and double
+    // up on inserts. Roll back on failure so a failed write doesn't penalize
+    // the author for the full window.
+    recordCommentRateLimit(rateLimitKey, now);
+    try {
+      const db = createDb(c.env.DATABASE_URL);
+      const [comment] = await db
+        .insert(comments)
+        .values({
+          tokenAddress,
+          author: normalizedAuthor,
+          content: body.content,
+        })
+        .returning();
 
-    recordCommentRateLimit(rateLimitKey, Date.now());
-
-    return c.json(formatSuccess(comment), 201);
+      return c.json(formatSuccess(comment), 201);
+    } catch (error) {
+      commentRateLimit.delete(rateLimitKey);
+      throw error;
+    }
   },
 );
 
