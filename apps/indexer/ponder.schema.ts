@@ -236,3 +236,64 @@ export const tokenSnapshot = onchainTable("token_snapshot", (t) => ({
   tokenTsIdx: index().on(table.tokenAddress, table.timestamp),
 }));
 
+/**
+ * Singleton platform counters. Single row keyed `"global"` updated in the same
+ * write as the per-token counters in `bonding.ts`. Lets `/api/v1/stats` answer
+ * in O(1) instead of paginating every token + every 24h trade. The 24h volume
+ * window is sourced from `hourlyVolume` (24-row scan, see below).
+ */
+export const globalStats = onchainTable("global_stats", (t) => ({
+  id: t.text().primaryKey(),
+  totalTokens: t.bigint().notNull().default(0n),
+  tokensLive: t.bigint().notNull().default(0n),
+  tokensGraduated: t.bigint().notNull().default(0n),
+  /** Cumulative gross USDC (6dp) routed through Zap, all tokens, lifetime. */
+  totalVolumeUsd: t.bigint().notNull().default(0n),
+}));
+
+/**
+ * Hour-bucketed gross USDC volume across all tokens. Keyed by the hour-start
+ * Unix timestamp (`timestamp / 3600 * 3600`) so the `/stats` route can answer
+ * "last 24h volume" by summing 24 rows instead of paginating every trade.
+ *
+ * One row per hour grows at ~24 rows/day forever — negligible storage and the
+ * API only ever scans the last 24. We deliberately don't dimension by token —
+ * every consumer of this table cares about platform-wide volume; per-token
+ * 24h volume already lives on `token.volume24hUsd` (computed differently).
+ */
+export const hourlyVolume = onchainTable("hourly_volume", (t) => ({
+  hourStart: t.bigint().primaryKey(),
+  volumeUsd: t.bigint().notNull().default(0n),
+}), (table) => ({
+  hourIdx: index().on(table.hourStart),
+}));
+
+/**
+ * Per-(wallet, token) Zap-derived position state. Tracks cumulative net buys
+ * minus sells (for proportional cost-basis math) and the running USDC cost
+ * basis. Read by `/api/v1/portfolio` so cost basis no longer requires
+ * paginating the wallet's full trade history.
+ *
+ * Independent from `tokenBalance`: this row counts only Zap-mediated trades,
+ * while `tokenBalance` mirrors every ERC-20 Transfer. A wallet that received
+ * tokens via direct transfer / airdrop will show a positive balance with zero
+ * cost basis here — which matches the intuition that the recipient didn't
+ * spend USDC for them.
+ */
+export const walletPosition = onchainTable("wallet_position", (t) => ({
+  id: t.text().primaryKey(),
+  wallet: t.hex().notNull(),
+  tokenAddress: t.hex().notNull(),
+  /**
+   * Net Zap-mediated token amount: `Σ buy.tokensOut − Σ sell.tokensIn`,
+   * floored at 0. NOT the wallet's true balance (use `tokenBalance` for
+   * that) — this is the denominator for proportional cost-basis reduction
+   * on sells. Stays at 0 for wallets that only received tokens via transfer.
+   */
+  zapTokenAmount: t.bigint().notNull().default(0n),
+  /** Cumulative USDC paid (6dp) less proportional reduction on each sell. */
+  costBasisUsdc: t.bigint().notNull().default(0n),
+}), (table) => ({
+  walletIdx: index().on(table.wallet),
+}));
+

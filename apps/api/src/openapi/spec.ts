@@ -573,7 +573,8 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
       get: {
         tags: ["Portfolio"],
         summary: "Get wallet portfolio",
-        description: "Returns all token positions for a wallet with cost basis. Computed from trade history.",
+        description:
+          "Returns all token positions for a wallet. `tokenAmount` is the wallet's true on-chain balance (sourced from the indexer's `tokenBalance` index — reflects every ERC-20 Transfer, not just Zap activity). `costBasisUsdc` is sourced from the per-(wallet, token) `walletPosition` row that's bumped on every Zap buy/sell with proportional reduction; tokens received via direct Transfer correctly show a non-zero `tokenAmount` with `costBasisUsdc: \"0\"`.",
         parameters: [addressParam("wallet", "Wallet address"), apiKeyHeader],
         responses: {
           "200": {
@@ -590,11 +591,11 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
                         properties: {
                           tokenAddress: { type: "string" },
                           tokenAmount: { type: "string", description: "Raw token balance (18 decimals)" },
-                          costBasisUsdc: { type: "string", description: "Total USDC spent (6 decimals)" },
+                          costBasisUsdc: { type: "string", description: "Cumulative USDC paid (6 decimals), reduced proportionally on each sell. `0` for tokens acquired only via direct Transfer." },
                         },
                       },
                     },
-                    approximate: { type: "boolean", description: "True if trade history was truncated (very active wallet)" },
+                    approximate: { type: "boolean", description: "True only when the wallet holds more than 1000 distinct tokens (degenerate case). Cap exists to bound the query — callers in this regime should use on-chain `balanceOf` multicall instead." },
                   },
                 }),
               },
@@ -734,11 +735,10 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
                   properties: {
                     lpLocked: { type: "boolean", description: "Whether LP tokens are locked" },
                     lpAmount: { type: "string", nullable: true, description: "LP liquidity amount" },
-                    creatorHoldingPct: { type: "number", description: "Creator's holding as percentage of total supply" },
+                    creatorHoldingPct: { type: "number", description: "Creator's current holding as percentage of total supply. Sourced from the indexer's `tokenBalance` index — reflects every ERC-20 Transfer, not just Zap activity." },
                     contractVerified: { type: "boolean" },
                     graduated: { type: "boolean" },
                     poolAddress: { type: "string", nullable: true },
-                    approximate: { type: "boolean", description: "True if trade history was truncated" },
                   },
                 }),
               },

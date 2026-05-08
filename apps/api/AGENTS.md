@@ -17,6 +17,22 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 - Terminal API (`/api/v1/`) for third-party integrators
 - WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`
 
+## Aggregate routes (counter-backed, edge-cached)
+
+`/api/v1/holders`, `/api/v1/portfolio`, `/api/v1/security`, `/api/v1/creators`, and `/api/v1/stats` all answer in O(1) (or close to it) by reading indexer-side derived tables instead of paginating the trade history (issue #397). The mapping:
+
+| Route | Source on the indexer | Was |
+|---|---|---|
+| `GET /holders/:address` | `tokenBalance` index (sorted by `balance desc`) | Paginated up to 20K `routerTrades` to reconstruct balances in memory — silently undercounted on direct ERC-20 transfers. |
+| `GET /portfolio/:wallet` | `tokenBalance` (live amount) ⋈ `walletPosition` (cost basis) | Paginated up to 20K `routerTrades` to recompute both fields. |
+| `GET /security/:address` | `tokenBalance` row keyed `${creator}-${tokenAddress}` (primary-key hit) | Paginated up to 20K `routerTrades` to sum the creator's net position. |
+| `GET /creators/:address` | `token.volumeUsd` summed across the creator's tokens (single GraphQL query) | Paginated every trade across every token the creator has ever launched. |
+| `GET /stats` | `globalStats` singleton + last 24 `hourlyVolume` buckets | Paginated *every token in the catalogue* and *every Zap trade in the last 24h*. |
+
+All five also set `Cache-Control: public, s-maxage=15..30, stale-while-revalidate=…` so the Cloudflare edge absorbs concurrent requests. The thundering-herd pattern (100 users opening the same viral token) used to fan in to up to 2,000 sequential GraphQL queries; the cache caps it at one per region per `s-maxage` window.
+
+When you add a new high-traffic aggregate route, prefer the same pattern: persist the counter on the indexer (cheap on-write), read O(1) on the API, and edge-cache the response. The indexer-side tables that make this possible (`globalStats`, `hourlyVolume`, `walletPosition`, plus the existing per-token `volumeUsd` / `creatorFeesUsd` counters) are documented in `apps/indexer/AGENTS.md`.
+
 ## Token enrichment (graduation progress bar)
 
 `GET /api/v1/tokens` and `GET /api/v1/tokens/:addr` return three progress fields derived in `src/lib/token-enrich.ts`:
