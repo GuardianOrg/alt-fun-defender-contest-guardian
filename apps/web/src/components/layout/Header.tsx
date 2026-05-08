@@ -71,7 +71,7 @@ export default function Header() {
               onClick={() => navigate(CREATE_PATH)}
             >
               <span>+</span>
-              <span className={styles.fullText}>create a levered token</span>
+              <span className={styles.fullText}>create an altcoin</span>
               <span className={styles.shortText}>create</span>
             </button>
           ))}
