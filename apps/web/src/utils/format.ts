@@ -10,6 +10,27 @@ export function formatUsd(value: number): string {
   return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
+/**
+ * Per-token USD price formatter. Used by the chart's price scale when the
+ * unit toggle is set to `price`. Pump.fun-class launches sit at sub-cent
+ * prices for their entire curve life (a $4K-mcap launch with 1B supply is
+ * $4e-6/token), so `formatUsd`'s 2-decimal cap collapses every label to
+ * `$0.00` and the chart becomes unreadable. We fall back to 4 significant
+ * figures with fixed (non-scientific) notation in the sub-cent regime so
+ * users can still read precise prices off the axis.
+ */
+export function formatPriceUsd(value: number): string {
+  if (!isFinite(value) || value <= 0) return "$0";
+  if (value >= 1_000) return formatUsd(value);
+  if (value >= 1) return `$${value.toFixed(4)}`;
+  if (value >= 0.01) return `$${value.toFixed(4)}`;
+  // Sub-cent: 4 significant digits, never scientific. `Math.log10` is safe
+  // here because we've ruled out value <= 0 above.
+  const exp = Math.floor(Math.log10(value));
+  const decimals = Math.min(20, 3 - exp);
+  return `$${value.toFixed(decimals)}`;
+}
+
 export function formatPercent(value: number): string {
   const sign = value >= 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;

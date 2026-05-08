@@ -9,9 +9,9 @@ import {
 
 import { COLORS, rgba } from "../config/colors";
 import { getChartModeConfig } from "../services/api";
-import { formatUsd } from "../utils/format";
+import { formatPriceUsd, formatUsd } from "../utils/format";
 
-import type { ChartMode } from "../services/api";
+import type { ChartMode, ChartUnit } from "../services/api";
 import type {
   IChartApi,
   ISeriesApi,
@@ -25,6 +25,7 @@ interface UseChartOptions {
   candles: CandlestickData[];
   mode: ChartMode;
   loading: boolean;
+  unit: ChartUnit;
 }
 
 export function useChart({
@@ -32,6 +33,7 @@ export function useChart({
   candles,
   mode,
   loading,
+  unit,
 }: UseChartOptions): void {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -41,6 +43,12 @@ export function useChart({
   // cheaper than `setData()` on every 1s price tick.
   const lastCandlesRef = useRef<CandlestickData[] | null>(null);
   const lastModeKeyRef = useRef<string | null>(null);
+  // Track the unit the last applied candle batch was scaled at. A unit
+  // toggle changes every candle's value but keeps `time` keys intact, so
+  // the time-based `isLiveTick` heuristic below would otherwise treat it
+  // as a no-op live update — only the last bar would re-render and the
+  // earlier bars would keep their pre-toggle scale.
+  const lastUnitRef = useRef<ChartUnit | null>(null);
   // True after the first non-loading effect run for a given chart instance.
   // Distinguishes "very first time we have data" (need to anchor viewport)
   // from "WS reconnect refetch" (should preserve user's current zoom/scroll).
@@ -122,26 +130,35 @@ export function useChart({
       // overlap A's old visible range).
       hasAnchoredRef.current = false;
       lastModeKeyRef.current = null;
+      lastUnitRef.current = null;
       return;
     }
 
     seriesRef.current.applyOptions({
       priceFormat: {
         type: "custom",
-        formatter: formatUsd,
-        minMove: 0.01,
+        // `mcap` mode is dollars-and-cents; `price` mode is sub-cent USD/token
+        // (1B-supply tokens) so we drop the minMove floor and switch to a
+        // significant-digit formatter that doesn't collapse to `$0.00`.
+        formatter: unit === "price" ? formatPriceUsd : formatUsd,
+        minMove: unit === "price" ? 1e-12 : 0.01,
       },
     });
 
     const prev = lastCandlesRef.current;
     const prevModeKey = lastModeKeyRef.current;
+    const prevUnit = lastUnitRef.current;
     // Treat an explicit user-driven mode swap as a modeChange. The very first
     // run also has `prevModeKey === null` but we handle that separately via
     // `hasAnchoredRef` so reconnect-driven resyncs don't get classified as a
-    // mode change.
+    // mode change. A unit change (MC ⇄ Price) goes through the same resync
+    // path: every candle's value scales by `TOKEN_SUPPLY` so we can't reuse
+    // any of the previously-applied bars via `series.update()`.
     const modeChanged = prevModeKey !== null && prevModeKey !== modeKey;
+    const unitChanged = prevUnit !== null && prevUnit !== unit;
     const isFirstAnchor = !hasAnchoredRef.current;
     lastModeKeyRef.current = modeKey;
+    lastUnitRef.current = unit;
 
     // Detect whether this is a live-tick update (same anchor + non-shrinking
     // tail) vs. a full resync (mode change, initial load, reconnect).
@@ -154,6 +171,7 @@ export function useChart({
     const nowSec = Math.floor(Date.now() / 1000);
     const isLiveTick =
       !modeChanged &&
+      !unitChanged &&
       prev !== null &&
       prev.length > 0 &&
       candles.length >= prev.length &&
@@ -238,5 +256,5 @@ export function useChart({
       });
       hasAnchoredRef.current = true;
     }
-  }, [candles, modeKey, windowSec, candleSec, loading]);
+  }, [candles, modeKey, windowSec, candleSec, loading, unit]);
 }

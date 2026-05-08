@@ -14,6 +14,7 @@ import type {
   ChartIntervalSeconds,
   ChartMode,
   ChartTimeframe,
+  ChartUnit,
 } from "../../services/api";
 import type { Token } from "../../services/types";
 
@@ -21,6 +22,14 @@ const TIMEFRAMES: { value: ChartTimeframe; label: string }[] = [
   { value: "1d", label: "1D" },
   { value: "5d", label: "5D" },
   { value: "1m", label: "1M" },
+];
+
+// Y-axis unit toggle. `MC` is the default — on a 1B-supply launchpad token
+// the per-token price is always sub-cent and isn't the primary signal a
+// trader is looking at. Mirrors the Dexscreener `MC | Price` toggle.
+const UNITS: { value: ChartUnit; label: string }[] = [
+  { value: "mcap", label: "MC" },
+  { value: "price", label: "Price" },
 ];
 
 interface Props {
@@ -37,6 +46,7 @@ export default function Chart({ token }: Props) {
     kind: "interval",
     seconds: 60,
   });
+  const [unit, setUnit] = useState<ChartUnit>("mcap");
 
   const [intervalMenuOpen, setIntervalMenuOpen] = useState(false);
   const intervalRef = useRef<HTMLDivElement>(null);
@@ -66,6 +76,7 @@ export default function Chart({ token }: Props) {
     token.address,
     token.ltAddress,
     mode,
+    unit,
   );
 
   useChart({
@@ -73,6 +84,7 @@ export default function Chart({ token }: Props) {
     candles,
     mode,
     loading,
+    unit,
   });
 
   const isEmpty = !loading && candles.length === 0;
@@ -136,6 +148,30 @@ export default function Chart({ token }: Props) {
           )}
         </div>
 
+        <div
+          className={styles.intervalGroup}
+          role="group"
+          aria-label="Chart unit"
+        >
+          {UNITS.map((u) => {
+            const active = unit === u.value;
+            return (
+              <button
+                key={u.value}
+                type="button"
+                aria-pressed={active}
+                className={cn(
+                  styles.intervalBtn,
+                  active && styles.intervalBtnActive,
+                )}
+                onClick={() => setUnit(u.value)}
+              >
+                {u.label}
+              </button>
+            );
+          })}
+        </div>
+
         <div className={styles.liveIndicator}>
           <div className={styles.liveDot} />
           <span className={styles.liveText}>live</span>
@@ -156,7 +192,7 @@ export default function Chart({ token }: Props) {
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />
         <span className={styles.axisLabel} aria-hidden>
-          Price
+          {unit === "mcap" ? "Market cap" : "Price"}
         </span>
         <div className={styles.mcapOverlay} aria-label="Market cap">
           <span className={styles.mcapLabel}>Market cap</span>
