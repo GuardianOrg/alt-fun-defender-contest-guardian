@@ -34,6 +34,9 @@ import {
   CONTRACT_ADDRESSES,
   filterSupportedLTs,
   HYPER_EVM,
+  sanitizeTelegramHandle,
+  sanitizeTwitterHandle,
+  sanitizeWebsiteUrl,
   type LiveLeveragedToken,
 } from "@launchpad/shared";
 
@@ -179,10 +182,17 @@ export async function registerTokenFromChain(
       leverage: ltMeta.targetLeverage,
       underlying: ltMeta.targetAsset,
       // `urls[0..2]` mirrors the order the frontend wrote on-chain (twitter,
-      // telegram, website).
-      twitterUrl: info.urls[0] ?? "",
-      telegramUrl: info.urls[1] ?? "",
-      websiteUrl: info.urls[2] ?? "",
+      // telegram, website). Each value is sanitized before storage — see
+      // issue #400. Twitter/Telegram collapse to a bare handle (so the
+      // frontend can build the link via the canonical
+      // `https://x.com/<handle>` / `https://t.me/<path>` template), and
+      // website is canonicalised to a parseable http(s) URL. Anything that
+      // can't be reduced to a safe value collapses to "" — the on-chain
+      // bytes survive on `Bonding.TokenInfo` but they never reach an
+      // `<a href>`.
+      twitterUrl: sanitizeTwitterHandle(info.urls[0] ?? ""),
+      telegramUrl: sanitizeTelegramHandle(info.urls[1] ?? ""),
+      websiteUrl: sanitizeWebsiteUrl(info.urls[2] ?? ""),
       creator: getAddress(info.creator),
     })
     .onConflictDoNothing()

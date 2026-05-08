@@ -423,6 +423,9 @@ describe("POST /tokens — address-only registration", () => {
       }),
     );
     mockBounceTechLtList();
+    // Sanitised values (issue #400): twitter URL collapses to a bare
+    // handle; website is canonicalised through `new URL().toString()`
+    // which adds the trailing slash.
     mockDbReturning.mockResolvedValueOnce([{
       address: VALID_ADDRESS,
       name: "Fresh",
@@ -433,9 +436,9 @@ describe("POST /tokens — address-only registration", () => {
       ltDirection: "long",
       leverage: 2,
       underlying: "HYPE",
-      twitterUrl: "https://x.com/fresh",
+      twitterUrl: "fresh",
       telegramUrl: "",
-      websiteUrl: "https://fresh.example",
+      websiteUrl: "https://fresh.example/",
       creator: VALID_CREATOR,
     }]);
 
@@ -456,12 +459,70 @@ describe("POST /tokens — address-only registration", () => {
     const body = (await res.json()) as { data: { name: string; ticker: string; twitterUrl: string; websiteUrl: string } };
     expect(body.data.name).toBe("Fresh");
     expect(body.data.ticker).toBe("FRSH");
-    // Confirm `params.urls[0,1,2]` mapping survives the round-trip.
-    expect(body.data.twitterUrl).toBe("https://x.com/fresh");
-    expect(body.data.websiteUrl).toBe("https://fresh.example");
+    // Confirm `params.urls[0,1,2]` mapping survives the round-trip and
+    // that the stored values are sanitised (handle for X, canonical URL
+    // for website).
+    expect(body.data.twitterUrl).toBe("fresh");
+    expect(body.data.websiteUrl).toBe("https://fresh.example/");
+    const insertCallVals = mockInsertValues.mock.calls[0]?.[0] as { twitterUrl?: string; websiteUrl?: string } | undefined;
+    expect(insertCallVals?.twitterUrl).toBe("fresh");
+    expect(insertCallVals?.websiteUrl).toBe("https://fresh.example/");
     // `newToken` broadcast queued onto waitUntil so the response isn't
     // blocked on a slow Durable Object.
     expect(executionCtx.waitUntil).toHaveBeenCalled();
+  });
+
+  it("strips javascript: / phishing URLs from on-chain socials before storing (issue #400)", async () => {
+    // The on-chain `urls` array is creator-controlled and length-capped
+    // only — a malicious launch can stamp anything in there. The API is
+    // the trust boundary for what reaches an `<a href>`, so unsafe values
+    // must never make it into the DB.
+    mockReadContract.mockResolvedValueOnce(
+      makeOnChainInfo({
+        urls: [
+          // Twitter slot — non-http scheme: must be stripped.
+          "javascript:alert(document.cookie)",
+          // Telegram slot — phishing host that doesn't match the t.me /
+          // telegram.me allowlist: must be stripped.
+          "https://t.me.evil.tld/alice",
+          // Website slot — non-http scheme: must be stripped. We *don't*
+          // assert against a phishing host here because the website slot
+          // legitimately accepts any http(s) URL — the creator's choice
+          // of domain is up to them.
+          "data:text/html,<script>alert(document.cookie)</script>",
+        ],
+      }),
+    );
+    mockBounceTechLtList();
+    mockDbReturning.mockResolvedValueOnce([{
+      address: VALID_ADDRESS,
+      twitterUrl: "",
+      telegramUrl: "",
+      websiteUrl: "",
+    }]);
+
+    const app = createApp();
+    const req = new Request("http://localhost/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: VALID_ADDRESS }),
+    });
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+    const res = await app.fetch(req, makeEnv(), executionCtx);
+
+    expect(res.status).toBe(201);
+    const insertCall = mockInsertValues.mock.calls[0]?.[0] as {
+      twitterUrl?: string;
+      telegramUrl?: string;
+      websiteUrl?: string;
+    } | undefined;
+    expect(insertCall?.twitterUrl).toBe("");
+    expect(insertCall?.telegramUrl).toBe("");
+    expect(insertCall?.websiteUrl).toBe("");
   });
 
   it("derives ltDirection / leverage / underlying from the BounceTech directory", async () => {
