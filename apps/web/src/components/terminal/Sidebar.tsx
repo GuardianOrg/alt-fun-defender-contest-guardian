@@ -17,8 +17,6 @@ export default function Sidebar() {
   usePlatformStats();
   const { data: filters } = usePairFilters();
 
-  console.log("assets", assets);
-
   return (
     <div className={styles.sidebar}>
       {/* Asset prices */}
