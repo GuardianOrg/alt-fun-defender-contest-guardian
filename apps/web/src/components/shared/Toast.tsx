@@ -1,30 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { ToastContext } from "./toast-context";
 import styles from "./Toast.module.css";
-import { cn, shortenAddress } from "../../utils/format";
+import { cn } from "../../utils/format";
 
-export interface ToastAction {
-  label: string;
-  href: string;
-}
-
-export interface Toast {
-  id: number;
-  variant: "success" | "error";
-  title: string;
-  subtitle?: string;
-  action?: ToastAction;
-  /** Auto-dismiss timeout in ms. Defaults to 6000. Set to `0` to disable. */
-  duration?: number;
-}
-
-interface ToastContextValue {
-  pushToast: (toast: Omit<Toast, "id">) => number;
-  dismissToast: (id: number) => void;
-}
-
-const ToastContext = createContext<ToastContextValue | null>(null);
+import type { Toast } from "./toast-context";
 
 const DEFAULT_DURATION = 6000;
 
@@ -51,12 +32,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       </div>
     </ToastContext.Provider>
   );
-}
-
-export function useToast(): ToastContextValue {
-  const ctx = useContext(ToastContext);
-  if (!ctx) throw new Error("useToast must be used inside <ToastProvider>");
-  return ctx;
 }
 
 interface ToastItemProps {
@@ -166,16 +141,4 @@ function ErrorIcon() {
       <line x1="12" y1="16" x2="12" y2="16.01" />
     </svg>
   );
-}
-
-/**
- * Build the standard "View tx" action that links to the HyperEVM explorer.
- * Centralised so all trade toasts use a consistent label + url shape; the
- * caller passes the raw hash and the helper handles formatting.
- */
-export function buildTxAction(txHash: string): ToastAction {
-  return {
-    label: `View tx ${shortenAddress(txHash)}`,
-    href: `https://hyperevmscan.io/tx/${txHash}`,
-  };
 }

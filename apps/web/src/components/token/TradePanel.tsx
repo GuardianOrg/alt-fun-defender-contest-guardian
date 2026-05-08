@@ -20,7 +20,7 @@ import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
 import { cn, formatTokenAmount, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
-import { buildTxAction, useToast } from "../shared/Toast";
+import { buildTxAction, useToast } from "../shared/toast-context";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
