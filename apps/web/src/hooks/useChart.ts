@@ -43,6 +43,12 @@ export function useChart({
   // cheaper than `setData()` on every 1s price tick.
   const lastCandlesRef = useRef<CandlestickData[] | null>(null);
   const lastModeKeyRef = useRef<string | null>(null);
+  // Track the unit the last applied candle batch was scaled at. A unit
+  // toggle changes every candle's value but keeps `time` keys intact, so
+  // the time-based `isLiveTick` heuristic below would otherwise treat it
+  // as a no-op live update — only the last bar would re-render and the
+  // earlier bars would keep their pre-toggle scale.
+  const lastUnitRef = useRef<ChartUnit | null>(null);
   // True after the first non-loading effect run for a given chart instance.
   // Distinguishes "very first time we have data" (need to anchor viewport)
   // from "WS reconnect refetch" (should preserve user's current zoom/scroll).
@@ -124,6 +130,7 @@ export function useChart({
       // overlap A's old visible range).
       hasAnchoredRef.current = false;
       lastModeKeyRef.current = null;
+      lastUnitRef.current = null;
       return;
     }
 
@@ -140,13 +147,18 @@ export function useChart({
 
     const prev = lastCandlesRef.current;
     const prevModeKey = lastModeKeyRef.current;
+    const prevUnit = lastUnitRef.current;
     // Treat an explicit user-driven mode swap as a modeChange. The very first
     // run also has `prevModeKey === null` but we handle that separately via
     // `hasAnchoredRef` so reconnect-driven resyncs don't get classified as a
-    // mode change.
+    // mode change. A unit change (MC ⇄ Price) goes through the same resync
+    // path: every candle's value scales by `TOKEN_SUPPLY` so we can't reuse
+    // any of the previously-applied bars via `series.update()`.
     const modeChanged = prevModeKey !== null && prevModeKey !== modeKey;
+    const unitChanged = prevUnit !== null && prevUnit !== unit;
     const isFirstAnchor = !hasAnchoredRef.current;
     lastModeKeyRef.current = modeKey;
+    lastUnitRef.current = unit;
 
     // Detect whether this is a live-tick update (same anchor + non-shrinking
     // tail) vs. a full resync (mode change, initial load, reconnect).
@@ -159,6 +171,7 @@ export function useChart({
     const nowSec = Math.floor(Date.now() / 1000);
     const isLiveTick =
       !modeChanged &&
+      !unitChanged &&
       prev !== null &&
       prev.length > 0 &&
       candles.length >= prev.length &&

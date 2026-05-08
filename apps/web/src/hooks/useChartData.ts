@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { computeCurveRatio } from "@launchpad/shared";
 
@@ -111,18 +111,18 @@ export function useChartData(
   mode: ChartMode,
   unit: ChartUnit = "mcap",
 ): UseChartDataResult {
-  const [candles, setCandles] = useState<CandlestickData[]>([]);
+  // Internal candles are always stored in raw per-token USD price scale —
+  // the unit multiplier is applied at the output boundary (`candles` below).
+  // This decouples unit toggling from the network: switching MC ⇄ Price is a
+  // pure local remap, doesn't refetch history, and can't blank the chart on
+  // a transient API failure (CodeRabbit feedback on PR #468).
+  const [priceCandles, setPriceCandles] = useState<CandlestickData[]>([]);
   const [loading, setLoading] = useState(true);
 
   const ratioRef = useRef(0);
   const exchangeRateRef = useRef(0);
 
   const { candleSec, key: modeKey } = getChartModeConfig(mode);
-  // Multiplier between API-side per-token price and the candle scale we hand
-  // to lightweight-charts. `mcap` mode multiplies through `TOKEN_SUPPLY`
-  // (1B), `price` mode keeps the raw USD/token value. Toggling re-runs the
-  // historical fetch effect via `unit` in its dep list so the existing
-  // candles are remapped — no extra state machine needed.
   const unitMultiplier = unit === "mcap" ? TOKEN_SUPPLY : 1;
 
   // Hold the latest `mode` in a ref so the fetch effect can depend on the
@@ -150,25 +150,25 @@ export function useChartData(
 
         const mapped: CandlestickData[] = snapshot.candles.map((c) => ({
           time: c.time as unknown as CandlestickData["time"],
-          open: c.open * unitMultiplier,
-          high: c.high * unitMultiplier,
-          low: c.low * unitMultiplier,
-          close: c.close * unitMultiplier,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
         }));
 
-        setCandles(mapped);
+        setPriceCandles(mapped);
         setLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
-        setCandles([]);
+        setPriceCandles([]);
         setLoading(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [address, modeKey, syncEpoch, unitMultiplier]);
+  }, [address, modeKey, syncEpoch]);
 
   useEffect(() => {
     const ws = getWebSocketClient();
@@ -183,11 +183,10 @@ export function useChartData(
       if (ratio <= 0 || rate <= 0) return;
 
       const priceUsd = ratio * rate;
-      const value = priceUsd * unitMultiplier;
       const nowSec = Math.floor(Date.now() / 1000);
 
-      setCandles((prev) =>
-        mergePriceIntoCandles(prev, value, nowSec, candleSec),
+      setPriceCandles((prev) =>
+        mergePriceIntoCandles(prev, priceUsd, nowSec, candleSec),
       );
     };
 
@@ -245,7 +244,24 @@ export function useChartData(
       unsubPrice();
       unsubReconnect();
     };
-  }, [address, ltAddress, candleSec, unitMultiplier]);
+  }, [address, ltAddress, candleSec]);
+
+  // Unit conversion happens at the output boundary so toggling MC ⇄ Price is
+  // a pure local remap (no refetch, no `loading` flash). The identity case
+  // (`unitMultiplier === 1`) returns `priceCandles` directly to keep the
+  // reference stable, which lets `useChart` short-circuit its live-tick
+  // detection (see `lastCandlesRef` in `useChart`) when the user hasn't
+  // toggled units.
+  const candles = useMemo(() => {
+    if (unitMultiplier === 1) return priceCandles;
+    return priceCandles.map((c) => ({
+      time: c.time,
+      open: (c.open as number) * unitMultiplier,
+      high: (c.high as number) * unitMultiplier,
+      low: (c.low as number) * unitMultiplier,
+      close: (c.close as number) * unitMultiplier,
+    }));
+  }, [priceCandles, unitMultiplier]);
 
   const currentMcap =
     candles.length > 0 ? (candles[candles.length - 1].close as number) : 0;
