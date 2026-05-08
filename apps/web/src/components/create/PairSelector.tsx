@@ -1,3 +1,5 @@
+import { getAssetDisplayName } from "@launchpad/shared";
+
 import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
 import { COLORS, rgba } from "../../config/colors";
@@ -154,8 +156,9 @@ export default function PairSelector({
                   : styles.assetButtonUnselected,
               )}
               onClick={() => onAssetChange(a)}
+              title={a}
             >
-              <div className={styles.assetName}>{a}</div>
+              <div className={styles.assetName}>{getAssetDisplayName(a)}</div>
               <div
                 className={cn(
                   styles.assetChg,

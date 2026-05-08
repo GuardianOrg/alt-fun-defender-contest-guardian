@@ -41,8 +41,11 @@ export const SELL_PERCENT_OPTIONS = [10, 25, 50, 75, 100] as const;
 
 export const SEED_PCT_OPTIONS = [0.5, 1, 2, 3, 5] as const;
 
-export const UNDERLYING_ASSETS = ["HYPE", "ETH", "BTC", "SOL"] as const;
-export type UnderlyingAsset = (typeof UNDERLYING_ASSETS)[number];
-
-export const LEVERAGE_OPTIONS = [2, 3, 5] as const;
-export type Leverage = (typeof LEVERAGE_OPTIONS)[number];
+// Re-export the canonical asset / leverage sets from `@launchpad/shared` so
+// the create flow and the API stay in lock-step. Adding a new BounceTech LT
+// asset is a one-line change in `packages/shared/src/constants/bouncetech.ts`.
+export {
+  SUPPORTED_UNDERLYING_ASSETS as UNDERLYING_ASSETS,
+  SUPPORTED_LEVERAGES as LEVERAGE_OPTIONS,
+} from "@launchpad/shared";
+export type { SupportedAsset as UnderlyingAsset, SupportedLeverage as Leverage } from "@launchpad/shared";

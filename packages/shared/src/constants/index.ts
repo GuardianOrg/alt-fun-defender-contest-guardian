@@ -8,9 +8,14 @@ export {
   MIN_USDC_BUY_AMOUNT,
   MIN_USDC_SELL_AMOUNT,
   SUPPORTED_UNDERLYING_ASSETS,
+  HYPERLIQUID_DEFAULT_ASSETS,
+  XYZ_DEX_ASSETS,
+  HYPERLIQUID_XYZ_DEX,
   SUPPORTED_LEVERAGES,
   filterSupportedLTs,
   findLT,
+  getAssetDisplayName,
+  getHyperliquidDex,
 } from "./bouncetech.js";
 export type { LeveragedTokenInfo, LiveLeveragedToken, SupportedAsset, SupportedLeverage } from "./bouncetech.js";
 export {

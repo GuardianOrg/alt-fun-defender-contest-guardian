@@ -1,0 +1,25 @@
+/* Asset icons follow the same circular treatment as `Sidebar.assetLogo` and
+ * `TokenRow.underlyingLogo` (both `border-radius: 50%`). Token coin marks
+ * are universally round in this UI, so the pill exception applies here in
+ * addition to status dots / live indicators. */
+.icon {
+  flex-shrink: 0;
+  display: inline-block;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.fallback {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  background: var(--bg-2);
+  color: var(--txt-2);
+  border: 1px solid var(--border);
+  user-select: none;
+}

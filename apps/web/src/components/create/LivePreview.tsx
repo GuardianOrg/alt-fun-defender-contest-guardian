@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import { getAssetDisplayName } from "@launchpad/shared";
+
 import styles from "./LivePreview.module.css";
 import { COLORS, rgba } from "../../config/colors";
 import {
@@ -49,6 +51,7 @@ export default function LivePreview({
   const vanityTier = tierForZeros(vanityZeros);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isLong = direction === "long";
+  const assetDisplay = getAssetDisplayName(asset);
   const ltName = getLtDisplayName(asset, leverage, direction);
   const displayName = ticker
     ? `${(name || "YOUR TOKEN").toUpperCase()} (${ticker.toUpperCase()})`
@@ -158,7 +161,7 @@ export default function LivePreview({
               <div className={styles.miniStatLabel}>leverage</div>
             </div>
             <div className={styles.miniStatCell}>
-              <div className={styles.miniStatValue}>{asset}</div>
+              <div className={styles.miniStatValue}>{assetDisplay}</div>
               <div className={styles.miniStatLabel}>underlying</div>
             </div>
             <div className={styles.miniStatCellLast}>
@@ -202,7 +205,7 @@ export default function LivePreview({
         <div className={styles.chartCard}>
           <div className={styles.chartHeader}>
             <div>
-              <div className={styles.chartTitle}>{asset} / USD</div>
+              <div className={styles.chartTitle}>{assetDisplay} / USD</div>
               <div className={styles.chartSubtitle}>
                 your token moves {leverage}× this
               </div>
@@ -244,7 +247,7 @@ export default function LivePreview({
           >
             {ltName}
           </b>{" "}
-          — if {asset} {isLong ? "rises" : "falls"} 10%, your token moves{" "}
+          — if {assetDisplay} {isLong ? "rises" : "falls"} 10%, your token moves{" "}
           {isLong ? "up" : "down"} ~{leverage * 10}% with zero buys.
         </div>
 

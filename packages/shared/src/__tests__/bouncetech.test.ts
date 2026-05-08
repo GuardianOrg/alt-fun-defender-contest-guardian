@@ -4,8 +4,13 @@ import type { LiveLeveragedToken, LeveragedTokenInfo } from "../constants/bounce
 import {
   filterSupportedLTs,
   findLT,
+  getAssetDisplayName,
+  getHyperliquidDex,
+  HYPERLIQUID_DEFAULT_ASSETS,
+  HYPERLIQUID_XYZ_DEX,
   SUPPORTED_UNDERLYING_ASSETS,
   SUPPORTED_LEVERAGES,
+  XYZ_DEX_ASSETS,
 } from "../constants/bouncetech.js";
 
 function makeLiveLT(overrides: Partial<LiveLeveragedToken> = {}): LiveLeveragedToken {
@@ -50,11 +55,24 @@ describe("filterSupportedLTs", () => {
     expect(result).toHaveLength(4);
   });
 
+  it("keeps LTs across the full crypto + xyz: equity set", () => {
+    const lts = [
+      makeLiveLT({ targetAsset: "DOGE", targetLeverage: 3 }),
+      makeLiveLT({ targetAsset: "PAXG", targetLeverage: 5 }),
+      makeLiveLT({ targetAsset: "ZEC", targetLeverage: 2 }),
+      makeLiveLT({ targetAsset: "kPEPE", targetLeverage: 5 }),
+      makeLiveLT({ targetAsset: "xyz:SP500", targetLeverage: 3 }),
+      makeLiveLT({ targetAsset: "xyz:NVDA", targetLeverage: 5 }),
+    ];
+    const result = filterSupportedLTs(lts);
+    expect(result).toHaveLength(6);
+  });
+
   it("removes LTs with unsupported assets", () => {
     const lts = [
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 2 }),
-      makeLiveLT({ targetAsset: "PAXG", targetLeverage: 2 }),
-      makeLiveLT({ targetAsset: "DOGE", targetLeverage: 3 }),
+      makeLiveLT({ targetAsset: "FAKEASSET", targetLeverage: 2 }),
+      makeLiveLT({ targetAsset: "xyz:DELISTED", targetLeverage: 3 }),
     ];
     const result = filterSupportedLTs(lts);
     expect(result).toHaveLength(1);
@@ -65,16 +83,20 @@ describe("filterSupportedLTs", () => {
     const lts = [
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 2 }),
       makeLiveLT({ targetAsset: "ETH", targetLeverage: 10 }),
-      makeLiveLT({ targetAsset: "BTC", targetLeverage: 1 }),
+      // HYPE 1x Short ships in the BounceTech directory but Alt Fun caps at
+      // 2x/3x/5x — make sure 1x leverage still filters out even though the
+      // asset is supported.
+      makeLiveLT({ targetAsset: "HYPE", targetLeverage: 1 }),
     ];
     const result = filterSupportedLTs(lts);
     expect(result).toHaveLength(1);
     expect(result[0].targetAsset).toBe("HYPE");
+    expect(result[0].targetLeverage).toBe(2);
   });
 
   it("returns empty array when no LTs match", () => {
     const lts = [
-      makeLiveLT({ targetAsset: "PAXG", targetLeverage: 10 }),
+      makeLiveLT({ targetAsset: "FAKEASSET", targetLeverage: 10 }),
     ];
     const result = filterSupportedLTs(lts);
     expect(result).toHaveLength(0);
@@ -87,7 +109,7 @@ describe("filterSupportedLTs", () => {
   it("filters by both asset and leverage simultaneously", () => {
     const lts = [
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 10 }), // bad leverage
-      makeLiveLT({ targetAsset: "PAXG", targetLeverage: 2 }), // bad asset
+      makeLiveLT({ targetAsset: "FAKEASSET", targetLeverage: 2 }), // bad asset
       makeLiveLT({ targetAsset: "HYPE", targetLeverage: 3 }), // good
     ];
     const result = filterSupportedLTs(lts);
@@ -140,13 +162,66 @@ describe("findLT", () => {
 });
 
 describe("SUPPORTED_UNDERLYING_ASSETS", () => {
-  it("contains exactly HYPE, ETH, BTC, SOL", () => {
-    expect([...SUPPORTED_UNDERLYING_ASSETS]).toEqual(["HYPE", "ETH", "BTC", "SOL"]);
+  it("covers the full Bounce LT set (crypto + xyz: equities/commodities)", () => {
+    expect([...SUPPORTED_UNDERLYING_ASSETS]).toEqual([
+      "HYPE",
+      "ETH",
+      "BTC",
+      "SOL",
+      "DOGE",
+      "PAXG",
+      "ZEC",
+      "kPEPE",
+      "xyz:CL",
+      "xyz:BRENTOIL",
+      "xyz:GOLD",
+      "xyz:SILVER",
+      "xyz:NVDA",
+      "xyz:SP500",
+      "xyz:XYZ100",
+    ]);
+  });
+
+  it("partitions cleanly between Hyperliquid default and xyz dex feeds", () => {
+    const partition = new Set([
+      ...HYPERLIQUID_DEFAULT_ASSETS,
+      ...XYZ_DEX_ASSETS,
+    ]);
+    expect(partition.size).toBe(SUPPORTED_UNDERLYING_ASSETS.length);
+    for (const asset of SUPPORTED_UNDERLYING_ASSETS) {
+      expect(partition.has(asset)).toBe(true);
+    }
   });
 });
 
 describe("SUPPORTED_LEVERAGES", () => {
   it("contains exactly 2, 3, 5", () => {
     expect([...SUPPORTED_LEVERAGES]).toEqual([2, 3, 5]);
+  });
+});
+
+describe("getAssetDisplayName", () => {
+  it("strips the `xyz:` prefix for equity / commodity assets", () => {
+    expect(getAssetDisplayName("xyz:SP500")).toBe("SP500");
+    expect(getAssetDisplayName("xyz:NVDA")).toBe("NVDA");
+    expect(getAssetDisplayName("xyz:BRENTOIL")).toBe("BRENTOIL");
+  });
+
+  it("leaves crypto assets untouched", () => {
+    expect(getAssetDisplayName("HYPE")).toBe("HYPE");
+    expect(getAssetDisplayName("kPEPE")).toBe("kPEPE");
+  });
+});
+
+describe("getHyperliquidDex", () => {
+  it("returns the xyz dex marker for equity / commodity assets", () => {
+    expect(getHyperliquidDex("xyz:SP500")).toBe(HYPERLIQUID_XYZ_DEX);
+    expect(getHyperliquidDex("xyz:GOLD")).toBe(HYPERLIQUID_XYZ_DEX);
+  });
+
+  it("returns null (default feed) for crypto assets", () => {
+    expect(getHyperliquidDex("HYPE")).toBeNull();
+    expect(getHyperliquidDex("BTC")).toBeNull();
+    expect(getHyperliquidDex("kPEPE")).toBeNull();
   });
 });
