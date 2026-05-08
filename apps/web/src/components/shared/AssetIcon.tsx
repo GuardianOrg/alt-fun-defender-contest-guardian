@@ -12,12 +12,12 @@ import nvidia from "../../assets/Logos/nvidia.svg";
 import paxg from "../../assets/Logos/paxg.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import SP500 from "../../assets/Logos/SP500.svg";
-import zec from "../../assets/Logos/zec.svg";
-import { cn } from "../../utils/format";
 import xyz_BRENTOIL from "../../assets/Logos/xyz_BRENTOIL.svg";
 import xyz_GOLD from "../../assets/Logos/xyz_GOLD.svg";
 import xyz_SILVER from "../../assets/Logos/xyz_SILVER.svg";
 import xyz_XYZ100 from "../../assets/Logos/xyz_XYZ100.svg";
+import zec from "../../assets/Logos/zec.svg";
+import { cn } from "../../utils/format";
 
 /**
  * Map of `targetAsset` (the BounceTech LT field) → bundled SVG logo.
