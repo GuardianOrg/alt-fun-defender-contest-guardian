@@ -1,3 +1,5 @@
+import { getAssetDisplayName } from "@launchpad/shared";
+
 import { API_BASE, fetchToken, fetchTokens } from "./api";
 
 import type { ApiToken, FetchTokensOptions } from "./api";
@@ -6,7 +8,7 @@ import type { Direction, Token, TokenFilter } from "./types";
 export function ltDisplayName(apiToken: ApiToken): string {
   const dir = apiToken.ltDirection === "long" ? "Long" : "Short";
   const underlying = deriveUnderlying(apiToken);
-  return `${underlying} ${apiToken.leverage}× ${dir}`;
+  return `${getAssetDisplayName(underlying)} ${apiToken.leverage}× ${dir}`;
 }
 
 export function deriveUnderlying(apiToken: ApiToken): Token["underlying"] {

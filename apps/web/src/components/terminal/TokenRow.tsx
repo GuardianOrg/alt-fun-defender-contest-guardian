@@ -1,23 +1,19 @@
 import type { KeyboardEvent } from "react";
 import { useState } from "react";
 
+import { getAssetDisplayName } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
-import BTC from "../../assets/Logos/BTC.svg";
-import ETH from "../../assets/Logos/ETH.svg";
-import HYPE from "../../assets/Logos/HYPE.svg";
-import SOL from "../../assets/Logos/SOL.svg";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import { cn, formatPercentOrDash, formatUsdOrDash } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
+import AssetIcon from "../shared/AssetIcon";
 import ProgressBar from "../shared/ProgressBar";
 
 import type { Token } from "../../services/types";
-
-const UNDERLYING_LOGOS: Record<string, string> = { HYPE, ETH, BTC, SOL };
 
 interface Props {
   token: Token;
@@ -124,14 +120,14 @@ export default function TokenRow({ token }: Props) {
 
       {/* Underlying asset */}
       <div className={styles.underlyingCell}>
-        {UNDERLYING_LOGOS[token.underlying] && (
-          <img
-            src={UNDERLYING_LOGOS[token.underlying]}
-            alt=""
-            className={styles.underlyingLogo}
-          />
-        )}
-        <span className={styles.underlyingName}>{token.underlying}</span>
+        <AssetIcon
+          asset={token.underlying}
+          size={26}
+          className={styles.underlyingLogo}
+        />
+        <span className={styles.underlyingName}>
+          {getAssetDisplayName(token.underlying)}
+        </span>
       </div>
 
       {/* Direction / leverage */}
@@ -142,7 +138,7 @@ export default function TokenRow({ token }: Props) {
             isShort ? styles.directionShort : styles.directionLong,
           )}
         >
-          {token.underlying} {token.leverage}x {isShort ? "Short" : "Long"}
+          {getAssetDisplayName(token.underlying)} {token.leverage}x {isShort ? "Short" : "Long"}
         </span>
       </div>
 

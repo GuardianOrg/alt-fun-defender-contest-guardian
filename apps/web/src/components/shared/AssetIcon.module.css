@@ -1,0 +1,21 @@
+.icon {
+  flex-shrink: 0;
+  display: inline-block;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.fallback {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  background: rgba(234, 250, 244, 0.06);
+  color: rgba(234, 250, 244, 0.78);
+  border: 1px solid rgba(234, 250, 244, 0.12);
+  user-select: none;
+}

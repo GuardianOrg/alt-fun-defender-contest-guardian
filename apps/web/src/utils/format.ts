@@ -1,4 +1,8 @@
-import { MIN_USDC_BUY_AMOUNT, MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
+import {
+  getAssetDisplayName,
+  MIN_USDC_BUY_AMOUNT,
+  MIN_USDC_SELL_AMOUNT,
+} from "@launchpad/shared";
 
 import type { Leverage } from "../config/constants";
 import type { Direction } from "../services/types";
@@ -57,7 +61,11 @@ export function getLtDisplayName(
   leverage: Leverage,
   direction: Direction,
 ): string {
-  return `${asset} ${leverage}× ${direction === "long" ? "Long" : "Short"}`;
+  // Drop the `xyz:` namespace prefix on equity / commodity perps (e.g.
+  // `xyz:SP500` → `SP500 3× Long`). The on-chain `targetAsset` keeps the
+  // prefix so identifiers remain unambiguous everywhere it matters.
+  const display = getAssetDisplayName(asset);
+  return `${display} ${leverage}× ${direction === "long" ? "Long" : "Short"}`;
 }
 
 export function getErrorMessage(e: unknown): string {

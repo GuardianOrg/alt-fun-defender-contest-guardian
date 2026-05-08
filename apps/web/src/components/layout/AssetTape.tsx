@@ -1,3 +1,5 @@
+import { getAssetDisplayName } from "@launchpad/shared";
+
 import styles from "./AssetTape.module.css";
 import { useAssets } from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
@@ -14,7 +16,7 @@ export default function AssetTape() {
     assets.map((a, i) => (
       <div key={`${keyPrefix}-${a.name}-${i}`} className={styles.assetGroup}>
         <div className={styles.assetItem}>
-          <span className={styles.assetName}>{a.name}</span>
+          <span className={styles.assetName}>{getAssetDisplayName(a.name)}</span>
           <span className={styles.assetPrice}>{a.priceUsd}</span>
           <span
             className={cn(

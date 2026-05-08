@@ -1,4 +1,10 @@
-import { HYPERLIQUID_INFO_API } from "@launchpad/shared";
+import {
+  HYPERLIQUID_INFO_API,
+  HYPERLIQUID_XYZ_DEX,
+  SUPPORTED_UNDERLYING_ASSETS,
+  XYZ_DEX_ASSETS,
+  getHyperliquidDex,
+} from "@launchpad/shared";
 
 import { API_BASE, fetchTokens } from "./api";
 import { fetchPonderTokens } from "./ponder";
@@ -6,7 +12,12 @@ import { COLORS } from "../config/colors";
 
 import type { Asset, PairFilter, PlatformStats } from "./types";
 
-const TRACKED_ASSETS = ["HYPE", "ETH", "SOL", "BTC"] as const;
+/**
+ * Markets / live tape / pair selector all read from this list. It mirrors
+ * `SUPPORTED_UNDERLYING_ASSETS` (the source of truth in `@launchpad/shared`)
+ * so adding a new BounceTech LT asset is a one-line change there.
+ */
+const TRACKED_ASSETS = SUPPORTED_UNDERLYING_ASSETS;
 
 export function formatPrice(usd: number): string {
   if (usd >= 10_000) return `$${Math.round(usd).toLocaleString()}`;
@@ -24,18 +35,49 @@ let cachedMids: Record<string, string> | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 5_000;
 
+/**
+ * Fetch mid prices for every tracked asset. Hyperliquid splits its asset
+ * universe across two `allMids` payloads:
+ *   - default (no `dex` field): spot + main perps — covers HYPE/ETH/BTC/SOL,
+ *     plus crypto majors like DOGE/PAXG/ZEC/kPEPE.
+ *   - `dex: "xyz"`: builder-deployed equity / commodity perps — covers
+ *     `xyz:SP500`, `xyz:NVDA`, `xyz:GOLD`, etc.
+ *
+ * We issue both requests in parallel and merge the results so downstream
+ * lookups by `targetAsset` work uniformly. If the xyz feed is enabled but
+ * none of our tracked assets need it, we skip the round-trip.
+ */
 async function fetchMids(): Promise<Record<string, string>> {
   if (cachedMids && Date.now() - cacheTime < CACHE_TTL) return cachedMids;
 
-  const res = await fetch(HYPERLIQUID_INFO_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type: "allMids" }),
-  });
-  const data = (await res.json()) as Record<string, string>;
-  cachedMids = data;
+  const needsXyz = XYZ_DEX_ASSETS.length > 0;
+  const requests: Promise<Record<string, string>>[] = [
+    fetch(HYPERLIQUID_INFO_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "allMids" }),
+    }).then((r) => r.json() as Promise<Record<string, string>>),
+  ];
+  if (needsXyz) {
+    requests.push(
+      fetch(HYPERLIQUID_INFO_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "allMids", dex: HYPERLIQUID_XYZ_DEX }),
+      })
+        .then((r) => r.json() as Promise<Record<string, string>>)
+        // xyz is a builder-deployed dex and could plausibly disappear or
+        // throttle independently of the main feed — degrade gracefully so
+        // crypto prices keep rendering.
+        .catch(() => ({}) as Record<string, string>),
+    );
+  }
+
+  const results = await Promise.all(requests);
+  const merged = Object.assign({}, ...results) as Record<string, string>;
+  cachedMids = merged;
   cacheTime = Date.now();
-  return data;
+  return merged;
 }
 
 interface CandleObject {
@@ -63,14 +105,19 @@ async function fetch24hChanges(
   const changes: Record<string, number> = {};
 
   const requests = TRACKED_ASSETS.map(async (coin) => {
+    const dex = getHyperliquidDex(coin);
+    const req: Record<string, unknown> = {
+      coin,
+      interval: "1d",
+      startTime: dayAgo,
+      endTime: now,
+    };
+    if (dex) req.dex = dex;
     try {
       const res = await fetch(HYPERLIQUID_INFO_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "candleSnapshot",
-          req: { coin, interval: "1d", startTime: dayAgo, endTime: now },
-        }),
+        body: JSON.stringify({ type: "candleSnapshot", req }),
       });
       const candles = (await res.json()) as CandleObject[];
       if (candles.length > 0) {
@@ -98,14 +145,14 @@ export async function fetchAssetCandles(
 ): Promise<number[]> {
   const now = Date.now();
   const startTime = now - hours * 60 * 60 * 1000;
+  const dex = getHyperliquidDex(coin);
+  const req: Record<string, unknown> = { coin, interval, startTime, endTime: now };
+  if (dex) req.dex = dex;
 
   const res = await fetch(HYPERLIQUID_INFO_API, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      type: "candleSnapshot",
-      req: { coin, interval, startTime, endTime: now },
-    }),
+    body: JSON.stringify({ type: "candleSnapshot", req }),
   });
   const candles = (await res.json()) as CandleObject[];
   return candles.map((c) => parseFloat(c.c));
@@ -122,11 +169,17 @@ const liveAssetService: IAssetService = {
     try {
       const mids = await fetchMids();
       const changes = await fetch24hChanges(mids);
-      return TRACKED_ASSETS.map((name) => ({
-        name,
-        priceUsd: formatPrice(parseFloat(mids[name] ?? "0")),
-        change24h: changes[name] ?? 0,
-      }));
+      return TRACKED_ASSETS.map((name) => {
+        const mid = parseFloat(mids[name] ?? "");
+        return {
+          name,
+          // `formatPrice(NaN)` would render `$NaN` — fall back to a dash
+          // for assets that are missing from both feeds (degraded xyz dex,
+          // newly-added asset before our list catches up, etc.).
+          priceUsd: Number.isFinite(mid) && mid > 0 ? formatPrice(mid) : "—",
+          change24h: changes[name] ?? 0,
+        };
+      });
     } catch {
       return TRACKED_ASSETS.map((name) => ({
         name,

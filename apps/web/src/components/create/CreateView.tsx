@@ -114,7 +114,7 @@ export default function CreateView() {
         ticker: trimmedTicker,
         description: description.trim(),
         direction,
-        underlying: asset as "HYPE" | "ETH" | "BTC" | "SOL",
+        underlying: asset,
         leverage,
         imageFile,
         seedBuyUsd: seedAmt,

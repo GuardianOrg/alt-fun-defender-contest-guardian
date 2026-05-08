@@ -68,7 +68,7 @@ const tokenSchema = {
     ltPair: { type: "string", description: "Address of the BounceTech Leveraged Token used as reserve" },
     ltDirection: { type: "string", enum: ["long", "short"] },
     leverage: { type: "integer", enum: [2, 3, 5] },
-    underlying: { type: "string", enum: ["HYPE", "ETH", "BTC", "SOL"] },
+    underlying: { type: "string", enum: ["HYPE", "ETH", "BTC", "SOL", "DOGE", "PAXG", "ZEC", "kPEPE", "xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:NVDA", "xyz:SP500", "xyz:XYZ100"] },
     status: { type: "string", enum: ["curve", "graduating", "graduated"] },
     graduated: { type: "boolean", description: "Whether the token has graduated to HyperSwap. Derived from the on-chain curve state." },
     graduatedAt: { type: "string", format: "date-time", nullable: true },
@@ -272,7 +272,7 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
         description: "Returns a paginated list of tokens with optional filters for underlying asset, status, direction, leverage, and creator.",
         parameters: [
           ...paginationParams,
-          { name: "underlying", in: "query", schema: { type: "string", enum: ["HYPE", "ETH", "BTC", "SOL"] }, description: "Filter by underlying asset" },
+          { name: "underlying", in: "query", schema: { type: "string", enum: ["HYPE", "ETH", "BTC", "SOL", "DOGE", "PAXG", "ZEC", "kPEPE", "xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:NVDA", "xyz:SP500", "xyz:XYZ100"] }, description: "Filter by underlying asset. The `xyz:` namespace covers BounceTech's equity / commodity perps (S&P 500, NVDA, Gold, etc.); the rest are Hyperliquid spot/perps." },
           { name: "status", in: "query", schema: { type: "string", enum: ["curve", "graduating", "graduated"] }, description: "Filter by lifecycle status. `graduated` is backed by the indexer's `graduated` flag (ordered `graduatedAt desc`); `graduating` is indexer-backed too and includes non-graduated tokens whose virtual `curveSupply` has dropped below the 90%-filled threshold, ordered closest-to-graduation first. Both ignore `sort` / `dir`. `curve` is Postgres-backed and respects `sort`." },
           { name: "direction", in: "query", schema: { type: "string", enum: ["long", "short"] }, description: "Filter by LT direction" },
           { name: "leverage", in: "query", schema: { type: "integer", enum: [2, 3, 5] }, description: "Filter by leverage multiplier" },

@@ -9,7 +9,11 @@ export const tokens = pgTable("tokens", {
   ltPair: varchar("lt_pair", { length: 42 }).notNull(),
   ltDirection: varchar("lt_direction", { length: 5 }).notNull(),
   leverage: integer("leverage").notNull(),
-  underlying: varchar("underlying", { length: 10 }).notNull().default("HYPE"),
+  // Width sized for `xyz:BRENTOIL` (12 chars) plus headroom for new
+  // BounceTech LT additions. The on-chain `targetAsset` keeps its full
+  // namespaced symbol (e.g. `xyz:SP500`) so this column round-trips it
+  // verbatim — display surfaces strip the `xyz:` prefix at render time.
+  underlying: varchar("underlying", { length: 24 }).notNull().default("HYPE"),
   status: varchar("status", { length: 20 }).notNull().default("curve"),
   graduatedAt: timestamp("graduated_at"),
   poolAddress: varchar("pool_address", { length: 42 }),
