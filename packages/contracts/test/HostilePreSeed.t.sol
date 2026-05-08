@@ -430,6 +430,58 @@ contract HostilePreSeedTest is DeployHelper {
         assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT balance cleared post-finalize");
     }
 
+    // ─── Skim donation feeds the rebalance budget ────────────────────────
+
+    /// @notice Hostile mint pre-seed + large post-mint LT donation:
+    ///         finalize succeeds, pool opens at curve close, Bonding
+    ///         ends empty, LPLock holds protocol LP. Exercises the
+    ///         path where the rebalance budget reads `balanceOf(this)`
+    ///         (covering the donation) rather than just `ltFromPair`.
+    function test_skimmedDonation_contributesToSwapBudget() public {
+        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(5 ether);
+        _attackerMintPreSeed(pair, tokenAddr, 100_000 ether, 1 ether);
+
+        // Donation materially exceeds `ltFromPair` (~$12K at the test
+        // fixture's exchange rate) so the path is sensitive to the
+        // budget being balance-based.
+        uint256 donation = 1000 ether;
+        lt.mintDirect(stranger, donation);
+        vm.prank(stranger);
+        lt.transfer(address(pair), donation);
+
+        _enterGraduating(tokenAddr);
+        CurveClose memory snap = _snapshotCurveClose(tokenAddr);
+
+        bonding.finalizeGraduation(tokenAddr);
+
+        _assertZeroPriceGap(address(pair), tokenAddr, snap);
+        assertEq(lt.balanceOf(address(bonding)), 0, "Bonding LT cleared post-finalize");
+        assertGt(pair.balanceOf(address(lpLockContract)), 0, "LPLock holds protocol LP");
+    }
+
+    /// @notice TOKEN-side mirror of `test_skimmedDonation_contributesToSwapBudget`:
+    ///         LT-rich pre-seed → swap TOKEN in, with a TOKEN donation
+    ///         on top of the mint pre-seed.
+    function test_skimmedTokenDonation_contributesToSwapBudget() public {
+        (address tokenAddr, MockHyperswapPair pair) = _setupWithAttackerTokens(5 ether);
+        _attackerMintPreSeed(pair, tokenAddr, 1 ether, 30 ether);
+
+        uint256 attackerRemaining = IERC20(tokenAddr).balanceOf(attacker);
+        require(attackerRemaining >= 100_000 ether, "test setup: attacker short on TOKEN");
+        uint256 donation = 100_000 ether;
+        vm.prank(attacker);
+        IERC20(tokenAddr).transfer(address(pair), donation);
+
+        _enterGraduating(tokenAddr);
+        CurveClose memory snap = _snapshotCurveClose(tokenAddr);
+
+        bonding.finalizeGraduation(tokenAddr);
+
+        _assertZeroPriceGap(address(pair), tokenAddr, snap);
+        assertEq(IERC20(tokenAddr).balanceOf(address(bonding)), 0, "Bonding TOKEN cleared post-finalize");
+        assertGt(pair.balanceOf(address(lpLockContract)), 0, "LPLock holds protocol LP");
+    }
+
     // ─── Brick resistance is preserved ───────────────────────────────────
 
     /// @dev Same as `TwoPhaseGraduationTest.test_brick_resistance_frontRun_dust_seed`

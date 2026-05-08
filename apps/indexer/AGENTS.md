@@ -68,6 +68,10 @@ See `apps/api/AGENTS.md` and `apps/api/src/lib/token-enrich.ts` for the conversi
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
 
+#### Source factory events from the typed ABI, never `parseAbiItem` strings
+
+Factory subscriptions in `ponder.config.ts` resolve their `event` field with `getAbiItem({ abi: BondingAbi, name: "..." })` rather than the more concise `parseAbiItem("event Foo(address indexed bar)")`. This is deliberate — the topic0 hash Ponder uses to filter logs is derived from the AbiEvent's parameter list, and a single drift between the hand-rolled string and the real Solidity event silently produces the **wrong topic0**. The factory log filter then matches zero logs, the dynamically-spawned source's handlers never fire, and downstream tables (`tokenBalance` for `Token`, `swap` / `pairReserve` for `HyperSwapPair`) silently stay empty with no error surfaced anywhere — the regression behind issue #418, where one extra trailing `uint256 index` parameter on the `TokenLaunched` signature broke `/holders`, `/balances`, `/portfolio`, and the `creatorHoldingPct` security field for every token in production. `apps/indexer/test/ponder-config.test.ts` locks this contract by asserting the configured factory event's topic0 equals the real `BondingAbi` event's topic0.
+
 ### Post-graduation reserve mirror (`HyperSwapPair:Sync`)
 
 After a token graduates, `Bonding.Trade` no longer fires — all trading moves to HyperSwap V2. To keep `token.curveSupply` / `token.ltReserve` (and the `tokenSnapshot` history that powers the chart and 24h-change math) live for graduated tokens, the `HyperSwapPair:Sync` handler does a three-step mirror on every emitted Sync:

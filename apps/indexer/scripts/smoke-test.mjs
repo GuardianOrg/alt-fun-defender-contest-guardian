@@ -101,6 +101,17 @@ const SMOKE_QUERIES = [
     name: "pairReserves",
     query: `{ pairReserves(limit: 1) { items { pairAddress reserve0 reserve1 } totalCount } }`,
   },
+  // tokenBalances is sourced from the factory-spawned `Token.Transfer`
+  // handler. Issue #418: the factory event signature in `ponder.config.ts`
+  // had drifted from the real Bonding ABI, so Token contracts were never
+  // registered and this collection silently stayed empty for every token.
+  // The schema query alone doesn't catch the missing-data case (an empty
+  // table returns `totalCount: 0` cleanly), but it locks the GraphQL
+  // surface so a schema regression on this critical collection fails CI.
+  {
+    name: "tokenBalances",
+    query: `{ tokenBalances(limit: 1) { items { id wallet tokenAddress balance } totalCount } }`,
+  },
 ];
 
 async function runSmokeQueries(graphqlUrl) {

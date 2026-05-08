@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { computeCurveRatio } from "@launchpad/shared";
 
@@ -6,19 +6,23 @@ import { TOKEN_SUPPLY } from "../config/constants";
 import { fetchChart, getChartModeConfig } from "../services/api";
 import { getWebSocketClient } from "../services/websocket";
 
-import type { ChartMode } from "../services/api";
+import type { ChartMode, ChartUnit } from "../services/api";
 import type { CandlestickData, Time } from "lightweight-charts";
 
 /**
- * Pure helper: fold a live `mcap` value into the in-progress candle, rolling
- * over into a new bucket at interval boundaries. Exported for unit testing.
+ * Pure helper: fold a live OHLC tick value into the in-progress candle,
+ * rolling over into a new bucket at interval boundaries. Exported for unit
+ * testing. The `value` is whatever scale the candles are stored at —
+ * either market cap (price × supply) or per-token USD price; the helper is
+ * unit-agnostic.
  */
 export function mergePriceIntoCandles(
   prev: CandlestickData[],
-  mcap: number,
+  value: number,
   nowSec: number,
   candleSec: number,
 ): CandlestickData[] {
+  const mcap = value;
   const bucketTs = Math.floor(nowSec / candleSec) * candleSec;
 
   if (prev.length === 0) {
@@ -105,8 +109,14 @@ export function useChartData(
   address: string,
   ltAddress: string,
   mode: ChartMode,
+  unit: ChartUnit = "mcap",
 ): UseChartDataResult {
-  const [candles, setCandles] = useState<CandlestickData[]>([]);
+  // Internal candles are always stored in raw per-token USD price scale —
+  // the unit multiplier is applied at the output boundary (`candles` below).
+  // This decouples unit toggling from the network: switching MC ⇄ Price is a
+  // pure local remap, doesn't refetch history, and can't blank the chart on
+  // a transient API failure (CodeRabbit feedback on PR #468).
+  const [priceCandles, setPriceCandles] = useState<CandlestickData[]>([]);
   const [loading, setLoading] = useState(true);
 
   const ratioRef = useRef(0);
@@ -119,6 +129,7 @@ export function useChartData(
   const refsAnchoredAddressRef = useRef<string | null>(null);
 
   const { candleSec, key: modeKey } = getChartModeConfig(mode);
+  const unitMultiplier = unit === "mcap" ? TOKEN_SUPPLY : 1;
 
   // Hold the latest `mode` in a ref so the fetch effect can depend on the
   // stable `modeKey` string (which uniquely identifies the mode) rather than
@@ -149,7 +160,7 @@ export function useChartData(
       refsAnchoredAddressRef.current = address;
       ratioRef.current = 0;
       exchangeRateRef.current = 0;
-      setCandles([]);
+      setPriceCandles([]);
     }
 
     fetchChart(address, modeRef.current)
@@ -178,34 +189,37 @@ export function useChartData(
 
         const mapped: CandlestickData[] = snapshot.candles.map((c) => ({
           time: c.time as unknown as CandlestickData["time"],
-          open: c.open * TOKEN_SUPPLY,
-          high: c.high * TOKEN_SUPPLY,
-          low: c.low * TOKEN_SUPPLY,
-          close: c.close * TOKEN_SUPPLY,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
         }));
 
-        // Overlay the latest live mcap onto the snapshot's tail before we
+        // Overlay the latest live price onto the snapshot's tail before we
         // hand the array to the chart. Without this, even with the refs
         // preserved above, the in-progress live candle would be replaced
         // by the snapshot's stale last-candle close until the next WS
         // tick lands — which on a quiet token can be many seconds and is
-        // exactly when the user notices the candle "vanishing".
+        // exactly when the user notices the candle "vanishing" (issue
+        // #445). Storage is per-token USD price (unit toggle is applied
+        // at the output boundary, see `candles` below), so the overlay
+        // value is `ratio × rate` — no `× TOKEN_SUPPLY`.
         let nextCandles = mapped;
         const ratio = ratioRef.current;
         const rate = exchangeRateRef.current;
         if (ratio > 0 && rate > 0) {
-          const mcap = ratio * rate * TOKEN_SUPPLY;
+          const priceUsd = ratio * rate;
           const nowSec = Math.floor(Date.now() / 1000);
           const { candleSec: cs } = getChartModeConfig(modeRef.current);
-          nextCandles = mergePriceIntoCandles(mapped, mcap, nowSec, cs);
+          nextCandles = mergePriceIntoCandles(mapped, priceUsd, nowSec, cs);
         }
 
-        setCandles(nextCandles);
+        setPriceCandles(nextCandles);
         setLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
-        setCandles([]);
+        setPriceCandles([]);
         setLoading(false);
       });
 
@@ -227,10 +241,11 @@ export function useChartData(
       if (ratio <= 0 || rate <= 0) return;
 
       const priceUsd = ratio * rate;
-      const mcap = priceUsd * TOKEN_SUPPLY;
       const nowSec = Math.floor(Date.now() / 1000);
 
-      setCandles((prev) => mergePriceIntoCandles(prev, mcap, nowSec, candleSec));
+      setPriceCandles((prev) =>
+        mergePriceIntoCandles(prev, priceUsd, nowSec, candleSec),
+      );
     };
 
     const unsubTrade = ws.subscribe(
@@ -288,6 +303,23 @@ export function useChartData(
       unsubReconnect();
     };
   }, [address, ltAddress, candleSec]);
+
+  // Unit conversion happens at the output boundary so toggling MC ⇄ Price is
+  // a pure local remap (no refetch, no `loading` flash). The identity case
+  // (`unitMultiplier === 1`) returns `priceCandles` directly to keep the
+  // reference stable, which lets `useChart` short-circuit its live-tick
+  // detection (see `lastCandlesRef` in `useChart`) when the user hasn't
+  // toggled units.
+  const candles = useMemo(() => {
+    if (unitMultiplier === 1) return priceCandles;
+    return priceCandles.map((c) => ({
+      time: c.time,
+      open: (c.open as number) * unitMultiplier,
+      high: (c.high as number) * unitMultiplier,
+      low: (c.low as number) * unitMultiplier,
+      close: (c.close as number) * unitMultiplier,
+    }));
+  }, [priceCandles, unitMultiplier]);
 
   const currentMcap =
     candles.length > 0 ? (candles[candles.length - 1].close as number) : 0;

@@ -99,7 +99,7 @@ describe("mergePriceIntoCandles", () => {
   // Regression for issue #445: a buy candle would visually "vanish" a few
   // seconds after the trade landed. Root cause was a snapshot resync (mode
   // change or WS reconnect) replacing the in-progress live candle with the
-  // indexer's pre-buy candle. The fix overlays the latest live mcap onto
+  // indexer's pre-buy candle. The fix overlays the latest live price onto
   // the snapshot's tail before handing it to the chart — this test pins that
   // the overlay restores the buy's high/close when the snapshot lags.
   it("overlay preserves the live buy candle when the snapshot tail is stale", () => {
@@ -108,11 +108,11 @@ describe("mergePriceIntoCandles", () => {
     // yet, so the "latest" candle is still pre-buy and almost flat.
     const stale = [candle(bucketTs, 100, 101, 99, 100)];
     // What the WS already reflects locally — a chunky buy spiking close to 150.
-    const liveMcap = 150;
+    const livePrice = 150;
 
     const overlaid = mergePriceIntoCandles(
       stale,
-      liveMcap,
+      livePrice,
       bucketTs + 30,
       CANDLE_SEC,
     );

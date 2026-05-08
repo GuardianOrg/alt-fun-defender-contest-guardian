@@ -279,6 +279,18 @@ export type ChartMode =
   | { kind: "timeframe"; value: ChartTimeframe }
   | { kind: "interval"; seconds: ChartIntervalSeconds };
 
+/**
+ * Y-axis unit toggle — lets users flip the chart between aggregate market cap
+ * (price × `TOKEN_SUPPLY`) and per-token USD price, mirroring the
+ * Dexscreener `MC | Price` toggle. The underlying data is identical (every
+ * candle is just a price reading) — the unit only controls the multiplier
+ * and the price-scale formatter. We keep `mcap` as the default because the
+ * primary signal on a launchpad is "where on the curve are we?" rather than
+ * the absolute per-token price (which is always sub-cent on a 1B-supply
+ * token).
+ */
+export type ChartUnit = "mcap" | "price";
+
 const TIMEFRAME_WINDOW_SECONDS: Record<ChartTimeframe, number> = {
   "1d": 86_400,
   "5d": 432_000,
