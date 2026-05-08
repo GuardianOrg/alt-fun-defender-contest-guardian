@@ -1,4 +1,5 @@
 import CommandBar from "./CommandBar";
+import Header from "./Header";
 import RightPanel from "./RightPanel";
 import Sidebar from "./Sidebar";
 import styles from "./TerminalView.module.css";
@@ -12,8 +13,11 @@ export default function TerminalView() {
     <div className={styles.wrapper}>
       <Sidebar />
       <div className={styles.mainContent}>
-        <CommandBar tokenCount={tokens?.length ?? 0} />
-        <TokenTable />
+        <Header />
+        <div className={styles.tableSection}>
+          <CommandBar tokenCount={tokens?.length ?? 0} />
+          <TokenTable />
+        </div>
       </div>
       <RightPanel />
     </div>
