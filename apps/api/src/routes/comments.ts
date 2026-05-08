@@ -1,4 +1,4 @@
-import { buildSessionMessage } from "@launchpad/shared";
+import { buildSessionMessage, SESSION_DURATION_MS } from "@launchpad/shared";
 import { eq, desc } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -72,8 +72,17 @@ commentsRoute.post(
 
     const body = c.req.valid("json");
 
-    if (Date.now() >= body.expiresAt) {
+    const now = Date.now();
+    if (now >= body.expiresAt) {
       return c.json(formatError("Session signature has expired"), 401);
+    }
+    // Cap the client-supplied `expiresAt` server-side. Without this, a
+    // malicious client can sign a message valid for years and replay it
+    // indefinitely (issue #393). Allow a small skew so freshly-issued
+    // sessions from a slightly-ahead client are still accepted.
+    const MAX_CLOCK_SKEW_MS = 60_000;
+    if (body.expiresAt > now + SESSION_DURATION_MS + MAX_CLOCK_SKEW_MS) {
+      return c.json(formatError("Session signature lifetime exceeds maximum"), 401);
     }
 
     const normalizedAuthor = getAddress(body.author);
