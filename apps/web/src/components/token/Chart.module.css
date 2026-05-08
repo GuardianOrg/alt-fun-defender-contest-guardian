@@ -116,103 +116,6 @@
   background: rgba(77, 232, 180, 0.12);
 }
 
-.dividerSmall {
-  width: 1px;
-  height: 1rem;
-  background: var(--border);
-  margin: 0 0.4rem;
-}
-
-.overlayLabel {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  cursor: pointer;
-}
-
-.toggleTrack {
-  width: 1.5rem;
-  height: 0.875rem;
-  border-radius: 9999px;
-  position: relative;
-  transition: all 0.2s ease;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.toggleTrackOn {
-  background: rgba(240, 180, 41, 0.3);
-}
-
-.toggleDot {
-  position: absolute;
-  top: 3px;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 9999px;
-  transition: all 0.2s ease;
-  left: 3px;
-  background: var(--txt-3);
-}
-
-.toggleDotOn {
-  left: 0.8rem;
-  background: var(--amber);
-}
-
-.overlayText {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-  color: var(--txt-4);
-}
-
-.overlayLabel:hover .overlayText {
-  color: var(--txt-3);
-}
-
-.overlayTextOn {
-  color: var(--amber);
-}
-
-.overlayLabel:hover .overlayTextOn {
-  color: var(--amber);
-}
-
-.decompStats {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.decompLabel {
-  color: var(--txt-4);
-}
-
-.decompValueMint {
-  font-weight: 600;
-  color: var(--mint);
-}
-
-.decompValueRed {
-  font-weight: 600;
-  color: var(--red);
-}
-
-.decompAmber {
-  color: var(--amber);
-  font-weight: 600;
-}
-
-.decompDetail {
-  color: var(--txt-4);
-  margin-left: 0.2rem;
-}
-
 .liveIndicator {
   margin-left: auto;
   display: flex;
@@ -254,6 +157,60 @@
 .chartCanvas {
   width: 100%;
   height: 100%;
+}
+
+.mcapOverlay {
+  position: absolute;
+  top: 1.6rem;
+  left: 1.6rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mcapLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--txt-3);
+}
+
+.mcapValue {
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.mcapChange {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 0.1rem;
+}
+
+.mcapChangeUp {
+  color: var(--mint);
+}
+
+.mcapChangeDown {
+  color: var(--red);
+}
+
+.axisLabel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  pointer-events: none;
+  padding: 0.3rem 0.6rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--txt-3);
+  background: var(--bg-1);
 }
 
 .loadingState {
@@ -300,10 +257,6 @@
     height: auto;
     padding: 0.4rem 0.8rem;
     gap: 0.4rem;
-  }
-
-  .decompStats {
-    display: none;
   }
 
   .chartArea {

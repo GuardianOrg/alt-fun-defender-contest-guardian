@@ -1,4 +1,4 @@
-import { buildSessionMessage } from "@launchpad/shared";
+import { buildSessionMessage, SESSION_DURATION_MS } from "@launchpad/shared";
 import { eq, desc } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -19,7 +19,35 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
 }
 
 const COMMENT_RATE_LIMIT_MS = 3_000;
+// Per-isolate rate limiter. Not shared across isolates/regions — adequate for
+// v1, but should move to Durable Objects or KV for strict global enforcement
+// (an attacker can multiply throughput by issuing requests across CF regions).
 const commentRateLimit = new Map<string, number>();
+// Hard cap on map size to bound memory under a burst of unique (author, token)
+// pairs arriving inside a single rate-limit window (where `purgeExpiredEntries`
+// has nothing to evict). When exceeded, the oldest insertion is dropped — Map
+// preserves insertion order, so `keys().next()` returns the oldest key.
+const COMMENT_RATE_LIMIT_MAX_ENTRIES = 10_000;
+let lastCommentRateLimitPurge = Date.now();
+
+function purgeExpiredCommentRateLimits(now: number) {
+  if (now - lastCommentRateLimitPurge < COMMENT_RATE_LIMIT_MS) return;
+  lastCommentRateLimitPurge = now;
+  for (const [key, lastCommentAt] of commentRateLimit) {
+    if (now - lastCommentAt >= COMMENT_RATE_LIMIT_MS) {
+      commentRateLimit.delete(key);
+    }
+  }
+}
+
+function recordCommentRateLimit(key: string, now: number) {
+  commentRateLimit.set(key, now);
+  while (commentRateLimit.size > COMMENT_RATE_LIMIT_MAX_ENTRIES) {
+    const oldestKey = commentRateLimit.keys().next().value;
+    if (oldestKey === undefined) break;
+    commentRateLimit.delete(oldestKey);
+  }
+}
 
 const createCommentSchema = z.object({
   author: z.string().refine(isAddress, "Invalid author address"),
@@ -72,8 +100,17 @@ commentsRoute.post(
 
     const body = c.req.valid("json");
 
-    if (Date.now() >= body.expiresAt) {
+    let now = Date.now();
+    if (now >= body.expiresAt) {
       return c.json(formatError("Session signature has expired"), 401);
+    }
+    // Cap the client-supplied `expiresAt` server-side. Without this, a
+    // malicious client can sign a message valid for years and replay it
+    // indefinitely (issue #393). Allow a small skew so freshly-issued
+    // sessions from a slightly-ahead client are still accepted.
+    const MAX_CLOCK_SKEW_MS = 60_000;
+    if (body.expiresAt > now + SESSION_DURATION_MS + MAX_CLOCK_SKEW_MS) {
+      return c.json(formatError("Session signature lifetime exceeds maximum"), 401);
     }
 
     const normalizedAuthor = getAddress(body.author);
@@ -92,28 +129,41 @@ commentsRoute.post(
       return c.json(formatError("Signature does not match author"), 401);
     }
 
+    // Refresh the timestamp after the (potentially slow) signature recovery
+    // so a slot that expired during recovery doesn't falsely rate-limit.
+    now = Date.now();
+    purgeExpiredCommentRateLimits(now);
+
     const rateLimitKey = `${normalizedAuthor}:${tokenAddress.toLowerCase()}`;
     const lastCommentAt = commentRateLimit.get(rateLimitKey);
-    if (lastCommentAt !== undefined && Date.now() - lastCommentAt < COMMENT_RATE_LIMIT_MS) {
+    if (lastCommentAt !== undefined && now - lastCommentAt < COMMENT_RATE_LIMIT_MS) {
       return c.json(
         formatError("Rate limit exceeded: 1 comment per 3s per wallet per token"),
         429,
       );
     }
 
-    const db = createDb(c.env.DATABASE_URL);
-    const [comment] = await db
-      .insert(comments)
-      .values({
-        tokenAddress,
-        author: normalizedAuthor,
-        content: body.content,
-      })
-      .returning();
+    // Reserve the limiter slot before awaiting I/O so two concurrent requests
+    // for the same (author, token) cannot both pass the check above and double
+    // up on inserts. Roll back on failure so a failed write doesn't penalize
+    // the author for the full window.
+    recordCommentRateLimit(rateLimitKey, now);
+    try {
+      const db = createDb(c.env.DATABASE_URL);
+      const [comment] = await db
+        .insert(comments)
+        .values({
+          tokenAddress,
+          author: normalizedAuthor,
+          content: body.content,
+        })
+        .returning();
 
-    commentRateLimit.set(rateLimitKey, Date.now());
-
-    return c.json(formatSuccess(comment), 201);
+      return c.json(formatSuccess(comment), 201);
+    } catch (error) {
+      commentRateLimit.delete(rateLimitKey);
+      throw error;
+    }
   },
 );
 
