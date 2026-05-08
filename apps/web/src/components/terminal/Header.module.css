@@ -119,12 +119,6 @@
   font-style: normal;
 }
 
-@media (max-width: 768px) {
-  .title {
-    font-size: 1.4rem;
-  }
-}
-
 @media (max-width: 1024px) {
   .header {
     min-height: 7rem;
@@ -135,7 +129,7 @@
   }
 
   .title {
-    font-size: 1.6rem;
+    font-size: 2rem;
   }
 
   .subtitle {
@@ -144,5 +138,11 @@
 
   .subtitleItalic {
     font-size: 11px;
+  }
+}
+
+@media (max-width: 768px) {
+  .title {
+    font-size: 1.4rem;
   }
 }
