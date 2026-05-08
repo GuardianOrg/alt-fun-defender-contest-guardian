@@ -1,4 +1,4 @@
-import { buildSessionMessage } from "@launchpad/shared";
+import { buildSessionMessage, sanitizeTwitterHandle } from "@launchpad/shared";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress, recoverMessageAddress } from "viem";
@@ -23,11 +23,27 @@ const updateProfileSchema = z.object({
     .max(280, "Bio too long (max 280 chars)")
     .optional()
     .default(""),
+  // Stored as a bare Twitter / X handle (see issue #400). We accept any
+  // common form on the wire — `@alice`, `alice`, `https://x.com/alice`,
+  // `https://twitter.com/alice/status/123` — and reject anything that
+  // doesn't reduce to a valid handle (e.g. `javascript:alert(1)`,
+  // `https://x.com.evil.tld/foo`). The handle is what gets persisted; the
+  // frontend always rebuilds the URL via `buildTwitterUrl`.
   twitterUrl: z
     .string()
     .max(200, "Twitter URL too long (max 200 chars)")
     .optional()
-    .default(""),
+    .default("")
+    .superRefine((value, ctx) => {
+      if (value.trim() === "") return;
+      if (sanitizeTwitterHandle(value) === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Must be a Twitter / X handle or x.com URL",
+        });
+      }
+    })
+    .transform((value) => sanitizeTwitterHandle(value)),
   signature: z.string().min(1, "Signature is required"),
   expiresAt: z.number().finite("Invalid expiresAt"),
 });

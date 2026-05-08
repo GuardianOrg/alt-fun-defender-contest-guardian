@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, MIN_USDC_BUY_AMOUNT, utf8ByteLength } from "@launchpad/shared";
+import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, MIN_USDC_BUY_AMOUNT, sanitizeTelegramHandle, sanitizeTwitterHandle, sanitizeWebsiteUrl, utf8ByteLength } from "@launchpad/shared";
 import { createPublicClient, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
@@ -73,9 +73,20 @@ export function useCreateToken() {
         if (params.description && utf8ByteLength(params.description) > MAX_TOKEN_DESCRIPTION_LENGTH) {
           throw new Error(`Description is too long (max ${MAX_TOKEN_DESCRIPTION_LENGTH} bytes)`);
         }
-        const socials = params.socialLinks ?? [];
-        for (const url of socials) {
-          if (url && utf8ByteLength(url) > MAX_TOKEN_URL_LENGTH) {
+        // Normalise the three social-link slots before they hit the chain.
+        // The API will sanitise these again on registration (issue #400),
+        // but doing it here too means we never spend on-chain bytes on
+        // unsafe / unparseable values, and the user's launch tx stores
+        // exactly what the home-page row will end up holding (handle for
+        // X/TG, canonical URL for website).
+        const rawSocials = params.socialLinks ?? [];
+        const socials: [string, string, string] = [
+          sanitizeTwitterHandle(rawSocials[0] ?? ""),
+          sanitizeTelegramHandle(rawSocials[1] ?? ""),
+          sanitizeWebsiteUrl(rawSocials[2] ?? ""),
+        ];
+        for (const value of socials) {
+          if (value && utf8ByteLength(value) > MAX_TOKEN_URL_LENGTH) {
             throw new Error(`Social link is too long (max ${MAX_TOKEN_URL_LENGTH} bytes)`);
           }
         }
@@ -167,11 +178,7 @@ export function useCreateToken() {
           // that lives in our R2 bucket, and the registration endpoint
           // refuses anything that doesn't match this prefix.
           image: imageUrl,
-          urls: [
-            socials[0] ?? "",
-            socials[1] ?? "",
-            socials[2] ?? "",
-          ] as [string, string, string],
+          urls: socials,
           ltAddress: lt.address,
           salt,
         };
