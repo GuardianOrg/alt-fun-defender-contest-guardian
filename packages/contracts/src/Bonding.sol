@@ -1118,6 +1118,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         (uint112 r0, uint112 r1,) = IUniswapV2Pair(pair).getReserves();
         bool tokenIs0 = IUniswapV2Pair(pair).token0() == tokenAddress;
         (uint256 reserveToken, uint256 reserveLT) = tokenIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
+        // Budget reads `balanceOf(this)` rather than `tokensForLP` /
+        // `ltFromPair` so any skim donation contributes to the rebalance
+        // and not only to `_routerDepositAndDispose`'s deposit.
         // Direction: pool TOKEN-rich vs target ⇒ swap LT in (TOKEN out).
         // Pool LT-rich ⇒ swap TOKEN in (LT out). Bounded by uint112 reserves
         // and curve-close-shape targets, both products fit in uint256.
@@ -1133,7 +1136,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
                     reserveOut: reserveToken,
                     targetN: ltFromPair,
                     targetD: tokensForLP,
-                    maxSwap: _swapBudget(ltFromPair)
+                    maxSwap: _swapBudget(_ltSwapInventory(lt, protectedLT))
                 })
             );
         } else if (reserveToken * ltFromPair < reserveLT * tokensForLP) {
@@ -1147,7 +1150,7 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
                     reserveOut: reserveLT,
                     targetN: tokensForLP,
                     targetD: ltFromPair,
-                    maxSwap: _swapBudget(tokensForLP)
+                    maxSwap: _swapBudget(IERC20(tokenAddress).balanceOf(address(this)))
                 })
             );
         }
@@ -1179,6 +1182,17 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         uint256 budget
     ) internal pure returns (uint256) {
         return (budget * 99) / 100;
+    }
+
+    /// @dev Saturating subtract matches `_routerDepositAndDispose` so a
+    ///      future violation of the `balanceOf >= protectedLT` invariant
+    ///      can't brick `finalizeGraduation`.
+    function _ltSwapInventory(
+        address lt,
+        uint256 protectedLT
+    ) internal view returns (uint256) {
+        uint256 bal = IERC20(lt).balanceOf(address(this));
+        return bal > protectedLT ? bal - protectedLT : 0;
     }
 
     /// @dev Rebalance leg: compute no-fee swap input, cap at budget,
