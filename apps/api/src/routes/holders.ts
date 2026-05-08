@@ -6,7 +6,19 @@ import formatSuccess from "../utils/format-success.js";
 import { createPonderPaginatedQuery, createPonderQuery } from "../lib/ponder-client.js";
 
 import type { AppBindings } from "../lib/types.js";
-import type { PonderRouterTrade } from "../lib/ponder-types.js";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
+
+interface PonderTokenInfo {
+  bondingPair: string | null;
+  hyperswapPair: string | null;
+}
+
+interface PonderTokenBalance {
+  wallet: string;
+  balance: string;
+}
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
@@ -16,6 +28,18 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
 
 const holders = new Hono<{ Bindings: AppBindings }>();
 
+/**
+ * Holder list for a given token. Sourced from Ponder's `tokenBalances` index
+ * (updated on every `Transfer`) so direct ERC-20 transfers, post-graduation
+ * HyperSwap swaps that don't go through Zap, and any future protocol
+ * integrators are all reflected — the previous implementation reconstructed
+ * balances from `routerTrades` only and silently undercounted holders +
+ * mis-totalled balances as soon as a token saw any off-Zap movement.
+ *
+ * The bonding curve pair, HyperSwap LP pair, and zero address are excluded:
+ * they're protocol contracts (curve reserve / locked LP / burned), not
+ * user-facing holders.
+ */
 holders.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
   if (!isAddress(rawAddress)) {
@@ -23,65 +47,68 @@ holders.get("/:address", async (c) => {
   }
   const address = rawAddress.toLowerCase();
 
-  // Pre-check Ponder availability with a lightweight query
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const healthCheck = await queryPonder<{ __typename: string }>("{ __typename }");
-  if (healthCheck === null) {
-    return c.json(formatError("Indexer unavailable — holder data cannot be loaded"), 503);
-  }
-
-  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-
   const limitParam = parseNonNegativeInt(c.req.query("limit"));
   if (limitParam === null) {
     return c.json(formatError("Invalid pagination parameters"), 400);
   }
   const limit = Math.min(limitParam ?? 20, 100);
 
-  const { items: trades, truncated } = await queryPonderAll<Pick<PonderRouterTrade, "trader" | "isBuy" | "tokenAmount">>(
-    `query ($address: String!, $limit: Int!, $offset: Int!) {
-      routerTrades(
-        where: { tokenAddress: $address }
+  // Doubles as the indexer health check — a healthy Ponder always answers
+  // this; a degraded Ponder returns `null`.
+  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const tokenInfoResult = await queryPonder<{ token: PonderTokenInfo | null }>(
+    `query ($address: String!) {
+      token(address: $address) {
+        bondingPair
+        hyperswapPair
+      }
+    }`,
+    { address },
+  );
+  if (tokenInfoResult === null) {
+    return c.json(formatError("Indexer unavailable — holder data cannot be loaded"), 503);
+  }
+
+  const excludedWallets = [
+    ZERO_ADDRESS,
+    tokenInfoResult.token?.bondingPair,
+    tokenInfoResult.token?.hyperswapPair,
+  ]
+    .filter((w): w is string => typeof w === "string" && w.length > 0)
+    .map((w) => w.toLowerCase());
+
+  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
+  const { items: balances, truncated } = await queryPonderAll<PonderTokenBalance>(
+    `query ($address: String!, $excluded: [String!]!, $limit: Int!, $offset: Int!) {
+      tokenBalances(
+        where: { tokenAddress: $address, balance_gt: "0", wallet_not_in: $excluded }
         limit: $limit
         offset: $offset
-        orderBy: "timestamp"
-        orderDirection: "asc"
+        orderBy: "balance"
+        orderDirection: "desc"
       ) {
         items {
-          trader
-          isBuy
-          tokenAmount
+          wallet
+          balance
         }
       }
     }`,
-    "routerTrades",
-    { address },
+    "tokenBalances",
+    { address, excluded: excludedWallets },
   );
-  const balances = new Map<string, bigint>();
 
-  for (const t of trades) {
-    const current = balances.get(t.trader) ?? 0n;
-    if (t.isBuy) {
-      balances.set(t.trader, current + BigInt(t.tokenAmount));
-    } else {
-      balances.set(t.trader, current - BigInt(t.tokenAmount));
-    }
-  }
-
-  const totalSupply = 1_000_000_000n * 10n ** 18n;
-  const holderList = Array.from(balances.entries())
-    .filter(([, balance]) => balance > 0n)
-    .sort((a, b) => (b[1] > a[1] ? 1 : b[1] < a[1] ? -1 : 0))
-    .slice(0, limit)
-    .map(([wallet, balance]) => ({
-      wallet,
-      balance: balance.toString(),
-      percentage: Number((balance * 10000n) / totalSupply) / 100,
-    }));
+  const holderList = balances.slice(0, limit).map((b) => {
+    const balance = BigInt(b.balance);
+    return {
+      wallet: b.wallet,
+      balance: b.balance,
+      percentage: Number((balance * 10000n) / TOTAL_SUPPLY) / 100,
+    };
+  });
 
   return c.json(formatSuccess({
     holders: holderList,
-    totalHolders: Array.from(balances.values()).filter((b) => b > 0n).length,
+    totalHolders: balances.length,
     approximate: truncated,
   }));
 });
