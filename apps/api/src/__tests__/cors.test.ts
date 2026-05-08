@@ -28,7 +28,7 @@ function makeEnv(): AppBindings {
 
 describe("corsMiddleware", () => {
   describe("read requests (public)", () => {
-    it("reflects any origin on GET", async () => {
+    it("returns wildcard for any origin on GET (CDN-cacheable)", async () => {
       const app = createApp();
       const res = await app.request(
         "/read",
@@ -37,7 +37,7 @@ describe("corsMiddleware", () => {
       );
 
       expect(res.status).toBe(200);
-      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("https://evil.com");
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     });
 
     it("returns wildcard when no Origin header is sent", async () => {
@@ -211,7 +211,7 @@ describe("corsMiddleware", () => {
       expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
     });
 
-    it("approves read preflight from any origin", async () => {
+    it("approves read preflight from any origin (returns wildcard)", async () => {
       const app = createApp();
       const res = await app.request(
         "/read",
@@ -227,9 +227,7 @@ describe("corsMiddleware", () => {
       );
 
       expect(res.status).toBe(204);
-      expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
-        "https://third-party-integrator.example",
-      );
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     });
   });
 });

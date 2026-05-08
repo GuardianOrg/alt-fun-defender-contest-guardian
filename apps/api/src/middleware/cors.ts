@@ -65,8 +65,16 @@ export const corsMiddleware: MiddlewareHandler = cors({
       c.req.header("Access-Control-Request-Method"),
     );
 
+    /**
+     * Reads return a hard `*` rather than reflecting the request Origin so
+     * Cloudflare's edge cache, downstream CDNs, and anything between can
+     * share a single response across every consumer. Reflecting Origin
+     * would either fragment the cache by Origin or force us to emit
+     * `Vary: Origin` on every read response — not worth it for a fully-
+     * public read API. `credentials: false` below means `*` is safe.
+     */
     if (!isWriteMethod(method)) {
-      return origin || "*";
+      return "*";
     }
 
     if (!origin) return null;
