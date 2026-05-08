@@ -57,7 +57,9 @@ npm run build         # build everything
 npm run typecheck     # tsc across all packages
 npm run lint          # eslint across all packages
 npm run test          # run all unit tests
-npm run ci            # lint + typecheck + test + build (same as GitHub CI)
+npm run ci            # lint + typecheck + test + build for everything except contracts (matches GitHub's `js-checks` job — fast)
+npm run ci:contracts  # forge fmt --check + forge test for the contracts package (matches GitHub's `contracts` job — slow; only run when you've edited `.sol` files)
+npm run ci:full       # both of the above in one command (only when your changeset spans Solidity + non-Solidity)
 npm run format        # prettier across the repo
 ```
 

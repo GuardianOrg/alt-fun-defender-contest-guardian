@@ -8,9 +8,10 @@ globs: "packages/contracts/**/*.sol"
 ## Post-Edit Checklist (MANDATORY)
 After ANY edit to `.sol` files:
 1. Run `cd packages/contracts && forge fmt` — auto-format all Solidity files
-2. Then run `npm run ci` from the repo root — verifies everything (lint, typecheck, test, build) across all packages
+2. Run `npm run ci:contracts` from the repo root — runs `forge fmt --check` + `forge test` (the contracts-specific shard of CI). This is required because `npm run ci` deliberately excludes the contracts workspace to keep iteration fast for non-Solidity changes; only `.sol` edits need to pay the full Foundry suite cost.
+3. If your changeset also touches non-Solidity code (TypeScript, CSS, configs, etc.), run `npm run ci` as well so the JS/TS lint + typecheck + test + build is also covered. Equivalently, `npm run ci:full` does both in one shot.
 
-Do NOT skip these steps. Do NOT leave formatting or CI failures for the user to fix.
+Do NOT skip these steps. Do NOT leave formatting or CI failures for the user to fix. Conversely, do NOT run `npm run ci:contracts` (or `ci:full`) when your changeset doesn't touch `.sol` files — the Foundry suite is the slowest thing in CI and re-running it for unrelated edits wastes minutes per turn.
 
 ## Style
 - Use Solidity 0.8.x with the latest stable compiler
@@ -89,5 +90,5 @@ Before any PR, verify:
   7. Update `BONDING_START_BLOCK` in `packages/shared/src/constants/chains.ts` to the **lowest** receipt block from `broadcast/Deploy.s.sol/999/run-latest.json`
   8. Update hardcoded `DEFAULT_BONDING` / `DEFAULT_ZAP` addresses in `packages/contracts/script/E2ETest.s.sol`
   9. Rebuild shared so consumers see new addresses: `npm run build --workspace @launchpad/shared`
-  10. Run `npm run ci` from repo root to verify everything compiles
+  10. Run `npm run ci:full` from repo root to verify everything compiles (deploys touch both Solidity and the shared/typed-address surface, so the full sweep is appropriate here)
   11. Sanity-check on-chain wiring (`Bonding.tokenImplementation`, `Bonding.factory`, `Bonding.router`, `Bonding.isRouter(zap)`, `Zap.bonding`, `Factory.router`) — see [`packages/contracts/AGENTS.md`](mdc:packages/contracts/AGENTS.md#post-deploy-sanity-checks).

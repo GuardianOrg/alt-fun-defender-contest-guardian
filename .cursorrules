@@ -61,9 +61,19 @@ Default to no comment. Only add one when the code can't speak for itself.
 - When discovering new work that can't be done immediately, add it to `TODO.md`.
 
 ## CI Verification (MANDATORY)
-After making any code changes, you MUST run `npm run ci` from the repo root before responding.
-This runs lint, typecheck, test, and build across ALL packages — the exact same checks as GitHub CI.
-If it fails, fix it before responding. Never leave the user to discover CI failures after pushing.
+After making any code changes, you MUST run the appropriate CI command from the repo root before responding. If it fails, fix it before responding. Never leave the user to discover CI failures after pushing.
+
+The smart-contract test suite (`forge test`) is the slowest thing in CI by an order of magnitude, so we deliberately split local CI to match how GitHub's workflow splits its jobs (`js-checks` vs `contracts`):
+
+| Command | Scope | Run when… |
+|---|---|---|
+| `npm run ci` | Lint + typecheck + test + build for every workspace **except** `@launchpad/contracts` | Default after any code change. Use this whenever your edits don't touch `.sol` files. |
+| `npm run ci:contracts` | `forge fmt --check` + `forge test` (the contracts package only) | Run **in addition to** `npm run ci` whenever you've edited any file under `packages/contracts/`. |
+| `npm run ci:full` | Everything above in one shot | Only when you've changed both contracts AND something else and want a single command. |
+
+**Do not run `npm run ci:full` (or `npm run ci:contracts`) unless your changeset actually modifies smart-contract code.** Re-running the slow Foundry suite for a CSS tweak or an API edit wastes minutes per turn for no signal — neither GitHub CI nor any reviewer benefits from it. Turbo's cache will skip a re-run on subsequent invocations, but the first uncached run still pays the full cost.
+
+If you're unsure whether your edits count as "smart-contract changes": the trigger is any `.sol` file under `packages/contracts/src/`, `packages/contracts/test/`, or `packages/contracts/script/`, plus `foundry.toml` and `remappings.txt`. Edits to `packages/contracts/AGENTS.md` or other non-Solidity files in that package do not require running `npm run ci:contracts`.
 
 ## Prohibitions
 

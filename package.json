@@ -13,7 +13,9 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "ci": "turbo run lint typecheck test build",
+    "ci": "turbo run lint typecheck test build --filter='!@launchpad/contracts'",
+    "ci:contracts": "npm run lint --workspace @launchpad/contracts && npm run test --workspace @launchpad/contracts",
+    "ci:full": "turbo run lint typecheck test build",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,css,json,md}\" --ignore-path .gitignore"
   },
   "devDependencies": {
