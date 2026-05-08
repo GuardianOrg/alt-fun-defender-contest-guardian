@@ -202,7 +202,16 @@ const BG_COLOR: Vec3 = [0.024, 0.118, 0.11];
  * cluster lifts to near full saturation. */
 const LINE_COLOR: Vec3 = [0.55, 1.0, 0.85];
 
-export default function WaveBackground() {
+interface WaveBackgroundProps {
+  /**
+   * Uniform zoom applied to the rendered scene. >1 enlarges the wireframe so
+   * it fills more of the canvas (useful when the host crops the canvas and
+   * you want to eliminate the empty bg margins). Defaults to 1.
+   */
+  scale?: number;
+}
+
+export default function WaveBackground({ scale = 1 }: WaveBackgroundProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
 
@@ -314,6 +323,11 @@ export default function WaveBackground() {
       canvas.height = h;
       gl.viewport(0, 0, w, h);
       const projM = perspective(FOV, w / h, 0.1, 100);
+      /* Apply zoom by scaling the projection's X/Y terms. Equivalent to a
+       * tighter FOV, but keeps the near/far planes and camera pose intact so
+       * the wireframe just appears larger on screen without re-framing. */
+      projM[0] *= scale;
+      projM[5] *= scale;
       const mvp = mul(projM, viewM);
       gl.uniformMatrix4fv(uMvp, false, mvp);
     };
@@ -370,7 +384,7 @@ export default function WaveBackground() {
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
     };
-  }, []);
+  }, [scale]);
 
   if (failed) return <div className={styles.fallback} aria-hidden="true" />;
   return <canvas ref={canvasRef} className={styles.canvas} aria-hidden="true" />;

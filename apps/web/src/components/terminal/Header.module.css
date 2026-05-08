@@ -1,0 +1,148 @@
+.header {
+  position: relative;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: #061e1c;
+  overflow: hidden;
+  min-height: 8.4rem;
+  display: flex;
+  align-items: center;
+  font-family: var(--font-mono);
+}
+
+/* Fixed-size wrapper for WaveBackground. The wave canvas reprojects every
+ * time it resizes (ResizeObserver in WaveBackground), which causes a brief
+ * flash when the header width/height changes (e.g. layout reflow, sidebar
+ * collapse, panel mount). We anchor a constant-size wrapper that's larger
+ * than the header could ever be and let `overflow: hidden` on `.header`
+ * crop the visible portion — this keeps the canvas dimensions stable for
+ * the lifetime of the page. */
+.waveLayer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 1400px;
+  height: 240px;
+  /* Centre the fixed-size wave layer on the header. Zoom is handled inside
+   * WaveBackground via the `scale` prop so the wireframe fills the canvas
+   * (no empty bg margins) instead of CSS-scaling the canvas, which would
+   * just enlarge the same framing without filling. */
+  transform: translate(-45%, -50%);
+  pointer-events: none;
+}
+
+/* Soft centred dim so the heading reads cleanly over the wireframe waves. */
+.scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 65% 75% at 30% 50%,
+    rgba(6, 30, 28, 0.7) 0%,
+    rgba(6, 30, 28, 0.35) 60%,
+    rgba(6, 30, 28, 0) 100%
+  );
+}
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.6rem;
+  padding: 3.2rem 2rem;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 2.4rem;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: var(--txt);
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.titleSlash {
+  color: var(--mint);
+  font-weight: 600;
+  filter: drop-shadow(0 0 8px rgba(77, 232, 180, 0.35));
+}
+
+.titleAccent {
+  font-weight: 200;
+}
+
+.subtitleContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--txt);
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.subtitleItalic {
+  font-size: 13px;
+  color: var(--txt);
+  letter-spacing: 0.02em;
+  font-style: italic;
+  margin: 0;
+}
+
+.mint {
+  color: var(--mint);
+  font-weight: 600;
+  font-style: normal;
+}
+
+@media (max-width: 1024px) {
+  .header {
+    min-height: 7rem;
+  }
+
+  .content {
+    padding: 1.2rem 1.2rem;
+  }
+
+  .title {
+    font-size: 2rem;
+  }
+
+  .subtitle {
+    font-size: 11px;
+  }
+
+  .subtitleItalic {
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 768px) {
+  .title {
+    font-size: 1.4rem;
+  }
+}

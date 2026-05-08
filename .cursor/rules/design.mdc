@@ -18,7 +18,7 @@ Committed tone: **industrial / terminal / trading-floor**, not friendly SaaS.
 
 ## Never do these (AI slop tells)
 
-- **Do not** introduce a new font. We use JetBrains Mono (`--font-mono`) everywhere, Oswald (`--font-display`) only for display-scale headings. Never Inter, Roboto, Arial, Poppins, Space Grotesk, or system-ui.
+- **Do not** introduce a new font. We use JetBrains Mono (`--font-mono`) everywhere, Geist (`--font-display`) only for display-scale headings. Never Inter, Roboto, Arial, Poppins, Space Grotesk, or system-ui.
 - **Do not** use purple, indigo, blue-500, or any gradient that goes purple → blue / pink → orange. Our accents are mint and amber only.
 - **Do not** set `border-radius` above `4px`. Most elements use `2px` or `3px`. Zero is fine. Pill / rounded-full is reserved for status dots and the live indicator.
 - **Do not** add rounded card shadows (`0 4px 12px rgba(0,0,0,0.1)` etc). Our surfaces are separated by 1px `--border` / `--border-2` lines, not elevation.
