@@ -16,7 +16,6 @@ interface Props {
 
 export default function HeroSection({ token }: Props) {
   const { copied, copy: copyCA } = useCopyState();
-  const { copied: copiedDev, copy: copyDev } = useCopyState();
   const [imgError, setImgError] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
@@ -59,23 +58,17 @@ export default function HeroSection({ token }: Props) {
         <div className={styles.nameStack}>
           <div className={styles.ticker}>{token.ticker}</div>
           <div className={styles.fullName}>{token.name}</div>
-          <button
-            type="button"
-            className={styles.byDev}
-            onClick={() => copyDev(token.creatorAddress)}
-            aria-label="Copy creator address"
-          >
+          <div className={styles.byDev}>
             <span className={styles.byLabel}>By</span>
-            <span className={styles.byAddr}>{devShort}</span>
-            <span
-              className={cn(
-                styles.byIcon,
-                copiedDev ? styles.byIconCopied : styles.byIconDefault,
-              )}
+            <a
+              href={`https://hyperevmscan.io/address/${token.creatorAddress}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.byLink}
+              aria-label={`View creator ${token.creatorAddress} on HyperEVMScan`}
             >
-              {copiedDev ? (
-                "✓"
-              ) : (
+              <span className={styles.byAddr}>{devShort}</span>
+              <span className={cn(styles.byIcon, styles.byIconDefault)}>
                 <svg
                   width="11"
                   height="11"
@@ -87,13 +80,13 @@ export default function HeroSection({ token }: Props) {
                   strokeLinejoin="round"
                   aria-hidden="true"
                 >
-                  <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
-                  <polyline points="16 6 12 2 8 6" />
-                  <line x1="12" y1="2" x2="12" y2="15" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
-              )}
-            </span>
-          </button>
+              </span>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -104,7 +97,6 @@ export default function HeroSection({ token }: Props) {
           className={styles.addrBlock}
           onClick={() => copyCA(token.address)}
         >
-          <span className={styles.addrLabel}>ca</span>
           <span className={styles.addrText}>
             {`${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
           </span>

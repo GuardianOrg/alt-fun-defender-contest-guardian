@@ -149,16 +149,20 @@
   align-items: center;
   gap: 0.35rem;
   margin-top: 0.3rem;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
   font-family: var(--font-mono);
   color: var(--txt-3);
+}
+
+.byLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--txt-3);
+  text-decoration: none;
   transition: color 0.15s ease;
 }
 
-.byDev:hover {
+.byLink:hover {
   color: var(--txt-2);
 }
 
