@@ -10,9 +10,12 @@ import {
   globalStats,
   hourlyVolume,
   walletPosition,
+  tokenBalance,
 } from "../ponder.schema";
 
 await import("../src/bonding");
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 
 describe("Bonding:TokenLaunched", () => {
   let db: ReturnType<typeof createMockDb>;
@@ -1069,5 +1072,125 @@ describe("walletPosition (per-wallet cost basis)", () => {
     expect(
       db._updateCalls.find((c) => c.table === walletPosition),
     ).toBeUndefined();
+  });
+});
+
+/**
+ * `Token:Transfer` is the bookkeeping path for the `tokenBalance` table that
+ * powers `/api/v1/holders` and `/api/v1/balances`. Regression coverage for
+ * issue #418, where a misconfigured factory event in `ponder.config.ts`
+ * silently dropped *every* Transfer log → both routes returned empty.
+ *
+ * The factory wiring itself is exercised separately in `ponder-config.test.ts`
+ * (event-signature shape — what produced the silent breakage). These tests
+ * cover the handler's per-side balance arithmetic and the mint / burn edges.
+ */
+describe("Token:Transfer (tokenBalance bookkeeping)", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  it("credits the recipient and debits the sender by `value`", async () => {
+    db._setFindResult(
+      tokenBalance,
+      { id: "0xfrom-0xtoken1" },
+      { balance: 1_000n },
+    );
+    db._setFindResult(
+      tokenBalance,
+      { id: "0xto-0xtoken1" },
+      { balance: 500n },
+    );
+
+    const handler = getHandler("Token:Transfer");
+    await handler({
+      event: createMockEvent({
+        args: { from: "0xfrom", to: "0xto", value: 300n },
+        logAddress: "0xtoken1",
+      }),
+      context: { db },
+    });
+
+    const fromInsert = db._insertCalls.find(
+      (c) => (c.values as { wallet?: string }).wallet === "0xfrom",
+    );
+    const toInsert = db._insertCalls.find(
+      (c) => (c.values as { wallet?: string }).wallet === "0xto",
+    );
+
+    expect(fromInsert!.values).toEqual({
+      id: "0xfrom-0xtoken1",
+      wallet: "0xfrom",
+      tokenAddress: "0xtoken1",
+      balance: 700n,
+    });
+    expect(fromInsert!.conflict).toBe("doUpdate");
+    expect(fromInsert!.conflictValues).toEqual({ balance: 700n });
+
+    expect(toInsert!.values).toEqual({
+      id: "0xto-0xtoken1",
+      wallet: "0xto",
+      tokenAddress: "0xtoken1",
+      balance: 800n,
+    });
+    expect(toInsert!.conflict).toBe("doUpdate");
+    expect(toInsert!.conflictValues).toEqual({ balance: 800n });
+  });
+
+  it("treats a mint (from = 0x0) as credit-only — no debit row", async () => {
+    const handler = getHandler("Token:Transfer");
+    await handler({
+      event: createMockEvent({
+        args: { from: ZERO_ADDRESS, to: "0xto", value: 1_000n },
+        logAddress: "0xtoken1",
+      }),
+      context: { db },
+    });
+
+    expect(db._insertCalls).toHaveLength(1);
+    expect((db._insertCalls[0]!.values as { wallet: string }).wallet).toBe("0xto");
+  });
+
+  it("treats a burn (to = 0x0) as debit-only — no credit row", async () => {
+    db._setFindResult(
+      tokenBalance,
+      { id: "0xfrom-0xtoken1" },
+      { balance: 5_000n },
+    );
+    const handler = getHandler("Token:Transfer");
+    await handler({
+      event: createMockEvent({
+        args: { from: "0xfrom", to: ZERO_ADDRESS, value: 2_000n },
+        logAddress: "0xtoken1",
+      }),
+      context: { db },
+    });
+
+    expect(db._insertCalls).toHaveLength(1);
+    expect(db._insertCalls[0]!.values).toEqual({
+      id: "0xfrom-0xtoken1",
+      wallet: "0xfrom",
+      tokenAddress: "0xtoken1",
+      balance: 3_000n,
+    });
+  });
+
+  it("floors a debit at zero when the prior balance is missing or stale", async () => {
+    // No `_setFindResult` for the sender — first time we see them.
+    const handler = getHandler("Token:Transfer");
+    await handler({
+      event: createMockEvent({
+        args: { from: "0xunseen", to: "0xto", value: 100n },
+        logAddress: "0xtoken1",
+      }),
+      context: { db },
+    });
+
+    const fromInsert = db._insertCalls.find(
+      (c) => (c.values as { wallet?: string }).wallet === "0xunseen",
+    );
+    expect((fromInsert!.values as { balance: bigint }).balance).toBe(0n);
   });
 });

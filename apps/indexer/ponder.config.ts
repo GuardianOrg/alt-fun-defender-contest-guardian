@@ -1,5 +1,5 @@
 import { createConfig, factory } from "ponder";
-import { parseAbiItem } from "viem";
+import { getAbiItem } from "viem";
 
 import {
   BondingAbi,
@@ -14,6 +14,20 @@ import {
 } from "@launchpad/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/**
+ * Factory-trigger events sourced directly from the typed Bonding ABI. We
+ * used to hand-roll these as `parseAbiItem("event TokenLaunched(...)")`
+ * strings, which drifted from the real Solidity events (extra `index`
+ * param + missing `indexed` flags) and silently produced the wrong topic0
+ * hash. Ponder's factory log filter then never matched any logs, so
+ * dynamically-spawned sources (Token, HyperSwapPair) were never registered
+ * and their handlers (`Token.Transfer`, `HyperSwapPair.Sync/Swap`) never
+ * fired — the bug behind issue #418. Reading the events from the ABI
+ * makes drift impossible by construction.
+ */
+const tokenLaunchedEvent = getAbiItem({ abi: BondingAbi, name: "TokenLaunched" });
+const tokenGraduatedEvent = getAbiItem({ abi: BondingAbi, name: "TokenGraduated" });
 
 const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
 const factoryAddress = CONTRACT_ADDRESSES.factory as `0x${string}`;
@@ -65,9 +79,7 @@ export default createConfig({
       abi: TokenAbi,
       address: factory({
         address: bondingAddress,
-        event: parseAbiItem(
-          "event TokenLaunched(address indexed token, address indexed creator, address ltAddress, string name, string ticker, uint256 k, uint256 index)",
-        ),
+        event: tokenLaunchedEvent,
         parameter: "token",
       }),
       startBlock,
@@ -77,9 +89,7 @@ export default createConfig({
       abi: UniswapV2PairAbi,
       address: factory({
         address: bondingAddress,
-        event: parseAbiItem(
-          "event TokenGraduated(address indexed token, address pairAddress, uint256 liquidity, uint256 tokensInLP, uint256 lpBurned, uint256 unsoldBurned)",
-        ),
+        event: tokenGraduatedEvent,
         parameter: "pairAddress",
       }),
       startBlock,
