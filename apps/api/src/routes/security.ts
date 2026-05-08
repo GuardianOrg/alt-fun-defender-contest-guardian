@@ -47,17 +47,23 @@ security.get("/:address", async (c) => {
   // Step 1: load metadata to discover the creator's address. The creator
   // composite key for the balance lookup isn't knowable until we read it,
   // so step 2 fans out from here.
+  //
+  // The Ponder GraphQL field arg names mirror the primary-key column on
+  // each table — `token.address` and `graduation.tokenAddress`. Using
+  // `id` here would be silently rejected by Ponder's GraphQL validator
+  // (the legacy implementation had this bug and always returned the
+  // neutral fallback as a result, regardless of indexer state).
   const metaData = await queryPonder<{
     token: PonderTokenInfo | null;
     graduation: PonderGraduation | null;
   }>(
     `query ($address: String!) {
-      token(id: $address) {
+      token(address: $address) {
         creator
         graduated
         hyperswapPair
       }
-      graduation(id: $address) {
+      graduation(tokenAddress: $address) {
         liquidity
       }
     }`,

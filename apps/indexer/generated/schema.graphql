@@ -46,6 +46,12 @@ type Query {
   tokenBalances(where: tokenBalanceFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenBalancePage!
   tokenSnapshot(id: String!): tokenSnapshot
   tokenSnapshots(where: tokenSnapshotFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenSnapshotPage!
+  globalStats(id: String!): globalStats
+  globalStatss(where: globalStatsFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): globalStatsPage!
+  hourlyVolume(hourStart: BigInt!): hourlyVolume
+  hourlyVolumes(where: hourlyVolumeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): hourlyVolumePage!
+  walletPosition(id: String!): walletPosition
+  walletPositions(where: walletPositionFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): walletPositionPage!
   _meta: Meta
 }
 
@@ -1185,4 +1191,174 @@ input tokenSnapshotFilter {
   timestamp_lt: BigInt
   timestamp_gte: BigInt
   timestamp_lte: BigInt
+}
+
+type globalStats {
+  id: String!
+  totalTokens: BigInt!
+  tokensLive: BigInt!
+  tokensGraduated: BigInt!
+  totalVolumeUsd: BigInt!
+}
+
+type globalStatsPage {
+  items: [globalStats!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input globalStatsFilter {
+  AND: [globalStatsFilter]
+  OR: [globalStatsFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  totalTokens: BigInt
+  totalTokens_not: BigInt
+  totalTokens_in: [BigInt]
+  totalTokens_not_in: [BigInt]
+  totalTokens_gt: BigInt
+  totalTokens_lt: BigInt
+  totalTokens_gte: BigInt
+  totalTokens_lte: BigInt
+  tokensLive: BigInt
+  tokensLive_not: BigInt
+  tokensLive_in: [BigInt]
+  tokensLive_not_in: [BigInt]
+  tokensLive_gt: BigInt
+  tokensLive_lt: BigInt
+  tokensLive_gte: BigInt
+  tokensLive_lte: BigInt
+  tokensGraduated: BigInt
+  tokensGraduated_not: BigInt
+  tokensGraduated_in: [BigInt]
+  tokensGraduated_not_in: [BigInt]
+  tokensGraduated_gt: BigInt
+  tokensGraduated_lt: BigInt
+  tokensGraduated_gte: BigInt
+  tokensGraduated_lte: BigInt
+  totalVolumeUsd: BigInt
+  totalVolumeUsd_not: BigInt
+  totalVolumeUsd_in: [BigInt]
+  totalVolumeUsd_not_in: [BigInt]
+  totalVolumeUsd_gt: BigInt
+  totalVolumeUsd_lt: BigInt
+  totalVolumeUsd_gte: BigInt
+  totalVolumeUsd_lte: BigInt
+}
+
+type hourlyVolume {
+  hourStart: BigInt!
+  volumeUsd: BigInt!
+}
+
+type hourlyVolumePage {
+  items: [hourlyVolume!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input hourlyVolumeFilter {
+  AND: [hourlyVolumeFilter]
+  OR: [hourlyVolumeFilter]
+  hourStart: BigInt
+  hourStart_not: BigInt
+  hourStart_in: [BigInt]
+  hourStart_not_in: [BigInt]
+  hourStart_gt: BigInt
+  hourStart_lt: BigInt
+  hourStart_gte: BigInt
+  hourStart_lte: BigInt
+  volumeUsd: BigInt
+  volumeUsd_not: BigInt
+  volumeUsd_in: [BigInt]
+  volumeUsd_not_in: [BigInt]
+  volumeUsd_gt: BigInt
+  volumeUsd_lt: BigInt
+  volumeUsd_gte: BigInt
+  volumeUsd_lte: BigInt
+}
+
+type walletPosition {
+  id: String!
+  wallet: String!
+  tokenAddress: String!
+  zapTokenAmount: BigInt!
+  costBasisUsdc: BigInt!
+}
+
+type walletPositionPage {
+  items: [walletPosition!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input walletPositionFilter {
+  AND: [walletPositionFilter]
+  OR: [walletPositionFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  wallet: String
+  wallet_not: String
+  wallet_in: [String]
+  wallet_not_in: [String]
+  wallet_contains: String
+  wallet_not_contains: String
+  wallet_starts_with: String
+  wallet_ends_with: String
+  wallet_not_starts_with: String
+  wallet_not_ends_with: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  zapTokenAmount: BigInt
+  zapTokenAmount_not: BigInt
+  zapTokenAmount_in: [BigInt]
+  zapTokenAmount_not_in: [BigInt]
+  zapTokenAmount_gt: BigInt
+  zapTokenAmount_lt: BigInt
+  zapTokenAmount_gte: BigInt
+  zapTokenAmount_lte: BigInt
+  costBasisUsdc: BigInt
+  costBasisUsdc_not: BigInt
+  costBasisUsdc_in: [BigInt]
+  costBasisUsdc_not_in: [BigInt]
+  costBasisUsdc_gt: BigInt
+  costBasisUsdc_lt: BigInt
+  costBasisUsdc_gte: BigInt
+  costBasisUsdc_lte: BigInt
 }

@@ -122,6 +122,29 @@ describe("GET /security/:address", () => {
     expect(vars.id).toBe(`${CREATOR.toLowerCase()}-${TOKEN.toLowerCase()}`);
   });
 
+  it("queries Ponder with the correct primary-key arg names (token.address, graduation.tokenAddress)", async () => {
+    // Regression guard: the legacy implementation used `token(id: ...)` and
+    // `graduation(id: ...)`, both of which are silently rejected by Ponder's
+    // GraphQL validator (which mirrors the schema's primary-key column name).
+    // That bug made /security always return the neutral fallback regardless
+    // of indexer state.
+    mockPonderQuery
+      .mockResolvedValueOnce({
+        token: { creator: CREATOR, graduated: false, hyperswapPair: null },
+        graduation: null,
+      })
+      .mockResolvedValueOnce({ tokenBalance: null });
+
+    const app = createApp();
+    await app.request(`/security/${TOKEN}`, {}, makeEnv());
+
+    const [metadataQuery] = mockPonderQuery.mock.calls[0] as [string];
+    expect(metadataQuery).toContain("token(address: $address)");
+    expect(metadataQuery).toContain("graduation(tokenAddress: $address)");
+    expect(metadataQuery).not.toContain("token(id:");
+    expect(metadataQuery).not.toContain("graduation(id:");
+  });
+
   it("treats a missing balance row as zero (creator has never held the token)", async () => {
     mockPonderQuery
       .mockResolvedValueOnce({
