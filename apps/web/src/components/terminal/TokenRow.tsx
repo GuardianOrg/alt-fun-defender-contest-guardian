@@ -5,9 +5,9 @@ import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
-import HYPE from "../../assets/Logos/HYPE.svg";
-import ETH from "../../assets/Logos/ETH.svg";
 import BTC from "../../assets/Logos/BTC.svg";
+import ETH from "../../assets/Logos/ETH.svg";
+import HYPE from "../../assets/Logos/HYPE.svg";
 import SOL from "../../assets/Logos/SOL.svg";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import { cn, formatPercentOrDash, formatUsdOrDash } from "../../utils/format";
