@@ -1,7 +1,16 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
-import { token, trade, graduation, tokenSnapshot, hyperswapPairIndex } from "../ponder.schema";
+import {
+  token,
+  trade,
+  graduation,
+  tokenSnapshot,
+  hyperswapPairIndex,
+  globalStats,
+  hourlyVolume,
+  walletPosition,
+} from "../ponder.schema";
 
 await import("../src/bonding");
 
@@ -29,11 +38,12 @@ describe("Bonding:TokenLaunched", () => {
 
     await handler({ event, context: { db } });
 
-    // TokenLaunched only inserts the token row — there's no protocolConfig
-    // bootstrap because graduationThresholdUsd is now an immutable
-    // initialise-time constant on the proxy and off-chain consumers read it
-    // directly via RPC.
-    expect(db._insertCalls).toHaveLength(1);
+    // TokenLaunched inserts the token row and bootstraps the singleton
+    // `globalStats` row (first event ever — no prior row to update). Both
+    // counters bump from zero. There's no `protocolConfig` bootstrap because
+    // `graduationThresholdUsd` is now an immutable initialise-time constant
+    // on the proxy and off-chain consumers read it directly via RPC.
+    expect(db._insertCalls).toHaveLength(2);
     const tokenInsert = db._insertCalls.find((c) => c.table === token);
     expect(tokenInsert).toBeDefined();
     expect(tokenInsert!.values).toEqual({
@@ -702,5 +712,362 @@ describe("Zap:Buy / Sell — organic USDC accumulator", () => {
     await handler({ event, context: { db } });
 
     expect(db._updateCalls.find((c) => c.table === token)).toBeUndefined();
+  });
+});
+
+describe("globalStats singleton", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  it("bootstraps the singleton on the very first TokenLaunched", async () => {
+    const handler = getHandler("Bonding:TokenLaunched");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          name: "T",
+          ticker: "T",
+          creator: "0xc",
+          ltAddress: "0xlt",
+          k: 1n,
+        },
+      }),
+      context: { db },
+    });
+
+    const insert = db._insertCalls.find((c) => c.table === globalStats);
+    expect(insert).toBeDefined();
+    expect(insert!.values).toEqual({
+      id: "global",
+      totalTokens: 1n,
+      tokensLive: 1n,
+      tokensGraduated: 0n,
+      totalVolumeUsd: 0n,
+    });
+  });
+
+  it("increments totalTokens / tokensLive on subsequent TokenLaunched events", async () => {
+    db._setFindResult(globalStats, { id: "global" }, {
+      totalTokens: 7n,
+      tokensLive: 5n,
+      tokensGraduated: 2n,
+      totalVolumeUsd: 1234n,
+    });
+
+    const handler = getHandler("Bonding:TokenLaunched");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken2",
+          name: "T",
+          ticker: "T",
+          creator: "0xc",
+          ltAddress: "0xlt",
+          k: 1n,
+        },
+      }),
+      context: { db },
+    });
+
+    const update = db._updateCalls.find((c) => c.table === globalStats);
+    expect(update).toBeDefined();
+    expect(update!.values).toEqual({ totalTokens: 8n, tokensLive: 6n });
+  });
+
+  it("moves a token from live to graduated on TokenGraduated", async () => {
+    db._setFindResult(globalStats, { id: "global" }, {
+      totalTokens: 10n,
+      tokensLive: 7n,
+      tokensGraduated: 3n,
+      totalVolumeUsd: 0n,
+    });
+    // Required for the hyperswapPairIndex branch — irrelevant to the stats
+    // assertion, just keeps the handler from short-circuiting before it
+    // updates the singleton.
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      ltToken: "0xlt",
+    });
+
+    const handler = getHandler("Bonding:TokenGraduated");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          pairAddress: "0xpair",
+          liquidity: 1n,
+          tokensInLP: 1n,
+          lpBurned: 0n,
+          unsoldBurned: 0n,
+        },
+      }),
+      context: { db },
+    });
+
+    const update = db._updateCalls.find((c) => c.table === globalStats);
+    expect(update).toBeDefined();
+    expect(update!.values).toEqual({ tokensLive: 6n, tokensGraduated: 4n });
+  });
+
+  it("bumps totalVolumeUsd on Buy and Sell (gross, never subtracts)", async () => {
+    db._setFindResult(globalStats, { id: "global" }, {
+      totalTokens: 1n,
+      tokensLive: 1n,
+      tokensGraduated: 0n,
+      totalVolumeUsd: 100n,
+    });
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+
+    const buyHandler = getHandler("Zap:Buy");
+    await buyHandler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          buyer: "0xbuyer",
+          usdcIn: 50n,
+          tokensOut: 1n,
+        },
+      }),
+      context: { db },
+    });
+
+    const buyUpdate = db._updateCalls.find((c) => c.table === globalStats);
+    expect(buyUpdate!.values).toEqual({ totalVolumeUsd: 150n });
+  });
+});
+
+describe("hourlyVolume buckets", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  it("creates a bucket keyed by hour-start on the first trade in the hour", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+
+    const handler = getHandler("Zap:Buy");
+    // 1_700_001_234 / 3600 = 472_222.56… → floor 472_222 → ×3600 = 1_699_999_200
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          buyer: "0xbuyer",
+          usdcIn: 75n,
+          tokensOut: 1n,
+        },
+        blockTimestamp: 1_700_001_234n,
+      }),
+      context: { db },
+    });
+
+    const insert = db._insertCalls.find((c) => c.table === hourlyVolume);
+    expect(insert).toBeDefined();
+    expect(insert!.values).toEqual({
+      hourStart: 1_699_999_200n,
+      volumeUsd: 75n,
+    });
+  });
+
+  it("adds to an existing bucket on subsequent trades in the same hour", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+    db._setFindResult(hourlyVolume, { hourStart: 1_699_999_200n }, {
+      volumeUsd: 100n,
+    });
+
+    const handler = getHandler("Zap:Sell");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          seller: "0xseller",
+          tokensIn: 1n,
+          usdcOut: 25n,
+        },
+        blockTimestamp: 1_700_002_000n, // same hour as 1_700_001_234
+      }),
+      context: { db },
+    });
+
+    const update = db._updateCalls.find((c) => c.table === hourlyVolume);
+    expect(update).toBeDefined();
+    expect(update!.key).toEqual({ hourStart: 1_699_999_200n });
+    expect(update!.values).toEqual({ volumeUsd: 125n });
+  });
+});
+
+describe("walletPosition (per-wallet cost basis)", () => {
+  let db: ReturnType<typeof createMockDb>;
+
+  beforeEach(() => {
+    db = createMockDb();
+  });
+
+  it("creates a position on first Zap:Buy with full cost basis", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+
+    const handler = getHandler("Zap:Buy");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          buyer: "0xbuyer",
+          usdcIn: 1_000_000n,
+          tokensOut: 5_000n,
+        },
+      }),
+      context: { db },
+    });
+
+    const insert = db._insertCalls.find((c) => c.table === walletPosition);
+    expect(insert).toBeDefined();
+    expect(insert!.values).toEqual({
+      id: "0xbuyer-0xtoken1",
+      wallet: "0xbuyer",
+      tokenAddress: "0xtoken1",
+      zapTokenAmount: 5_000n,
+      costBasisUsdc: 1_000_000n,
+    });
+  });
+
+  it("adds to an existing position on subsequent Zap:Buy", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+    db._setFindResult(walletPosition, { id: "0xbuyer-0xtoken1" }, {
+      zapTokenAmount: 5_000n,
+      costBasisUsdc: 1_000_000n,
+    });
+
+    const handler = getHandler("Zap:Buy");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          buyer: "0xbuyer",
+          usdcIn: 500_000n,
+          tokensOut: 2_000n,
+        },
+      }),
+      context: { db },
+    });
+
+    const update = db._updateCalls.find((c) => c.table === walletPosition);
+    expect(update).toBeDefined();
+    expect(update!.values).toEqual({
+      zapTokenAmount: 7_000n,
+      costBasisUsdc: 1_500_000n,
+    });
+  });
+
+  it("reduces cost basis proportionally on partial Zap:Sell", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 1_000_000n,
+      volumeUsd: 1_000_000n,
+    });
+    db._setFindResult(walletPosition, { id: "0xseller-0xtoken1" }, {
+      zapTokenAmount: 10_000n,
+      costBasisUsdc: 1_000_000n,
+    });
+
+    const handler = getHandler("Zap:Sell");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          seller: "0xseller",
+          tokensIn: 4_000n, // selling 40% of position
+          usdcOut: 500_000n,
+        },
+      }),
+      context: { db },
+    });
+
+    const update = db._updateCalls.find((c) => c.table === walletPosition);
+    expect(update).toBeDefined();
+    // 10_000 − 4_000 = 6_000 tokens left; cost basis 1_000_000 × 4_000 / 10_000 = 400_000 reduction
+    // → 1_000_000 − 400_000 = 600_000 left
+    expect(update!.values).toEqual({
+      zapTokenAmount: 6_000n,
+      costBasisUsdc: 600_000n,
+    });
+  });
+
+  it("zeroes the position when a sell exhausts it", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 1_000_000n,
+      volumeUsd: 1_000_000n,
+    });
+    db._setFindResult(walletPosition, { id: "0xseller-0xtoken1" }, {
+      zapTokenAmount: 1_000n,
+      costBasisUsdc: 100_000n,
+    });
+
+    const handler = getHandler("Zap:Sell");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          seller: "0xseller",
+          tokensIn: 5_000n, // sells more than the position holds
+          usdcOut: 500_000n,
+        },
+      }),
+      context: { db },
+    });
+
+    const update = db._updateCalls.find((c) => c.table === walletPosition);
+    expect(update!.values).toEqual({ zapTokenAmount: 0n, costBasisUsdc: 0n });
+  });
+
+  it("skips the wallet-position update when no prior position exists", async () => {
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+    // No `_setFindResult` for walletPosition — wallet sold transferred-in
+    // tokens with no prior Zap-mediated buys. Position stays absent (cost
+    // basis "0" by definition for transferred-in supply).
+
+    const handler = getHandler("Zap:Sell");
+    await handler({
+      event: createMockEvent({
+        args: {
+          token: "0xtoken1",
+          seller: "0xseller",
+          tokensIn: 1_000n,
+          usdcOut: 50_000n,
+        },
+      }),
+      context: { db },
+    });
+
+    expect(
+      db._updateCalls.find((c) => c.table === walletPosition),
+    ).toBeUndefined();
   });
 });

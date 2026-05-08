@@ -9,11 +9,16 @@ import {
   tokenBalance,
   tokenSnapshot,
   hyperswapPairIndex,
+  globalStats,
+  hourlyVolume,
+  walletPosition,
 } from "ponder:schema";
 
 import { broadcastEvent, isLiveEvent } from "./broadcast.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+const GLOBAL_STATS_ID = "global" as const;
+const SECONDS_PER_HOUR = 3600n;
 
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;
@@ -44,6 +49,29 @@ ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     });
+
+  // Bump platform-wide token counters. `TokenLaunched` is the canonical
+  // "token created" event (Factory:PairCreated only inserts a placeholder
+  // metadata row), so it's the deduped point for incrementing `totalTokens`.
+  // `tokensLive` mirrors the historic /stats math: live = total − graduated.
+  const stats = await db.find(globalStats, { id: GLOBAL_STATS_ID });
+  if (stats) {
+    await db.update(globalStats, { id: GLOBAL_STATS_ID }).set({
+      totalTokens: stats.totalTokens + 1n,
+      tokensLive: stats.tokensLive + 1n,
+    });
+  } else {
+    await db
+      .insert(globalStats)
+      .values({
+        id: GLOBAL_STATS_ID,
+        totalTokens: 1n,
+        tokensLive: 1n,
+        tokensGraduated: 0n,
+        totalVolumeUsd: 0n,
+      })
+      .onConflictDoUpdate({ totalTokens: 1n, tokensLive: 1n });
+  }
 });
 
 ponder.on("Factory:PairCreated", async ({ event, context }) => {
@@ -198,6 +226,19 @@ ponder.on("Bonding:TokenGraduated", async ({ event, context }) => {
       hyperswapPair: event.args.pairAddress,
     });
 
+  // Move the token from the live bucket to the graduated bucket. Mirrors
+  // the legacy /stats `live = total − graduated` decomposition; safe to
+  // run unconditionally because `TokenGraduated` only fires once per token.
+  // `find` always returns a row here in practice (TokenLaunched fires first
+  // and seeds the singleton), but we tolerate an absent row for robustness.
+  const graduationStats = await db.find(globalStats, { id: GLOBAL_STATS_ID });
+  if (graduationStats) {
+    await db.update(globalStats, { id: GLOBAL_STATS_ID }).set({
+      tokensLive: graduationStats.tokensLive - 1n,
+      tokensGraduated: graduationStats.tokensGraduated + 1n,
+    });
+  }
+
   // Populate the reverse pair → token index so the HyperSwap Sync handler
   // can resolve the token in O(1) on every post-graduation reserve update.
   // We need the LT address to cache the token0/token1 ordering: HyperSwap V2
@@ -272,6 +313,69 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
     });
   }
 
+  // Platform-wide gross volume + hourly bucket. Read by `/api/v1/stats` so
+  // it can answer in O(1) (singleton + ≤24-row bucket scan) instead of
+  // paginating every Zap trade in the last 24h.
+  const buyStats = await db.find(globalStats, { id: GLOBAL_STATS_ID });
+  if (buyStats) {
+    await db.update(globalStats, { id: GLOBAL_STATS_ID }).set({
+      totalVolumeUsd: buyStats.totalVolumeUsd + event.args.usdcIn,
+    });
+  } else {
+    await db
+      .insert(globalStats)
+      .values({
+        id: GLOBAL_STATS_ID,
+        totalTokens: 0n,
+        tokensLive: 0n,
+        tokensGraduated: 0n,
+        totalVolumeUsd: event.args.usdcIn,
+      })
+      .onConflictDoUpdate({ totalVolumeUsd: event.args.usdcIn });
+  }
+  const buyHourStart = (BigInt(event.block.timestamp) / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+  const buyHourly = await db.find(hourlyVolume, { hourStart: buyHourStart });
+  if (buyHourly) {
+    await db.update(hourlyVolume, { hourStart: buyHourStart }).set({
+      volumeUsd: buyHourly.volumeUsd + event.args.usdcIn,
+    });
+  } else {
+    await db
+      .insert(hourlyVolume)
+      .values({ hourStart: buyHourStart, volumeUsd: event.args.usdcIn })
+      .onConflictDoUpdate({ volumeUsd: event.args.usdcIn });
+  }
+
+  // Per-(wallet, token) cost-basis state for `/api/v1/portfolio`. Avoids
+  // walking the wallet's full Zap trade history on every read. Only Zap
+  // mediates buys, so cost basis here is exact for purchased tokens; tokens
+  // received via direct Transfer don't bump this row (and correctly stay at
+  // zero cost basis).
+  const positionId = `${event.args.buyer}-${event.args.token}`;
+  const existingPosition = await db.find(walletPosition, { id: positionId });
+  const nextZapTokenAmount = (existingPosition?.zapTokenAmount ?? 0n) + event.args.tokensOut;
+  const nextCostBasis = (existingPosition?.costBasisUsdc ?? 0n) + event.args.usdcIn;
+  if (existingPosition) {
+    await db.update(walletPosition, { id: positionId }).set({
+      zapTokenAmount: nextZapTokenAmount,
+      costBasisUsdc: nextCostBasis,
+    });
+  } else {
+    await db
+      .insert(walletPosition)
+      .values({
+        id: positionId,
+        wallet: event.args.buyer,
+        tokenAddress: event.args.token,
+        zapTokenAmount: nextZapTokenAmount,
+        costBasisUsdc: nextCostBasis,
+      })
+      .onConflictDoUpdate({
+        zapTokenAmount: nextZapTokenAmount,
+        costBasisUsdc: nextCostBasis,
+      });
+  }
+
   // Real-time trade-list broadcast. The trade-feed UI uses this *instead*
   // of the `Bonding:Trade` broadcast because:
   //   1. It carries the gross USDC the user paid (matching the visible
@@ -329,6 +433,65 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
     await db.update(token, { address: event.args.token }).set({
       organicUsdcRaised: next > 0n ? next : 0n,
       volumeUsd: current.volumeUsd + event.args.usdcOut,
+    });
+  }
+
+  // Mirror image of the Buy-side platform counters (gross only — never
+  // subtracts on a sell, just like per-token `volumeUsd`).
+  const sellStats = await db.find(globalStats, { id: GLOBAL_STATS_ID });
+  if (sellStats) {
+    await db.update(globalStats, { id: GLOBAL_STATS_ID }).set({
+      totalVolumeUsd: sellStats.totalVolumeUsd + event.args.usdcOut,
+    });
+  } else {
+    await db
+      .insert(globalStats)
+      .values({
+        id: GLOBAL_STATS_ID,
+        totalTokens: 0n,
+        tokensLive: 0n,
+        tokensGraduated: 0n,
+        totalVolumeUsd: event.args.usdcOut,
+      })
+      .onConflictDoUpdate({ totalVolumeUsd: event.args.usdcOut });
+  }
+  const sellHourStart = (BigInt(event.block.timestamp) / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+  const sellHourly = await db.find(hourlyVolume, { hourStart: sellHourStart });
+  if (sellHourly) {
+    await db.update(hourlyVolume, { hourStart: sellHourStart }).set({
+      volumeUsd: sellHourly.volumeUsd + event.args.usdcOut,
+    });
+  } else {
+    await db
+      .insert(hourlyVolume)
+      .values({ hourStart: sellHourStart, volumeUsd: event.args.usdcOut })
+      .onConflictDoUpdate({ volumeUsd: event.args.usdcOut });
+  }
+
+  // Update the seller's `walletPosition` with proportional cost-basis
+  // reduction (matches the math the old /portfolio route computed in-memory
+  // from the trade history). Floors at zero so a user who sold more tokens
+  // than they bought via Zap (e.g. transferred-in supply, then sold via
+  // Zap) doesn't end up with a negative position.
+  const positionId = `${event.args.seller}-${event.args.token}`;
+  const existingPosition = await db.find(walletPosition, { id: positionId });
+  if (existingPosition) {
+    const sold = event.args.tokensIn;
+    const prevAmount = existingPosition.zapTokenAmount;
+    const prevCost = existingPosition.costBasisUsdc;
+    let nextAmount: bigint;
+    let nextCost: bigint;
+    if (prevAmount > 0n && sold < prevAmount) {
+      const reduction = (prevCost * sold) / prevAmount;
+      nextAmount = prevAmount - sold;
+      nextCost = prevCost > reduction ? prevCost - reduction : 0n;
+    } else {
+      nextAmount = 0n;
+      nextCost = 0n;
+    }
+    await db.update(walletPosition, { id: positionId }).set({
+      zapTokenAmount: nextAmount,
+      costBasisUsdc: nextCost,
     });
   }
 

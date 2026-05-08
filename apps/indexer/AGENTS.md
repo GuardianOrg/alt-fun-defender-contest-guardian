@@ -6,17 +6,27 @@ Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap
 
 | Event | Contract |
 |---|---|
-| `TokenLaunched` | Bonding |
+| `TokenLaunched` | Bonding — also bumps `globalStats.totalTokens` / `tokensLive` |
 | `Trade` | Bonding (unified buy/sell with `isBuy` flag) |
-| `TokenGraduated` | Bonding — includes `tokensInLP`, `lpBurned`, `unsoldBurned` (dynamic LP seeding outputs, see `packages/contracts/AGENTS.md`) |
+| `TokenGraduated` | Bonding — includes `tokensInLP`, `lpBurned`, `unsoldBurned` (dynamic LP seeding outputs, see `packages/contracts/AGENTS.md`); also moves the token from `tokensLive` → `tokensGraduated` on `globalStats` |
 | `CreatorFeesClaimed` | Bonding |
 | `ProtocolFeesClaimed` | Bonding |
-| `Buy` | Zap — also bumps `token.organicUsdcRaised` and `token.volumeUsd` |
-| `Sell` | Zap — also decrements `token.organicUsdcRaised` (floored at 0) and bumps `token.volumeUsd` |
+| `Buy` | Zap — also bumps `token.organicUsdcRaised`, `token.volumeUsd`, `globalStats.totalVolumeUsd`, the matching `hourlyVolume` bucket, and the buyer's `walletPosition` (cost basis) |
+| `Sell` | Zap — decrements `token.organicUsdcRaised` (floored at 0); bumps `token.volumeUsd`, `globalStats.totalVolumeUsd`, the matching `hourlyVolume` bucket; reduces the seller's `walletPosition` cost basis proportionally |
 | `Referred` | Zap |
 | `Transfer` | Token (factory-registered via `TokenLaunched`) |
 | `Swap` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
 | `Sync` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
+
+### Platform-wide counters (`globalStats`, `hourlyVolume`, `walletPosition`)
+
+Three derived tables exist solely to serve high-traffic API routes in O(1) instead of paginating up to 20K trades per request (issue #397):
+
+- **`globalStats`** — singleton row keyed `"global"`. Tracks `totalTokens` / `tokensLive` / `tokensGraduated` (mirrors the legacy `/stats` decomposition: `live = total − graduated`) and `totalVolumeUsd` (lifetime gross USDC routed through Zap, never subtracts). Bootstrapped on the first `TokenLaunched` (or the first `Zap.Buy` if events ever arrive out of order). Read by `GET /api/v1/stats`.
+- **`hourlyVolume`** — one row per hour-start Unix timestamp (`floor(ts/3600) * 3600`). Bumped on every `Zap.Buy` / `Zap.Sell` so `/stats` can derive `volume24h` from a 24-row scan. Storage grows at ~24 rows/day forever; the API only reads the last 25 buckets.
+- **`walletPosition`** — `(wallet, token)` keyed (`id = "${wallet}-${tokenAddress}"`). Tracks `zapTokenAmount` (cumulative Zap-mediated buys − sells, floored at 0) and `costBasisUsdc` (cumulative USDC paid, reduced proportionally on each sell using the same FIFO-equivalent math the old `/portfolio` route did in memory). **Independent from `tokenBalance`** — `tokenBalance` mirrors every ERC-20 Transfer, while `walletPosition` only fires on Zap events. A wallet that received tokens via direct Transfer correctly shows a positive `tokenBalance.balance` with `walletPosition.costBasisUsdc = 0`. Read by `GET /api/v1/portfolio`.
+
+When you modify the `Zap.Buy` / `Zap.Sell` handlers, **also keep these counters in sync** — the test suite in `apps/indexer/test/bonding.test.ts` asserts the singleton bump, the bucket upsert, and the `walletPosition` cost-basis math.
 
 ### Graduation progress decomposition (`token.organicUsdcRaised`)
 

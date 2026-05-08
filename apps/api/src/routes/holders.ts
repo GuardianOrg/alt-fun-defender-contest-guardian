@@ -106,6 +106,14 @@ holders.get("/:address", async (c) => {
     };
   });
 
+  // Edge cache the holder list — it changes on every Transfer but a few
+  // seconds of staleness is invisible on the UI, and the cache absorbs the
+  // thundering-herd pattern (100 users opening the same viral token) that
+  // would otherwise serialise into the indexer's PG pool.
+  c.header(
+    "Cache-Control",
+    "public, s-maxage=15, stale-while-revalidate=30",
+  );
   return c.json(formatSuccess({
     holders: holderList,
     totalHolders: balances.length,

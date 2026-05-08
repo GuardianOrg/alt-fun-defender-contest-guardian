@@ -1,6 +1,18 @@
 import { vi } from "vitest";
 
 /**
+ * `JSON.stringify` doesn't serialise BigInt, but several schemas key by
+ * bigint (e.g. `hourlyVolume.hourStart`). Stringify with a `${value}n`
+ * marker so distinct bigints produce distinct map keys without crashing.
+ */
+function stringifyKey(table: unknown, key: unknown): string {
+  return JSON.stringify(
+    { table: (table as { _?: { name?: string } })?._?.name ?? "_", key },
+    (_, value) => (typeof value === "bigint" ? `${value}n` : value),
+  );
+}
+
+/**
  * Creates a mock Ponder db object that tracks insert/update calls.
  * Each insert() returns a chainable object with .values() and .onConflictDoNothing()/.onConflictDoUpdate().
  * Each update() returns a chainable object with .set().
@@ -12,12 +24,12 @@ export function createMockDb() {
 
   const mockDb = {
     find: vi.fn(async (table: unknown, key: unknown) => {
-      const mapKey = JSON.stringify({ table: (table as { _?: { name?: string } })?._?.name ?? "_", key });
+      const mapKey = stringifyKey(table, key);
       return findResults.get(mapKey) ?? null;
     }),
     /** Test hook: seed a row so the next `find(table, key)` returns `value`. */
     _setFindResult: (table: unknown, key: unknown, value: unknown) => {
-      const mapKey = JSON.stringify({ table: (table as { _?: { name?: string } })?._?.name ?? "_", key });
+      const mapKey = stringifyKey(table, key);
       findResults.set(mapKey, value);
     },
     insert: vi.fn((table: unknown) => {
