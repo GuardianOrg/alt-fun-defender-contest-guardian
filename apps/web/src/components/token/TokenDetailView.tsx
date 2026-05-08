@@ -4,6 +4,7 @@ import BottomTabs from "./BottomTabs";
 import Chart from "./Chart";
 import HeroSection from "./HeroSection";
 import styles from "./TokenDetailView.module.css";
+import TokenInfoStrip from "./TokenInfoStrip";
 import TradePanel from "./TradePanel";
 import { useGraduationFeed } from "../../hooks/useGraduationFeed";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
@@ -88,6 +89,8 @@ export default function TokenDetailView() {
             )}
           </div>
         )}
+
+        <TokenInfoStrip token={token} />
 
         <ErrorBoundary
           fallback={

@@ -132,6 +132,8 @@ commentsRoute.post(
       return c.json(formatError("Signature does not match author"), 401);
     }
 
+    // Refresh the timestamp after the (potentially slow) signature recovery
+    // so a slot that expired during recovery doesn't falsely rate-limit.
     now = Date.now();
     purgeExpiredCommentRateLimits(now);
 
