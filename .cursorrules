@@ -61,9 +61,24 @@ Default to no comment. Only add one when the code can't speak for itself.
 - When discovering new work that can't be done immediately, add it to `TODO.md`.
 
 ## CI Verification (MANDATORY)
-After making any code changes, you MUST run `npm run ci` from the repo root before responding.
-This runs lint, typecheck, test, and build across ALL packages — the exact same checks as GitHub CI.
-If it fails, fix it before responding. Never leave the user to discover CI failures after pushing.
+After making any code changes, you MUST run lint, typecheck, test, and build before responding — but **only for the packages you actually touched**. Running the full repo `npm run ci` is wasteful (contract tests in particular are slow) and is forbidden unless your change spans every package or you touched the root tooling.
+
+Use Turbo's `--filter` flag scoped to the package(s) you edited. Examples:
+
+- Edited only `apps/api/`:
+  `npx turbo run lint typecheck test build --filter=@launchpad/api`
+- Edited `apps/web/`:
+  `npx turbo run lint typecheck test build --filter=@launchpad/web`
+- Edited `packages/contracts/`:
+  `npx turbo run lint typecheck test build --filter=@launchpad/contracts`
+  (only this scope runs Foundry tests)
+- Edited `packages/shared/` (touched by most consumers):
+  `npx turbo run lint typecheck test build --filter=@launchpad/shared...` (the `...` includes downstream dependents)
+- Edited multiple unrelated packages: pass multiple `--filter` flags.
+
+If the package has no `test` task it's a no-op — that's fine. Never skip the scoped check, and never substitute it with a partial subset (e.g. lint only). If it fails, fix it before responding.
+
+**Do not run contract Foundry tests unless you actually changed `packages/contracts/`.** They're slow and add nothing when you're editing TypeScript.
 
 ## Prohibitions
 
