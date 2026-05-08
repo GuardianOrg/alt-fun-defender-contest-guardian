@@ -66,11 +66,12 @@
   gap: 0.8rem;
   flex-shrink: 0;
   min-width: 0;
+  height: 100%;
 }
 
 .avatar {
-  width: 4rem;
-  height: 4rem;
+  width: 6rem;
+  height: 6rem;
   border-radius: 0.75rem;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
@@ -113,9 +114,17 @@
 .nameStack {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  height: 100%;
+  justify-content: space-between;
   min-width: 0;
-  gap: 0.05rem;
+  padding: 0.4rem 0;
+}
+
+.tickerNameContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .ticker {

@@ -56,8 +56,10 @@ export default function HeroSection({ token }: Props) {
         </VanityEffect>
 
         <div className={styles.nameStack}>
-          <div className={styles.ticker}>{token.ticker}</div>
-          <div className={styles.fullName}>{token.name}</div>
+          <div className={styles.tickerNameContainer}>
+            <div className={styles.ticker}>{token.ticker}</div>
+            <div className={styles.fullName}>{token.name}</div>
+          </div>
           <div className={styles.byDev}>
             <span className={styles.byLabel}>By</span>
             <a
