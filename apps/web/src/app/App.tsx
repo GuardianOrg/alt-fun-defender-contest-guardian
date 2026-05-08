@@ -19,6 +19,7 @@ import EarningsPanel from "../components/layout/EarningsPanel";
 import Header from "../components/layout/Header";
 import SearchModal from "../components/layout/SearchModal";
 import ErrorBoundary from "../components/shared/ErrorBoundary";
+import { ToastProvider } from "../components/shared/Toast";
 import LeverageBanner from "../components/terminal/LeverageBanner";
 import TerminalView from "../components/terminal/TerminalView";
 import TokenDetailView from "../components/token/TokenDetailView";
@@ -141,8 +142,10 @@ const App = () => {
         >
           <QueryClientProvider client={queryClient}>
             <WagmiProvider config={wagmiConfig}>
-              <RouterProvider router={router} />
-              <LandingOverlay />
+              <ToastProvider>
+                <RouterProvider router={router} />
+                <LandingOverlay />
+              </ToastProvider>
             </WagmiProvider>
           </QueryClientProvider>
         </PrivyProvider>
