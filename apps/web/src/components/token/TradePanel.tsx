@@ -452,7 +452,8 @@ export default function TradePanel({ token }: Props) {
             belowMinimum ||
             sellBelowMinimum ||
             sellExceedsBuffer ||
-            insufficientUsdc
+            insufficientUsdc ||
+            (isConnected && amtNum <= 0)
           }
           className={step === "confirmed" ? styles.ctaConfirmed : undefined}
           onClick={doTrade}
