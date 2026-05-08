@@ -50,6 +50,20 @@ const updateProfileSchema = z.object({
 
 const profilesRoute = new Hono<{ Bindings: AppBindings }>();
 
+/**
+ * Pre-#400 rows may still hold raw URLs in `twitterUrl` (e.g.
+ * `https://twitter.com/alice` or, worse, `javascript:...`). The PUT
+ * handler now stores the bare handle, but historical rows haven't been
+ * migrated. Sanitising on read collapses both shapes to the canonical
+ * handle so every response the frontend sees is safe to feed into
+ * `buildTwitterUrl`. An empty / unsafe stored value reads back as `null`,
+ * matching the "no profile" branch above.
+ */
+function sanitizeProfileForResponse<T extends { twitterUrl?: string | null }>(profile: T): T {
+  const handle = sanitizeTwitterHandle(profile.twitterUrl ?? "");
+  return { ...profile, twitterUrl: handle === "" ? null : handle };
+}
+
 profilesRoute.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
   if (!isAddress(rawAddress)) {
@@ -77,7 +91,7 @@ profilesRoute.get("/:address", async (c) => {
     );
   }
 
-  return c.json(formatSuccess(profile));
+  return c.json(formatSuccess(sanitizeProfileForResponse(profile)));
 });
 
 profilesRoute.put(
@@ -133,7 +147,7 @@ profilesRoute.put(
       })
       .returning();
 
-    return c.json(formatSuccess(profile));
+    return c.json(formatSuccess(sanitizeProfileForResponse(profile)));
   },
 );
 

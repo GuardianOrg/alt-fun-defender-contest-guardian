@@ -44,7 +44,9 @@ describe("sanitizeTwitterHandle", () => {
     expect(sanitizeTwitterHandle("nope!")).toBe("");
     expect(sanitizeTwitterHandle("hi.there")).toBe("");
     expect(sanitizeTwitterHandle("a".repeat(16))).toBe("");
-    expect(sanitizeTwitterHandle("https://x.com/a".repeat(16))).toBe("");
+    // 16-char handle inside a well-formed URL: exercises the post-parse
+    // regex check rather than the URL parser bailing on a malformed input.
+    expect(sanitizeTwitterHandle(`https://x.com/${"a".repeat(16)}`)).toBe("");
   });
 
   it("returns empty for empty / null / undefined input", () => {
