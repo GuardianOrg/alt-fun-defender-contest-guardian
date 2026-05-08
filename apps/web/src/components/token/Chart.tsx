@@ -60,15 +60,6 @@ export default function Chart({ token }: Props) {
     };
   }, [intervalMenuOpen]);
 
-  // Graduation progress decomposition (curve-fill % from organic USDC buys vs
-  // LT price appreciation). See `Token.organicFilled` / `Token.leverageBoost`.
-  // When the API breakdown is degraded `organicFilled` is null — we hide the
-  // split rather than silently under-report one bucket.
-  const showBreakdown =
-    token.organicFilled !== null && token.status !== "graduated";
-  const organicPct = token.organicFilled ?? 0;
-  const leveragePct = token.leverageBoost;
-
   const { mcapUsd, change24h } = useTokenMarketStats(token.address);
 
   const { candles, loading } = useChartData(
@@ -144,27 +135,6 @@ export default function Chart({ token }: Props) {
             </ul>
           )}
         </div>
-
-        {/* {showBreakdown && (
-          <>
-            <div className={styles.dividerSmall} />
-
-            <div className={styles.decompStats}>
-              <span className={styles.decompLabel}>
-                buys{" "}
-                <span className={styles.decompValueMint}>
-                  {formatPercent(organicPct)}
-                </span>
-              </span>
-              <span className={styles.decompLabel}>
-                lev{" "}
-                <span className={styles.decompAmber}>
-                  {formatPercent(leveragePct)}
-                </span>
-              </span>
-            </div>
-          </>
-        )} */}
 
         <div className={styles.liveIndicator}>
           <div className={styles.liveDot} />
