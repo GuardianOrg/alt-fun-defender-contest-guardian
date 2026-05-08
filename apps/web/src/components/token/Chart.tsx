@@ -3,11 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import styles from "./Chart.module.css";
 import { useChart } from "../../hooks/useChart";
 import { useChartData } from "../../hooks/useChartData";
+import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
 } from "../../services/api";
-import { cn, formatPercent } from "../../utils/format";
+import { cn, formatPercent, formatUsdOrDash } from "../../utils/format";
 
 import type {
   ChartIntervalSeconds,
@@ -67,6 +68,8 @@ export default function Chart({ token }: Props) {
     token.organicFilled !== null && token.status !== "graduated";
   const organicPct = token.organicFilled ?? 0;
   const leveragePct = token.leverageBoost;
+
+  const { mcapUsd, change24h } = useTokenMarketStats(token.address);
 
   const { candles, loading } = useChartData(
     token.address,
@@ -180,6 +183,23 @@ export default function Chart({ token }: Props) {
           </div>
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />
+        <span className={styles.axisLabel} aria-hidden>
+          Price
+        </span>
+        <div className={styles.mcapOverlay} aria-label="Market cap">
+          <span className={styles.mcapLabel}>Market cap</span>
+          <span className={styles.mcapValue}>{formatUsdOrDash(mcapUsd)}</span>
+          {change24h !== null && (
+            <span
+              className={cn(
+                styles.mcapChange,
+                change24h >= 0 ? styles.mcapChangeUp : styles.mcapChangeDown,
+              )}
+            >
+              {formatPercent(change24h)} 24h
+            </span>
+          )}
+        </div>
       </div>
       <div className={styles.periodBar}>
         <div className={styles.intervalGroup}>
