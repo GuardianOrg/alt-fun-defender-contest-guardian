@@ -310,10 +310,12 @@ describe("POST /tokens — address-only registration", () => {
     expect(bucket.head).toHaveBeenCalledWith("tokens/abc-def.png");
   });
 
-  it("canonicalizes the image URL to the request origin regardless of host in TokenInfo", async () => {
+  it("strips the host from the image URL regardless of what was stamped on-chain", async () => {
     // An attacker could stamp https://evil.example.com/images/tokens/<valid-key>
     // on-chain. The R2 HEAD check would pass (the key exists), but we must
-    // rewrite the host to our own origin so the DB stores a URL we control.
+    // not let the attacker's host reach the DB. We strip the origin entirely
+    // and store the path-only URL so every API environment that serves the
+    // same R2 bucket can render the image (issue #450).
     const VALID_KEY = "tokens/abc-123.png";
     mockReadContract.mockResolvedValueOnce(
       // Foreign host, but valid path and key:
@@ -325,7 +327,7 @@ describe("POST /tokens — address-only registration", () => {
       name: "Test Token",
       ticker: "TST",
       description: "",
-      imageUrl: `http://localhost/images/${VALID_KEY}`,
+      imageUrl: `/images/${VALID_KEY}`,
       ltPair: LT_ADDR,
       ltDirection: "long",
       leverage: 2,
@@ -352,13 +354,62 @@ describe("POST /tokens — address-only registration", () => {
 
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: { imageUrl: string } };
-    // The stored imageUrl must use the request's origin, not the attacker's.
-    expect(body.data.imageUrl).toBe(`http://localhost/images/${VALID_KEY}`);
+    // The stored imageUrl must be path-only, dropping the attacker's host.
+    expect(body.data.imageUrl).toBe(`/images/${VALID_KEY}`);
     expect(body.data.imageUrl).not.toContain("evil.example.com");
 
-    // Confirm the INSERT was called with the canonical URL.
+    // Confirm the INSERT was called with the canonical (path-only) URL.
     const insertCall = mockInsertValues.mock.calls[0]?.[0] as { imageUrl?: string } | undefined;
-    expect(insertCall?.imageUrl).toBe(`http://localhost/images/${VALID_KEY}`);
+    expect(insertCall?.imageUrl).toBe(`/images/${VALID_KEY}`);
+  });
+
+  it("accepts a path-relative image URL stamped on-chain (post-#450 uploads)", async () => {
+    // The image upload endpoint now returns `/images/tokens/<key>` rather
+    // than an absolute URL, so the legitimate creator stamps a relative
+    // path into `LaunchParams.image`. Registration must accept it and
+    // store the same path verbatim.
+    const VALID_KEY = "tokens/relative-path.png";
+    mockReadContract.mockResolvedValueOnce(
+      makeOnChainInfo({ image: `/images/${VALID_KEY}` }),
+    );
+    mockBounceTechLtList();
+    const bucket = makeBucket();
+    mockDbReturning.mockResolvedValueOnce([{
+      address: VALID_ADDRESS,
+      name: "Test Token",
+      ticker: "TST",
+      description: "",
+      imageUrl: `/images/${VALID_KEY}`,
+      ltPair: LT_ADDR,
+      ltDirection: "long",
+      leverage: 2,
+      underlying: "HYPE",
+      twitterUrl: "",
+      telegramUrl: "",
+      websiteUrl: "",
+      creator: VALID_CREATOR,
+    }]);
+
+    const app = createApp();
+    const req = new Request("http://localhost/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: VALID_ADDRESS }),
+    });
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+    const res = await app.fetch(req, makeEnv(bucket), executionCtx);
+
+    expect(res.status).toBe(201);
+    // The R2-existence gate must run on the relative-path branch too —
+    // otherwise an attacker could stamp `/images/tokens/<unknown-key>`
+    // on-chain and slip past the moderation pipeline.
+    expect(bucket.head).toHaveBeenCalledWith(VALID_KEY);
+    const insertCall = mockInsertValues.mock.calls[0]?.[0] as { imageUrl?: string } | undefined;
+    expect(insertCall?.imageUrl).toBe(`/images/${VALID_KEY}`);
   });
 
   it("returns 422 when LT address is unknown to BounceTech", async () => {

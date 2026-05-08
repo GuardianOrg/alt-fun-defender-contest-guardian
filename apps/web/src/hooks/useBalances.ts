@@ -43,7 +43,13 @@ async function fetchRawBalancesFromChain(
   walletAddress: string,
 ): Promise<RawBalance[]> {
   const tokens = await fetchTokens(100);
-  if (tokens.length === 0) return [];
+  // Empty catalogue almost certainly means the API is down (we always have
+  // ≥1 token in production). Throw so `useBalances` falls through to the
+  // indexer-backed API fallback rather than silently rendering "No
+  // positions yet".
+  if (tokens.length === 0) {
+    throw new Error("Token catalogue unavailable");
+  }
 
   const balanceCalls = tokens.map((token) => ({
     address: token.address as `0x${string}`,
@@ -86,10 +92,19 @@ export function useBalances() {
     queryKey: ["balances", address],
     queryFn: async (): Promise<RawBalance[]> => {
       if (!address) throw new Error("Address required");
+      // On-chain multicall is authoritative and works regardless of indexer
+      // health. The API path (`fetchRawBalancesFromApi`) reads the indexer's
+      // `tokenBalance` index, which is currently empty for every token (see
+      // bounce-tech/alt-fun#418 — `Token:Transfer` events are not being
+      // ingested), so it silently returns no positions and the "MY POSITIONS"
+      // panel always shows "No positions yet". Until #418 ships, chain is
+      // the source of truth here; the API call is kept as a fallback for
+      // RPC outages. Token catalogue is ~100 entries today, so the multicall
+      // fits in a single RPC round-trip.
       try {
-        return await fetchRawBalancesFromApi(address);
+        return await fetchRawBalancesFromChain(address);
       } catch {
-        return fetchRawBalancesFromChain(address);
+        return fetchRawBalancesFromApi(address);
       }
     },
     enabled: !!address,
