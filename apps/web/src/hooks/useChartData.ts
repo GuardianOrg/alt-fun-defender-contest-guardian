@@ -136,30 +136,45 @@ export function useChartData(
     let cancelled = false;
     setLoading(true);
 
+    // Address change: clear cross-token state SYNCHRONOUSLY, before the
+    // network round-trip starts. The WS subscription effect re-runs on the
+    // same dependency change and may receive a tick for the new token (or
+    // its LT) while `fetchChart` is still in flight. If we left the old
+    // refs in place until the `.then()` ran, an early WS tick could merge
+    // the new token's ratio against the previous token's `exchangeRate`
+    // (or vice versa) and produce a junk mcap; later, the snapshot resolve
+    // would clobber that fresher WS value back to its own.
     const isAddressChange = refsAnchoredAddressRef.current !== address;
+    if (isAddressChange) {
+      refsAnchoredAddressRef.current = address;
+      ratioRef.current = 0;
+      exchangeRateRef.current = 0;
+      setCandles([]);
+    }
 
     fetchChart(address, modeRef.current)
       .then((snapshot) => {
         if (cancelled) return;
 
-        // Only adopt the snapshot's ratio/exchangeRate when:
-        //   - this is the first fetch for the address, OR
-        //   - we have no live value yet (refs at 0).
-        // For same-token refetches (mode change, WS reconnect) the WS keeps
-        // these refs current. Overwriting them with the snapshot's values
-        // is unsafe because the API reads from the indexer, which can lag
-        // the chain by a couple of seconds — long enough to clobber a
-        // freshly-pumped ratio with a pre-buy value. That regression is
-        // exactly what made buy candles "disappear" after a few seconds:
-        // the in-progress big green body collapsed back to its open as
+        // Only adopt the snapshot's ratio/exchangeRate when we don't yet
+        // have a live value (refs at 0). For same-token refetches (mode
+        // change, WS reconnect) the WS keeps these refs current.
+        // Overwriting them with the snapshot's values is unsafe because
+        // the API reads from the indexer, which can lag the chain by a
+        // couple of seconds — long enough to clobber a freshly-pumped
+        // ratio with a pre-buy value. That regression is exactly what
+        // made buy candles "disappear" after a few seconds: the
+        // in-progress big green body collapsed back to its open as
         // subsequent live ticks recomputed `mcap = staleRatio × rate`.
-        if (isAddressChange || ratioRef.current <= 0) {
+        // On address change the synchronous reset above already zeroed
+        // the refs, so this branch fires for the new token too unless
+        // a WS tick has already raced ahead of the snapshot.
+        if (ratioRef.current <= 0) {
           ratioRef.current = snapshot.currentRatio;
         }
-        if (isAddressChange || exchangeRateRef.current <= 0) {
+        if (exchangeRateRef.current <= 0) {
           exchangeRateRef.current = snapshot.currentExchangeRate;
         }
-        refsAnchoredAddressRef.current = address;
 
         const mapped: CandlestickData[] = snapshot.candles.map((c) => ({
           time: c.time as unknown as CandlestickData["time"],
