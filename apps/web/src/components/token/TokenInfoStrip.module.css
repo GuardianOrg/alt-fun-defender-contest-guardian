@@ -1,0 +1,95 @@
+.strip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  padding: 0.8rem 1.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+.statsGroup {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+.backingStat {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.underlyingLogo {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--txt-3);
+  font-family: var(--font-mono);
+}
+
+.value {
+  font-size: 13px;
+  color: var(--txt);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.valueMuted {
+  font-size: 13px;
+  color: var(--txt-4);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.statEnd {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.socials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  height: 1.1rem;
+}
+
+.socialLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--txt-3);
+  transition: color 0.15s ease;
+}
+
+.socialLink:hover {
+  color: var(--mint);
+}
+
+.holders {
+  text-align: right;
+}
+
+@media (max-width: 768px) {
+  .strip {
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 0.6rem 0.8rem;
+  }
+}

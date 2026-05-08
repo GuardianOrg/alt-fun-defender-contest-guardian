@@ -145,7 +145,7 @@ export default function Chart({ token }: Props) {
           )}
         </div>
 
-        {showBreakdown && (
+        {/* {showBreakdown && (
           <>
             <div className={styles.dividerSmall} />
 
@@ -164,7 +164,7 @@ export default function Chart({ token }: Props) {
               </span>
             </div>
           </>
-        )}
+        )} */}
 
         <div className={styles.liveIndicator}>
           <div className={styles.liveDot} />
@@ -179,7 +179,9 @@ export default function Chart({ token }: Props) {
         )}
         {isEmpty && (
           <div className={styles.emptyState}>
-            <span className={styles.emptyText}>No price data available yet</span>
+            <span className={styles.emptyText}>
+              No price data available yet
+            </span>
           </div>
         )}
         <div ref={chartContainerRef} className={styles.chartCanvas} />
@@ -210,9 +212,7 @@ export default function Chart({ token }: Props) {
                 styles.intervalBtn,
                 isTimeframeActive(tf.value) && styles.intervalBtnActive,
               )}
-              onClick={() =>
-                setMode({ kind: "timeframe", value: tf.value })
-              }
+              onClick={() => setMode({ kind: "timeframe", value: tf.value })}
             >
               {tf.label}
             </button>
