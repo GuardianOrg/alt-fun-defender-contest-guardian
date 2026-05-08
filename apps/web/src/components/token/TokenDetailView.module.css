@@ -15,11 +15,19 @@
   font-size: 14px;
 }
 
+/* Vertical layout: HeroSection → Chart (toolbar/area/periodBar) → curve
+ * strip → TokenInfoStrip → BottomTabs. Chart + tab content have flex
+ * weights *and* min-heights (320 / 160), so on tall viewports they share
+ * the leftover space 2:1, and on short viewports their min-heights kick
+ * in and the column would otherwise overflow. `overflow-y: auto` lets
+ * the panel itself scroll in that case rather than clipping content —
+ * this is the desktop equivalent of the mobile `@media` rule below
+ * which makes the entire `.wrapper` scroll. */
 .leftPanel {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
   border: 1px solid var(--border);
 }
 

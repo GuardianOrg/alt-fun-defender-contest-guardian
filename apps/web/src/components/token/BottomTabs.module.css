@@ -368,9 +368,14 @@
   border-radius: 9999px;
 }
 
+/* Sibling flex child of the chart inside `.leftPanel`. Was a hard 200px,
+ * but that capped the chart's growth on tall viewports — `.chartArea` now
+ * has the 2:1 flex weight, so we make the tab content flexible too with
+ * a `min-height` floor so trades / comments / holders stays usable on
+ * shorter screens. */
 .tabContent {
-  flex-shrink: 0;
-  height: 200px;
+  flex: 1 1 0;
+  min-height: 160px;
   overflow-y: auto;
 }
 
