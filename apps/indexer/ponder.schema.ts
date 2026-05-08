@@ -264,8 +264,6 @@ export const globalStats = onchainTable("global_stats", (t) => ({
 export const hourlyVolume = onchainTable("hourly_volume", (t) => ({
   hourStart: t.bigint().primaryKey(),
   volumeUsd: t.bigint().notNull().default(0n),
-}), (table) => ({
-  hourIdx: index().on(table.hourStart),
 }));
 
 /**

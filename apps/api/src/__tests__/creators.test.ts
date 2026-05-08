@@ -25,6 +25,15 @@ vi.mock("../db/client.js", () => {
     createDb: () => ({
       select: () => ({
         from: (table: { _?: { columns?: Record<string, unknown> } }) => {
+          // Sniff Drizzle's internal column descriptor (`table._.columns`) to
+          // tell which schema we were handed without importing the real
+          // schema objects (which would pull in the postgres driver). Only
+          // `userProfiles` carries `displayName`, so its presence uniquely
+          // identifies the profile lookup vs the tokens lookup. This is a
+          // pragmatic fragility — if the schema ever sprouts a `displayName`
+          // column on `tokens`, this test will route the wrong fixture.
+          // `lastTable` is read by the `where` branch below to decide
+          // whether the awaited result is `mockProfile` or `mockTokens`.
           const cols = table?._?.columns ?? {};
           lastTable = "displayName" in cols ? "userProfiles" : "tokens";
           return {
