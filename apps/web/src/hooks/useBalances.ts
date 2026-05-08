@@ -86,10 +86,19 @@ export function useBalances() {
     queryKey: ["balances", address],
     queryFn: async (): Promise<RawBalance[]> => {
       if (!address) throw new Error("Address required");
+      // On-chain multicall is authoritative and works regardless of indexer
+      // health. The API path (`fetchRawBalancesFromApi`) reads the indexer's
+      // `tokenBalance` index, which is currently empty for every token (see
+      // bounce-tech/alt-fun#418 — `Token:Transfer` events are not being
+      // ingested), so it silently returns no positions and the "MY POSITIONS"
+      // panel always shows "No positions yet". Until #418 ships, chain is
+      // the source of truth here; the API call is kept as a fallback for
+      // RPC outages. Token catalogue is ~100 entries today, so the multicall
+      // fits in a single RPC round-trip.
       try {
-        return await fetchRawBalancesFromApi(address);
+        return await fetchRawBalancesFromChain(address);
       } catch {
-        return fetchRawBalancesFromChain(address);
+        return fetchRawBalancesFromApi(address);
       }
     },
     enabled: !!address,
