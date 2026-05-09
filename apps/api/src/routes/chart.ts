@@ -337,27 +337,82 @@ chart.get("/:address", async (c) => {
     // (curve phase) AND every `HyperSwapPair.Sync` (post-graduation). One
     // query covers both phases so a graduated token's chart keeps moving
     // with HyperSwap reserve changes — see `apps/indexer/src/hyperswap.ts`.
+    //
+    // Filters by `timestamp_gte: fromSec` so we only paginate the slice the
+    // chart actually consumes — without this, mature tokens with months of
+    // trade history fan out to up to `MAX_PAGES × PAGE_SIZE` (20K) sequential
+    // GraphQL rows even when the visible window is the last hour. The
+    // anchor-before-window query that runs in parallel preserves the ratio
+    // baseline so the first in-window LT-rate sample still has a price to
+    // multiply against (no phantom green candle at `fromSec`).
     (async () => {
       const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-      return queryPonderAll<PonderTokenSnapshot>(
-        `query ($address: String!, $limit: Int!, $offset: Int!) {
-          tokenSnapshots(
-            where: { tokenAddress: $address }
-            limit: $limit
-            offset: $offset
-            orderBy: "timestamp"
-            orderDirection: "asc"
-          ) {
-            items {
-              curveSupply
-              ltReserve
-              timestamp
+      const [windowResult, anchor] = await Promise.all([
+        queryPonderAll<PonderTokenSnapshot>(
+          `query ($address: String!, $fromSec: BigInt!, $limit: Int!, $offset: Int!) {
+            tokenSnapshots(
+              where: { tokenAddress: $address, timestamp_gte: $fromSec }
+              limit: $limit
+              offset: $offset
+              orderBy: "timestamp"
+              orderDirection: "asc"
+            ) {
+              items {
+                curveSupply
+                ltReserve
+                timestamp
+              }
             }
-          }
-        }`,
-        "tokenSnapshots",
-        { address },
-      );
+          }`,
+          "tokenSnapshots",
+          { address, fromSec: String(fromSec) },
+        ),
+        queryPonder<{
+          tokenSnapshots: { items: PonderTokenSnapshot[] } | null;
+        }>(
+          `query ($address: String!, $fromSec: BigInt!) {
+            tokenSnapshots(
+              where: { tokenAddress: $address, timestamp_lt: $fromSec }
+              orderBy: "timestamp"
+              orderDirection: "desc"
+              limit: 1
+            ) {
+              items {
+                curveSupply
+                ltReserve
+                timestamp
+              }
+            }
+          }`,
+          { address, fromSec: String(fromSec) },
+        ),
+      ]);
+
+      // Distinguish the three anchor outcomes:
+      //   (a) `anchor === null` → `queryPonder` returned null (transient
+      //       Ponder failure mid-request, after the up-front health check
+      //       passed). Silently falling back to "no prior snapshot" would
+      //       recreate the phantom-opening-candle bug this query exists to
+      //       prevent — a token with real trades between launch and
+      //       `fromSec` would price the early window against the launch
+      //       anchor instead of its most recent pre-window snapshot. Bubble
+      //       it up as `truncated` so the existing 503 handler signals
+      //       degraded indexer data instead of rendering a wrong chart.
+      //   (b) `anchor.tokenSnapshots.items === []` → genuinely no snapshot
+      //       before `fromSec` (e.g. token launched inside the window or
+      //       has had zero indexed trades pre-window). Safe to proceed —
+      //       the launch anchor inside `buildRatioTimeline` is the right
+      //       baseline.
+      //   (c) `anchor.tokenSnapshots.items.length > 0` → prepend the single
+      //       pre-window snapshot so the timeline has a ratio at `fromSec`.
+      if (anchor === null) {
+        return { items: windowResult.items, truncated: true };
+      }
+      const anchorItems = anchor.tokenSnapshots?.items ?? [];
+      return {
+        items: [...anchorItems, ...windowResult.items],
+        truncated: windowResult.truncated,
+      };
     })(),
   ]);
 
