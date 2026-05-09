@@ -246,30 +246,38 @@ chart.get("/:address", async (c) => {
   const sampleSec = Math.max(1, Math.ceil(candleSec / 3));
 
   const db = createDb(c.env.DATABASE_URL);
-  const [dbToken] = await db
-    .select({ ltPair: tokens.ltPair })
-    .from(tokens)
-    .where(eq(tokens.address, getAddress(rawAddress)))
-    .limit(1);
-
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const healthCheck = await queryPonder<{ __typename: string }>("{ __typename }");
+
+  // These three calls have no real interdependency for the common case (DB
+  // token row exists). Only the rare `tokenInfo?.ltToken` fallback below cares
+  // about ordering, so fan them out in parallel and reconcile afterwards —
+  // shaves ~2 round-trips off the chart's wall-clock latency. See issue #485.
+  const [dbTokenResult, healthCheck, ponderToken] = await Promise.all([
+    db
+      .select({ ltPair: tokens.ltPair })
+      .from(tokens)
+      .where(eq(tokens.address, getAddress(rawAddress)))
+      .limit(1),
+    queryPonder<{ __typename: string }>("{ __typename }"),
+    queryPonder<{ token: PonderTokenInfo | null }>(
+      `query ($address: String!) {
+        token(address: $address) {
+          k
+          ltToken
+          graduated
+          graduatedAt
+          timestamp
+        }
+      }`,
+      { address },
+    ),
+  ]);
+
   if (healthCheck === null) {
     return c.json(formatError("Indexer unavailable — chart data cannot be loaded"), 503);
   }
 
-  const ponderToken = await queryPonder<{ token: PonderTokenInfo | null }>(
-    `query ($address: String!) {
-      token(address: $address) {
-        k
-        ltToken
-        graduated
-        graduatedAt
-        timestamp
-      }
-    }`,
-    { address },
-  );
+  const [dbToken] = dbTokenResult;
 
   const tokenInfo = ponderToken?.token;
   const ltAddress = dbToken?.ltPair ?? tokenInfo?.ltToken;
