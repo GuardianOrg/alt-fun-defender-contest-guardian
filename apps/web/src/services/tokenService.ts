@@ -1,4 +1,9 @@
-import { getAssetDisplayName } from "@launchpad/shared";
+import {
+  buildTelegramUrl,
+  buildTwitterUrl,
+  buildWebsiteUrl,
+  getAssetDisplayName,
+} from "@launchpad/shared";
 
 import { API_BASE, fetchToken, fetchTokens } from "./api";
 
@@ -76,11 +81,38 @@ export function fromApiToken(api: ApiToken): Token {
     status: deriveStatus(api),
     creatorAddress: api.creator,
     createdAt: api.createdAt,
-    socialLinks: (api.twitterUrl || api.telegramUrl || api.websiteUrl) ? {
-      twitter: api.twitterUrl || undefined,
-      telegram: api.telegramUrl || undefined,
-      website: api.websiteUrl || undefined,
-    } : undefined,
+    socialLinks: buildSocialLinks(api),
+  };
+}
+
+/**
+ * Build the rendered social-link URLs from the raw API fields.
+ *
+ * The API stores Twitter / Telegram as **bare handles** (e.g. `"alice"`,
+ * `"+abc1234"`) and only the website as a full URL (see
+ * `apps/api/src/lib/token-registration.ts`). Rendering the bare handles
+ * straight into `<a href>` produces relative URLs (`href="alice"` →
+ * `https://alt.fun/alice` → 404), so every Twitter/Telegram link on the
+ * token detail page was broken (issue #471).
+ *
+ * Pipe each field through the matching `build*Url` helper from
+ * `@launchpad/shared` — these turn a stored handle into a fully-qualified
+ * `https://x.com/<handle>` / `https://t.me/<path>` URL, and return `null`
+ * for anything that fails the same sanitisation gate the API write path
+ * uses (covers tampered / unsafe stored values too).
+ */
+function buildSocialLinks(api: ApiToken): Token["socialLinks"] {
+  const twitter = buildTwitterUrl(api.twitterUrl);
+  const telegram = buildTelegramUrl(api.telegramUrl);
+  const website = buildWebsiteUrl(api.websiteUrl);
+  if (!twitter && !telegram && !website) return undefined;
+  // Omit absent keys instead of writing `undefined` so consumers that
+  // iterate or `in`-check the object see the same shape they'd get from
+  // a token where that field was never stored in the first place.
+  return {
+    ...(twitter ? { twitter } : {}),
+    ...(telegram ? { telegram } : {}),
+    ...(website ? { website } : {}),
   };
 }
 
