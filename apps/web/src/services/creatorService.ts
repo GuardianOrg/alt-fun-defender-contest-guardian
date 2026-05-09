@@ -1,7 +1,7 @@
 import { FeeVaultAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http } from "viem";
 
-import { API_BASE, fetchTokens } from "./api";
+import { API_BASE, fetchAllTokens } from "./api";
 import { hyperEVM } from "../config/chains";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 
@@ -20,10 +20,14 @@ export interface ICreatorService {
 const liveCreatorService: ICreatorService = {
   async getEarnings(walletAddress) {
     try {
-      const tokens = await fetchTokens(100);
-      const createdTokens = tokens.filter(
-        (t) => t.creator.toLowerCase() === walletAddress.toLowerCase(),
-      );
+      // Server-side `creator` filter pushes the lookup into Postgres so we
+      // only paginate this wallet's tokens, not the full catalogue. Without
+      // it, a creator whose token slipped off the top-100-by-createdAt
+      // would see it disappear from the rewards tab the moment the platform
+      // crossed 100 launches (issue #476). `fetchAllTokens` walks the
+      // 100-row server cap until exhausted, so even a creator with hundreds
+      // of tokens is covered.
+      const createdTokens = await fetchAllTokens({ creator: walletAddress });
 
       // Fees are pooled at the `FeeVault` level — a single USDC balance per
       // creator covers every token they've launched. One read, not N.

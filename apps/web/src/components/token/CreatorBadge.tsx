@@ -48,12 +48,13 @@ export default function CreatorBadge({ token }: Props) {
         <div className={styles.details}>
           {/*
             Per-token stats are conditional on `tokenData` because the
-            creator service caps `fetchTokens(100)` and per-token volume/
-            earned live on the token row. The pooled claim action, by
-            contrast, reads `earnings.totalClaimable` straight off
-            `FeeVault.creatorBalance(wallet)` — so we still want to show
-            the claim button even when this specific token didn't make
-            the 100-token slice (otherwise the header would promise a
+            creator service paginates `/api/v1/tokens?creator=…` to gather
+            per-token volume / earned, and that walk can transiently fail
+            (or be in flight) while the user is already on the page. The
+            pooled claim action, by contrast, reads `earnings.totalClaimable`
+            straight off `FeeVault.creatorBalance(wallet)` — so we still
+            want to show the claim button even when the per-token slice
+            isn't in hand yet (otherwise the header would promise a
             claimable balance that the user has no way to action from
             this page).
           */}

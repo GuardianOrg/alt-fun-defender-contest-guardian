@@ -23,7 +23,7 @@ describe("buildTokenMarketStats", () => {
   it("prefers live mcap from useTokenPrices over backend mcap", () => {
     const stats = buildTokenMarketStats(
       12_345,
-      { mcapUsd: 10_000, change24h: 5, past24hPriceUsd: 0.0001 },
+      { priceUsd: 0.00001, mcapUsd: 10_000, change24h: 5, past24hPriceUsd: 0.0001 },
       false,
       false,
     );
@@ -34,7 +34,7 @@ describe("buildTokenMarketStats", () => {
   it("falls back to backend mcap when live mcap is unavailable", () => {
     const stats = buildTokenMarketStats(
       0,
-      { mcapUsd: 9_000, change24h: -3, past24hPriceUsd: 0.0001 },
+      { priceUsd: 0.000009, mcapUsd: 9_000, change24h: -3, past24hPriceUsd: 0.0001 },
       false,
       false,
     );
@@ -57,7 +57,7 @@ describe("buildTokenMarketStats", () => {
   it("returns null change24h when backend reports null (too new to compute)", () => {
     const stats = buildTokenMarketStats(
       15_000,
-      { mcapUsd: 15_000, change24h: null, past24hPriceUsd: null },
+      { priceUsd: 0.000015, mcapUsd: 15_000, change24h: null, past24hPriceUsd: null },
       false,
       false,
     );
