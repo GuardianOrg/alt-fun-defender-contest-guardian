@@ -16,7 +16,7 @@ import ProgressBar from "../shared/ProgressBar";
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
-  const { data: token, isLoading, isError } = useToken(address);
+  const { data: token, isError } = useToken(address);
   // Live owner-tunable threshold; fall back to the compile-time default
   // while the RPC read is in flight so the curve strip never flashes "$0".
   const { data: graduationThresholdUsd, fallback: thresholdFallback } =
@@ -26,18 +26,18 @@ export default function TokenDetailView() {
   // a `graduation` WS event for this token.
   useGraduationFeed(address);
 
-  if (isLoading) {
+  if (isError) {
     return (
       <div className={styles.wrapper}>
-        <div className={styles.loading}>Loading token...</div>
+        <div className={styles.loading}>Token not found</div>
       </div>
     );
   }
 
-  if (isError || !token) {
+  if (!address) {
     return (
       <div className={styles.wrapper}>
-        <div className={styles.loading}>Token not found</div>
+        <div className={styles.loading}>Loading token...</div>
       </div>
     );
   }
@@ -49,24 +49,34 @@ export default function TokenDetailView() {
   // a single solid fill so we don't imply "all boost, no organic".
   // A null `curveFilled` (degraded) renders as an empty bar; numeric
   // display sites use `formatCurveFilled` to show `—` instead of `0%`.
-  const filled = token.curveFilled ?? 0;
-  const organic = token.organicFilled ?? filled;
+  const filled = token?.curveFilled ?? 0;
+  const organic = token?.organicFilled ?? filled;
   const buyW = Math.min(organic, filled);
   const levW = Math.max(filled - buyW, 0);
 
+  // Keep a single, stable render tree across loading → loaded so the Chart
+  // fiber (and its in-flight `fetchChart` request) is preserved when
+  // `useToken` resolves. Sections that depend on token metadata render a
+  // placeholder until `token` is available; the chart only needs `address`
+  // (the `:address` route param) and mounts immediately so its fetch runs
+  // in parallel with the metadata request rather than sequentially after.
   return (
     <div className={styles.wrapper}>
       <div className={styles.leftPanel}>
-        <HeroSection token={token} />
+        {token ? (
+          <HeroSection token={token} />
+        ) : (
+          <div className={styles.loading}>Loading token...</div>
+        )}
         <ErrorBoundary
           fallback={
             <div className={styles.errorFallback}>Chart failed to load</div>
           }
         >
-          <Chart token={token} />
+          <Chart address={address} token={token ?? null} />
         </ErrorBoundary>
 
-        {token.status !== "graduated" && (
+        {token && token.status !== "graduated" && (
           <div className={styles.curveStrip}>
             <span className={styles.curveLabel}>curve</span>
             <span className={styles.curveRaised}>
@@ -90,26 +100,32 @@ export default function TokenDetailView() {
           </div>
         )}
 
-        <TokenInfoStrip token={token} />
+        {token && <TokenInfoStrip token={token} />}
 
+        {token && (
+          <ErrorBoundary
+            fallback={
+              <div className={styles.errorFallback}>
+                Failed to load tab content
+              </div>
+            }
+          >
+            <BottomTabs token={token} />
+          </ErrorBoundary>
+        )}
+      </div>
+
+      {token && (
         <ErrorBoundary
           fallback={
             <div className={styles.errorFallback}>
-              Failed to load tab content
+              Trade panel failed to load
             </div>
           }
         >
-          <BottomTabs token={token} />
+          <TradePanel token={token} />
         </ErrorBoundary>
-      </div>
-
-      <ErrorBoundary
-        fallback={
-          <div className={styles.errorFallback}>Trade panel failed to load</div>
-        }
-      >
-        <TradePanel token={token} />
-      </ErrorBoundary>
+      )}
     </div>
   );
 }
