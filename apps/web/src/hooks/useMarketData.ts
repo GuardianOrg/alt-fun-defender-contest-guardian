@@ -31,5 +31,12 @@ export function useMarketData() {
     isLoading: query.isLoading,
     isError: query.isError,
     getTokenMarketData,
+    /**
+     * Wall-clock ms when TanStack last filled the query (initial fetch
+     * or refetch). Live overlay hooks (`useLiveTokenVolume24h`) use this
+     * to decide when to drop their accumulated WS deltas — the next
+     * polled snapshot already includes those trades.
+     */
+    dataUpdatedAt: query.dataUpdatedAt,
   };
 }

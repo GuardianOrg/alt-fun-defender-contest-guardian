@@ -8,6 +8,13 @@ export interface TokenMarketStats {
   mcapUsd: number | null;
   /** 24h percent change in price. `null` while loading or when unavailable. */
   change24h: number | null;
+  /**
+   * 24h USD trading volume (buys + sells through `Zap`). `null` while
+   * loading or when the indexer aggregation is degraded. Refreshed on
+   * the same 30s `/market-data` cadence as `mcapUsd` / `change24h`; for
+   * sub-30s liveness layer `useLiveTokenVolume24h` on top.
+   */
+  volume24hUsd: number | null;
   isLoading: boolean;
   isError: boolean;
 }
@@ -26,6 +33,7 @@ export function buildTokenMarketStats(
   return {
     mcapUsd: live ?? marketData?.mcapUsd ?? null,
     change24h: marketData?.change24h ?? null,
+    volume24hUsd: marketData?.volume24hUsd ?? null,
     isLoading,
     isError,
   };
@@ -46,7 +54,13 @@ export function useTokenMarketStats(address: string | undefined): TokenMarketSta
   const isError = marketData.isError;
 
   if (!address) {
-    return { mcapUsd: null, change24h: null, isLoading, isError };
+    return {
+      mcapUsd: null,
+      change24h: null,
+      volume24hUsd: null,
+      isLoading,
+      isError,
+    };
   }
 
   const key = address.toLowerCase();

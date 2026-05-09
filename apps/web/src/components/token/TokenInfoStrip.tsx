@@ -5,6 +5,7 @@ import BTC from "../../assets/Logos/BTC.svg";
 import ETH from "../../assets/Logos/ETH.svg";
 import HYPE from "../../assets/Logos/HYPE.svg";
 import SOL from "../../assets/Logos/SOL.svg";
+import { useLiveTokenVolume24h } from "../../hooks/useLiveTokenVolume24h";
 import { formatUsdOrDash } from "../../utils/format";
 
 import type { Token } from "../../services/types";
@@ -68,6 +69,12 @@ export default function TokenInfoStrip({ token }: Props) {
   const logo = UNDERLYING_LOGOS[token.underlying];
   const direction = token.direction === "short" ? "Short" : "Long";
   const backing = `${token.underlying} ${token.leverage}x ${direction}`;
+  // Live 24h volume: 30s polled snapshot from `/api/v1/market-data` plus
+  // WS-driven `Zap:Buy`/`Zap:Sell` deltas for trades that have landed since
+  // the last poll. Falls back to `token.volume24h` from the initial token
+  // fetch only if the live source is degraded.
+  const liveVolume24hUsd = useLiveTokenVolume24h(token.address);
+  const displayVolume24h = liveVolume24hUsd ?? token.volume24h;
 
   // Curate the socials defensively — `socialLinks` is optional on `Token`
   // and individual fields can be empty strings (the create form starts
@@ -119,7 +126,7 @@ export default function TokenInfoStrip({ token }: Props) {
         <div className={styles.stat}>
           <span className={styles.label}>Vol 24hr</span>
           <span className={styles.value}>
-            {formatUsdOrDash(token.volume24h)}
+            {formatUsdOrDash(displayVolume24h)}
           </span>
         </div>
 

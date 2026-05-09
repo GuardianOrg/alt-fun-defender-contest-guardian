@@ -405,6 +405,14 @@ export interface MarketDataEntry {
   mcapUsd: number | null;
   change24h: number | null;
   past24hPriceUsd: number | null;
+  /**
+   * 24h USD trading volume (buys + sells through `Zap`). `null` while the
+   * indexer aggregation is degraded — render as `—`, never `$0`. Surfaced
+   * here so the hero card can live-update volume off the same 30s
+   * `/market-data` poll that drives mcap (with WS deltas layered on top
+   * via `useLiveTokenVolume24h`).
+   */
+  volume24hUsd: number | null;
 }
 
 export type MarketDataMap = Record<string, MarketDataEntry>;
