@@ -1,9 +1,8 @@
-import { fetchComments, fetchHolders } from "./api";
+import { fetchHolders } from "./api";
 import { subscribeFeed, subscribeTokenTrades } from "./tradeFeed";
 import { formatTokenBalance } from "./tradeFormatter";
-import { formatTimeAgo } from "../utils/format";
 
-import type { Comment, Holder, Trade } from "./types";
+import type { Holder, Trade } from "./types";
 
 export type { TradeBroadcast } from "./types";
 export { formatTokenBalance } from "./tradeFormatter";
@@ -16,7 +15,6 @@ export interface ITradeService {
     cb: (trade: Trade) => void,
   ): () => void;
   getInitialTrades(address: string): Trade[];
-  getComments(address: string): Promise<Comment[]>;
   getHolders(address: string): Promise<Holder[]>;
 }
 
@@ -28,21 +26,6 @@ const liveTradeService: ITradeService = {
   getInitialTrades(_address) {
     void _address;
     return [];
-  },
-
-  async getComments(address) {
-    try {
-      const apiComments = await fetchComments(address);
-      return apiComments.map((c) => ({
-        id: String(c.id),
-        emoji: "",
-        address: `${c.author.slice(0, 4)}…${c.author.slice(-2)}`,
-        timeAgo: formatTimeAgo(c.createdAt),
-        text: c.content,
-      }));
-    } catch {
-      return [];
-    }
   },
 
   async getHolders(address) {

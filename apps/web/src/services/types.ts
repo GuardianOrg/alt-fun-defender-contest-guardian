@@ -88,14 +88,6 @@ export interface Holder {
   isCreator: boolean;
 }
 
-export interface Comment {
-  id: string;
-  emoji: string;
-  address: string;
-  timeAgo: string;
-  text: string;
-}
-
 export interface PlatformStats {
   tokensLive: number;
   graduating: number;

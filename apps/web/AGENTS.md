@@ -7,7 +7,7 @@ React 19, Vite, TypeScript, CSS Modules. Dark terminal aesthetic (Courier New, m
 | Route | Description |
 |---|---|
 | `/` | Homepage — asset sidebar, LONG/SHORT token tables, trade/graduation feed |
-| `/token/:address` | Token detail — chart, trade panel, trades/comments/holders |
+| `/token/:address` | Token detail — chart, trade panel, trades/holders |
 | `/create` | Create token — pair selector, token details, seed buy, preview |
 
 Plus: search modal (Cmd+K), profile panel (right drawer), bridge modal (LI.FI).

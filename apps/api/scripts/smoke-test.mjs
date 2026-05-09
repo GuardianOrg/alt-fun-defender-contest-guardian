@@ -231,25 +231,6 @@ async function runTests() {
     assert(res.status === 400, `Expected 400, got ${res.status}`);
   });
 
-  console.log("\n--- Comments (DB) ---\n");
-
-  await test("GET /api/v1/tokens/:address/comments returns list shape", async () => {
-    if (!discoveredToken) skip("DB has no tokens");
-    const { res, body } = await fetchJson(`/api/v1/tokens/${discoveredToken}/comments`);
-    assert(res.status === 200, `Expected 200, got ${res.status}`);
-    assert(Array.isArray(body.data), "Expected array");
-    if (body.data.length > 0) {
-      assert("content" in body.data[0], "Missing content");
-      assert("author" in body.data[0], "Missing author");
-    }
-  });
-
-  await test("Comments empty for unknown token", async () => {
-    const { res, body } = await fetchJson(`/api/v1/tokens/${NONEXISTENT_ADDRESS}/comments`);
-    assert(res.status === 200, `Expected 200, got ${res.status}`);
-    assert(body.data.length === 0, "Expected empty array");
-  });
-
   console.log("\n--- Creators (DB) ---\n");
 
   await test("GET /api/v1/creators/:address returns profile", async () => {

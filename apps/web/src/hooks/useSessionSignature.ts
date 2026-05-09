@@ -55,7 +55,7 @@ interface SessionSignature {
 
 /**
  * Manages a persisted session signature so users only need to sign once
- * (per 24-hour window) for actions like commenting and profile updates.
+ * (per 24-hour window) for actions like profile updates.
  *
  * Returns `getSessionSignature()` which either returns the cached session
  * or prompts the wallet for a new signature and persists it.

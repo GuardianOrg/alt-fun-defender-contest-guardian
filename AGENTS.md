@@ -134,7 +134,7 @@ The API Worker's `scheduled()` handler (1-minute cadence) sweeps Ponder for the 
 
 ### Signing (other off-chain writes)
 
-Other off-chain writes — comments, profile updates — still require a wallet signature, but they reuse the 24-hour session signature flow (`buildSessionMessage` + `useSessionSignature`) so users sign **once per day, not per action**. Token creation does not participate in this — the on-chain `TokenInfo` is sufficient proof, so no signed message is needed at all.
+Other off-chain writes — profile updates — still require a wallet signature, but they reuse the 24-hour session signature flow (`buildSessionMessage` + `useSessionSignature`) so users sign **once per day, not per action**. Token creation does not participate in this — the on-chain `TokenInfo` is sufficient proof, so no signed message is needed at all.
 
 ---
 

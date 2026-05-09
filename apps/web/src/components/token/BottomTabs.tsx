@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 
 import styles from "./BottomTabs.module.css";
-import CommentsTab from "./CommentsTab";
 import HoldersTab from "./HoldersTab";
 import TradesTab from "./TradesTab";
 import { tradeService } from "../../services/tradeService";
@@ -14,7 +13,7 @@ interface Props {
   token: Token;
 }
 
-type Tab = "trades" | "comments" | "holders";
+type Tab = "trades" | "holders";
 
 export default function BottomTabs({ token }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("trades");
@@ -27,7 +26,7 @@ export default function BottomTabs({ token }: Props) {
   return (
     <>
       <div className={styles.tabBar}>
-        {(["trades", "comments", "holders"] as Tab[]).map((tab) => (
+        {(["trades", "holders"] as Tab[]).map((tab) => (
           <button
             key={tab}
             className={cn(
@@ -49,15 +48,6 @@ export default function BottomTabs({ token }: Props) {
             }
           >
             <TradesTab token={token} />
-          </ErrorBoundary>
-        )}
-        {activeTab === "comments" && (
-          <ErrorBoundary
-            fallback={
-              <div className={styles.tabError}>Failed to load comments</div>
-            }
-          >
-            <CommentsTab token={token} />
           </ErrorBoundary>
         )}
         {activeTab === "holders" && (

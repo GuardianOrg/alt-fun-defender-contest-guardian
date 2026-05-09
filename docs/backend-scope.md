@@ -47,8 +47,6 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 | `GET /tokens/:address/chart` | OHLCV candlestick data. Intervals: 1s, 1m, 5m, 15m, 1h, 4h. Continuous across graduation. |
 | `GET /tokens/:address/holders` | Top holders by balance. Optional (depends on Transfer indexing). |
 | `GET /tokens/:address/security` | For trading terminals: `lpLocked`, `creatorHoldingPct`, `contractVerified`. |
-| `GET /tokens/:address/comments` | Paginated comments. |
-| `POST /tokens/:address/comments` | Post comment. Auth: wallet signature. Max 500 chars. Rate limit: 1 per 30s per wallet per token. |
 
 ### Creator / Portfolio / Platform
 

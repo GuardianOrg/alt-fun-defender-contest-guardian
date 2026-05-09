@@ -123,14 +123,6 @@ export interface ApiToken {
   poolAddress?: string | null;
 }
 
-export interface ApiComment {
-  id: number;
-  tokenAddress: string;
-  author: string;
-  content: string;
-  createdAt: string;
-}
-
 export type TokenListSort =
   | "createdAt"
   | "leverage"
@@ -257,30 +249,6 @@ export function registerTokenApi(address: string): Promise<ApiToken> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address }),
-  });
-}
-
-export function fetchComments(
-  tokenAddress: string,
-  limit = 50,
-  offset = 0,
-): Promise<ApiComment[]> {
-  return apiFetch(
-    `/api/v1/tokens/${tokenAddress}/comments?limit=${limit}&offset=${offset}`,
-  );
-}
-
-export function postComment(
-  tokenAddress: string,
-  author: string,
-  content: string,
-  signature: string,
-  expiresAt: number,
-): Promise<ApiComment> {
-  return apiFetch(`/api/v1/tokens/${tokenAddress}/comments`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ author, content, signature, expiresAt }),
   });
 }
 

@@ -75,7 +75,7 @@ Contracts emit events
         ▼                   │
     Hono API ────────────┤
         │                   │
-        ├─ Postgres (off-chain: comments, profiles, token metadata)
+        ├─ Postgres (off-chain: profiles, token metadata)
         ├─ R2 (images)
         ├─ Durable Objects (WebSocket fan-out + LtTicker alarm loop)
         ▼

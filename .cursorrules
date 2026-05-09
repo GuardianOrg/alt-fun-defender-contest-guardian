@@ -14,7 +14,7 @@ npm workspaces monorepo with Turborepo. TypeScript strict mode everywhere.
 ## Architecture
 
 Contracts emit events -> Ponder indexes them into a GraphQL API (read path).
-Hono API handles off-chain data: comments, user profiles, admin actions, API keys (write path).
+Hono API handles off-chain data: user profiles, admin actions, API keys (write path).
 Frontend queries Ponder for on-chain data, Hono API for off-chain data, and uses Privy for wallet interactions.
 ABIs flow: Foundry build -> export script -> `packages/shared/src/abis/` -> consumed by all apps.
 

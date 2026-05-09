@@ -9,12 +9,12 @@ import type { MiddlewareHandler } from "hono";
  * from a web app without us having to maintain an explicit allowlist.
  *
  * Writes (and their preflights) are locked to first-party Alt Fun frontends
- * so a malicious page can't drive a victim's browser into POSTing comments,
- * editing profiles, registering tokens, or uploading images on their behalf
- * (the session signature in localStorage and any future cookie-bound auth
- * would otherwise be exfiltrable via a stray <form> on evil.com). Server-
- * side integrators using `X-API-Key` don't issue browser preflights and so
- * are unaffected by this lockdown.
+ * so a malicious page can't drive a victim's browser into editing profiles,
+ * registering tokens, or uploading images on their behalf (the session
+ * signature in localStorage and any future cookie-bound auth would
+ * otherwise be exfiltrable via a stray <form> on evil.com). Server-side
+ * integrators using `X-API-Key` don't issue browser preflights and so are
+ * unaffected by this lockdown.
  */
 const ALLOWED_WRITE_ORIGINS: ReadonlySet<string> = new Set([
   "https://alt.fun",

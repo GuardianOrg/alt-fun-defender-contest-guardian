@@ -25,16 +25,6 @@ export const tokens = pgTable("tokens", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const comments = pgTable("comments", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  tokenAddress: varchar("token_address", { length: 42 })
-    .notNull()
-    .references(() => tokens.address),
-  author: varchar("author", { length: 42 }).notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
 export const apiKeys = pgTable("api_keys", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   keyHash: varchar("key_hash", { length: 64 }).notNull().unique(),
