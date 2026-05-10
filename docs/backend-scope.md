@@ -73,7 +73,7 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 
 | Endpoint | Description |
 |---|---|
-| `POST /images` | Upload token image. Max 5MB. Accepts JPEG, PNG, GIF, WebP. Server-side content moderation (reject illegal content — CSAM, extreme violence). Adult content permitted if legal. Returns R2 URL. Auth: wallet signature. |
+| `POST /images` | Upload token image. Max 5MB. Accepts JPEG, PNG, GIF, WebP. Server-side content moderation via OpenAI `omni-moderation-latest` (free tier; per-category thresholds cover violence, gore, sexual content, self-harm). Adult content permitted if legal. Borderline images go to a manual review queue. Failure mode is fail-closed (503, no upload) when the moderation API is unavailable. **Not a CSAM-specific detector** — see `AGENTS.md` → *Image Upload & Content Moderation* for the caveat. Returns R2 URL. Auth: wallet signature. |
 
 ### Terminal API
 

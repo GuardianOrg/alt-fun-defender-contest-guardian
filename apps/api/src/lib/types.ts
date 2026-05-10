@@ -14,7 +14,26 @@ export interface AppBindings {
    */
   WS_IP_LIMITER_DO: DurableObjectNamespace;
   LT_TICKER_DO: DurableObjectNamespace;
-  AI: Ai;
+  /**
+   * OpenAI API key (`sk-...`) used by `lib/image-moderation.ts` to call the
+   * `omni-moderation-latest` endpoint on every token-image upload. The
+   * endpoint is free per OpenAI's pricing page, but a key is still required
+   * for auth + per-org abuse tracking.
+   *
+   * Setup:
+   *   1. Create a key at `https://platform.openai.com/api-keys` and apply
+   *      least-privilege permissions per your org's key-restriction model
+   *      — endpoint-based restrictions (Write on `/v1/moderations`) for
+   *      restricted keys, or the equivalent RBAC role if the project uses
+   *      RBAC. There is no dedicated "moderation" scope name.
+   *   2. `wrangler secret put OPENAI_API_KEY` for prod / preview.
+   *   3. Set in `.dev.vars` for local development.
+   *
+   * Optional in dev: leaving this blank causes every upload to 503 with
+   * "moderation temporarily unavailable" — fail-closed by design (see the
+   * file-level note in `image-moderation.ts`).
+   */
+  OPENAI_API_KEY?: string;
   /**
    * Hot-wallet private key (`0x…`-prefixed) for the graduation keeper. The
    * worker calls `Bonding.finalizeGraduation` from this account once a token

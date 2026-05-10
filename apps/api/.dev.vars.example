@@ -31,3 +31,17 @@ KEEPER_PRIVATE_KEY=
 
 # Optional override for the HyperEVM RPC URL. Defaults to the public RPC.
 HYPEREVM_RPC_URL=
+
+# OpenAI API key for image moderation (token-logo uploads). Drives the
+# `omni-moderation-latest` call in `apps/api/src/lib/image-moderation.ts`.
+# OpenAI's moderation endpoint is free but a valid key is still required
+# for auth.
+# Setup:
+#   1. Create at https://platform.openai.com/api-keys. Apply least-privilege
+#      permissions per your org's key-restriction model — endpoint-based
+#      restrictions (Write on `/v1/moderations`) for restricted keys, or
+#      the equivalent RBAC role if the project uses RBAC.
+#   2. `wrangler secret put OPENAI_API_KEY` for prod / preview.
+# Leaving blank in dev causes every image upload to 503 with
+# "moderation temporarily unavailable" — fail-closed by design.
+OPENAI_API_KEY=

@@ -11,98 +11,19 @@ import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
 import { createDb } from "../db/client.js";
 import { moderationLogs } from "../db/schema.js";
+import {
+  moderateImage,
+  type CategoryScore,
+} from "../lib/image-moderation.js";
 
 import type { AppBindings } from "../lib/types.js";
-
-// Production CSAM detection should use a certified service (e.g. Microsoft PhotoDNA).
-// This Workers AI layer detects obviously objectionable content but is NOT NCMEC-certified.
-
-// Confidence thresholds for image classification
-const REJECT_THRESHOLD = 0.75;
-const REVIEW_THRESHOLD = 0.40;
-
-// ImageNet labels that indicate potentially prohibited content
-const BLOCKED_LABELS = new Set([
-  "revolver",
-  "rifle",
-  "assault_rifle",
-  "guillotine",
-  "hatchet",
-  "cleaver",
-  "meat_cleaver",
-  "military_uniform",
-  "bulletproof_vest",
-  "holster",
-]);
-
-interface ClassificationEntry {
-  label: string;
-  score: number;
-}
-
-interface ModerationResult {
-  safe: boolean;
-  flaggedForReview: boolean;
-  reason: string;
-  unavailable?: boolean;
-  classifications: ClassificationEntry[];
-}
-
-async function moderateImage(ai: Ai, imageBytes: Uint8Array): Promise<ModerationResult> {
-  try {
-    const response = await ai.run("@cf/microsoft/resnet-50", {
-      image: Array.from(imageBytes),
-    });
-
-    const classifications: ClassificationEntry[] = Array.isArray(response)
-      ? (response as ClassificationEntry[]).map((c) => ({ label: c.label, score: c.score }))
-      : [];
-
-    // Check classifications against blocked labels using confidence thresholds
-    for (const entry of classifications) {
-      const normalizedLabel = entry.label.toLowerCase().replace(/\s+/g, "_");
-
-      if (!BLOCKED_LABELS.has(normalizedLabel)) {
-        continue;
-      }
-
-      if (entry.score >= REJECT_THRESHOLD) {
-        return {
-          safe: false,
-          flaggedForReview: false,
-          reason: "Image contains content that violates our policy",
-          classifications,
-        };
-      }
-
-      if (entry.score >= REVIEW_THRESHOLD) {
-        return {
-          safe: false,
-          flaggedForReview: true,
-          reason: "Image flagged for manual review",
-          classifications,
-        };
-      }
-    }
-
-    return { safe: true, flaggedForReview: false, reason: "", classifications };
-  } catch {
-    return {
-      safe: false,
-      flaggedForReview: false,
-      reason: "Image moderation is temporarily unavailable. Please try again.",
-      unavailable: true,
-      classifications: [],
-    };
-  }
-}
 
 async function logModerationDecision(
   databaseUrl: string,
   imageKey: string,
   decision: "approved" | "rejected" | "pending_review",
   reason: string,
-  classifications: ClassificationEntry[],
+  classifications: CategoryScore[],
 ): Promise<void> {
   try {
     const db = createDb(databaseUrl);
@@ -171,7 +92,11 @@ images.post("/", async (c) => {
   const arrayBuffer = await file.arrayBuffer();
   const key = `tokens/${crypto.randomUUID()}-${sanitizeFileName(file.name)}`;
 
-  const moderationResult = await moderateImage(c.env.AI, new Uint8Array(arrayBuffer));
+  const moderationResult = await moderateImage(
+    c.env.OPENAI_API_KEY,
+    new Uint8Array(arrayBuffer),
+    file.type,
+  );
 
   if (moderationResult.unavailable) {
     return c.json(formatError(moderationResult.reason), 503);

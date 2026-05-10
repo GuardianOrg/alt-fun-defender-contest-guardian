@@ -1,0 +1,307 @@
+/**
+ * OpenAI `omni-moderation-latest` image moderation.
+ *
+ * The endpoint is free (`https://platform.openai.com/docs/guides/moderation`,
+ * cross-checked against `https://help.openai.com/en/articles/4936833`) and
+ * supports multimodal inputs up to 20MB per image. The image-applicable
+ * categories are: `sexual`, `self-harm`, `self-harm/intent`,
+ * `self-harm/instructions`, `violence`, `violence/graphic`. The remaining
+ * categories (`harassment*`, `hate*`, `illicit*`, `sexual/minors`) are
+ * text-only and always score 0 on a pure-image input.
+ *
+ * **CSAM caveat (read before changing thresholds):** OpenAI does not return
+ * `sexual/minors` from images — that category is text-only by design. CSAM
+ * imagery still scores high on `sexual`, so a conservative `sexual`
+ * threshold acts as a coarse proxy here, but this layer is explicitly NOT
+ * a substitute for a NCMEC-certified hash matcher (Microsoft PhotoDNA or
+ * equivalent). Tracked separately — see `AGENTS.md` → "Image Upload &
+ * Content Moderation".
+ *
+ * If the API key is missing or the request fails, we fail **closed** —
+ * `unavailable: true` → 503 → no upload. Letting unmoderated content into
+ * R2 is the failure mode we're trying to avoid; a temporary 503 is the
+ * lesser harm.
+ */
+
+const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
+const MODERATION_MODEL = "omni-moderation-latest";
+
+const REQUEST_TIMEOUT_MS = 10_000;
+
+export interface CategoryScore {
+  label: string;
+  score: number;
+}
+
+export interface ModerationResult {
+  safe: boolean;
+  flaggedForReview: boolean;
+  reason: string;
+  unavailable?: boolean;
+  classifications: CategoryScore[];
+}
+
+/**
+ * Per-category thresholds for image-supported categories.
+ *
+ * `reject` is the auto-reject score; `review` flags borderline content
+ * for human review without rejecting it. Rationale per category:
+ *
+ * - `sexual`: stricter `reject` because this is the catch-all for adult
+ *   imagery AND the coarse CSAM proxy (see file-level note above).
+ *   Adult content is permitted by policy when legal, but anything OpenAI
+ *   scores ≥0.7 is well past the "tasteful nudity" line into explicit
+ *   territory we don't want as a token logo.
+ * - `violence/graphic`: gore. Strict.
+ * - `violence`: depictions of violence — looser ceiling so action-movie
+ *   stills don't auto-reject, but anything ≥0.85 is unambiguously gory.
+ * - `self-harm*`: strict — these have real-world harm implications.
+ *
+ * These thresholds intentionally reject *more* than OpenAI's own
+ * `flagged: true` boolean, because OpenAI calibrates `flagged` for chat
+ * UX (false positives are costly) whereas a token logo is a publication
+ * surface where false negatives are costly. We trip on score *and* on
+ * `flagged: true` for any image-applicable category.
+ */
+const CATEGORY_THRESHOLDS: Record<string, { reject: number; review: number }> = {
+  sexual: { reject: 0.7, review: 0.4 },
+  "violence/graphic": { reject: 0.7, review: 0.4 },
+  violence: { reject: 0.85, review: 0.5 },
+  "self-harm": { reject: 0.7, review: 0.4 },
+  "self-harm/intent": { reject: 0.7, review: 0.4 },
+  "self-harm/instructions": { reject: 0.7, review: 0.4 },
+};
+
+interface OpenAIModerationResult {
+  flagged: boolean;
+  categories: Record<string, boolean>;
+  category_scores: Record<string, number>;
+  category_applied_input_types?: Record<string, string[]>;
+}
+
+interface OpenAIModerationResponse {
+  id: string;
+  model: string;
+  results: OpenAIModerationResult[];
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  // Workers / modern V8 expose `btoa`. Process in 8KB chunks to avoid
+  // blowing the call-stack on large payloads (`String.fromCharCode(...)`
+  // spreads each byte as a separate argument).
+  const chunkSize = 0x2000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
+function buildClassifications(
+  scores: Record<string, number>,
+  appliedInputs: Record<string, string[]> | undefined,
+): CategoryScore[] {
+  const out: CategoryScore[] = [];
+  for (const [label, score] of Object.entries(scores)) {
+    if (typeof score !== "number") continue;
+    // Drop categories OpenAI didn't actually evaluate against the image
+    // (text-only categories return 0 on image-only input — keeping them
+    // in the audit log just adds noise).
+    const applied = appliedInputs?.[label];
+    if (applied && !applied.includes("image")) continue;
+    out.push({ label, score });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out;
+}
+
+interface DecisionContext {
+  categories: Record<string, boolean>;
+  scores: Record<string, number>;
+  appliedInputs: Record<string, string[]> | undefined;
+  flaggedByOpenAI: boolean;
+}
+
+function decide(ctx: DecisionContext): { safe: boolean; flaggedForReview: boolean; reason: string } {
+  let highestRejectCategory: { label: string; score: number } | null = null;
+  let highestReviewCategory: { label: string; score: number } | null = null;
+
+  for (const [label, threshold] of Object.entries(CATEGORY_THRESHOLDS)) {
+    const score = ctx.scores[label];
+    if (typeof score !== "number") continue;
+
+    const applied = ctx.appliedInputs?.[label];
+    if (applied && !applied.includes("image")) continue;
+
+    if (score >= threshold.reject) {
+      if (!highestRejectCategory || score > highestRejectCategory.score) {
+        highestRejectCategory = { label, score };
+      }
+      continue;
+    }
+
+    if (ctx.categories[label] === true) {
+      // OpenAI itself flagged this category. Treat as auto-reject even
+      // if our score threshold wasn't tripped — the model has policy
+      // calibration we don't.
+      if (!highestRejectCategory || score > highestRejectCategory.score) {
+        highestRejectCategory = { label, score };
+      }
+      continue;
+    }
+
+    if (score >= threshold.review) {
+      if (!highestReviewCategory || score > highestReviewCategory.score) {
+        highestReviewCategory = { label, score };
+      }
+    }
+  }
+
+  if (highestRejectCategory) {
+    return {
+      safe: false,
+      flaggedForReview: false,
+      reason: "Image contains content that violates our policy",
+    };
+  }
+
+  if (highestReviewCategory) {
+    return {
+      safe: false,
+      flaggedForReview: true,
+      reason: "Image flagged for manual review",
+    };
+  }
+
+  if (ctx.flaggedByOpenAI) {
+    // Fail-safe: if OpenAI flags content outside our explicit thresholds
+    // (e.g. a category they add in the future, or a text-only category
+    // that somehow tripped on an image), reject rather than risk letting
+    // it through the review queue. Consistent with the publication-surface
+    // strictness documented in `AGENTS.md` → *Image Upload & Content
+    // Moderation*. If it turns out to be too strict for a specific new
+    // category, add a threshold to `CATEGORY_THRESHOLDS` to handle it
+    // explicitly.
+    return {
+      safe: false,
+      flaggedForReview: false,
+      reason: "Image contains content that violates our policy",
+    };
+  }
+
+  return { safe: true, flaggedForReview: false, reason: "" };
+}
+
+export async function moderateImage(
+  apiKey: string | undefined,
+  imageBytes: Uint8Array,
+  mimeType: string,
+): Promise<ModerationResult> {
+  if (!apiKey) {
+    return {
+      safe: false,
+      flaggedForReview: false,
+      reason: "Image moderation is temporarily unavailable. Please try again.",
+      unavailable: true,
+      classifications: [],
+    };
+  }
+
+  const dataUrl = `data:${mimeType};base64,${bytesToBase64(imageBytes)}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(OPENAI_MODERATION_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODERATION_MODEL,
+        input: [{ type: "image_url", image_url: { url: dataUrl } }],
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      // Distinguish auth failure (revoked key, missing scope) from a
+      // genuine OpenAI outage. The body usually carries the
+      // human-readable error code; cap at 500 chars to avoid logging
+      // the entire response on a 5xx HTML error page.
+      const bodyPreview = await response
+        .text()
+        .then((t) => t.slice(0, 500))
+        .catch(() => "");
+      console.log(
+        JSON.stringify({
+          level: "warn",
+          event: "openai_moderation_non_ok",
+          status: response.status,
+          bodyPreview,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      return unavailable();
+    }
+
+    const json = (await response.json()) as OpenAIModerationResponse;
+    const result = json.results?.[0];
+    if (!result) {
+      console.log(
+        JSON.stringify({
+          level: "warn",
+          event: "openai_moderation_empty_results",
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      return unavailable();
+    }
+
+    const classifications = buildClassifications(
+      result.category_scores,
+      result.category_applied_input_types,
+    );
+
+    const decision = decide({
+      categories: result.categories,
+      scores: result.category_scores,
+      appliedInputs: result.category_applied_input_types,
+      flaggedByOpenAI: result.flagged,
+    });
+
+    return { ...decision, classifications };
+  } catch (err) {
+    // Surface the failure mode (timeout vs. network vs. parse error)
+    // without leaking image bytes — every retry is one fewer mystery
+    // 503 in `wrangler tail` during incident response.
+    console.log(
+      JSON.stringify({
+        level: "warn",
+        event: "openai_moderation_failed",
+        error: err instanceof Error ? err.message : String(err),
+        kind:
+          err instanceof Error && err.name === "AbortError"
+            ? "timeout"
+            : "other",
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    return unavailable();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function unavailable(): ModerationResult {
+  return {
+    safe: false,
+    flaggedForReview: false,
+    reason: "Image moderation is temporarily unavailable. Please try again.",
+    unavailable: true,
+    classifications: [],
+  };
+}

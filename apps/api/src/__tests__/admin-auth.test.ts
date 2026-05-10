@@ -21,7 +21,6 @@ function makeEnv(adminKey = "test-admin-key"): AppBindings {
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
     LT_TICKER_DO: {} as DurableObjectNamespace,
-    AI: {} as Ai,
   };
 }
 
