@@ -26,6 +26,7 @@ import marketData from "./routes/market-data.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import openApiSpec from "./openapi/spec.js";
+import { validateWebhookPayload } from "./lib/webhook-validators.js";
 
 import type { AppBindings } from "./lib/types.js";
 
@@ -124,27 +125,39 @@ app.post("/api/v1/webhook/indexer", async (c) => {
     return c.json(formatError("Unauthorized"), 401);
   }
 
-  const body = (await c.req.json()) as {
-    event: string;
-    data: unknown;
-    tokenAddress?: string;
-  };
+  // Parse defensively — a malformed JSON body must surface as 400, not as a
+  // 500 from the unhandled SyntaxError.
+  let body: { event?: unknown; data?: unknown; tokenAddress?: unknown };
+  try {
+    body = (await c.req.json()) as typeof body;
+  } catch {
+    return c.json(formatError("Invalid JSON body"), 400);
+  }
 
-  const channelMap: Record<string, string> = {
-    trade: "trade",
-    newToken: "newToken",
-    graduation: "graduation",
-    price: "price",
-    stats: "stats",
-  };
+  if (typeof body.event !== "string") {
+    return c.json(formatError("Missing or invalid `event`"), 400);
+  }
 
-  const channel = channelMap[body.event];
-  if (!channel) {
-    return c.json(formatError(`Unknown event type: ${body.event}`), 400);
+  // Validate per-channel envelope before fan-out. The indexer is a separate
+  // trust boundary (and the admin key only gates *who* can broadcast, not
+  // *what* shape) — without this, a bug or compromised key delivers
+  // malformed payloads to every connected client. See issue #403.
+  const validationError = validateWebhookPayload(
+    body.event,
+    body.data,
+    body.tokenAddress,
+  );
+  if (validationError !== null) {
+    return c.json(formatError(validationError), 400);
   }
 
   const { broadcastToChannel } = await import("./lib/broadcast.js");
-  await broadcastToChannel(c.env, channel, body.data, body.tokenAddress);
+  await broadcastToChannel(
+    c.env,
+    body.event,
+    body.data,
+    body.tokenAddress as string | undefined,
+  );
 
   return c.json(formatSuccess({ broadcasted: true }));
 });
