@@ -177,7 +177,7 @@ export function useTradeRouter() {
   );
 
   const executeSell = useCallback(
-    async (tokenAddress: string, tokenAmount: bigint, _slippage: number) => {
+    async (tokenAddress: string, tokenAmount: bigint, slippage: number) => {
       if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
@@ -228,9 +228,38 @@ export function useTradeRouter() {
 
         setStep("executing");
 
+        const slippageBps = slippageToBps(slippage);
+
+        // Quote via a dry-run simulation to derive minUsdcOut. Without this
+        // every sell would land with minUsdcOut=0 and be fully sandwichable.
+        // simulating the permit path doesn't consume the signature's nonce
+        // (eth_call is stateless), so it's safe on both branches.
+        const { result: quotedUsdcOut } = permit
+          ? await hyperEvmClient.simulateContract({
+              address: routerAddr,
+              abi: ZapAbi,
+              functionName: "sellWithPermit",
+              args: [tokenAddress as `0x${string}`, tokenAmount, 0n, permit],
+              account: address,
+            })
+          : await hyperEvmClient.simulateContract({
+              address: routerAddr,
+              abi: ZapAbi,
+              functionName: "sell",
+              args: [tokenAddress as `0x${string}`, tokenAmount, 0n],
+              account: address,
+            });
+        // Floor at 1 wei when the quote is non-zero but slippage rounds the
+        // bound to zero — passing 0 would re-open the unconstrained-execution
+        // window this fix exists to close.
+        const quotedOut = quotedUsdcOut as bigint;
+        const computedMinUsdcOut = (quotedOut * BigInt(10_000 - slippageBps)) / 10_000n;
+        const minUsdcOut =
+          quotedOut > 0n && slippageBps < 10_000 && computedMinUsdcOut === 0n ? 1n : computedMinUsdcOut;
+
         const sellTx = permit
           ? await (async () => {
-              const permitArgs = [tokenAddress as `0x${string}`, tokenAmount, 0n, permit] as const;
+              const permitArgs = [tokenAddress as `0x${string}`, tokenAmount, minUsdcOut, permit] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: routerAddr,
                 abi: ZapAbi,
@@ -247,7 +276,7 @@ export function useTradeRouter() {
               });
             })()
           : await (async () => {
-              const sellArgs = [tokenAddress as `0x${string}`, tokenAmount, 0n] as const;
+              const sellArgs = [tokenAddress as `0x${string}`, tokenAmount, minUsdcOut] as const;
               const gasEstimate = await hyperEvmClient.estimateContractGas({
                 address: routerAddr,
                 abi: ZapAbi,
