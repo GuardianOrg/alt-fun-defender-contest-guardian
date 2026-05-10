@@ -88,14 +88,7 @@ class SubjectSocket {
           data?: unknown;
         };
 
-        if (
-          msg.type === "pong" ||
-          msg.type === "subscribed" ||
-          msg.type === "unsubscribed" ||
-          msg.type === "authenticated"
-        ) {
-          return;
-        }
+        if (msg.type === "pong") return;
 
         // Server sends a `ping` to detect idle clients; mirror back a `pong`.
         if (msg.type === "ping") {

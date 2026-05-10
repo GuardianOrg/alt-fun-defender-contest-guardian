@@ -173,11 +173,11 @@ app.post("/api/v1/webhook/indexer", async (c) => {
  *   - `token`    — optional, lowercased token / LT address. Per-token
  *                  channels with no `token` join the wildcard shard and
  *                  receive every event on the channel.
- *   - `apiKey`   — optional, forwarded to the DO for auth.
  *
- * The per-IP connection limit is enforced *before* the upgrade by the
- * dedicated `WsIpLimiter` DO, since no single shard sees all of an IP's
- * connections anymore.
+ * Public, anonymous endpoint — the frontend doesn't authenticate and
+ * neither does this. Abuse is bounded by the dedicated `WsIpLimiter` DO
+ * (per-IP connection cap, enforced before the upgrade) and subject
+ * sharding (one connection sees one shard's events). See issue #401.
  */
 app.get("/ws", async (c) => {
   const upgradeHeader = c.req.header("Upgrade");
@@ -232,11 +232,6 @@ app.get("/ws", async (c) => {
 
     const headers = new Headers(c.req.raw.headers);
     headers.set("X-Client-IP", clientIp);
-
-    const apiKey = reqUrl.searchParams.get("apiKey");
-    if (apiKey) {
-      headers.set("X-WS-API-Key", apiKey);
-    }
 
     // Stamp the shard key on the URL so the DO knows its own subject
     // (used for log context — `idFromName` is one-way).

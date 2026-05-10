@@ -124,7 +124,6 @@ describe("WebSocketDO subject-scoped fan-out", () => {
       doInstance as unknown as { connections: Map<FakeWebSocket, unknown> }
     ).connections.set(ws1, {
       ip: "1.1.1.1",
-      apiKey: null,
       lastActivity: Date.now(),
       awaitingPong: false,
     });
@@ -132,7 +131,6 @@ describe("WebSocketDO subject-scoped fan-out", () => {
       doInstance as unknown as { connections: Map<FakeWebSocket, unknown> }
     ).connections.set(ws2, {
       ip: "2.2.2.2",
-      apiKey: null,
       lastActivity: Date.now(),
       awaitingPong: false,
     });
@@ -156,7 +154,6 @@ describe("WebSocketDO subject-scoped fan-out", () => {
       doInstance as unknown as { connections: Map<FakeWebSocket, unknown> }
     ).connections.set(ws, {
       ip: "1.1.1.1",
-      apiKey: null,
       lastActivity: Date.now(),
       awaitingPong: false,
     });

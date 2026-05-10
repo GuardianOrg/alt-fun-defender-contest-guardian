@@ -202,20 +202,22 @@ Some endpoints include an optional \`dataSource\` field (\`"live"\` or \`"degrad
 
 ## WebSocket
 
-Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
+Public, anonymous endpoint. Open one connection per \`(channel, token?)\` subject — each connection lands on its own subject-sharded \`WebSocketDO\` and receives only that subject's events.
 
-**Subscribe:** \`{ "type": "subscribe", "channel": "<channel>", "tokenAddress": "<optional>" }\`
-
-**Unsubscribe:** \`{ "type": "unsubscribe", "channel": "<channel>", "tokenAddress": "<optional>" }\`
+**Connect:** \`WSS /ws?channel=<name>&token=<addr?>\`
 
 **Channels:**
-- \`trade\` — New trades (optionally filtered by tokenAddress)
-- \`newToken\` — New token launches
-- \`graduation\` — Token graduations
-- \`price\` — Price updates
-- \`stats\` — Global stats updates
+- \`trade\` — New trades. Per-token; omit \`token\` to subscribe to the global wildcard feed.
+- \`price\` — LT exchange-rate ticks. Per-LT (\`token\` is the LT contract address).
+- \`graduation\` — Token graduated. Per-token (or wildcard).
+- \`newToken\` — New token launches. Global (\`token\` ignored).
+- \`stats\` — Platform stats updates. Global (\`token\` ignored).
 
-**Message format:** \`{ "channel": "<channel>", "data": <payload>, "tokenAddress": "<optional>" }\`
+**Keep-alive:** clients may send \`{ "type": "ping" }\` and will receive \`{ "type": "pong" }\`. The server also pings idle connections.
+
+**Message format:** \`{ "channel": "<channel>", "data": <payload> }\`
+
+Per-IP connection limits (10 concurrent across the fleet) are enforced before the upgrade.
 `,
   },
   servers: [

@@ -87,7 +87,7 @@ Admin endpoints use `X-Admin-Key` header with a shared secret stored as a Cloudf
 
 ## WebSocket
 
-Single endpoint: `WSS /ws?channel=<name>&token=<addr?>&apiKey=<key?>`. Clients open one connection per `(channel, token?)` subject they care about; each connection lands on its own subject-sharded `WebSocketDO` instance — see `apps/api/AGENTS.md` and issue #395 for the sharding rationale. The frontend `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes these connections behind the same `subscribe(channel, handler, token?)` API, so callers don't need to manage them directly.
+Single endpoint: `WSS /ws?channel=<name>&token=<addr?>`. Public, anonymous — feeds are read by the unauthenticated frontend, so the upgrade carries no auth (see issue #401 for the threat-model write-up). Clients open one connection per `(channel, token?)` subject they care about; each connection lands on its own subject-sharded `WebSocketDO` instance — see `apps/api/AGENTS.md` and issue #395 for the sharding rationale. The frontend `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes these connections behind the same `subscribe(channel, handler, token?)` API, so callers don't need to manage them directly.
 
 | Event | Description | Subscription |
 |---|---|---|

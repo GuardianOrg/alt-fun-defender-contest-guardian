@@ -89,7 +89,9 @@ The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdo
 
 ### WebSocket connect API
 
-`GET /ws?channel=<name>&token=<addr?>&apiKey=<key?>` — the upgrade path. `channel` is required; `token` is optional and, when provided, selects a per-token shard. Omitting `token` routes the connection to the channel's wildcard / global shard — that's the only valid shard for inherently-global channels like `newToken` and `stats`, where any `token` value is ignored. The frontend's `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes one underlying WS per subject the app cares about, so the public `subscribe(channel, handler, token?)` surface is unchanged.
+`GET /ws?channel=<name>&token=<addr?>` — the upgrade path. `channel` is required; `token` is optional and, when provided, selects a per-token shard. Omitting `token` routes the connection to the channel's wildcard / global shard — that's the only valid shard for inherently-global channels like `newToken` and `stats`, where any `token` value is ignored. The frontend's `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes one underlying WS per subject the app cares about, so the public `subscribe(channel, handler, token?)` surface is unchanged.
+
+The endpoint is intentionally unauthenticated — the frontend reads these feeds anonymously, so requiring an API key on the upgrade would just gate the frontend behind a leaked secret. Abuse is bounded by the `WsIpLimiter` per-IP cap (acquired before the upgrade) plus subject sharding (one connection sees one shard's events, so a single connection can't amplify cross-channel fan-out). See issue #401 for the threat model.
 
 ## Functional Spec
 

@@ -22,8 +22,6 @@ const PONG_TIMEOUT_MS = 30_000;
 interface ConnectionMeta {
   /** Client IP address — needed to release the per-IP slot on close. */
   ip: string;
-  /** Optional API key provided at connection or via first message. */
-  apiKey: string | null;
   /** Timestamp of last activity (message received or pong). */
   lastActivity: number;
   /** Whether we are waiting for a pong response to our ping. */
@@ -97,10 +95,13 @@ export function broadcastShardsFor(
  * (a single global DO that owns the IP→count map). The `/ws` route acquires
  * a slot before routing the upgrade here; this DO releases it on close.
  *
- * Security features kept here:
- * - Optional API key authentication (header on connect or first message).
- * - Idle connection timeout with ping/pong.
- * - Structured logging for monitoring.
+ * The `/ws` endpoint is intentionally unauthenticated — feeds are public
+ * and consumed anonymously by the frontend. Abuse is bounded by:
+ *   1. The `WsIpLimiter` per-IP cap (acquired before the upgrade).
+ *   2. Subject sharding — one connection sees one shard's events, so a
+ *      single connection can't amplify cross-channel fan-out.
+ *   3. Idle ping/pong eviction (this DO).
+ * See issue #401 for the threat-model write-up.
  */
 export class WebSocketDO extends DurableObject<AppBindings> {
   private connections: Map<WebSocket, ConnectionMeta> = new Map();
@@ -131,7 +132,6 @@ export class WebSocketDO extends DurableObject<AppBindings> {
       ) {
         this.log("info", "closing_idle_connection", {
           ip: meta.ip,
-          apiKey: meta.apiKey,
           idleMs: now - meta.lastActivity,
         });
         this.removeConnection(ws);
@@ -175,7 +175,6 @@ export class WebSocketDO extends DurableObject<AppBindings> {
 
     this.log("info", "connection_closed", {
       ip: meta.ip,
-      apiKey: meta.apiKey,
       shardConnections: this.connections.size,
     });
   }
@@ -213,7 +212,6 @@ export class WebSocketDO extends DurableObject<AppBindings> {
     }
 
     const clientIp = request.headers.get("X-Client-IP") ?? "unknown";
-    const apiKey = request.headers.get("X-WS-API-Key") ?? null;
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -222,7 +220,6 @@ export class WebSocketDO extends DurableObject<AppBindings> {
 
     const meta: ConnectionMeta = {
       ip: clientIp,
-      apiKey,
       lastActivity: Date.now(),
       awaitingPong: false,
     };
@@ -232,26 +229,18 @@ export class WebSocketDO extends DurableObject<AppBindings> {
 
     this.log("info", "connection_opened", {
       ip: clientIp,
-      apiKey,
       shardConnections: this.connections.size,
     });
-
-    // Optimistic implicit-subscribe: every connection on this DO already
-    // wants exactly this subject, so confirm it immediately. The frontend
-    // can still send a redundant `subscribe` for backwards compat.
-    server.send(JSON.stringify({ type: "subscribed", shard: this.subjectKey }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    // The sharded model has no client-driven subscribe protocol — a
+    // connection's subject is fixed at upgrade time by the shard it
+    // landed on. The only messages we accept are ping/pong for keep-alive.
     try {
-      const data = JSON.parse(message as string) as {
-        type: string;
-        channel?: string;
-        token?: string;
-        apiKey?: string;
-      };
+      const data = JSON.parse(message as string) as { type: string };
 
       const meta = this.connections.get(ws);
       if (!meta) return;
@@ -265,44 +254,6 @@ export class WebSocketDO extends DurableObject<AppBindings> {
 
       if (data.type === "pong") {
         meta.awaitingPong = false;
-        return;
-      }
-
-      if (data.type === "auth" && data.apiKey) {
-        meta.apiKey = data.apiKey;
-        ws.send(JSON.stringify({ type: "authenticated" }));
-        this.log("info", "client_authenticated", {
-          ip: meta.ip,
-          apiKey: meta.apiKey,
-        });
-        return;
-      }
-
-      // Sharded model: subscriptions are determined at connect time by the
-      // shard the connection landed on. Treat redundant subscribe/unsubscribe
-      // messages as a no-op confirmation so legacy clients keep working.
-      if (data.type === "subscribe" && data.channel) {
-        ws.send(
-          JSON.stringify({
-            type: "subscribed",
-            channel: data.channel,
-            token: data.token ?? null,
-          }),
-        );
-        return;
-      }
-
-      if (data.type === "unsubscribe" && data.channel) {
-        // Real "unsubscribe" in the sharded model is "close this WS". We
-        // ack the message but the client is responsible for closing the
-        // connection if it no longer wants events on this shard.
-        ws.send(
-          JSON.stringify({
-            type: "unsubscribed",
-            channel: data.channel,
-            token: data.token ?? null,
-          }),
-        );
         return;
       }
     } catch {
