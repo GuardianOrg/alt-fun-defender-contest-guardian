@@ -19,6 +19,7 @@ import EarningsPanel from "../components/layout/EarningsPanel";
 import Header from "../components/layout/Header";
 import PrimerModal from "../components/layout/PrimerModal";
 import SearchModal from "../components/layout/SearchModal";
+import SiteFooter from "../components/layout/SiteFooter";
 import ErrorBoundary from "../components/shared/ErrorBoundary";
 import { ToastProvider } from "../components/shared/Toast";
 import TerminalView from "../components/terminal/TerminalView";
@@ -38,6 +39,7 @@ const Layout = () => {
       <Header />
       <AssetTape />
       <Outlet />
+      <SiteFooter />
       <SearchModal />
       <EarningsPanel />
       <PrimerModal />
