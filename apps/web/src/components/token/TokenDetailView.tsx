@@ -74,6 +74,21 @@ export default function TokenDetailView() {
         ) : (
           <div className={styles.loading}>Loading token...</div>
         )}
+
+        {token && (
+          <ErrorBoundary
+            // Moderation surface is non-essential — render-time errors here
+            // (e.g. session-signature flow misbehaving) must not blow up
+            // the entire token detail page for admins. Pinned directly
+            // under `HeroSection` (issue #607) so allowlisted wallets can
+            // hide a token without scrolling past the chart / info strip /
+            // bottom tabs to reach the moderation controls.
+            fallback={null}
+          >
+            <AdminPanel token={token} />
+          </ErrorBoundary>
+        )}
+
         <ErrorBoundary
           fallback={
             <div className={styles.errorFallback}>Chart failed to load</div>
@@ -113,17 +128,6 @@ export default function TokenDetailView() {
         )}
 
         {token && <TokenInfoStrip token={token} />}
-
-        {token && (
-          <ErrorBoundary
-            // Moderation surface is non-essential — render-time errors here
-            // (e.g. session-signature flow misbehaving) must not blow up
-            // the entire token detail page for admins.
-            fallback={null}
-          >
-            <AdminPanel token={token} />
-          </ErrorBoundary>
-        )}
 
         {token && (
           <ErrorBoundary
