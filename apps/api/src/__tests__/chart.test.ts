@@ -31,7 +31,9 @@ vi.mock("@neondatabase/serverless", () => ({
   neon: () => mockNeonQuery,
 }));
 
-const { default: chartRoute } = await import("../routes/chart.js");
+const { default: chartRoute, buildPriceTimeline } = await import(
+  "../routes/chart.js"
+);
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
@@ -566,6 +568,108 @@ describe("GET /chart/:address", () => {
     expect(body.error).toContain("Trade history too large");
   });
 
+  it("bridges the buy candle when a trade lands between LT samples (issue #599)", async () => {
+    // Regression: when a trade snapshot's timestamp falls strictly between
+    // two LT-rate samples, the bucket containing the trade used to render
+    // as a flat doji (all its samples preceded the trade) and the next
+    // bucket opened at the post-buy price — the chart showed a tiny
+    // horizontal line followed by a discontinuous jump with no candle
+    // bridging them. Fixed by injecting every ratio-change timestamp into
+    // the price timeline as its own tick.
+    //
+    // Setup: 60s candles → sampleSec=20. LT samples land at fromSec, +20,
+    // +40, +60, ... A trade lands in the middle of the first 60s bucket
+    // (no LT sample lands between the trade and the bucket boundary), so
+    // pre-fix the bucket showed only pre-buy prices.
+    const baseSec = 1_700_000_000;
+    const launchTs = baseSec - 100;
+    const tradeTs = baseSec + 35; // strictly between samples at +20 and +40
+
+    // Mock Date.now to a fixed point so `fromSec` is deterministic.
+    const dateNowSpy = vi.spyOn(Date, "now").mockReturnValue((baseSec + 90) * 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          // k = 1B × 1e18 (TOTAL_SUPPLY) × virtualLtAtLaunch = 1e18 → k = 1e45.
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          timestamp: String(launchTs),
+        },
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
+
+    // Constant LT exchange rate of 1.0 across the window so the fix is
+    // observable purely via the ratio change (rules out exchange-rate
+    // drift muddying the assertions).
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(baseSec), exchange_rate: "1000000000000000000" },
+      { ts: String(baseSec + 20), exchange_rate: "1000000000000000000" },
+      { ts: String(baseSec + 40), exchange_rate: "1000000000000000000" },
+      { ts: String(baseSec + 60), exchange_rate: "1000000000000000000" },
+      { ts: String(baseSec + 80), exchange_rate: "1000000000000000000" },
+    ]);
+
+    // Single trade at tradeTs that doubles the curve ratio (simulates a
+    // big buy that drains LT into the curve and removes tokens).
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [
+        {
+          // ratio = ltReserve / curveSupply = 4e18 / 500_000_000e18 = 8e-9
+          // (vs. launch ratio of k/reserve0 / reserve0 = 1e-9).
+          curveSupply: "500000000000000000000000000",
+          ltReserve: "4000000000000000000",
+          timestamp: String(tradeTs),
+        },
+      ],
+      truncated: false,
+    });
+
+    try {
+      const app = createApp();
+      // Force interval=60 so the bucket alignment matches the test
+      // narrative regardless of `Date.now()` defaults.
+      const res = await app.request(
+        `/chart/${VALID_ADDRESS}?interval=60`,
+        {},
+        makeEnv(),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        data: {
+          candles: { time: number; open: number; high: number; low: number; close: number }[];
+        };
+      };
+      expect(body.status).toBe("success");
+
+      // The trade lands in bucket [floor(tradeTs/60)*60, +60).
+      const tradeBucketTs = Math.floor(tradeTs / 60) * 60;
+      const tradeBucket = body.data.candles.find((c) => c.time === tradeBucketTs);
+      expect(tradeBucket).toBeDefined();
+      // The bucket's close must reflect the post-trade price (8x the
+      // pre-trade price — see ratios above). Pre-fix this was equal to
+      // the open and the next bucket jumped to the new price unbridged.
+      expect(tradeBucket!.close).toBeGreaterThan(tradeBucket!.open);
+      expect(tradeBucket!.high).toBeGreaterThanOrEqual(tradeBucket!.close);
+
+      // The next bucket's open must be at-or-near the trade bucket's
+      // close (zero-gap bridge). Pre-fix the open jumped to the post-buy
+      // price while the previous close was still the pre-buy price.
+      const nextBucketTs = tradeBucketTs + 60;
+      const nextBucket = body.data.candles.find((c) => c.time === nextBucketTs);
+      if (nextBucket) {
+        expect(nextBucket.open).toBeCloseTo(tradeBucket!.close, 12);
+      }
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
   it("returns 400 for partial-numeric interval values", async () => {
     const app = createApp();
 
@@ -580,5 +684,125 @@ describe("GET /chart/:address", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null };
     expect(body.error).toContain("Invalid interval");
+  });
+});
+
+describe("buildPriceTimeline", () => {
+  it("returns empty when either input stream is empty", () => {
+    expect(
+      buildPriceTimeline([], [{ timestamp: 100, ratio: 1 }]),
+    ).toEqual([]);
+    expect(
+      buildPriceTimeline(
+        [{ ts: "100", exchange_rate: "1000000000000000000" }],
+        [],
+      ),
+    ).toEqual([]);
+  });
+
+  it("emits a price tick at every LT sample using the latest ratio", () => {
+    const ltRows = [
+      { ts: "100", exchange_rate: "2000000000000000000" }, // rate 2
+      { ts: "120", exchange_rate: "2000000000000000000" },
+    ];
+    // Ratio anchor at t=110 (between the two LT samples) so we don't
+    // double-tick at LT-sample timestamps — that coincident-timestamp
+    // case has its own dedicated test below.
+    const ratioTimeline = [
+      { timestamp: 110, ratio: 0.5 },
+    ];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline);
+    // LT@100 has no preceding ratio (anchor is at t=110) → skipped.
+    // ratio@110 picks up the freshest LT rate (=2) → price 1.
+    // LT@120 carries the ratio forward → price 1.
+    expect(out).toEqual([
+      { ts: 110, price: 1 },
+      { ts: 120, price: 1 },
+    ]);
+  });
+
+  it("injects a price tick at each ratio change so trades between LT samples land in the right bucket (issue #599)", () => {
+    // LT samples at fixed 20s cadence; trade at t=35 (between 20 and 40)
+    // doubles the ratio. Pre-fix, the bucket containing the trade had no
+    // post-trade sample — the close stayed at the pre-trade price and the
+    // next bucket jumped without bridging.
+    const ltRows = [
+      { ts: "0", exchange_rate: "1000000000000000000" },
+      { ts: "20", exchange_rate: "1000000000000000000" },
+      { ts: "40", exchange_rate: "1000000000000000000" },
+      { ts: "60", exchange_rate: "1000000000000000000" },
+    ];
+    const ratioTimeline = [
+      { timestamp: 0, ratio: 1 },
+      { timestamp: 35, ratio: 2 },
+    ];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline);
+
+    // The trade timestamp must be present as its own price tick.
+    const tradeTick = out.find((p) => p.ts === 35);
+    expect(tradeTick).toBeDefined();
+    expect(tradeTick!.price).toBe(2); // post-trade ratio × current LT rate
+
+    // And subsequent LT samples must use the new ratio.
+    const post = out.find((p) => p.ts === 40);
+    expect(post!.price).toBe(2);
+  });
+
+  it("at coincident timestamps, ratio price wins as bucket close (LT processed first)", () => {
+    // When a ratio change shares a timestamp with an LT sample, we want
+    // the LT update to happen first (so the ratio's price uses the
+    // freshest rate) and the ratio tick to come last (so it determines
+    // the bucket close). This matches the trade-then-settle ordering of
+    // an on-chain block.
+    const ltRows = [
+      { ts: "100", exchange_rate: "2000000000000000000" },
+    ];
+    const ratioTimeline = [
+      { timestamp: 100, ratio: 1 },
+      { timestamp: 100, ratio: 3 },
+    ];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline);
+    // 1 lt + 2 ratio ticks. The last one (ratio=3) is the close.
+    expect(out).toHaveLength(3);
+    expect(out[out.length - 1]).toEqual({ ts: 100, price: 6 });
+  });
+
+  it("skips ratio events before the first LT sample (no rate to multiply)", () => {
+    // Launch anchor ratio sits at t=0, but the first LT-rate sample is
+    // at t=50 (e.g. token launched before `fromSec` of the BounceTech
+    // window). The launch anchor must not produce a price tick — there's
+    // no exchange rate to multiply against.
+    const ltRows = [
+      { ts: "50", exchange_rate: "1000000000000000000" },
+    ];
+    const ratioTimeline = [
+      { timestamp: 0, ratio: 1 }, // launch anchor — pre-window
+      { timestamp: 60, ratio: 2 }, // trade — post-first-sample
+    ];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline);
+    // Only the LT@50 (price=1) and the trade@60 (price=2) survive.
+    expect(out.map((p) => p.ts)).toEqual([50, 60]);
+  });
+
+  it("preserves chronological order across mixed events", () => {
+    const ltRows = [
+      { ts: "0", exchange_rate: "1000000000000000000" },
+      { ts: "30", exchange_rate: "1000000000000000000" },
+      { ts: "60", exchange_rate: "1000000000000000000" },
+    ];
+    const ratioTimeline = [
+      { timestamp: 0, ratio: 1 },
+      { timestamp: 15, ratio: 2 },
+      { timestamp: 45, ratio: 3 },
+    ];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline);
+    const timestamps = out.map((p) => p.ts);
+    const sorted = [...timestamps].sort((a, b) => a - b);
+    expect(timestamps).toEqual(sorted);
   });
 });

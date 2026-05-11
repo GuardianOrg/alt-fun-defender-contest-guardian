@@ -171,6 +171,87 @@ function buildCandles(
   return candles;
 }
 
+/**
+ * Build the raw price timeline from the two source streams:
+ *
+ *   - `ltRows`: BounceTech LT exchange-rate samples taken at fixed
+ *     `sampleSec` intervals across `[fromSec, nowSec]`.
+ *   - `ratioTimeline`: curve-ratio snapshots — one per indexed
+ *     `Bonding.Trade` (curve phase) and `HyperSwapPair.Sync` (post-grad),
+ *     plus the synthetic launch anchor at `launchTimestamp`.
+ *
+ * Every event from BOTH streams produces a price tick (`ratio × rate`) at
+ * its actual timestamp. This is the fix for issue #599 ("Candles not
+ * showing in full"): the previous implementation only iterated `ltRows`,
+ * so a trade landing strictly between two LT samples (e.g. a buy at
+ * t=12:34:55 with samples at 12:34:40 and 12:35:00) was invisible to the
+ * bucket containing it. The bucket showed all-pre-buy prices (flat
+ * doji), the next bucket opened at the post-buy price, and the chart
+ * rendered a tiny horizontal line followed by a discontinuous jump.
+ *
+ * Injecting the ratio timestamps as their own price ticks closes that
+ * gap — every trade lands in its own bucket regardless of where the LT
+ * sampling grid happens to align. The exchange rate used for an injected
+ * ratio tick is the most recent LT sample at or before that timestamp
+ * (matches the SQL `tick_timestamp <= s.t` semantic used to build
+ * `ltRows`); ratio ticks before the first LT sample are skipped because
+ * we have no rate to multiply against.
+ *
+ * Exported for unit testing.
+ */
+export function buildPriceTimeline(
+  ltRows: LtSnapshotRow[],
+  ratioTimeline: RatioSnapshot[],
+): { ts: number; price: number }[] {
+  if (ltRows.length === 0 || ratioTimeline.length === 0) return [];
+
+  type Event =
+    | { kind: "lt"; ts: number; rate: number }
+    | { kind: "ratio"; ts: number };
+
+  const events: Event[] = [];
+  for (const row of ltRows) {
+    events.push({
+      kind: "lt",
+      ts: Number(row.ts),
+      rate: Number(row.exchange_rate) / 1e18,
+    });
+  }
+  for (const r of ratioTimeline) {
+    events.push({ kind: "ratio", ts: r.timestamp });
+  }
+  // Stable sort by timestamp; on ties, LT events first so a coincident
+  // ratio change picks up the freshest exchange rate (and the ratio's
+  // higher/lower price becomes the bucket's close, matching trade-then-
+  // settle ordering of an on-chain block).
+  events.sort((a, b) => {
+    if (a.ts !== b.ts) return a.ts - b.ts;
+    if (a.kind !== b.kind) return a.kind === "lt" ? -1 : 1;
+    return 0;
+  });
+
+  const out: { ts: number; price: number }[] = [];
+  let ratioIdx = 0;
+  let exchangeRate = 0;
+
+  for (const e of events) {
+    if (e.kind === "lt") {
+      exchangeRate = e.rate;
+    }
+    while (
+      ratioIdx + 1 < ratioTimeline.length &&
+      ratioTimeline[ratioIdx + 1].timestamp <= e.ts
+    ) {
+      ratioIdx++;
+    }
+    if (ratioTimeline[ratioIdx].timestamp > e.ts) continue;
+    if (exchangeRate <= 0) continue;
+    out.push({ ts: e.ts, price: ratioTimeline[ratioIdx].ratio * exchangeRate });
+  }
+
+  return out;
+}
+
 const chart = new Hono<{ Bindings: AppBindings }>();
 
 chart.get("/:address", async (c) => {
@@ -453,24 +534,7 @@ chart.get("/:address", async (c) => {
     );
   }
 
-  const rawPrices: { ts: number; price: number }[] = [];
-  let ratioIdx = 0;
-
-  for (const row of ltRows) {
-    const ts = Number(row.ts);
-
-    while (
-      ratioIdx + 1 < ratioTimeline.length &&
-      ratioTimeline[ratioIdx + 1].timestamp <= ts
-    ) {
-      ratioIdx++;
-    }
-
-    if (ratioTimeline[ratioIdx].timestamp > ts) continue;
-
-    const exchangeRate = Number(row.exchange_rate) / 1e18;
-    rawPrices.push({ ts, price: ratioTimeline[ratioIdx].ratio * exchangeRate });
-  }
+  const rawPrices = buildPriceTimeline(ltRows, ratioTimeline);
 
   const candles = buildCandles(rawPrices, candleSec);
 
