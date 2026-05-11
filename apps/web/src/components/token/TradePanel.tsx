@@ -14,6 +14,7 @@ import TradePanelQuote from "./TradePanelQuote";
 import { hyperEVM } from "../../config/chains";
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
+import { useIsMintPaused } from "../../hooks/useLeveragedTokens";
 import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
@@ -36,7 +37,19 @@ interface Props {
 }
 
 export default function TradePanel({ token }: Props) {
+  // While BounceTech has paused minting on the backing LT every `Zap.buy`
+  // for this token reverts (Zap mints LT from USDC on every buy). Drives
+  // the disabled-buy state plus the explainer banner below; sells continue
+  // to work through `redeem`, which is what makes a sell-only market
+  // preferable to freezing both sides — see AGENTS.md → "Mint-pause is
+  // asymmetric (accepted)" for the contract-side rationale.
+  const isMintPaused = useIsMintPaused(token.ltAddress);
   const [mode, setMode] = useState<"buy" | "sell">("buy");
+  // Auto-swap to sell mode the first time we learn the LT is paused — and
+  // only when the user hasn't typed anything yet, so we never clobber an
+  // in-progress buy attempt. Tracked in a ref so toggling back to "buy"
+  // manually doesn't trigger a second swap on the next refetch.
+  const autoSwitchedToSellRef = useRef(false);
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(0.02);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -170,12 +183,29 @@ export default function TradePanel({ token }: Props) {
     if (isConnected) loadBalance();
   }, [isConnected, loadBalance]);
 
+  useEffect(() => {
+    if (
+      isMintPaused &&
+      !autoSwitchedToSellRef.current &&
+      mode === "buy" &&
+      amount === ""
+    ) {
+      setMode("sell");
+      autoSwitchedToSellRef.current = true;
+    }
+  }, [isMintPaused, mode, amount]);
+
   const doTrade = () => {
     if (!isConnected) {
       connect();
       return;
     }
     if (!amtNum) return;
+    // Belt-and-braces: the BUY button is disabled while paused, but if
+    // the user somehow lands here (race between paused-state polling and
+    // a click) the tx would revert against BounceTech anyway, so bail out
+    // cleanly without surfacing a wallet popup.
+    if (isMintPaused && mode === "buy") return;
 
     if (mode === "buy") {
       pendingTradeRef.current = {
@@ -222,8 +252,11 @@ export default function TradePanel({ token }: Props) {
 
   const isBusy = step === "approving" || step === "signing" || step === "executing";
 
+  const buyDisabledByPause = isMintPaused && mode === "buy";
+
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
+    if (buyDisabledByPause) return "BUYS PAUSED";
     if (belowMinimum) return `MINIMUM $${MIN_USDC_BUY_AMOUNT} USDC`;
     if (sellBelowMinimum) return `MINIMUM $${MIN_USDC_SELL_AMOUNT} USDC`;
     if (sellExceedsBuffer) return "EXCEEDS AVAILABLE LIQUIDITY";
@@ -271,12 +304,19 @@ export default function TradePanel({ token }: Props) {
             className={cn(
               styles.modeBtn,
               mode === "buy" && styles.modeBtnBuyActive,
+              isMintPaused && styles.modeBtnDisabled,
             )}
             onClick={() => {
               setMode("buy");
               setAmount("");
               reset();
             }}
+            disabled={isMintPaused}
+            title={
+              isMintPaused
+                ? "Buys are paused while BounceTech has minting disabled on this leveraged token"
+                : undefined
+            }
           >
             BUY
             {mode === "buy" && <span className={styles.modeIndicatorMint} />}
@@ -328,6 +368,24 @@ export default function TradePanel({ token }: Props) {
       </div>
 
       <div className={styles.formBody}>
+        {isMintPaused && (
+          <div className={styles.pausedBanner} role="status">
+            <div className={styles.pausedBannerTitle}>Buys paused</div>
+            <div className={styles.pausedBannerBody}>
+              BounceTech has paused minting on {token.ltName}, so new buys
+              would revert on-chain. Sells still work as normal — your
+              tokens can be redeemed for USDC any time.
+            </div>
+            <a
+              className={styles.pausedBannerLink}
+              href="https://docs.bounce.tech/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Learn more →
+            </a>
+          </div>
+        )}
         <TradePanelInput
           mode={mode}
           amount={amount}
@@ -442,6 +500,7 @@ export default function TradePanel({ token }: Props) {
           busy={isBusy}
           disabled={
             step === "confirmed" ||
+            buyDisabledByPause ||
             belowMinimum ||
             sellBelowMinimum ||
             sellExceedsBuffer ||
