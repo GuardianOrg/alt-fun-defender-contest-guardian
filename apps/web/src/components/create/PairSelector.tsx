@@ -2,6 +2,7 @@ import { getAssetDisplayName } from "@launchpad/shared";
 
 import styles from "./PairSelector.module.css";
 import StepHeader from "./StepHeader";
+import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
 import { COLORS, rgba } from "../../config/colors";
 import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
 import { useAssetChanges, useAssetPriceChanges } from "../../hooks/useAssets";
@@ -33,7 +34,11 @@ export default function PairSelector({
   const isLong = direction === "long";
   const baseChg = assetChanges[asset];
   const chg =
-    baseChg == null ? undefined : isLong ? baseChg * leverage : -baseChg * leverage;
+    baseChg == null
+      ? undefined
+      : isLong
+        ? baseChg * leverage
+        : -baseChg * leverage;
 
   return (
     <div>
@@ -119,9 +124,7 @@ export default function PairSelector({
               />
               <polygon
                 points="0,0 0,4 10,7 20,12 30,17 40,22 52,26 52,0"
-                fill={
-                  !isLong ? rgba(COLORS.red, 0.1) : rgba(COLORS.text, 0.03)
-                }
+                fill={!isLong ? rgba(COLORS.red, 0.1) : rgba(COLORS.text, 0.03)}
               />
             </svg>
           </div>
@@ -172,7 +175,9 @@ export default function PairSelector({
                   className={cn(
                     styles.assetChg,
                     hasData
-                      ? up ? styles.textMint : styles.textRed
+                      ? up
+                        ? styles.textMint
+                        : styles.textRed
                       : styles.textMuted,
                   )}
                 >
@@ -210,11 +215,11 @@ export default function PairSelector({
           isLong ? styles.summaryCardMint : styles.summaryCardRed,
         )}
       >
-        <div
-          className={cn(
-            styles.summaryDot,
-            isLong ? styles.summaryDotMint : styles.summaryDotRed,
-          )}
+        <AssetIcon
+          asset={asset}
+          size={20}
+          className={styles.summaryIcon}
+          monogramRatio={0.46}
         />
         <span className={styles.summaryName}>
           {getLtDisplayName(asset, leverage, direction)}
@@ -227,22 +232,12 @@ export default function PairSelector({
       </div>
 
       <div className={styles.hlBadge}>
-        <svg width="16" height="12" viewBox="0 0 36 24" fill="none">
-          <path
-            d="M14 2 L2 12 L14 22"
-            stroke={COLORS.mint}
-            strokeWidth="3.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M22 2 L34 12 L22 22"
-            stroke={COLORS.mint}
-            strokeWidth="3.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+        <img
+          src={hyperliquidLogo}
+          alt=""
+          aria-hidden="true"
+          className={styles.hlBadgeLogo}
+        />
         powered by Hyperliquid perps
       </div>
     </div>

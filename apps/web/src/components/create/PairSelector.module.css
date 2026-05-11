@@ -122,13 +122,13 @@
 }
 
 .assetButton {
-  padding: 0.6rem 0.7rem;
+  padding: 0.8rem 0.8rem;
   border-radius: 0;
   cursor: pointer;
   border: 1px solid;
   display: flex;
   align-items: center;
-  gap: 0.55rem;
+  gap: 0.8rem;
   text-align: left;
   transition: all 0.15s ease;
   font-family: var(--font-mono);
@@ -141,6 +141,7 @@
 .assetMeta {
   display: flex;
   flex-direction: column;
+  gap: 0.4rem;
   min-width: 0;
 }
 
@@ -178,7 +179,6 @@
 .assetChg {
   font-size: 12px;
   line-height: 1.15;
-  margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -269,19 +269,8 @@
   background: linear-gradient(to right, rgba(240, 80, 80, 0.06), transparent);
 }
 
-.summaryDot {
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 9999px;
+.summaryIcon {
   flex-shrink: 0;
-}
-
-.summaryDotMint {
-  background: var(--mint);
-}
-
-.summaryDotRed {
-  background: var(--red);
 }
 
 .summaryName {
@@ -301,7 +290,7 @@
 .hlBadge {
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.8rem;
   font-size: 11px;
   font-weight: 500;
   color: var(--txt-3);
@@ -311,4 +300,11 @@
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: rgba(16, 37, 32, 0.3);
+}
+
+.hlBadgeLogo {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  display: block;
 }
