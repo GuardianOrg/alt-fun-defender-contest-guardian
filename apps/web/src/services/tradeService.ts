@@ -31,13 +31,27 @@ const liveTradeService: ITradeService = {
   async getHolders(address) {
     try {
       const { holders } = await fetchHolders(address);
-      return holders.map((h, i) => ({
-        rank: i + 1,
-        address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
-        tokens: formatTokenBalance(h.balance),
-        percentSupply: h.percentage,
-        isCreator: false,
-      }));
+      // Defense-in-depth: the API already excludes zero-balance rows via
+      // `balance_gt: "0"` + a post-fetch filter (see
+      // `apps/api/src/routes/holders.ts` and issue #421), but a wallet that
+      // sold everything mid-poll would briefly render as "0.0 tokens / 0%"
+      // if any slipped through. Drop them here too — the rank numbering
+      // below is derived after the filter so we never show a gap.
+      return holders
+        .filter((h) => {
+          try {
+            return BigInt(h.balance) > 0n;
+          } catch {
+            return false;
+          }
+        })
+        .map((h, i) => ({
+          rank: i + 1,
+          address: `${h.wallet.slice(0, 4)}…${h.wallet.slice(-2)}`,
+          tokens: formatTokenBalance(h.balance),
+          percentSupply: h.percentage,
+          isCreator: false,
+        }));
     } catch {
       return [];
     }

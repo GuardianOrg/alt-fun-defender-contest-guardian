@@ -232,6 +232,75 @@ describe("GET /holders/:address", () => {
     expect(body.data.approximate).toBe(true);
   });
 
+  it("filters out zero-balance rows the indexer may surface (issue #421)", async () => {
+    // Belt-and-suspenders: the GraphQL query already filters
+    // `balance_gt: "0"`, but we additionally drop zero-balance rows
+    // post-fetch so a regression in Ponder's bigint comparison filter
+    // never resurrects fully-exited wallets in the UI.
+    const wallet1 = "0xaaaa000000000000000000000000000000000001";
+    const wallet2 = "0xbbbb000000000000000000000000000000000002";
+    const wallet3 = "0xcccc000000000000000000000000000000000003";
+
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [
+        { wallet: wallet1, balance: (50_000_000n * ONE).toString() },
+        { wallet: wallet2, balance: "0" },
+        { wallet: wallet3, balance: (1_000n * ONE).toString() },
+      ],
+      truncated: false,
+    });
+
+    const app = createApp();
+    const res = await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        holders: { wallet: string; balance: string }[];
+        totalHolders: number;
+      };
+    };
+
+    expect(body.data.holders).toHaveLength(2);
+    expect(body.data.holders.map((h) => h.wallet)).toEqual([wallet1, wallet3]);
+    // `totalHolders` reflects what we actually return — zero-balance rows
+    // are not holders, so they shouldn't bump the count either.
+    expect(body.data.totalHolders).toBe(2);
+  });
+
+  it("skips rows with malformed balance strings rather than 500-ing the route", async () => {
+    // A misbehaving indexer (or a future schema change) could surface a
+    // non-numeric `balance` value (e.g. `"NaN"`, decimal strings, `null`).
+    // `BigInt(...)` throws on those; the route must skip the bad row and
+    // keep serving the good ones — the holders tab is a best-effort read
+    // and a single bad row shouldn't black-hole everyone's view of a token.
+    const wallet1 = "0xaaaa000000000000000000000000000000000001";
+    const wallet2 = "0xbbbb000000000000000000000000000000000002";
+
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [
+        { wallet: wallet1, balance: (10n * ONE).toString() },
+        { wallet: wallet2, balance: "not-a-bigint" },
+      ],
+      truncated: false,
+    });
+
+    const app = createApp();
+    const res = await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        holders: { wallet: string }[];
+        totalHolders: number;
+      };
+    };
+
+    expect(body.data.holders).toHaveLength(1);
+    expect(body.data.holders[0].wallet).toBe(wallet1);
+    expect(body.data.totalHolders).toBe(1);
+  });
+
   it("returns 100% for the rare case of a single holder of full supply", async () => {
     mockPonderPaginatedQuery.mockResolvedValue({
       items: [

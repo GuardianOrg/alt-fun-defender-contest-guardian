@@ -82,7 +82,7 @@ holders.get("/:address", async (c) => {
     .map((w) => w.toLowerCase());
 
   const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: balances, truncated } = await queryPonderAll<PonderTokenBalance>(
+  const { items: rawBalances, truncated } = await queryPonderAll<PonderTokenBalance>(
     `query ($address: String!, $excluded: [String!]!, $limit: Int!, $offset: Int!) {
       tokenBalances(
         where: { tokenAddress: $address, balance_gt: "0", wallet_not_in: $excluded }
@@ -101,14 +101,35 @@ holders.get("/:address", async (c) => {
     { address, excluded: excludedWallets },
   );
 
-  const holderList = balances.slice(0, limit).map((b) => {
-    const balance = BigInt(b.balance);
-    return {
-      wallet: b.wallet,
-      balance: b.balance,
-      percentage: Number((balance * 10000n) / TOTAL_SUPPLY) / 100,
-    };
+  // Defense-in-depth: even though the Ponder query already filters
+  // `balance_gt: "0"`, drop any zero-balance rows here too. A holder whose
+  // balance went to zero (sold everything, or transferred all tokens out)
+  // is not a holder — Ponder writes a `balance = 0` row on `Transfer` rather
+  // than deleting it (see `apps/indexer/src/bonding.ts` → `Token:Transfer`),
+  // so this is the last line of defence against any GraphQL filter regression
+  // surfacing fully-exited wallets in the UI (issue #421). Filtering after
+  // pagination keeps `totalHolders` aligned with what we actually return.
+  //
+  // The `BigInt()` parse is wrapped in a try/catch so a single malformed row
+  // from a misbehaving indexer (e.g. `null`, `"NaN"`, decimal-string) is
+  // skipped instead of 500-ing the whole route — the holders tab is a
+  // best-effort read surface, and one bad row shouldn't black-hole the
+  // entire list for everyone watching a viral token.
+  const balances = rawBalances.flatMap((b) => {
+    let parsedBalance: bigint;
+    try {
+      parsedBalance = BigInt(b.balance);
+    } catch {
+      return [];
+    }
+    return parsedBalance > 0n ? [{ ...b, parsedBalance }] : [];
   });
+
+  const holderList = balances.slice(0, limit).map((b) => ({
+    wallet: b.wallet,
+    balance: b.balance,
+    percentage: Number((b.parsedBalance * 10000n) / TOTAL_SUPPLY) / 100,
+  }));
 
   // Edge cache the holder list — it changes on every Transfer but a few
   // seconds of staleness is invisible on the UI, and the cache absorbs the
