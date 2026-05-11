@@ -44,7 +44,7 @@ export default function TradesTab({ token }: { token: Token }) {
               >
                 {isBuy ? "Buy" : "Sell"}
               </td>
-              <td className={styles.tdUsdc}>${t.amountUsd.toLocaleString()}</td>
+              <td className={styles.tdUsdc}>${Math.round(t.amountUsd).toLocaleString()}</td>
               <td
                 className={cn(
                   styles.tdTokens,

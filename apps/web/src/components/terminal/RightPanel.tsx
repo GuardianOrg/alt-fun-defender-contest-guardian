@@ -46,7 +46,7 @@ export default function RightPanel() {
                 className={styles.tradeRow}
                 tabIndex={0}
                 role="button"
-                aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${t.amountUsd.toLocaleString()} — ${t.timestamp}`}
+                aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
                 onClick={() => navigate(tokenPath(t.tokenAddress))}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -68,7 +68,7 @@ export default function RightPanel() {
                     isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
                   )}
                 >
-                  {isBuy ? "+" : "-"}${t.amountUsd.toLocaleString()}
+                  {isBuy ? "+" : "-"}${Math.round(t.amountUsd).toLocaleString()}
                 </span>
               </div>
             );
