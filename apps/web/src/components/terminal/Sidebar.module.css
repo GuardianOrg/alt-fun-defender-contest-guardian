@@ -1,15 +1,38 @@
 .sidebar {
   width: 220px;
   flex-shrink: 0;
-  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: var(--bg-1);
-  overflow-y: auto;
+  /* Constrain to the parent flex track's height so the inner scroll area
+   * (not the whole column) handles overflow. `min-height: 0` is required
+   * for the child's `overflow-y: auto` to actually kick in inside flex. */
+  min-height: 0;
+  overflow: hidden;
 }
 
-.section {
-  border-bottom: 1px solid var(--border);
+/* Shared chrome for the MARKETS and PAIRS panels. Each one is its own
+ * bordered, scrollable surface — separating them visually makes the
+ * sidebar read as a stack of distinct components (markets / pairs /
+ * cta), matching the rest of the terminal's panel-based layout. */
+.panel {
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+}
+
+/* MARKETS takes the remaining height and scrolls its asset list. */
+.marketsPanel {
+  flex: 1;
+}
+
+/* PAIRS sizes to its own content so a short filter list doesn't waste
+ * space, but is capped at half the column so an unexpectedly long list
+ * can't push MARKETS into nothing. */
+.pairsPanel {
+  flex: 0 1 auto;
+  max-height: 50%;
+  margin-top: 1.2rem;
 }
 
 .sectionHeader {
@@ -26,6 +49,9 @@
   font-weight: 500;
 }
 
+/* Markets and Pairs are read-only reference panels — no `cursor: pointer`,
+ * no hover background, no transition. They display information; they are
+ * not buttons. Treating them otherwise misleads users into clicking. */
 .assetRow {
   display: flex;
   align-items: center;
@@ -34,11 +60,6 @@
   padding-right: 0.8rem;
   padding-top: 0.6rem;
   padding-bottom: 0.6rem;
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
 }
 
 .assetLogo {
@@ -51,10 +72,6 @@
 .assetMeta {
   display: flex;
   flex-direction: column;
-}
-
-.assetRow:hover {
-  background: rgba(255, 255, 255, 0.02);
 }
 
 .assetRowBorder {
@@ -90,18 +107,6 @@
   margin-left: auto;
 }
 
-.pairsHeader {
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--txt-3);
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
-  font-weight: 500;
-}
-
 .pairRow {
   display: flex;
   align-items: center;
@@ -110,15 +115,6 @@
   padding-right: 0.8rem;
   padding-top: 0.2rem;
   padding-bottom: 0.2rem;
-  cursor: pointer;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.pairRow:hover {
-  background: rgba(255, 255, 255, 0.02);
 }
 
 .pairDot {
@@ -141,8 +137,8 @@
 }
 
 .ctaSection {
-  padding: 0.8rem;
-  margin-top: auto;
+  flex-shrink: 0;
+  margin-top: 1.2rem;
 }
 
 /* Mirrors the Landing/Header CTA: solid mint border, faint mint wash, and a
@@ -202,9 +198,10 @@
 }
 
 .footerLinks {
-  padding: 0 0.8rem 0.8rem;
+  padding-top: 0.8rem;
   display: flex;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .footerLink {
