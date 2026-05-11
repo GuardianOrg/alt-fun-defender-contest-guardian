@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 
+import { isAdminWallet } from "../constants/admin.js";
 import {
   buildProfileUpdateMessage,
   buildSessionMessage,
@@ -80,5 +81,68 @@ describe("buildSessionMessage", () => {
 describe("SESSION_DURATION_MS", () => {
   it("is 24 hours in milliseconds", () => {
     expect(SESSION_DURATION_MS).toBe(24 * 60 * 60 * 1000);
+  });
+});
+
+describe("isAdminWallet", () => {
+  const allowlist = [
+    "0xef126Ea643fC8940D9D6634DCd07F3989963Fbe6",
+    "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B",
+  ];
+
+  it("matches the canonical checksum address", () => {
+    expect(
+      isAdminWallet("0xef126Ea643fC8940D9D6634DCd07F3989963Fbe6", allowlist),
+    ).toBe(true);
+  });
+
+  it("matches lowercased input", () => {
+    expect(
+      isAdminWallet("0xef126ea643fc8940d9d6634dcd07f3989963fbe6", allowlist),
+    ).toBe(true);
+  });
+
+  it("matches lowercased allowlist entries too", () => {
+    expect(
+      isAdminWallet("0xEF126EA643FC8940D9D6634DCD07F3989963FBE6", [
+        "0xef126ea643fc8940d9d6634dcd07f3989963fbe6",
+      ]),
+    ).toBe(true);
+  });
+
+  it("rejects an address not in the allowlist", () => {
+    expect(
+      isAdminWallet("0x1111111111111111111111111111111111111111", allowlist),
+    ).toBe(false);
+  });
+
+  it("returns false for empty / null / undefined input", () => {
+    expect(isAdminWallet(null, allowlist)).toBe(false);
+    expect(isAdminWallet(undefined, allowlist)).toBe(false);
+    expect(isAdminWallet("", allowlist)).toBe(false);
+  });
+
+  it("rejects malformed input that isn't a 0x-prefixed 40-hex address", () => {
+    // Guards against malformed-address bypass patterns: missing prefix,
+    // truncated, non-hex char, off-by-one length. All must reject so a
+    // typo can't accidentally produce a falsy lower-cased match.
+    expect(isAdminWallet("ef126Ea643fC8940D9D6634DCd07F3989963Fbe6", allowlist)).toBe(false);
+    expect(isAdminWallet("0xef126ea", allowlist)).toBe(false);
+    expect(isAdminWallet("0xZZ126Ea643fC8940D9D6634DCd07F3989963Fbe6", allowlist)).toBe(false);
+    expect(isAdminWallet("0xef126Ea643fC8940D9D6634DCd07F3989963Fb6", allowlist)).toBe(false);
+  });
+
+  it("skips malformed allowlist entries instead of treating them as matches", () => {
+    // A garbage entry alongside a legit one — legit one still matches,
+    // garbage doesn't accidentally pass through as a wildcard.
+    expect(
+      isAdminWallet("0xef126Ea643fC8940D9D6634DCd07F3989963Fbe6", [
+        "not-an-address",
+        "0xef126Ea643fC8940D9D6634DCd07F3989963Fbe6",
+      ]),
+    ).toBe(true);
+    expect(
+      isAdminWallet("not-an-address", ["not-an-address"]),
+    ).toBe(false);
   });
 });

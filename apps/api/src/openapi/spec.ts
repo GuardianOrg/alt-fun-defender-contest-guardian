@@ -235,6 +235,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
     { name: "Referrals", description: "Referral tracking" },
     { name: "Images", description: "Image upload and serving" },
     { name: "Admin", description: "Admin operations (requires X-Admin-Key)" },
+    { name: "Moderation", description: "Wallet-signed moderation actions (token hide / unhide). Auth via EIP-191 signature recovered to an address in the admin allowlist — see `routes/moderation.ts`." },
   ],
   components: {
     schemas: {
@@ -829,6 +830,134 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
           "200": { description: "Token unhidden", content: { "application/json": { schema: successResponse({ type: "object", properties: { hidden: { type: "boolean" } } }) } } },
           "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
           "401": { description: "Unauthorized", content: { "application/json": { schema: errorResponse } } },
+        },
+      },
+    },
+
+    // ─── Wallet-signed moderation (issue #586) ────────────────
+    //
+    // These endpoints sit alongside the `X-Admin-Key`-gated `/admin/...`
+    // moderation routes. The shared-secret variant is for ops scripts;
+    // this variant lets the front-end UI do moderation directly from a
+    // connected wallet by signing an EIP-191 message with the admin
+    // wallet itself. Allowlist comes from `ADMIN_WALLETS` (env, comma
+    // separated) with a fallback to `DEFAULT_ADMIN_WALLETS` baked into
+    // `@launchpad/shared`.
+    "/api/v1/moderation/admins/{address}": {
+      get: {
+        tags: ["Moderation"],
+        summary: "Check whether a wallet is an admin",
+        description: "Returns `{ isAdmin: true }` if the supplied wallet is currently configured as a moderation admin. Public endpoint — used by the UI to decide whether to render the admin button. Returns the boolean for one address only; never enumerates the allowlist.",
+        parameters: [addressParam("address", "Wallet address to check"), apiKeyHeader],
+        responses: {
+          "200": {
+            description: "Admin status",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    address: { type: "string", description: "Checksummed copy of the requested address." },
+                    isAdmin: { type: "boolean" },
+                  },
+                  required: ["address", "isAdmin"],
+                }),
+              },
+            },
+          },
+          "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
+        },
+      },
+    },
+
+    "/api/v1/moderation/tokens/{address}/hide": {
+      post: {
+        tags: ["Moderation"],
+        summary: "Hide a token (wallet-signed)",
+        description: "Hide a token from public listings. Authenticated by the same 24-hour session signature flow as `PUT /api/v1/profiles/:address` — the admin signs `buildSessionMessage(address, expiresAt)` once per day; the resulting signature is reused for every moderation call. Server recovers the signer via EIP-191, requires the recovered address to match the claimed `address`, and checks that address against the admin allowlist (`ADMIN_WALLETS` env, falling back to `DEFAULT_ADMIN_WALLETS` from `@launchpad/shared`).",
+        parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["address", "signature", "expiresAt"],
+                properties: {
+                  address: { type: "string", description: "Admin wallet address. Must match the recovered signer." },
+                  signature: { type: "string", description: "Hex-encoded EIP-191 signature of `buildSessionMessage(address, expiresAt)`." },
+                  expiresAt: { type: "integer", description: "Unix-ms expiry baked into the signed message; must lie within the session-duration window from now." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Token hidden",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    address: { type: "string" },
+                    isHidden: { type: "boolean" },
+                    admin: { type: "string", description: "Recovered admin wallet that authorised the action." },
+                  },
+                  required: ["address", "isHidden", "admin"],
+                }),
+              },
+            },
+          },
+          "400": { description: "Invalid address or body", content: { "application/json": { schema: errorResponse } } },
+          "401": { description: "Signature missing, expired, or not from an admin wallet", content: { "application/json": { schema: errorResponse } } },
+          "404": { description: "Token not found in registry", content: { "application/json": { schema: errorResponse } } },
+        },
+      },
+    },
+
+    "/api/v1/moderation/tokens/{address}/unhide": {
+      post: {
+        tags: ["Moderation"],
+        summary: "Unhide a token (wallet-signed)",
+        description: "Restore a hidden token to public listings. Same auth model as `/hide` — see that endpoint for the signature requirements.",
+        parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["address", "signature", "expiresAt"],
+                properties: {
+                  address: { type: "string", description: "Admin wallet address. Must match the recovered signer." },
+                  signature: { type: "string", description: "Hex-encoded EIP-191 signature of `buildSessionMessage(address, expiresAt)`." },
+                  expiresAt: { type: "integer", description: "Unix-ms expiry baked into the signed message." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Token unhidden",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    address: { type: "string" },
+                    isHidden: { type: "boolean" },
+                    admin: { type: "string" },
+                  },
+                  required: ["address", "isHidden", "admin"],
+                }),
+              },
+            },
+          },
+          "400": { description: "Invalid address or body", content: { "application/json": { schema: errorResponse } } },
+          "401": { description: "Signature missing, expired, or not from an admin wallet", content: { "application/json": { schema: errorResponse } } },
+          "404": { description: "Token not found in registry", content: { "application/json": { schema: errorResponse } } },
         },
       },
     },

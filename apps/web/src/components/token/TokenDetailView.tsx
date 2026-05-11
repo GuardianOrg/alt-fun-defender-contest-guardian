@@ -1,5 +1,6 @@
 import { useParams } from "react-router";
 
+import AdminPanel from "./AdminPanel";
 import BottomTabs from "./BottomTabs";
 import Chart from "./Chart";
 import HeroSection from "./HeroSection";
@@ -101,6 +102,17 @@ export default function TokenDetailView() {
         )}
 
         {token && <TokenInfoStrip token={token} />}
+
+        {token && (
+          <ErrorBoundary
+            // Moderation surface is non-essential — render-time errors here
+            // (e.g. session-signature flow misbehaving) must not blow up
+            // the entire token detail page for admins.
+            fallback={null}
+          >
+            <AdminPanel token={token} />
+          </ErrorBoundary>
+        )}
 
         {token && (
           <ErrorBoundary

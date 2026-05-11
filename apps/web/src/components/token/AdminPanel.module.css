@@ -1,0 +1,84 @@
+.wrapper {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.8rem 1.2rem;
+  background: color-mix(in srgb, var(--red) 8%, var(--bg-1));
+  border-top: 1px dashed color-mix(in srgb, var(--red) 35%, var(--bg-1));
+  border-bottom: 1px dashed color-mix(in srgb, var(--red) 35%, var(--bg-1));
+}
+
+.label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tag {
+  color: color-mix(in srgb, var(--red) 90%, var(--txt));
+  font-weight: 700;
+}
+
+.hint {
+  color: var(--txt-2);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 11px;
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.error {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--red) 90%, var(--txt));
+}
+
+.confirmPanel {
+  width: min(28rem, 90vw);
+}
+
+.confirmContent {
+  padding: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.confirmTitle {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--txt);
+  margin: 0;
+}
+
+.confirmBody {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--txt-2);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.confirmTokenName {
+  color: var(--txt);
+  font-weight: 700;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.8rem;
+}

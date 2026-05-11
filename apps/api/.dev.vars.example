@@ -16,6 +16,15 @@ BOUNCETECH_DATABASE_URL=ASK_A_TEAMMATE
 # ADMIN_API_KEY. `dev-admin-key` is fine for local; prod uses a CF secret.
 ADMIN_API_KEY=dev-admin-key
 
+# Comma-separated list of admin wallet addresses authorised to perform
+# wallet-signed moderation actions (e.g. hiding a token from the public
+# listings via the front-end UI — see `routes/moderation.ts`). Whitespace
+# around each address is tolerated; case-insensitive. Leave unset to fall
+# back to `DEFAULT_ADMIN_WALLETS` from `@launchpad/shared` (which already
+# ships with the canonical admin baked in, so you don't need this in dev
+# unless you want to test with a different signer).
+ADMIN_WALLETS=
+
 # Graduation keeper hot-wallet private key (`0x…`). Drives phase 2 of the
 # two-phase graduation flow — the worker calls `Bonding.finalizeGraduation`
 # from this account once a token enters the `pendingGraduation` window.

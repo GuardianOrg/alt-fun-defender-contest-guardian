@@ -1,4 +1,4 @@
-import { eq, and, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 import { z } from "zod";
@@ -143,7 +143,12 @@ detailRoute.get("/:address", async (c) => {
   const [dbToken] = await db
     .select()
     .from(tokens)
-    .where(eq(tokens.address, address))
+    // `and(... isHidden = false)` matches the public-listing semantics
+    // (issue #586): once a token is hidden by an admin, asking for it
+    // by address from the public detail endpoint should look identical
+    // to a token that doesn't exist. Without this, hidden tokens
+    // remained reachable via direct link.
+    .where(and(eq(tokens.address, address), eq(tokens.isHidden, false)))
     .limit(1);
 
   if (!dbToken) {

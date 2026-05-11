@@ -1,4 +1,10 @@
-import { BOUNCE_INDEXING_API, type LiveLeveragedToken } from "@launchpad/shared";
+import {
+  BOUNCE_INDEXING_API,
+  type AdminCheckResponse,
+  type AdminSessionAuth,
+  type AdminTokenActionResponse,
+  type LiveLeveragedToken,
+} from "@launchpad/shared";
 
 const apiUrl = import.meta.env.VITE_API_URL;
 if (!apiUrl) {
@@ -249,6 +255,44 @@ export function registerTokenApi(address: string): Promise<ApiToken> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address }),
+  });
+}
+
+/**
+ * Public endpoint — returns whether a wallet is in the moderation admin
+ * allowlist. The frontend calls this on the token detail page to decide
+ * whether to render the admin "Hide" button. Returns the boolean for
+ * one address only; never enumerates the allowlist.
+ */
+export function fetchAdminCheck(address: string): Promise<AdminCheckResponse> {
+  return apiFetch(`/api/v1/moderation/admins/${address}`);
+}
+
+/**
+ * Hide a token from the public listings via the wallet-signed
+ * moderation endpoint. Caller is responsible for obtaining `auth` from
+ * `useSessionSignature` (which prompts the wallet only when no valid
+ * 24h session signature is in localStorage).
+ */
+export function hideTokenApi(
+  tokenAddress: string,
+  auth: AdminSessionAuth,
+): Promise<AdminTokenActionResponse> {
+  return apiFetch(`/api/v1/moderation/tokens/${tokenAddress}/hide`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(auth),
+  });
+}
+
+export function unhideTokenApi(
+  tokenAddress: string,
+  auth: AdminSessionAuth,
+): Promise<AdminTokenActionResponse> {
+  return apiFetch(`/api/v1/moderation/tokens/${tokenAddress}/unhide`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(auth),
   });
 }
 

@@ -2,6 +2,17 @@ export interface AppBindings {
   DATABASE_URL: string;
   BOUNCETECH_DATABASE_URL: string;
   ADMIN_API_KEY: string;
+  /**
+   * Comma-separated list of wallet addresses authorised to perform
+   * wallet-signed moderation actions (e.g. hiding a token from the
+   * public listings — see `routes/moderation.ts`). Whitespace around
+   * each address is tolerated; case-insensitive. Leave unset to fall
+   * back to `DEFAULT_ADMIN_WALLETS` from `@launchpad/shared` (which
+   * ships with the canonical admin baked in so the feature works on a
+   * fresh deploy without any extra configuration). See
+   * `lib/admin-allowlist.ts` for the resolver.
+   */
+  ADMIN_WALLETS?: string;
   PONDER_URL: string;
   IMAGES_BUCKET: R2Bucket;
   WEBSOCKET_DO: DurableObjectNamespace;

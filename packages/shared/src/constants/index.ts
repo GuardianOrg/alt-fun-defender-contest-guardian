@@ -31,6 +31,7 @@ export {
   isValidTokenSymbol,
 } from "./validation.js";
 export { DEFAULT_GRADUATION_THRESHOLD_USD } from "./bonding.js";
+export { DEFAULT_ADMIN_WALLETS, isAdminWallet, isValidAddressFormat } from "./admin.js";
 export {
   MAX_IMAGE_BYTES,
   ALLOWED_IMAGE_MIME_TYPES,
