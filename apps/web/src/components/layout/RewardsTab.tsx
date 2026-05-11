@@ -120,16 +120,14 @@ export default function RewardsTab({
                 <div className={styles.tokenCardInfo}>
                   <div className={styles.tokenCardName}>{t.name}</div>
                   <a
-                    href={`${EXPLORER_BASE}/${t.ltAddress}`}
+                    href={`${EXPLORER_BASE}/${t.address}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={styles.tokenCardLtLink}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {t.ltAddress.startsWith("0x")
-                      ? `${shortenAddress(t.ltAddress)} ${t.ltName.split(" ").pop()}`
-                      : t.ltName}
-                    {t.ltAddress.startsWith("0x") && (
+                    {shortenAddress(t.address)}
+                    {t.address.startsWith("0x") && (
                       <svg
                         width="10"
                         height="10"
