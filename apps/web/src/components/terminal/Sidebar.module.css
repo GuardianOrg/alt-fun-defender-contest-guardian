@@ -91,6 +91,63 @@
   margin-left: auto;
 }
 
+/* Skeleton placeholders for the initial loading window. Mirror the
+ * steady-state row geometry so layout doesn't shift when real data lands.
+ * The `shimmer` keyframe is defined globally in index.css. Built from the
+ * `--border-2` mint token (rgba(77,232,180,0.28)) and `transparent` so the
+ * stops respect the shared design palette instead of hardcoded rgba values. */
+.skeletonBlock {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-2) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 2px;
+}
+
+.skeletonCircle {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-2) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+.skeletonName {
+  width: 3.6rem;
+  height: 0.8rem;
+}
+
+.skeletonChange {
+  width: 2.4rem;
+  height: 0.7rem;
+  margin-top: 0.3rem;
+}
+
+.skeletonPrice {
+  width: 2.4rem;
+  height: 0.8rem;
+  margin-left: auto;
+}
+
+/* Respect users who opt out of motion: keep the placeholder visible but
+ * stop the shimmer sweep. The static gradient still reads as "loading"
+ * because it's clearly a placeholder shape, not real data. */
+@media (prefers-reduced-motion: reduce) {
+  .skeletonBlock,
+  .skeletonCircle {
+    animation: none;
+    background: var(--border);
+  }
+}
+
 .ctaSection {
   flex-shrink: 0;
   margin-top: 1.2rem;
