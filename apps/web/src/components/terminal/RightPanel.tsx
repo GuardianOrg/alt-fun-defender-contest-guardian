@@ -3,14 +3,12 @@ import { useNavigate } from "react-router";
 import styles from "./RightPanel.module.css";
 import { tokenPath } from "../../app/routes";
 import { useBalances } from "../../hooks/useBalances";
-import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
 import { useWallet } from "../../hooks/useWallet";
 import {
   cn,
   formatCurveFilled,
-  formatPercentOrDash,
   formatTimeAgo,
   formatUsd,
 } from "../../utils/format";
@@ -18,7 +16,6 @@ import {
 export default function RightPanel() {
   const trades = useTradeFeed();
   const { data: tokens } = useTokens();
-  const { getStats } = useTokenMarketStatsMap();
   const { isConnected } = useWallet();
   const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
   const navigate = useNavigate();
@@ -28,11 +25,6 @@ export default function RightPanel() {
     .slice(0, 5);
 
   const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
-  const ltMovers =
-    tokens
-      ?.filter((t) => t.leverageBoost > 0)
-      ?.sort((a, b) => b.leverageBoost - a.leverageBoost)
-      ?.slice(0, 3) ?? [];
 
   return (
     <div className={styles.panel}>
@@ -101,23 +93,6 @@ export default function RightPanel() {
           ))}
         </div>
       )}
-
-      {/* Top LT movers */}
-      <div className={styles.section}>
-        <div className={styles.sectionHeader}>TOP LT MOVERS</div>
-        {ltMovers.map((t) => (
-          <div
-            key={t.address}
-            className={cn(styles.infoRow, styles.infoRowNoBorderLast)}
-          >
-            <span className={styles.infoName}>{t.name}</span>
-            <span className={styles.ltMoverValue}>
-              {formatPercentOrDash(getStats(t.address).change24h)}{" "}
-              {t.ltName.split(" ").slice(0, 2).join("")}
-            </span>
-          </div>
-        ))}
-      </div>
 
       {/* My positions */}
       <div>

@@ -106,7 +106,6 @@ export interface PairFilter {
 export type TokenFilter =
   | "trending"
   | "new"
-  | "lt-movers"
   | "graduating"
   | "graduated";
 

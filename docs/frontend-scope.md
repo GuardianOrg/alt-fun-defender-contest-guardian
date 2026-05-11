@@ -21,9 +21,9 @@ Three-column: left sidebar | center token table | right panel.
 
 **Left sidebar:** asset prices with 24h %, available LT pairs with active token count, create button.
 
-**Token table:** filter tabs (TRENDING, NEW, LT MOVERS, GRADUATING, GRADUATED, ALL). Split into LONG and SHORT columns with independent sort. Each row: icon, name + leverage badge, LT name, 24h change, progress bar (dual fill: buy pressure + leverage boost), market cap. Clickable → `/token/:address`.
+**Token table:** filter tabs (TRENDING, NEW, GRADUATING, GRADUATED, ALL). Split into LONG and SHORT columns with independent sort. Each row: icon, name + leverage badge, LT name, 24h change, progress bar (dual fill: buy pressure + leverage boost), market cap. Clickable → `/token/:address`.
 
-**Right panel:** recent trades feed, graduating soon, top LT movers, my positions (when connected).
+**Right panel:** recent trades feed, graduating soon, my positions (when connected).
 
 All data updates in real-time via WebSocket.
 

@@ -140,8 +140,6 @@ function filterToApiOptions(
     case "new":
       // Default API sort is `createdAt desc` — exactly what NEW wants.
       return {};
-    case "lt-movers":
-      return { sort: "lt-movers" };
     case "graduating":
       return { status: "graduating" };
     case "graduated":

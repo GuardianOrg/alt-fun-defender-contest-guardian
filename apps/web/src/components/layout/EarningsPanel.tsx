@@ -52,7 +52,6 @@ export default function EarningsPanel() {
       <div className={styles.panelHeader}>
         {isConnected ? (
           <div className={styles.avatarWrap}>
-            <img src="/avatar.png" alt="" className={styles.avatar} />
             <div>
               <button
                 type="button"
@@ -66,18 +65,13 @@ export default function EarningsPanel() {
                   copied ? "Address copied" : "Copy full wallet address"
                 }
               >
-                <span
-                  id="earnings-panel-title"
-                  className={styles.addressText}
-                >
+                <span id="earnings-panel-title" className={styles.addressText}>
                   {shortAddress}
                 </span>
                 <span
                   className={cn(
                     styles.copyIcon,
-                    copied
-                      ? styles.copyIconCopied
-                      : styles.copyIconDefault,
+                    copied ? styles.copyIconCopied : styles.copyIconDefault,
                   )}
                   aria-hidden="true"
                 >

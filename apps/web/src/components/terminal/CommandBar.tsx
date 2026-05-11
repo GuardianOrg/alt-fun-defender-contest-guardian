@@ -9,7 +9,6 @@ import type { TokenFilter } from "../../services/types";
 const TABS: { label: string; filter: TokenFilter }[] = [
   { label: "TRENDING", filter: "trending" },
   { label: "NEW", filter: "new" },
-  { label: "LT MOVERS", filter: "lt-movers" },
   { label: "GRADUATING", filter: "graduating" },
   { label: "GRADUATED", filter: "graduated" },
 ];
