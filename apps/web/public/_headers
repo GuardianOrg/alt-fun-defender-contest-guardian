@@ -1,0 +1,35 @@
+# Cloudflare Pages picks this file up automatically when it sits in `dist/`.
+# Vite copies `public/_headers` → `dist/_headers` at build time, so any
+# change here ships with the next `pages deploy`.
+#
+# Header strategy (mirrors issue #474's own test plan):
+#   - Enforce the cheap, non-breaking headers (MIME-sniff, framing, referrer,
+#     permissions, HSTS). These have no runtime surface and apply to every
+#     request.
+#   - Ship CSP in `Report-Only` first. Browsers log violations to the console
+#     without blocking, so a regression in Privy / WalletConnect / a future
+#     transitive dep can't take prod down. After a week of clean reports the
+#     `-Report-Only` suffix gets dropped and CSP becomes enforced (tracked as
+#     a follow-up — see the PR closing #474).
+#
+# CSP `frame-src` allowlist follows Privy's own published recommendation
+# (https://docs.privy.io/security/implementation-guide/content-security-policy).
+# WalletConnect entries stay in even though `walletConnect.enabled: false`
+# in `App.tsx` — Privy's SDK probes those origins regardless, so omitting
+# them surfaces as false-positive violations.
+#
+# `connect-src` and `img-src` use scheme-only allowlists (`https:` / `wss:`)
+# because the API host, Ponder URL, WS host, and R2 image host are all
+# `VITE_*` env vars injected at build time — a static `_headers` file
+# can't enumerate them. Locking the scheme still blocks the two real
+# attack shapes (`http:` mixed-content exfil, `data:`/`javascript:`
+# script-loaded-as-image), and `script-src 'self'` is what actually
+# stops a moderation-bypassed SVG from executing inline `<script>`.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https: wss:; frame-src 'self' https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://challenges.cloudflare.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; manifest-src 'self'
