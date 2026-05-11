@@ -20,8 +20,7 @@ export default function Header() {
         <span className={styles.subtitleContainer}>
           <p className={styles.subtitle}>
             Every token is backed by a{" "}
-            <span className={styles.mint}>non-liquidated position</span> on
-            Hyperliquid.
+            <span className={styles.mint}>non-liquidating Hyperliquid perp</span>.
           </p>
           <p className={styles.subtitleItalic}>
             Your token pumps even when nobody&apos;s buying — when the

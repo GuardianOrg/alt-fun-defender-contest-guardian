@@ -22,9 +22,9 @@ export default function LeverageBanner() {
       <div className={styles.content}>
         Every token is backed by a{" "}
         <span className={styles.highlightMint}>
-          non-liquidating leveraged position
-        </span>{" "}
-        on Hyperliquid. Your token pumps even when nobody's buying — the
+          non-liquidating Hyperliquid perp
+        </span>
+        . Your token pumps even when nobody's buying — the
         underlying moves, your coin moves{" "}
         <span className={styles.highlightAmber}>2–5× harder</span>.
       </div>
