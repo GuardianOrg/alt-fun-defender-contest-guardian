@@ -24,7 +24,7 @@ export default function Sidebar() {
   return (
     <div className={styles.sidebar}>
       <div className={cn(styles.panel, styles.marketsPanel)}>
-        <div className={styles.sectionHeader}>PAIRS</div>
+        <div className={styles.sectionHeader}>MARKETS</div>
         {assetsLoading
           ? Array.from({ length: PAIRS_SKELETON_ROWS }).map((_, i) => (
               <div
