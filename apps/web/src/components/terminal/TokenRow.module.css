@@ -142,7 +142,7 @@
 .directionCell {
   display: flex;
   align-items: center;
-  width: 150px;
+  width: 90px;
   flex-shrink: 0;
 }
 

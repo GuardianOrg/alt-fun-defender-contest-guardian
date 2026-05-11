@@ -138,7 +138,7 @@ export default function TokenRow({ token }: Props) {
             isShort ? styles.directionShort : styles.directionLong,
           )}
         >
-          {getAssetDisplayName(token.underlying)} {token.leverage}x {isShort ? "Short" : "Long"}
+          {token.leverage}x {isShort ? "Short" : "Long"}
         </span>
       </div>
 
