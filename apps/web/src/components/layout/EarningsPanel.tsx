@@ -24,8 +24,10 @@ export default function EarningsPanel() {
   const navigate = useNavigate();
   const { address, isConnected, shortAddress, connect, disconnect } =
     useWallet();
-  const { earnings, claiming, claim } = useCreatorEarnings();
-  const { tokens: heldTokens, totalValue } = useBalances();
+  const { earnings, claiming, claim, isLoading: earningsLoading } =
+    useCreatorEarnings();
+  const { tokens: heldTokens, totalValue, isLoading: balancesLoading } =
+    useBalances();
   const { copied, copy } = useCopyState();
   const [tab, setTab] = useState<Tab>("balances");
 
@@ -137,6 +139,7 @@ export default function EarningsPanel() {
               <BalancesTab
                 tokens={heldTokens}
                 totalValue={totalValue}
+                isLoading={balancesLoading}
                 onTokenClick={goToToken}
                 onLaunch={() => {
                   setOpen(false);
@@ -148,6 +151,7 @@ export default function EarningsPanel() {
                 earnings={earnings ?? undefined}
                 claiming={claiming}
                 claim={claim}
+                isLoading={earningsLoading}
                 onTokenClick={goToToken}
                 onLaunch={() => {
                   setOpen(false);

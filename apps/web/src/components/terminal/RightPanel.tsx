@@ -16,9 +16,14 @@ import {
   formatTimeAgo,
   formatUsd,
 } from "../../utils/format";
+import Skeleton from "../shared/Skeleton";
 
 import type { HeldToken } from "../../services/types";
 
+// How many placeholder rows to render while the trade WS hasn't sent
+// anything yet. Matches the typical density of the live feed so the panel
+// reads as a populated stream rather than an empty card on first paint.
+const TRADE_SKELETON_COUNT = 7;
 const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
 
@@ -114,7 +119,7 @@ function PositionSkeleton() {
 }
 
 export default function RightPanel() {
-  const trades = useTradeFeed();
+  const { trades, isLoading: tradesLoading } = useTradeFeed();
   const { data: tokens } = useTokens();
   const { isConnected } = useWallet();
   const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
@@ -126,6 +131,10 @@ export default function RightPanel() {
 
   const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
   const handleNavigate = (address: string) => navigate(tokenPath(address));
+  // Gate skeletons + `aria-busy` behind the transient loading flag so an
+  // empty / disconnected feed surfaces as an empty state once the timeout
+  // fires, rather than shimmering forever.
+  const showTradeSkeletons = tradesLoading && trades.length === 0;
 
   return (
     <div className={styles.panel}>
@@ -159,42 +168,83 @@ export default function RightPanel() {
             LIVE
           </span>
         </div>
-        <div aria-live="polite" aria-label="Recent trades">
-          {trades.slice(0, 7).map((t) => {
-            const isBuy = t.side === "BUY";
-            return (
+        {/* `aria-live` is intentionally NOT set: this is a high-frequency
+         * stream (a new buy/sell every few seconds during active hours)
+         * and `polite`/`assertive` would flood screen-reader output with
+         * non-actionable noise. The static `aria-label` plus `aria-busy`
+         * during the initial load are enough — discrete state changes
+         * (e.g. the user's own trade confirming) are announced through
+         * the toast system instead. */}
+        <div
+          aria-label="Recent trades"
+          aria-busy={showTradeSkeletons ? true : undefined}
+        >
+          {showTradeSkeletons ? (
+            Array.from({ length: TRADE_SKELETON_COUNT }, (_, i) => (
               <div
-                key={t.id}
-                className={styles.tradeRow}
-                tabIndex={0}
-                role="button"
-                aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
-                onClick={() => navigate(tokenPath(t.tokenAddress))}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(tokenPath(t.tokenAddress));
-                  }
-                }}
+                key={i}
+                className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
+                aria-hidden="true"
               >
                 <div className={styles.tradeInfo}>
                   <div className={styles.tradeNameRow}>
-                    <span className={styles.tradeName}>{t.tokenName}</span>
-                    <span className={styles.tradeTime}>{formatTimeAgo(t.timestamp)}</span>
+                    <Skeleton width="6rem" height="11px" />
+                    <Skeleton
+                      width="2.5rem"
+                      height="10px"
+                      className={styles.tradeSkeletonTime}
+                    />
                   </div>
-                  <div className={styles.tradeWallet}>{t.walletAddress}</div>
+                  <Skeleton
+                    width="5rem"
+                    height="10px"
+                    className={styles.tradeSkeletonWallet}
+                  />
                 </div>
-                <span
-                  className={cn(
-                    styles.tradeAmount,
-                    isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
-                  )}
-                >
-                  {isBuy ? "+" : "-"}${Math.round(t.amountUsd).toLocaleString()}
-                </span>
+                <Skeleton width="3rem" height="12px" />
               </div>
-            );
-          })}
+            ))
+          ) : trades.length === 0 ? (
+            <div className={styles.emptyRow}>No recent trades yet</div>
+          ) : (
+            trades.slice(0, TRADE_SKELETON_COUNT).map((t) => {
+                const isBuy = t.side === "BUY";
+                return (
+                  <div
+                    key={t.id}
+                    className={styles.tradeRow}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
+                    onClick={() => navigate(tokenPath(t.tokenAddress))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate(tokenPath(t.tokenAddress));
+                      }
+                    }}
+                  >
+                    <div className={styles.tradeInfo}>
+                      <div className={styles.tradeNameRow}>
+                        <span className={styles.tradeName}>{t.tokenName}</span>
+                        <span className={styles.tradeTime}>
+                          {formatTimeAgo(t.timestamp)}
+                        </span>
+                      </div>
+                      <div className={styles.tradeWallet}>{t.walletAddress}</div>
+                    </div>
+                    <span
+                      className={cn(
+                        styles.tradeAmount,
+                        isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
+                      )}
+                    >
+                      {isBuy ? "+" : "-"}${Math.round(t.amountUsd).toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })
+          )}
         </div>
       </div>
 

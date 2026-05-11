@@ -2,14 +2,21 @@ import styles from "./EarningsPanel.module.css";
 import { FEES } from "../../config/constants";
 import { cn, formatCurveFilled, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
+import Skeleton from "../shared/Skeleton";
 
 import type { CreatorEarnings } from "../../services/types";
 
 const EXPLORER_BASE = "https://hyperevmscan.io/address";
 
+// Number of skeleton token cards shown during the initial earnings fetch.
+// 2 keeps the panel feeling populated without spilling under the
+// claim/total summary on common viewport heights.
+const REWARDS_SKELETON_COUNT = 2;
+
 interface Props {
   earnings: CreatorEarnings | undefined;
   claiming: boolean;
+  isLoading?: boolean;
   /**
    * Claim the caller's pooled USDC fees from `FeeVault`. Always drains the
    * full balance — per-token targeting no longer exists in the router-fee
@@ -24,9 +31,75 @@ export default function RewardsTab({
   earnings,
   claiming,
   claim,
+  isLoading = false,
   onTokenClick,
   onLaunch,
 }: Props) {
+  // Loading state mirrors the live layout (summary card + per-token cards)
+  // so users get a shaped placeholder instead of the "No tokens created
+  // yet" empty state flashing while the first fetch is still in flight.
+  if (isLoading && !earnings) {
+    return (
+      <div aria-busy="true" aria-label="Loading creator rewards">
+        <div className={styles.rewardsSummary}>
+          <div className={styles.rewardsGrid}>
+            <div>
+              <div className={styles.rewardsLabel}>claimable</div>
+              <Skeleton width="5rem" height="1.5rem" />
+            </div>
+            <div>
+              <div className={styles.rewardsLabel}>total earned</div>
+              <Skeleton width="5rem" height="1.5rem" />
+            </div>
+          </div>
+          <Skeleton
+            shape="block"
+            width="100%"
+            height="2.4rem"
+            radius="2px"
+          />
+        </div>
+
+        <div className={styles.tokensSection}>
+          <div className={styles.tokensSectionLabel}>your tokens</div>
+          <div className={styles.tokensCards}>
+            {Array.from({ length: REWARDS_SKELETON_COUNT }, (_, i) => (
+              <div key={i} className={styles.tokenCard} aria-hidden="true">
+                <div className={styles.tokenCardHeader}>
+                  <Skeleton
+                    shape="block"
+                    width="2rem"
+                    height="2rem"
+                    radius="2px"
+                  />
+                  <div className={styles.tokenCardInfo}>
+                    <Skeleton width="6rem" height="13px" />
+                    <Skeleton
+                      width="5rem"
+                      height="11px"
+                      className={styles.skeletonSublineLg}
+                    />
+                  </div>
+                  <Skeleton width="3.5rem" height="14px" />
+                </div>
+                <div className={styles.tokenCardGrid}>
+                  <div>
+                    <div className={styles.tokenCardStatLabel}>volume</div>
+                    <Skeleton width="4rem" height="13px" />
+                  </div>
+                  <div>
+                    <div className={styles.tokenCardStatLabel}>earned</div>
+                    <Skeleton width="4rem" height="13px" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!earnings || earnings.tokens.length === 0) {
     return (
       <div className={styles.emptyState}>

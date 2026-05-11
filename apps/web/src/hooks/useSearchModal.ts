@@ -19,7 +19,7 @@ export function useSearchModal() {
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const { data: tokens } = useTokens();
+  const { data: tokens, isLoading: tokensLoading } = useTokens();
   const recentlyViewedAddresses = useRecentlyViewed();
 
   const trendingTokens = useMemo(() => tokens?.slice(0, 5) ?? [], [tokens]);
@@ -130,5 +130,6 @@ export function useSearchModal() {
     close,
     highlightedIndex,
     setHighlightedIndex,
+    tokensLoading: tokensLoading && !tokens,
   };
 }

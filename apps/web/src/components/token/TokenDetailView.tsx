@@ -4,9 +4,12 @@ import AdminPanel from "./AdminPanel";
 import BottomTabs from "./BottomTabs";
 import Chart from "./Chart";
 import HeroSection from "./HeroSection";
+import HeroSectionSkeleton from "./HeroSectionSkeleton";
 import styles from "./TokenDetailView.module.css";
 import TokenInfoStrip from "./TokenInfoStrip";
+import TokenInfoStripSkeleton from "./TokenInfoStripSkeleton";
 import TradePanel from "./TradePanel";
+import TradePanelSkeleton from "./TradePanelSkeleton";
 import { useGraduationFeed } from "../../hooks/useGraduationFeed";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
@@ -35,10 +38,15 @@ export default function TokenDetailView() {
     );
   }
 
+  // Unreachable under normal routing — the `:address` route param is
+  // mandatory, so React Router would 404 before ever rendering this view
+  // without one. Kept as a defensive fallback that surfaces a clear
+  // not-found message (no `role="status"` / `aria-live`; nothing is
+  // loading here).
   if (!address) {
     return (
       <div className={styles.wrapper}>
-        <div className={styles.loading}>Loading token...</div>
+        <div className={styles.loading}>Invalid token address</div>
       </div>
     );
   }
@@ -66,14 +74,15 @@ export default function TokenDetailView() {
   // placeholder until `token` is available; the chart only needs `address`
   // (the `:address` route param) and mounts immediately so its fetch runs
   // in parallel with the metadata request rather than sequentially after.
+  //
+  // `aria-busy` flips off as soon as `useToken` resolves. Screen readers
+  // pause polite announcements while the wrapper is busy, so the swap
+  // from skeleton → real content lands as one settled update rather than
+  // a series of half-formed reads of each section as it materialises.
   return (
-    <div className={styles.wrapper}>
+    <div className={styles.wrapper} aria-busy={token ? undefined : true}>
       <div className={styles.leftPanel}>
-        {token ? (
-          <HeroSection token={token} />
-        ) : (
-          <div className={styles.loading}>Loading token...</div>
-        )}
+        {token ? <HeroSection token={token} /> : <HeroSectionSkeleton />}
 
         {token && (
           <ErrorBoundary
@@ -127,7 +136,7 @@ export default function TokenDetailView() {
           </div>
         )}
 
-        {token && <TokenInfoStrip token={token} />}
+        {token ? <TokenInfoStrip token={token} /> : <TokenInfoStripSkeleton />}
 
         {token && (
           <ErrorBoundary
@@ -142,7 +151,7 @@ export default function TokenDetailView() {
         )}
       </div>
 
-      {token && (
+      {token ? (
         <ErrorBoundary
           fallback={
             <div className={styles.errorFallback}>
@@ -152,6 +161,8 @@ export default function TokenDetailView() {
         >
           <TradePanel token={token} />
         </ErrorBoundary>
+      ) : (
+        <TradePanelSkeleton />
       )}
     </div>
   );

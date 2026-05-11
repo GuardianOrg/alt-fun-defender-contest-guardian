@@ -20,7 +20,12 @@ export default function BottomTabs({ token }: Props) {
   // `useHolders` polls `/api/v1/holders/:address` every 5s (issue #452)
   // so the leaderboard tracks balance changes from `Zap` trades and
   // wallet-to-wallet transfers without a page refresh.
-  const { data: holders = [] } = useHolders(token.address);
+  // `placeholderData: []` means `isLoading` flips to false immediately, so
+  // we use `isPlaceholderData` to detect the pre-first-response window and
+  // render skeleton rows during it.
+  const { data: holders = [], isPlaceholderData: holdersLoading } = useHolders(
+    token.address,
+  );
 
   return (
     <>
@@ -55,7 +60,7 @@ export default function BottomTabs({ token }: Props) {
               <div className={styles.tabError}>Failed to load holders</div>
             }
           >
-            <HoldersTab holders={holders} />
+            <HoldersTab holders={holders} isLoading={holdersLoading} />
           </ErrorBoundary>
         )}
       </div>

@@ -284,6 +284,23 @@
   flex-shrink: 0;
 }
 
+/* Skeleton placeholder rows for RECENT TRADES. The wrapper drops the
+ * default `cursor: pointer` from `.tradeRow` (skeletons aren't
+ * interactive); the sub-elements align the shimmer bars to the same
+ * baselines the real row uses, so the swap from placeholder → trade
+ * doesn't shift layout when the WS feed delivers the first event. */
+.tradeSkeletonRow {
+  cursor: default;
+}
+
+.tradeSkeletonTime {
+  margin-left: auto;
+}
+
+.tradeSkeletonWallet {
+  margin-top: 0.2rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .skeletonBlock {
     animation: none;
