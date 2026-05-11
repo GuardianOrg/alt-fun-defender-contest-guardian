@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 
 import {
   ALLOWED_IMAGE_TYPES_LABEL,
@@ -15,6 +16,7 @@ import {
   moderateImage,
   type CategoryScore,
 } from "../lib/image-moderation.js";
+import { uploadIpRateLimit } from "../middleware/upload-rate-limit.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -46,8 +48,6 @@ async function logModerationDecision(
   }
 }
 
-const images = new Hono<{ Bindings: AppBindings }>();
-
 function sanitizeFileName(raw: string): string {
   const base = raw.split(/[/\\]+/).pop() ?? "file";
   const dotIdx = base.lastIndexOf(".");
@@ -67,7 +67,19 @@ function sanitizeFileName(raw: string): string {
   return `${name || "file"}.${ext}`;
 }
 
-images.post("/", async (c) => {
+/**
+ * Upload handler — POST /. Performs OpenAI moderation, then writes to R2
+ * and `moderation_logs`. Wired only into `imagesPrivate` so it is
+ * unreachable outside `/api/v1/*` (which is gated by `apiKeyAuth`).
+ *
+ * Splitting public-read from private-read+write closes the auth-bypass
+ * regression caused by mounting the same router at both `/api/v1/images`
+ * and the bare `/images` prefix (issue #509): the bare mount exists so
+ * on-chain image URLs of the form `/images/{prefix}/{key}` resolve via
+ * the same Worker, but it accidentally re-exposed `POST /images` with no
+ * auth and no rate limit. Only `serveHandler` belongs on the bare mount.
+ */
+async function uploadHandler(c: Context<{ Bindings: AppBindings }>) {
   const formData = await c.req.formData();
   const file = formData.get("file");
 
@@ -154,9 +166,16 @@ images.post("/", async (c) => {
   );
 
   return c.json(formatSuccess({ url, key }));
-});
+}
 
-images.get("/:prefix/:key", async (c) => {
+/**
+ * Serve handler — GET /:prefix/:key. Streams the R2 object back. Wired
+ * into both `imagesPublic` (mounted at `/images`) and `imagesPrivate`
+ * (mounted under `/api/v1/images`) so on-chain URLs of the form
+ * `/images/{prefix}/{key}` resolve without auth while authenticated
+ * callers can still hit them at the canonical API path.
+ */
+async function serveHandler(c: Context<{ Bindings: AppBindings }>) {
   const prefix = c.req.param("prefix");
   const key = c.req.param("key");
   const fullKey = `${prefix}/${key}`;
@@ -166,10 +185,32 @@ images.get("/:prefix/:key", async (c) => {
     return c.json(formatError("Image not found"), 404);
   }
 
-  c.header("Content-Type", object.httpMetadata?.contentType ?? "application/octet-stream");
+  c.header(
+    "Content-Type",
+    object.httpMetadata?.contentType ?? "application/octet-stream",
+  );
   c.header("Cache-Control", "public, max-age=31536000, immutable");
 
   return c.body(object.body);
-});
+}
 
-export default images;
+/**
+ * Public images router — GET-only. Mounted at the bare `/images` prefix
+ * so on-chain `LaunchParams.image` URLs (`/images/{prefix}/{key}`, see
+ * issue #450) resolve via the same Worker without going through
+ * `apiKeyAuth`. Critically, this router exposes NO write surface — the
+ * earlier dual-mount of a single router accidentally re-exposed
+ * `POST /images` with no auth and no rate limit (issue #509).
+ */
+export const imagesPublic = new Hono<{ Bindings: AppBindings }>();
+imagesPublic.get("/:prefix/:key", serveHandler);
+
+/**
+ * Private images router — read + write. Mounted at `/api/v1/images`
+ * and gated by `apiKeyAuth`. The upload handler is additionally rate
+ * limited per-IP via `uploadIpRateLimit` as a defensive fallback behind
+ * the planned Cloudflare edge rule.
+ */
+export const imagesPrivate = new Hono<{ Bindings: AppBindings }>();
+imagesPrivate.post("/", uploadIpRateLimit, uploadHandler);
+imagesPrivate.get("/:prefix/:key", serveHandler);

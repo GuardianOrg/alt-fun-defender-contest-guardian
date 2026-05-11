@@ -3,11 +3,26 @@ import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
 
-const { default: imagesRoute } = await import("../routes/images.js");
+const { imagesPublic, imagesPrivate } = await import("../routes/images.js");
+const { __resetUploadRateLimitForTests } = await import(
+  "../middleware/upload-rate-limit.js"
+);
+const { __resetModerationCooldownForTests } = await import(
+  "../lib/image-moderation.js"
+);
 
+/**
+ * Mirrors the production wiring (see `apps/api/src/index.ts`): the bare
+ * `/images` prefix is the GET-only public mount, while `/api/v1/images`
+ * carries the read+write surface. Tests upload against `/api/v1/images`
+ * and serve against either, so we route the bare prefix to `imagesPublic`
+ * and the API-versioned prefix to `imagesPrivate` exactly as `index.ts`
+ * does.
+ */
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
-  app.route("/images", imagesRoute);
+  app.route("/api/v1/images", imagesPrivate);
+  app.route("/images", imagesPublic);
   return app;
 }
 
@@ -80,11 +95,19 @@ function makeOpenAIModerationResponse(overrides: OpenAICategoryShape = {}) {
 }
 
 function mockOpenAIFetch(response: unknown, init: { status?: number } = {}) {
-  return vi.fn().mockResolvedValue(
-    new Response(JSON.stringify(response), {
-      status: init.status ?? 200,
-      headers: { "Content-Type": "application/json" },
-    }),
+  // Return a *fresh* Response on each call — Response bodies are
+  // single-use streams, so mocking with `mockResolvedValue(new Response(...))`
+  // would 'Body has already been read' the second time `moderateImage`
+  // runs in the same test (which the rate-limit + cooldown specs need).
+  const status = init.status ?? 200;
+  const body = JSON.stringify(response);
+  return vi.fn().mockImplementation(() =>
+    Promise.resolve(
+      new Response(body, {
+        status,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
   );
 }
 
@@ -108,11 +131,28 @@ function makeEnv(overrides: Partial<AppBindings> = {}): AppBindings {
 
 const originalFetch = globalThis.fetch;
 
-describe("POST /images — image upload", () => {
+/**
+ * Drives an upload through the *private* mount at `/api/v1/images` so
+ * tests exercise the same wiring as production. A previous regression
+ * had the upload route shadow-mounted at the bare `/images` prefix with
+ * no auth and no rate limit (issue #509); routing the test through the
+ * private mount makes sure we don't reintroduce that.
+ */
+async function uploadRequest(
+  app: Hono<{ Bindings: AppBindings }>,
+  init: RequestInit,
+  env: AppBindings = makeEnv(),
+) {
+  return app.request("/api/v1/images", init, env);
+}
+
+describe("POST /api/v1/images — image upload", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
     globalThis.fetch = mockOpenAIFetch(makeOpenAIModerationResponse());
+    __resetUploadRateLimitForTests();
+    __resetModerationCooldownForTests();
   });
 
   afterEach(() => {
@@ -122,11 +162,7 @@ describe("POST /images — image upload", () => {
   it("returns 400 when no file is uploaded", async () => {
     const app = createApp();
     const formData = new FormData();
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
@@ -138,11 +174,7 @@ describe("POST /images — image upload", () => {
     const formData = new FormData();
     formData.append("file", new File(["data"], "test.txt", { type: "text/plain" }));
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
@@ -158,11 +190,7 @@ describe("POST /images — image upload", () => {
       new File([largeData], "big.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
@@ -185,11 +213,7 @@ describe("POST /images — image upload", () => {
       new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(422);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
@@ -212,11 +236,7 @@ describe("POST /images — image upload", () => {
       new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -251,11 +271,7 @@ describe("POST /images — image upload", () => {
       new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(422);
     expect(mockR2Put).not.toHaveBeenCalled();
@@ -271,11 +287,7 @@ describe("POST /images — image upload", () => {
       new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(503);
     const body = (await res.json()) as { status: string; error: string | null; data: unknown };
@@ -295,8 +307,8 @@ describe("POST /images — image upload", () => {
       new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
+    const res = await uploadRequest(
+      app,
       { method: "POST", body: formData },
       makeEnv({ OPENAI_API_KEY: undefined }),
     );
@@ -315,11 +327,7 @@ describe("POST /images — image upload", () => {
       new File([new Uint8Array(100)], "photo.png", { type: "image/png" }),
     );
 
-    const res = await app.request(
-      "/images",
-      { method: "POST", body: formData },
-      makeEnv(),
-    );
+    const res = await uploadRequest(app, { method: "POST", body: formData });
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string; error: string | null; data: Record<string, unknown> };
@@ -359,7 +367,7 @@ describe("POST /images — image upload", () => {
       }),
     );
 
-    await app.request("/images", { method: "POST", body: formData }, makeEnv());
+    await uploadRequest(app, { method: "POST", body: formData });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
@@ -381,6 +389,7 @@ describe("POST /images — image upload", () => {
       vi.clearAllMocks();
       mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
       globalThis.fetch = mockOpenAIFetch(makeOpenAIModerationResponse());
+      __resetUploadRateLimitForTests();
 
       const app = createApp();
       const formData = new FormData();
@@ -390,14 +399,330 @@ describe("POST /images — image upload", () => {
         new File([new Uint8Array(100)], `test.${ext}`, { type }),
       );
 
-      const res = await app.request(
-        "/images",
-        { method: "POST", body: formData },
-        makeEnv(),
-      );
+      const res = await uploadRequest(app, { method: "POST", body: formData });
 
       expect(res.status).toBe(200);
     }
+  });
+});
+
+describe("POST /images — bare-prefix mount is read-only (issue #509)", () => {
+  // The bare `/images` prefix exists so on-chain image URLs
+  // (`/images/{prefix}/{key}`, see issue #450) resolve via the same
+  // Worker. Before this fix, the same router was mounted at both
+  // `/api/v1/images` (gated by `apiKeyAuth`) and `/images` (no auth, no
+  // rate limit), so `POST /images` was reachable by any anonymous
+  // client. Pin the behaviour so a future router refactor can't
+  // reintroduce the bypass.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    globalThis.fetch = mockOpenAIFetch(makeOpenAIModerationResponse());
+    __resetUploadRateLimitForTests();
+    __resetModerationCooldownForTests();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("does not expose POST on the bare /images mount", async () => {
+    const app = createApp();
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
+    );
+
+    const res = await app.request(
+      "/images",
+      { method: "POST", body: formData },
+      makeEnv(),
+    );
+
+    // Hono returns 404 for an unmatched method+path on a router. The
+    // important assertion is that we did NOT reach the upload handler:
+    // no R2 PUT, no OpenAI call.
+    expect(res.status).not.toBe(200);
+    expect(mockR2Put).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/v1/images — per-IP write quota (issue #509)", () => {
+  // Defensive fallback behind the planned Cloudflare edge rule. Hard
+  // limit of 10 req/min/IP to keep the OpenAI moderation call + R2 PUT
+  // + Neon insert cost bounded under local `wrangler dev` or if the
+  // edge rule is missing/misconfigured.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
+    globalThis.fetch = mockOpenAIFetch(makeOpenAIModerationResponse());
+    __resetUploadRateLimitForTests();
+    __resetModerationCooldownForTests();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  function buildUpload() {
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new File([new Uint8Array(100)], "test.png", { type: "image/png" }),
+    );
+    return formData;
+  }
+
+  it("rate-limits an IP after 10 uploads in the window", async () => {
+    const app = createApp();
+    const prodHeaders = {
+      "CF-Connecting-IP": "198.51.100.7",
+      Host: "api.altfun.com",
+    };
+
+    for (let i = 0; i < 10; i++) {
+      const res = await app.request(
+        "/api/v1/images",
+        { method: "POST", body: buildUpload(), headers: prodHeaders },
+        makeEnv(),
+      );
+      expect(res.status).toBe(200);
+    }
+
+    const res = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: buildUpload(), headers: prodHeaders },
+      makeEnv(),
+    );
+    expect(res.status).toBe(429);
+    const body = (await res.json()) as {
+      status: string;
+      error: string | null;
+      data: unknown;
+    };
+    expect(body.error).toBe("Rate limit exceeded");
+    expect(res.headers.get("Retry-After")).toBeTruthy();
+  });
+
+  it("buckets per-IP — a second IP retains its full budget after the first IP is throttled", async () => {
+    const app = createApp();
+    const prodHostHeader = { Host: "api.altfun.com" };
+
+    for (let i = 0; i < 11; i++) {
+      await app.request(
+        "/api/v1/images",
+        {
+          method: "POST",
+          body: buildUpload(),
+          headers: { ...prodHostHeader, "CF-Connecting-IP": "198.51.100.1" },
+        },
+        makeEnv(),
+      );
+    }
+
+    const res = await app.request(
+      "/api/v1/images",
+      {
+        method: "POST",
+        body: buildUpload(),
+        headers: { ...prodHostHeader, "CF-Connecting-IP": "198.51.100.2" },
+      },
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("bypasses the limiter on loopback Hosts (local dev parity with apiKeyAuth)", async () => {
+    // Same rationale as `apiKeyAuth`'s loopback bypass: under
+    // `wrangler dev` Miniflare populates `CF-Connecting-IP` with a
+    // loopback address, so all local sessions share a single bucket and
+    // the limiter would 429 within seconds. Detect dev via the `Host`
+    // header (Cloudflare rewrites it in production — impossible to
+    // spoof) and skip.
+    const app = createApp();
+    for (let i = 0; i < 25; i++) {
+      const res = await app.request(
+        "/api/v1/images",
+        {
+          method: "POST",
+          body: buildUpload(),
+          headers: { Host: "localhost:8787", "CF-Connecting-IP": "127.0.0.1" },
+        },
+        makeEnv(),
+      );
+      expect(res.status).toBe(200);
+    }
+  });
+});
+
+describe("POST /api/v1/images — OpenAI cooldown cache (issue #509)", () => {
+  // Once OpenAI returns 429 / 5xx, short-circuit subsequent calls for
+  // `COOLDOWN_MS` so we don't compound their rate limit during abuse
+  // bursts. Legitimate users during the burst get the same 503 they
+  // would have gotten anyway — without us spending a request to learn it.
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDbInsert.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
+    __resetUploadRateLimitForTests();
+    __resetModerationCooldownForTests();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("short-circuits subsequent calls after a 429 from OpenAI without re-hitting OpenAI", async () => {
+    const fetchMock = mockOpenAIFetch({}, { status: 429 });
+    globalThis.fetch = fetchMock;
+
+    const app = createApp();
+    const headers = {
+      "CF-Connecting-IP": "198.51.100.50",
+      Host: "api.altfun.com",
+    };
+
+    const formData1 = new FormData();
+    formData1.append(
+      "file",
+      new File([new Uint8Array(100)], "a.png", { type: "image/png" }),
+    );
+    const res1 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: formData1, headers },
+      makeEnv(),
+    );
+    expect(res1.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const formData2 = new FormData();
+    formData2.append(
+      "file",
+      new File([new Uint8Array(100)], "b.png", { type: "image/png" }),
+    );
+    const res2 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: formData2, headers },
+      makeEnv(),
+    );
+    expect(res2.status).toBe(503);
+    // Critical assertion: the second request did NOT call OpenAI again.
+    // Hammering them with retries after a 429 extends the penalty.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockR2Put).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits after a 5xx from OpenAI", async () => {
+    const fetchMock = mockOpenAIFetch({}, { status: 503 });
+    globalThis.fetch = fetchMock;
+
+    const app = createApp();
+    const headers = {
+      "CF-Connecting-IP": "198.51.100.51",
+      Host: "api.altfun.com",
+    };
+
+    for (const name of ["a.png", "b.png", "c.png"]) {
+      const formData = new FormData();
+      formData.append(
+        "file",
+        new File([new Uint8Array(100)], name, { type: "image/png" }),
+      );
+      const res = await app.request(
+        "/api/v1/images",
+        { method: "POST", body: formData, headers },
+        makeEnv(),
+      );
+      expect(res.status).toBe(503);
+    }
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("trips the cooldown when the OpenAI request fails before yielding a status (timeout / network error)", async () => {
+    // A hung upstream times out before returning 5xx (AbortError) and a
+    // dead TCP path throws outright. Both are the "upstream is
+    // unhealthy from this isolate" case the cooldown exists to dampen —
+    // without this branch a slow OpenAI escapes backoff entirely and
+    // every request burns the full 10s timeout.
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("aborted"), { name: "AbortError" }),
+      );
+    globalThis.fetch = fetchMock;
+
+    const app = createApp();
+    const headers = {
+      "CF-Connecting-IP": "198.51.100.53",
+      Host: "api.altfun.com",
+    };
+
+    const formData1 = new FormData();
+    formData1.append(
+      "file",
+      new File([new Uint8Array(100)], "a.png", { type: "image/png" }),
+    );
+    const res1 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: formData1, headers },
+      makeEnv(),
+    );
+    expect(res1.status).toBe(503);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const formData2 = new FormData();
+    formData2.append(
+      "file",
+      new File([new Uint8Array(100)], "b.png", { type: "image/png" }),
+    );
+    const res2 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: formData2, headers },
+      makeEnv(),
+    );
+    expect(res2.status).toBe(503);
+    // Cooldown engaged — no second fetch attempt.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not trip the cooldown on a 4xx that isn't 429 (auth / payload errors)", async () => {
+    // 401 / 403 / 400 mean *we* are wrong (revoked key, malformed
+    // payload). Retrying doesn't hurt OpenAI, so it shouldn't penalise
+    // downstream callers either. Keep this test specific so a future
+    // refactor that broadens the cooldown branch trips it.
+    globalThis.fetch = mockOpenAIFetch({}, { status: 401 });
+    const app = createApp();
+    const headers = {
+      "CF-Connecting-IP": "198.51.100.52",
+      Host: "api.altfun.com",
+    };
+
+    const formData1 = new FormData();
+    formData1.append(
+      "file",
+      new File([new Uint8Array(100)], "a.png", { type: "image/png" }),
+    );
+    const res1 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: formData1, headers },
+      makeEnv(),
+    );
+    expect(res1.status).toBe(503);
+
+    // Second call hits OpenAI again — the cooldown didn't fire.
+    const formData2 = new FormData();
+    formData2.append(
+      "file",
+      new File([new Uint8Array(100)], "b.png", { type: "image/png" }),
+    );
+    const res2 = await app.request(
+      "/api/v1/images",
+      { method: "POST", body: formData2, headers },
+      makeEnv(),
+    );
+    expect(res2.status).toBe(503);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -13,7 +13,7 @@ import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
 import admin from "./routes/admin/index.js";
-import images from "./routes/images.js";
+import { imagesPublic, imagesPrivate } from "./routes/images.js";
 import balancesRoute from "./routes/balances.js";
 import portfolio from "./routes/portfolio.js";
 import stats from "./routes/stats.js";
@@ -107,8 +107,15 @@ app.route("/api/v1/tokens", tokens);
 app.route("/api/v1/trades", trades);
 app.route("/api/v1/creators", creators);
 app.route("/api/v1/admin", admin);
-app.route("/api/v1/images", images);
-app.route("/images", images);
+// Two separate mounts: the bare `/images` prefix is public (GET-only)
+// so on-chain `LaunchParams.image` URLs (`/images/{prefix}/{key}`, issue
+// #450) resolve without authentication, while `POST /images` (which is
+// expensive — OpenAI moderation call + R2 PUT + Neon insert) lives only
+// behind `apiKeyAuth` at `/api/v1/images`. A single dual-mounted router
+// would re-expose `POST /images` with no auth and no rate limit (issue
+// #509).
+app.route("/api/v1/images", imagesPrivate);
+app.route("/images", imagesPublic);
 app.route("/api/v1/balances", balancesRoute);
 app.route("/api/v1/portfolio", portfolio);
 app.route("/api/v1/stats", stats);

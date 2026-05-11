@@ -28,6 +28,34 @@ const MODERATION_MODEL = "omni-moderation-latest";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
+/**
+ * When OpenAI returns 429 / 5xx we enter a process-local cooldown for
+ * this long. While the cooldown is active, subsequent calls short-circuit
+ * to `unavailable: true` without re-hitting OpenAI.
+ *
+ * Two reasons (issue #509):
+ *   1. Don't compound the upstream rate limit during abuse bursts. Once
+ *      OpenAI has signalled they're throttling us, hammering them with
+ *      more requests is the worst possible reaction — it extends the
+ *      penalty window and risks tripping a stricter automated block on
+ *      our account.
+ *   2. Legitimate users during the burst window get the same
+ *      "try again in a moment" 503 the throttled callers would have
+ *      gotten anyway, but without us spending a request to confirm it.
+ *
+ * Per-isolate, not shared across isolates/regions. That's fine for a
+ * defensive cooldown: even partial coverage materially reduces request
+ * volume to OpenAI during incidents, and a stale cooldown just costs us
+ * one extra 503 on the next isolate that hasn't tripped yet.
+ */
+const COOLDOWN_MS = 30_000;
+let cooldownUntil = 0;
+
+/** Exposed for tests so each case starts with a clean slate. */
+export function __resetModerationCooldownForTests(): void {
+  cooldownUntil = 0;
+}
+
 export interface CategoryScore {
   label: string;
   score: number;
@@ -208,6 +236,13 @@ export async function moderateImage(
     };
   }
 
+  // Short-circuit while we're in the OpenAI backoff window. See the
+  // `COOLDOWN_MS` block at the top of this file for rationale.
+  const now = Date.now();
+  if (now < cooldownUntil) {
+    return unavailable();
+  }
+
   const dataUrl = `data:${mimeType};base64,${bytesToBase64(imageBytes)}`;
 
   const controller = new AbortController();
@@ -245,6 +280,13 @@ export async function moderateImage(
           timestamp: new Date().toISOString(),
         }),
       );
+      // Enter the cooldown only for upstream-throttle / upstream-outage
+      // codes (429 + 5xx). 4xx other than 429 is a request-shape problem
+      // on our side (revoked key, malformed payload) — retrying won't
+      // hurt OpenAI, so we shouldn't penalise downstream callers either.
+      if (response.status === 429 || response.status >= 500) {
+        cooldownUntil = Date.now() + COOLDOWN_MS;
+      }
       return unavailable();
     }
 
@@ -290,6 +332,16 @@ export async function moderateImage(
         timestamp: new Date().toISOString(),
       }),
     );
+    // Trip the cooldown here too. Reaching this branch means we
+    // failed to even *read* an HTTP status from OpenAI — either our
+    // 10s `AbortController` fired (upstream slower than 10s ≈ overload)
+    // or the connection died outright (DNS / TCP / TLS / transport).
+    // Both shapes are the "upstream is unhealthy from this isolate"
+    // case the cooldown is meant to dampen. Without this, a hung
+    // upstream that times out instead of returning 5xx escapes the
+    // backoff entirely and we keep paying the 10s timeout per request
+    // for the whole burst.
+    cooldownUntil = Date.now() + COOLDOWN_MS;
     return unavailable();
   } finally {
     clearTimeout(timeout);
