@@ -9,8 +9,13 @@ const PRIMER_KEY = "altfun-primer-seen";
 const LANDING_BYPASS_KEY = "altfun-landing-bypass";
 const LANDING_BYPASS_EVENT = "altfun-landing-bypassed";
 
-const TERMS_URL = "/terms";
-const PRIVACY_URL = "/privacy";
+// Static legal docs rendered from `apps/web/legal-source/*.md` by
+// `scripts/build-legal-docs.mjs`. Mirror the URLs in `SiteFooter.tsx`
+// — if either set drifts, the button copy below will link to a page
+// that doesn't exist.
+const TERMS_URL = "/altfun-terms-of-use.html";
+const PRIVACY_URL = "/altfun-privacy-notice.html";
+const DMCA_URL = "/altfun-dmca-policy.html";
 
 const readPrimerSeen = (): boolean => {
   if (typeof window === "undefined") return true;
@@ -112,7 +117,7 @@ export default function PrimerModal() {
             target="_blank"
             rel="noreferrer noopener"
           >
-            Terms of Service
+            Terms of Use
           </a>
           ,{" "}
           <a
@@ -121,9 +126,18 @@ export default function PrimerModal() {
             target="_blank"
             rel="noreferrer noopener"
           >
-            Privacy Policy
-          </a>{" "}
-          and confirm you are over 18 years old.
+            Privacy Notice
+          </a>
+          , and{" "}
+          <a
+            className={styles.disclaimerLink}
+            href={DMCA_URL}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            DMCA Policy
+          </a>
+          , and confirm you are over 18 years old.
         </span>
       </div>
     </Modal>

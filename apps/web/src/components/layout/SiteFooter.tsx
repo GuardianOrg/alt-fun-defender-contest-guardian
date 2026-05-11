@@ -4,6 +4,13 @@ const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
 const WHITEPAPER_URL = "/whitepaper.pdf";
 const AUDIT_URL = "/audit.pdf";
+// Legal docs are rendered from `apps/web/legal-source/*.md` by
+// `scripts/build-legal-docs.mjs` and copied through Vite's `public/`
+// pipeline. Keep these constants in sync with the output filenames if
+// the source files are ever renamed.
+const TERMS_URL = "/altfun-terms-of-use.html";
+const PRIVACY_URL = "/altfun-privacy-notice.html";
+const DMCA_URL = "/altfun-dmca-policy.html";
 
 const DocIcon = () => (
   <svg
@@ -51,10 +58,12 @@ const TelegramIcon = () => (
 
 /**
  * Thin global footer rendered as the last flex child of the app layout.
- * Carries the four links that previously lived in the terminal Sidebar:
- * Whitepaper, Audit Report, X, Telegram. Sticky at the bottom of the
- * viewport on every route — see `SiteFooter.module.css` for the
- * layout/positioning rationale.
+ * Three groups keep the row scannable in a tight space:
+ *   - Left: Whitepaper + Audit Report (icon + label, distinct artifacts)
+ *   - Center: Terms / Privacy / DMCA (text-only legal links)
+ *   - Right: X + Telegram (icon-only socials)
+ * Sticky at the bottom of the viewport on every route — see
+ * `SiteFooter.module.css` for the layout/positioning rationale.
  */
 export default function SiteFooter() {
   return (
@@ -80,6 +89,39 @@ export default function SiteFooter() {
         >
           <ShieldCheckIcon />
           Audit Report
+        </a>
+      </div>
+
+      <div className={styles.legal}>
+        <a
+          className={styles.legalLink}
+          href={TERMS_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Terms
+        </a>
+        <span className={styles.divider} aria-hidden="true">
+          ·
+        </span>
+        <a
+          className={styles.legalLink}
+          href={PRIVACY_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          Privacy
+        </a>
+        <span className={styles.divider} aria-hidden="true">
+          ·
+        </span>
+        <a
+          className={styles.legalLink}
+          href={DMCA_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+        >
+          DMCA
         </a>
       </div>
 
