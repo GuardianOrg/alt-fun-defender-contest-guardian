@@ -24,10 +24,9 @@ contract NoFeeSwapInputHarness is Bonding {
 
 /// @notice Unit + fuzz coverage for `Bonding._noFeeSwapInput`.
 /// @dev    The math is the load-bearing piece of the hostile-pre-seed
-///         defense (#308). The integration suite in `HostilePreSeed.t.sol`
-///         exercises it via the full graduation flow; this suite hits the
-///         function directly so degenerate inputs and overflow-safety
-///         properties are easy to express and fuzz.
+///         defense (#308). This suite hits the function directly so
+///         degenerate inputs and overflow-safety properties are easy
+///         to express and fuzz.
 contract NoFeeSwapInputTest is Test {
     NoFeeSwapInputHarness internal harness;
 

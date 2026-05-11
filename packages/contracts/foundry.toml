@@ -21,8 +21,8 @@ gas_limit = "18446744073709551615"
 # Reduced-coverage profile for per-PR CI. Trades fuzz depth for wall time.
 # Full coverage is exercised by the nightly workflow (no FOUNDRY_PROFILE override).
 # 24 runs is the minimum that still surfaces statistically-likely fuzz failures
-# inside ~3 minutes of wall time on the slowest suite (HostilePreSeed) — drop
-# below ~16 and rare edge cases start slipping through to nightly only.
+# in a few minutes of wall time on the slowest remaining suite — drop below
+# ~16 and rare edge cases start slipping through to nightly only.
 [profile.ci]
 fuzz = { runs = 24 }
 invariant = { runs = 24, depth = 16 }
