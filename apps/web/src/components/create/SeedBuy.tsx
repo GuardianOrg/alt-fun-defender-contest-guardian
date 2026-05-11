@@ -42,7 +42,7 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
       <StepHeader
         step={3}
         title="Seed buy"
-        subtitle={`Mandatory min $${MIN_USDC_BUY_AMOUNT}. Buy tokens before anyone else, sets the opening price.`}
+        subtitle={`Mandatory min $${MIN_USDC_BUY_AMOUNT}`}
       />
 
       <div className={styles.card}>
