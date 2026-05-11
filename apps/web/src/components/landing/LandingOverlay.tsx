@@ -6,10 +6,19 @@ import WaveBackground from "./WaveBackground";
 const BYPASS_KEY = "altfun-landing-bypass";
 const BYPASS_SECRET = "altfun";
 const KEY_SEQUENCE = "altfun";
+// Notifies sibling components (PrimerModal) when the gate has been
+// cleared in the current tab — the browser's `storage` event only fires
+// across tabs, so we need an in-tab signal too.
+const BYPASS_EVENT = "altfun-landing-bypassed";
 
 const TWITTER_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
 const WHITEPAPER_URL = "/whitepaper.pdf";
+
+const persistBypass = () => {
+  window.localStorage.setItem(BYPASS_KEY, "1");
+  window.dispatchEvent(new Event(BYPASS_EVENT));
+};
 
 /**
  * Returns true when the user is allowed to skip the landing page.
@@ -38,7 +47,7 @@ const readBypass = (): boolean => {
     return false;
   }
   if (access === BYPASS_SECRET) {
-    window.localStorage.setItem(BYPASS_KEY, "1");
+    persistBypass();
     params.delete("access");
     const qs = params.toString();
     window.history.replaceState(
@@ -81,7 +90,7 @@ export default function LandingOverlay() {
       if (e.key.length !== 1) return;
       buffer = (buffer + e.key.toLowerCase()).slice(-KEY_SEQUENCE.length);
       if (buffer === KEY_SEQUENCE) {
-        window.localStorage.setItem(BYPASS_KEY, "1");
+        persistBypass();
         setBypassed(true);
       }
     };
@@ -90,7 +99,7 @@ export default function LandingOverlay() {
     // Programmatic escape hatch for the team in DevTools.
     const w = window as Window & { __altfunBypass?: () => void };
     w.__altfunBypass = () => {
-      window.localStorage.setItem(BYPASS_KEY, "1");
+      persistBypass();
       setBypassed(true);
     };
 

@@ -17,6 +17,7 @@ import AssetTape from "../components/layout/AssetTape";
 import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
 import Header from "../components/layout/Header";
+import PrimerModal from "../components/layout/PrimerModal";
 import SearchModal from "../components/layout/SearchModal";
 import ErrorBoundary from "../components/shared/ErrorBoundary";
 import { ToastProvider } from "../components/shared/Toast";
@@ -41,6 +42,7 @@ const Layout = () => {
       <Outlet />
       <SearchModal />
       <EarningsPanel />
+      <PrimerModal />
     </div>
   );
 };
