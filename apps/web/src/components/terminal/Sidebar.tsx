@@ -19,8 +19,10 @@ export default function Sidebar() {
 
   return (
     <div className={styles.sidebar}>
-      {/* Asset prices */}
-      <div className={styles.section}>
+      {/* MARKETS — own bordered panel, absorbs remaining vertical space
+       * and scrolls internally so the asset list never pushes the CTA
+       * below it off-screen. */}
+      <div className={cn(styles.panel, styles.marketsPanel)}>
         <div className={styles.sectionHeader}>MARKETS</div>
         {assets?.map((a, i) => (
           <div
@@ -52,10 +54,12 @@ export default function Sidebar() {
         ))}
       </div>
 
-      {/* Pair filters */}
+      {/* PAIRS — own bordered panel below MARKETS. Sized to its own
+       * content but capped so it can never bully MARKETS into nothing
+       * if the filter list ever runs long. */}
       {filters && (
-        <div className={styles.section}>
-          <div className={styles.pairsHeader}>PAIRS</div>
+        <div className={cn(styles.panel, styles.pairsPanel)}>
+          <div className={styles.sectionHeader}>PAIRS</div>
           {filters.map((f) => (
             <div key={`${f.asset}-${f.direction}`} className={styles.pairRow}>
               <div className={styles.pairDot} style={{ background: f.color }} />
@@ -68,7 +72,7 @@ export default function Sidebar() {
         </div>
       )}
 
-      {/* Launch CTA */}
+      {/* Launch CTA — pinned below the panels */}
       <div className={styles.ctaSection}>
         <button
           className={styles.ctaButton}
