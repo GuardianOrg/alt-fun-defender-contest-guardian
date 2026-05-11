@@ -201,6 +201,28 @@
   letter-spacing: 0.02em;
 }
 
+.footerLinks {
+  padding: 0 0.8rem 0.8rem;
+  display: flex;
+  justify-content: center;
+}
+
+.footerLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  color: var(--txt-2);
+  text-decoration: none;
+  min-height: 22px;
+  padding: 0 0.4rem;
+  transition: color 0.15s ease;
+}
+
+.footerLink:hover {
+  color: var(--mint);
+}
+
 @media (max-width: 768px) {
   .sidebar {
     display: none;
