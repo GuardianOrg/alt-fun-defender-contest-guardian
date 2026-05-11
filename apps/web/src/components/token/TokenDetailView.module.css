@@ -78,6 +78,20 @@
   flex-shrink: 0;
 }
 
+/* `graduated` status badge — replaces the `$threshold` figure on the
+ * curve strip once a token has completed its bonding curve. Mint
+ * (success) over the same text size/weight as the threshold it
+ * replaces so the strip layout is unchanged. Static — no pulse —
+ * because graduation is a finished state. */
+.graduatedBadge {
+  font-size: 11px;
+  color: var(--mint);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
 .errorFallback {
   display: flex;
   align-items: center;

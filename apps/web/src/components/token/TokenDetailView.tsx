@@ -50,8 +50,13 @@ export default function TokenDetailView() {
   // a single solid fill so we don't imply "all boost, no organic".
   // A null `curveFilled` (degraded) renders as an empty bar; numeric
   // display sites use `formatCurveFilled` to show `—` instead of `0%`.
-  const filled = token?.curveFilled ?? 0;
-  const organic = token?.organicFilled ?? filled;
+  //
+  // Graduated tokens collapse to a single solid 100% fill (no organic/boost
+  // split — per apps/web/AGENTS.md "hide the split entirely") so the bar
+  // visually reads as "complete" alongside the `graduated` badge below.
+  const isGraduated = token?.status === "graduated";
+  const filled = isGraduated ? 100 : (token?.curveFilled ?? 0);
+  const organic = isGraduated ? 100 : (token?.organicFilled ?? filled);
   const buyW = Math.min(organic, filled);
   const levW = Math.max(filled - buyW, 0);
 
@@ -77,7 +82,7 @@ export default function TokenDetailView() {
           <Chart address={address} token={token ?? null} />
         </ErrorBoundary>
 
-        {token && token.status !== "graduated" && (
+        {token && (
           <div className={styles.curveStrip}>
             <span className={styles.curveLabel}>curve</span>
             <span className={styles.curveRaised}>
@@ -92,11 +97,17 @@ export default function TokenDetailView() {
                 size="sm"
               />
             </div>
-            <span className={styles.curveThreshold}>
-              {formatUsd(graduationThresholdUsd ?? thresholdFallback)}
-            </span>
-            {token.status === "graduating" && (
-              <span className={styles.graduatingBadge}>graduating</span>
+            {isGraduated ? (
+              <span className={styles.graduatedBadge}>graduated</span>
+            ) : (
+              <>
+                <span className={styles.curveThreshold}>
+                  {formatUsd(graduationThresholdUsd ?? thresholdFallback)}
+                </span>
+                {token.status === "graduating" && (
+                  <span className={styles.graduatingBadge}>graduating</span>
+                )}
+              </>
             )}
           </div>
         )}
