@@ -224,20 +224,16 @@
   color: var(--mint);
 }
 
-/* Social icons sit on their own row below the doc links — keeps the
- * doc + audit text labels readable and the social icons compact. */
 .footerSocials {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.6rem;
+  gap: 0.8rem;
   padding-top: 0.2rem;
   padding-bottom: 0.4rem;
   flex-shrink: 0;
 }
 
-/* 22×22 hit target matches `.footerLink`'s `min-height`, keeping the
- * social icons accessible on touch without bloating the row. */
 .footerIconLink {
   display: inline-flex;
   align-items: center;
