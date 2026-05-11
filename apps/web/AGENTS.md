@@ -45,7 +45,7 @@ Every graduation progress bar is a two-segment render powered by the API's `curv
 
 1. If `organicFilled === null` (indexer/BounceTech degraded), render a single solid fill of width `curveFilled` — never assume zero for the missing bucket.
 2. If the token is `graduated`, hide the split entirely.
-3. `leverageBoost > 15` flips the row border to amber (the "LT mover" highlight).
+3. Row border is mint (long) or red (short); graduating tokens use dedicated graduating styles.
 
 ## Functional Spec
 

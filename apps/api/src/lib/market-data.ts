@@ -121,8 +121,8 @@ export interface MarketDataItem {
   ltExchangeRate: number | null;
   /**
    * 24h percentage change of the backing LT's exchange rate (independent
-   * of any curve activity). Primary signal for the LT MOVERS tab. Null
-   * when BounceTech has no rate at either end of the window.
+   * of any curve activity). Null when BounceTech has no rate at either
+   * end of the window.
    */
   ltChange24h: number | null;
   /**
@@ -252,8 +252,7 @@ export async function fetchTokensOnchainByAddresses(
 // phase 1 (`Bonding.TokenGraduating`) and phase 2 (`finalizeGraduation` →
 // `TokenGraduated`). The supply heuristic was retired with the introduction
 // of the keeper. The GRADUATING tab shows only tokens currently in this
-// window; "close to graduation" tokens surface in TRENDING / NEW / LT MOVERS
-// instead.
+// window; "close to graduation" tokens surface in TRENDING / NEW instead.
 
 /**
  * Fetch graduated tokens ordered by `graduatedAt desc`, paginated. Used by
@@ -720,8 +719,7 @@ export function buildMarketDataItem(
       : null;
 
   // LT 24h change is measured at the LT itself, independent of when the
-  // token launched or whether it's graduated. Used as the primary signal
-  // for the LT MOVERS tab.
+  // token launched or whether it's graduated.
   const ltChange24h =
     ltRate24hAgo !== null && ltRate24hAgo > 0 && currentLtRate > 0
       ? ((currentLtRate - ltRate24hAgo) / ltRate24hAgo) * 100

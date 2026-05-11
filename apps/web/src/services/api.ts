@@ -128,8 +128,7 @@ export type TokenListSort =
   | "createdAt"
   | "leverage"
   | "name"
-  | "trending"
-  | "lt-movers";
+  | "trending";
 
 export type TokenListStatus = "curve" | "graduating" | "graduated";
 

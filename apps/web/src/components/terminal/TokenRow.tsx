@@ -30,20 +30,13 @@ export default function TokenRow({ token }: Props) {
   // Width math renders `null` (unknown) as an empty bar — we can't guess
   // progress, so we show none. The text-only sites use `formatCurveFilled`
   // which renders `—` instead.
-  //
-  // When the API returns the organic/boost split we render the bar as two
-  // segments (organic first, boost layered on top). When `organicFilled` is
-  // null (indexer degraded) we fall back to a single solid fill — the old
-  // behaviour. The split itself is a marketing number showcasing the LT
-  // pump's contribution: negative boosts are hidden server-side (clamped at
-  // 0) so we can just trust the numbers here.
   const filled = token.curveFilled ?? 0;
   const organic = token.organicFilled ?? filled;
   const buyW = Math.min(organic, filled);
   const levW = Math.max(filled - buyW, 0);
-  const isLtMover = levW > 15;
-  // Vanity tier overrides the ordinary mint/red/amber border for tokens
-  // whose mined address has bonus trailing zeros. The "none" tier
+
+  // Vanity tier overrides the ordinary mint/red border for tokens whose
+  // mined address has bonus trailing zeros. The "none" tier
   // short-circuits inside `<VanityEffect>` so 99% of rows pay zero
   // wrapper cost.
   const vanityTier = tierFor(token.address);
@@ -68,13 +61,7 @@ export default function TokenRow({ token }: Props) {
             : styles.graduatingLong
           : cn(
               styles.normalRow,
-              isShort
-                ? isLtMover
-                  ? styles.borderAmber
-                  : styles.borderRed
-                : isLtMover
-                  ? styles.borderAmber
-                  : styles.borderMint,
+              isShort ? styles.borderRed : styles.borderMint,
             ),
       )}
       role="link"

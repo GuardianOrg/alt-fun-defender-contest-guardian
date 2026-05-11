@@ -18,7 +18,6 @@ import {
   computeCurveFilledBreakdown,
   computeStatus,
   computeTrendingScore,
-  sortLtMovers,
   usdcRawToUsd,
   type DbToken,
   type EnrichedToken,
@@ -35,11 +34,11 @@ const LIST_CACHE_TTL_SECONDS = 5;
 // bursts so an outage doesn't amplify into load on the already-struggling
 // dependency, while still recovering within ~1s once it comes back.
 const DEGRADED_CACHE_TTL_SECONDS = 1;
-// Cap on how many tokens we'll enrich + score in a single trending /
-// lt-movers request. Both paths are O(N) in BounceTech / Ponder calls, so
-// we don't want them to grow unboundedly with the catalogue. When we
-// outgrow this, the right fix is a precomputed score column refreshed by a
-// cron — not a bigger cap.
+// Cap on how many tokens we'll enrich + score in a single trending
+// request. The path is O(N) in BounceTech / Ponder calls, so we don't
+// want it to grow unboundedly with the catalogue. When we outgrow this,
+// the right fix is a precomputed score column refreshed by a cron — not a
+// bigger cap.
 const TRENDING_POOL_SIZE = 500;
 // Upper bound on how many graduated / graduating tokens we'll fetch from
 // Ponder for the status=graduated|graduating tabs. Same reasoning as
@@ -125,7 +124,7 @@ function enrich(
   };
 }
 
-type SortMode = "createdAt" | "leverage" | "name" | "trending" | "lt-movers";
+type SortMode = "createdAt" | "leverage" | "name" | "trending";
 type StatusFilter = "curve" | "graduating" | "graduated";
 
 interface ListFilters {
@@ -191,8 +190,7 @@ listRoute.get("/", async (c) => {
   const sort: SortMode =
     sortRaw === "leverage" ||
     sortRaw === "name" ||
-    sortRaw === "trending" ||
-    sortRaw === "lt-movers"
+    sortRaw === "trending"
       ? sortRaw
       : "createdAt";
   const dir = c.req.query("dir") === "asc" ? asc : desc;
@@ -204,7 +202,7 @@ listRoute.get("/", async (c) => {
   // `&dir=desc` from each getting their own cache entry for identical
   // responses (trending always sorts desc by score).
   const cacheUrl = new URL(c.req.url);
-  if (sort === "trending" || sort === "lt-movers") {
+  if (sort === "trending") {
     cacheUrl.searchParams.delete("dir");
   }
   // `status=graduated|graduating` derive their own ordering from Ponder
@@ -349,13 +347,13 @@ listRoute.get("/", async (c) => {
     sort === "name" ? tokens.name :
     tokens.createdAt;
 
-  // Trending and lt-movers both need a full-batch score/filter pass, so we
-  // can't push ORDER BY to Postgres. Pull the most recently launched
+  // Trending needs a full-batch score/filter pass, so we can't push
+  // ORDER BY to Postgres. Pull the most recently launched
   // `TRENDING_POOL_SIZE` tokens matching the filters, enrich, then sort +
   // slice to the requested page in memory. "Most recent" is the right
-  // candidate window because both views are dominated by recent activity —
+  // candidate window because the view is dominated by recent activity —
   // a token that hasn't been touched in months is ~never moving.
-  const isScoredSort = sort === "trending" || sort === "lt-movers";
+  const isScoredSort = sort === "trending";
   const dbTokens = isScoredSort
     ? await db
         .select()
@@ -435,8 +433,6 @@ listRoute.get("/", async (c) => {
       return (b.token.mcapUsd ?? 0) - (a.token.mcapUsd ?? 0);
     });
     enriched = scored.slice(offset, offset + limit).map((s) => s.token);
-  } else if (sort === "lt-movers") {
-    enriched = sortLtMovers(enriched).slice(offset, offset + limit);
   }
 
   const response = c.json(
