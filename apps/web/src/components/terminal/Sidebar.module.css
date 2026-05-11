@@ -10,10 +10,6 @@
   overflow: hidden;
 }
 
-/* Shared chrome for the MARKETS and PAIRS panels. Each one is its own
- * bordered, scrollable surface — separating them visually makes the
- * sidebar read as a stack of distinct components (markets / pairs /
- * cta), matching the rest of the terminal's panel-based layout. */
 .panel {
   min-height: 0;
   overflow-y: auto;
@@ -21,19 +17,10 @@
   background: var(--bg-1);
 }
 
-/* MARKETS takes the remaining height and scrolls its asset list. */
 .marketsPanel {
   flex: 1;
 }
 
-/* PAIRS sizes to its own content so a short filter list doesn't waste
- * space, but is capped at half the column so an unexpectedly long list
- * can't push MARKETS into nothing. */
-.pairsPanel {
-  flex: 0 1 auto;
-  max-height: 50%;
-  margin-top: 1.2rem;
-}
 
 .sectionHeader {
   font-size: 11px;
@@ -49,9 +36,6 @@
   font-weight: 500;
 }
 
-/* Markets and Pairs are read-only reference panels — no `cursor: pointer`,
- * no hover background, no transition. They display information; they are
- * not buttons. Treating them otherwise misleads users into clicking. */
 .assetRow {
   display: flex;
   align-items: center;
@@ -105,35 +89,6 @@
   color: var(--txt);
   font-variant-numeric: tabular-nums;
   margin-left: auto;
-}
-
-.pairRow {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.2rem;
-  padding-bottom: 0.2rem;
-}
-
-.pairDot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-  flex-shrink: 0;
-}
-
-.pairName {
-  font-size: 13px;
-  color: var(--txt-2);
-}
-
-.pairCount {
-  font-size: 11px;
-  color: var(--txt-3);
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
 }
 
 .ctaSection {

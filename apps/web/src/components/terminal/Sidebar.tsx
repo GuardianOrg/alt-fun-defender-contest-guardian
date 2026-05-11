@@ -3,11 +3,7 @@ import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
 import { CREATE_PATH } from "../../app/routes";
-import {
-  useAssets,
-  usePlatformStats,
-  usePairFilters,
-} from "../../hooks/useAssets";
+import { useAssets, usePlatformStats } from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
@@ -15,15 +11,11 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const { data: assets } = useAssets();
   usePlatformStats();
-  const { data: filters } = usePairFilters();
 
   return (
     <div className={styles.sidebar}>
-      {/* MARKETS — own bordered panel, absorbs remaining vertical space
-       * and scrolls internally so the asset list never pushes the CTA
-       * below it off-screen. */}
       <div className={cn(styles.panel, styles.marketsPanel)}>
-        <div className={styles.sectionHeader}>MARKETS</div>
+        <div className={styles.sectionHeader}>PAIRS</div>
         {assets?.map((a, i) => (
           <div
             key={a.name}
@@ -54,25 +46,6 @@ export default function Sidebar() {
         ))}
       </div>
 
-      {/* PAIRS — own bordered panel below MARKETS. Sized to its own
-       * content but capped so it can never bully MARKETS into nothing
-       * if the filter list ever runs long. */}
-      {filters && (
-        <div className={cn(styles.panel, styles.pairsPanel)}>
-          <div className={styles.sectionHeader}>PAIRS</div>
-          {filters.map((f) => (
-            <div key={`${f.asset}-${f.direction}`} className={styles.pairRow}>
-              <div className={styles.pairDot} style={{ background: f.color }} />
-              <span className={styles.pairName}>
-                {f.asset} {f.direction === "long" ? "Long" : "Short"}
-              </span>
-              <span className={styles.pairCount}>{f.count}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Launch CTA — pinned below the panels */}
       <div className={styles.ctaSection}>
         <button
           className={styles.ctaButton}
