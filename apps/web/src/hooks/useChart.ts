@@ -1,11 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 
-import {
-  createChart,
-  CandlestickSeries,
-  ColorType,
-} from "lightweight-charts";
+import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
 
 import { COLORS, rgba } from "../config/colors";
 import { getChartModeConfig } from "../services/api";
@@ -21,15 +17,19 @@ import type {
   AutoscaleInfoProvider,
 } from "lightweight-charts";
 
-// Minimum y-axis span enforced as a fraction of the midpoint value. A freshly
-// launched bonding-curve token barely moves in its first few candles, so the
-// default autoscale would zoom the y-axis to a span of a few hundred dollars
-// — which makes the chart look broken (a flat line filling the canvas, see
-// issue #495). Padding to ±15% around the midpoint gives a 30% total span,
-// roughly matching what pump.fun shows on a brand-new token. Once real price
-// action exceeds this band, autoscale takes over and the chart fits the data
-// as usual — the floor only kicks in on the tight-range edge case.
-export const MIN_AUTOSCALE_SPAN_FRACTION = 0.3;
+// Minimum y-axis span enforced as a fraction of the midpoint value. Kept
+// tight (0.5%) so the floor only kicks in on tokens whose visible candles
+// span essentially zero — i.e. a brand-new bonding-curve token in its
+// first few seconds, which would otherwise render as a single flat line
+// glued to the midpoint (see issue #495). Anything with even ~1% real
+// price movement now drives the autoscale naturally, filling ~80% of the
+// chart height (paired with `scaleMargins: { top: 0.1, bottom: 0.1 }` on
+// the price scale). The previous 30% floor was inherited from a pump.fun
+// look-alike for fresh tokens, but it dominated the autoscale on every
+// real-world token (1–10% intraday moves) — compressing actual price
+// action into a small squiggle while the floor band ate the rest of the
+// canvas. Don't crank this back up without rethinking that trade-off.
+export const MIN_AUTOSCALE_SPAN_FRACTION = 0.005;
 
 // Pad lightweight-charts' default autoscale info to a minimum y-axis span so
 // brand-new tokens (whose first few candles barely deviate from the launch
@@ -108,7 +108,18 @@ export function useChart({
         vertLine: { color: rgba(COLORS.mint, 0.25) },
         horzLine: { color: rgba(COLORS.mint, 0.25) },
       },
-      rightPriceScale: { borderColor: rgba(COLORS.mint, 0.1) },
+      rightPriceScale: {
+        borderColor: rgba(COLORS.mint, 0.1),
+        // Reserve ~10% padding above and below the autoscaled price band so
+        // candles consistently fill ~80% of the chart height. Without this,
+        // lightweight-charts' default `top: 0.2, bottom: 0.1` leaves only
+        // ~70% for data and the price action looks compressed — especially
+        // on first load and after switching to a different token, which
+        // both trigger a fresh autoscale via `setData`. The autoscale
+        // itself (and the `minSpanAutoscaleProvider` floor for fresh
+        // tokens) is unchanged; this is purely the padding around it.
+        scaleMargins: { top: 0.2, bottom: 0.2 },
+      },
       timeScale: {
         borderColor: rgba(COLORS.mint, 0.1),
         timeVisible: true,

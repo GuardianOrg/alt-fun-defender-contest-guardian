@@ -139,14 +139,19 @@
 
 /* The chart shares vertical space inside `.leftPanel` with the bottom-tab
  * content (`BottomTabs.tabContent`). Both are flex children of the same
- * column, so we give the chart a 2:1 flex weight against the tabs to keep
+ * column, so we give the chart a 3:1 flex weight against the tabs to keep
  * it the dominant element on the page (mirrors Dexscreener / pump.fun
  * style), and a `min-height` so a tall HeroSection / TokenInfoStrip can't
- * squeeze it down to a sliver. The mobile override below keeps mobile
- * chart heights modest because the layout becomes a scroll column there. */
+ * squeeze it down to a sliver. The 3:1 ratio (up from the original 2:1)
+ * and the higher 440px floor give the chart a clearly taller footprint
+ * on desktop — typical 1080p viewports now land near ~530px of chart
+ * area instead of ~450px, which makes the price action easier to read
+ * once the new y-axis padding kicks in. The mobile override below keeps
+ * mobile chart heights modest because the layout becomes a scroll column
+ * there. */
 .chartArea {
-  flex: 2 1 0;
-  min-height: 360px;
+  flex: 3 1 0;
+  min-height: 440px;
   position: relative;
   overflow: hidden;
 }
