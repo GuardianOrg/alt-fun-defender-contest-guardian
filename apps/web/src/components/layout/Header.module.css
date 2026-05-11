@@ -178,26 +178,6 @@
   background: var(--mint-hover);
 }
 
-.creatingBtn {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  gap: 0.8rem;
-  color: var(--mint);
-  background: rgba(77, 232, 180, 0.12);
-  padding-left: 0.6rem;
-  padding-right: 0.6rem;
-  height: 3rem;
-  border-radius: 3px;
-  border: 1px solid var(--border-2);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  cursor: default;
-  white-space: nowrap;
-}
-
 .launchBtn {
   font-family: var(--font-mono);
   font-size: 13px;

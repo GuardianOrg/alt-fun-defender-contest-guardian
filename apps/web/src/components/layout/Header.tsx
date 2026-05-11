@@ -59,22 +59,16 @@ export default function Header() {
             Connect Wallet
           </button>
         )}
-        {isConnected &&
-          (isCreate ? (
-            <button className={styles.creatingBtn}>
-              <span>+</span>
-              <span>creating token</span>
-            </button>
-          ) : (
-            <button
-              className={styles.launchBtn}
-              onClick={() => navigate(CREATE_PATH)}
-            >
-              <span>+</span>
-              <span className={styles.fullText}>create an altcoin</span>
-              <span className={styles.shortText}>create</span>
-            </button>
-          ))}
+        {isConnected && !isCreate && (
+          <button
+            className={styles.launchBtn}
+            onClick={() => navigate(CREATE_PATH)}
+          >
+            <span>+</span>
+            <span className={styles.fullText}>create an altcoin</span>
+            <span className={styles.shortText}>create</span>
+          </button>
+        )}
       </div>
     </header>
   );
