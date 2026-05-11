@@ -26,6 +26,7 @@ import chart from "./routes/chart.js";
 import marketData from "./routes/market-data.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import { corsMiddleware } from "./middleware/cors.js";
+import { serveFromEdgeCache } from "./middleware/edge-cache.js";
 import openApiSpec from "./openapi/spec.js";
 import { validateWebhookPayload } from "./lib/webhook-validators.js";
 
@@ -101,6 +102,16 @@ app.get(
   swaggerUI({ url: "/api/docs/openapi.json" }),
 );
 
+// Pre-auth edge-cache lookup. Must run *before* `apiKeyAuth` so a hit
+// returns the cached payload without debiting the per-IP rate-limit
+// window. The 60 req/min anon ceiling was originally tuned for one
+// browser per public IP; in practice 6+ users share an office or
+// venue WiFi and collectively blew through it within seconds, even
+// though every request after the first cache fill is identical. The
+// route handlers still do `caches.default.put()` and own the TTL
+// policy — this middleware only reads. See issue #549 and
+// `middleware/edge-cache.ts` for the rationale in full.
+app.use("/api/v1/*", serveFromEdgeCache);
 app.use("/api/v1/*", apiKeyAuth);
 
 app.route("/api/v1/tokens", tokens);

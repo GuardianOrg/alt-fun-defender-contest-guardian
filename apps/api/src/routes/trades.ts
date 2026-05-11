@@ -8,12 +8,28 @@ import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-cli
 import type { AppBindings } from "../lib/types.js";
 import type { PonderRouterTrade } from "../lib/ponder-types.js";
 
+/**
+ * Trade endpoints are polled hard by the frontend — the global feed at
+ * 15s when the WS is connected (3s otherwise) and per-token at 15/5s —
+ * so they're the single biggest contributor to the per-IP rate-limit
+ * draw for shared-WiFi users (issue #549). The data is also the most
+ * cache-friendly of all the read paths: a few seconds of staleness on
+ * "latest trades" is invisible because the live WS push hands the row
+ * to the UI before the next REST poll even fires. 5s mirrors the
+ * `/tokens` list TTL.
+ */
+const TRADES_CACHE_TTL_SECONDS = 5;
+
 const trades = new Hono<{ Bindings: AppBindings }>();
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
+}
+
+function getCache(): Cache | undefined {
+  return (globalThis as { caches?: { default?: Cache } }).caches?.default;
 }
 
 trades.get("/", async (c) => {
@@ -23,6 +39,13 @@ trades.get("/", async (c) => {
     return c.json(formatError("Invalid pagination parameters"), 400);
   }
   const limit = Math.min(limitParam ?? 50, 100);
+
+  const cache = getCache();
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($limit: Int!) {
@@ -48,7 +71,12 @@ trades.get("/", async (c) => {
 
   const items = data.routerTrades?.items ?? [];
 
-  return c.json(formatSuccess(items));
+  const response = c.json(formatSuccess(items));
+  response.headers.set("Cache-Control", `s-maxage=${TRADES_CACHE_TTL_SECONDS}`);
+  if (cache) {
+    await cache.put(cacheKey, response.clone());
+  }
+  return response;
 });
 
 const INTERVAL_SECONDS: Record<string, number> = {
@@ -210,6 +238,13 @@ trades.get("/:address", async (c) => {
   const limit = Math.min(limitParam ?? 50, 100);
   const offset = offsetParam ?? 0;
 
+  const cache = getCache();
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) return cached;
+  }
+
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
     `query ($address: String!, $limit: Int!, $offset: Int!) {
       routerTrades(
@@ -240,7 +275,12 @@ trades.get("/:address", async (c) => {
 
   const items = data.routerTrades?.items ?? [];
 
-  return c.json(formatSuccess(items));
+  const response = c.json(formatSuccess(items));
+  response.headers.set("Cache-Control", `s-maxage=${TRADES_CACHE_TTL_SECONDS}`);
+  if (cache) {
+    await cache.put(cacheKey, response.clone());
+  }
+  return response;
 });
 
 export default trades;

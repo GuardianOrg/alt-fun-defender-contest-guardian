@@ -16,7 +16,28 @@ interface RateWindow {
 const rateLimitMap = new Map<number, RateWindow>();
 const anonRateLimitMap = new Map<string, RateWindow>();
 const WINDOW_MS = 60_000;
-const ANON_RATE_LIMIT = 60; // requests per minute for anonymous traffic
+/**
+ * Per-IP, per-minute anonymous request ceiling.
+ *
+ * Calibrated for the realistic shared-IP case, not one-browser-per-IP.
+ * NAT'd offices, conferences, dev houses, and university WiFi routinely
+ * fan ~6 active sessions through a single egress IP; the frontend's
+ * polling cadence (10s tokens, 5s holders/earnings, 15s trades) plus
+ * the trade-feed fallback puts each session at ~25–30 req/min, so six
+ * teammates ≈ 150–180 req/min before any spike. The previous ceiling
+ * of 60 collapsed instantly in that scenario (issue #549). 240 leaves
+ * comfortable headroom while still tripping on an actual abuse pattern
+ * (a single client making 4+ req/sec sustained for a minute).
+ *
+ * Note: the pre-auth `serveFromEdgeCache` middleware (see
+ * `middleware/edge-cache.ts`) lets cache hits bypass this ceiling
+ * entirely, so the steady-state path for the read-heavy endpoints
+ * (`/tokens`, `/market-data`, `/trades*`) is "one rate-limited miss
+ * per TTL, free hits for everyone else on the same IP until it
+ * expires". This number is the budget for *misses*, not gross
+ * requests.
+ */
+const ANON_RATE_LIMIT = 240;
 let lastPurge = Date.now();
 
 function purgeExpiredWindows() {

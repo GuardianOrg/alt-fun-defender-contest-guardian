@@ -133,11 +133,12 @@ describe("apiKeyAuth middleware", () => {
     const app = createApp();
 
     // Simulate production: real client IP + a non-loopback Host so the
-    // local-dev bypass doesn't kick in. The anonymous rate limit is
-    // 60 req/min — send 61 from the same IP.
+    // local-dev bypass doesn't kick in. The anon ceiling is 240 req/min
+    // (issue #549: had to be raised from 60 so 6 teammates on one
+    // office WiFi could use the app). Send 240 successful + 1 limited.
     const ip = "203.0.113.42";
     const prodHeaders = { "CF-Connecting-IP": ip, Host: "api.altfun.com" };
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 240; i++) {
       const res = await app.request(
         "/test",
         { headers: prodHeaders },
@@ -146,7 +147,7 @@ describe("apiKeyAuth middleware", () => {
       expect(res.status).toBe(200);
     }
 
-    // 61st request should be rate limited
+    // 241st request should be rate limited.
     const res = await app.request(
       "/test",
       { headers: prodHeaders },
@@ -166,7 +167,7 @@ describe("apiKeyAuth middleware", () => {
     // frontend 429s within seconds of opening the app. We bypass the
     // limiter when the Host header is a loopback. Send well past
     // `ANON_RATE_LIMIT` requests and confirm none get rate-limited.
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 300; i++) {
       const res = await app.request(
         "/test",
         { headers: { Host: "localhost:8787", "CF-Connecting-IP": "127.0.0.1" } },
