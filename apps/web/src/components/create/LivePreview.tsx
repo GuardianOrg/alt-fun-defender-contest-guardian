@@ -4,19 +4,20 @@ import { getAssetDisplayName } from "@launchpad/shared";
 
 import styles from "./LivePreview.module.css";
 import { COLORS, rgba } from "../../config/colors";
-import {
-  type UnderlyingAsset,
-  type Leverage,
-} from "../../config/constants";
+import { type UnderlyingAsset, type Leverage } from "../../config/constants";
 import { useAssetCandles, useAssetChange } from "../../hooks/useAssets";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { type VanityStatus } from "../../hooks/useVanityAddress";
-import { cn, formatUsd, getLtDisplayName, shortenAddress } from "../../utils/format";
+import {
+  cn,
+  formatUsd,
+  getLtDisplayName,
+  shortenAddress,
+} from "../../utils/format";
 import { tierForZeros } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 
 import type { Direction } from "../../services/types";
-
 
 interface Props {
   name: string;
@@ -129,76 +130,76 @@ export default function LivePreview({
             )}
           >
             <div className={styles.tokenCardHeader}>
-            <div className={styles.tokenImage}>
-              {imagePreview ? (
-                <img
-                  src={imagePreview}
-                  className={styles.tokenImageImg}
-                  alt=""
-                />
-              ) : (
-                <span className={styles.tokenImagePlaceholder}>?</span>
-              )}
+              <div className={styles.tokenImage}>
+                {imagePreview ? (
+                  <img
+                    src={imagePreview}
+                    className={styles.tokenImageImg}
+                    alt=""
+                  />
+                ) : (
+                  <span className={styles.tokenImagePlaceholder}>?</span>
+                )}
+              </div>
+              <div className={styles.tokenInfo}>
+                <div className={styles.tokenName}>{displayName}</div>
+                <div className={styles.tokenBadgeRow}>
+                  <span
+                    className={cn(
+                      styles.tokenBadge,
+                      isLong ? styles.tokenBadgeLong : styles.tokenBadgeShort,
+                    )}
+                  >
+                    ⚡ {ltName}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div className={styles.tokenInfo}>
-              <div className={styles.tokenName}>{displayName}</div>
-              <div className={styles.tokenBadgeRow}>
-                <span
+
+            <div className={styles.miniStats}>
+              <div className={styles.miniStatCell}>
+                <div className={styles.miniStatValue}>{leverage}×</div>
+                <div className={styles.miniStatLabel}>leverage</div>
+              </div>
+              <div className={styles.miniStatCell}>
+                <div className={styles.miniStatValue}>{assetDisplay}</div>
+                <div className={styles.miniStatLabel}>underlying</div>
+              </div>
+              <div className={styles.miniStatCellLast}>
+                <div
                   className={cn(
-                    styles.tokenBadge,
-                    isLong ? styles.tokenBadgeLong : styles.tokenBadgeShort,
+                    styles.miniStatValue,
+                    isLong ? styles.textMint : styles.textRed,
                   )}
                 >
-                  ⚡ {ltName}
-                </span>
+                  {isLong ? "LONG" : "SHORT"}
+                </div>
+                <div className={styles.miniStatLabel}>direction</div>
               </div>
             </div>
-          </div>
 
-          <div className={styles.miniStats}>
-            <div className={styles.miniStatCell}>
-              <div className={styles.miniStatValue}>{leverage}×</div>
-              <div className={styles.miniStatLabel}>leverage</div>
+            <div className={styles.addressRow}>
+              <div className={styles.addressLabel}>address</div>
+              {predictedAddress ? (
+                // `predictedAddress` is only populated once a vanity salt has
+                // been mined, so we always apply the vanity styling here.
+                <div
+                  className={cn(styles.addressValue, styles.addressValueVanity)}
+                  title={predictedAddress}
+                >
+                  {shortenAddress(predictedAddress)}
+                </div>
+              ) : vanityStatus === "mining" ? (
+                <div className={styles.addressMining}>
+                  <span className={styles.miningDot} />
+                  finding a memorable address…
+                </div>
+              ) : vanityStatus === "error" ? (
+                <div className={styles.addressValue}>miner failed</div>
+              ) : (
+                <div className={styles.addressValue}>—</div>
+              )}
             </div>
-            <div className={styles.miniStatCell}>
-              <div className={styles.miniStatValue}>{assetDisplay}</div>
-              <div className={styles.miniStatLabel}>underlying</div>
-            </div>
-            <div className={styles.miniStatCellLast}>
-              <div
-                className={cn(
-                  styles.miniStatValue,
-                  isLong ? styles.textMint : styles.textRed,
-                )}
-              >
-                {isLong ? "LONG" : "SHORT"}
-              </div>
-              <div className={styles.miniStatLabel}>direction</div>
-            </div>
-          </div>
-
-          <div className={styles.addressRow}>
-            <div className={styles.addressLabel}>address</div>
-            {predictedAddress ? (
-              // `predictedAddress` is only populated once a vanity salt has
-              // been mined, so we always apply the vanity styling here.
-              <div
-                className={cn(styles.addressValue, styles.addressValueVanity)}
-                title={predictedAddress}
-              >
-                {shortenAddress(predictedAddress)}
-              </div>
-            ) : vanityStatus === "mining" ? (
-              <div className={styles.addressMining}>
-                <span className={styles.miningDot} />
-                finding a memorable address…
-              </div>
-            ) : vanityStatus === "error" ? (
-              <div className={styles.addressValue}>miner failed</div>
-            ) : (
-              <div className={styles.addressValue}>—</div>
-            )}
-          </div>
           </div>
         </VanityEffect>
 
@@ -214,13 +215,13 @@ export default function LivePreview({
               className={cn(
                 styles.chartChgBadge,
                 hasChgData
-                  ? isUp ? styles.chartChgBadgeUp : styles.chartChgBadgeDown
+                  ? isUp
+                    ? styles.chartChgBadgeUp
+                    : styles.chartChgBadgeDown
                   : styles.chartChgBadgeUp,
               )}
             >
-              {hasChgData
-                ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%`
-                : "—"}
+              {hasChgData ? `${isUp ? "+" : ""}${assetChg.toFixed(2)}%` : "—"}
             </div>
           </div>
           <div className={styles.chartBody}>
@@ -247,8 +248,8 @@ export default function LivePreview({
           >
             {ltName}
           </b>{" "}
-          — if {assetDisplay} {isLong ? "rises" : "falls"} 10%, your token moves{" "}
-          {isLong ? "up" : "down"} ~{leverage * 10}% with zero buys.
+          — if {assetDisplay} {isLong ? "rises" : "falls"} 10%, your token pumps{" "}
+          ~{leverage * 10}% with zero buys.
         </div>
 
         <div className={styles.howSection}>
@@ -256,7 +257,10 @@ export default function LivePreview({
           {[
             { icon: "1", text: "Token deploys to bonding curve" },
             { icon: "2", text: "Users buy/sell with USDC atomically" },
-            { icon: "3", text: `At ${formatUsd(thresholdDisplay)} MCAP, token graduates to DEX` },
+            {
+              icon: "3",
+              text: `At ${formatUsd(thresholdDisplay)} MCAP, token graduates to DEX`,
+            },
           ].map((step) => (
             <div key={step.icon} className={styles.howStep}>
               <div className={styles.howStepIcon}>{step.icon}</div>
