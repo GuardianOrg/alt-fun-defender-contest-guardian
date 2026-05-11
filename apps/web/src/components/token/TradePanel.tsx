@@ -237,7 +237,6 @@ export default function TradePanel({ token }: Props) {
   };
 
   const ticker = token.ticker;
-  const is5x = token.leverage === 5;
 
   // Token is in the contract-frozen graduating window (phase 1 of the
   // two-phase graduation has fired; awaiting the keeper's `finalizeGraduation`
@@ -266,12 +265,6 @@ export default function TradePanel({ token }: Props) {
 
   return (
     <div className={styles.panel}>
-      {is5x && (
-        <div className={styles.volWarning}>
-          ⚠ 5× leverage — significantly more volatility decay, recommended for short-term
-        </div>
-      )}
-
       <div className={styles.toggleBar}>
         <div className={styles.toggleGrid}>
           <button

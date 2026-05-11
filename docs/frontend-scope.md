@@ -45,8 +45,6 @@ Two-column: left (hero, chart, curve strip, tabs) | right (trade panel, 300px).
 
 Creator badge at bottom (visible when wallet = creator): volume, earned, claimable, claim button.
 
-**5x warning:** yellow banner on 5x tokens — "significantly more volatility decay, recommended for short-term."
-
 **States:** `active` = normal + curve strip. `graduating` = animated glow + trade panel banner. `graduated` = curve strip hidden, chart continues with pool trades.
 
 ---
