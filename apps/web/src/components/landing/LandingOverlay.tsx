@@ -11,7 +11,7 @@ const KEY_SEQUENCE = "altfun";
 // across tabs, so we need an in-tab signal too.
 const BYPASS_EVENT = "altfun-landing-bypassed";
 
-const TWITTER_URL = "https://x.com/altdotfun";
+const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
 const WHITEPAPER_URL = "/whitepaper.pdf";
 
@@ -138,7 +138,7 @@ export default function LandingOverlay() {
         <p className={styles.tag}>Tokens that move even when nobody trades.</p>
         <a
           className={styles.cta}
-          href={TWITTER_URL}
+          href={X_URL}
           target="_blank"
           rel="noreferrer noopener"
         >
@@ -153,11 +153,11 @@ export default function LandingOverlay() {
       <footer className={styles.footer}>
         <a
           className={styles.footerLink}
-          href={TWITTER_URL}
+          href={X_URL}
           target="_blank"
           rel="noreferrer noopener"
         >
-          Twitter
+          X
         </a>
         <span className={styles.footerSep} aria-hidden="true">
           |
