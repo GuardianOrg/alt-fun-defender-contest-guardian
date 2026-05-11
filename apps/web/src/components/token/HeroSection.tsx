@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import styles from "./HeroSection.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
-import { cn, copyToClipboard } from "../../utils/format";
+import { cn } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
@@ -16,12 +16,12 @@ interface Props {
 
 export default function HeroSection({ token }: Props) {
   const { copied, copy: copyCA } = useCopyState();
+  const { copied: shared, copy: copyShareUrl } = useCopyState();
   const [imgError, setImgError] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
   const shareToken = () => {
-    const text = `${token.emoji} ${token.ticker} — ${token.name}\n${token.ltName} — leveraged tokens`;
-    copyToClipboard(text);
+    copyShareUrl(window.location.href);
   };
 
   const vanityTier = tierFor(token.address);
@@ -112,21 +112,40 @@ export default function HeroSection({ token }: Props) {
           </span>
         </button>
         <Button variant="primary" size="sm" onClick={shareToken}>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
-            <polyline points="16 6 12 2 8 6" />
-            <line x1="12" y1="2" x2="12" y2="15" />
-          </svg>
-          Share
+          {shared ? (
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
+              <polyline points="16 6 12 2 8 6" />
+              <line x1="12" y1="2" x2="12" y2="15" />
+            </svg>
+          )}
+          {shared ? "Copied!" : "Share"}
         </Button>
       </div>
 
