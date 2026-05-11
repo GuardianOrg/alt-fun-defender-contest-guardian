@@ -148,58 +148,146 @@
   font-variant-numeric: tabular-nums;
 }
 
-.infoRowClickable {
+.emptyRow {
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  font-size: 13px;
+  color: var(--txt-2);
+  font-family: var(--font-mono);
+}
+
+.positionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid var(--border);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
-.infoRowClickable:hover {
+.positionRow:last-child {
+  border-bottom: 0;
+}
+
+.positionRow:hover {
   background: rgba(255, 255, 255, 0.02);
 }
 
-.positionValue {
-  font-weight: 500;
-  color: var(--mint);
+.positionLogoWrap {
+  width: 1.6rem;
+  height: 1.6rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-2);
+}
+
+.positionLogo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.positionLogoFallback {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.positionMeta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.positionTicker {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
   font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.positionPnl {
-  font-weight: 500;
+.positionChange {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
 }
 
-.pnlPositive {
+.positionChangeUp {
   color: var(--mint);
 }
 
-.pnlNegative {
+.positionChangeDown {
   color: var(--red);
 }
 
-.netPnlRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
-  border-top: 1px solid var(--border-2);
-  font-size: 13px;
-}
-
-.netPnlLabel {
+.positionChangeNeutral {
   color: var(--txt-3);
-  font-family: var(--font-mono);
 }
 
-.netPnlValue {
+.positionValue {
+  flex-shrink: 0;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--mint);
+  color: var(--txt);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Skeleton placeholders for MY POSITIONS. Reuses the shared `shimmer`
+ * keyframe declared in `index.css` and the `--bg-2`/`--bg-3` design
+ * tokens — same pattern as the live asset tape (`AssetTape.module.css`)
+ * so the two skeletons stay visually consistent. */
+.skeletonBlock {
+  background: linear-gradient(
+    90deg,
+    var(--bg-2) 0%,
+    var(--bg-3) 50%,
+    var(--bg-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 3px;
+}
+
+.skeletonCircle {
+  border-radius: 50%;
+}
+
+.skeletonLineLg {
+  height: 0.7rem;
+  width: 60%;
+}
+
+.skeletonLineSm {
+  height: 0.55rem;
+  width: 35%;
+}
+
+.skeletonLineValue {
+  height: 0.7rem;
+  width: 2.6rem;
+  flex-shrink: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonBlock {
+    animation: none;
+  }
 }
 
 @media (max-width: 768px) {

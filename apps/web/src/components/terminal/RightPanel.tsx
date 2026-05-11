@@ -1,3 +1,6 @@
+import { useState } from "react";
+import type { KeyboardEvent } from "react";
+
 import { useNavigate } from "react-router";
 
 import styles from "./RightPanel.module.css";
@@ -9,9 +12,106 @@ import { useWallet } from "../../hooks/useWallet";
 import {
   cn,
   formatCurveFilled,
+  formatPercentOrDash,
   formatTimeAgo,
   formatUsd,
 } from "../../utils/format";
+
+import type { HeldToken } from "../../services/types";
+
+const POSITION_LIMIT = 5;
+const SKELETON_ROW_COUNT = 3;
+
+/**
+ * Render a single MY-POSITIONS row. Visually mirrors the MARKETS asset rows
+ * in `Sidebar` — logo + name/change column + value on the right — so the
+ * right panel reads as a balanced peer of the left one. Logo follows the
+ * same fallback pattern as `TokenRow` (image → emoji → coin glyph) so a
+ * missing or broken image never leaves an empty square.
+ */
+function PositionRow({
+  position,
+  onNavigate,
+}: {
+  position: HeldToken;
+  onNavigate: (address: string) => void;
+}) {
+  const [imgError, setImgError] = useState(false);
+  const change = position.change24h;
+  const changeUp = change !== null && change >= 0;
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onNavigate(position.address);
+    }
+  };
+
+  return (
+    <div
+      className={styles.positionRow}
+      role="button"
+      tabIndex={0}
+      onClick={() => onNavigate(position.address)}
+      onKeyDown={handleKeyDown}
+      aria-label={`${position.ticker || position.name} — ${formatUsd(position.valueUsd)} — ${formatPercentOrDash(change)}`}
+    >
+      <div className={styles.positionLogoWrap}>
+        {position.image && !imgError ? (
+          <img
+            src={position.image}
+            alt=""
+            className={styles.positionLogo}
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <span className={styles.positionLogoFallback} aria-hidden="true">
+            {position.emoji || "🪙"}
+          </span>
+        )}
+      </div>
+      <div className={styles.positionMeta}>
+        <div className={styles.positionTicker}>
+          {position.ticker || position.name}
+        </div>
+        <div
+          className={cn(
+            styles.positionChange,
+            change === null
+              ? styles.positionChangeNeutral
+              : changeUp
+                ? styles.positionChangeUp
+                : styles.positionChangeDown,
+          )}
+        >
+          {formatPercentOrDash(change)}
+        </div>
+      </div>
+      <div className={styles.positionValue}>{formatUsd(position.valueUsd)}</div>
+    </div>
+  );
+}
+
+/**
+ * Skeleton placeholder shown while balances are still loading. Mirrors the
+ * real row geometry so the panel doesn't reflow when data arrives. Each
+ * sub-block animates the shared `shimmer` keyframe (defined in
+ * `index.css`).
+ */
+function PositionSkeleton() {
+  return (
+    <div className={styles.positionRow} aria-hidden="true">
+      <div
+        className={cn(styles.positionLogoWrap, styles.skeletonBlock, styles.skeletonCircle)}
+      />
+      <div className={styles.positionMeta}>
+        <div className={cn(styles.skeletonBlock, styles.skeletonLineLg)} />
+        <div className={cn(styles.skeletonBlock, styles.skeletonLineSm)} />
+      </div>
+      <div className={cn(styles.skeletonBlock, styles.skeletonLineValue)} />
+    </div>
+  );
+}
 
 export default function RightPanel() {
   const trades = useTradeFeed();
@@ -22,12 +122,34 @@ export default function RightPanel() {
 
   const positions = [...heldTokens]
     .sort((a, b) => b.valueUsd - a.valueUsd)
-    .slice(0, 5);
+    .slice(0, POSITION_LIMIT);
 
   const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
+  const handleNavigate = (address: string) => navigate(tokenPath(address));
 
   return (
     <div className={styles.panel}>
+      {/* My positions — moved above recent trades so the user's own holdings
+       * are the first thing they see in the right column (issue #584). */}
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>MY POSITIONS</div>
+        {!isConnected ? (
+          <div className={styles.emptyRow}>Connect wallet to view</div>
+        ) : balancesLoading && positions.length === 0 ? (
+          <div aria-busy="true" aria-label="Loading positions">
+            {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
+              <PositionSkeleton key={i} />
+            ))}
+          </div>
+        ) : positions.length === 0 ? (
+          <div className={styles.emptyRow}>No positions yet</div>
+        ) : (
+          positions.map((p) => (
+            <PositionRow key={p.address} position={p} onNavigate={handleNavigate} />
+          ))
+        )}
+      </div>
+
       {/* Recent trades */}
       <div className={styles.section}>
         <div className={cn(styles.sectionHeader, styles.sectionHeaderLive)}>
@@ -93,49 +215,6 @@ export default function RightPanel() {
           ))}
         </div>
       )}
-
-      {/* My positions */}
-      <div>
-        <div className={styles.sectionHeader}>MY POSITIONS</div>
-        {!isConnected ? (
-          <div className={styles.infoRow}>
-            <span className={styles.infoName}>Connect wallet to view</span>
-          </div>
-        ) : balancesLoading && positions.length === 0 ? (
-          <div className={styles.infoRow}>
-            <span className={styles.infoName}>Loading…</span>
-          </div>
-        ) : positions.length === 0 ? (
-          <div className={styles.infoRow}>
-            <span className={styles.infoName}>No positions yet</span>
-          </div>
-        ) : (
-          positions.map((p) => (
-            <div
-              key={p.address}
-              className={cn(
-                styles.infoRow,
-                styles.infoRowClickable,
-                styles.infoRowNoBorderLast,
-              )}
-              onClick={() => navigate(tokenPath(p.address))}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  navigate(tokenPath(p.address));
-                }
-              }}
-            >
-              <span className={styles.infoName}>{p.ticker || p.name}</span>
-              <span className={styles.positionValue}>
-                {formatUsd(p.valueUsd)}
-              </span>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

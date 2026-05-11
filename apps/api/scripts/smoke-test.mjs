@@ -200,7 +200,16 @@ async function runTests() {
   await test("GET /api/v1/tokens/search returns results", async () => {
     if (!discoveredToken) skip("DB has no tokens");
     const { body: detail } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
-    const namePrefix = detail.data.name.slice(0, 3);
+    // Grab the first contiguous ASCII-alphanumeric run from the name and
+    // cap at 3 chars. `slice(0, 3)` on the raw name walks UTF-16 code
+    // units, which can split a leading emoji's surrogate pair and produce
+    // a lone surrogate that `encodeURIComponent` refuses to encode
+    // (`URI malformed`). Pulling a contiguous run also keeps the query as
+    // a real substring of the token name — a filter/join would fabricate
+    // matches like `"A-B"` → `"AB"` that the search index can't find.
+    const rawName = typeof detail.data.name === "string" ? detail.data.name : "";
+    const namePrefix = (rawName.match(/[a-z0-9]+/i)?.[0] ?? "").slice(0, 3);
+    if (!namePrefix) skip("Token name has no searchable alphanumeric chars");
     const { res, body } = await fetchJson(`/api/v1/tokens/search?q=${encodeURIComponent(namePrefix)}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(body.data.length >= 1, "Expected at least 1 result");

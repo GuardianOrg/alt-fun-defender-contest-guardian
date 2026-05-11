@@ -126,6 +126,8 @@ export interface HeldToken {
   name: string;
   ticker: string;
   emoji: string;
+  /** Token logo URL (R2-served). `undefined` falls back to the emoji. */
+  image?: string;
   ltName: string;
   status: TokenStatus;
   amount: number;
