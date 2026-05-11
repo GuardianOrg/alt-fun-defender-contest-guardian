@@ -50,7 +50,7 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 | Post-grad pair | TOKEN/LT (leveraged exposure persists) |
 | LP handling | Locked in `LPLock.sol` (UUPS upgradeable, no withdraw in v1) |
 | Leverage options | 2x, 3x, 5x (5x gets vol decay warning) |
-| Wallet | Privy (social login, embedded wallets, WalletConnect) |
+| Wallet | Privy (wallet-only login — injected EIP-6963 wallets + Coinbase Wallet EOA) |
 
 ## Fees
 
@@ -227,7 +227,7 @@ Our own contract addresses (`Zap`, `Bonding`, `Factory`, `Router`, `LPLock`, `Fe
 | RPC | Alchemy | HyperEVM mainnet |
 | Frontend hosting | Cloudflare Pages | Project: `launchpad` |
 | API hosting | Cloudflare Workers | Worker: `launchpad-api` |
-| Auth | Privy | Social login, embedded wallets, WalletConnect |
+| Auth | Privy | Wallet-only login (no email/social, no embedded wallets) |
 
 ---
 

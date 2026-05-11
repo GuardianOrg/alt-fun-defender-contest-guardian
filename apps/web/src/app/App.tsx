@@ -128,12 +128,7 @@ const App = () => {
               accentColor: "#00ff88",
               walletChainType: "ethereum-only",
             },
-            loginMethods: ["email", "wallet"],
-            embeddedWallets: {
-              ethereum: {
-                createOnLogin: "users-without-wallets",
-              },
-            },
+            loginMethods: ["wallet"],
             externalWallets: {
               coinbaseWallet: {
                 config: { preference: { options: "eoaOnly" } },
