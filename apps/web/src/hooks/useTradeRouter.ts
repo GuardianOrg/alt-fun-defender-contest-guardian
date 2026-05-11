@@ -44,7 +44,7 @@ export function useTradeRouter() {
       try {
         setError(null);
 
-        const usdcAmountWei = parseUnits(usdcAmount.toString(), USDC_DECIMALS);
+        const usdcAmountWei = parseUnits(usdcAmount.toFixed(USDC_DECIMALS), USDC_DECIMALS);
         const routerAddr = ADDRESSES.zap;
 
         const allowance = await hyperEvmClient.readContract({

@@ -121,7 +121,7 @@ export function useCreateToken() {
         let permit: PermitData | null = null;
         if (params.seedBuyUsd > 0) {
           const usdcAmount = parseUnits(
-            params.seedBuyUsd.toString(),
+            params.seedBuyUsd.toFixed(USDC_DECIMALS),
             USDC_DECIMALS,
           );
           const allowance = (await hyperEvmClient.readContract({
@@ -184,7 +184,7 @@ export function useCreateToken() {
         };
 
         const seedUsdcAmount = params.seedBuyUsd > 0
-          ? parseUnits(params.seedBuyUsd.toString(), USDC_DECIMALS)
+          ? parseUnits(params.seedBuyUsd.toFixed(USDC_DECIMALS), USDC_DECIMALS)
           : 0n;
 
         // `eth_estimateGas` is stateless on the node, so the permit nonce
