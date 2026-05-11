@@ -21,6 +21,7 @@ Committed tone: **industrial / terminal / trading-floor**, not friendly SaaS.
 - **Do not** introduce a new font. We use JetBrains Mono (`--font-mono`) everywhere, Geist (`--font-display`) only for display-scale headings. Never Inter, Roboto, Arial, Poppins, Space Grotesk, or system-ui.
 - **Do not** use purple, indigo, blue-500, or any gradient that goes purple → blue / pink → orange. Our accents are mint and amber only.
 - **Do not** set `border-radius` above `4px`. Most elements use `2px` or `3px`. Zero is fine. Pill / rounded-full is reserved for status dots and the live indicator.
+- **Do not** reach for off-scale rem spacing — no `0.5rem`, `0.75rem`, `1rem`, `1.5rem`, `2rem`. The spacing scale is a strict doubling: `0.1 / 0.2 / 0.4 / 0.8 / 1.6 / 3.2 rem`, with `1.2rem` and `2.4rem` as the only allowed half-steps. See [Spacing, borders, radii](#spacing-borders-radii). If your existing component uses an off-scale value, do not propagate it into new lines you add — pick the nearest scale value instead.
 - **Do not** add rounded card shadows (`0 4px 12px rgba(0,0,0,0.1)` etc). Our surfaces are separated by 1px `--border` / `--border-2` lines, not elevation.
 - **Do not** add large centered hero sections, testimonial carousels, three-up feature grids, or "[headline] [sub] [two CTAs]" marketing shapes. Every page is a working panel.
 - **Do not** use `lucide-react` / Heroicons with the default stroke weight at cute 24×24. We favor small inline SVGs and ASCII-style glyphs (`▲`, `▼`, `◉`, `×`).
@@ -55,7 +56,21 @@ Do not invent a new shade by writing `rgba(234, 250, 244, 0.x)`. If you need som
 ## Spacing, borders, radii
 
 - Border radius: `0`, `2px`, or `3px`. Pills (`9999px`) only for dots/indicators.
-- Spacing scale is a **doubling rem scale**: `0.1rem` / `0.2rem` / `0.4rem` / `0.8rem` / `1.2rem` / `1.6rem` / `2.4rem` / `3.2rem`. Stick to these steps — never reach for `0.5rem`, `0.75rem`, `1rem`, `1.5rem`, etc. just because they "feel" right. The density and rhythm are intentional. (`1.2rem` is the half-step between `0.8rem` and `1.6rem` and is allowed for header / row gutters.)
+- **Spacing scale (rem)** — every `padding`, `margin`, `gap`, `top`/`left`/`right`/`bottom`, and `inset` value uses one of these and nothing else:
+
+  | Step | Use |
+  | --- | --- |
+  | `0.1rem` | hairline nudges (icon optical alignment) |
+  | `0.2rem` | tight inline gaps (between an icon and adjacent text) |
+  | `0.4rem` | default inline gap, small paddings |
+  | `0.8rem` | default block gap, card / button padding |
+  | `1.2rem` | half-step — row gutters, section header padding |
+  | `1.6rem` | section spacing, large card padding |
+  | `2.4rem` | half-step — between major panels |
+  | `3.2rem` | page-level gutters |
+
+  Forbidden: `0.5rem`, `0.6rem`, `0.7rem`, `0.75rem`, `0.875rem`, `1rem`, `1.5rem`, `2rem`, and any other value that isn't in the table above. "It looks better at `0.5rem`" is not a reason — the density is intentional and edits must land on the scale. Pixel values (`1px`, `14px`) are fine for non-spacing dimensions like borders and icon glyph sizes, but anything that arranges layout uses the rem scale.
+
 - Panel separators are 1px solid `var(--border)` / `var(--border-2)`. Do not use `box-shadow` for separation.
 
 ## Motion
@@ -83,8 +98,9 @@ Do not invent a new shade by writing `rgba(234, 250, 244, 0.x)`. If you need som
 
 1. Reads from design tokens only? (no hex, no raw rgba)
 2. No new fonts, no radius > 4px, no new color hues?
-3. Numbers use `tabular-nums` and align in columns?
-4. Uppercase labels use a letter-spacing in the 0.08–0.14em range?
-5. Panel separators are 1px borders, not shadows?
-6. Transitions capped at 0.15s, no bounce?
-7. If text is on a non-`--bg` surface, contrast still passes AA?
+3. Every `padding` / `margin` / `gap` value is on the doubling rem scale (`0.1 / 0.2 / 0.4 / 0.8 / 1.2 / 1.6 / 2.4 / 3.2`)? Grep your diff for `0.5rem`, `0.6rem`, `0.75rem`, `1rem`, `1.5rem`, `2rem` — if you see any, fix them.
+4. Numbers use `tabular-nums` and align in columns?
+5. Uppercase labels use a letter-spacing in the 0.08–0.14em range?
+6. Panel separators are 1px borders, not shadows?
+7. Transitions capped at 0.15s, no bounce?
+8. If text is on a non-`--bg` surface, contrast still passes AA?

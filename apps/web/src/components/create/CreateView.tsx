@@ -22,11 +22,15 @@ export default function CreateView() {
   const navigate = useNavigate();
   const [direction, setDirection] = useState<Direction>("long");
   const [asset, setAsset] = useState<UnderlyingAsset>("HYPE");
-  const [leverage, setLeverage] = useState<Leverage>(2);
+  const [leverage, setLeverage] = useState<Leverage>(3);
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState("");
   const [description, setDescription] = useState("");
-  const [socialLinks, setSocialLinks] = useState({ twitter: "", telegram: "", website: "" });
+  const [socialLinks, setSocialLinks] = useState({
+    twitter: "",
+    telegram: "",
+    website: "",
+  });
   // Default to the on-chain `MIN_SEED_USDC` floor so the form lands valid
   // out of the box — nothing below this can be submitted anyway.
   const [seedAmount, setSeedAmount] = useState(String(MIN_USDC_BUY_AMOUNT));
@@ -34,7 +38,13 @@ export default function CreateView() {
   const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
-  const { step: launchStep, error: launchError, warning: launchWarning, tokenAddress, create } = useCreateToken();
+  const {
+    step: launchStep,
+    error: launchError,
+    warning: launchWarning,
+    tokenAddress,
+    create,
+  } = useCreateToken();
   // Mining starts as soon as the wallet is connected *and* the user has
   // entered a name + ticker — both feed into the on-chain salt mix, so we
   // can't begin mining without them. We debounce the trimmed values into
@@ -55,7 +65,10 @@ export default function CreateView() {
     }, 250);
     return () => clearTimeout(handle);
   }, [trimmedName, trimmedTicker]);
-  const vanity = useVanityAddress({ name: debouncedName, ticker: debouncedTicker });
+  const vanity = useVanityAddress({
+    name: debouncedName,
+    ticker: debouncedTicker,
+  });
   const [waitingForVanity, setWaitingForVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
   const seedAmt = parseFloat(seedAmount) || 0;
@@ -64,7 +77,9 @@ export default function CreateView() {
   // the UI layer so the user never signs a reverting tx.
   const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
   const isBusy =
-    launchStep === "approving" || launchStep === "signing" || launchStep === "deploying";
+    launchStep === "approving" ||
+    launchStep === "signing" ||
+    launchStep === "deploying";
 
   useEffect(() => {
     if (launchStep !== "confirmed") return;
@@ -118,7 +133,11 @@ export default function CreateView() {
         leverage,
         imageFile,
         seedBuyUsd: seedAmt,
-        socialLinks: [socialLinks.twitter, socialLinks.telegram, socialLinks.website].filter(Boolean),
+        socialLinks: [
+          socialLinks.twitter,
+          socialLinks.telegram,
+          socialLinks.website,
+        ].filter(Boolean),
       },
       vanityResult.salt,
     );
@@ -226,7 +245,11 @@ export default function CreateView() {
                   vanity.status === "error" ||
                   (isConnected && seedBelowMin)
                 }
-                className={launchStep === "confirmed" ? styles.launchButtonConfirmed : undefined}
+                className={
+                  launchStep === "confirmed"
+                    ? styles.launchButtonConfirmed
+                    : undefined
+                }
                 onClick={handleSubmit}
               >
                 {buttonLabel()}
@@ -246,7 +269,8 @@ export default function CreateView() {
 
             {launchStep === "idle" && !seedBelowMin && (
               <div className={styles.idleHint}>
-                Sign a permit for ${seedAmt.toFixed(2)} USDC, then your token deploys in one tx
+                Sign a permit for ${seedAmt.toFixed(2)} USDC, then your token
+                deploys in one tx
               </div>
             )}
 
