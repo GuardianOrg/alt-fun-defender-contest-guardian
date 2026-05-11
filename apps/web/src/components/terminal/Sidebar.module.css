@@ -212,7 +212,11 @@
 .footerLinks {
   padding-top: 0.8rem;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
+  column-gap: 0.4rem;
+  row-gap: 0.2rem;
   flex-shrink: 0;
 }
 
@@ -229,6 +233,31 @@
 }
 
 .footerLink:hover {
+  color: var(--mint);
+}
+
+.footerSocials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  padding-top: 0.2rem;
+  padding-bottom: 0.4rem;
+  flex-shrink: 0;
+}
+
+.footerIconLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  min-height: 22px;
+  color: var(--txt-2);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.footerIconLink:hover {
   color: var(--mint);
 }
 
