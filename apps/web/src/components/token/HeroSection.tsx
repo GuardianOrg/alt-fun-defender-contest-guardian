@@ -57,7 +57,18 @@ export default function HeroSection({ token }: Props) {
 
         <div className={styles.nameStack}>
           <div className={styles.tickerNameContainer}>
-            <div className={styles.ticker}>{token.ticker}</div>
+            <div className={styles.tickerRow}>
+              <div className={styles.ticker}>{token.ticker}</div>
+              {token.status === "graduated" && (
+                <span
+                  className={styles.gradPill}
+                  title="This token has graduated — it now trades on HyperSwap"
+                  aria-label="Graduated"
+                >
+                  GRADUATED
+                </span>
+              )}
+            </div>
             <div className={styles.fullName}>{token.name}</div>
           </div>
           <div className={styles.byDev}>
