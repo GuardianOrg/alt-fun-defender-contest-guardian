@@ -95,6 +95,53 @@ Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, netwo
 
 CSAM caveat: OpenAI does not classify `sexual/minors` from images (text-only by design). The strict `sexual` threshold acts as a coarse proxy, but this layer is **not** a NCMEC-certified hash matcher — explicitly documented in root `AGENTS.md`. Don't represent it externally as one.
 
+### Edge rate-limit rule (Cloudflare, in front of the Worker)
+
+A zone-level Cloudflare WAF rate-limit rule sits in front of `POST` traffic to the upload paths and is the **primary** defence layer for image-upload abuse. The in-Worker per-IP write quota (added in #509) is a fallback that only fires when this rule is absent or misconfigured, or under `wrangler dev` where zone rules don't apply.
+
+| Field | Value |
+|---|---|
+| Match | `(http.request.method eq "POST") and (http.request.uri.path eq "/api/v1/images" or http.request.uri.path eq "/images")` |
+| Characteristics | `ip.src` |
+| Period | 60 seconds |
+| Requests over the period | 5 |
+| Action | Block, custom response **429** |
+| Mitigation timeout | 60 seconds |
+
+Both paths are included intentionally. `POST /images` is being removed by #509 (the dual-mount was an accidental unauthenticated route), but the rule covers both belt-and-braces so the migration window — and any future regression that re-exposes the bare mount — stays rate-limited at the edge.
+
+#### Why a separate layer from the in-Worker limiter
+
+Rate limiting inside the Worker still pays most of the cost the rule exists to avoid:
+
+- The Worker has to spin up and parse headers before the in-Worker limiter runs.
+- For the upload route specifically, the multipart body has to be fully ingested before `c.req.formData()` resolves and the size check fires — abusive requests still cost CPU + isolate memory + ingress before they're rejected.
+- The in-Worker limiter is per-isolate, so an attacker hitting different Cloudflare colos counts separately against each one. The edge rule is globally enforced across the zone.
+
+A native rate-limit rule rejects at the edge with zero Worker invocation, zero body upload, and zero isolate touched. That's the only layer that protects Worker CPU/memory under abuse and the only layer with cross-colo global enforcement; #509 stays in place as a fallback for the cases above.
+
+#### Local dev caveat
+
+`wrangler dev` does not apply zone-level WAF rules — only the in-Worker fallback (#509) runs locally. Don't be surprised that abuse repros fly through in dev; they're caught in staging/prod.
+
+#### Verification (staging)
+
+```sh
+# Sustained POST from a single IP — expect 429 within 5 requests/min.
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -X POST -H "X-API-Key: $KEY" \
+    -F "file=@/tmp/tiny.png" \
+    https://staging.alt.fun/api/v1/images
+done
+```
+
+Cross-check `wrangler tail` while the loop runs — the rejected requests **must not** appear in Worker logs (that's what differentiates this layer from the in-Worker fallback; if they show up in `tail`, the edge rule is missing and #509 is doing the work alone).
+
+#### Where the rule lives
+
+Configured in the Cloudflare dashboard under *Security → WAF → Rate limiting rules* for the production zone. It is **not** in `wrangler.json` because WAF rate-limit rules are zone-level, not Worker-level. The canonical shape lives in the table above — re-create from it if the rule is ever deleted or drifts.
+
 ## Durable Objects
 
 - `WebSocketDO` — **subject-sharded** WebSocket fan-out. One DO instance per `(channel, tokenAddress)` shard, named via ``idFromName(`${channel}:${tokenAddress ?? "__all__"}`)``. Every connection on a given instance has already opted into exactly that subject, so `broadcast()` is a flat fan-out with no per-connection filter loop. Per-token events (`trade`, `price`, `graduation`) fan out to *both* the token's shard and the wildcard `__all__` shard so global subscribers (e.g. the home-page trade feed) still see them; cost is at most two stub fetches per event regardless of total connection count. The previous design was a single global DO that iterated every connection on every event — see issue #395 for the scaling rationale and `websocket/durable-object.ts` for the routing helpers.

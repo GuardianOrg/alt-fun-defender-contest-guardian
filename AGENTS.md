@@ -276,6 +276,8 @@ Borderline images (review threshold tripped, reject threshold not tripped) are s
 
 Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, network timeout, or malformed response all surface as a 503 ("moderation temporarily unavailable") and **no upload happens**. Letting unmoderated content into R2 is the failure mode this layer exists to prevent.
 
+A Cloudflare WAF rate-limit rule sits in front of `POST /api/v1/images` and `POST /images` at the edge (5 req/min/IP, rejected with 429 before the Worker is invoked). It's the primary defence against upload abuse — the in-Worker per-IP write quota is a fallback for when the rule is missing or under `wrangler dev`. Full spec (filter expression, action, verification) in [`apps/api/AGENTS.md`](apps/api/AGENTS.md) → *Edge rate-limit rule*.
+
 ### CSAM caveat (read before changing thresholds)
 
 OpenAI's image input does **not** return `sexual/minors` — that category is text-only by design (see [OpenAI moderation docs → category table](https://platform.openai.com/docs/guides/moderation)). CSAM imagery still scores high on `sexual`, so the conservative `sexual ≥ 0.7` threshold acts as a coarse proxy, but this layer is explicitly **not** a substitute for a NCMEC-certified perceptual-hash matcher (Microsoft PhotoDNA, Thorn Safer, or equivalent). Adding one is tracked separately — until then the OpenAI layer covers the broad case (illegal violence, gore, explicit sexual content, self-harm imagery) and the explicit-CSAM-detection gap remains an accepted v1 limitation. Do not present this layer to legal/compliance counterparties as a CSAM detector.
