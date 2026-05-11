@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fromApiToken } from "../tokenService";
+import { fromApiToken, TOKENS_PAGE_SIZE, tokenService } from "../tokenService";
 
 import type { ApiToken } from "../api";
 
@@ -74,5 +74,79 @@ describe("fromApiToken socialLinks", () => {
     expect(token.socialLinks).toStrictEqual({
       website: "https://example.com/",
     });
+  });
+});
+
+describe("getTokensPage", () => {
+  // Capture the URL the implementation hits so we can assert pagination
+  // params (limit/offset) and the filter→sort/status mapping in one go.
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const okJson = (data: ApiToken[]) =>
+    new Response(JSON.stringify({ status: "success", data, error: null }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    fetchMock = vi.fn(async (_input: RequestInfo | URL) => okJson([]));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function lastUrl(): URL {
+    const call = fetchMock.mock.calls.at(-1);
+    if (!call) throw new Error("fetch was never called");
+    const raw = call[0];
+    return new URL(typeof raw === "string" ? raw : raw.toString());
+  }
+
+  it("forwards offset and limit to the tokens endpoint", async () => {
+    await tokenService.getTokensPage("new", 60, TOKENS_PAGE_SIZE);
+
+    const url = lastUrl();
+    expect(url.pathname).toBe("/api/v1/tokens");
+    expect(url.searchParams.get("offset")).toBe("60");
+    expect(url.searchParams.get("limit")).toBe(String(TOKENS_PAGE_SIZE));
+    // `new` is the default `createdAt desc` sort, so no `sort=…` should
+    // be appended — the API picks it up implicitly. Asserting the
+    // absence prevents the home-page page-2 fetch from drifting to a
+    // different ordering than page 1.
+    expect(url.searchParams.has("sort")).toBe(false);
+    expect(url.searchParams.has("status")).toBe(false);
+  });
+
+  it("maps `trending` to `sort=trending`", async () => {
+    await tokenService.getTokensPage("trending", 0, TOKENS_PAGE_SIZE);
+    expect(lastUrl().searchParams.get("sort")).toBe("trending");
+  });
+
+  it("maps `graduating` to `status=graduating`", async () => {
+    await tokenService.getTokensPage("graduating", 0, TOKENS_PAGE_SIZE);
+    expect(lastUrl().searchParams.get("status")).toBe("graduating");
+  });
+
+  it("maps `graduated` to `status=graduated`", async () => {
+    await tokenService.getTokensPage("graduated", 0, TOKENS_PAGE_SIZE);
+    expect(lastUrl().searchParams.get("status")).toBe("graduated");
+  });
+
+  it("rejects rather than silently returning an empty page on API error", async () => {
+    // The infinite-scroll caller leans on a thrown error to mark the page
+    // as failed (so TanStack Query keeps `hasNextPage` accurate). If we
+    // silently swallowed errors here, the list would stop loading without
+    // any retry path and the user would see a half-loaded catalogue.
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ status: "error", data: null, error: "boom" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await expect(
+      tokenService.getTokensPage("trending", 0, TOKENS_PAGE_SIZE),
+    ).rejects.toThrow("boom");
   });
 });
