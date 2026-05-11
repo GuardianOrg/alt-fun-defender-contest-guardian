@@ -6,4 +6,4 @@ export const HYPER_EVM = {
 
 export const SUPPORTED_CHAINS = [HYPER_EVM] as const;
 
-export const BONDING_START_BLOCK = 34065324;
+export const BONDING_START_BLOCK = 34844516;

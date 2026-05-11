@@ -30,7 +30,12 @@ contract Deploy is Script {
     ///      Bonding proxy at `initialize`. Immutable for the life of the
     ///      proxy — changing it requires a UUPS upgrade with a
     ///      `reinitializer`.
-    uint256 constant GRADUATION_THRESHOLD_USD = 12_000 ether;
+    // TEMP(pre-launch-test): threshold dropped from $12K → $300 to ship a
+    // small-capital graduation rehearsal on mainnet ahead of public launch.
+    // Pairs with `Bonding.VIRTUAL_LIQUIDITY_USD = $100` (3× peg preserved).
+    // Revert to `12_000 ether` for the public-launch deploy in a couple
+    // of days.
+    uint256 constant GRADUATION_THRESHOLD_USD = 300 ether;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");

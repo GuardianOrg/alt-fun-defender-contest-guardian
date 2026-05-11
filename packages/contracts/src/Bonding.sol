@@ -47,7 +47,12 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    uint256 public constant VIRTUAL_LIQUIDITY_USD = 4000 ether;
+    // TEMP(pre-launch-test): virtual liquidity dropped from $4K → $100 to
+    // ship a small-capital graduation rehearsal on mainnet ahead of public
+    // launch. Pairs with `Deploy.s.sol::GRADUATION_THRESHOLD_USD` at $300
+    // (3× peg preserved). Revert to `4000 ether` (and `12_000 ether` in
+    // `Deploy.s.sol`) for the public-launch deploy in a couple of days.
+    uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
 
     uint256 public constant CURVE_BPS = 7500;
     uint256 public constant LP_RESERVE_BPS = 2500;
@@ -399,9 +404,9 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     /// @dev Launch-time `exchangeRate()` snapshot permanently shapes the
     ///      curve via `K = TOTAL_SUPPLY * virtualLtReserve`. The
     ///      `VIRTUAL_LIQUIDITY_USD / rate` division pins the opening market
-    ///      cap at `~$4K` regardless of the LT's price; what the snapshot
-    ///      fixes is the curve's USD-denominated depth, which then drifts
-    ///      with the LT.
+    ///      cap at `~VIRTUAL_LIQUIDITY_USD` regardless of the LT's price;
+    ///      what the snapshot fixes is the curve's USD-denominated depth,
+    ///      which then drifts with the LT.
     ///
     ///      Drift is accepted: it's inherent to using a leveraged token as
     ///      the reserve (same drift class as the phase-1 → phase-2 gap on
