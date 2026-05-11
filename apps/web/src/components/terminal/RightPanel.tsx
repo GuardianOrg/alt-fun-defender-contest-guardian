@@ -53,7 +53,15 @@ export default function RightPanel() {
                 key={t.id}
                 className={styles.tradeRow}
                 tabIndex={0}
+                role="button"
                 aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${t.amountUsd.toLocaleString()} — ${t.timestamp}`}
+                onClick={() => navigate(tokenPath(t.tokenAddress))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate(tokenPath(t.tokenAddress));
+                  }
+                }}
               >
                 <div className={styles.tradeInfo}>
                   <div className={styles.tradeNameRow}>
