@@ -25,9 +25,9 @@ globs: "apps/api/**/*.ts"
 
 ## Database
 - Use Drizzle ORM with Neon PostgreSQL
-- Schema defined in `src/db/schema.ts`
+- Schema defined in `src/db/schema.ts` (typed view; the production DB is the source of truth for actual column shapes)
 - Use `drizzle-zod` for request body validation
-- Migrations via `drizzle-kit generate` and `drizzle-kit migrate`
+- **Schema changes are not migrated by CI.** Editing `schema.ts` does not alter the DB. See `.cursor/rules/migrations.mdc` for the Neon-MCP-based flow and when to raise schema changes with the user.
 
 ## Route Modules
 - One file per domain in `src/routes/`
