@@ -142,6 +142,18 @@ Cross-check `wrangler tail` while the loop runs — the rejected requests **must
 
 Configured in the Cloudflare dashboard under *Security → WAF → Rate limiting rules* for the production zone. It is **not** in `wrangler.json` because WAF rate-limit rules are zone-level, not Worker-level. The canonical shape lives in the table above — re-create from it if the rule is ever deleted or drifts.
 
+### `moderation_logs` retention
+
+The table grows monotonically (one row per upload, no abuse vector — the abuse defences in #509 / #510 cap the *rate* of new rows, not their lifetime). `src/lib/moderation-logs-cleanup.ts` runs from the `scheduled()` handler, self-gates to **one tick per day at 03:17 UTC**, and applies the policy below. The gate is time-based rather than state-backed because the sweep is idempotent — a missed tick simply runs the next day, well within the 90 / 365 day retention windows. Issue #511.
+
+| Decision | Retention | Rationale |
+|---|---|---|
+| `approved` | 90 days | Appeal window closes; pure noise after. |
+| `rejected` | 365 days | Longer audit trail for appeals + abuse-pattern analysis. |
+| `pending_review` | **Never** | Queue items waiting on human action — silently dropping them would lose them. |
+
+Each daily run logs per-decision delete counts, post-cleanup row count, and `pg_total_relation_size('moderation_logs')` for capacity planning.
+
 ## Durable Objects
 
 - `WebSocketDO` — **subject-sharded** WebSocket fan-out. One DO instance per `(channel, tokenAddress)` shard, named via ``idFromName(`${channel}:${tokenAddress ?? "__all__"}`)``. Every connection on a given instance has already opted into exactly that subject, so `broadcast()` is a flat fan-out with no per-connection filter loop. Per-token events (`trade`, `price`, `graduation`) fan out to *both* the token's shard and the wildcard `__all__` shard so global subscribers (e.g. the home-page trade feed) still see them; cost is at most two stub fetches per event regardless of total connection count. The previous design was a single global DO that iterated every connection on every event — see issue #395 for the scaling rationale and `websocket/durable-object.ts` for the routing helpers.

@@ -8,6 +8,7 @@ import formatError from "./utils/format-error.js";
 import { checkPonderHealth } from "./lib/ponder-client.js";
 import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import { runRegistrationBackfill } from "./lib/registration-backfill.js";
+import { runModerationLogsCleanup } from "./lib/moderation-logs-cleanup.js";
 import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
@@ -274,7 +275,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json). Three jobs run in
+   * Cron trigger (1 min cadence per wrangler.json). Four jobs run in
    * parallel each tick:
    *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
    *      Ensures the price ticker self-heals within ~60s of any deploy, DO
@@ -288,6 +289,11 @@ export default {
    *      POST in the happy path; this catches closed-tab / lost-network /
    *      transient-5xx cases that would otherwise leave a token invisible.
    *      Idempotent. See `lib/registration-backfill.ts`.
+   *   4. Daily retention sweep on `moderation_logs`. Self-gates to one
+   *      tick per day (03:17 UTC) — the other 1,439 ticks return null
+   *      immediately. Bounds storage cost as the moderation log grows
+   *      with launch volume (issue #511). See
+   *      `lib/moderation-logs-cleanup.ts`.
    */
   async scheduled(
     _controller: ScheduledController,
@@ -328,6 +334,19 @@ export default {
           JSON.stringify({
             level: "error",
             event: "registration_backfill_uncaught",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    ctx.waitUntil(
+      runModerationLogsCleanup(env).catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "moderation_logs_cleanup_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),
