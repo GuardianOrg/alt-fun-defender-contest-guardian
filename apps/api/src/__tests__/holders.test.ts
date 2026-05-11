@@ -32,9 +32,12 @@ function makeEnv(): AppBindings {
   };
 }
 
+import { CONTRACT_ADDRESSES } from "@launchpad/shared";
+
 const TOKEN_ADDR = "0x4DFB6bebbdF9d5ea76123729E0b3a823f9c3ecC0";
 const BONDING_PAIR = "0x1111111111111111111111111111111111111111";
 const HYPERSWAP_PAIR = "0x2222222222222222222222222222222222222222";
+const BONDING_ADDRESS = CONTRACT_ADDRESSES.bonding.toLowerCase();
 
 const ONE = 10n ** 18n;
 const ONE_BILLION = 1_000_000_000n;
@@ -72,7 +75,7 @@ describe("GET /holders/:address", () => {
     expect(body.error).toContain("Indexer unavailable");
   });
 
-  it("queries tokenBalances with the bonding + hyperswap pairs and zero address excluded", async () => {
+  it("queries tokenBalances with the bonding proxy, bonding + hyperswap pairs, and zero address excluded", async () => {
     const app = createApp();
     await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
 
@@ -93,12 +96,13 @@ describe("GET /holders/:address", () => {
     expect(vars.address).toBe(TOKEN_ADDR.toLowerCase());
     expect(vars.excluded).toEqual([
       "0x0000000000000000000000000000000000000000",
+      BONDING_ADDRESS,
       BONDING_PAIR.toLowerCase(),
       HYPERSWAP_PAIR.toLowerCase(),
     ]);
   });
 
-  it("only excludes the zero address when the token has not yet been indexed", async () => {
+  it("only excludes zero address and bonding proxy when the token has not yet been indexed", async () => {
     mockPonderQuery.mockResolvedValue({ token: null });
     const app = createApp();
     await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
@@ -108,7 +112,10 @@ describe("GET /holders/:address", () => {
       string,
       Record<string, unknown>,
     ];
-    expect(vars.excluded).toEqual(["0x0000000000000000000000000000000000000000"]);
+    expect(vars.excluded).toEqual([
+      "0x0000000000000000000000000000000000000000",
+      BONDING_ADDRESS,
+    ]);
   });
 
   it("only excludes set pair addresses (drops null hyperswapPair pre-graduation)", async () => {
@@ -125,6 +132,7 @@ describe("GET /holders/:address", () => {
     ];
     expect(vars.excluded).toEqual([
       "0x0000000000000000000000000000000000000000",
+      BONDING_ADDRESS,
       BONDING_PAIR.toLowerCase(),
     ]);
   });

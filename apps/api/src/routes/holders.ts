@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { isAddress } from "viem";
+import { CONTRACT_ADDRESSES } from "@launchpad/shared";
 
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
@@ -8,6 +9,7 @@ import { createPonderPaginatedQuery, createPonderQuery } from "../lib/ponder-cli
 import type { AppBindings } from "../lib/types.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const BONDING_ADDRESS = CONTRACT_ADDRESSES.bonding.toLowerCase();
 const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
 
 interface PonderTokenInfo {
@@ -36,9 +38,10 @@ const holders = new Hono<{ Bindings: AppBindings }>();
  * balances from `routerTrades` only and silently undercounted holders +
  * mis-totalled balances as soon as a token saw any off-Zap movement.
  *
- * The bonding curve pair, HyperSwap LP pair, and zero address are excluded:
- * they're protocol contracts (curve reserve / locked LP / burned), not
- * user-facing holders.
+ * The bonding proxy (holds the 25 % LP reserve until graduation), bonding
+ * curve pair, HyperSwap LP pair, and zero address are excluded: they're
+ * protocol contracts (LP reserve / curve reserve / locked LP / burned),
+ * not user-facing holders.
  */
 holders.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
@@ -71,6 +74,7 @@ holders.get("/:address", async (c) => {
 
   const excludedWallets = [
     ZERO_ADDRESS,
+    BONDING_ADDRESS,
     tokenInfoResult.token?.bondingPair,
     tokenInfoResult.token?.hyperswapPair,
   ]
