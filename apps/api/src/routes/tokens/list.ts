@@ -447,26 +447,37 @@ listRoute.get("/", async (c) => {
 });
 
 listRoute.get("/search", async (c) => {
-  const q = c.req.query("q");
-  if (!q || q.length < 1) {
+  const q = c.req.query("q")?.trim();
+  if (!q) {
     return c.json(formatSuccess([]));
   }
 
+  // Address column is only matched when the query *looks* like an address
+  // fragment — i.e. the user has typed/pasted a `0x`-prefixed string (any
+  // non-empty hex tail counts; users routinely paste just a prefix). The
+  // previous implementation substring-matched the address for every query,
+  // which made even single-character searches like `1` return the full
+  // catalogue: virtually every EVM address contains the digit `1`
+  // somewhere in its 40-char hex body. Restricting address matches to the
+  // `0x` prefix mirrors the explorer/DEX-search convention and eliminates
+  // the "search box is broken" UX regression (issue #528).
+  const isAddressQuery = /^0x[0-9a-f]*$/i.test(q);
+  const conditions = [
+    ilike(tokens.name, `%${q}%`),
+    ilike(tokens.ticker, `%${q}%`),
+  ];
+  if (isAddressQuery) {
+    // Prefix match (not substring) — a paste of `0xabc…` should locate the
+    // address that *starts* with those bytes, not any address that happens
+    // to contain that substring further along.
+    conditions.push(ilike(tokens.address, `${q}%`));
+  }
+
   const db = createDb(c.env.DATABASE_URL);
-  const pattern = `%${q}%`;
   const results = await db
     .select()
     .from(tokens)
-    .where(
-      and(
-        eq(tokens.isHidden, false),
-        or(
-          ilike(tokens.name, pattern),
-          ilike(tokens.ticker, pattern),
-          ilike(tokens.address, pattern),
-        ),
-      ),
-    )
+    .where(and(eq(tokens.isHidden, false), or(...conditions)))
     .limit(20);
 
   return c.json(formatSuccess(results));
