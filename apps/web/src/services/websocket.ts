@@ -32,6 +32,7 @@ class SubjectSocket {
   private reconnectMs = INITIAL_RECONNECT_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private awaitingPong = false;
   private disposed = false;
   private hasOpenedOnce = false;
 
@@ -88,12 +89,8 @@ class SubjectSocket {
           data?: unknown;
         };
 
-        if (
-          msg.type === "pong" ||
-          msg.type === "subscribed" ||
-          msg.type === "unsubscribed" ||
-          msg.type === "authenticated"
-        ) {
+        if (msg.type === "pong") {
+          this.awaitingPong = false;
           return;
         }
 
@@ -137,9 +134,29 @@ class SubjectSocket {
 
   private startPing(): void {
     this.stopPing();
+    this.awaitingPong = false;
     this.pingTimer = setInterval(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) {
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+
+      // No pong arrived since the last ping — the socket is wedged
+      // (NAT idle eviction, captive-portal MITM, hung intermediate proxy).
+      // Force-close so the existing onclose → scheduleReconnect path runs;
+      // browsers otherwise keep readyState=OPEN until the OS-level TCP
+      // timeout, which can be 5+ minutes on long-lived sockets.
+      if (this.awaitingPong) {
+        try {
+          this.ws.close();
+        } catch {
+          // already closing — onclose will fire either way
+        }
+        return;
+      }
+
+      try {
         this.ws.send(JSON.stringify({ type: "ping" }));
+        this.awaitingPong = true;
+      } catch {
+        // send failed — onclose will fire and trigger reconnect
       }
     }, PING_INTERVAL_MS);
   }

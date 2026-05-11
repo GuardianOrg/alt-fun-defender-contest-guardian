@@ -107,7 +107,7 @@ interface PriceWsPayload {
  */
 export function useChartData(
   address: string,
-  ltAddress: string,
+  ltAddress: string | null | undefined,
   mode: ChartMode,
   unit: ChartUnit = "mcap",
 ): UseChartDataResult {
@@ -275,23 +275,31 @@ export function useChartData(
       address.toLowerCase(),
     );
 
-    const unsubPrice = ws.subscribe(
-      "price",
-      (data) => {
-        const tick = data as PriceWsPayload;
-        if (!tick.exchangeRate) return;
-        if (tick.ltAddress?.toLowerCase() !== ltAddress.toLowerCase()) return;
+    // The LT-scoped `price` channel needs `ltAddress` from the token metadata.
+    // When the chart is mounted in parallel with `useToken` we may not have it
+    // yet — skip the subscription until the token resolves and this effect
+    // re-runs with a real address. Historical candles + trade-derived live
+    // ticks still flow without the LT exchange-rate stream.
+    const unsubPrice = ltAddress
+      ? ws.subscribe(
+          "price",
+          (data) => {
+            const tick = data as PriceWsPayload;
+            if (!tick.exchangeRate) return;
+            if (tick.ltAddress?.toLowerCase() !== ltAddress.toLowerCase())
+              return;
 
-        const raw =
-          typeof tick.exchangeRate === "string"
-            ? Number(tick.exchangeRate) / 1e18
-            : tick.exchangeRate;
-        if (!isFinite(raw) || raw <= 0) return;
-        exchangeRateRef.current = raw;
-        applyLivePrice();
-      },
-      ltAddress.toLowerCase(),
-    );
+            const raw =
+              typeof tick.exchangeRate === "string"
+                ? Number(tick.exchangeRate) / 1e18
+                : tick.exchangeRate;
+            if (!isFinite(raw) || raw <= 0) return;
+            exchangeRateRef.current = raw;
+            applyLivePrice();
+          },
+          ltAddress.toLowerCase(),
+        )
+      : () => {};
 
     const unsubReconnect = ws.onReconnect(() => {
       setSyncEpoch((n) => n + 1);

@@ -1,41 +1,11 @@
 import { describe, it, expect } from "vitest";
 
 import {
-  buildCommentMessage,
   buildProfileUpdateMessage,
   buildSessionMessage,
   SESSION_DURATION_MS,
 } from "../signing.js";
 import type { ProfileUpdatePayload } from "../signing.js";
-
-describe("buildCommentMessage", () => {
-  it("starts with the domain separator", () => {
-    const msg = buildCommentMessage("0xtoken", "Hello", 1700000000);
-    expect(msg.startsWith("Post comment\n")).toBe(true);
-  });
-
-  it("includes token, content, and timestamp in correct order", () => {
-    const msg = buildCommentMessage("0xtoken", "Great project!", 1700000000);
-    const lines = msg.split("\n");
-    expect(lines).toEqual([
-      "Post comment",
-      "token:0xtoken",
-      "content:Great project!",
-      "timestamp:1700000000",
-    ]);
-  });
-
-  it("has exactly 4 lines", () => {
-    const msg = buildCommentMessage("0xtoken", "test", 123);
-    expect(msg.split("\n")).toHaveLength(4);
-  });
-
-  it("includes the timestamp value", () => {
-    const ts = 1700000000;
-    const msg = buildCommentMessage("0xtoken", "test", ts);
-    expect(msg).toContain(`timestamp:${ts}`);
-  });
-});
 
 describe("buildProfileUpdateMessage", () => {
   const payload: ProfileUpdatePayload = {

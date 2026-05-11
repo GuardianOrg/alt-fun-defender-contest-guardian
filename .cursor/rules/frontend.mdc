@@ -20,7 +20,7 @@ globs: "apps/web/**/*.{ts,tsx}"
 
 ## Data Fetching
 - On-chain indexed data: query Ponder's GraphQL endpoint via TanStack Query
-- Off-chain data (comments, profiles): query Hono API via TanStack Query
+- Off-chain data (profiles): query Hono API via TanStack Query
 - Contract reads: use Privy/viem with ABIs from `@launchpad/shared`
 - Contract writes: use Privy/viem with ABIs from `@launchpad/shared`
 - WebSocket for live trade feeds via `VITE_WS_URL`

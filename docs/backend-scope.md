@@ -47,8 +47,6 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 | `GET /tokens/:address/chart` | OHLCV candlestick data. Intervals: 1s, 1m, 5m, 15m, 1h, 4h. Continuous across graduation. |
 | `GET /tokens/:address/holders` | Top holders by balance. Optional (depends on Transfer indexing). |
 | `GET /tokens/:address/security` | For trading terminals: `lpLocked`, `creatorHoldingPct`, `contractVerified`. |
-| `GET /tokens/:address/comments` | Paginated comments. |
-| `POST /tokens/:address/comments` | Post comment. Auth: wallet signature. Max 500 chars. Rate limit: 1 per 30s per wallet per token. |
 
 ### Creator / Portfolio / Platform
 
@@ -75,7 +73,7 @@ REST API + WebSocket server for the Alt Fun frontend and third-party integrators
 
 | Endpoint | Description |
 |---|---|
-| `POST /images` | Upload token image. Max 5MB. Accepts JPEG, PNG, GIF, WebP. Server-side content moderation (reject illegal content — CSAM, extreme violence). Adult content permitted if legal. Returns R2 URL. Auth: wallet signature. |
+| `POST /images` | Upload token image. Max 5MB. Accepts JPEG, PNG, GIF, WebP. Server-side content moderation via OpenAI `omni-moderation-latest` (free tier; per-category thresholds cover violence, gore, sexual content, self-harm). Adult content permitted if legal. Borderline images go to a manual review queue. Failure mode is fail-closed (503, no upload) when the moderation API is unavailable. **Not a CSAM-specific detector** — see `AGENTS.md` → *Image Upload & Content Moderation* for the caveat. Returns R2 URL. Auth: wallet signature. |
 
 ### Terminal API
 
@@ -89,7 +87,7 @@ Admin endpoints use `X-Admin-Key` header with a shared secret stored as a Cloudf
 
 ## WebSocket
 
-Single endpoint: `WSS /ws?channel=<name>&token=<addr?>&apiKey=<key?>`. Clients open one connection per `(channel, token?)` subject they care about; each connection lands on its own subject-sharded `WebSocketDO` instance — see `apps/api/AGENTS.md` and issue #395 for the sharding rationale. The frontend `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes these connections behind the same `subscribe(channel, handler, token?)` API, so callers don't need to manage them directly.
+Single endpoint: `WSS /ws?channel=<name>&token=<addr?>`. Public, anonymous — feeds are read by the unauthenticated frontend, so the upgrade carries no auth (see issue #401 for the threat-model write-up). Clients open one connection per `(channel, token?)` subject they care about; each connection lands on its own subject-sharded `WebSocketDO` instance — see `apps/api/AGENTS.md` and issue #395 for the sharding rationale. The frontend `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes these connections behind the same `subscribe(channel, handler, token?)` API, so callers don't need to manage them directly.
 
 | Event | Description | Subscription |
 |---|---|---|

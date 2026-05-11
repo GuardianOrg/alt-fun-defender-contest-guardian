@@ -103,7 +103,7 @@ A token is fully launched in **a single on-chain transaction**. The frontend the
 
 ### Step 1 — Image upload (off-chain, pre-tx)
 
-Before any wallet popup, the frontend uploads the token image via `POST /api/v1/images`. The Worker scans the image with our content-moderation pipeline (Workers AI today, replaceable with a third-party moderation service) and stores the file in R2 only if it passes. Returns a URL of the form `https://<api-host>/images/tokens/<uuid>-<name>`. A rejected image stops the flow before the wallet sees the launch tx.
+Before any wallet popup, the frontend uploads the token image via `POST /api/v1/images`. The Worker scans the image with OpenAI's `omni-moderation-latest` endpoint (free tier, 20MB-per-image cap, multimodal) and stores the file in R2 only if it passes. Returns a URL of the form `https://<api-host>/images/tokens/<uuid>-<name>`. A rejected image stops the flow before the wallet sees the launch tx. See *Image Upload & Content Moderation* below for the threshold table and the CSAM caveat.
 
 ### Step 2 — On-chain launch (single tx)
 
@@ -134,7 +134,7 @@ The API Worker's `scheduled()` handler (1-minute cadence) sweeps Ponder for the 
 
 ### Signing (other off-chain writes)
 
-Other off-chain writes — comments, profile updates — still require a wallet signature, but they reuse the 24-hour session signature flow (`buildSessionMessage` + `useSessionSignature`) so users sign **once per day, not per action**. Token creation does not participate in this — the on-chain `TokenInfo` is sufficient proof, so no signed message is needed at all.
+Other off-chain writes — profile updates — still require a wallet signature, but they reuse the 24-hour session signature flow (`buildSessionMessage` + `useSessionSignature`) so users sign **once per day, not per action**. Token creation does not participate in this — the on-chain `TokenInfo` is sufficient proof, so no signed message is needed at all.
 
 ---
 
@@ -257,7 +257,30 @@ Our own contract addresses (`Zap`, `Bonding`, `Factory`, `Router`, `LPLock`, `Fe
 
 ## Image Upload & Content Moderation
 
-Token creators upload images (not URLs). Images are stored in Cloudflare R2 and served via the API Worker. Before storage, images are scanned for illegal content (CSAM, extreme violence). Adult content is permitted as long as it is legal. The moderation check happens server-side before the image is persisted to R2.
+Token creators upload images (not URLs). Images are stored in Cloudflare R2 and served via the API Worker. Before storage, every image is scanned with OpenAI's `omni-moderation-latest` endpoint (free per OpenAI's pricing page, 20MB-per-image cap, multimodal). The moderation check happens server-side before the image is persisted to R2. Adult content is permitted as long as it is legal — the threshold table below tunes that boundary explicitly.
+
+### Per-category thresholds (image-supported categories only)
+
+| Category | Auto-reject score | Review score |
+|---|---|---|
+| `sexual` | `≥0.7` | `≥0.4` |
+| `violence/graphic` | `≥0.7` | `≥0.4` |
+| `violence` | `≥0.85` | `≥0.5` |
+| `self-harm` | `≥0.7` | `≥0.4` |
+| `self-harm/intent` | `≥0.7` | `≥0.4` |
+| `self-harm/instructions` | `≥0.7` | `≥0.4` |
+
+These thresholds intentionally reject *more* than OpenAI's own `flagged: true` boolean. OpenAI calibrates `flagged` for chat UX (false positives are costly); a token logo is a publication surface where false negatives are costly. We trip on score *and* on `flagged: true` for any image-applicable category. Categories OpenAI didn't evaluate against the image input (text-only categories like `harassment` / `hate` / `illicit` / `sexual/minors`) are filtered out before scoring — they always read 0 on a pure-image upload and just add noise.
+
+Borderline images (review threshold tripped, reject threshold not tripped) are still uploaded to R2 and recorded in `moderation_logs` with `decision = "pending_review"`. Admins resolve them via `GET /admin/moderation/pending` + `POST /admin/moderation/:id/{approve,reject}`. Rejection deletes the image from R2.
+
+Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, network timeout, or malformed response all surface as a 503 ("moderation temporarily unavailable") and **no upload happens**. Letting unmoderated content into R2 is the failure mode this layer exists to prevent.
+
+### CSAM caveat (read before changing thresholds)
+
+OpenAI's image input does **not** return `sexual/minors` — that category is text-only by design (see [OpenAI moderation docs → category table](https://platform.openai.com/docs/guides/moderation)). CSAM imagery still scores high on `sexual`, so the conservative `sexual ≥ 0.7` threshold acts as a coarse proxy, but this layer is explicitly **not** a substitute for a NCMEC-certified perceptual-hash matcher (Microsoft PhotoDNA, Thorn Safer, or equivalent). Adding one is tracked separately — until then the OpenAI layer covers the broad case (illegal violence, gore, explicit sexual content, self-harm imagery) and the explicit-CSAM-detection gap remains an accepted v1 limitation. Do not present this layer to legal/compliance counterparties as a CSAM detector.
+
+Implementation: `apps/api/src/lib/image-moderation.ts` (the moderation logic) + `apps/api/src/routes/images.ts` (the upload route).
 
 ## Admin Authentication
 

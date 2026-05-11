@@ -49,7 +49,6 @@ function makeEnv(): AppBindings {
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
     LT_TICKER_DO: {} as DurableObjectNamespace,
-    AI: {} as Ai,
   };
 }
 
@@ -118,7 +117,8 @@ describe("GET /chart/:address", () => {
           graduatedAt: null,
           timestamp: "1700000000",
         },
-      });
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
     mockNeonQuery.mockResolvedValue([]);
     mockPonderPaginatedQuery.mockResolvedValue({ items: [], truncated: false });
 
@@ -151,7 +151,8 @@ describe("GET /chart/:address", () => {
           graduatedAt: null,
           timestamp: "1700000000",
         },
-      });
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
     mockNeonQuery.mockResolvedValue([
       { ts: "1700000060", exchange_rate: "1000000000000000000" },
     ]);
@@ -180,7 +181,8 @@ describe("GET /chart/:address", () => {
           graduatedAt: null,
           timestamp: String(nowSec - 3600),
         },
-      });
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
 
     mockNeonQuery.mockResolvedValue([
       { ts: String(nowSec - 600), exchange_rate: "2000000000000000000" },
@@ -248,7 +250,8 @@ describe("GET /chart/:address", () => {
           graduatedAt: null,
           timestamp: String(nowSec - 600),
         },
-      });
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
 
     // LT rate constant at 2.0 across the window.
     mockNeonQuery.mockResolvedValue([
@@ -302,7 +305,8 @@ describe("GET /chart/:address", () => {
           graduatedAt: null,
           timestamp: String(nowSec - 600),
         },
-      });
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
 
     mockNeonQuery.mockResolvedValue([
       { ts: String(nowSec - 480), exchange_rate: "2000000000000000000" },
@@ -400,6 +404,166 @@ describe("GET /chart/:address", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { status: string; error: string | null };
     expect(body.error).toContain("Invalid interval");
+  });
+
+  it("filters paginated tokenSnapshots by fromSec and uses anchor before window", async () => {
+    // Regression: without `timestamp_gte` the paginated query pulled the
+    // token's full lifetime of trade snapshots (up to 20K rows) even though
+    // the chart only consumes the slice that overlaps `[fromSec, nowSec]`.
+    // We still need a single snapshot strictly before `fromSec` so the
+    // first in-window LT-rate sample has a price baseline (otherwise the
+    // ratio timeline would start mid-window with no carry-forward).
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          // Launched well before any reasonable history window so
+          // `fromSec = nowSec - MAX_HISTORY_CANDLES × candleSec`, not
+          // clamped to launch time.
+          timestamp: "1700000000",
+        },
+      })
+      .mockResolvedValueOnce({
+        tokenSnapshots: {
+          items: [
+            {
+              curveSupply: "750000000000000000000000000",
+              ltReserve: "1500000000000000000",
+              timestamp: "1700000060",
+            },
+          ],
+        },
+      });
+
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [
+        {
+          curveSupply: "500000000000000000000000000",
+          ltReserve: "2500000000000000000",
+          timestamp: String(nowSec - 30),
+        },
+      ],
+      truncated: false,
+    });
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+
+    // Paginated query was called with `fromSec` plumbed through as a
+    // GraphQL variable. Default candle width is 60s and
+    // MAX_HISTORY_CANDLES is 1500 → fromSec ≈ nowSec - 90000.
+    expect(mockPonderPaginatedQuery).toHaveBeenCalledTimes(1);
+    const paginatedCall = mockPonderPaginatedQuery.mock.calls[0];
+    expect(paginatedCall[0]).toContain("timestamp_gte: $fromSec");
+    expect(paginatedCall[1]).toBe("tokenSnapshots");
+    const paginatedVars = paginatedCall[2] as { fromSec: string };
+    expect(paginatedVars.fromSec).toBeDefined();
+    const fromSec = Number(paginatedVars.fromSec);
+    expect(fromSec).toBeGreaterThanOrEqual(nowSec - 90_000);
+    expect(fromSec).toBeLessThanOrEqual(nowSec - 89_900);
+
+    // Anchor query was the third `queryPonder` call (after health + token).
+    // It's the strictly-before-window query that gives us a ratio baseline.
+    expect(mockPonderQuery).toHaveBeenCalledTimes(3);
+    const anchorCall = mockPonderQuery.mock.calls[2];
+    expect(anchorCall[0]).toContain("timestamp_lt: $fromSec");
+    expect(anchorCall[0]).toContain('orderDirection: "desc"');
+    expect(anchorCall[0]).toContain("limit: 1");
+    const anchorVars = anchorCall[1] as { fromSec: string };
+    expect(anchorVars.fromSec).toBe(paginatedVars.fromSec);
+  });
+
+  it("tolerates legitimately empty anchor (token launched inside window)", async () => {
+    // A token with no snapshot strictly before `fromSec` (e.g. launched
+    // inside the visible window) must still build a chart from the launch
+    // anchor + in-window snapshots. An empty `items` array is the
+    // "legitimately no prior snapshot" signal — distinct from `null` which
+    // means the anchor lookup itself failed.
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          timestamp: String(nowSec - 600),
+        },
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
+
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      data: { candles: unknown[] };
+    };
+    expect(body.status).toBe("success");
+  });
+
+  it("returns 503 when anchor query fails (Ponder degraded mid-request)", async () => {
+    // Regression: a `null` return from `queryPonder` for the anchor query
+    // means Ponder degraded *after* the up-front health check passed.
+    // Silently falling back to "no prior snapshot" would recreate the
+    // phantom-opening-candle bug this query exists to prevent — a token
+    // with real trades between launch and `fromSec` would price the early
+    // window against the launch anchor instead of its most recent
+    // pre-window snapshot. Surface as 503 so the client retries instead.
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          timestamp: "1700000000",
+        },
+      })
+      .mockResolvedValueOnce(null);
+
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { status: string; error: string | null };
+    expect(body.error).toContain("Trade history too large");
   });
 
   it("returns 400 for partial-numeric interval values", async () => {

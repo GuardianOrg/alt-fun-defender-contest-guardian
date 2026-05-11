@@ -8,9 +8,6 @@
   "observability": {
     "enabled": true
   },
-  "ai": {
-    "binding": "AI"
-  },
   "r2_buckets": [
     {
       "binding": "IMAGES_BUCKET",

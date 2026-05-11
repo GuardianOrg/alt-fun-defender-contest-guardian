@@ -4,7 +4,7 @@ Hono on Cloudflare Workers, Drizzle ORM, Neon (PostgreSQL), R2 (image storage), 
 
 ## What This App Does
 
-REST API + WebSocket server. Serves indexed blockchain data, comments, and real-time trade/price feeds to the frontend and third-party integrators.
+REST API + WebSocket server. Serves indexed blockchain data and real-time trade/price feeds to the frontend and third-party integrators.
 
 ## Endpoints
 
@@ -12,7 +12,6 @@ REST API + WebSocket server. Serves indexed blockchain data, comments, and real-
 - Trade history and OHLCV chart data per token
 - Creator profiles and portfolio holdings
 - Platform stats and asset prices
-- Comments per token
 - Admin analytics and content moderation
 - Terminal API (`/api/v1/`) for third-party integrators
 - WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`
@@ -82,6 +81,20 @@ The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdo
 
 `GET /api/v1/chart/:address` builds the ratio timeline from the `tokenSnapshot` table — written by both `Bonding:Trade` (curve) and `HyperSwapPair:Sync` (post-grad). One paginated query covers both phases; no special-casing needed in the route handler. The `currentRatio` returned alongside the candles is the latest snapshot's `ltReserve / curveSupply`, which the frontend folds with the live LT rate from the `price` WS channel to keep the in-progress candle moving. See `apps/indexer/AGENTS.md → Post-graduation reserve mirror` for the source-of-truth side.
 
+## Image moderation (token-logo uploads)
+
+`POST /images` runs every uploaded token logo through OpenAI's `omni-moderation-latest` endpoint before it lands in R2. The endpoint is free per OpenAI's pricing page (cross-checked against `https://help.openai.com/en/articles/4936833`) but a key is still required for auth — set via `wrangler secret put OPENAI_API_KEY`. Implementation lives in `src/lib/image-moderation.ts` (pure moderator, easy to swap providers) + `src/routes/images.ts` (route + R2 write).
+
+Three outcomes per upload, recorded in the `moderation_logs` table:
+
+- **Reject** → 422, no R2 write. Triggered by either (a) any image-applicable category score ≥ its `reject` threshold, or (b) OpenAI's own `flagged: true` for an image-applicable category. The full per-category threshold table lives in root `AGENTS.md` → *Image Upload & Content Moderation*.
+- **Pending review** → 200 with `flaggedForReview: true`, image is still written to R2 so admins can inspect it via `GET /admin/moderation/pending`. Triggered when a score sits between `review` and `reject`.
+- **Approve** → 200, plain success.
+
+Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, network timeout, or malformed response all surface as 503 ("moderation temporarily unavailable") and **no upload happens**. This is the failure mode the endpoint exists to prevent — never relax it without the matching docs/AGENTS update.
+
+CSAM caveat: OpenAI does not classify `sexual/minors` from images (text-only by design). The strict `sexual` threshold acts as a coarse proxy, but this layer is **not** a NCMEC-certified hash matcher — explicitly documented in root `AGENTS.md`. Don't represent it externally as one.
+
 ## Durable Objects
 
 - `WebSocketDO` — **subject-sharded** WebSocket fan-out. One DO instance per `(channel, tokenAddress)` shard, named via ``idFromName(`${channel}:${tokenAddress ?? "__all__"}`)``. Every connection on a given instance has already opted into exactly that subject, so `broadcast()` is a flat fan-out with no per-connection filter loop. Per-token events (`trade`, `price`, `graduation`) fan out to *both* the token's shard and the wildcard `__all__` shard so global subscribers (e.g. the home-page trade feed) still see them; cost is at most two stub fetches per event regardless of total connection count. The previous design was a single global DO that iterated every connection on every event — see issue #395 for the scaling rationale and `websocket/durable-object.ts` for the routing helpers.
@@ -90,7 +103,9 @@ The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdo
 
 ### WebSocket connect API
 
-`GET /ws?channel=<name>&token=<addr?>&apiKey=<key?>` — the upgrade path. `channel` is required; `token` is optional and, when provided, selects a per-token shard. Omitting `token` routes the connection to the channel's wildcard / global shard — that's the only valid shard for inherently-global channels like `newToken` and `stats`, where any `token` value is ignored. The frontend's `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes one underlying WS per subject the app cares about, so the public `subscribe(channel, handler, token?)` surface is unchanged.
+`GET /ws?channel=<name>&token=<addr?>` — the upgrade path. `channel` is required; `token` is optional and, when provided, selects a per-token shard. Omitting `token` routes the connection to the channel's wildcard / global shard — that's the only valid shard for inherently-global channels like `newToken` and `stats`, where any `token` value is ignored. The frontend's `WebSocketClient` (`apps/web/src/services/websocket.ts`) multiplexes one underlying WS per subject the app cares about, so the public `subscribe(channel, handler, token?)` surface is unchanged.
+
+The endpoint is intentionally unauthenticated — the frontend reads these feeds anonymously, so requiring an API key on the upgrade would just gate the frontend behind a leaked secret. Abuse is bounded by the `WsIpLimiter` per-IP cap (acquired before the upgrade) plus subject sharding (one connection sees one shard's events, so a single connection can't amplify cross-channel fan-out). See issue #401 for the threat model.
 
 ## Functional Spec
 

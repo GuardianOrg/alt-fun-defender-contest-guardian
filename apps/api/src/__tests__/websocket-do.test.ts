@@ -91,7 +91,6 @@ function makeEnv(): AppBindings {
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
     LT_TICKER_DO: {} as DurableObjectNamespace,
-    AI: {} as Ai,
   };
 }
 
@@ -124,7 +123,6 @@ describe("WebSocketDO subject-scoped fan-out", () => {
       doInstance as unknown as { connections: Map<FakeWebSocket, unknown> }
     ).connections.set(ws1, {
       ip: "1.1.1.1",
-      apiKey: null,
       lastActivity: Date.now(),
       awaitingPong: false,
     });
@@ -132,7 +130,6 @@ describe("WebSocketDO subject-scoped fan-out", () => {
       doInstance as unknown as { connections: Map<FakeWebSocket, unknown> }
     ).connections.set(ws2, {
       ip: "2.2.2.2",
-      apiKey: null,
       lastActivity: Date.now(),
       awaitingPong: false,
     });
@@ -156,7 +153,6 @@ describe("WebSocketDO subject-scoped fan-out", () => {
       doInstance as unknown as { connections: Map<FakeWebSocket, unknown> }
     ).connections.set(ws, {
       ip: "1.1.1.1",
-      apiKey: null,
       lastActivity: Date.now(),
       awaitingPong: false,
     });

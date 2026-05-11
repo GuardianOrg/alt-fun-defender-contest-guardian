@@ -6,7 +6,7 @@ import { useTokenPrices } from "./useTokenPrices";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import { erc20Abi } from "../contracts/abis";
-import { fetchBalances, fetchTokens } from "../services/api";
+import { fetchAllTokens, fetchBalances } from "../services/api";
 
 import type { HeldToken } from "../services/types";
 
@@ -42,7 +42,14 @@ async function fetchRawBalancesFromApi(
 async function fetchRawBalancesFromChain(
   walletAddress: string,
 ): Promise<RawBalance[]> {
-  const tokens = await fetchTokens(100);
+  // Walk the full catalogue, not just the first page. The chain path is
+  // primary (the indexer's `tokenBalance` index is empty until #418 ships)
+  // and a hard-coded `fetchTokens(100)` cap means holders of any token
+  // outside the first 100 silently see `0` for it on the balances panel
+  // (issue #476). `fetchAllTokens` paginates server-side at 100/page; if
+  // any page fails, the throw bubbles up to the queryFn's `catch` and
+  // we fall through to the API fallback below.
+  const tokens = await fetchAllTokens();
   // Empty catalogue almost certainly means the API is down (we always have
   // ≥1 token in production). Throw so `useBalances` falls through to the
   // indexer-backed API fallback rather than silently rendering "No
@@ -51,33 +58,42 @@ async function fetchRawBalancesFromChain(
     throw new Error("Token catalogue unavailable");
   }
 
-  const balanceCalls = tokens.map((token) => ({
-    address: token.address as `0x${string}`,
-    abi: erc20Abi,
-    functionName: "balanceOf" as const,
-    args: [walletAddress as `0x${string}`],
-  }));
-
-  const results = await hyperEvmClient.multicall({
-    contracts: balanceCalls,
-    allowFailure: true,
-  });
-
+  // Chunk the multicall so a fully-grown catalogue doesn't blow past the
+  // RPC's per-call gas / payload ceiling. viem's multicall packs every
+  // call into a single `Multicall3.aggregate3` invocation; HyperEVM small
+  // blocks have a ~2M gas cap, so a few thousand `balanceOf` calls in one
+  // tx will revert with `out of gas`. 250 keeps us well under the
+  // ceiling while still amortising the round-trip cost (~10 RPC calls
+  // per 2.5K tokens). Build the call objects per-chunk (rather than
+  // pre-allocating an N-length array of throwaway descriptors) so the
+  // peak memory footprint scales with chunk size, not catalogue size.
+  const MULTICALL_CHUNK_SIZE = 250;
   const balances: RawBalance[] = [];
-  for (let i = 0; i < tokens.length; i++) {
-    const result = results[i];
-    if (result.status === "success") {
+  for (let start = 0; start < tokens.length; start += MULTICALL_CHUNK_SIZE) {
+    const tokenChunk = tokens.slice(start, start + MULTICALL_CHUNK_SIZE);
+    const chunkResults = await hyperEvmClient.multicall({
+      contracts: tokenChunk.map((token) => ({
+        address: token.address as `0x${string}`,
+        abi: erc20Abi,
+        functionName: "balanceOf" as const,
+        args: [walletAddress as `0x${string}`],
+      })),
+      allowFailure: true,
+    });
+    for (let i = 0; i < chunkResults.length; i++) {
+      const result = chunkResults[i];
+      if (result.status !== "success") continue;
       const balance = result.result as bigint;
-      if (balance > 0n) {
-        balances.push({
-          address: tokens[i].address,
-          name: tokens[i].name,
-          ticker: tokens[i].ticker,
-          ltPair: tokens[i].ltPair,
-          leverage: tokens[i].leverage,
-          balance,
-        });
-      }
+      if (balance <= 0n) continue;
+      const token = tokenChunk[i];
+      balances.push({
+        address: token.address,
+        name: token.name,
+        ticker: token.ticker,
+        ltPair: token.ltPair,
+        leverage: token.leverage,
+        balance,
+      });
     }
   }
   return balances;

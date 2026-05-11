@@ -16,6 +16,14 @@ const hyperEvmClient = createPublicClient({
   transport: http(rpcUrl),
 });
 
+// Poll cadence for the rewards card. Fees accrue on every trade through
+// `Zap`, so a static "load on mount + load on claim" view goes stale the
+// instant a creator's bonding curve sees activity. 5s is the product
+// floor from issue #454 (sibling cadence to holders #452 and volume
+// #453) and is cheap: one cached `/api/v1/tokens` hit (Worker-edge
+// cached) plus two `eth_call`s against `FeeVault`.
+const REFETCH_INTERVAL_MS = 5_000;
+
 export function useCreatorEarnings() {
   const { address } = useWallet();
   const walletClient = usePrivyWalletClient();
@@ -28,6 +36,10 @@ export function useCreatorEarnings() {
       return creatorService.getEarnings(address);
     },
     enabled: !!address,
+    // `refetchInterval` is paused automatically while the tab is hidden
+    // (TanStack Query default), so a backgrounded earnings panel does not
+    // burn RPC quota.
+    refetchInterval: REFETCH_INTERVAL_MS,
   });
 
   // Fees are pooled in `FeeVault`, so `claim()` drains the caller's entire

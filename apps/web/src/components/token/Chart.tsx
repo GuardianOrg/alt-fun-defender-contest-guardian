@@ -33,10 +33,14 @@ const UNITS: { value: ChartUnit; label: string }[] = [
 ];
 
 interface Props {
-  token: Token;
+  /** Route param — always available, lets the chart fetch start immediately. */
+  address: string;
+  /** Resolves later via `useToken`; gates the LT price WS sub and breakdown
+   *  toolbar stats but not the initial chart mount/fetch. */
+  token: Token | null;
 }
 
-export default function Chart({ token }: Props) {
+export default function Chart({ address, token }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   // Default to a 1m interval — matches what the leader of the space (pump.fun)
   // opens with and gives intra-candle resolution from the moment a token loads.
@@ -70,11 +74,11 @@ export default function Chart({ token }: Props) {
     };
   }, [intervalMenuOpen]);
 
-  const { mcapUsd, change24h } = useTokenMarketStats(token.address);
+  const { mcapUsd, change24h } = useTokenMarketStats(address);
 
   const { candles, loading } = useChartData(
-    token.address,
-    token.ltAddress,
+    address,
+    token?.ltAddress,
     mode,
     unit,
   );

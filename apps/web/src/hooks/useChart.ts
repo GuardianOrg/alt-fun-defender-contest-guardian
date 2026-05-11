@@ -18,7 +18,41 @@ import type {
   CandlestickData,
   WhitespaceData,
   Time,
+  AutoscaleInfoProvider,
 } from "lightweight-charts";
+
+// Minimum y-axis span enforced as a fraction of the midpoint value. A freshly
+// launched bonding-curve token barely moves in its first few candles, so the
+// default autoscale would zoom the y-axis to a span of a few hundred dollars
+// — which makes the chart look broken (a flat line filling the canvas, see
+// issue #495). Padding to ±15% around the midpoint gives a 30% total span,
+// roughly matching what pump.fun shows on a brand-new token. Once real price
+// action exceeds this band, autoscale takes over and the chart fits the data
+// as usual — the floor only kicks in on the tight-range edge case.
+export const MIN_AUTOSCALE_SPAN_FRACTION = 0.3;
+
+// Pad lightweight-charts' default autoscale info to a minimum y-axis span so
+// brand-new tokens (whose first few candles barely deviate from the launch
+// value) don't render as a flat line filling the canvas — see issue #495.
+// Returns the original info untouched once the natural data span exceeds the
+// floor, so normal autoscaling still kicks in once the chart actually moves.
+// Exported for unit testing.
+export const minSpanAutoscaleProvider: AutoscaleInfoProvider = (original) => {
+  const info = original();
+  if (!info || !info.priceRange) return info;
+  const { minValue, maxValue } = info.priceRange;
+  const midpoint = (minValue + maxValue) / 2;
+  if (midpoint <= 0) return info;
+  const minSpan = midpoint * MIN_AUTOSCALE_SPAN_FRACTION;
+  if (maxValue - minValue >= minSpan) return info;
+  return {
+    ...info,
+    priceRange: {
+      minValue: midpoint - minSpan / 2,
+      maxValue: midpoint + minSpan / 2,
+    },
+  };
+};
 
 interface UseChartOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -95,6 +129,7 @@ export function useChart({
       borderDownColor: COLORS.red,
       wickUpColor: COLORS.mint,
       wickDownColor: COLORS.red,
+      autoscaleInfoProvider: minSpanAutoscaleProvider,
     });
     seriesRef.current = series;
 

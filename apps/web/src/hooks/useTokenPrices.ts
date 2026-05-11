@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchTokens } from "../services/api";
+import { fetchMarketData } from "../services/api";
 
 const STALE_TIME = 30_000;
 const REFETCH_INTERVAL = 30_000;
@@ -13,17 +13,24 @@ export interface TokenPriceData {
 export type TokenPriceMap = Record<string, TokenPriceData>;
 
 /**
- * Build the address → { priceUsd, mcapUsd } lookup straight from the
- * consolidated `/api/v1/tokens` payload. No Ponder or RPC calls on the client.
+ * Build the address → { priceUsd, mcapUsd } lookup off the full-catalogue
+ * `/api/v1/market-data` payload. Previously this hit `/api/v1/tokens?limit=100`,
+ * which silently dropped every token outside the top-100 from the price
+ * map — a balance for the 137th-ranked token would render `$0` and the
+ * mcap on its detail page would read `—` (issue #476). Market-data covers
+ * every token in the indexer in one cached response, so the map matches
+ * the actual catalogue regardless of how many tokens have launched.
  */
 async function loadTokenPrices(): Promise<TokenPriceMap> {
-  const tokens = await fetchTokens(100);
+  const market = await fetchMarketData();
   const prices: TokenPriceMap = {};
-  for (const token of tokens) {
-    if (token.priceUsd != null && token.mcapUsd != null) {
-      prices[token.address.toLowerCase()] = {
-        priceUsd: token.priceUsd,
-        mcapUsd: token.mcapUsd,
+  for (const [address, entry] of Object.entries(market)) {
+    if (entry.priceUsd != null && entry.mcapUsd != null) {
+      // Server keys are already lowercased — `address.toLowerCase()` here
+      // is defensive against future shape drift.
+      prices[address.toLowerCase()] = {
+        priceUsd: entry.priceUsd,
+        mcapUsd: entry.mcapUsd,
       };
     }
   }

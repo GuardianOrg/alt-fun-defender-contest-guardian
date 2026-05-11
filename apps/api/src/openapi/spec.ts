@@ -152,17 +152,6 @@ const candleSchema = {
   },
 };
 
-const commentSchema = {
-  type: "object" as const,
-  properties: {
-    id: { type: "integer" },
-    tokenAddress: { type: "string" },
-    author: { type: "string" },
-    content: { type: "string" },
-    createdAt: { type: "string", format: "date-time" },
-  },
-};
-
 const holderSchema = {
   type: "object" as const,
   properties: {
@@ -213,20 +202,22 @@ Some endpoints include an optional \`dataSource\` field (\`"live"\` or \`"degrad
 
 ## WebSocket
 
-Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
+Public, anonymous endpoint. Open one connection per \`(channel, token?)\` subject — each connection lands on its own subject-sharded \`WebSocketDO\` and receives only that subject's events.
 
-**Subscribe:** \`{ "type": "subscribe", "channel": "<channel>", "tokenAddress": "<optional>" }\`
-
-**Unsubscribe:** \`{ "type": "unsubscribe", "channel": "<channel>", "tokenAddress": "<optional>" }\`
+**Connect:** \`WSS /ws?channel=<name>&token=<addr?>\`
 
 **Channels:**
-- \`trade\` — New trades (optionally filtered by tokenAddress)
-- \`newToken\` — New token launches
-- \`graduation\` — Token graduations
-- \`price\` — Price updates
-- \`stats\` — Global stats updates
+- \`trade\` — New trades. Per-token; omit \`token\` to subscribe to the global wildcard feed.
+- \`price\` — LT exchange-rate ticks. Per-LT (\`token\` is the LT contract address).
+- \`graduation\` — Token graduated. Per-token (or wildcard).
+- \`newToken\` — New token launches. Global (\`token\` ignored).
+- \`stats\` — Platform stats updates. Global (\`token\` ignored).
 
-**Message format:** \`{ "channel": "<channel>", "data": <payload>, "tokenAddress": "<optional>" }\`
+**Keep-alive:** clients may send \`{ "type": "ping" }\` and will receive \`{ "type": "pong" }\`. The server also pings idle connections.
+
+**Message format:** \`{ "channel": "<channel>", "data": <payload> }\`
+
+Per-IP connection limits (10 concurrent across the fleet) are enforced before the upgrade.
 `,
   },
   servers: [
@@ -242,7 +233,6 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
     { name: "Holders", description: "Token holder rankings" },
     { name: "Security", description: "Token security information" },
     { name: "Referrals", description: "Referral tracking" },
-    { name: "Comments", description: "Token comments" },
     { name: "Images", description: "Image upload and serving" },
     { name: "Admin", description: "Admin operations (requires X-Admin-Key)" },
   ],
@@ -252,7 +242,6 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
       TokenDetail: tokenDetailSchema,
       Trade: tradeSchema,
       Candle: candleSchema,
-      Comment: commentSchema,
       Holder: holderSchema,
       ErrorResponse: errorResponse,
     },
@@ -395,55 +384,6 @@ Connect to \`/ws\` (or \`/ws?apiKey=<key>\`) for real-time feeds.
           },
           "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
           "404": { description: "Token not found", content: { "application/json": { schema: errorResponse } } },
-        },
-      },
-    },
-
-    "/api/v1/tokens/{address}/comments": {
-      get: {
-        tags: ["Comments"],
-        summary: "List token comments",
-        description: "Returns paginated comments for a specific token.",
-        parameters: [
-          addressParam("address", "Token contract address"),
-          ...paginationParams,
-          apiKeyHeader,
-        ],
-        responses: {
-          "200": {
-            description: "List of comments",
-            content: { "application/json": { schema: successResponse({ type: "array", items: { $ref: "#/components/schemas/Comment" } }) } },
-          },
-          "400": { description: "Invalid address or pagination", content: { "application/json": { schema: errorResponse } } },
-        },
-      },
-      post: {
-        tags: ["Comments"],
-        summary: "Post a comment",
-        description: "Post a comment on a token. Requires a session signature (see `buildSessionMessage`). Rate limited to 1 comment per 3s per wallet per token.",
-        parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["author", "content", "signature", "expiresAt"],
-                properties: {
-                  author: { type: "string", description: "Author wallet address" },
-                  content: { type: "string", minLength: 1, maxLength: 500 },
-                  signature: { type: "string", description: "EIP-191 signature of the session message" },
-                  expiresAt: { type: "number", description: "Session expiry timestamp in milliseconds since epoch" },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          "201": { description: "Comment created", content: { "application/json": { schema: successResponse({ $ref: "#/components/schemas/Comment" }) } } },
-          "400": { description: "Validation error", content: { "application/json": { schema: errorResponse } } },
-          "401": { description: "Invalid or expired signature", content: { "application/json": { schema: errorResponse } } },
-          "429": { description: "Rate limit exceeded", content: { "application/json": { schema: errorResponse } } },
         },
       },
     },

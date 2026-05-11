@@ -123,14 +123,6 @@ export interface ApiToken {
   poolAddress?: string | null;
 }
 
-export interface ApiComment {
-  id: number;
-  tokenAddress: string;
-  author: string;
-  content: string;
-  createdAt: string;
-}
-
 export type TokenListSort =
   | "createdAt"
   | "leverage"
@@ -143,6 +135,14 @@ export type TokenListStatus = "curve" | "graduating" | "graduated";
 export interface FetchTokensOptions {
   sort?: TokenListSort;
   status?: TokenListStatus;
+  /**
+   * Filter to tokens launched by a specific creator (lowercase or
+   * checksummed address). Used by the creator-rewards tab to bound the
+   * paginated catalogue scan to one wallet's tokens. The `/api/v1/tokens`
+   * route forwards this to a `WHERE creator = …` in Postgres so the cap
+   * matches the caller's actual blast radius, not the global catalogue.
+   */
+  creator?: string;
 }
 
 export function fetchTokens(
@@ -156,7 +156,72 @@ export function fetchTokens(
   });
   if (options.sort) params.set("sort", options.sort);
   if (options.status) params.set("status", options.status);
+  if (options.creator) params.set("creator", options.creator);
   return apiFetch(`/api/v1/tokens?${params.toString()}`);
+}
+
+/**
+ * Server-enforced cap on `/api/v1/tokens?limit=…` (see `MAX_PAGE_SIZE` in
+ * `apps/api/src/routes/tokens/list.ts`). The paginator below requests this
+ * many tokens per page; any caller asking for "everything" needs to walk
+ * pages until a short page comes back.
+ */
+const MAX_TOKENS_PAGE_SIZE = 100;
+
+/**
+ * Hard ceiling on how many pages `fetchAllTokens` will pull before bailing
+ * out. Matches the production worst-case (~50K tokens at MAX_TOKENS_PAGE_SIZE)
+ * with headroom — a runaway catalogue or a bug in the offset loop should
+ * surface as a thrown error, not as an infinite request stream that
+ * silently melts the client and the API.
+ */
+const MAX_TOKENS_PAGES = 1000;
+
+/**
+ * Walk `/api/v1/tokens` until exhausted and return every matching token in
+ * a single array. Use this when the caller actually needs the full
+ * catalogue (or full creator slice, etc.) — e.g. the balances chain
+ * fallback's multicall list, or the creator-rewards per-token grid. For
+ * paginated UI surfaces (home-page list, search) keep using `fetchTokens`
+ * with a bounded page size.
+ *
+ * The server caps each page at `MAX_TOKENS_PAGE_SIZE` (100), so the cost
+ * scales linearly: ~10 sequential requests per 1K tokens. Callers pay
+ * latency, not memory — every page is small and the responses concatenate
+ * cheaply.
+ *
+ * Throws (rather than returning a partial list) if the catalogue exceeds
+ * `MAX_TOKENS_PAGES * MAX_TOKENS_PAGE_SIZE`. A silently-truncated full
+ * catalogue would re-introduce the exact bug this helper exists to fix
+ * (issue #476).
+ */
+export async function fetchAllTokens(
+  options: FetchTokensOptions = {},
+): Promise<ApiToken[]> {
+  const all: ApiToken[] = [];
+  for (let page = 0; page < MAX_TOKENS_PAGES; page++) {
+    const offset = page * MAX_TOKENS_PAGE_SIZE;
+    const batch = await fetchTokens(MAX_TOKENS_PAGE_SIZE, offset, options);
+    all.push(...batch);
+    if (batch.length < MAX_TOKENS_PAGE_SIZE) return all;
+  }
+  // We hit the page-count ceiling on a full page — the catalogue is either
+  // exactly `MAX_TOKENS_PAGES * MAX_TOKENS_PAGE_SIZE` rows (perfectly
+  // exhausted) or actually overflowing. Cheap one-row probe at the next
+  // offset disambiguates: an empty probe means we're done; a non-empty one
+  // means truncation is real and we must throw rather than silently drop
+  // tail rows.
+  const probe = await fetchTokens(
+    1,
+    MAX_TOKENS_PAGES * MAX_TOKENS_PAGE_SIZE,
+    options,
+  );
+  if (probe.length === 0) return all;
+  throw new Error(
+    `fetchAllTokens exceeded ${MAX_TOKENS_PAGES} pages — refusing to keep ` +
+      `paginating to avoid silently truncating the catalogue. Consider a ` +
+      `narrower filter (e.g. \`creator\`) or a server-side endpoint shape.`,
+  );
 }
 
 export function fetchToken(address: string): Promise<ApiToken> {
@@ -184,30 +249,6 @@ export function registerTokenApi(address: string): Promise<ApiToken> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address }),
-  });
-}
-
-export function fetchComments(
-  tokenAddress: string,
-  limit = 50,
-  offset = 0,
-): Promise<ApiComment[]> {
-  return apiFetch(
-    `/api/v1/tokens/${tokenAddress}/comments?limit=${limit}&offset=${offset}`,
-  );
-}
-
-export function postComment(
-  tokenAddress: string,
-  author: string,
-  content: string,
-  signature: string,
-  expiresAt: number,
-): Promise<ApiComment> {
-  return apiFetch(`/api/v1/tokens/${tokenAddress}/comments`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ author, content, signature, expiresAt }),
   });
 }
 
@@ -352,9 +393,26 @@ export function fetchChart(
 }
 
 export interface MarketDataEntry {
+  /**
+   * Current token price in USD, computed from live curve state and the
+   * BounceTech LT exchange rate. `null` when either input is unavailable
+   * (treat as unknown, never zero). The full-catalogue `/api/v1/market-data`
+   * payload includes this for every token, so consumers can build an
+   * address-keyed price map without hitting the 100-row cap on the
+   * `/api/v1/tokens` list endpoint (issue #476).
+   */
+  priceUsd: number | null;
   mcapUsd: number | null;
   change24h: number | null;
   past24hPriceUsd: number | null;
+  /**
+   * 24h USD trading volume (buys + sells through `Zap`). `null` while the
+   * indexer aggregation is degraded — render as `—`, never `$0`. Surfaced
+   * here so the hero card can live-update volume off the same 30s
+   * `/market-data` poll that drives mcap (with WS deltas layered on top
+   * via `useLiveTokenVolume24h`).
+   */
+  volume24hUsd: number | null;
 }
 
 export type MarketDataMap = Record<string, MarketDataEntry>;
