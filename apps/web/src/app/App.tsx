@@ -21,7 +21,6 @@ import PrimerModal from "../components/layout/PrimerModal";
 import SearchModal from "../components/layout/SearchModal";
 import ErrorBoundary from "../components/shared/ErrorBoundary";
 import { ToastProvider } from "../components/shared/Toast";
-import LeverageBanner from "../components/terminal/LeverageBanner";
 import TerminalView from "../components/terminal/TerminalView";
 import TokenDetailView from "../components/token/TokenDetailView";
 import { hyperEVM } from "../config/chains";
@@ -36,7 +35,6 @@ const Layout = () => {
   return (
     <div className={cn(styles.app, isTokenPage && styles.ambpulse)}>
       <DegradedBanner />
-      <LeverageBanner />
       <Header />
       <AssetTape />
       <Outlet />
