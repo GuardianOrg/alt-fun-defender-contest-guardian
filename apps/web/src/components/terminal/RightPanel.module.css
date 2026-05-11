@@ -148,13 +148,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.ltMoverValue {
-  font-weight: 500;
-  color: var(--mint);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-
 .infoRowClickable {
   cursor: pointer;
   transition: background-color 0.15s ease;

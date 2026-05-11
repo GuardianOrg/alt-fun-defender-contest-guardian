@@ -93,7 +93,8 @@ export interface ApiToken {
   change24h?: number | null;
   /**
    * 24h percentage change of the backing LT's exchange rate (independent
-   * of any curve activity). Primary signal for the LT MOVERS tab.
+   * of any curve activity). Exposed for ad-hoc sorting/inspection; no UI
+   * surface consumes it currently.
    */
   ltChange24h?: number | null;
   volume24hUsd?: number | null;

@@ -47,8 +47,6 @@ Every graduation progress bar is a two-segment render powered by the API's `curv
 2. If the token is `graduated`, hide the split entirely.
 3. `leverageBoost > 15` flips the row border to amber (the "LT mover" highlight).
 
-**Filter/sort:** the `lt-movers` tab orders by `leverageBoost` descending. That's still the intended behaviour with the new semantics — a high `leverageBoost` means the LT's pump is doing real work toward graduation.
-
 ## Functional Spec
 
 Full UI spec (page layouts, trade flows, data sources, contract calls): `docs/frontend-scope.md`
