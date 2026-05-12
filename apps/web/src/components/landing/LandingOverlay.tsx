@@ -9,12 +9,18 @@ import WaveBackground from "./WaveBackground";
 export const LANDING_BYPASS_KEY = "altfun-landing-bypass:v2";
 export const LANDING_BYPASS_EVENT = "altfun-landing-bypassed:v2";
 
-// Pre-launch access token shared with the team out-of-band. Rotated by
-// changing this constant + the `:v…` suffix on `LANDING_BYPASS_KEY` above
-// (which expires already-bypassed sessions). The repo is private so a
-// hardcoded constant is fine; the threat model is "random visitor guesses
-// the URL", not "team member with repo access".
-const BYPASS_SECRET = "b9Kq7vXz3RmPnYwLfT2J";
+// Pre-launch access token shared with the team out-of-band. Read from a
+// build-time env var (Vite inlines it into the bundle, but at least the
+// value isn't checked into git and can be rotated per environment).
+// To rotate: change `VITE_LANDING_BYPASS_SECRET` in the deploy env and
+// bump the `:v…` suffix on `LANDING_BYPASS_KEY` above so already-bypassed
+// browsers are forced to re-enter the new secret.
+const BYPASS_SECRET = import.meta.env.VITE_LANDING_BYPASS_SECRET;
+if (!BYPASS_SECRET) {
+  throw new Error(
+    "VITE_LANDING_BYPASS_SECRET is not set — add it to .env.local",
+  );
+}
 
 const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
