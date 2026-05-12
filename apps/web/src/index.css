@@ -1,6 +1,10 @@
 :root {
-  /* Backgrounds */
-  --bg: #0a1e1b;
+  /* Backgrounds
+   * `--bg` is the page canvas; panels use the slightly lighter `--bg-1`. The
+   * small luminance gap is intentional: it lets the inter-panel gutters read
+   * as a darker frame around each panel and adds depth without changing the
+   * panel surface itself. */
+  --bg: #061714;
   --bg-1: #0c1e1a;
   --bg-2: #102520;
   --bg-3: #163028;

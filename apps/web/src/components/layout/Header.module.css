@@ -4,7 +4,8 @@
   background: var(--bg-1);
   flex-shrink: 0;
   position: relative;
-  margin-top: 1.6rem;
+  padding-top: 1.2rem;
+  padding-bottom: 1.2rem;
 }
 
 .logo {
@@ -74,7 +75,6 @@
   transform: translateX(-50%);
   display: flex;
   align-items: center;
-  justify-items: space-between;
   gap: 0.6rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
@@ -85,7 +85,7 @@
   padding-bottom: 0.4rem;
   cursor: pointer;
   height: 3rem;
-  min-width: 240px;
+  min-width: 280px;
   transition: all 0.15s ease;
 }
 
@@ -111,7 +111,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 16px;
+  height: 20px;
   font-size: 11px;
   line-height: 1;
   color: var(--txt-2);
@@ -120,7 +120,7 @@
   border-radius: 0.125rem;
   padding-left: 0.4rem;
   padding-right: 0.4rem;
-  margin-left: 0.2rem;
+  margin-left: auto;
   font-family: var(--font-mono);
 }
 

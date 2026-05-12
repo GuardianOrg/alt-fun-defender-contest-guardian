@@ -4,7 +4,7 @@
   border: 1px solid var(--border);
   background: #061e1c;
   overflow: hidden;
-  min-height: 8.4rem;
+  min-height: 6.7rem;
   display: flex;
   align-items: center;
   font-family: var(--font-mono);
@@ -63,8 +63,8 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 1.6rem;
-  padding: 3.2rem 2rem;
+  gap: 1.2rem;
+  padding: 2.4rem 2rem;
 }
 
 .title {
