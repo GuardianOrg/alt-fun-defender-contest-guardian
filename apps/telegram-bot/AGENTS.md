@@ -109,9 +109,35 @@ Actions accessible via inline keyboard after `/wallet`:
 | Switch wallet | Select from list of saved wallets | None |
 | Rename wallet | Set a label for the active wallet | None |
 | Export private key | Show plaintext key in ephemeral message (auto-delete 30s) | PIN + explicit warning |
+| Delete wallet | Remove from index + KV; reassigns active if needed | PIN + confirm |
 | Withdraw | Alias to `/withdraw` flow | PIN + confirm |
 
 Balance display: native HYPE and USDC are read via `rpc.ts` multicall (`eth_getBalance` + `USDC.balanceOf`) — they are **not** in `GET /api/v1/balances/:wallet`, which returns indexed Alt Fun token balances only. Render native HYPE (RPC) + USDC (RPC) + token positions (`/balances` enriches with `name` / `ticker` / `ltPair`).
+
+**Multi-wallet model (Trojan-style).** Users may hold up to `MAX_WALLETS_PER_USER = 10` wallets per Telegram account. One wallet is always *active* (when at least one exists); buy / sell / withdraw use the active wallet as the implicit signer. Modelled after [Trojan's wallets UX](https://docs.trojan.app/telegram-bot-user-guide/settings/wallets), rejected BONKbot's one-wallet-per-account model because the AGENTS.md actions list already commits to Switch + Rename.
+
+**KV schema** (namespace `WALLET_KV`):
+
+| Key | Value | Purpose |
+|---|---|---|
+| `wallet:<userId>:<walletId>` | `StoredWallet` JSON (`{ id, address, encryptedKey, label?, createdAt }`) | Per-wallet record. Encrypted material lives only here. |
+| `wallet:<userId>:index` | `WalletIndex` JSON (`{ wallets: string[], active: string \| null }`) | Ordered walletId list + active pointer. Renders `/wallet` in one read. |
+
+Chosen over `KV.list({prefix})` because list is unordered, paginated, and one op per scan — the index is O(1) and gives a single mutation point for create / delete / reorder.
+
+**`walletId` scheme.** Short opaque ids: `w_` + 6 Crockford base32 chars (e.g. `w_3kfq8a`). Total length 8. Picked deliberately:
+- Positional ids (`1`, `2`, …) renumber after delete and break bookmarked `callback_data`.
+- UUIDs eat the 64-byte `callback_data` budget once combined with action codes (`s:w_3kfq8a:100` fits; `s:550e8400-…:100` does not).
+
+**Active pointer semantics.**
+- First `Create` or `Import` → that wallet becomes active automatically.
+- `Switch` updates `index.active`; no record moves.
+- `Delete` reassigns `active` to `wallets[0]` post-removal, or `null` if the deleted wallet was the last.
+- `Rename` mutates only the record's `label`; never touches the index.
+
+**Concurrency.** Not handled in v1. KV gives strong per-key consistency on the index, but cross-key writes (record + index on Create) are not transactional. A user running two `/wallet` mutations in parallel from two clients could partially update. Promote to an `OnboardingDO`-style Durable Object if this becomes a problem.
+
+**Crypto.** Private keys are encrypted with AES-256-GCM under a per-user key derived from `MASTER_KEY` + userId via HKDF-SHA256 — see `lib/wallet.ts`. The master key never touches KV, and one user's ciphertext leak cannot be decrypted under another user's derivation. Rotating `MASTER_KEY` invalidates every stored wallet; there is no re-encryption migration in v1.
 
 ### /buy
 
@@ -524,8 +550,16 @@ src/
 **`lib/wallet.test.ts`**
 - Encrypt + decrypt round-trip returns original private key
 - Two users with same key produce different ciphertexts (per-user IV)
+- Decrypting another user's ciphertext throws (per-user key isolation)
 - Decrypting with wrong `MASTER_KEY` throws
-- KV write failure on `saveWallet` propagates as thrown error (not silent)
+- KV write failure on `save` propagates as thrown error (not silent)
+- `generateWalletId` returns the `w_` + 6 base32 char shape, is collision-free across 1000 samples, and fits inside the 64-byte `callback_data` budget under worst-case action prefixes
+- `createWallet` makes the first wallet active, does not overwrite active on subsequent creates, and enforces `MAX_WALLETS_PER_USER` via `TooManyWalletsError`
+- Created wallets round-trip encrypt → store → decrypt (regression for userId mismatch between encrypt and decrypt)
+- `setActive` switches between wallets, throws `WalletNotFoundError` on an unknown id, and is a no-op when the target is already active (no spurious KV write)
+- `renameWallet` mutates only the `label`; address + encryptedKey untouched
+- `deleteWallet` removes the record, reassigns active to the next wallet when the active one is deleted, sets active to `null` when the last wallet is deleted, and throws `WalletNotFoundError` on an unknown id
+- `listWallets` returns wallets in creation order, returns `[]` for an empty user, and drops orphan index entries (`index` references a record that was never persisted) instead of crashing the picker
 
 **`lib/pin.test.ts`**
 - Correct PIN verifies successfully
