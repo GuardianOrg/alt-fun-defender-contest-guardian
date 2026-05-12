@@ -10,14 +10,6 @@ export default function TokenInfoStripSkeleton() {
   return (
     <div className={styles.strip} aria-hidden="true">
       <div className={styles.statsGroup}>
-        <div className={styles.backingStat}>
-          <Skeleton shape="circle" width="2rem" />
-          <div className={styles.stat}>
-            <span className={styles.label}>Backing</span>
-            <Skeleton width="6rem" height="13px" />
-          </div>
-        </div>
-
         <div className={styles.stat}>
           <span className={styles.label}>Vol 24hr</span>
           <Skeleton width="4rem" height="13px" />

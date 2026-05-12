@@ -31,6 +31,13 @@ export default function HeroSection({ token }: Props) {
   const hasImage = Boolean(token.image && !imgError);
   const fallbackEmoji = token.emoji || "🪙";
   const devShort = `${token.creatorAddress.slice(0, 6)}…${token.creatorAddress.slice(-4)}`;
+  // Preserve the `xyz:` namespace on equity/commodity-perp LTs so the header
+  // reads e.g. `xyz:SP5003L`, matching how the underlying is keyed everywhere
+  // else (markets sidebar, on-chain `targetAsset`). The prefix lives on
+  // `token.underlying`, not on the BounceTech LT symbol itself.
+  const ltSymbol = token.underlying.startsWith("xyz:")
+    ? `xyz:${token.ltName}`
+    : token.ltName;
 
   return (
     <div className={styles.wrapper}>
@@ -60,7 +67,13 @@ export default function HeroSection({ token }: Props) {
         <div className={styles.nameStack}>
           <div className={styles.tickerNameContainer}>
             <div className={styles.tickerRow}>
-              <div className={styles.ticker}>{token.ticker}</div>
+              <div className={styles.ticker}>
+                {token.ticker}
+                <span className={styles.tickerDivider} aria-hidden="true">
+                  /
+                </span>
+                <span className={styles.ltName}>{ltSymbol}</span>
+              </div>
               {token.status === "graduated" && <GraduatedPill />}
             </div>
             <div className={styles.fullName}>{token.name}</div>

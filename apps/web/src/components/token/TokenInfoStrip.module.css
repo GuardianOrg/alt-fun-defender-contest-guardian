@@ -15,19 +15,6 @@
   gap: 2rem;
 }
 
-.backingStat {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-
-.underlyingLogo {
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
 .stat {
   display: flex;
   flex-direction: column;

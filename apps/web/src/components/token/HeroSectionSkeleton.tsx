@@ -13,7 +13,7 @@ export default function HeroSectionSkeleton() {
         <Skeleton shape="block" width="6rem" height="6rem" radius="3px" />
         <div className={styles.nameStack}>
           <div className={styles.tickerNameContainer}>
-            <Skeleton width="6rem" height="1.25rem" />
+            <Skeleton width="10rem" height="1.25rem" />
             <Skeleton width="9rem" height="0.9rem" />
           </div>
           <div className={styles.byDev}>

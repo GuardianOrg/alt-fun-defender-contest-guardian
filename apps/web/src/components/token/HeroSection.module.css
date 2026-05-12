@@ -116,6 +116,17 @@
   line-height: 1.05;
 }
 
+.tickerDivider {
+  margin: 0 0.35rem;
+  color: var(--mint);
+  font-weight: 500;
+}
+
+.ltName {
+  color: var(--txt-2);
+  font-weight: 600;
+}
+
 .fullName {
   font-family: var(--font-display);
   font-size: 0.9rem;
