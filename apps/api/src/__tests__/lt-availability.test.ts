@@ -192,6 +192,49 @@ describe("getLiveLtAvailability", () => {
     expect(result.liveUnderlyings.has("HYPE")).toBe(true);
   });
 
+  it("sends `Cache-Control: no-cache` on every HEAD probe to bypass Fastly", async () => {
+    // bounce.tech is fronted by Fastly with `cache-control: max-age=14400`
+    // on `/leveraged-tokens/<symbol>.png`. A POP that cached the SPA HTML
+    // shell *before* an upload will keep serving it for ~4h, and because
+    // Cloudflare Worker egress isn't sticky to one Fastly POP, this would
+    // hide a token for an indeterminate window after BounceTech publishes
+    // the real logo. We pin `Cache-Control: no-cache` (and `Pragma` for
+    // older intermediaries that still honour it) on every probe so the
+    // cron's 1-minute cadence is the upper bound on staleness instead of
+    // Fastly's TTL. If a regression strips these headers, the live filter
+    // silently grows hours of stickiness — pin it here so that change has
+    // to be explicit.
+    const seenHeaders: Headers[] = [];
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if ((init?.method ?? "GET").toUpperCase() === "HEAD") {
+        seenHeaders.push(new Headers(init?.headers));
+        return new Response(null, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      throw new Error("Unexpected fetch path");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getLiveLtAvailability({
+      fetchSupportedLts: async () => [
+        makeLT({
+          address: "0xeeee0000000000000000000000000000000000ee",
+          symbol: "HYPE2L",
+          targetAsset: "HYPE",
+          targetLeverage: 2,
+          isLong: true,
+        }),
+      ],
+    });
+
+    expect(seenHeaders.length).toBe(1);
+    const headers = seenHeaders[0]!;
+    expect(headers.get("cache-control")?.toLowerCase()).toContain("no-cache");
+    expect(headers.get("pragma")?.toLowerCase()).toContain("no-cache");
+  });
+
   it("treats LTs as live when the HEAD checker throws (fail-open)", async () => {
     // Failure-mode rationale lives on the module — a transient CDN error
     // should never flip a previously-live LT to hidden, so the checker

@@ -331,7 +331,29 @@ async function defaultSymbolChecker(symbol: string): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HEAD_REQUEST_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { method: "HEAD", signal: controller.signal });
+    // Bypass `bounce.tech`'s Fastly cache (per-POP, `max-age=14400`) on
+    // every probe. Fastly serves the Next.js SPA HTML shell with HTTP 200
+    // for any `/leveraged-tokens/<symbol>.png` that hasn't been uploaded
+    // yet — and once a POP has cached that shell, it'll keep returning it
+    // for up to 4 hours regardless of whether BounceTech subsequently
+    // publishes the real PNG. Because the Worker's HEAD probes land on
+    // different POPs over time (Cloudflare egress IPs aren't sticky), the
+    // live filter would otherwise hide a token for an indeterminate
+    // window after BounceTech uploads its LT logo — long enough to be
+    // visible to creators ("I launched a token, where is it?"). Sending
+    // `Cache-Control: no-cache` forces Fastly to revalidate with origin
+    // on every probe, so the cron's 1-minute refresh cycle becomes the
+    // actual upper bound on staleness. Cost is ~36 LTs/min of origin
+    // revalidations — well inside any reasonable CDN tolerance and
+    // strictly worth it for the UX win. See PR for OILBARRON/#621 thread.
+    const res = await fetch(url, {
+      method: "HEAD",
+      signal: controller.signal,
+      headers: {
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
+    });
     // 404 is the one definitive "not published" status (BounceTech CDN
     // truly has no asset at this path). Every other non-2xx (403, 429,
     // 5xx) is a transient outage class — fail open.
