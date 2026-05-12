@@ -14,6 +14,7 @@ import { useGraduationFeed } from "../../hooks/useGraduationFeed";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
+import { useTokenLiveFeed } from "../../hooks/useTokenLiveFeed";
 import { formatUsd, formatUsdOrDash } from "../../utils/format";
 import ErrorBoundary from "../shared/ErrorBoundary";
 import ProgressBar from "../shared/ProgressBar";
@@ -29,6 +30,11 @@ export default function TokenDetailView() {
   // Auto-transition Curve → Graduating → Graduated when the indexer fires
   // a `graduation` WS event for this token.
   useGraduationFeed(address);
+  // Keep the curve strip (progress + raised USD) and the rest of the
+  // token-detail metadata (mcap, price, 24h change/volume) live as
+  // trades land on-chain — throttled invalidation of the `useToken`
+  // query off the `trade` WS channel. See issue #643.
+  useTokenLiveFeed(address);
 
   if (isError) {
     return (
