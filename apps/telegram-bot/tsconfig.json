@@ -1,0 +1,4 @@
+{
+  "extends": "@launchpad/config/typescript/node",
+  "include": ["src", "worker-configuration.d.ts"]
+}
