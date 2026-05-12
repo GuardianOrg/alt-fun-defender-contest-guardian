@@ -77,6 +77,39 @@
   flex-shrink: 0;
 }
 
+.skeleton {
+  display: inline-block;
+  height: 0.7rem;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-2) 0%,
+    var(--bg-3) 50%,
+    var(--bg-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  flex-shrink: 0;
+}
+
+.skeletonName {
+  width: 2.4rem;
+}
+
+.skeletonPrice {
+  width: 3.4rem;
+}
+
+.skeletonChange {
+  width: 2.2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
 @keyframes scrolltape {
   0% {
     transform: translateX(0);
@@ -122,5 +155,21 @@
   .separator {
     margin-left: 0.8rem;
     margin-right: 0.8rem;
+  }
+
+  .skeleton {
+    height: 0.6rem;
+  }
+
+  .skeletonName {
+    width: 2rem;
+  }
+
+  .skeletonPrice {
+    width: 2.8rem;
+  }
+
+  .skeletonChange {
+    width: 1.8rem;
   }
 }

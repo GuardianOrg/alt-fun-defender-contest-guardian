@@ -65,6 +65,13 @@
   text-overflow: ellipsis;
 }
 
+/* Spacing for the trending-card skeleton's second-line shimmer. Matches
+ * the live `.trendingCardLtName` margin so the placeholder and real
+ * subline sit on the same baseline. */
+.trendingCardSubline {
+  margin-top: 0.4rem;
+}
+
 .trendingCardStats {
   display: flex;
   align-items: baseline;

@@ -58,7 +58,7 @@ jobs:
     # slowest single contract per shard is roughly the same — cuts total CI
     # wall time well below what a single heavy shard could achieve under
     # 2-vCPU contention. The CI foundry profile (`fuzz.runs = 24`) plus
-    # per-test natspec overrides on the slowest fuzz tests (HostilePreSeed,
+    # per-test natspec overrides on the slowest fuzz tests (the
     # GraduationInvariants graduation-cycle fuzz) is what keeps each shard
     # under ~2 minutes; nightly runs the default profile for full coverage.
     name: Contracts (${{ matrix.shard }})
@@ -68,11 +68,11 @@ jobs:
       matrix:
         include:
           - shard: graduation
-            args: --match-contract "^(HostilePreSeedTest|GraduationInvariantsTest)$"
+            args: --match-contract "^GraduationInvariantsTest$"
           - shard: bonding
             args: --match-contract "^(BondingTest|ClonesTest)$"
           - shard: rest
-            args: --no-match-contract "^(HostilePreSeedTest|GraduationInvariantsTest|BondingTest|ClonesTest)$"
+            args: --no-match-contract "^(GraduationInvariantsTest|BondingTest|ClonesTest)$"
     steps:
       - uses: actions/checkout@v6
 

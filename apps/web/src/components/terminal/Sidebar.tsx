@@ -1,78 +1,90 @@
-import { getAssetDisplayName } from "@launchpad/shared";
+import { getAssetDisplayName, SUPPORTED_UNDERLYING_ASSETS } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
 import { CREATE_PATH } from "../../app/routes";
-import {
-  useAssets,
-  usePlatformStats,
-  usePairFilters,
-} from "../../hooks/useAssets";
+import { useAssets, usePlatformStats } from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
+// Skeleton row count mirrors the steady-state list so the panel doesn't
+// jump (and the CTA below doesn't shift) when real data lands.
+const PAIRS_SKELETON_ROWS = SUPPORTED_UNDERLYING_ASSETS.length;
+
 export default function Sidebar() {
   const navigate = useNavigate();
-  const { data: assets } = useAssets();
+  // We key the loading vs. data branches on React Query's `isLoading`
+  // (rather than `data` truthiness) so an error response can't leave the
+  // shimmer stuck on screen — `isLoading` flips to false on success or
+  // failure, while `data` would stay `undefined` for the lifetime of a
+  // failed fetch.
+  const { data: assets, isLoading: assetsLoading } = useAssets();
   usePlatformStats();
-  const { data: filters } = usePairFilters();
 
   return (
     <div className={styles.sidebar}>
-      {/* MARKETS — own bordered panel, absorbs remaining vertical space
-       * and scrolls internally so the asset list never pushes the CTA
-       * below it off-screen. */}
       <div className={cn(styles.panel, styles.marketsPanel)}>
         <div className={styles.sectionHeader}>MARKETS</div>
-        {assets?.map((a, i) => (
-          <div
-            key={a.name}
-            className={cn(
-              styles.assetRow,
-              i < assets.length - 1 && styles.assetRowBorder,
-            )}
-          >
-            <AssetIcon asset={a.name} size={24} className={styles.assetLogo} />
-            <div className={styles.assetMeta}>
-              <div className={styles.assetName}>
-                {getAssetDisplayName(a.name)}
-              </div>
+        {assetsLoading
+          ? Array.from({ length: PAIRS_SKELETON_ROWS }).map((_, i) => (
               <div
+                key={`asset-skel-${i}`}
                 className={cn(
-                  styles.assetChange,
-                  a.change24h >= 0
-                    ? styles.assetChangeUp
-                    : styles.assetChangeDown,
+                  styles.assetRow,
+                  i < PAIRS_SKELETON_ROWS - 1 && styles.assetRowBorder,
+                )}
+                aria-hidden="true"
+              >
+                <div
+                  className={cn(styles.assetLogo, styles.skeletonCircle)}
+                />
+                <div className={styles.assetMeta}>
+                  <div
+                    className={cn(styles.skeletonBlock, styles.skeletonName)}
+                  />
+                  <div
+                    className={cn(styles.skeletonBlock, styles.skeletonChange)}
+                  />
+                </div>
+                <div
+                  className={cn(styles.skeletonBlock, styles.skeletonPrice)}
+                />
+              </div>
+            ))
+          : assets?.map((a, i) => (
+              <div
+                key={a.name}
+                className={cn(
+                  styles.assetRow,
+                  i < assets.length - 1 && styles.assetRowBorder,
                 )}
               >
-                {a.change24h >= 0 ? "+" : ""}
-                {a.change24h.toFixed(2)}%
+                <AssetIcon
+                  asset={a.name}
+                  size={24}
+                  className={styles.assetLogo}
+                />
+                <div className={styles.assetMeta}>
+                  <div className={styles.assetName}>
+                    {getAssetDisplayName(a.name)}
+                  </div>
+                  <div
+                    className={cn(
+                      styles.assetChange,
+                      a.change24h >= 0
+                        ? styles.assetChangeUp
+                        : styles.assetChangeDown,
+                    )}
+                  >
+                    {a.change24h >= 0 ? "+" : ""}
+                    {a.change24h.toFixed(2)}%
+                  </div>
+                </div>
+                <div className={styles.assetPrice}>{a.priceUsd}</div>
               </div>
-            </div>
-            <div className={styles.assetPrice}>{a.priceUsd}</div>
-          </div>
-        ))}
+            ))}
       </div>
 
-      {/* PAIRS — own bordered panel below MARKETS. Sized to its own
-       * content but capped so it can never bully MARKETS into nothing
-       * if the filter list ever runs long. */}
-      {filters && (
-        <div className={cn(styles.panel, styles.pairsPanel)}>
-          <div className={styles.sectionHeader}>PAIRS</div>
-          {filters.map((f) => (
-            <div key={`${f.asset}-${f.direction}`} className={styles.pairRow}>
-              <div className={styles.pairDot} style={{ background: f.color }} />
-              <span className={styles.pairName}>
-                {f.asset} {f.direction === "long" ? "Long" : "Short"}
-              </span>
-              <span className={styles.pairCount}>{f.count}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Launch CTA — pinned below the panels */}
       <div className={styles.ctaSection}>
         <button
           className={styles.ctaButton}
@@ -99,31 +111,6 @@ export default function Sidebar() {
             <span className={styles.ctaTitle}>create an altcoin</span>
           </span>
         </button>
-      </div>
-
-      <div className={styles.footerLinks}>
-        <a
-          className={styles.footerLink}
-          href="/audit.pdf"
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M9 12l2 2 4-4" />
-            <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
-          </svg>
-          Audit Report
-        </a>
       </div>
     </div>
   );

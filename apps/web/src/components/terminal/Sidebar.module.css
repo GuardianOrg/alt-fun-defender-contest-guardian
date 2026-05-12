@@ -10,10 +10,6 @@
   overflow: hidden;
 }
 
-/* Shared chrome for the MARKETS and PAIRS panels. Each one is its own
- * bordered, scrollable surface — separating them visually makes the
- * sidebar read as a stack of distinct components (markets / pairs /
- * cta), matching the rest of the terminal's panel-based layout. */
 .panel {
   min-height: 0;
   overflow-y: auto;
@@ -21,18 +17,8 @@
   background: var(--bg-1);
 }
 
-/* MARKETS takes the remaining height and scrolls its asset list. */
 .marketsPanel {
   flex: 1;
-}
-
-/* PAIRS sizes to its own content so a short filter list doesn't waste
- * space, but is capped at half the column so an unexpectedly long list
- * can't push MARKETS into nothing. */
-.pairsPanel {
-  flex: 0 1 auto;
-  max-height: 50%;
-  margin-top: 0.96rem;
 }
 
 .sectionHeader {
@@ -49,9 +35,6 @@
   font-weight: 500;
 }
 
-/* Markets and Pairs are read-only reference panels — no `cursor: pointer`,
- * no hover background, no transition. They display information; they are
- * not buttons. Treating them otherwise misleads users into clicking. */
 .assetRow {
   display: flex;
   align-items: center;
@@ -107,33 +90,61 @@
   margin-left: auto;
 }
 
-.pairRow {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding-left: 0.8rem;
-  padding-right: 0.8rem;
-  padding-top: 0.2rem;
-  padding-bottom: 0.2rem;
+/* Skeleton placeholders for the initial loading window. Mirror the
+ * steady-state row geometry so layout doesn't shift when real data lands.
+ * The `shimmer` keyframe is defined globally in index.css. Built from the
+ * `--border-2` mint token (rgba(77,232,180,0.28)) and `transparent` so the
+ * stops respect the shared design palette instead of hardcoded rgba values. */
+.skeletonBlock {
+  display: inline-block;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-2) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 2px;
 }
 
-.pairDot {
-  width: 0.375rem;
-  height: 0.375rem;
-  border-radius: 9999px;
-  flex-shrink: 0;
+.skeletonCircle {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--border-2) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
 }
 
-.pairName {
-  font-size: 13px;
-  color: var(--txt-2);
+.skeletonName {
+  width: 3.6rem;
+  height: 0.8rem;
 }
 
-.pairCount {
-  font-size: 11px;
-  color: var(--txt-3);
+.skeletonChange {
+  width: 2.4rem;
+  height: 0.7rem;
+  margin-top: 0.3rem;
+}
+
+.skeletonPrice {
+  width: 2.4rem;
+  height: 0.8rem;
   margin-left: auto;
-  font-variant-numeric: tabular-nums;
+}
+
+/* Respect users who opt out of motion: keep the placeholder visible but
+ * stop the shimmer sweep. The static gradient still reads as "loading"
+ * because it's clearly a placeholder shape, not real data. */
+@media (prefers-reduced-motion: reduce) {
+  .skeletonBlock,
+  .skeletonCircle {
+    animation: none;
+    background: var(--border);
+  }
 }
 
 .ctaSection {
@@ -195,29 +206,6 @@
   font-size: 11px;
   color: rgba(6, 30, 28, 0.7);
   letter-spacing: 0.02em;
-}
-
-.footerLinks {
-  padding-top: 0.8rem;
-  display: flex;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.footerLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 11px;
-  color: var(--txt-2);
-  text-decoration: none;
-  min-height: 22px;
-  padding: 0 0.4rem;
-  transition: color 0.15s ease;
-}
-
-.footerLink:hover {
-  color: var(--mint);
 }
 
 @media (max-width: 768px) {

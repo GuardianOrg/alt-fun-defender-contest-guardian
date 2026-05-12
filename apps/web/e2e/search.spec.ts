@@ -81,6 +81,26 @@ test.describe("Search", () => {
     });
   });
 
+  // Regression test for #522 — typing character-by-character used to bounce
+  // focus off the input because Modal's mount effect re-ran on every parent
+  // re-render and pulled focus back to the panel. `fill()` doesn't catch
+  // this because it sets the value in one shot; `pressSequentially` does.
+  test("retains input focus while typing character-by-character (#522)", async ({
+    page,
+  }) => {
+    await page.keyboard.press("Meta+k");
+
+    const searchInput = page.locator(
+      'input[placeholder="Search tokens, tickers…"]',
+    );
+    await expect(searchInput).toBeFocused();
+
+    await searchInput.pressSequentially("HYPE", { delay: 60 });
+
+    await expect(searchInput).toHaveValue("HYPE");
+    await expect(searchInput).toBeFocused();
+  });
+
   test("shows keyboard shortcuts in default view", async ({ page }) => {
     await page.keyboard.press("Meta+k");
 

@@ -87,10 +87,111 @@ export class RegistrationError extends Error {
   readonly code: RegistrationErrorCode;
   readonly status: number;
 
-  constructor(code: RegistrationErrorCode, message: string, status: number) {
-    super(message);
+  constructor(
+    code: RegistrationErrorCode,
+    message: string,
+    status: number,
+    options?: { cause?: unknown },
+  ) {
+    // Pass `cause` through to `Error` so `describeError` in
+    // `registration-backfill.ts` can walk to the root Postgres error and
+    // surface its `message` / `code` in the cron logs. Without this, a
+    // wrapped `db_error` would hide the underlying "value too long for
+    // type character varying(N)" / unique-constraint detail behind a
+    // generic "Token registration failed" string — defeating the whole
+    // point of classifying DB failures separately.
+    super(message, options);
     this.code = code;
     this.status = status;
+  }
+}
+
+/** Public message returned to clients for any `db_error`. Deliberately
+ * generic so we don't leak Postgres column shapes / constraint names /
+ * SQL fragments in API responses (see `.cursor/rules/api.mdc` —
+ * "Never expose internal error details to clients"). The full Postgres
+ * detail is preserved on `RegistrationError.cause` and emitted in a
+ * structured Worker log line — see `withDbError` below. */
+const DB_ERROR_PUBLIC_MESSAGE = "Token registration failed" as const;
+
+/**
+ * Run a Drizzle DB operation and convert any thrown error into a
+ * `RegistrationError("db_error", …, 500, { cause })`.
+ *
+ * Why: Drizzle raises `DrizzleQueryError` for every Postgres-side failure
+ * (`value too long for type character varying(N)`, unique-constraint
+ * violations, connection drops, etc.). Without this wrapper those bubble
+ * up un-classified — the synchronous `POST /api/v1/tokens` route only
+ * catches `RegistrationError`, so the request 500s with a generic
+ * "Internal Server Error" body, and the cron backfill's `describeError`
+ * logs the failure under `code: "unknown"` instead of `db_error`. That's
+ * how the BRENTOIL `underlying varchar(10)` overflow shipped silently
+ * for days: a schema column was narrower than the data we were trying
+ * to insert, but the only signal was an uncategorised 500.
+ *
+ * Wrapping it here keeps the failure mode legible end-to-end:
+ *   - Operators see the actual Postgres detail in the **structured
+ *     Worker log** emitted below (`event: "registration_db_error"`,
+ *     `rootError: <pg message>`, `errorCode: <SQLSTATE>`), which
+ *     surfaces in Cloudflare logs / wrangler tail without leaking
+ *     anything to API clients.
+ *   - The cron backfill's `describeError` walks the `cause` chain we
+ *     attach here, so its `registration_backfill_skip` log line also
+ *     carries the root message (`code: "db_error"` instead of
+ *     `code: "unknown"`).
+ *   - API clients get a stable, generic `DB_ERROR_PUBLIC_MESSAGE` —
+ *     enough for the frontend's `setWarning(...)` to say "indexing is
+ *     delayed, try again", with the actionable diagnostic only on the
+ *     operator side.
+ *
+ * Use this for every Drizzle call inside `registerTokenFromChain`; the
+ * cost is one extra try/catch frame per query, which is irrelevant
+ * compared to the round-trip latency.
+ */
+async function withDbError<T>(op: () => Promise<T>): Promise<T> {
+  try {
+    return await op();
+  } catch (err) {
+    // Walk the `cause` chain to find the actual Postgres error. Drizzle
+    // wraps every query failure in a `DrizzleQueryError` whose `.message`
+    // is `"Failed query: <sql>"`. The root error carries the useful
+    // detail, e.g. `value too long for type character varying(10)` or
+    // `duplicate key value violates unique constraint "tokens_pkey"`.
+    // Mirrors the same walk `describeError` does in
+    // `registration-backfill.ts`.
+    let root: unknown = err;
+    while (root instanceof Error && root.cause !== undefined && root.cause !== root) {
+      root = root.cause;
+    }
+    const rootMessage = root instanceof Error ? root.message : String(root);
+    const rootCode = root instanceof Error
+      ? ((root as Error & { code?: unknown }).code)
+      : undefined;
+
+    // Operator-side signal: structured log line so Cloudflare logs /
+    // wrangler tail carry the root Postgres message and SQLSTATE on
+    // every `db_error`. The synchronous route handler doesn't run
+    // through `app.onError` (it catches `RegistrationError` and
+    // returns the generic public string), so without this the only
+    // place this detail would ever surface is the cron's
+    // `registration_backfill_skip` line — useless for diagnosing a
+    // user-driven `POST /api/v1/tokens` failure.
+    console.log(
+      JSON.stringify({
+        level: "error",
+        event: "registration_db_error",
+        rootError: rootMessage,
+        ...(typeof rootCode === "string" ? { errorCode: rootCode } : {}),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    throw new RegistrationError(
+      "db_error",
+      DB_ERROR_PUBLIC_MESSAGE,
+      500,
+      { cause: err },
+    );
   }
 }
 
@@ -156,11 +257,18 @@ export async function registerTokenFromChain(
 
   // Fast-path: row already exists. Avoids RPC + R2 + BounceTech round-trips
   // on the hot path (frontend awaits this and the cron sweep races it).
-  const existing = await db
-    .select()
-    .from(tokens)
-    .where(eq(tokens.address, address))
-    .limit(1);
+  //
+  // `withDbError` wraps any thrown `DrizzleQueryError` into a
+  // `RegistrationError("db_error", …)` so the cron logs and the route's
+  // error envelope keep DB failures categorised — see the helper's
+  // docstring for the full rationale.
+  const existing = await withDbError(() =>
+    db
+      .select()
+      .from(tokens)
+      .where(eq(tokens.address, address))
+      .limit(1),
+  );
   if (existing.length > 0) {
     return { kind: "exists", token: existing[0] as RegisteredToken };
   }
@@ -169,43 +277,47 @@ export async function registerTokenFromChain(
   const imageUrl = await validateImageUrl(env, info.image, apiOrigin);
   const ltMeta = await resolveLtMeta(info.ltAddress);
 
-  const inserted = await db
-    .insert(tokens)
-    .values({
-      address,
-      name: info.name,
-      ticker: info.ticker,
-      description: info.description,
-      imageUrl,
-      ltPair: getAddress(info.ltAddress),
-      ltDirection: ltMeta.isLong ? "long" : "short",
-      leverage: ltMeta.targetLeverage,
-      underlying: ltMeta.targetAsset,
-      // `urls[0..2]` mirrors the order the frontend wrote on-chain (twitter,
-      // telegram, website). Each value is sanitized before storage — see
-      // issue #400. Twitter/Telegram collapse to a bare handle (so the
-      // frontend can build the link via the canonical
-      // `https://x.com/<handle>` / `https://t.me/<path>` template), and
-      // website is canonicalised to a parseable http(s) URL. Anything that
-      // can't be reduced to a safe value collapses to "" — the on-chain
-      // bytes survive on `Bonding.TokenInfo` but they never reach an
-      // `<a href>`.
-      twitterUrl: sanitizeTwitterHandle(info.urls[0] ?? ""),
-      telegramUrl: sanitizeTelegramHandle(info.urls[1] ?? ""),
-      websiteUrl: sanitizeWebsiteUrl(info.urls[2] ?? ""),
-      creator: getAddress(info.creator),
-    })
-    .onConflictDoNothing()
-    .returning();
+  const inserted = await withDbError(() =>
+    db
+      .insert(tokens)
+      .values({
+        address,
+        name: info.name,
+        ticker: info.ticker,
+        description: info.description,
+        imageUrl,
+        ltPair: getAddress(info.ltAddress),
+        ltDirection: ltMeta.isLong ? "long" : "short",
+        leverage: ltMeta.targetLeverage,
+        underlying: ltMeta.targetAsset,
+        // `urls[0..2]` mirrors the order the frontend wrote on-chain (twitter,
+        // telegram, website). Each value is sanitized before storage — see
+        // issue #400. Twitter/Telegram collapse to a bare handle (so the
+        // frontend can build the link via the canonical
+        // `https://x.com/<handle>` / `https://t.me/<path>` template), and
+        // website is canonicalised to a parseable http(s) URL. Anything that
+        // can't be reduced to a safe value collapses to "" — the on-chain
+        // bytes survive on `Bonding.TokenInfo` but they never reach an
+        // `<a href>`.
+        twitterUrl: sanitizeTwitterHandle(info.urls[0] ?? ""),
+        telegramUrl: sanitizeTelegramHandle(info.urls[1] ?? ""),
+        websiteUrl: sanitizeWebsiteUrl(info.urls[2] ?? ""),
+        creator: getAddress(info.creator),
+      })
+      .onConflictDoNothing()
+      .returning(),
+  );
 
   if (inserted.length === 0) {
     // Lost the race to another caller (frontend vs. cron, or two cron
     // ticks). Re-read so we can return the canonical row.
-    const reread = await db
-      .select()
-      .from(tokens)
-      .where(eq(tokens.address, address))
-      .limit(1);
+    const reread = await withDbError(() =>
+      db
+        .select()
+        .from(tokens)
+        .where(eq(tokens.address, address))
+        .limit(1),
+    );
     if (reread.length === 0) {
       throw new RegistrationError("db_error", "Token registration failed", 500);
     }

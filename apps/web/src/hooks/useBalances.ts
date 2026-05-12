@@ -23,6 +23,8 @@ interface RawBalance {
   ltPair: string;
   leverage: number;
   balance: bigint;
+  /** Token logo URL (R2-served). Empty string when the creator never uploaded one. */
+  imageUrl: string;
 }
 
 async function fetchRawBalancesFromApi(
@@ -36,6 +38,7 @@ async function fetchRawBalancesFromApi(
     ltPair: b.ltPair,
     leverage: b.leverage,
     balance: BigInt(b.balance),
+    imageUrl: b.imageUrl,
   }));
 }
 
@@ -93,6 +96,7 @@ async function fetchRawBalancesFromChain(
         ltPair: token.ltPair,
         leverage: token.leverage,
         balance,
+        imageUrl: token.imageUrl,
       });
     }
   }
@@ -138,6 +142,7 @@ export function useBalances() {
         name: b.name,
         ticker: b.ticker,
         emoji: "",
+        image: b.imageUrl || undefined,
         ltName: `${b.ltPair} ${b.leverage}×`,
         status: "active" as const,
         amount,

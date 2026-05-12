@@ -576,6 +576,103 @@ describe("POST /tokens — address-only registration", () => {
     expect(insertCall?.websiteUrl).toBe("");
   });
 
+  it("classifies a Postgres failure on INSERT as db_error (generic public message, root PG detail in structured log, cause preserved)", async () => {
+    // Regression for the BRENTOIL `underlying varchar(10)` overflow
+    // (PR #433): the schema column was narrower than `xyz:BRENTOIL` (12
+    // chars), so the INSERT raised `value too long for type character
+    // varying(10)`. Drizzle wraps that in `DrizzleQueryError`, which is
+    // not a `RegistrationError` — so the route returned a generic
+    // "Internal Server Error" 500 and the cron logged it under
+    // `code: "unknown"` instead of `db_error`. Four BRENTOIL tokens
+    // silently 500'd for days before anyone correlated the symptoms.
+    //
+    // Public contract after the `withDbError` wrap (see api.mdc's
+    // "Never expose internal error details to clients" rule):
+    //   - The response body carries a stable, generic message — never
+    //     the raw PG text. Client-side framing stays consistent and
+    //     no DB internals leak to API consumers.
+    //   - The operator-side detail (PG message + SQLSTATE) is emitted
+    //     as a structured Worker log line, so Cloudflare logs /
+    //     `wrangler tail` carry the diagnostic on every failure.
+    //   - `RegistrationError.cause` references the raw error, so the
+    //     cron backfill's `describeError` can still walk the chain
+    //     and tag its `registration_backfill_skip` line with
+    //     `code: "db_error"` instead of `code: "unknown"`.
+    mockReadContract.mockResolvedValueOnce(makeOnChainInfo());
+    mockBounceTechLtList();
+    // Shape the rejection the way Drizzle actually does in production:
+    // a `DrizzleQueryError` wrapper whose top-level message is
+    // `"Failed query: <sql>"` and whose `cause` is the raw Postgres
+    // error with the actually-useful message + SQLSTATE code.
+    const pgRootError = Object.assign(
+      new Error('value too long for type character varying(10)'),
+      { code: "22001" },
+    );
+    const drizzleWrapper = new Error("Failed query: insert into \"tokens\"...", {
+      cause: pgRootError,
+    });
+    mockDbReturning.mockRejectedValueOnce(drizzleWrapper);
+
+    // Capture structured logs so we can assert the operator-side
+    // signal carries the Postgres detail.
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const app = createApp();
+    const req = new Request("http://localhost/tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address: VALID_ADDRESS }),
+    });
+    const executionCtx = {
+      waitUntil: vi.fn(),
+      passThroughOnException: vi.fn(),
+      props: {},
+    } as unknown as ExecutionContext;
+    const res = await app.fetch(req, makeEnv(), executionCtx);
+
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string };
+    // 1. Public response is generic — no PG text, no SQL, no column
+    //    shapes leak to clients.
+    expect(body.error).toBe("Token registration failed");
+    expect(body.error).not.toContain("value too long");
+    expect(body.error).not.toContain("character varying");
+    expect(body.error).not.toContain("Failed query");
+    expect(body.error).not.toContain("Internal Server Error");
+
+    // 2. Operator-side signal: structured log line carries the root
+    //    Postgres message + SQLSTATE. Walks the `cause` chain rather
+    //    than the Drizzle wrapper so the SQL fragment doesn't end up
+    //    in logs either.
+    const structuredLogs = logSpy.mock.calls
+      .map((c) => c[0])
+      .filter((s): s is string => typeof s === "string")
+      .map((s) => {
+        try {
+          return JSON.parse(s) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((o): o is Record<string, unknown> => o !== null);
+    const dbErrorLog = structuredLogs.find(
+      (l) => l.event === "registration_db_error",
+    );
+    expect(dbErrorLog).toBeDefined();
+    expect(dbErrorLog?.level).toBe("error");
+    expect(dbErrorLog?.rootError).toBe(
+      "value too long for type character varying(10)",
+    );
+    expect(dbErrorLog?.errorCode).toBe("22001");
+
+    // 3. We don't broadcast a `newToken` event on failure — the row
+    //    was never inserted, so any listener that hydrates from this
+    //    would be operating on a fictional token.
+    expect(executionCtx.waitUntil).not.toHaveBeenCalled();
+
+    logSpy.mockRestore();
+  });
+
   it("derives ltDirection / leverage / underlying from the BounceTech directory", async () => {
     mockReadContract.mockResolvedValueOnce(makeOnChainInfo());
     mockBounceTechLtList([{

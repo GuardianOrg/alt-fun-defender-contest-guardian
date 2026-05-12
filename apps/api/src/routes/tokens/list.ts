@@ -18,7 +18,6 @@ import {
   computeCurveFilledBreakdown,
   computeStatus,
   computeTrendingScore,
-  sortLtMovers,
   usdcRawToUsd,
   type DbToken,
   type EnrichedToken,
@@ -35,11 +34,11 @@ const LIST_CACHE_TTL_SECONDS = 5;
 // bursts so an outage doesn't amplify into load on the already-struggling
 // dependency, while still recovering within ~1s once it comes back.
 const DEGRADED_CACHE_TTL_SECONDS = 1;
-// Cap on how many tokens we'll enrich + score in a single trending /
-// lt-movers request. Both paths are O(N) in BounceTech / Ponder calls, so
-// we don't want them to grow unboundedly with the catalogue. When we
-// outgrow this, the right fix is a precomputed score column refreshed by a
-// cron — not a bigger cap.
+// Cap on how many tokens we'll enrich + score in a single trending
+// request. The path is O(N) in BounceTech / Ponder calls, so we don't
+// want it to grow unboundedly with the catalogue. When we outgrow this,
+// the right fix is a precomputed score column refreshed by a cron — not a
+// bigger cap.
 const TRENDING_POOL_SIZE = 500;
 // Upper bound on how many graduated / graduating tokens we'll fetch from
 // Ponder for the status=graduated|graduating tabs. Same reasoning as
@@ -125,7 +124,7 @@ function enrich(
   };
 }
 
-type SortMode = "createdAt" | "leverage" | "name" | "trending" | "lt-movers";
+type SortMode = "createdAt" | "leverage" | "name" | "trending";
 type StatusFilter = "curve" | "graduating" | "graduated";
 
 interface ListFilters {
@@ -191,8 +190,7 @@ listRoute.get("/", async (c) => {
   const sort: SortMode =
     sortRaw === "leverage" ||
     sortRaw === "name" ||
-    sortRaw === "trending" ||
-    sortRaw === "lt-movers"
+    sortRaw === "trending"
       ? sortRaw
       : "createdAt";
   const dir = c.req.query("dir") === "asc" ? asc : desc;
@@ -204,7 +202,7 @@ listRoute.get("/", async (c) => {
   // `&dir=desc` from each getting their own cache entry for identical
   // responses (trending always sorts desc by score).
   const cacheUrl = new URL(c.req.url);
-  if (sort === "trending" || sort === "lt-movers") {
+  if (sort === "trending") {
     cacheUrl.searchParams.delete("dir");
   }
   // `status=graduated|graduating` derive their own ordering from Ponder
@@ -349,13 +347,13 @@ listRoute.get("/", async (c) => {
     sort === "name" ? tokens.name :
     tokens.createdAt;
 
-  // Trending and lt-movers both need a full-batch score/filter pass, so we
-  // can't push ORDER BY to Postgres. Pull the most recently launched
+  // Trending needs a full-batch score/filter pass, so we can't push
+  // ORDER BY to Postgres. Pull the most recently launched
   // `TRENDING_POOL_SIZE` tokens matching the filters, enrich, then sort +
   // slice to the requested page in memory. "Most recent" is the right
-  // candidate window because both views are dominated by recent activity —
+  // candidate window because the view is dominated by recent activity —
   // a token that hasn't been touched in months is ~never moving.
-  const isScoredSort = sort === "trending" || sort === "lt-movers";
+  const isScoredSort = sort === "trending";
   const dbTokens = isScoredSort
     ? await db
         .select()
@@ -435,8 +433,6 @@ listRoute.get("/", async (c) => {
       return (b.token.mcapUsd ?? 0) - (a.token.mcapUsd ?? 0);
     });
     enriched = scored.slice(offset, offset + limit).map((s) => s.token);
-  } else if (sort === "lt-movers") {
-    enriched = sortLtMovers(enriched).slice(offset, offset + limit);
   }
 
   const response = c.json(
@@ -451,26 +447,37 @@ listRoute.get("/", async (c) => {
 });
 
 listRoute.get("/search", async (c) => {
-  const q = c.req.query("q");
-  if (!q || q.length < 1) {
+  const q = c.req.query("q")?.trim();
+  if (!q) {
     return c.json(formatSuccess([]));
   }
 
+  // Address column is only matched when the query *looks* like an address
+  // fragment — i.e. the user has typed/pasted a `0x`-prefixed string (any
+  // non-empty hex tail counts; users routinely paste just a prefix). The
+  // previous implementation substring-matched the address for every query,
+  // which made even single-character searches like `1` return the full
+  // catalogue: virtually every EVM address contains the digit `1`
+  // somewhere in its 40-char hex body. Restricting address matches to the
+  // `0x` prefix mirrors the explorer/DEX-search convention and eliminates
+  // the "search box is broken" UX regression (issue #528).
+  const isAddressQuery = /^0x[0-9a-f]*$/i.test(q);
+  const conditions = [
+    ilike(tokens.name, `%${q}%`),
+    ilike(tokens.ticker, `%${q}%`),
+  ];
+  if (isAddressQuery) {
+    // Prefix match (not substring) — a paste of `0xabc…` should locate the
+    // address that *starts* with those bytes, not any address that happens
+    // to contain that substring further along.
+    conditions.push(ilike(tokens.address, `${q}%`));
+  }
+
   const db = createDb(c.env.DATABASE_URL);
-  const pattern = `%${q}%`;
   const results = await db
     .select()
     .from(tokens)
-    .where(
-      and(
-        eq(tokens.isHidden, false),
-        or(
-          ilike(tokens.name, pattern),
-          ilike(tokens.ticker, pattern),
-          ilike(tokens.address, pattern),
-        ),
-      ),
-    )
+    .where(and(eq(tokens.isHidden, false), or(...conditions)))
     .limit(20);
 
   return c.json(formatSuccess(results));

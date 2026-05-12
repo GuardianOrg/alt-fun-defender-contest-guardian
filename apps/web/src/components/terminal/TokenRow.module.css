@@ -47,10 +47,6 @@
   border-left-color: rgba(240, 80, 80, 0.6);
 }
 
-.borderAmber {
-  border-left-color: var(--amber);
-}
-
 .tokenCell {
   display: flex;
   align-items: center;
@@ -142,7 +138,7 @@
 .directionCell {
   display: flex;
   align-items: center;
-  width: 150px;
+  width: 90px;
   flex-shrink: 0;
 }
 

@@ -102,21 +102,30 @@ export default function Modal({
     [onClose],
   );
 
+  // Focus management + scroll lock must run exactly once per mount. If we
+  // merge this with the keydown listener (which depends on `handleKey` and
+  // therefore on every caller's possibly-unstable `onClose`), the cleanup
+  // re-runs on every parent re-render, stealing focus from any input inside
+  // the modal back to the panel. That's the issue #522 search-box bug: the
+  // search input loses focus on every keystroke because typing re-renders
+  // SearchModal, which recreates `close`, which invalidates `handleKey`.
   useEffect(() => {
     // Snapshot the element that triggered the open so we can restore focus
     // to it when the modal closes — preserves screen-reader context and
     // keeps keyboard users from getting stranded.
     const previouslyFocused = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
-
-    document.addEventListener("keydown", handleKey);
     acquireScrollLock();
 
     return () => {
-      document.removeEventListener("keydown", handleKey);
       releaseScrollLock();
       previouslyFocused?.focus?.();
     };
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
   }, [handleKey]);
 
   return (

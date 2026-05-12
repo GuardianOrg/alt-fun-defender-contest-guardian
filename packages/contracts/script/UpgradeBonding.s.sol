@@ -22,7 +22,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 ///         would brick `launch` (the gate would dereference a zero
 ///         `bounceGlobalStorage` and revert in every launch tx).
 contract UpgradeBonding is Script {
-    address constant DEFAULT_BONDING_PROXY = 0x06dA483b9BaAfF21942D034A8E027e32d93E77CE;
+    address constant DEFAULT_BONDING_PROXY = 0x1E75bB0570e4d1c4490417C0948A37e8d6809638;
     /// @dev BounceTech `GlobalStorage` on HyperEVM mainnet. See
     ///      `Deploy.s.sol::BOUNCE_GLOBAL_STORAGE` for source-of-truth notes.
     address constant BOUNCE_GLOBAL_STORAGE = 0xa07d06383c1863c8A54d427aC890643d76cc03ff;

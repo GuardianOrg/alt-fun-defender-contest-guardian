@@ -67,6 +67,21 @@ export function useCreateToken() {
             `No LT found for ${params.underlying} ${params.leverage}× ${params.direction}`,
           );
         }
+        // Token creation is gated by `Zap.MIN_SEED_USDC` (mandatory seed
+        // buy ≥ $20), so launching against a paused LT would revert when
+        // `Zap._executeBuy` tries to mint. Block the launch up-front with
+        // a clear message instead of letting the user discover the revert
+        // after vanity-mining + signing the permit. The UI mirrors this
+        // with a disabled Launch button so the path here is belt-and-
+        // braces — see `CreateView` for the user-facing surface.
+        const liveLt = lts.find(
+          (entry) => entry.address.toLowerCase() === lt.address.toLowerCase(),
+        );
+        if (liveLt?.mintPaused) {
+          throw new Error(
+            `${params.underlying} ${params.leverage}× ${params.direction} minting is currently paused by BounceTech. Pick a different pair or try again once minting resumes.`,
+          );
+        }
 
         // Pre-flight length checks — mirrors Bonding.launch's on-chain caps.
         // Gives a clear UI error before the wallet popup rather than a revert.

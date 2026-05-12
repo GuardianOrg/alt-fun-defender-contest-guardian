@@ -1,6 +1,6 @@
 # Frontend Scope
 
-Dark terminal aesthetic (Bloomberg terminal, Courier New, mint green `#4de8b4`). Auth via Privy (social login, embedded wallets, WalletConnect).
+Dark terminal aesthetic (Bloomberg terminal, Courier New, mint green `#4de8b4`). Auth via Privy (wallet-only login — no email/social, no embedded wallets).
 
 ---
 

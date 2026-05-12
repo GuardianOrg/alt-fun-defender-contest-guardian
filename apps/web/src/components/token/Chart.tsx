@@ -28,7 +28,7 @@ const TIMEFRAMES: { value: ChartTimeframe; label: string }[] = [
 // the per-token price is always sub-cent and isn't the primary signal a
 // trader is looking at. Mirrors the Dexscreener `MC | Price` toggle.
 const UNITS: { value: ChartUnit; label: string }[] = [
-  { value: "mcap", label: "MC" },
+  { value: "mcap", label: "Market Cap" },
   { value: "price", label: "Price" },
 ];
 

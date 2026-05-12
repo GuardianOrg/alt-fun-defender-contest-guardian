@@ -32,3 +32,4 @@ export function buildProfileUpdateMessage(payload: ProfileUpdatePayload): string
     `timestamp:${payload.timestamp}`,
   ].join("\n");
 }
+

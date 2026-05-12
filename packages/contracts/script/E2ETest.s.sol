@@ -20,8 +20,8 @@ contract E2ETest is Script {
     ///      pointing the script at a different deployment (staging, fork,
     ///      next mainnet rev, etc.) so the script stays runnable without a
     ///      recompile after every upgrade.
-    address constant DEFAULT_BONDING = 0xCbED46f0278a4266369d3fd0C78644A860617870;
-    address constant DEFAULT_ZAP = 0x05f1Bc679F70DB71Fa311B2b45d0e0701323d217;
+    address constant DEFAULT_BONDING = 0x1E75bB0570e4d1c4490417C0948A37e8d6809638;
+    address constant DEFAULT_ZAP = 0x0DC348C1eDB757C6Ec6a8045fC2D85d7fA2dbc21;
 
     function run() external {
         uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");

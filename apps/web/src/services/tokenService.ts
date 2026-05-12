@@ -118,12 +118,31 @@ function buildSocialLinks(api: ApiToken): Token["socialLinks"] {
 
 export interface ITokenService {
   getTokens(filter?: TokenFilter): Promise<Token[]>;
+  /**
+   * Paginated variant for the home-page infinite-scroll list. Returns a
+   * single page exactly as the API serves it (no client-side filtering
+   * or reordering), so the caller can walk pages with `offset += limit`
+   * until a short page comes back. See `useInfiniteTokens`.
+   */
+  getTokensPage(
+    filter: TokenFilter | undefined,
+    offset: number,
+    limit: number,
+  ): Promise<Token[]>;
   getToken(address: string): Promise<Token | undefined>;
   getTokensByDirection(
     direction: Direction,
     filter?: TokenFilter,
   ): Promise<Token[]>;
 }
+
+/**
+ * Page size used by the home-page infinite-scroll list. The server caps
+ * each page at 100 (`MAX_PAGE_SIZE` in `apps/api/src/routes/tokens/list.ts`);
+ * a smaller page lets the first paint land sooner and keeps subsequent
+ * loads cheap while the user scrolls.
+ */
+export const TOKENS_PAGE_SIZE = 30;
 
 /**
  * Map a client-side `TokenFilter` to the right server-side query params.
@@ -157,6 +176,19 @@ async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
   return apiTokens.map(fromApiToken);
 }
 
+async function liveGetTokensPage(
+  filter: TokenFilter | undefined,
+  offset: number,
+  limit: number,
+): Promise<Token[]> {
+  // No catch-and-swallow here (unlike `liveGetTokens`) — the infinite-scroll
+  // caller relies on a thrown error to mark the page as failed and surface
+  // a retry path through TanStack Query, rather than silently returning an
+  // empty page which would falsely terminate pagination.
+  const apiTokens = await fetchTokens(limit, offset, filterToApiOptions(filter));
+  return apiTokens.map(fromApiToken);
+}
+
 async function liveGetToken(address: string): Promise<Token | undefined> {
   const apiToken = await fetchToken(address).catch(() => null);
   if (!apiToken) return undefined;
@@ -173,6 +205,7 @@ async function liveGetTokensByDirection(
 
 const liveTokenService: ITokenService = {
   getTokens: liveGetTokens,
+  getTokensPage: liveGetTokensPage,
   getToken: liveGetToken,
   getTokensByDirection: liveGetTokensByDirection,
 };

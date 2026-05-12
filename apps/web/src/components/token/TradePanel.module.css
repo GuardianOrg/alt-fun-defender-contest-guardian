@@ -224,6 +224,64 @@
   }
 }
 
+/*
+ * Mint-paused banner — surfaced when BounceTech has paused minting on the
+ * backing LT. Every `Zap.buy` reverts in this window (Zap mints LT from
+ * USDC on every buy); sells continue to work through `redeem`. We render
+ * the form normally so the user can still exit to USDC; the banner +
+ * disabled BUY tab explain why the buy path is gone. See AGENTS.md →
+ * "Mint-pause is asymmetric (accepted)" for the contract-side rationale.
+ */
+.pausedBanner {
+  font-size: 12px;
+  color: var(--amber);
+  background: var(--amber-bg);
+  border: 1px solid var(--amber);
+  border-radius: 2px;
+  padding: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  line-height: 1.5;
+}
+
+.pausedBannerTitle {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pausedBannerBody {
+  color: var(--txt-2);
+}
+
+.pausedBannerLink {
+  color: var(--amber);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: 11px;
+}
+
+.pausedBannerLink:hover {
+  opacity: 0.85;
+}
+
+.modeBtnDisabled {
+  cursor: not-allowed;
+  color: var(--txt-4);
+}
+
+.modeBtnDisabled:hover {
+  color: var(--txt-4);
+  background: transparent;
+}
+
+.modeBtnDisabled:disabled {
+  color: var(--txt-4);
+  cursor: not-allowed;
+}
+
 .toggleBar {
   display: flex;
   align-items: center;

@@ -1,0 +1,39 @@
+---
+description: How database schema changes work for the API (Neon PostgreSQL). Migrations are NOT run in CI.
+globs: "apps/api/**"
+---
+
+# Database Schema Changes (apps/api / Neon)
+
+**There is no automatic migration runner in this repo.** Do not assume `apps/api/src/db/migrations/` exists, do not assume CI applies SQL files, and do not assume `wrangler deploy` touches the database. The API deploy workflow (`.github/workflows/deploy-api.yml`) only runs `wrangler deploy` — it never executes any SQL.
+
+The production database is the source of truth for column shapes. `src/db/schema.ts` is the **typed view** the application uses to talk to it. The two can drift; when they drift, INSERTs fail with `value too long for type character varying(N)` (or similar) and surface as 500s from `runRegistrationBackfill` / any other write path.
+
+## When you need to change the schema
+
+1. **Edit `src/db/schema.ts`** to reflect the desired shape.
+2. **Stop. Do not generate a migration file. Do not invoke `drizzle-kit migrate`.** Neither of those does anything useful here.
+3. **Raise the schema change with the user**, including:
+   - The exact SQL to apply (e.g. `ALTER TABLE "tokens" ALTER COLUMN "underlying" SET DATA TYPE varchar(24);`).
+   - Which Neon project + branch it needs to land on (the prod Launchpad DB is `summer-mountain-09307092` / branch `production` / database `neondb`).
+   - Whether the code change is forward- or backward-compatible with the old schema — i.e. is it safe to merge the code before applying the SQL, or must the SQL land first?
+4. **Apply the SQL with the user**, typically through the Neon MCP `prepare_database_migration` → `complete_database_migration` flow (or the Neon console for one-offs). The MCP flow creates a temporary branch, lets you verify the resulting shape with `run_sql`, then promotes to the parent branch.
+5. **After the SQL is live, deploy the code** that depends on the new shape. If the code is already live, re-run any backfill / registration jobs that may have been failing against the old shape (e.g. `POST /api/v1/tokens` for stuck tokens, or wait one cron cycle for `runRegistrationBackfill`).
+
+## Why we do it this way
+
+- The API runs on Cloudflare Workers. There is no long-lived process to run `drizzle-kit migrate` against the prod DB, and we deliberately don't expose a write surface that could ALTER the schema from inside the Worker.
+- We use Neon's branching model directly. The MCP flow gives us a copy-on-write preview branch, full SQL validation, and a one-command promote — which is strictly better than chasing migration-file ordering across deploys.
+- The set of schema changes is small and reviewable in PR descriptions. We prefer raising them explicitly with the operator over pretending CI handles them.
+
+## Things that look like migrations but aren't
+
+- `wrangler.json` has a top-level `migrations` array. **That is Durable Object class migrations**, completely unrelated to Postgres. Leave it alone unless you're adding a new DO class.
+- `apps/indexer` (Ponder) manages its own Postgres on Railway. Schema there comes from `ponder.schema.ts` and Ponder applies the diff itself on start — nothing in this rule applies to the indexer DB.
+
+## Anti-patterns
+
+- Editing `schema.ts` and assuming the DB will catch up. It will not.
+- Generating a `.sql` file into `src/db/migrations/` "to leave a trail". The folder doesn't exist anymore (deleted intentionally); putting files back will mislead the next agent into thinking they get applied.
+- Running `npm run db:migrate` and reporting success. There is no such script, and if you re-add it, it still won't run automatically anywhere.
+- Skipping the user-confirmation step on a destructive change (column type narrow, `DROP COLUMN`, `DROP TABLE`). Always raise these; never run them unattended even via MCP.

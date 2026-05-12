@@ -9,9 +9,6 @@
     "deploy": "wrangler deploy",
     "typecheck": "wrangler types && tsc --noEmit",
     "lint": "eslint src/",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run --passWithNoTests",
     "test:worker": "node scripts/smoke-test.mjs"

@@ -87,7 +87,7 @@ const tokenSchema = {
     priceUsd: { type: "number", nullable: true, description: "Current token price in USD. `null` when Ponder or BounceTech is degraded — treat as unknown, never zero." },
     mcapUsd: { type: "number", nullable: true, description: "Current fully-diluted market cap in USD (`priceUsd × 1B`). `null` under the same degraded conditions as `priceUsd`." },
     change24h: { type: "number", nullable: true, description: "24h price change as a percentage. For tokens younger than 24h this is the since-launch delta. `null` when the reference price is unavailable." },
-    ltChange24h: { type: "number", nullable: true, description: "24h percentage change of the backing LT's exchange rate (independent of any curve / router activity). Primary signal for the LT MOVERS tab. `null` when BounceTech has no rate at either end of the window." },
+    ltChange24h: { type: "number", nullable: true, description: "24h percentage change of the backing LT's exchange rate (independent of any curve / router activity). `null` when BounceTech has no rate at either end of the window." },
     volume24hUsd: { type: "number", nullable: true, description: "Total USD routed through `Zap` for this token in the last 24h (buys + sells). `0` = no trades in the window (legitimately quiet); `null` = indexer aggregation unavailable or truncated (unknown). Used as an input to the trending score." },
     totalVolumeUsd: { type: "number", nullable: true, description: "Lifetime gross USD routed through `Zap` for this token (buys + sells, never subtracts). Sourced from the indexer's running counter on the `token` row so it's not affected by pagination truncation. `null` only when the indexer is unreachable; `0` when the token has never traded." },
     lastTradeAt: { type: "string", format: "date-time", nullable: true, description: "Timestamp of the most recent `Zap` trade within the 24h window. `null` means either no trades in that window or indexer unavailable — disambiguate using `volume24hUsd`." },
@@ -235,6 +235,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
     { name: "Referrals", description: "Referral tracking" },
     { name: "Images", description: "Image upload and serving" },
     { name: "Admin", description: "Admin operations (requires X-Admin-Key)" },
+    { name: "Moderation", description: "Wallet-signed moderation actions (token hide / unhide). Auth via EIP-191 signature recovered to an address in the admin allowlist — see `routes/moderation.ts`." },
   ],
   components: {
     schemas: {
@@ -275,7 +276,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
           { name: "direction", in: "query", schema: { type: "string", enum: ["long", "short"] }, description: "Filter by LT direction" },
           { name: "leverage", in: "query", schema: { type: "integer", enum: [2, 3, 5] }, description: "Filter by leverage multiplier" },
           { name: "creator", in: "query", schema: { type: "string", pattern: "^0x[a-fA-F0-9]{40}$" }, description: "Filter by creator address" },
-          { name: "sort", in: "query", schema: { type: "string", enum: ["createdAt", "leverage", "name", "trending", "lt-movers"], default: "createdAt" }, description: "Sort field. `trending` scores tokens by 24h change, volume, mcap, freshness, and trade recency. `lt-movers` sorts by the backing LT's own 24h % change (descending), tiebreaks on the token's own 24h change, and drops anything with a null or non-positive 24h change (on either the LT or the token) — so the list is always tokens actively gaining *because of* LT movement. Both scored sorts ignore `dir`, always return highest-score first, and are capped at the 500 most-recent tokens matching the filters." },
+          { name: "sort", in: "query", schema: { type: "string", enum: ["createdAt", "leverage", "name", "trending"], default: "createdAt" }, description: "Sort field. `trending` scores tokens by 24h change, volume, mcap, freshness, and trade recency. The trending sort ignores `dir`, always returns highest-score first, and is capped at the 500 most-recent tokens matching the filters." },
           { name: "dir", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "Sort direction" },
           apiKeyHeader,
         ],
@@ -829,6 +830,134 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
           "200": { description: "Token unhidden", content: { "application/json": { schema: successResponse({ type: "object", properties: { hidden: { type: "boolean" } } }) } } },
           "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
           "401": { description: "Unauthorized", content: { "application/json": { schema: errorResponse } } },
+        },
+      },
+    },
+
+    // ─── Wallet-signed moderation (issue #586) ────────────────
+    //
+    // These endpoints sit alongside the `X-Admin-Key`-gated `/admin/...`
+    // moderation routes. The shared-secret variant is for ops scripts;
+    // this variant lets the front-end UI do moderation directly from a
+    // connected wallet by signing an EIP-191 message with the admin
+    // wallet itself. Allowlist comes from `ADMIN_WALLETS` (env, comma
+    // separated) with a fallback to `DEFAULT_ADMIN_WALLETS` baked into
+    // `@launchpad/shared`.
+    "/api/v1/moderation/admins/{address}": {
+      get: {
+        tags: ["Moderation"],
+        summary: "Check whether a wallet is an admin",
+        description: "Returns `{ isAdmin: true }` if the supplied wallet is currently configured as a moderation admin. Public endpoint — used by the UI to decide whether to render the admin button. Returns the boolean for one address only; never enumerates the allowlist.",
+        parameters: [addressParam("address", "Wallet address to check"), apiKeyHeader],
+        responses: {
+          "200": {
+            description: "Admin status",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    address: { type: "string", description: "Checksummed copy of the requested address." },
+                    isAdmin: { type: "boolean" },
+                  },
+                  required: ["address", "isAdmin"],
+                }),
+              },
+            },
+          },
+          "400": { description: "Invalid address", content: { "application/json": { schema: errorResponse } } },
+        },
+      },
+    },
+
+    "/api/v1/moderation/tokens/{address}/hide": {
+      post: {
+        tags: ["Moderation"],
+        summary: "Hide a token (wallet-signed)",
+        description: "Hide a token from public listings. Authenticated by the same 24-hour session signature flow as `PUT /api/v1/profiles/:address` — the admin signs `buildSessionMessage(address, expiresAt)` once per day; the resulting signature is reused for every moderation call. Server recovers the signer via EIP-191, requires the recovered address to match the claimed `address`, and checks that address against the admin allowlist (`ADMIN_WALLETS` env, falling back to `DEFAULT_ADMIN_WALLETS` from `@launchpad/shared`).",
+        parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["address", "signature", "expiresAt"],
+                properties: {
+                  address: { type: "string", description: "Admin wallet address. Must match the recovered signer." },
+                  signature: { type: "string", description: "Hex-encoded EIP-191 signature of `buildSessionMessage(address, expiresAt)`." },
+                  expiresAt: { type: "integer", description: "Unix-ms expiry baked into the signed message; must lie within the session-duration window from now." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Token hidden",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    address: { type: "string" },
+                    isHidden: { type: "boolean" },
+                    admin: { type: "string", description: "Recovered admin wallet that authorised the action." },
+                  },
+                  required: ["address", "isHidden", "admin"],
+                }),
+              },
+            },
+          },
+          "400": { description: "Invalid address or body", content: { "application/json": { schema: errorResponse } } },
+          "401": { description: "Signature missing, expired, or not from an admin wallet", content: { "application/json": { schema: errorResponse } } },
+          "404": { description: "Token not found in registry", content: { "application/json": { schema: errorResponse } } },
+        },
+      },
+    },
+
+    "/api/v1/moderation/tokens/{address}/unhide": {
+      post: {
+        tags: ["Moderation"],
+        summary: "Unhide a token (wallet-signed)",
+        description: "Restore a hidden token to public listings. Same auth model as `/hide` — see that endpoint for the signature requirements.",
+        parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["address", "signature", "expiresAt"],
+                properties: {
+                  address: { type: "string", description: "Admin wallet address. Must match the recovered signer." },
+                  signature: { type: "string", description: "Hex-encoded EIP-191 signature of `buildSessionMessage(address, expiresAt)`." },
+                  expiresAt: { type: "integer", description: "Unix-ms expiry baked into the signed message." },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Token unhidden",
+            content: {
+              "application/json": {
+                schema: successResponse({
+                  type: "object",
+                  properties: {
+                    address: { type: "string" },
+                    isHidden: { type: "boolean" },
+                    admin: { type: "string" },
+                  },
+                  required: ["address", "isHidden", "admin"],
+                }),
+              },
+            },
+          },
+          "400": { description: "Invalid address or body", content: { "application/json": { schema: errorResponse } } },
+          "401": { description: "Signature missing, expired, or not from an admin wallet", content: { "application/json": { schema: errorResponse } } },
+          "404": { description: "Token not found in registry", content: { "application/json": { schema: errorResponse } } },
         },
       },
     },

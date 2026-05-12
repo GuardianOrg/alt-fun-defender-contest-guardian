@@ -3,7 +3,7 @@
  *
  * The bonding curve is a constant-product AMM (x * y = k) where:
  *   reserve0 = virtual token reserve (initialised to TOTAL_SUPPLY, 1B)
- *   reserve1 = virtual LT reserve (set so opening MC ≈ $4K)
+ *   reserve1 = virtual LT reserve (set so opening MC ≈ `VIRTUAL_LIQUIDITY_USD`)
  *
  * Only CURVE_SUPPLY (75% = 750M) of real tokens are transferred to the pair;
  * the other 25% is reserved for graduation LP seeding. The virtual reserve
@@ -24,7 +24,11 @@ const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real se
 /// JS integer (USD dollars), not the on-chain 18-dp wei representation.
 /// Exported so tests can derive expected curve outputs without re-hardcoding
 /// the value (which would silently drift the moment the on-chain dial moves).
-export const VIRTUAL_LIQUIDITY_USD = 4_000;
+// TEMP(pre-launch-test): dropped from 4_000 → 100 to track the temporary
+// production `Bonding.VIRTUAL_LIQUIDITY_USD` (paired with
+// `graduationThresholdUsd = $300`). Revert to `4_000` alongside the
+// contract rollback.
+export const VIRTUAL_LIQUIDITY_USD = 100;
 const BUY_FEE_BPS = 50; // 0.5%
 
 export interface SeedBuyStats {
@@ -73,8 +77,8 @@ export function seedBuyStats(
  * Compute the USDC amount needed to acquire a target percentage of total supply.
  *
  * Derived by inverting the constant-product formula:
- *   pct = 100 × usdcAfterFee / (4000 + usdcAfterFee)
- *   ⟹  usdcAfterFee = 4000 × pct / (100 − pct)
+ *   pct = 100 × usdcAfterFee / (VIRTUAL_LIQUIDITY_USD + usdcAfterFee)
+ *   ⟹  usdcAfterFee = VIRTUAL_LIQUIDITY_USD × pct / (100 − pct)
  *   ⟹  usdcAmount   = usdcAfterFee / (1 − buyFee)
  *
  * Returns 0 for pct <= 0 or pct >= 75 (can't buy more than CURVE_SUPPLY of real tokens).

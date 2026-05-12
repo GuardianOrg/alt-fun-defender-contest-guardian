@@ -6,6 +6,7 @@ import { CREATE_PATH } from "../../app/routes";
 import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 import { useWallet } from "../../hooks/useWallet";
 import { setSearchOpen, setEarningsOpen } from "../../state/uiSlice";
+import { SEARCH_SHORTCUT_LABEL } from "../../utils/platform";
 
 export default function Header() {
   const navigate = useNavigate();
@@ -41,7 +42,7 @@ export default function Header() {
             <path d="m20 20-3.5-3.5" />
           </svg>
           <span className={styles.searchText}>Search for altcoins&hellip;</span>
-          <span className={styles.searchKbd}>⌘K</span>
+          <span className={styles.searchKbd}>{SEARCH_SHORTCUT_LABEL}</span>
         </div>
       )}
 
@@ -59,22 +60,16 @@ export default function Header() {
             Connect Wallet
           </button>
         )}
-        {isConnected &&
-          (isCreate ? (
-            <button className={styles.creatingBtn}>
-              <span>+</span>
-              <span>creating token</span>
-            </button>
-          ) : (
-            <button
-              className={styles.launchBtn}
-              onClick={() => navigate(CREATE_PATH)}
-            >
-              <span>+</span>
-              <span className={styles.fullText}>create an altcoin</span>
-              <span className={styles.shortText}>create</span>
-            </button>
-          ))}
+        {isConnected && !isCreate && (
+          <button
+            className={styles.launchBtn}
+            onClick={() => navigate(CREATE_PATH)}
+          >
+            <span>+</span>
+            <span className={styles.fullText}>create an altcoin</span>
+            <span className={styles.shortText}>create</span>
+          </button>
+        )}
       </div>
     </header>
   );

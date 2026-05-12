@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 
 import {
   ALLOWED_IMAGE_TYPES_LABEL,
@@ -59,7 +59,7 @@ export default function TokenForm({
     return utf8ByteLength(next) <= maxBytes ? next : prev;
   };
 
-  const processFile = async (file: File) => {
+  const processFile = useCallback(async (file: File) => {
     setImageError(null);
     setProcessingImage(true);
     try {
@@ -78,7 +78,7 @@ export default function TokenForm({
       setImageError(err instanceof Error ? err.message : "Image processing failed");
       setProcessingImage(false);
     }
-  };
+  }, [onImageChange]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -123,6 +123,29 @@ export default function TokenForm({
     if (!file) return;
     void processFile(file);
   };
+
+  const handlePaste = useCallback(
+    (e: ClipboardEvent) => {
+      if (processingImage) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.kind === "file" && item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+          e.preventDefault();
+          void processFile(file);
+          return;
+        }
+      }
+    },
+    [processingImage, processFile],
+  );
+
+  useEffect(() => {
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [handlePaste]);
 
   return (
     <div>
@@ -230,7 +253,7 @@ export default function TokenForm({
               ? "Processing image…"
               : dragActive
                 ? "Drop to upload"
-                : "Click or drag to upload"}
+                : "Click, drag, or paste to upload"}
           </div>
           <div className={styles.uploadHint}>
             {ALLOWED_IMAGE_TYPES_LABEL} · max {MAX_IMAGE_SIZE_LABEL}

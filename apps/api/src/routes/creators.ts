@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getAddress, isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
@@ -42,10 +42,13 @@ creators.get("/:address", async (c) => {
     .where(eq(userProfiles.address, address))
     .limit(1);
 
+  // Drop hidden tokens so a creator profile doesn't leak admin-removed
+  // launches back into the UI (issue #586). Matches the listing /
+  // search / detail behaviour — `isHidden = false` is the public lens.
   const creatorTokens = await db
     .select()
     .from(tokens)
-    .where(eq(tokens.creator, address));
+    .where(and(eq(tokens.creator, address), eq(tokens.isHidden, false)));
 
   let totalVolume = 0n;
   if (creatorTokens.length > 0) {

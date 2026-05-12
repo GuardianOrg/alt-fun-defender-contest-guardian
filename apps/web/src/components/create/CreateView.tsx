@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
+import { getAssetDisplayName, MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 import { useNavigate } from "react-router";
 
 import styles from "./CreateView.module.css";
@@ -10,6 +10,7 @@ import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
 import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
+import { useLeveragedTokens } from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
 import VanityEffect from "../effects/VanityEffect";
@@ -76,6 +77,22 @@ export default function CreateView() {
   // `BelowMinSeed` if `seedUsdcAmount < $20`. Block the Launch button at
   // the UI layer so the user never signs a reverting tx.
   const seedBelowMin = seedAmt < MIN_USDC_BUY_AMOUNT;
+  // Pull the live BounceTech LT directory so we can refuse to launch
+  // against a paused LT — token creation always includes a mandatory
+  // seed buy (`Zap.MIN_SEED_USDC`) and that buy mints LT, which would
+  // revert. `selectedLT === undefined` while the directory is loading
+  // (or the asset/leverage tuple isn't supported); the latter is already
+  // caught downstream in `useCreateToken`, so we only block on the
+  // affirmative "yes, paused" signal here.
+  const { data: liveLTs } = useLeveragedTokens();
+  const isLong = direction === "long";
+  const selectedLT = liveLTs?.find(
+    (lt) =>
+      lt.targetAsset === asset &&
+      lt.targetLeverage === leverage &&
+      lt.isLong === isLong,
+  );
+  const pairMintPaused = selectedLT?.mintPaused === true;
   const isBusy =
     launchStep === "approving" ||
     launchStep === "signing" ||
@@ -97,6 +114,10 @@ export default function CreateView() {
     }
     if (!trimmedName || !trimmedTicker) return;
     if (seedBelowMin) return;
+    // Mirrored in `useCreateToken` as a belt-and-braces — if the directory
+    // is loading we let the click through and the hook handles the case
+    // with the same error message before any wallet popup.
+    if (pairMintPaused) return;
     if (vanity.status === "error") {
       setVanityError(
         "Vanity address miner failed to start. Please refresh and try again.",
@@ -152,6 +173,7 @@ export default function CreateView() {
     if (launchStep === "confirmed") return "✓ TOKEN LAUNCHED";
     if (launchStep === "error") return "⚡ RETRY LAUNCH";
     if (vanity.status === "error") return "MINER FAILED — REFRESH";
+    if (pairMintPaused) return "PAIR MINTING PAUSED";
     if (isConnected && seedBelowMin) return `MIN SEED $${MIN_USDC_BUY_AMOUNT}`;
     return "⚡ LAUNCH TOKEN";
   };
@@ -201,6 +223,16 @@ export default function CreateView() {
           <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
 
           <div className={styles.ctaArea}>
+            {pairMintPaused && (
+              <div className={styles.warningBanner}>
+                <span className={styles.warningIcon}>⚠</span>
+                BounceTech has paused minting on{" "}
+                {getAssetDisplayName(asset)} {leverage}× {direction}. Launching
+                would revert on the mandatory seed buy — pick a different
+                pair or wait for minting to resume.
+              </div>
+            )}
+
             {launchError && (
               <div className={styles.errorBanner}>
                 <span className={styles.errorIcon}>⚠</span>
@@ -243,6 +275,7 @@ export default function CreateView() {
                 disabled={
                   launchStep === "confirmed" ||
                   vanity.status === "error" ||
+                  pairMintPaused ||
                   (isConnected && seedBelowMin)
                 }
                 className={

@@ -1,0 +1,121 @@
+/*
+ * Thin global footer pinned to the bottom of the viewport on desktop
+ * (last flex child of `.app` in `App.module.css`, which is itself a
+ * 100% height column). On mobile the layout switches to body-scroll,
+ * so we pin via `position: sticky; bottom: 0` to keep the row visible
+ * when the user scrolls a long token list.
+ *
+ * Visual register matches the rest of the chrome: faint mint border on
+ * top, `--bg-1` background, dim secondary text that brightens to mint
+ * on hover. Height is intentionally tight (~32px) — it carries socials
+ * + docs links, not navigation.
+ */
+.footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.4rem 1.2rem;
+  background: var(--bg-1);
+  border-top: 1px solid var(--border);
+}
+
+.docs,
+.legal,
+.socials {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/*
+ * Legal-doc links sit in a center group with no icons so they don't
+ * compete visually with the icon-led whitepaper/audit row on the left.
+ * Slightly dimmer than the doc links to match their secondary status —
+ * users hit them rarely and the design pushes them to the back.
+ */
+.legalLink {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--txt-3);
+  text-decoration: none;
+  padding: 0.2rem 0.4rem;
+  transition: color 0.15s ease;
+}
+
+.legalLink:hover {
+  color: var(--mint);
+}
+
+.divider {
+  color: var(--txt-4);
+  font-size: 11px;
+  user-select: none;
+}
+
+.docLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--txt-2);
+  text-decoration: none;
+  padding: 0.2rem 0.4rem;
+  transition: color 0.15s ease;
+}
+
+.docLink:hover {
+  color: var(--mint);
+}
+
+.docLink svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+.iconLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--txt-2);
+  text-decoration: none;
+  transition: color 0.15s ease;
+}
+
+.iconLink:hover {
+  color: var(--mint);
+}
+
+.iconLink svg {
+  width: 13px;
+  height: 13px;
+}
+
+@media (max-width: 768px) {
+  .footer {
+    padding: 0.4rem 0.8rem;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .docLink,
+  .legalLink {
+    padding: 0.2rem 0.2rem;
+    font-size: 10px;
+  }
+
+  .divider {
+    display: none;
+  }
+}

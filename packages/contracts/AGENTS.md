@@ -90,7 +90,7 @@ This is the most bespoke piece of the protocol. Full rationale + invariants live
 - **Parabola invariant.** With `V_t_init = totalSupply` and `curveSupply = 75%`, the function `tokensForLP(sold) = sold·(S−sold)/S` peaks at `S/4 = LP_RESERVE`. The cap in `_prepareGraduationLiquidity` is defensive — it can never bind in normal operation.
 - **Overflow buy cap.** `Router.buy` caps `tokensOut` at the pair's real balance and back-calculates the LT consumed, so the last buy cannot exceed remaining supply. `Zap.buy` refunds the unused LT as USDC (or LT on fallback). `Bonding.buy` returns `(tokensOut, amountInUsed)` for this reason.
 
-**If you change `_enterGraduating`, `finalizeGraduation`, `_prepareGraduationLiquidity`, `_seedUniswapV2Direct` (or any of its `_seedRebalancingViaRouter` / `_routerRebalance` / `_routerDepositAndDispose` / `_noFeeSwapInput` helpers), `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol`, `test/TwoPhaseGraduation.t.sol`, `test/HostilePreSeed.t.sol`, and `test/NoFeeSwapInput.t.sol`. All 7 zero-gap invariants must still pass; the phase-1-fits-in-small-block budget assertion (1.8M) must still hold; the brick-resistance + attacker-no-profit tests must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
+**If you change `_enterGraduating`, `finalizeGraduation`, `_prepareGraduationLiquidity`, `_seedUniswapV2Direct` (or any of its `_seedRebalancingViaRouter` / `_routerRebalance` / `_routerDepositAndDispose` / `_noFeeSwapInput` helpers), `Router.buy`'s capping logic, or the seeding in `_deployAndSeed`:** you MUST re-run `test/GraduationInvariants.t.sol`, `test/TwoPhaseGraduation.t.sol`, and `test/NoFeeSwapInput.t.sol`. All 7 zero-gap invariants must still pass; the phase-1-fits-in-small-block budget assertion (1.8M) must still hold; the brick-resistance regression test must still pass. These invariants are the product — do not loosen their assertions to make a change go green.
 
 ## HyperSwap Router non-standard ABI (Read This Before Adding Any Router Call)
 
@@ -193,15 +193,15 @@ Why the fourth step matters: **mass conservation prevents fixing both the price 
 - **`_routerDepositAndDispose` uses `min0=1, min1=1`.** Slippage protection on `addLiquidity` exists to defend against a third party moving the pool ratio between quote and execution; here we set the ratio ourselves in `_routerRebalance` in the same atomic tx, so there's no third party to defend against. The `=1` (rather than `=0`) trips V2's degenerate-ratio guard so the call can't silently land at near-zero.
 - **No external dependency on the router slot being correct post-deploy.** `uniswapV2Router` is set at `initialize` time alongside `uniswapV2Factory` and is rejected if zero. There's no live setter — rotation requires a UUPS upgrade so the change is visible on-chain ahead of any in-flight graduation.
 
-Tested end-to-end by `test_brickResistance_arbitraryPreSeed_finalizeAlwaysSucceeds` and the `testFuzz_arbitraryPreSeed_zeroGap` 64-run fuzz in `test/HostilePreSeed.t.sol`, plus the original brick-resistance regression tests in `test/TwoPhaseGraduation.t.sol`.
+Tested end-to-end by the brick-resistance regression tests in `test/TwoPhaseGraduation.t.sol` (notably `test_brick_resistance_frontRun_dust_seed`).
 
 ### Attacker P&L outcome
 
-After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-back-to-true-price step that the attacker wanted to extract from is gone (we already arb'd it during the rebalance, paying the V2 0.3% fee back to ourselves as ~99% LP holder via the pair's K-invariant accounting). Attacker's LP claim ≈ what they put in, modulo the `MINIMUM_LIQUIDITY` lock and a tiny share of the fee they paid. **Net P&L ≤ 0** — the attack is cost-negative. Asserted by `testFuzz_attacker_cannotProfit` over 64 random pre-seed shapes.
+After the fix, the attacker holds LP at the curve-close ratio. The arbitrage-back-to-true-price step that the attacker wanted to extract from is gone (we already arb'd it during the rebalance, paying the V2 0.3% fee back to ourselves as ~99% LP holder via the pair's K-invariant accounting). Attacker's LP claim ≈ what they put in, modulo the `MINIMUM_LIQUIDITY` lock and a tiny share of the fee they paid. **Net P&L ≤ 0** — the attack is cost-negative. This property was asserted directly during the original audit cycle but is no longer guarded by an automated test; future protocol changes that touch the rebalance / deposit path should re-derive it manually.
 
 ### Pool-open precision
 
-`PRICE_MATCH_EPS_BPS = 50` in `test/HostilePreSeed.t.sol`. Honest graduations open at 0 bps gap (Regime 1, exact direct mint). Hostile-pre-seed graduations open within 50 bps — the structural ceiling is the V2 fee landing between rebalance and deposit (~30 bps) plus integer rounding in the router's `quote()`-based split (~10 bps). 50 bps is well inside "exploit denied" — arbitrage closes the gap within blocks and the attacker still loses pre-seed value. Documented in the assertion's natspec.
+Honest graduations open at 0 bps gap (Regime 1, exact direct mint). Hostile-pre-seed graduations open within ~50 bps — the structural ceiling is the V2 fee landing between rebalance and deposit (~30 bps) plus integer rounding in the router's `quote()`-based split (~10 bps). 50 bps is well inside "exploit denied" — arbitrage closes the gap within blocks and the attacker still loses pre-seed value.
 
 ### Per-graduation LT isolation
 
@@ -214,7 +214,7 @@ Two scenarios this guards against:
 - **Concurrent graduations on the same LT.** Two tokens A and B share an LT and both reach `Lifecycle.Graduating` before either finalizes (the keeper takes ~60s and popular LTs see overlap). Without `protectedLT`, A's finalize would treat the full balance as its own and either sweep B's escrow to the owner (bricking B's later finalize) or — for hostile-pre-seed graduations — deposit it into A's locked LP. With it, A only ever sees `ltFromPair_A` and B is preserved.
 - **Cross-token LT residue (audit issue #11).** Old residue or a misdirected transfer sitting in `Bonding` would otherwise be visible to `_routerDepositAndDispose`'s `balanceOf(this)` read and could be silently consumed into a future graduation's locked LP. With `protectedLT`, contamination stays in `Bonding` and the deposit only sees this graduation's earmark.
 
-The auto-sweep emits `LTRescued(lt, owner, amount)` for indexer observability. Coverage: `test_leftoverRecovery_autoSweptToOwnerOnFinalize`, `test_autoSweep_noOpOnHappyPath`, `test_concurrentGraduations_sameLT_doNotMixEscrows`, `test_strayLt_notConsumedByLaterGraduation_sameLT`.
+The auto-sweep emits `LTRescued(lt, owner, amount)` for indexer observability. The dedicated regression tests for these edge cases were removed alongside `HostilePreSeed.t.sol`; future changes to `finalizeGraduation` / `_routerDepositAndDispose` / `_sweepLTToOwner` should add targeted coverage if the behaviour is non-obvious from the unit-level tests in `TwoPhaseGraduation.t.sol`.
 
 ### Mock-suite changes worth knowing
 
@@ -227,12 +227,13 @@ The defense exposed latent inaccuracies in `test/mocks/MockHyperswapRouter.sol` 
 
 ### Tests you MUST re-run if you change any of this
 
-- `test/HostilePreSeed.t.sol` — 16 deterministic + 2 fuzz tests covering all 3 regimes, both swap directions, pentest scenarios `F-02` / `IN-02`, leftover recovery, brick resistance, phase-1 gas budget, and the attacker-no-profit invariant.
 - `test/NoFeeSwapInput.t.sol` — 9 deterministic + 2 fuzz tests on the load-bearing math (degenerate inputs, monotonicity, cap-at-budget, closed-form correctness, overflow safety, the round-down-to-zero input shape that motivated the precheck).
-- `test/TwoPhaseGraduation.t.sol` — original brick-resistance + phase-1-fits-in-small-block tests must still pass.
+- `test/TwoPhaseGraduation.t.sol` — brick-resistance + phase-1-fits-in-small-block tests must still pass.
 - `test/GraduationInvariants.t.sol` — zero-gap, supply conservation, parabola cap. Honest-path properties unchanged by the defense.
 
-These invariants are the security contract — do not loosen their assertions to make a change go green.
+The dedicated end-to-end hostile-pre-seed integration suite (`test/HostilePreSeed.t.sol`) was removed for runtime reasons after the contracts were audited and deployed — the pentest scenarios `F-02` / `IN-02`, attacker-no-profit, leftover recovery, and concurrent-graduation isolation properties are no longer enforced by automated tests. If you change any of the graduation / rebalance / deposit code paths, consider re-deriving these properties manually and / or adding targeted regressions for whatever you touch.
+
+These invariants are the security contract — do not loosen the remaining assertions to make a change go green.
 
 ## Functional Spec
 

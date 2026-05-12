@@ -3,6 +3,17 @@
   max-height: 80vh;
 }
 
+/* Shared subline spacing for the BalancesTab / RewardsTab skeletons. Kept
+ * here so the placeholder margin matches the live two-line stack (token
+ * name + amount/value) instead of relying on inline `marginTop` props. */
+.skeletonSubline {
+  margin-top: 0.2rem;
+}
+
+.skeletonSublineLg {
+  margin-top: 0.4rem;
+}
+
 .panelHeader {
   display: flex;
   align-items: center;

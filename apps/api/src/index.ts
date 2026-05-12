@@ -22,6 +22,7 @@ import referrals from "./routes/referrals.js";
 import holders from "./routes/holders.js";
 import security from "./routes/security.js";
 import profiles from "./routes/profiles.js";
+import moderation from "./routes/moderation.js";
 import chart from "./routes/chart.js";
 import marketData from "./routes/market-data.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
@@ -135,6 +136,7 @@ app.route("/api/v1/referrals", referrals);
 app.route("/api/v1/holders", holders);
 app.route("/api/v1/security", security);
 app.route("/api/v1/profiles", profiles);
+app.route("/api/v1/moderation", moderation);
 app.route("/api/v1/chart", chart);
 app.route("/api/v1/market-data", marketData);
 

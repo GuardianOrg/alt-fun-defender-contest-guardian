@@ -13,7 +13,7 @@ Committed tone: **industrial / terminal / trading-floor**, not friendly SaaS.
 
 - Dense, not airy. Information per screen beats whitespace.
 - Monospace-forward. Numbers are first-class, text is second.
-- Color is restricted: mint (positive / primary), red (negative / short), amber (warning / LT movers), plus the text scale. No other hues.
+- Color is restricted: mint (positive / primary), red (negative / short), amber (warning), plus the text scale. No other hues.
 - Text uppercases liberally for labels, section headers, tabs. Mixed case for sentences and descriptive copy.
 
 ## Never do these (AI slop tells)
@@ -36,7 +36,7 @@ Committed tone: **industrial / terminal / trading-floor**, not friendly SaaS.
 | `--mint`                             | Positive P/L, primary CTA background, LONG tab, live indicator. Text on solid mint uses `var(--bg)`.            |
 | `--mint-dim`                         | Positive numbers when they need to sit quieter than a CTA.                                                      |
 | `--red`                              | Negative P/L, SHORT tab, destructive confirmations only.                                                        |
-| `--amber`                            | LT-mover highlight, warnings, degraded-state banners.                                                           |
+| `--amber`                            | Warnings, degraded-state banners.                                                                               |
 | `--txt`                              | Primary text. Titles, table cell values, input text.                                                            |
 | `--txt-2`                            | Secondary text. Labels, column headers, tab names, body copy.                                                   |
 | `--txt-3`                            | Tertiary. Placeholder, muted metadata, inactive tab text.                                                       |
