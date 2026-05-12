@@ -1,0 +1,11 @@
+{
+  "name": "launchpad-telegram-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
+  "vars": {},
+  "observability": {
+    "enabled": true
+  }
+}
