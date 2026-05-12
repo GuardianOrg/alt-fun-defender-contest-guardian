@@ -72,6 +72,16 @@ export const createBot = (
   env: Env,
   options: CreateBotOptions = {},
 ): Bot<AppContext> => {
+  if (!env.API_KEY) {
+    // Surface the degraded mode loudly so it doesn't get silently
+    // shipped to real users. Fix tracked in #640. AGENTS.md "Auth
+    // model" is the eventual contract; this branch is a deliberate
+    // smoke-test escape hatch.
+    logger.warn(
+      "API_KEY not set — apps/api calls fall into the anonymous 240/min per-IP bucket, shared across all users on this Worker. Provision before any real concurrency. See issue #640.",
+    );
+  }
+
   const bot = new Bot<AppContext>(env.TELEGRAM_BOT_TOKEN, {
     client: options.fetch
       ? { fetch: options.fetch as never }

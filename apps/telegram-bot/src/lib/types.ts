@@ -8,11 +8,14 @@ export interface Env {
    */
   API_BASE_URL: string;
   /**
-   * Dedicated `X-API-Key` for the bot's calls into `apps/api`. Anonymous
-   * (no key) buckets every user behind a single Worker IP under the
-   * 240/min ceiling — see AGENTS.md "Auth model".
+   * Dedicated `X-API-Key` for the bot's calls into `apps/api`. Optional
+   * to allow smoke-test deploys before the apps/api `api_keys` row is
+   * provisioned — when undefined, `lib/api.ts` omits the header and
+   * requests fall into apps/api's anonymous per-IP rate limit (240/min,
+   * shared across every user on the bot Worker). Provisioning tracked in
+   * #640; AGENTS.md "Auth model" still describes the eventual contract.
    */
-  API_KEY: string;
+  API_KEY?: string;
   /**
    * AES-256-GCM master key for custodial wallets — 32 raw bytes,
    * base64-encoded. Rotating it invalidates every stored wallet because
