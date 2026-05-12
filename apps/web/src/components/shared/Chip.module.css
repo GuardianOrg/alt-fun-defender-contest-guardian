@@ -16,7 +16,7 @@
   color: var(--txt-2);
   background: var(--bg-2);
   border: 1px solid var(--border-2);
-  border-radius: 3px;
+  border-radius: 0;
   cursor: pointer;
   white-space: nowrap;
   transition:
