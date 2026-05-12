@@ -7,6 +7,8 @@ const env: Env = {
   TELEGRAM_BOT_TOKEN: "test-bot-token",
   TELEGRAM_WEBHOOK_SECRET: "test-secret",
   ADMIN_API_KEY: "test-admin-key",
+  API_BASE_URL: "https://api.test.local",
+  API_KEY: "test-api-key",
 };
 
 const update = (text: string) => ({

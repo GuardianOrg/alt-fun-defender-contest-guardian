@@ -6,6 +6,7 @@ import {
   sendMessage,
 } from "../lib/telegram.js";
 import { parseCommand } from "../lib/commands.js";
+import { handlePositions } from "../commands/positions.js";
 
 const webhook = new Hono<AppBindings>();
 
@@ -44,6 +45,12 @@ webhook.post("/webhook", async (c) => {
       );
     } catch (err) {
       console.error("sendMessage failed", err);
+    }
+  } else if (cmd?.name === "positions") {
+    try {
+      await handlePositions(c.env, msg.chat.id, cmd.args);
+    } catch (err) {
+      console.error("handlePositions failed", err);
     }
   }
 
