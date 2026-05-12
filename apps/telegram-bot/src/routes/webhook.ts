@@ -11,6 +11,7 @@ import {
   callbackHandlers,
   dispatchCallback,
 } from "../lib/callbacks.js";
+import { logger } from "../lib/logger.js";
 
 const webhook = new Hono<AppBindings>();
 
@@ -46,7 +47,10 @@ webhook.post("/webhook", async (c) => {
       // dispatchCallback already swallows handler/Telegram errors,
       // but a registry-level bug or programmer error in future
       // handlers must still leave the webhook 200ing.
-      console.error("dispatchCallback failed", err);
+      logger.error("dispatchCallback failed", {
+        queryId: update.callback_query.id,
+        err,
+      });
     }
     return c.text("ok");
   }
@@ -64,13 +68,13 @@ webhook.post("/webhook", async (c) => {
         `Hi ${name}! Alt Fun bot is online. End-to-end check OK.`,
       );
     } catch (err) {
-      console.error("sendMessage failed", err);
+      logger.error("sendMessage failed", { command: "start", err });
     }
   } else if (cmd?.name === "positions") {
     try {
       await handlePositions(c.env, msg.chat.id, cmd.args);
     } catch (err) {
-      console.error("handlePositions failed", err);
+      logger.error("handlePositions failed", { err });
     }
   }
 

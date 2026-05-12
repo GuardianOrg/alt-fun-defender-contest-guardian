@@ -1,3 +1,4 @@
+import { logger } from "./logger.js";
 import { answerCallbackQuery } from "./telegram.js";
 import type { TelegramCallbackQuery } from "./telegram.js";
 import type { Env } from "./types.js";
@@ -133,7 +134,11 @@ export const dispatchCallback = async (
         const result = await handler({ env, query, args: parsed.args });
         if (result) answer = result;
       } catch (err) {
-        console.error("callback handler failed", err);
+        logger.error("callback handler failed", {
+          cmd: parsed.cmd,
+          queryId: query.id,
+          err,
+        });
         answer = {
           text: "Something went wrong — please try again.",
           show_alert: true,
@@ -147,6 +152,6 @@ export const dispatchCallback = async (
   } catch (err) {
     // Best-effort — Telegram outages must not loop the webhook update,
     // and there is no retry surface for answerCallbackQuery anyway.
-    console.error("answerCallbackQuery failed", err);
+    logger.error("answerCallbackQuery failed", { queryId: query.id, err });
   }
 };
