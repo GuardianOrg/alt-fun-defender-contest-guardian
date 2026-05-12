@@ -1,0 +1,94 @@
+name: Preview Web
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/shared/**"
+      - "packages/config/**"
+      - "package.json"
+      - "package-lock.json"
+      - "turbo.json"
+      - ".github/workflows/preview-web.yml"
+
+concurrency:
+  group: preview-web-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    name: Deploy PR Preview to Cloudflare Pages
+    runs-on: ubuntu-latest
+    # PRs from forks cannot access secrets — skip them rather than fail.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      deployments: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
+      - name: Cache Turbo
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: turbo-js-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-js-${{ runner.os }}-
+
+      - name: Build
+        run: npx turbo run build --filter=@launchpad/web
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_LANDING_BYPASS_SECRET: ${{ secrets.VITE_LANDING_BYPASS_SECRET }}
+          VITE_PONDER_URL: ${{ secrets.VITE_PONDER_URL }}
+          VITE_PRIVY_APP_ID: ${{ secrets.VITE_PRIVY_APP_ID }}
+          VITE_RPC_URL: ${{ secrets.VITE_RPC_URL }}
+          VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+
+      - name: Deploy preview to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy apps/web/dist
+            --project-name=alt-fun
+            --branch=${{ github.head_ref }}
+            --commit-hash=${{ github.event.pull_request.head.sha }}
+
+      - name: Comment preview URL on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: cf-preview-web
+          message: |
+            ### Cloudflare Pages preview
+
+            | | |
+            |---|---|
+            | **Deployment** | ${{ steps.deploy.outputs.deployment-url }} |
+            | **Branch alias** | ${{ steps.deploy.outputs.pages-deployment-alias-url }} |
+            | **Commit** | `${{ github.event.pull_request.head.sha }}` |
+
+            Updates automatically on every push to this PR.
