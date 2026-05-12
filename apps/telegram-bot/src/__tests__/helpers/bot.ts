@@ -62,8 +62,18 @@ export class MemoryKV {
   failPut = false;
   failDelete = false;
 
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
+  // grammy storage adapters call `kv.get(key, { type: "json" })` so the
+  // value comes back already parsed (Cloudflare KV's edge-side JSON
+  // mode). We mirror that contract here — `wallet.ts` callers pass no
+  // options and still get the raw string back.
+  async get(
+    key: string,
+    options?: { type?: "text" | "json" },
+  ): Promise<unknown> {
+    const raw = this.store.get(key);
+    if (raw === undefined) return null;
+    if (options?.type === "json") return JSON.parse(raw) as unknown;
+    return raw;
   }
 
   async put(key: string, value: string): Promise<void> {
