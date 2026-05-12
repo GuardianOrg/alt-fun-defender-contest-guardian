@@ -246,7 +246,6 @@ describe("/wallet command", () => {
 
   describe("Stub buttons", () => {
     it.each([
-      [WALLET_CALLBACK.import, /multi-step wizard/],
       [WALLET_CALLBACK.delete, /PIN/],
       [WALLET_CALLBACK.withdraw, /PIN/],
     ])(
@@ -505,6 +504,136 @@ describe("/wallet command", () => {
       expect(del).toBeDefined();
       expect(del!.body.chat_id).toBe(42);
       expect(del!.body.message_id).toBe(555);
+    });
+  });
+
+  // Import flow: callback → conversation prompts for private key →
+  // user replies with the key → bot validates, persists, replies with
+  // truncated address. The harness mirrors the per-request Workers
+  // lifecycle, so the conversation state has to round-trip through KV
+  // exactly like the Rename flow above.
+  describe("Import flow (wi)", () => {
+    const IMPORT_KEY =
+      "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef" as const;
+
+    it("prompts the user for the private key on callback entry", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      const prompt = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Paste the private key/.test(c.body.text as string),
+      );
+      expect(prompt).toBeDefined();
+      expect(await walletManager(h).listWallets(7)).toHaveLength(0);
+    });
+
+    it("persists the wallet on a valid key, sweeps the user message, and toasts the truncated address", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+
+      await h.run(textUpdate(IMPORT_KEY));
+      const calls = capture(fetchSpy);
+      const deletes = calls.filter((c) => c.url.includes("/deleteMessage"));
+      expect(deletes.length).toBeGreaterThanOrEqual(1);
+
+      const list = await walletManager(h).listWallets(7);
+      expect(list).toHaveLength(1);
+      const success = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Imported 0x/.test(c.body.text as string),
+      );
+      expect(success).toBeDefined();
+      // Plaintext key must never echo back into chat.
+      const echoed = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          typeof c.body.text === "string" &&
+          (c.body.text as string).includes(IMPORT_KEY),
+      );
+      expect(echoed).toBeUndefined();
+    });
+
+    it("rejects an invalid key and stays in the conversation for retry", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+
+      await h.run(textUpdate("not-a-key"));
+      const calls = capture(fetchSpy);
+      const reject = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /doesn't look like a private key/.test(c.body.text as string),
+      );
+      expect(reject).toBeDefined();
+      expect(await walletManager(h).listWallets(7)).toHaveLength(0);
+
+      // Conversation still active — a valid key on the next turn lands.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate(IMPORT_KEY, 4));
+      expect(await walletManager(h).listWallets(7)).toHaveLength(1);
+    });
+
+    it("/cancel exits the conversation without persisting", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("/cancel"));
+
+      const cancelReply = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Import cancelled/.test(c.body.text as string),
+      );
+      expect(cancelReply).toBeDefined();
+      expect(await walletManager(h).listWallets(7)).toHaveLength(0);
+    });
+
+    it("rejects a duplicate key with a clear toast and does not double-list", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.importWallet(7, IMPORT_KEY, "first");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate(IMPORT_KEY));
+
+      const dup = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /already in your list/.test(c.body.text as string),
+      );
+      expect(dup).toBeDefined();
+      expect((await wm.listWallets(7))).toHaveLength(1);
+    });
+
+    it("blocks entry with a cap-reached toast when at MAX_WALLETS_PER_USER", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      for (let i = 0; i < MAX_WALLETS_PER_USER; i++) {
+        await wm.createWallet(7, `w${i}`);
+      }
+      await h.run(callbackUpdate(WALLET_CALLBACK.import));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer?.body.show_alert).toBe(true);
+      expect(answer?.body.text).toContain("Wallet cap reached");
+      // No prompt was sent — entry was blocked.
+      const prompt = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Paste the private key/.test(c.body.text as string),
+      );
+      expect(prompt).toBeUndefined();
     });
   });
 });
