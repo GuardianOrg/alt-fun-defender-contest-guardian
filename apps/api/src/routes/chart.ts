@@ -258,16 +258,29 @@ export function buildPriceTimeline(
   for (const e of events) {
     const bucketTs = Math.floor(e.ts / candleSec) * candleSec;
 
-    // Crossing into a new bucket: if this event is not exactly at the
-    // boundary, inject a synthetic carry-forward tick at the boundary so
-    // the new bucket's `open` is the most recent known price, not
-    // whatever the first in-bucket real event happens to be. Uses the
-    // state BEFORE this event is applied — the boundary tick reflects
-    // the state at `bucketTs`, the new event's effects appear at `e.ts`.
+    // Crossing into a new bucket: inject a synthetic carry-forward tick
+    // at the boundary so the new bucket's `open` is the most recent
+    // known price, not whatever the first in-bucket real event happens
+    // to be. Uses the state BEFORE this event is applied — the boundary
+    // tick reflects the state at `bucketTs`, the new event's effects
+    // appear at `e.ts`.
+    //
+    // Suppressed in one case: when the event is an LT sample exactly at
+    // the boundary (`e.kind === "lt" && e.ts === bucketTs`). That event
+    // is itself the bucket's first real tick — it carries the current
+    // (pre-event) ratio against an updated rate, which is exactly the
+    // right "open" for the new bucket; a synthetic tick at the same
+    // timestamp would just duplicate it. For a ratio event at the
+    // boundary (a trade whose timestamp happens to coincide with a
+    // candle edge — ~20% of integer-second trades on 5s candles, ~1.7%
+    // on 60s) we DO emit the synthetic. Otherwise the trade tick is the
+    // bucket's first event and `open` collapses to the post-trade price,
+    // producing the same gap-with-no-body that issue #599 + the prior
+    // fix were meant to eliminate.
     if (
       lastEmittedBucketTs >= 0 &&
       bucketTs > lastEmittedBucketTs &&
-      e.ts > bucketTs &&
+      (e.ts > bucketTs || e.kind === "ratio") &&
       exchangeRate > 0 &&
       ratioTimeline[ratioIdx].timestamp <= bucketTs
     ) {

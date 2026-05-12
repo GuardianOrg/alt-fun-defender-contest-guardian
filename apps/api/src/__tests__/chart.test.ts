@@ -800,6 +800,112 @@ describe("GET /chart/:address", () => {
     }
   });
 
+  it("renders trade as a candle body on 5s candles when trade lands exactly on a bucket boundary", async () => {
+    // 5s-chart-specific regression for the secondary gap reported
+    // post-#662. With `candleSec = 5` and `sampleSec = 2` the LT grid
+    // can land such that no LT sample sits at a given bucket boundary;
+    // a trade whose block timestamp happens to be `bucketStart` exactly
+    // (~20% probability on integer-second blocks, vs ~1.7% on 60s
+    // candles) made the trade tick the bucket's first event and
+    // collapsed `open` to the post-trade price. The fix is to also
+    // emit the synthetic carry-forward tick when the boundary event
+    // is a ratio event — see `buildPriceTimeline` in
+    // `apps/api/src/routes/chart.ts`.
+    const baseSec = 1_700_000_000;
+    const launchTs = baseSec - 100;
+    // Pick `bucketStart` such that mod 5 == 0 AND no LT sample lands
+    // there (LT grid offset is 2s steps starting from `fromSec`, and
+    // we mock the LT rows to leave a gap at the boundary). Trade ts
+    // equals bucketStart.
+    const bucketStart = Math.floor(baseSec / 5) * 5 + 5;
+    const tradeTs = bucketStart;
+
+    const dateNowSpy = vi
+      .spyOn(Date, "now")
+      .mockReturnValue((bucketStart + 10) * 1000);
+
+    mockPonderQuery
+      .mockResolvedValueOnce({ __typename: "Query" })
+      .mockResolvedValueOnce({
+        token: {
+          k: "1000000000000000000000000000000000000000000000",
+          ltToken: "0xB5A5EcA6Ddc738943A6CaF716D4185B3680dE4b7",
+          graduated: false,
+          graduatedAt: null,
+          timestamp: String(launchTs),
+        },
+      })
+      .mockResolvedValueOnce({ tokenSnapshots: { items: [] } });
+
+    // LT samples bracket the boundary (at bucketStart - 3 and
+    // bucketStart + 2) but no sample lands AT bucketStart itself.
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(bucketStart - 3), exchange_rate: "1000000000000000000" },
+      { ts: String(bucketStart - 1), exchange_rate: "1000000000000000000" },
+      { ts: String(bucketStart + 2), exchange_rate: "1000000000000000000" },
+      { ts: String(bucketStart + 4), exchange_rate: "1000000000000000000" },
+    ]);
+
+    // 8x ratio jump (1e-9 → 8e-9) simulates a big buy at the boundary.
+    mockPonderPaginatedQuery.mockResolvedValue({
+      items: [
+        {
+          curveSupply: "500000000000000000000000000",
+          ltReserve: "4000000000000000000",
+          timestamp: String(tradeTs),
+        },
+      ],
+      truncated: false,
+    });
+
+    try {
+      const app = createApp();
+      const res = await app.request(
+        `/chart/${VALID_ADDRESS}?interval=5`,
+        {},
+        makeEnv(),
+      );
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        status: string;
+        data: {
+          candles: {
+            time: number;
+            open: number;
+            high: number;
+            low: number;
+            close: number;
+          }[];
+        };
+      };
+      expect(body.status).toBe("success");
+
+      const tradeBucket = body.data.candles.find((c) => c.time === bucketStart);
+      expect(tradeBucket).toBeDefined();
+
+      // Body visible: close at post-trade is strictly greater than
+      // open at pre-trade.
+      expect(tradeBucket!.close).toBeGreaterThan(tradeBucket!.open);
+
+      // The decisive assertion: `low === open` at the pre-trade carry-
+      // forward price. Pre-fix `low` collapsed to the post-trade price
+      // because every in-bucket tick used the post-trade ratio.
+      expect(tradeBucket!.low).toBeCloseTo(tradeBucket!.open, 18);
+      expect(tradeBucket!.high).toBeCloseTo(tradeBucket!.close, 18);
+
+      // No vertical gap to the previous bucket.
+      const prevBucket = body.data.candles.find(
+        (c) => c.time === bucketStart - 5,
+      );
+      if (prevBucket) {
+        expect(prevBucket.close).toBeCloseTo(tradeBucket!.open, 18);
+      }
+    } finally {
+      dateNowSpy.mockRestore();
+    }
+  });
+
   it("returns 400 for partial-numeric interval values", async () => {
     const app = createApp();
 
@@ -900,17 +1006,27 @@ describe("buildPriceTimeline", () => {
   it("skips ratio events before the first LT sample (no rate to multiply)", () => {
     // Launch anchor ratio sits at t=0, but the first LT-rate sample is
     // at t=50 (e.g. token launched before `fromSec` of the BounceTech
-    // window). The launch anchor must not produce a price tick — there's
-    // no exchange rate to multiply against.
+    // window). The launch anchor must not produce a price tick at t=0 —
+    // there's no exchange rate to multiply against.
     const ltRows = [{ ts: "50", exchange_rate: "1000000000000000000" }];
     const ratioTimeline = [
       { timestamp: 0, ratio: 1 }, // launch anchor — pre-window
-      { timestamp: 60, ratio: 2 }, // trade — post-first-sample
+      { timestamp: 60, ratio: 2 }, // trade — post-first-sample, at bucket boundary
     ];
 
     const out = buildPriceTimeline(ltRows, ratioTimeline, 60);
-    // Only the LT@50 (price=1) and the trade@60 (price=2) survive.
-    expect(out.map((p) => p.ts)).toEqual([50, 60]);
+    // - No tick at t=0 (rate was 0, so the launch anchor is skipped).
+    // - LT@50 emits at price=1*1=1.
+    // - Trade@60 lands exactly on the next bucket boundary; the
+    //   bucket-boundary-aware logic emits a synthetic carry-forward
+    //   tick at t=60 with the PRE-trade ratio (=1) so the new bucket
+    //   has a valid `open` from the pre-trade carry-forward state,
+    //   then the real trade tick at t=60 advances to ratio=2.
+    expect(out).toEqual([
+      { ts: 50, price: 1 },
+      { ts: 60, price: 1 },
+      { ts: 60, price: 2 },
+    ]);
   });
 
   it("preserves chronological order across mixed events", () => {
@@ -992,6 +1108,68 @@ describe("buildPriceTimeline", () => {
     expect(out).toEqual([
       { ts: 0, price: 1 },
       { ts: 60, price: 1 },
+    ]);
+  });
+
+  it("emits a synthetic boundary tick when a trade lands EXACTLY on a bucket boundary (5s-chart regression)", () => {
+    // The "trade-before-first-LT-sample" fix only fired when the event
+    // was strictly INSIDE the bucket (`e.ts > bucketTs`). When the
+    // trade timestamp happens to coincide with the bucket boundary
+    // itself, the trade became the bucket's first event and `open`
+    // collapsed to the post-trade price — same visible symptom as the
+    // bug Option B was supposed to fix. This is rare on 60s candles
+    // (~1.7% of integer-second trades) but hits ~20% of trades on 5s
+    // candles, which is why the 5s chart still showed the gap after
+    // the first fix.
+    //
+    // The fix is to also emit the synthetic when the event AT the
+    // boundary is a ratio event (a trade). An LT event at the boundary
+    // already serves the purpose itself, so it stays suppressed.
+    const ltRows = [
+      // No LT sample at the bucket boundary t=5 — that's the
+      // condition that turns the trade tick into the bucket's first
+      // event. Samples at 2 and 7 bracket the boundary.
+      { ts: "2", exchange_rate: "1000000000000000000" },
+      { ts: "7", exchange_rate: "1000000000000000000" },
+    ];
+    const ratioTimeline = [
+      { timestamp: 0, ratio: 1 }, // launch anchor (pre-trade)
+      { timestamp: 5, ratio: 2 }, // trade EXACTLY at 5s bucket boundary
+    ];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline, 5);
+
+    // Expect a synthetic tick at t=5 with the pre-trade price (=1)
+    // BEFORE the real trade tick at t=5 (price=2). The synthetic must
+    // be first in the array so `buildCandles` picks it as the new
+    // bucket's `open`.
+    const ticksAtFive = out.filter((p) => p.ts === 5);
+    expect(ticksAtFive).toHaveLength(2);
+    expect(ticksAtFive[0].price).toBe(1); // synthetic, pre-trade
+    expect(ticksAtFive[1].price).toBe(2); // real, post-trade
+
+    // Sanity: the LT samples either side of the boundary use the
+    // expected ratio at their time.
+    expect(out.find((p) => p.ts === 2)!.price).toBe(1); // pre-trade
+    expect(out.find((p) => p.ts === 7)!.price).toBe(2); // post-trade
+  });
+
+  it("does NOT duplicate when an LT sample lands exactly on the bucket boundary (no synthetic needed)", () => {
+    // The LT event itself serves as the new bucket's first tick — it
+    // carries the current ratio against an updated rate, which is the
+    // correct "open". Emitting a synthetic at the same timestamp would
+    // duplicate it. This regression-pins the suppression branch.
+    const ltRows = [
+      { ts: "0", exchange_rate: "1000000000000000000" },
+      { ts: "5", exchange_rate: "2000000000000000000" },
+    ];
+    const ratioTimeline = [{ timestamp: -10, ratio: 1 }];
+
+    const out = buildPriceTimeline(ltRows, ratioTimeline, 5);
+    // Two ticks total, one per LT sample. No duplicate at t=5.
+    expect(out).toEqual([
+      { ts: 0, price: 1 },
+      { ts: 5, price: 2 },
     ]);
   });
 
