@@ -28,9 +28,25 @@ export interface TelegramMessage {
   }>;
 }
 
+export interface TelegramCallbackQuery {
+  id: string;
+  from: TelegramUser;
+  /**
+   * Absent when the originating message has been deleted or is too old
+   * (>48h). Handlers that want to edit must guard for this case — see
+   * `editMessageText` below for the 400-as-no-op contract.
+   */
+  message?: TelegramMessage;
+  /** 1–64 bytes of arbitrary data set on the inline button. */
+  data?: string;
+  /** Stable identifier of the chat-instance the button was clicked in. */
+  chat_instance: string;
+}
+
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
 }
 
 const API_BASE = "https://api.telegram.org";
@@ -65,5 +81,44 @@ export const sendMessage = (
   callTelegram(botToken, "sendMessage", {
     ...extra,
     chat_id: chatId,
+    text,
+  });
+
+/**
+ * Telegram requires every callback_query to be answered within ~30s,
+ * otherwise the client keeps the button spinner alive and surfaces an
+ * error to the user. `text` is the optional toast — empty answers
+ * dismiss the spinner silently. `show_alert: true` turns the toast into
+ * a modal the user must dismiss; reserve it for hard errors.
+ */
+export const answerCallbackQuery = (
+  botToken: string,
+  callbackQueryId: string,
+  opts: { text?: string; show_alert?: boolean } = {},
+) => {
+  const payload: Record<string, unknown> = { callback_query_id: callbackQueryId };
+  if (opts.text !== undefined) payload.text = opts.text;
+  if (opts.show_alert !== undefined) payload.show_alert = opts.show_alert;
+  return callTelegram(botToken, "answerCallbackQuery", payload);
+};
+
+/**
+ * `chat_id` / `message_id` / `text` land after `...extra` so an upstream
+ * caller cannot accidentally override the routing keys via the extras
+ * bag — matches the contract enforced on `sendMessage`. Returns the raw
+ * Response so callers can detect Telegram's "message not found" 400 and
+ * treat it as a no-op per AGENTS.md.
+ */
+export const editMessageText = (
+  botToken: string,
+  chatId: number,
+  messageId: number,
+  text: string,
+  extra: Record<string, unknown> = {},
+) =>
+  callTelegram(botToken, "editMessageText", {
+    ...extra,
+    chat_id: chatId,
+    message_id: messageId,
     text,
   });

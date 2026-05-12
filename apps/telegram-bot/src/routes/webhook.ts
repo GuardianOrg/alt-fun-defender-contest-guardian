@@ -6,6 +6,12 @@ import {
   sendMessage,
 } from "../lib/telegram.js";
 import { parseCommand } from "../lib/commands.js";
+import { handlePositions } from "../commands/positions.js";
+import {
+  callbackHandlers,
+  dispatchCallback,
+} from "../lib/callbacks.js";
+import { logger } from "../lib/logger.js";
 
 const webhook = new Hono<AppBindings>();
 
@@ -30,6 +36,25 @@ webhook.post("/webhook", async (c) => {
     return c.text("ok");
   }
 
+  if (update.callback_query) {
+    try {
+      await dispatchCallback(
+        c.env,
+        update.callback_query,
+        callbackHandlers,
+      );
+    } catch (err) {
+      // dispatchCallback already swallows handler/Telegram errors,
+      // but a registry-level bug or programmer error in future
+      // handlers must still leave the webhook 200ing.
+      logger.error("dispatchCallback failed", {
+        queryId: update.callback_query.id,
+        err,
+      });
+    }
+    return c.text("ok");
+  }
+
   const msg = update.message;
   if (!msg) return c.text("ok");
 
@@ -43,7 +68,13 @@ webhook.post("/webhook", async (c) => {
         `Hi ${name}! Alt Fun bot is online. End-to-end check OK.`,
       );
     } catch (err) {
-      console.error("sendMessage failed", err);
+      logger.error("sendMessage failed", { command: "start", err });
+    }
+  } else if (cmd?.name === "positions") {
+    try {
+      await handlePositions(c.env, msg.chat.id, cmd.args);
+    } catch (err) {
+      logger.error("handlePositions failed", { err });
     }
   }
 

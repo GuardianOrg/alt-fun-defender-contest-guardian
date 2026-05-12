@@ -7,6 +7,8 @@ const env: Env = {
   TELEGRAM_BOT_TOKEN: "test-bot-token",
   TELEGRAM_WEBHOOK_SECRET: "test-secret",
   ADMIN_API_KEY: "test-admin-key",
+  API_BASE_URL: "https://api.test.local",
+  API_KEY: "test-api-key",
 };
 
 const post = (body: string | object, headers: Record<string, string> = {}) =>
@@ -107,7 +109,7 @@ describe("POST /admin/set-webhook", () => {
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.url).toBe("https://example.com/webhook");
     expect(body.secret_token).toBe("test-secret");
-    expect(body.allowed_updates).toEqual(["message"]);
+    expect(body.allowed_updates).toEqual(["message", "callback_query"]);
   });
 });
 
