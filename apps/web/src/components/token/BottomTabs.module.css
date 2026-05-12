@@ -1,6 +1,10 @@
 .tradesTable {
   width: 100%;
   font-size: 13px;
+  /* Required for `border-bottom` on `<tr>` elements (`.tradeRow`) to
+   * render — browsers ignore row borders under the default
+   * `border-collapse: separate`. */
+  border-collapse: collapse;
 }
 
 .tradesHead {

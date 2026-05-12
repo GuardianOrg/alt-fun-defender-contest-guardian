@@ -236,6 +236,7 @@
   padding-top: 0.6rem;
   padding-bottom: 0.6rem;
   cursor: pointer;
+  border-bottom: 1px solid var(--border);
   transition:
     color 0.15s ease,
     background-color 0.15s ease,
