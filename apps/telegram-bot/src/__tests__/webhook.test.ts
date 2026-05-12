@@ -87,6 +87,40 @@ describe("POST /webhook", () => {
     expect(body.text).toContain("Ada");
   });
 
+  it("ACKs malformed JSON instead of 5xx (avoids Telegram retry storm)", async () => {
+    const res = await app.request(
+      "/webhook",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "test-secret",
+        },
+        body: "not json",
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("ACKs even when sendMessage throws", async () => {
+    fetchSpy.mockRejectedValueOnce(new Error("telegram down"));
+    const res = await app.request(
+      "/webhook",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "test-secret",
+        },
+        body: JSON.stringify(update("/start")),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+
   it("ignores non-command messages", async () => {
     const res = await app.request(
       "/webhook",

@@ -20,18 +20,31 @@ webhook.post("/webhook", async (c) => {
     return c.text("forbidden", 403);
   }
 
-  const update = (await c.req.json()) as TelegramUpdate;
+  // Always ACK after auth — Telegram aggressively retries 5xx and a parse
+  // error or transient sendMessage failure would otherwise loop the same
+  // update through the worker until it falls off Telegram's retry window.
+  let update: TelegramUpdate;
+  try {
+    update = await c.req.json<TelegramUpdate>();
+  } catch {
+    return c.text("ok");
+  }
+
   const msg = update.message;
   if (!msg) return c.text("ok");
 
   const cmd = parseCommand(msg);
   if (cmd?.name === "start") {
     const name = msg.from?.first_name ?? "there";
-    await sendMessage(
-      c.env.TELEGRAM_BOT_TOKEN,
-      msg.chat.id,
-      `Hi ${name}! Alt Fun bot is online. End-to-end check OK.`,
-    );
+    try {
+      await sendMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        msg.chat.id,
+        `Hi ${name}! Alt Fun bot is online. End-to-end check OK.`,
+      );
+    } catch (err) {
+      console.error("sendMessage failed", err);
+    }
   }
 
   return c.text("ok");
