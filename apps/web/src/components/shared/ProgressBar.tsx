@@ -8,6 +8,16 @@ interface ProgressBarProps {
   leveragePercent: number;
   isShort?: boolean;
   isGraduating?: boolean;
+  /**
+   * Finished-state override. When true the bar collapses to a single solid
+   * amber 100% fill — no organic/boost split, no pulse, no tooltip — which
+   * matches `apps/web/AGENTS.md` "If the token is graduated, hide the
+   * split entirely". `isGraduating` and `isGraduated` are mutually
+   * exclusive lifecycle states (see `Token.status`), but if both arrive
+   * as `true` the graduated branch wins and the pulse is suppressed —
+   * the bar is finished, not in flight.
+   */
+  isGraduated?: boolean;
   label?: string;
   showLegend?: boolean;
   buyUsd?: string;
@@ -20,6 +30,7 @@ export default function ProgressBar({
   leveragePercent,
   isShort = false,
   isGraduating = false,
+  isGraduated = false,
   label,
   showLegend = false,
   buyUsd,
@@ -32,6 +43,37 @@ export default function ProgressBar({
 
   const buyPctDisplay = Math.round(buyPercent);
   const levPctDisplay = Math.round(leveragePercent * 10) / 10;
+
+  // Graduated bars carry no informational split (graduation is a finished
+  // lifecycle state, not a live curve in progress), so we skip the
+  // mouse-driven tooltip entirely. `overflowHidden` lets the track's
+  // 9999px radius clip the right edge of the full-width buy segment into
+  // a clean pill — the leverage segment is suppressed in this branch.
+  if (isGraduated) {
+    return (
+      <div className={styles.wrapper}>
+        <div
+          ref={trackRef}
+          className={cn(
+            styles.track,
+            styles.overflowHidden,
+            size === "sm" ? styles.trackSm : styles.trackMd,
+          )}
+        >
+          <div
+            className={cn(styles.buySegment, styles.buySegmentGraduated)}
+            style={{ width: "100%" }}
+          />
+        </div>
+
+        {label && (
+          <div className={styles.labelWrap}>
+            <span className={styles.labelText}>{label}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={styles.wrapper}>

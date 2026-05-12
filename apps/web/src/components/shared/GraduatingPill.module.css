@@ -1,0 +1,38 @@
+/* Shared `GRADUATING` pill — visual sibling of `GraduatedPill.pill`.
+ * Keep the geometry (font, padding, radius, border channels) in sync
+ * with `GraduatedPill.module.css` so the two states read as a family;
+ * the only intentional difference is the pulse animation here vs. the
+ * shimmer there. If you touch one, eyeball the other.
+ *
+ * Pulse uses the centralized `badgep` keyframes from `index.css`
+ * (opacity 1 → 0.3 → 1 every 1.4s) — the same cadence already used by
+ * other in-flight markers (e.g. the curve-strip `graduating` badge on
+ * the token detail page) so a token mid-graduation pulses at a single,
+ * recognisable tempo everywhere it appears. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: var(--amber-bg);
+  border: 1px solid rgba(240, 180, 41, 0.5);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+  animation: badgep 1.4s ease-in-out infinite;
+}
+
+/* Mandatory per `design.mdc` — anything that loops respects user
+ * motion preferences. Keep the pill fully visible (it's a meaningful
+ * lifecycle marker), just stop the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .pill {
+    animation: none;
+  }
+}

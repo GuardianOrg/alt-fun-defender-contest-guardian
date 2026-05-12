@@ -7,6 +7,7 @@ import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
 import Chip from "../shared/Chip";
+import GraduatedPill from "../shared/GraduatedPill";
 import Modal from "../shared/Modal";
 
 import type { Token } from "../../services/types";
@@ -60,15 +61,7 @@ export default function HeroSection({ token }: Props) {
           <div className={styles.tickerNameContainer}>
             <div className={styles.tickerRow}>
               <div className={styles.ticker}>{token.ticker}</div>
-              {token.status === "graduated" && (
-                <span
-                  className={styles.gradPill}
-                  title="This token has graduated — it now trades on HyperSwap"
-                  aria-label="Graduated"
-                >
-                  GRADUATED
-                </span>
-              )}
+              {token.status === "graduated" && <GraduatedPill />}
             </div>
             <div className={styles.fullName}>{token.name}</div>
           </div>

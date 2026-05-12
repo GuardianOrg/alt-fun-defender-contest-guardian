@@ -73,17 +73,40 @@
 }
 
 /* `graduated` status badge — replaces the `$threshold` figure on the
- * curve strip once a token has completed its bonding curve. Mint
- * (success) over the same text size/weight as the threshold it
- * replaces so the strip layout is unchanged. Static — no pulse —
- * because graduation is a finished state. */
+ * curve strip once a token has completed its bonding curve. Amber to
+ * match the graduated `ProgressBar` fill immediately to its left,
+ * keeping the strip visually coherent end-to-end (the previous mint
+ * read as "up / positive" while the bar read as "lifecycle complete",
+ * which was contradictory information sitting 8px apart). Same text
+ * size/weight as the `$threshold` figure it replaces so the strip
+ * layout is unchanged. Static — no pulse — because graduation is a
+ * finished state; the in-progress `.graduatingBadge` below is the one
+ * that pulses. */
 .graduatedBadge {
   font-size: 11px;
-  color: var(--mint);
+  color: var(--amber);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   flex-shrink: 0;
+}
+
+/* Creator-supplied description (max 280 chars). Rendered as a quiet
+ * paragraph directly under the curve strip — mixed-case body copy in
+ * `--txt-2`, panel chrome to match the strip above so it reads as part
+ * of the same metadata band. `overflow-wrap: anywhere` guards against
+ * URL-like / unbroken strings from blowing the column width. */
+.description {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.8rem 1.2rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-1);
+  color: var(--txt-2);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .errorFallback {

@@ -1,0 +1,96 @@
+/* Shared `GRADUATED` pill — see `GraduatedPill.tsx` for the design
+ * rationale. Border channels track `--amber` (#f0b429) verbatim to keep
+ * the outline tonally consistent with the text colour. Keep the
+ * geometry (font, padding, radius, border) in sync with
+ * `GraduatingPill.module.css` so the two states read as a family — the
+ * only intentional difference is the shimmer animation here vs. the
+ * `badgep` pulse there.
+ *
+ * 10px / 0.08em letter-spacing reads cleanly inline next to both the
+ * 15px table-row ticker and the larger detail-hero ticker, without
+ * needing a per-site size variant. */
+.pill {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: var(--amber-bg);
+  border: 1px solid rgba(240, 180, 41, 0.5);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  line-height: 1;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Diagonal white shine that sweeps across the pill on a 2.4s cycle
+ * (see `@keyframes gradPillShimmer` in `index.css`) — the sweep itself
+ * takes ~1.4s, then the pseudo holds off-canvas for the remaining
+ * ~1s so the effect reads as a recurring celebratory glint rather
+ * than a constant heartbeat. The earlier 4s cycle (40% sweep / 60%
+ * hold) was correct in spirit but tuned too lazily: a user glancing
+ * at a row for ~5s could miss the ~600ms visible window entirely and
+ * conclude the shimmer was static.
+ *
+ * `inset: -150% -50%` sizes the pseudo well beyond the pill so the
+ * rotated gradient fully covers the corners at every step of the
+ * translation. The parent's `overflow: hidden` + `border-radius: 3px`
+ * clip the shine to the pill's silhouette. `transform` is left
+ * entirely to the keyframes — every frame in `gradPillShimmer`
+ * includes the `rotate(25deg)`, so declaring a static rotation here
+ * too would just duplicate the value and (more importantly) leave a
+ * static rotated stripe across the pill in the rare case the
+ * animation fails to start (HMR drift, browser ext, etc.) — exactly
+ * the "looks not animated" symptom we want to make impossible.
+ *
+ * Z-stacking: shine sits ABOVE the "GRADUATED" text on purpose — the
+ * gradient is transparent except in a narrow ~20% mid-band, and the
+ * pseudo's 0.8 opacity combined with the 0.55 mid-stop alpha puts the
+ * peak overlay at ~rgba(255,255,255,0.44), which lightly washes the
+ * amber text only while the band is over it. */
+.pill::after {
+  content: "";
+  position: absolute;
+  inset: -150% -50%;
+  background: linear-gradient(
+    120deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 70%
+  );
+  opacity: 0.8;
+  animation: gradPillShimmer 4s linear infinite;
+  will-change: transform;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Mandatory per `design.mdc` — anything that loops respects user
+ * motion preferences. We hide the pseudo entirely rather than just
+ * stopping the animation, because the static rotated gradient at the
+ * starting position would otherwise leave a permanent diagonal stripe
+ * across the pill. */
+@media (prefers-reduced-motion: reduce) {
+  .pill::after {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+@keyframes gradPillShimmer {
+  0% {
+    transform: translateX(-100%) rotate(25deg);
+  }
+  60% {
+    transform: translateX(100%) rotate(25deg);
+  }
+  100% {
+    transform: translateX(100%) rotate(25deg);
+  }
+}
