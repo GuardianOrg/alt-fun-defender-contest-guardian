@@ -6,9 +6,25 @@ import { useTokenPrices } from "./useTokenPrices";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import { erc20Abi } from "../contracts/abis";
-import { fetchAllTokens, fetchBalances } from "../services/api";
+import { API_BASE, fetchAllTokens, fetchBalances } from "../services/api";
 
 import type { HeldToken } from "../services/types";
+
+/**
+ * The API stores token logo paths as root-relative (e.g.
+ * `/images/tokens/<key>`) so the same DB row renders against any
+ * frontend's `API_BASE`. Token-list rows flow through
+ * `fromApiToken` which resolves these against `API_BASE`; the
+ * balances hook bypasses that path (it builds `HeldToken` directly
+ * from the chain multicall + balances API), so we have to do the
+ * same resolution here or every "My Positions" logo loads from the
+ * webapp's own origin and 404s. Empty strings stay `undefined` so
+ * the row falls back to the emoji/coin glyph.
+ */
+function resolveImageUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  return new URL(raw, API_BASE).toString();
+}
 
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
@@ -142,7 +158,7 @@ export function useBalances() {
         name: b.name,
         ticker: b.ticker,
         emoji: "",
-        image: b.imageUrl || undefined,
+        image: resolveImageUrl(b.imageUrl),
         ltName: `${b.ltPair} ${b.leverage}×`,
         status: "active" as const,
         amount,
