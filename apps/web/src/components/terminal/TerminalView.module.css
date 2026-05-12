@@ -21,6 +21,7 @@
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border);
+  background: var(--bg-1);
   min-height: 0;
 }
 

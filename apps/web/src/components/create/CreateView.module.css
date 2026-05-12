@@ -10,6 +10,7 @@
 .formColumn {
   overflow-y: auto;
   border: 1px solid var(--border);
+  background: var(--bg-1);
 }
 
 .pageHeader {
@@ -18,7 +19,7 @@
   padding-top: 2.4rem;
   padding-bottom: 1.6rem;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(to bottom, var(--bg-1), var(--bg));
+  background: var(--bg-1);
 }
 
 .eyebrow {

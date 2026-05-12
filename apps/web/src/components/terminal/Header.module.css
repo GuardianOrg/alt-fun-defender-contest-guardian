@@ -2,7 +2,7 @@
   position: relative;
   flex-shrink: 0;
   border: 1px solid var(--border);
-  background: #061e1c;
+  background: var(--bg-1);
   overflow: hidden;
   min-height: 6.7rem;
   display: flex;
