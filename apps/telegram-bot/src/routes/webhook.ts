@@ -76,7 +76,7 @@ webhook.post("/webhook", async (c) => {
     }
   } else if (cmd?.name === "wallet") {
     try {
-      await handleWallet(c.env, msg.chat.id);
+      await handleWallet(c.env, msg.chat.id, msg.from?.id);
     } catch (err) {
       logger.error("handleWallet failed", { err });
     }
