@@ -152,13 +152,15 @@ export const createBot = (
             ((await env.WALLET_KV.get(`conversation:${key}`, {
               type: "json",
             })) ?? undefined) as never,
-          write: async (key, state) =>
-            void env.WALLET_KV.put(
+          write: async (key, state) => {
+            await env.WALLET_KV.put(
               `conversation:${key}`,
               JSON.stringify(state),
-            ),
-          delete: async (key) =>
-            void env.WALLET_KV.delete(`conversation:${key}`),
+            );
+          },
+          delete: async (key) => {
+            await env.WALLET_KV.delete(`conversation:${key}`);
+          },
         },
       },
     }),

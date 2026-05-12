@@ -127,7 +127,7 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
 
 const buildPinManager = (env: AppContext["env"]): PinManager =>
-  new PinManager(env.WALLET_KV, { iterations: env.PIN_ITERATIONS });
+  new PinManager(env.WALLET_KV, { saltRounds: env.PIN_SALT_ROUNDS });
 
 const renderMainState = async (
   wm: WalletManager,

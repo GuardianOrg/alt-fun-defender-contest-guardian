@@ -283,7 +283,7 @@ describe("/wallet command", () => {
     });
 
     const buildPm = (h: BotTestHarness): PinManager =>
-      new PinManager(h.kv as unknown as KVNamespace, { iterations: 1_000 });
+      new PinManager(h.kv as unknown as KVNamespace, { saltRounds: 4 });
 
     it("toasts 'no active wallet' when invoked on an empty account", async () => {
       const h = makeBotHarness();

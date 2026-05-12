@@ -1,3 +1,5 @@
+import bcrypt from "bcryptjs";
+
 /**
  * PIN management for wallet-sensitive flows (export key, withdraw,
  * delete wallet). The PIN gate is the second factor on top of the
@@ -8,20 +10,19 @@
  * Threat model:
  *   - Online attacker with a stolen Telegram session: blocked by PIN,
  *     and after 5 wrong PINs the user is locked out for 30 minutes.
- *   - Operator with KV read access: sees salted PBKDF2 hashes, not the
- *     PIN. Brute-forcing a 6-digit PIN against the offline hash is the
- *     dominant residual risk — mitigated by high iteration count, but
- *     not eliminated. Rotating MASTER_KEY invalidates wallets but does
- *     NOT invalidate PIN hashes (they derive only from PIN + salt), so
- *     a leaked KV dump remains a brute-force surface.
+ *   - Operator with KV read access: sees bcrypt hashes, not the PIN.
+ *     Brute-forcing a 6-digit PIN against the offline hash is the
+ *     dominant residual risk — mitigated by bcrypt's tunable cost,
+ *     but not eliminated. Rotating MASTER_KEY invalidates wallets
+ *     but does NOT invalidate PIN hashes (bcrypt is independent of
+ *     the AES master key), so a leaked KV dump remains a
+ *     brute-force surface.
  *
- * AGENTS.md specifies bcrypt; we use PBKDF2-SHA256 instead because
- * Cloudflare Workers ships WebCrypto natively and bcrypt would require
- * a WASM port (no first-party Worker support). PBKDF2 at the iteration
- * count below is OWASP-recommended for password-class secrets and
- * matches the wallet-encryption stack's use of WebCrypto in
- * `wallet.ts`. Iterations are tunable via the constructor so tests can
- * run in single-digit ms.
+ * bcrypt implementation is `bcryptjs` — pure-JS, runs in the
+ * Cloudflare Workers runtime (no native bindings, no WASM). Tuning
+ * cost via `saltRounds` lets tests run in single-digit ms (rounds=4)
+ * while production keeps OWASP's recommended rounds=12. Per AGENTS.md
+ * `/security` spec, PINs are 6-digit numeric and bcrypt-hashed in KV.
  *
  * v1 scope: hash, verify, attempt counter, 30-minute lockout. The
  * 24-hour PIN reset flow described in AGENTS.md `/security` is
@@ -30,9 +31,7 @@
  * acceptable for v1 because no real funds flow through the bot yet.
  */
 
-const SALT_LEN = 16;
-const HASH_LEN = 32;
-const DEFAULT_ITERATIONS = 600_000;
+const DEFAULT_SALT_ROUNDS = 12;
 const PIN_REGEX = /^\d{6}$/;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 30 * 60 * 1000;
@@ -41,9 +40,8 @@ const hashKey = (userId: number): string => `pin:${userId}:hash`;
 const attemptsKey = (userId: number): string => `pin:${userId}:attempts`;
 
 interface StoredHash {
-  salt: string;
+  /** bcrypt encoded string (algorithm + cost + salt + digest). */
   hash: string;
-  iterations: number;
 }
 
 interface StoredAttempts {
@@ -52,26 +50,6 @@ interface StoredAttempts {
 }
 
 const EMPTY_ATTEMPTS: StoredAttempts = { count: 0, lockedUntil: 0 };
-
-const b64encode = (bytes: Uint8Array): string => {
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-};
-
-const b64decode = (s: string): Uint8Array => {
-  const bin = atob(s);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-};
-
-const constantTimeEqual = (a: Uint8Array, b: Uint8Array): boolean => {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
-  return diff === 0;
-};
 
 export class InvalidPinFormatError extends Error {
   constructor() {
@@ -88,17 +66,16 @@ export type VerifyResult =
   | { ok: false; reason: "locked-now"; retryAt: number };
 
 export class PinManager {
-  private readonly iterations: number;
+  private readonly saltRounds: number;
+  private readonly now: () => number;
 
   constructor(
     private readonly kv: KVNamespace,
-    options: { iterations?: number; now?: () => number } = {},
+    options: { saltRounds?: number; now?: () => number } = {},
   ) {
-    this.iterations = options.iterations ?? DEFAULT_ITERATIONS;
+    this.saltRounds = options.saltRounds ?? DEFAULT_SALT_ROUNDS;
     this.now = options.now ?? (() => Date.now());
   }
-
-  private readonly now: () => number;
 
   static isValidPinFormat(pin: string): boolean {
     return PIN_REGEX.test(pin);
@@ -111,16 +88,11 @@ export class PinManager {
 
   async setPin(userId: number, pin: string): Promise<void> {
     if (!PinManager.isValidPinFormat(pin)) throw new InvalidPinFormatError();
-    const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
-    const hash = await this.derive(pin, salt, this.iterations);
-    const record: StoredHash = {
-      salt: b64encode(salt),
-      hash: b64encode(hash),
-      iterations: this.iterations,
-    };
+    const hash = await bcrypt.hash(pin, this.saltRounds);
+    const record: StoredHash = { hash };
     await this.kv.put(hashKey(userId), JSON.stringify(record));
-    // Setting / changing a PIN clears any prior failed-attempt state so
-    // a fresh PIN does not inherit a lockout from the previous one.
+    // Setting / changing a PIN clears any prior failed-attempt state
+    // so a fresh PIN does not inherit a lockout from the previous one.
     await this.kv.delete(attemptsKey(userId));
   }
 
@@ -141,10 +113,8 @@ export class PinManager {
     }
     const stored = await this.readHash(userId);
     if (!stored) return { ok: false, reason: "unset" };
-    const salt = b64decode(stored.salt);
-    const expected = b64decode(stored.hash);
-    const actual = await this.derive(pin, salt, stored.iterations);
-    if (constantTimeEqual(expected, actual)) {
+    const matches = await bcrypt.compare(pin, stored.hash);
+    if (matches) {
       if (attempts.count !== 0 || attempts.lockedUntil !== 0) {
         await this.kv.delete(attemptsKey(userId));
       }
@@ -188,31 +158,6 @@ export class PinManager {
     const raw = await this.kv.get(hashKey(userId));
     if (!raw) return null;
     return JSON.parse(raw) as StoredHash;
-  }
-
-  private async derive(
-    pin: string,
-    salt: Uint8Array,
-    iterations: number,
-  ): Promise<Uint8Array> {
-    const ikm = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(pin),
-      "PBKDF2",
-      false,
-      ["deriveBits"],
-    );
-    const bits = await crypto.subtle.deriveBits(
-      {
-        name: "PBKDF2",
-        hash: "SHA-256",
-        salt: salt as unknown as ArrayBuffer,
-        iterations,
-      },
-      ikm,
-      HASH_LEN * 8,
-    );
-    return new Uint8Array(bits);
   }
 }
 

@@ -26,17 +26,18 @@ class MemoryKV {
 }
 
 /**
- * Always pin iteration count low. Real default (600k) is OWASP-grade
- * but adds ~half a second per derive — multiplied across the lockout
- * suite that's a 5–10s test run. The hash/verify contract is identical
- * across iteration counts, so the assertions are unaffected.
+ * bcrypt cost is exponential — rounds=12 (prod default) is ~250ms
+ * per hash, rounds=4 (bcrypt minimum) is <5ms. The hash/verify
+ * contract is identical across cost values, so the assertions are
+ * unaffected; lockout tests do ≥5 hashes each so the cost dominates
+ * if not pinned.
  */
-const FAST_ITERATIONS = 1_000;
+const FAST_SALT_ROUNDS = 4;
 
 const makeKv = (): MemoryKV => new MemoryKV();
 const makePm = (kv: MemoryKV, now?: () => number): PinManager =>
   new PinManager(kv as unknown as KVNamespace, {
-    iterations: FAST_ITERATIONS,
+    saltRounds: FAST_SALT_ROUNDS,
     now,
   });
 

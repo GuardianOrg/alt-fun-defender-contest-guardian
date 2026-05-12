@@ -24,13 +24,13 @@ export interface Env {
    */
   MASTER_KEY: string;
   /**
-   * Optional override for the PBKDF2 iteration count used by
+   * Optional override for the bcrypt cost factor used by
    * `lib/pin.ts`. Production leaves this unset and falls back to the
-   * OWASP-grade default (600k). Tests inject a small value (~1k) so
-   * the multi-PIN conversation suite finishes in single-digit
-   * milliseconds per derive instead of the half-second prod cost.
+   * OWASP-recommended default (rounds=12, ~250ms per hash on
+   * Workers). Tests inject the bcrypt minimum (rounds=4, <5ms) so
+   * the multi-PIN conversation suite stays under a second.
    */
-  PIN_ITERATIONS?: number;
+  PIN_SALT_ROUNDS?: number;
   WALLET_KV: KVNamespace;
   /**
    * Durable Object namespace binding. One DO instance per Telegram chat
