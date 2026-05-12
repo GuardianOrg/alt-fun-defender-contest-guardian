@@ -154,6 +154,13 @@
   gap: 0.4rem;
 }
 
+/* Header override on the shared CTA `Button` — keeps the disconnected
+ * "Connect Wallet" CTA aligned with the 3rem search trigger and
+ * profile button, since the default `sm` Button height is shorter. */
+.connectBtn {
+  height: 3rem;
+}
+
 .shortText {
   display: none;
 }

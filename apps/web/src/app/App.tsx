@@ -10,7 +10,7 @@ import {
 } from "react-router";
 
 import styles from "./App.module.css";
-import { CREATE_ROUTE, HOME_ROUTE, TOKEN_ROUTE } from "./routes";
+import { CREATE_ROUTE, HOME_ROUTE, PROFILE_ROUTE, TOKEN_ROUTE } from "./routes";
 import CreateView from "../components/create/CreateView";
 import LandingOverlay from "../components/landing/LandingOverlay";
 import AssetTape from "../components/layout/AssetTape";
@@ -22,6 +22,7 @@ import NotFound from "../components/layout/NotFound";
 import PrimerModal from "../components/layout/PrimerModal";
 import SearchModal from "../components/layout/SearchModal";
 import SiteFooter from "../components/layout/SiteFooter";
+import ProfileView from "../components/profile/ProfileView";
 import ErrorBoundary from "../components/shared/ErrorBoundary";
 import { ToastProvider } from "../components/shared/Toast";
 import TerminalView from "../components/terminal/TerminalView";
@@ -76,6 +77,14 @@ const router = createBrowserRouter([
         element: (
           <ErrorBoundary>
             <CreateView />
+          </ErrorBoundary>
+        ),
+      },
+      {
+        path: PROFILE_ROUTE,
+        element: (
+          <ErrorBoundary>
+            <ProfileView />
           </ErrorBoundary>
         ),
       },

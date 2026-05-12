@@ -2,6 +2,7 @@ import { useDispatch } from "react-redux";
 import { useNavigate, useLocation } from "react-router";
 
 import styles from "./Header.module.css";
+import ProfileButton from "./ProfileButton";
 import { CREATE_PATH } from "../../app/routes";
 import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 import { useWallet } from "../../hooks/useWallet";
@@ -59,7 +60,12 @@ export default function Header() {
             <span className={styles.shortText}>{tinyAddress}</span>
           </Chip>
         ) : (
-          <Button variant="primary" size="sm" onClick={connect}>
+          <Button
+            variant="primary"
+            size="sm"
+            className={styles.connectBtn}
+            onClick={connect}
+          >
             Connect Wallet
           </Button>
         )}
@@ -75,6 +81,7 @@ export default function Header() {
             <span className={styles.shortText}>create</span>
           </Button>
         )}
+        {isConnected && <ProfileButton />}
       </div>
     </header>
   );
