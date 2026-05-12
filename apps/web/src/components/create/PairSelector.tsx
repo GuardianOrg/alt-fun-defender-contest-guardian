@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { getAssetDisplayName } from "@launchpad/shared";
 
 import styles from "./PairSelector.module.css";
@@ -5,7 +7,11 @@ import StepHeader from "./StepHeader";
 import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
 import { COLORS, rgba } from "../../config/colors";
 import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
-import { useAssetChanges, useAssetPriceChanges } from "../../hooks/useAssets";
+import {
+  useAssetChanges,
+  useAssetPriceChanges,
+  useLiveUnderlyings,
+} from "../../hooks/useAssets";
 import { cn, formatPriceChange, getLtDisplayName } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
@@ -31,6 +37,21 @@ export default function PairSelector({
 }: Props) {
   const assetChanges = useAssetChanges();
   const assetPriceChanges = useAssetPriceChanges();
+  // Hide underlying-asset buttons whose backing LTs aren't live on
+  // BounceTech's UI yet (issue #621). `useLiveUnderlyings` returns
+  // `undefined` while loading or after a failed fetch, in which case we
+  // fall back to "show every supported asset" — same fail-open policy as
+  // `apps/api/src/lib/lt-availability.ts`. We always keep the currently
+  // selected asset in the list to avoid the UI tearing a button out from
+  // under the user mid-flow (e.g. if BounceTech un-publishes an asset
+  // between page load and the live-set refresh).
+  const liveUnderlyings = useLiveUnderlyings();
+  const visibleAssets = useMemo(() => {
+    if (!liveUnderlyings) return UNDERLYING_ASSETS;
+    return UNDERLYING_ASSETS.filter(
+      (a) => liveUnderlyings.has(a) || a === asset,
+    );
+  }, [liveUnderlyings, asset]);
   const isLong = direction === "long";
   const baseChg = assetChanges[asset];
   const chg =
@@ -144,7 +165,7 @@ export default function PairSelector({
 
       <label className={styles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
-        {UNDERLYING_ASSETS.map((a) => {
+        {visibleAssets.map((a) => {
           const priceChange = assetPriceChanges[a];
           const hasData = priceChange != null;
           const up = hasData && priceChange >= 0;

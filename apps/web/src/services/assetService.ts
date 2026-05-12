@@ -6,7 +6,7 @@ import {
   getHyperliquidDex,
 } from "@launchpad/shared";
 
-import { API_BASE, fetchTokens } from "./api";
+import { API_BASE, fetchLiveMarkets, fetchTokens } from "./api";
 import { fetchPonderTokens } from "./ponder";
 import { COLORS } from "../config/colors";
 
@@ -176,9 +176,26 @@ export interface IAssetService {
 const liveAssetService: IAssetService = {
   async getAssets() {
     try {
-      const mids = await fetchMids();
+      // Fan out: prices/changes from Hyperliquid (direct, CORS-friendly),
+      // live-underlyings set from our API. Resolve in parallel so the
+      // markets sidebar / asset tape don't pay the API round-trip on top
+      // of the Hyperliquid hop. The live filter is applied last so a
+      // failed `/assets` request just degrades to "show everything"
+      // (matches the fail-open policy on the API side — see
+      // `apps/api/src/lib/lt-availability.ts`).
+      const [mids, , markets] = await Promise.all([
+        fetchMids(),
+        Promise.resolve(),
+        fetchLiveMarkets().catch(() => null),
+      ]);
       const changes = await fetch24hChanges(mids);
-      return TRACKED_ASSETS.map((name) => {
+      const liveUnderlyings = markets
+        ? new Set(markets.liveUnderlyings)
+        : null;
+      const visibleAssets = TRACKED_ASSETS.filter((name) =>
+        liveUnderlyings === null ? true : liveUnderlyings.has(name),
+      );
+      return visibleAssets.map((name) => {
         const mid = parseFloat(mids[name] ?? "");
         const ch = changes[name];
         return {

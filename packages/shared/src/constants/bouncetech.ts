@@ -1,5 +1,26 @@
 export const BOUNCE_INDEXING_API = "https://indexing.bounce.tech" as const;
 
+/**
+ * Public BounceTech web app. We use it as a "is this LT live on BounceTech's
+ * own UI?" oracle: BounceTech ships a per-LT logo at
+ * `${BOUNCE_UI_BASE_URL}/leveraged-tokens/<symbol>.png` once they decide an
+ * LT is ready to go public. Some LTs exist in the indexing API for internal
+ * testing well before that flag flips, so we use the image's existence (via
+ * a HEAD request) as the integration boundary — only LTs BounceTech actually
+ * surfaces in their UI become eligible pairs / surface in our markets +
+ * tape on Alt Fun. See `apps/api/src/lib/lt-availability.ts` and issue #621.
+ */
+export const BOUNCE_UI_BASE_URL = "https://bounce.tech" as const;
+
+/**
+ * Canonical URL of an LT's logo on the BounceTech UI. The HEAD response on
+ * this URL drives the live-LT filter — a 2xx means BounceTech has published
+ * the LT, anything else means it's still internal/draft.
+ */
+export function getBounceLtImageUrl(symbol: string): string {
+  return `${BOUNCE_UI_BASE_URL}/leveraged-tokens/${symbol}.png`;
+}
+
 export const HYPERLIQUID_INFO_API = "https://api.hyperliquid.xyz/info" as const;
 export const HYPERLIQUID_WS = "wss://api.hyperliquid.xyz/ws" as const;
 

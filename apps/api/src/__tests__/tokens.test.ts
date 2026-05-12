@@ -73,6 +73,22 @@ vi.mock("../lib/protocol-config.js", () => ({
   _resetGraduationThresholdCache: vi.fn(),
 }));
 
+// Stub the live-LT availability lookup. These tests focus on token
+// registration / detail behaviour; the LT-availability filter
+// (issue #621) is exercised independently in `lt-availability.test.ts`
+// and `assets.test.ts`. Returning an empty, non-fresh snapshot causes
+// the listing path to fail-open (no filter applied), matching the
+// pre-#621 behaviour these tests assume.
+vi.mock("../lib/lt-availability.js", () => ({
+  getLiveLtAvailability: vi.fn(async () => ({
+    liveAddresses: new Set<string>(),
+    liveSymbols: new Set<string>(),
+    liveUnderlyings: new Set<string>(),
+    fresh: false,
+  })),
+  _resetLtAvailabilityCache: vi.fn(),
+}));
+
 // Import route after mocks
 const { default: tokensRoute } = await import("../routes/tokens/index.js");
 const { _resetLtCache } = await import("../lib/token-registration.js");

@@ -471,6 +471,52 @@ export function fetchMarketDataForToken(
   return apiFetch(`/api/v1/market-data/${address.toLowerCase()}`);
 }
 
+/**
+ * Per-asset response shape from `GET /api/v1/assets`. Currently only
+ * exposes the current Hyperliquid mid — kept narrow so we can extend
+ * the API without a breaking change to consumers.
+ */
+export interface ApiLiveMarketUnderlying {
+  symbol: string;
+  /** Current mid as a Hyperliquid-formatted decimal string, or `null` if the feed is missing the asset. */
+  price: string | null;
+}
+
+export interface ApiLiveLeveragedToken {
+  address: string;
+  symbol: string;
+  name: string;
+  targetAsset: string;
+  targetLeverage: number;
+  isLong: boolean;
+  exchangeRate: string;
+  mintPaused: boolean;
+}
+
+export interface ApiLiveMarkets {
+  underlying: ApiLiveMarketUnderlying[];
+  leveragedTokens: ApiLiveLeveragedToken[];
+  /**
+   * Subset of `SUPPORTED_UNDERLYING_ASSETS` whose backing LTs BounceTech
+   * has already surfaced on their public UI (the `bounce.tech/leveraged-
+   * tokens/<symbol>.png` HEAD-check from issue #621). When the API
+   * couldn't reach BounceTech's CDN this falls back to the full supported
+   * list, so consumers can treat it as the authoritative "show these in
+   * the UI" set without a separate "degraded" branch.
+   */
+  liveUnderlyings: string[];
+}
+
+/**
+ * Pulls the BounceTech-UI-live filter set + per-asset mid prices in a
+ * single round-trip. Used by the markets sidebar, asset tape, and the
+ * create-flow pair selector to avoid listing underlyings whose LTs
+ * BounceTech hasn't yet published.
+ */
+export function fetchLiveMarkets(): Promise<ApiLiveMarkets> {
+  return apiFetch("/api/v1/assets");
+}
+
 export interface ApiBalance {
   address: string;
   name: string;

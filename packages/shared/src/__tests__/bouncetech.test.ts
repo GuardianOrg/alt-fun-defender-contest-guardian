@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 
 import type { LiveLeveragedToken, LeveragedTokenInfo } from "../constants/bouncetech.js";
 import {
+  BOUNCE_UI_BASE_URL,
   filterSupportedLTs,
   findLT,
   getAssetDisplayName,
+  getBounceLtImageUrl,
   getHyperliquidDex,
   HYPERLIQUID_DEFAULT_ASSETS,
   HYPERLIQUID_XYZ_DEX,
@@ -223,5 +225,23 @@ describe("getHyperliquidDex", () => {
     expect(getHyperliquidDex("HYPE")).toBeNull();
     expect(getHyperliquidDex("BTC")).toBeNull();
     expect(getHyperliquidDex("kPEPE")).toBeNull();
+  });
+});
+
+describe("getBounceLtImageUrl", () => {
+  it("builds the canonical BounceTech UI logo URL for a given LT symbol", () => {
+    expect(getBounceLtImageUrl("HYPE5L")).toBe(
+      `${BOUNCE_UI_BASE_URL}/leveraged-tokens/HYPE5L.png`,
+    );
+    expect(getBounceLtImageUrl("BTC2S")).toBe(
+      `${BOUNCE_UI_BASE_URL}/leveraged-tokens/BTC2S.png`,
+    );
+  });
+
+  it("does not URL-encode the symbol (BounceTech symbols are ASCII-only)", () => {
+    // Regression guard: encoding would turn `HYPE5L` into `HYPE5L` (no-op)
+    // but break exotic future symbols like `kPEPE5L`. We intentionally keep
+    // the raw symbol so the URL matches the on-disk filename.
+    expect(getBounceLtImageUrl("kPEPE5L")).toContain("kPEPE5L.png");
   });
 });

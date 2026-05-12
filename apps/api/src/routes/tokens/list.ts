@@ -5,6 +5,10 @@ import { getAddress, isAddress } from "viem";
 import { createDb } from "../../db/client.js";
 import { tokens } from "../../db/schema.js";
 import {
+  getLiveLtAvailability,
+  type LtAvailability,
+} from "../../lib/lt-availability.js";
+import {
   buildBatchFromTokens,
   computeMarketDataForAddresses,
   fetchGraduatedTokensOnchain,
@@ -144,6 +148,32 @@ function matchesFilters(t: DbToken, f: ListFilters): boolean {
   return true;
 }
 
+/**
+ * Drop tokens whose backing LT isn't currently live on BounceTech's UI
+ * (issue #621). BounceTech publishes LTs to chain + their indexing API
+ * the moment they spin them up, often days before they go live publicly,
+ * so we'd otherwise list tokens backed by half-tested LTs. The signal is
+ * "did BounceTech publish the per-LT logo at
+ * `bounce.tech/leveraged-tokens/<symbol>.png`?" — see
+ * `lib/lt-availability.ts` for the cache + HEAD-check.
+ *
+ * When the live-LT signal is unavailable (BounceTech CDN down during the
+ * very first request after a cold start, before any refresh succeeded)
+ * we fall back to "show everything" — the alternative would blank the
+ * home page during transient BounceTech outages, which is a worse failure
+ * mode than a brief listing of yet-to-be-published LTs.
+ */
+function filterByLiveLt(
+  rows: DbToken[],
+  availability: LtAvailability | null,
+): DbToken[] {
+  if (availability === null || !availability.fresh) return rows;
+  if (availability.liveAddresses.size === 0) return rows;
+  return rows.filter((row) =>
+    availability.liveAddresses.has(row.ltPair.toLowerCase()),
+  );
+}
+
 const listRoute = new Hono<{ Bindings: AppBindings }>();
 
 listRoute.get("/", async (c) => {
@@ -261,8 +291,15 @@ listRoute.get("/", async (c) => {
       .from(tokens)
       .where(and(eq(tokens.isHidden, false), inArray(tokens.address, checksummedAddresses)));
 
+    // Pull the live-LT snapshot in parallel with everything else above —
+    // see `lib/lt-availability.ts`. We pass the rows through the filter
+    // before pagination so `offset` / `limit` reference the visible slice
+    // and we don't end up with short pages.
+    const availability = await getLiveLtAvailability().catch(() => null);
+    const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
+
     const dbByAddress = new Map<string, DbToken>();
-    for (const row of dbRowsRaw) {
+    for (const row of liveFiltered) {
       dbByAddress.set(row.address.toLowerCase(), row);
     }
 
@@ -335,12 +372,30 @@ listRoute.get("/", async (c) => {
 
   // ---------- DB-first path: everything else ----------
 
+  // Pull the live-LT availability snapshot before building the SQL — when
+  // it's fresh we push the `lt_pair IN (...)` filter into the WHERE clause
+  // so pagination math (`LIMIT`/`OFFSET`) lines up with the visible
+  // window. Doing this in memory after the DB query would produce short
+  // pages whenever a slice contained any non-live tokens. See
+  // `lib/lt-availability.ts` for the cache + HEAD-check semantics and the
+  // fail-open rationale.
+  const availability = await getLiveLtAvailability().catch(() => null);
+
   const conditions: SQL[] = [eq(tokens.isHidden, false)];
   if (underlying) conditions.push(eq(tokens.underlying, underlying));
   if (status === "curve") conditions.push(eq(tokens.status, "curve"));
   if (direction) conditions.push(eq(tokens.ltDirection, direction));
   if (leverage !== undefined) conditions.push(eq(tokens.leverage, leverage));
   if (creator) conditions.push(eq(tokens.creator, creator));
+  if (availability && availability.fresh && availability.liveAddresses.size > 0) {
+    // `tokens.ltPair` is stored checksummed (see `lib/token-registration.ts`,
+    // which runs every insert through `getAddress`). The live snapshot is
+    // lowercased — checksum each entry for the SQL `IN (...)` comparison.
+    const checksummedLive = Array.from(availability.liveAddresses).map(
+      (addr) => getAddress(addr),
+    );
+    conditions.push(inArray(tokens.ltPair, checksummedLive));
+  }
 
   const sortColumn =
     sort === "leverage" ? tokens.leverage :
@@ -473,11 +528,26 @@ listRoute.get("/search", async (c) => {
     conditions.push(ilike(tokens.address, `${q}%`));
   }
 
+  // Mirror the listing endpoint's "hide tokens whose LT isn't live on
+  // BounceTech's UI" filter (issue #621) — search results otherwise leak
+  // exactly the tokens we just hid everywhere else. Fail-open on degraded
+  // availability for the same reason as the list path.
+  const availability = await getLiveLtAvailability().catch(() => null);
+  const liveLtFilter: SQL | undefined =
+    availability && availability.fresh && availability.liveAddresses.size > 0
+      ? inArray(
+          tokens.ltPair,
+          Array.from(availability.liveAddresses).map((addr) =>
+            getAddress(addr),
+          ),
+        )
+      : undefined;
+
   const db = createDb(c.env.DATABASE_URL);
   const results = await db
     .select()
     .from(tokens)
-    .where(and(eq(tokens.isHidden, false), or(...conditions)))
+    .where(and(eq(tokens.isHidden, false), or(...conditions), liveLtFilter))
     .limit(20);
 
   return c.json(formatSuccess(results));
