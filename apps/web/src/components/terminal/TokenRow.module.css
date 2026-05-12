@@ -88,9 +88,6 @@
   flex-direction: column;
   justify-content: center;
   gap: 0.2rem;
-  /* Allow the ticker / full-name children to shrink and ellipsize instead
-   * of forcing the flex column to grow past the fixed `tokenCell` width
-   * and bleed into the next column. */
   min-width: 0;
   flex: 1;
 }
@@ -98,7 +95,7 @@
 .nameRow {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.8rem;
   min-width: 0;
 }
 
