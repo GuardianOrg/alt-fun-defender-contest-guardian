@@ -155,7 +155,6 @@ const CALLBACK_HINTS: Record<string, string> = {
   [START_CALLBACK.positions]:
     "Type /positions <wallet> to view positions for a wallet.",
   [START_CALLBACK.track]: "Type /track <contract> to view a token card.",
-  [START_CALLBACK.wallet]: "Type /wallet to manage your wallets.",
   [START_CALLBACK.withdraw]:
     "Type /withdraw <asset> <amount> <address> to send funds out.",
   [START_CALLBACK.settings]: "Type /settings to adjust slippage and defaults.",
