@@ -269,6 +269,54 @@ export default function TradePanel({ token }: Props) {
   const buyDisabledByGeo = isGeoBlocked && mode === "buy";
   const geoBlockShown = buyDisabledByGeo && amtNum > 0;
 
+  // Only one error/warning is rendered at a time so the form never stacks
+  // a stale router error (e.g. "Transaction was rejected in your wallet")
+  // on top of a fresh input-validation message. Priority, highest first:
+  //   1. geoBlock     — hard CDN gate, supersedes everything
+  //   2. exceedsBuffer — sell-side liquidity ceiling (rich warning box)
+  //   3. insufficientUsdc — buy-side wallet balance
+  //   4. belowMinimum / sellBelowMinimum — per-mode minimums
+  //   5. router error — last-attempt failure; lowest because it's the
+  //      stalest signal and is cleared on the next amount edit anyway.
+  //
+  // Suppressed entirely while a tx is in flight or has just confirmed:
+  // input-validation guards are pre-submission constraints, so showing them
+  // mid-tx is noise. In particular, the post-confirm `loadBalance()` debits
+  // USDC before `amount` is cleared, which would otherwise flash a stale
+  // "Insufficient USDC" banner directly above the "Transaction confirmed"
+  // box for the 3s lifetime of the success state.
+  type ActiveError =
+    | { kind: "geoBlock" }
+    | { kind: "exceedsBuffer" }
+    | { kind: "insufficientUsdc" }
+    | { kind: "belowMinimum" }
+    | { kind: "sellBelowMinimum" }
+    | { kind: "txError"; message: string };
+  const suppressValidation = isBusy || step === "confirmed";
+  const activeError: ActiveError | null = (() => {
+    if (suppressValidation) return null;
+    if (geoBlockShown) return { kind: "geoBlock" };
+    if (sellExceedsBuffer && sellQuote) return { kind: "exceedsBuffer" };
+    if (insufficientUsdc) return { kind: "insufficientUsdc" };
+    if (belowMinimum) return { kind: "belowMinimum" };
+    if (sellBelowMinimum) return { kind: "sellBelowMinimum" };
+    if (error) return { kind: "txError", message: error };
+    return null;
+  })();
+
+  // Clear the router error as soon as the user edits the amount, so a
+  // rejected/cancelled tx from a previous attempt doesn't linger while
+  // the user is dialing in a new amount. Wrapped here (instead of an
+  // effect on `amount`) so we only fire on actual user input — mode
+  // toggles already call `reset()` themselves and shouldn't double-fire.
+  const handleAmountChange = useCallback(
+    (next: string) => {
+      setAmount(next);
+      if (step === "error") reset();
+    },
+    [step, reset],
+  );
+
   // The label is intentionally minimal: anything that has a dedicated
   // error/status surface above the button (paused banner, minimum-amount
   // / insufficient-funds / buffer / geo-block error boxes) is *not*
@@ -404,7 +452,7 @@ export default function TradePanel({ token }: Props) {
         <TradePanelInput
           mode={mode}
           amount={amount}
-          setAmount={setAmount}
+          setAmount={handleAmountChange}
           isBusy={isBusy}
           maxBalance={maxBalance}
           sellQuote={sellQuote}
@@ -445,38 +493,36 @@ export default function TradePanel({ token }: Props) {
           />
         )}
 
-        {sellExceedsBuffer && sellQuote && (
+        {/* Single error/warning slot — priority resolved in `activeError`
+            above. Stacking multiple messages here (e.g. a stale router
+            error alongside a fresh "below minimum") was confusing and
+            duplicated the disable rationale for the CTA button. */}
+        {activeError?.kind === "exceedsBuffer" && sellQuote && (
           <TradePanelBufferWarning sellQuote={sellQuote} ticker={ticker} />
         )}
 
-        {/* Geo block takes priority over every other error in this stack —
-            once the user is gated at the CDN layer, the minimum-buy /
-            insufficient-funds / tx-router errors below are noise. They're
-            suppressed via the `!geoBlockShown` guard on each. Sell-side
-            errors aren't gated because the geo block is buy-only and the
-            two can't coexist. */}
-        {geoBlockShown && (
+        {activeError?.kind === "geoBlock" && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Service unavailable in your region
           </div>
         )}
 
-        {!geoBlockShown && belowMinimum && (
+        {activeError?.kind === "belowMinimum" && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Minimum buy is ${MIN_USDC_BUY_AMOUNT} USDC
           </div>
         )}
 
-        {sellBelowMinimum && (
+        {activeError?.kind === "sellBelowMinimum" && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Minimum sell is ${MIN_USDC_SELL_AMOUNT} USDC
           </div>
         )}
 
-        {!geoBlockShown && insufficientUsdc && (
+        {activeError?.kind === "insufficientUsdc" && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Insufficient USDC — wallet holds $
@@ -487,10 +533,10 @@ export default function TradePanel({ token }: Props) {
           </div>
         )}
 
-        {!geoBlockShown && error && (
+        {activeError?.kind === "txError" && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
-            {error}
+            {activeError.message}
           </div>
         )}
 
