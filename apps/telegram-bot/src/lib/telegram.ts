@@ -63,7 +63,7 @@ export const sendMessage = (
   extra: Record<string, unknown> = {},
 ) =>
   callTelegram(botToken, "sendMessage", {
+    ...extra,
     chat_id: chatId,
     text,
-    ...extra,
   });
