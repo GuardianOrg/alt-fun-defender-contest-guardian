@@ -278,6 +278,13 @@ export default function TradePanel({ token }: Props) {
   //   4. belowMinimum / sellBelowMinimum — per-mode minimums
   //   5. router error — last-attempt failure; lowest because it's the
   //      stalest signal and is cleared on the next amount edit anyway.
+  //
+  // Suppressed entirely while a tx is in flight or has just confirmed:
+  // input-validation guards are pre-submission constraints, so showing them
+  // mid-tx is noise. In particular, the post-confirm `loadBalance()` debits
+  // USDC before `amount` is cleared, which would otherwise flash a stale
+  // "Insufficient USDC" banner directly above the "Transaction confirmed"
+  // box for the 3s lifetime of the success state.
   type ActiveError =
     | { kind: "geoBlock" }
     | { kind: "exceedsBuffer" }
@@ -285,7 +292,9 @@ export default function TradePanel({ token }: Props) {
     | { kind: "belowMinimum" }
     | { kind: "sellBelowMinimum" }
     | { kind: "txError"; message: string };
+  const suppressValidation = isBusy || step === "confirmed";
   const activeError: ActiveError | null = (() => {
+    if (suppressValidation) return null;
     if (geoBlockShown) return { kind: "geoBlock" };
     if (sellExceedsBuffer && sellQuote) return { kind: "exceedsBuffer" };
     if (insufficientUsdc) return { kind: "insufficientUsdc" };
