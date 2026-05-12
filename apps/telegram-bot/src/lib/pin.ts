@@ -130,17 +130,26 @@ export class PinManager {
   private async recordWrong(userId: number): Promise<VerifyResult> {
     const attempts = await this.readAttempts(userId);
     const nextCount = attempts.count + 1;
+    // AGENTS.md `/security`: "Lockout state stored in KV with TTL."
+    // The TTL also clears stale partial-attempt counters so a user
+    // who fails 3x then walks away for a week doesn't come back to a
+    // pre-loaded counter waiting to trip on the next slip.
+    const ttlSeconds = Math.ceil(LOCKOUT_MS / 1000);
     if (nextCount >= MAX_ATTEMPTS) {
       const retryAt = this.now() + LOCKOUT_MS;
       // Reset count to zero alongside the lockout — after the lockout
       // expires the user gets a fresh allowance, matching the
       // "5 wrong → 30-min cooldown → 5 more" intent in AGENTS.md.
       const record: StoredAttempts = { count: 0, lockedUntil: retryAt };
-      await this.kv.put(attemptsKey(userId), JSON.stringify(record));
+      await this.kv.put(attemptsKey(userId), JSON.stringify(record), {
+        expirationTtl: ttlSeconds,
+      });
       return { ok: false, reason: "locked-now", retryAt };
     }
     const record: StoredAttempts = { count: nextCount, lockedUntil: 0 };
-    await this.kv.put(attemptsKey(userId), JSON.stringify(record));
+    await this.kv.put(attemptsKey(userId), JSON.stringify(record), {
+      expirationTtl: ttlSeconds,
+    });
     return {
       ok: false,
       reason: "wrong",
