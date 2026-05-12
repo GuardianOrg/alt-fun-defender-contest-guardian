@@ -97,11 +97,19 @@ export default function TokenRow({ token }: Props) {
                 GRAD
               </span>
             )}
+            {isGraduated && (
+              <span
+                className={cn(
+                  styles.gradBadge,
+                  styles.gradBadgeStatic,
+                  isShort ? styles.gradBadgeShort : styles.gradBadgeLong,
+                )}
+              >
+                GRADUATED
+              </span>
+            )}
           </div>
-          <span className={styles.tokenFullName}>
-            {token.name}
-            {isGraduated && " \u00B7 GRADUATED"}
-          </span>
+          <span className={styles.tokenFullName}>{token.name}</span>
         </div>
       </div>
 

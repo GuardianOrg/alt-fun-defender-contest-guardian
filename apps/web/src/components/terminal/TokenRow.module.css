@@ -51,7 +51,7 @@
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  width: 160px;
+  width: 200px;
   flex-shrink: 0;
 }
 
@@ -88,12 +88,18 @@
   flex-direction: column;
   justify-content: center;
   gap: 0.2rem;
+  /* Allow the ticker / full-name children to shrink and ellipsize instead
+   * of forcing the flex column to grow past the fixed `tokenCell` width
+   * and bleed into the next column. */
+  min-width: 0;
+  flex: 1;
 }
 
 .nameRow {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .tokenTicker {
@@ -104,6 +110,8 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tokenFullName {
@@ -111,6 +119,8 @@
   font-family: var(--font-mono);
   color: var(--txt-2);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .underlyingCell {
@@ -189,10 +199,16 @@
   padding-right: 0.4rem;
   padding-top: 1px;
   padding-bottom: 1px;
-  border-radius: 0.125rem;
+  border-radius: 2px;
   border: 1px solid;
   animation: badgep 1.4s ease-in-out infinite;
   flex-shrink: 0;
+}
+
+/* Final-state variant: the row no longer pulses, so the badge shouldn't
+ * either — it's a static lifecycle marker, not an in-progress signal. */
+.gradBadgeStatic {
+  animation: none;
 }
 
 .gradBadgeLong {
