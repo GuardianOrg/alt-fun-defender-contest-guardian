@@ -47,6 +47,37 @@ const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   return false;
 };
 
+/**
+ * Same benign-400 contract as `commands/positions.ts`. Swallow the
+ * two Telegram error_codes (`message to edit not found`,
+ * `message is not modified`) that mean "user already moved on" —
+ * rethrow anything else so real failures (network, auth, runtime)
+ * don't disappear into silent edits. Without this, every stale-button
+ * tap after a chat-clear surfaces as an unhandled callback error.
+ */
+const safeEditMessageText = async (
+  ctx: AppContext,
+  text: string,
+  extra: Parameters<AppContext["editMessageText"]>[1] = {},
+): Promise<void> => {
+  try {
+    await ctx.editMessageText(text, extra);
+  } catch (err) {
+    const e = err as {
+      error_code?: number;
+      description?: string;
+      message?: string;
+    };
+    const desc = (e.description ?? e.message ?? "").toLowerCase();
+    const isBenign =
+      e.error_code === 400 &&
+      (desc.includes("message to edit not found") ||
+        desc.includes("message not found") ||
+        desc.includes("message is not modified"));
+    if (!isBenign) throw err;
+  }
+};
+
 const truncateAddress = (addr: string): string =>
   `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
@@ -55,16 +86,18 @@ const renderMainText = (
   active: StoredWallet | null,
 ): string => {
   if (wallets.length === 0) {
-    // "Import from Web App" called out as a first-class path because
-    // it's the #1 source of user confusion per AGENTS.md "Key
-    // Constraints" — users who already have a Privy wallet on the web
-    // app need an unambiguous bridge, not a parenthetical mention.
+    // Import paths reserved but the wizard isn't wired yet — toasts
+    // emit "Coming soon". Don't instruct users to paste secrets ahead
+    // of a flow that can actually consume them safely (message-
+    // delete-on-receipt, no-log-of-plaintext, etc.). "Import from Web
+    // App" stays first-class per AGENTS.md "Key Constraints" so users
+    // who already have a Privy wallet see the eventual bridge.
     return [
       "No wallets yet.",
       "",
       "• Create — generate a new bot-managed wallet to start trading",
-      "• Import from Web App — paste your Privy private key exported from alt.fun",
-      "• Import — paste any other private key or mnemonic",
+      "• Import from Web App — coming soon (do not paste your Privy key until the wizard prompts you)",
+      "• Import — coming soon",
     ].join("\n");
   }
   const lines = [`Wallets (${wallets.length}/${MAX_WALLETS_PER_USER})`, ""];
@@ -109,7 +142,7 @@ const editToMain = async (ctx: AppContext): Promise<void> => {
   if (!ctx.from || !ctx.callbackQuery?.message) return;
   const wm = buildManager(ctx.env);
   const state = await renderMainState(wm, ctx.from.id);
-  await ctx.editMessageText(withAntiPhishing(state.text), {
+  await safeEditMessageText(ctx, withAntiPhishing(state.text), {
     reply_markup: state.reply_markup,
   });
 };
@@ -244,7 +277,8 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const active = await wm.getActive(ctx.from.id);
-    await ctx.editMessageText(
+    await safeEditMessageText(
+      ctx,
       withAntiPhishing("Pick the wallet to use as active:"),
       {
         reply_markup: {
