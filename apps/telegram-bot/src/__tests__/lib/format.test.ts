@@ -219,6 +219,40 @@ describe("renderPaginatedPage", () => {
   it("returns an empty string for an empty chunk list", () => {
     expect(renderPaginatedPage([], 0)).toBe("");
   });
+
+  it("paginated body + footer fits within TELEGRAM_MESSAGE_LIMIT for max-sized chunks", () => {
+    // chunkPositionsMessage now caps chunks below TELEGRAM_MESSAGE_LIMIT to
+    // reserve PAGINATION_FOOTER_BUDGET bytes for the trailing `Page X of Y`
+    // footer. Simulate a multi-page output where each chunk is at the
+    // tightest valid pre-footer size and confirm renderPaginatedPage still
+    // emits a string that fits inside Telegram's hard 4096-char ceiling.
+    const maxBody = "x".repeat(TELEGRAM_MESSAGE_LIMIT - 24);
+    const chunks = [maxBody, maxBody, maxBody];
+    for (const page of [0, 1, 2]) {
+      const rendered = renderPaginatedPage(chunks, page);
+      expect(rendered.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(rendered).toContain(`Page ${page + 1} of 3`);
+    }
+  });
+
+  it("formatPositionsResponse chunks fit within the reserved budget so footer never overflows", () => {
+    // End-to-end check: feed enough positions to force multi-page output,
+    // then confirm every chunk + worst-case footer stays under the ceiling.
+    const many: BalanceEntry[] = Array.from({ length: 250 }, (_, i) =>
+      balance({
+        address: `0x${i.toString(16).padStart(40, "0")}`,
+        name: `Long Token Name Number ${i}`,
+        ticker: `LT${i}`,
+      }),
+    );
+    const joined = joinPositions([], many);
+    const chunks = formatPositionsResponse(joined, { approximate: false });
+    expect(chunks.length).toBeGreaterThan(1);
+    for (let i = 0; i < chunks.length; i++) {
+      const rendered = renderPaginatedPage(chunks, i);
+      expect(rendered.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+  });
 });
 
 describe("buildPositionsPageKeyboard", () => {

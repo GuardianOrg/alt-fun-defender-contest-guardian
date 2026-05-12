@@ -123,6 +123,17 @@ export const chunkPositionsMessage = (
   return chunks;
 };
 
+/**
+ * Reserved tail budget for the pagination footer appended by
+ * `renderPaginatedPage`. Worst-case footer is `\n\nPage 9999 of 9999`
+ * (20 chars); 24 leaves headroom for any future format change without
+ * reissuing chunk sizes. `chunkPositionsMessage` (and the approximate
+ * truncation note path below) both honor this reservation so any
+ * single page returned from `renderPaginatedPage` is guaranteed to
+ * fit inside `TELEGRAM_MESSAGE_LIMIT` even with the footer attached.
+ */
+export const PAGINATION_FOOTER_BUDGET = 24;
+
 export const formatPositionsResponse = (
   positions: JoinedPosition[],
   options: { approximate: boolean },
@@ -132,12 +143,16 @@ export const formatPositionsResponse = (
   }
   const header = `Open positions (${positions.length})`;
   const lines = positions.map(formatPositionLine);
-  const chunks = chunkPositionsMessage(header, lines);
+  // Tighter limit reserves room for the multi-page footer. Single-page
+  // outputs effectively waste those bytes, but the cost is dwarfed by
+  // the silent-400 risk if a maxed chunk + footer overflows.
+  const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
+  const chunks = chunkPositionsMessage(header, lines, limit);
   if (options.approximate) {
     const note =
       "\n\nList truncated at 1000 positions — query indexer directly for the full set.";
     const last = chunks[chunks.length - 1]!;
-    if (last.length + note.length <= TELEGRAM_MESSAGE_LIMIT) {
+    if (last.length + note.length <= limit) {
       chunks[chunks.length - 1] = `${last}${note}`;
     } else {
       chunks.push(note.trimStart());
