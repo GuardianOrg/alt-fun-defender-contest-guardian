@@ -124,7 +124,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  width: 76px;
+  width: 91px;
   flex-shrink: 0;
 }
 
@@ -145,7 +145,7 @@
 .directionCell {
   display: flex;
   align-items: center;
-  width: 90px;
+  width: 180px;
   flex-shrink: 0;
 }
 

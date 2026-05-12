@@ -221,6 +221,19 @@
     margin-left: auto;
     margin-right: 0.8rem;
     order: 1;
+    /* Match the wallet address button on mobile, where the search trigger
+     * collapses into an icon-only chip and sits next to it in the header. */
+    background: transparent;
+    border-color: var(--border-2);
+  }
+
+  .searchTrigger:hover {
+    background: rgba(77, 232, 180, 0.1);
+    border-color: rgba(77, 232, 180, 0.4);
+  }
+
+  .searchIcon {
+    color: var(--mint);
   }
 
   .rightSide {
