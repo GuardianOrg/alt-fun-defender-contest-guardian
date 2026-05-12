@@ -111,6 +111,7 @@ p {
 
 ::-webkit-scrollbar {
   width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -121,6 +122,9 @@ p {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(77, 232, 180, 0.35);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 @keyframes ambpulse {
