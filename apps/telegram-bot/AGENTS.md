@@ -593,12 +593,12 @@ Use a dedicated BotFather test bot for local dev. Never point dev at the product
 
 ## Hosting
 
-Cloudflare Workers (same account as `apps/api`). Deployed via `wrangler deploy`. On deploy, a post-deploy script registers the webhook:
+Cloudflare Workers (same account as `apps/api`). Deployed via `wrangler deploy`. The `Deploy Telegram Bot` GitHub Action runs `wrangler deploy` and then `scripts/register-webhook.sh`, which POSTs to the Worker's own `/admin/set-webhook`. That route is the single place that owns the `allowed_updates` list — currently `["message", "callback_query"]` — so every deploy refreshes the registration. This matters because Telegram's `setWebhook` is sticky: a stale registration silently drops any update type not in its list (we hit this when `callback_query` landed but the existing registration was still `["message"]`, so every inline-button press dropped on the floor with no log). To re-register manually:
 
 ```sh
-curl -X POST "https://api.telegram.org/bot${BOT_TOKEN}/setWebhook" \
-  -d "url=https://telegram-bot.<subdomain>.workers.dev/webhook" \
-  -d "secret_token=${WEBHOOK_SECRET}"
+WORKER_URL=https://launchpad-telegram-bot.<subdomain>.workers.dev \
+ADMIN_API_KEY=... \
+npm run deploy:webhook --workspace apps/telegram-bot
 ```
 
 No persistent process — stateless webhook handler. `OnboardingDO` is the only Durable Object and is instantiated lazily on first `/start` per user; no deploy-time kick required.
