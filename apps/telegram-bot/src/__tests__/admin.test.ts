@@ -110,3 +110,68 @@ describe("POST /admin/set-webhook", () => {
     expect(body.allowed_updates).toEqual(["message"]);
   });
 });
+
+describe("GET /admin/webhook-info", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            result: { url: "https://example.com/webhook", pending_update_count: 0 },
+          }),
+          { status: 200 },
+        ),
+      );
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  const get = (headers: Record<string, string> = {}) =>
+    app.request(
+      "/admin/webhook-info",
+      { method: "GET", headers: { "x-admin-key": "test-admin-key", ...headers } },
+      env,
+    );
+
+  it("rejects requests missing the admin key", async () => {
+    const res = await get({ "x-admin-key": "" });
+    expect(res.status).toBe(403);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("proxies the getWebhookInfo result", async () => {
+    const res = await get();
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe(
+      "https://api.telegram.org/bottest-bot-token/getWebhookInfo",
+    );
+    const body = (await res.json()) as {
+      ok: boolean;
+      result: { url: string };
+    };
+    expect(body.result.url).toBe("https://example.com/webhook");
+  });
+
+  it("502s when Telegram is unreachable", async () => {
+    fetchSpy.mockRejectedValueOnce(new Error("ETIMEDOUT"));
+    const res = await get();
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("telegram_unreachable");
+  });
+
+  it("502s when Telegram returns non-JSON body", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response("upstream error", { status: 500 }),
+    );
+    const res = await get();
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("telegram_invalid_response");
+  });
+});
