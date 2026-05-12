@@ -1,15 +1,15 @@
 .panel {
   width: 242px;
   flex-shrink: 0;
-  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: var(--bg-1);
+  gap: 1.2rem;
   overflow-y: auto;
 }
 
 .section {
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  background: var(--bg-1);
 }
 
 .sectionHeader {
@@ -61,6 +61,10 @@
     color 0.15s ease,
     background-color 0.15s ease,
     border-color 0.15s ease;
+}
+
+.tradeRow:last-child {
+  border-bottom: 0;
 }
 
 .tradeRow:hover {
