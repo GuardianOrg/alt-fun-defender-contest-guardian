@@ -6,6 +6,7 @@ import { swaggerUI } from "@hono/swagger-ui";
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
 import { checkPonderHealth } from "./lib/ponder-client.js";
+import { runAutoGraduationBuyer } from "./lib/auto-graduation-buyer.js";
 import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import { runRegistrationBackfill } from "./lib/registration-backfill.js";
 import { runModerationLogsCleanup } from "./lib/moderation-logs-cleanup.js";
@@ -295,7 +296,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json). Four jobs run in
+   * Cron trigger (1 min cadence per wrangler.json). Five jobs run in
    * parallel each tick:
    *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
    *      Ensures the price ticker self-heals within ~60s of any deploy, DO
@@ -304,12 +305,19 @@ export default {
    *      `finalizeGraduation` on each (phase 2 of the two-phase graduation
    *      flow). Idempotent — already-finalized tokens revert harmlessly.
    *      See `lib/graduation-keeper.ts`.
-   *   3. Backfill any token that's on-chain but missing from the
+   *   3. Sweep curve-phase tokens whose `realLT × exchangeRate` has
+   *      crossed the USD threshold via pure LT price appreciation (no
+   *      user buy in the loop) and fire a minimum-size `Zap.buy` to
+   *      trigger phase 1; then unwind any resulting positions back to
+   *      USDC via `Zap.sell` once phase 2 finalises. Idempotent and
+   *      separately keyed (different wallet from the finalize keeper —
+   *      MUST stay on small blocks). See `lib/auto-graduation-buyer.ts`.
+   *   4. Backfill any token that's on-chain but missing from the
    *      PostgreSQL `tokens` table. The frontend awaits the registration
    *      POST in the happy path; this catches closed-tab / lost-network /
    *      transient-5xx cases that would otherwise leave a token invisible.
    *      Idempotent. See `lib/registration-backfill.ts`.
-   *   4. Daily retention sweep on `moderation_logs`. Self-gates to one
+   *   5. Daily retention sweep on `moderation_logs`. Self-gates to one
    *      tick per day (03:17 UTC) — the other 1,439 ticks return null
    *      immediately. Bounds storage cost as the moderation log grows
    *      with launch volume (issue #511). See
@@ -341,6 +349,19 @@ export default {
           JSON.stringify({
             level: "error",
             event: "graduation_keeper_uncaught",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    ctx.waitUntil(
+      runAutoGraduationBuyer(env).catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "auto_graduation_buyer_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),
