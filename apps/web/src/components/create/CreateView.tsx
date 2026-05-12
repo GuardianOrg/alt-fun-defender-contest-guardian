@@ -10,6 +10,7 @@ import SeedBuy from "./SeedBuy";
 import TokenForm from "./TokenForm";
 import { tokenPath } from "../../app/routes";
 import { useCreateToken } from "../../hooks/useCreateToken";
+import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useLeveragedTokens } from "../../hooks/useLeveragedTokens";
 import { useVanityAddress } from "../../hooks/useVanityAddress";
 import { useWallet } from "../../hooks/useWallet";
@@ -39,6 +40,11 @@ export default function CreateView() {
   const [imageFile, setImageFile] = useState<File | undefined>();
 
   const { isConnected, connect } = useWallet();
+  // CDN-derived geo gate. Token creation always includes a mandatory seed
+  // buy that mints LT, so the same compliance constraint that disables
+  // BUYS in the trade panel applies here. Fail-open while the trace
+  // fetch is in flight (hook returns `false` until it resolves).
+  const { isGeoBlocked } = useIsGeoBlocked();
   const {
     step: launchStep,
     error: launchError,
@@ -114,6 +120,10 @@ export default function CreateView() {
     }
     if (!trimmedName || !trimmedTicker) return;
     if (seedBelowMin) return;
+    // Belt-and-braces for the geo gate — the Launch button is disabled
+    // while geo-blocked, but a stale render between a country flip and
+    // the click shouldn't be able to slip a launch tx through.
+    if (isGeoBlocked) return;
     // Mirrored in `useCreateToken` as a belt-and-braces — if the directory
     // is loading we let the click through and the hook handles the case
     // with the same error message before any wallet popup.
@@ -223,6 +233,13 @@ export default function CreateView() {
           <SeedBuy seedAmount={seedAmount} onSeedChange={setSeedAmount} />
 
           <div className={styles.ctaArea}>
+            {isGeoBlocked && (
+              <div className={styles.errorBanner}>
+                <span className={styles.errorIcon}>⚠</span>
+                Service unavailable in your region
+              </div>
+            )}
+
             {pairMintPaused && (
               <div className={styles.warningBanner}>
                 <span className={styles.warningIcon}>⚠</span>
@@ -275,6 +292,7 @@ export default function CreateView() {
                 disabled={
                   launchStep === "confirmed" ||
                   vanity.status === "error" ||
+                  isGeoBlocked ||
                   pairMintPaused ||
                   (isConnected && seedBelowMin)
                 }
