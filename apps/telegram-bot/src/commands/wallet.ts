@@ -31,10 +31,16 @@ const renderMainText = (
   active: StoredWallet | null,
 ): string => {
   if (wallets.length === 0) {
+    // "Import from Web App" called out as a first-class path because
+    // it's the #1 source of user confusion per AGENTS.md "Key
+    // Constraints" — users who already have a Privy wallet on the web
+    // app need an unambiguous bridge, not a parenthetical mention.
     return [
       "No wallets yet.",
       "",
-      "Create one to start trading, or import a private key from the web app's Privy export.",
+      "• Create — generate a new bot-managed wallet to start trading",
+      "• Import from Web App — paste your Privy private key exported from alt.fun",
+      "• Import — paste any other private key or mnemonic",
     ].join("\n");
   }
   const lines = [`Wallets (${wallets.length}/${MAX_WALLETS_PER_USER})`, ""];
