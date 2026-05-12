@@ -1,33 +1,61 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import styles from "./LandingOverlay.module.css";
 import WaveBackground from "./WaveBackground";
 
-const BYPASS_KEY = "altfun-landing-bypass";
-const BYPASS_SECRET = "altfun";
-const KEY_SEQUENCE = "altfun";
-// Notifies sibling components (PrimerModal) when the gate has been
-// cleared in the current tab — the browser's `storage` event only fires
-// across tabs, so we need an in-tab signal too.
-const BYPASS_EVENT = "altfun-landing-bypassed";
+// Bumped the version suffix when the access secret changed so any browser
+// that had cleared the previous (easily-guessed) gate is forced to re-enter
+// the new one. PrimerModal imports these constants — keep both in sync.
+export const LANDING_BYPASS_KEY = "altfun-landing-bypass:v2";
+export const LANDING_BYPASS_EVENT = "altfun-landing-bypassed:v2";
+
+// Pre-launch access token shared with the team out-of-band. Rotated by
+// changing this constant + the `:v…` suffix on `LANDING_BYPASS_KEY` above
+// (which expires already-bypassed sessions). The repo is private so a
+// hardcoded constant is fine; the threat model is "random visitor guesses
+// the URL", not "team member with repo access".
+const BYPASS_SECRET = "b9Kq7vXz3RmPnYwLfT2J";
 
 const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
 const WHITEPAPER_URL = "/whitepaper.pdf";
 
+const safeGetItem = (key: string): string | null => {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
+const safeSetItem = (key: string, value: string) => {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // best-effort — privacy mode / disabled storage
+  }
+};
+
+const safeRemoveItem = (key: string) => {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // best-effort
+  }
+};
+
 const persistBypass = () => {
-  window.localStorage.setItem(BYPASS_KEY, "1");
-  window.dispatchEvent(new Event(BYPASS_EVENT));
+  safeSetItem(LANDING_BYPASS_KEY, "1");
+  window.dispatchEvent(new Event(LANDING_BYPASS_EVENT));
 };
 
 /**
  * Returns true when the user is allowed to skip the landing page.
  *
  * Bypass routes (any of):
- *   - `?access=altfun` query param (persists via localStorage)
+ *   - `?access=<BYPASS_SECRET>` query param (persists via localStorage)
  *   - localStorage flag set by a prior bypass
- *   - `window.__altfunBypass()` in DevTools
- *   - typing "altfun" anywhere on the page
+ *   - `window.__altfunBypass()` in DevTools (team escape hatch)
  *
  * `?access=clear` wipes the flag so we can preview the landing page again.
  */
@@ -36,7 +64,7 @@ const readBypass = (): boolean => {
   const params = new URLSearchParams(window.location.search);
   const access = params.get("access");
   if (access === "clear") {
-    window.localStorage.removeItem(BYPASS_KEY);
+    safeRemoveItem(LANDING_BYPASS_KEY);
     params.delete("access");
     const qs = params.toString();
     window.history.replaceState(
@@ -57,7 +85,7 @@ const readBypass = (): boolean => {
     );
     return true;
   }
-  return window.localStorage.getItem(BYPASS_KEY) === "1";
+  return safeGetItem(LANDING_BYPASS_KEY) === "1";
 };
 
 const XIcon = () => (
@@ -78,25 +106,19 @@ const ArrowIcon = () => (
   </svg>
 );
 
-export default function LandingOverlay() {
+/**
+ * Pre-launch access gate. While the gate is up the children — including all
+ * app providers (Privy, Wagmi, Redux, the router) — are not mounted at all,
+ * so a casual visitor can't reach the app via Inspect-Element + delete-node.
+ * Once the user has cleared the gate (URL secret, localStorage flag, or the
+ * DevTools `window.__altfunBypass()` escape hatch) the children mount.
+ */
+export default function LandingOverlay({ children }: { children: ReactNode }) {
   const [bypassed, setBypassed] = useState<boolean>(() => readBypass());
 
   useEffect(() => {
     if (bypassed) return;
 
-    // Type-the-secret backup bypass — useful when the URL trick is forgotten.
-    let buffer = "";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key.length !== 1) return;
-      buffer = (buffer + e.key.toLowerCase()).slice(-KEY_SEQUENCE.length);
-      if (buffer === KEY_SEQUENCE) {
-        persistBypass();
-        setBypassed(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-
-    // Programmatic escape hatch for the team in DevTools.
     const w = window as Window & { __altfunBypass?: () => void };
     w.__altfunBypass = () => {
       persistBypass();
@@ -104,12 +126,11 @@ export default function LandingOverlay() {
     };
 
     return () => {
-      window.removeEventListener("keydown", onKey);
       delete w.__altfunBypass;
     };
   }, [bypassed]);
 
-  if (bypassed) return null;
+  if (bypassed) return <>{children}</>;
 
   return (
     <div className={styles.overlay} role="dialog" aria-label="Alt Fun landing">
