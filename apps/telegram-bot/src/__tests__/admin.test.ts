@@ -1,13 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import app from "../index.js";
-import type { Env } from "../lib/types.js";
+import { makeTestEnv } from "./helpers/env.js";
 
-const env: Env = {
-  TELEGRAM_BOT_TOKEN: "test-bot-token",
-  TELEGRAM_WEBHOOK_SECRET: "test-secret",
-  ADMIN_API_KEY: "test-admin-key",
-};
+const env = makeTestEnv();
 
 const post = (body: string | object, headers: Record<string, string> = {}) =>
   app.request(

@@ -5,6 +5,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
   "vars": {},
+  "kv_namespaces": [
+    {
+      "binding": "WALLET_KV",
+      "id": "TODO_PROVISION_KV_NAMESPACE_ID"
+    }
+  ],
   "observability": {
     "enabled": true
   }
