@@ -21,6 +21,14 @@ export interface Env {
    */
   MASTER_KEY: string;
   WALLET_KV: KVNamespace;
+  /**
+   * Durable Object namespace binding. One DO instance per Telegram chat
+   * — webhook routing computes `idFromName(\`chat:${chatId}\`)` and the
+   * DO serialises updates on its single-threaded event loop. See
+   * `chat-do.ts` for the rationale (closes the WAR hazard grammY's
+   * docs warn about for serverless `session` + `conversations`).
+   */
+  CHAT_DO: DurableObjectNamespace;
 }
 
 export type AppBindings = { Bindings: Env };

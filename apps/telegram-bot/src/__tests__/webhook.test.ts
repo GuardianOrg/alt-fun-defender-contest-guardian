@@ -1,16 +1,70 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 
 import app from "../index.js";
 import { makeTestEnv } from "./helpers/env.js";
 
-const env = makeTestEnv();
+/**
+ * Webhook unit tests cover the routing layer only — auth header
+ * validation, body parsing, chat_id extraction, and the ChatDO fetch
+ * call. The bot itself (`createBot(env).handleUpdate(update)`) is
+ * tested in the per-command files.
+ */
 
-const update = (text: string) => ({
+interface DoSpyState {
+  idFromNameCalls: string[];
+  fetchCalls: { url: string; body: string }[];
+}
+
+const buildEnvWithDoSpy = (
+  state: DoSpyState,
+): ReturnType<typeof makeTestEnv> => {
+  const stubStub = {
+    fetch: async (input: Request | string, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.url;
+      const body =
+        init?.body !== undefined
+          ? String(init.body)
+          : input instanceof Request
+            ? await input.text()
+            : "";
+      state.fetchCalls.push({ url, body });
+      return new Response("ok");
+    },
+  } as unknown as DurableObjectStub;
+  return makeTestEnv({
+    CHAT_DO: {
+      idFromName: (name: string) => {
+        state.idFromNameCalls.push(name);
+        return {} as DurableObjectId;
+      },
+      get: () => stubStub,
+    } as unknown as DurableObjectNamespace,
+  });
+};
+
+const post = (
+  env: ReturnType<typeof makeTestEnv>,
+  body: unknown,
+  headers: Record<string, string> = {
+    "x-telegram-bot-api-secret-token": "test-secret",
+  },
+) =>
+  app.request(
+    "/webhook",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    },
+    env,
+  );
+
+const commandUpdate = (text: string, chatId = 42) => ({
   update_id: 1,
   message: {
     message_id: 1,
     date: 0,
-    chat: { id: 42, type: "private" },
+    chat: { id: chatId, type: "private" as const },
     from: { id: 7, is_bot: false, first_name: "Ada" },
     text,
     entities: [{ type: "bot_command", offset: 0, length: text.length }],
@@ -18,290 +72,88 @@ const update = (text: string) => ({
 });
 
 describe("POST /webhook", () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  let doState: DoSpyState;
 
   beforeEach(() => {
-    fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("{}", { status: 200 }));
-  });
-
-  afterEach(() => {
-    fetchSpy.mockRestore();
+    doState = { idFromNameCalls: [], fetchCalls: [] };
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("{}", { status: 200 }),
+    );
   });
 
   it("rejects requests without the secret header", async () => {
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(update("/start")),
-      },
-      env,
-    );
+    const res = await post(buildEnvWithDoSpy(doState), commandUpdate("/start"), {});
     expect(res.status).toBe(403);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(doState.fetchCalls).toEqual([]);
   });
 
-  it("rejects requests with a wrong secret", async () => {
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "nope",
-        },
-        body: JSON.stringify(update("/start")),
-      },
-      env,
-    );
+  it("rejects requests with the wrong secret", async () => {
+    const res = await post(buildEnvWithDoSpy(doState), commandUpdate("/start"), {
+      "x-telegram-bot-api-secret-token": "wrong",
+    });
     expect(res.status).toBe(403);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(doState.fetchCalls).toEqual([]);
   });
 
-  it("replies via sendMessage when /start arrives", async () => {
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify(update("/start")),
-      },
-      env,
-    );
+  it("ACKs 200 even when the body is unparseable (no Telegram retry storm)", async () => {
+    const res = await post(buildEnvWithDoSpy(doState), "not json");
     expect(res.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(url).toBe("https://api.telegram.org/bottest-bot-token/sendMessage");
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.chat_id).toBe(42);
-    expect(body.text).toContain("Ada");
+    expect(doState.fetchCalls).toEqual([]);
   });
 
-  it("ACKs malformed JSON instead of 5xx (avoids Telegram retry storm)", async () => {
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: "not json",
-      },
-      env,
-    );
+  it("ACKs and no-ops when no chat id can be extracted (no message + no callback_query)", async () => {
+    const res = await post(buildEnvWithDoSpy(doState), { update_id: 99 });
     expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(doState.fetchCalls).toEqual([]);
   });
 
-  it("ACKs even when sendMessage throws", async () => {
-    fetchSpy.mockRejectedValueOnce(new Error("telegram down"));
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify(update("/start")),
-      },
-      env,
-    );
+  it("routes message updates to ChatDO keyed by chat id", async () => {
+    const env = buildEnvWithDoSpy(doState);
+    const res = await post(env, commandUpdate("/start", 42));
     expect(res.status).toBe(200);
-    // Prove sendMessage was actually attempted — otherwise this test passes
-    // even if /start silently stops dispatching.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(doState.idFromNameCalls).toEqual(["chat:42"]);
+    expect(doState.fetchCalls).toHaveLength(1);
+    expect(doState.fetchCalls[0]?.url).toContain("/update");
+    // Body forwarded verbatim — the DO re-parses for grammY.
+    expect(JSON.parse(doState.fetchCalls[0]!.body)).toMatchObject({
+      update_id: 1,
+      message: { chat: { id: 42 } },
+    });
   });
 
-  it("sends as plain text (no parse_mode) so HTML chars in names don't 400", async () => {
-    const htmlNameUpdate = {
-      update_id: 4,
-      message: {
-        message_id: 4,
-        date: 0,
-        chat: { id: 42, type: "private" },
-        from: { id: 7, is_bot: false, first_name: "Tom & <Jerry>" },
-        text: "/start",
-        entities: [{ type: "bot_command", offset: 0, length: 6 }],
-      },
-    };
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify(htmlNameUpdate),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    const body = JSON.parse(
-      (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
-    );
-    expect(body.parse_mode).toBeUndefined();
-    expect(body.text).toContain("Tom & <Jerry>");
-  });
-
-  it("ACKs and no-ops when update.message is absent", async () => {
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify({ update_id: 99 }),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("falls back to 'there' greeting when from.first_name is absent", async () => {
-    const noFromUpdate = {
-      update_id: 3,
-      message: {
-        message_id: 3,
-        date: 0,
-        chat: { id: 42, type: "private" },
-        // no `from` — happens for channel posts, anonymous group admins
-        text: "/start",
-        entities: [{ type: "bot_command", offset: 0, length: 6 }],
-      },
-    };
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify(noFromUpdate),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(
-      (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
-    );
-    expect(body.text).toContain("Hi there!");
-  });
-
-  it("ignores non-command messages", async () => {
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify({
-          update_id: 2,
-          message: {
-            message_id: 2,
-            date: 0,
-            chat: { id: 42, type: "private" },
-            text: "hello",
-          },
-        }),
-      },
-      env,
-    );
-    expect(res.status).toBe(200);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("dispatches callback_query updates and ACKs 200 even with no handler registered", async () => {
-    // Production registry is empty — clicks land on the dispatcher, which
-    // answers with an "unknown action" toast. This proves the webhook is
-    // actually routing callback_query (vs. silently dropping it).
-    const callbackUpdate = {
+  it("routes callback_query updates to ChatDO using the originating chat", async () => {
+    const env = buildEnvWithDoSpy(doState);
+    const res = await post(env, {
       update_id: 5,
       callback_query: {
-        id: "cbq-99",
+        id: "cbq-1",
         from: { id: 7, is_bot: false, first_name: "Ada" },
-        chat_instance: "instance-1",
-        data: "no-such-cmd",
-      },
-    };
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
+        chat_instance: "i-1",
+        message: {
+          message_id: 100,
+          date: 0,
+          chat: { id: 99, type: "private" },
         },
-        body: JSON.stringify(callbackUpdate),
+        data: "wc",
       },
-      env,
-    );
+    });
     expect(res.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(String(url)).toBe(
-      "https://api.telegram.org/bottest-bot-token/answerCallbackQuery",
-    );
-    const body = JSON.parse((init as RequestInit).body as string) as {
-      callback_query_id: string;
-      text?: string;
-    };
-    expect(body.callback_query_id).toBe("cbq-99");
-    expect(body.text).toBe("Unknown action.");
+    expect(doState.idFromNameCalls).toEqual(["chat:99"]);
   });
 
-  it("does not invoke the command path when callback_query is present", async () => {
-    // A single update should not be processed twice — verify the
-    // callback_query branch returns before the message dispatch runs.
-    const both = {
-      update_id: 6,
-      callback_query: {
-        id: "cbq-100",
-        from: { id: 7, is_bot: false, first_name: "Ada" },
-        chat_instance: "instance-2",
-        data: "ping",
-      },
-      message: {
-        message_id: 1,
-        date: 0,
-        chat: { id: 42, type: "private" },
-        from: { id: 7, is_bot: false, first_name: "Ada" },
-        text: "/start",
-        entities: [{ type: "bot_command", offset: 0, length: 6 }],
-      },
-    };
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify(both),
-      },
-      env,
-    );
+  it("ACKs 200 even when DO fetch throws (logged + swallowed)", async () => {
+    const env = makeTestEnv({
+      CHAT_DO: {
+        idFromName: () => ({}) as DurableObjectId,
+        get: () =>
+          ({
+            fetch: async () => {
+              throw new Error("DO unavailable");
+            },
+          }) as unknown as DurableObjectStub,
+      } as unknown as DurableObjectNamespace,
+    });
+    const res = await post(env, commandUpdate("/start"));
     expect(res.status).toBe(200);
-    // Exactly one call (answerCallbackQuery), zero sendMessage.
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(String(fetchSpy.mock.calls[0]![0])).toContain(
-      "answerCallbackQuery",
-    );
   });
 });

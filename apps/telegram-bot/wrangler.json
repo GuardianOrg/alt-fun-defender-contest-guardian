@@ -11,6 +11,20 @@
       "id": "TODO_PROVISION_KV_NAMESPACE_ID"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_DO",
+        "class_name": "ChatDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-chat-do",
+      "new_classes": ["ChatDO"]
+    }
+  ],
   "observability": {
     "enabled": true
   }

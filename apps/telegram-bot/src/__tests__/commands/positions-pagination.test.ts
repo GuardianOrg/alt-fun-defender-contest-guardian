@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import app from "../../index.js";
-import { callbackHandlers } from "../../lib/callbacks.js";
-import { handlePositionsPage } from "../../commands/positions.js";
-import { makeTestEnv } from "../helpers/env.js";
-
-const env = makeTestEnv();
+import { makeBotHarness } from "../helpers/bot.js";
 
 const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 
-const mockApi = (positions: number, balances: number): void => {
+const mockApi = (
+  fetchSpy: ReturnType<typeof vi.spyOn>,
+  positions: number,
+  balances: number,
+): void => {
   const port = Array.from({ length: positions }, (_, i) => ({
     tokenAddress: `0x${i.toString(16).padStart(40, "0")}`,
     tokenAmount: "0",
@@ -25,34 +24,60 @@ const mockApi = (positions: number, balances: number): void => {
     ltDirection: "long",
     balance: "1000000000000000000",
   }));
-  (vi.mocked(globalThis.fetch) as ReturnType<typeof vi.fn>).mockImplementation(
-    async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/api/v1/portfolio/")) {
-        return new Response(
-          JSON.stringify({ data: { positions: port, approximate: false } }),
-          { status: 200 },
-        );
-      }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(JSON.stringify({ data: bal }), { status: 200 });
-      }
-      return new Response("{}", { status: 200 });
-    },
-  );
+  fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/v1/portfolio/")) {
+      return new Response(
+        JSON.stringify({ data: { positions: port, approximate: false } }),
+        { status: 200 },
+      );
+    }
+    if (url.includes("/api/v1/balances/")) {
+      return new Response(JSON.stringify({ data: bal }), { status: 200 });
+    }
+    return new Response(
+      JSON.stringify({ ok: true, result: true }),
+      { status: 200 },
+    );
+  });
 };
 
-describe("handlePositionsPage registration", () => {
-  it("registers the `pp` handler in the production callback registry", () => {
-    // Importing commands/positions side-effect registers the handler so
-    // routes/webhook.ts can dispatch callback_query without an explicit
-    // wiring step. Asserting this in a test prevents a silent drop if
-    // someone refactors the registration out.
-    expect(callbackHandlers.get("pp")).toBe(handlePositionsPage);
-  });
+const ppCallback = (data: string) => ({
+  update_id: 10,
+  callback_query: {
+    id: "cbq-1",
+    from: { id: 7, is_bot: false, first_name: "Ada" },
+    chat_instance: "instance-1",
+    data,
+    message: {
+      message_id: 99,
+      date: 0,
+      chat: { id: 42, type: "private" as const },
+    },
+  },
 });
 
-describe("handlePositionsPage (unit)", () => {
+interface TgCall {
+  url: string;
+  body: Record<string, unknown>;
+}
+
+const collectCalls = (fetchSpy: ReturnType<typeof vi.spyOn>): TgCall[] =>
+  (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+    .filter((call) => {
+      // GET requests to api.test.local have no body — skip them.
+      const init = call[1] as RequestInit | undefined;
+      return typeof init?.body === "string";
+    })
+    .map((call) => ({
+      url: String(call[0]),
+      body: JSON.parse((call[1] as RequestInit).body as string) as Record<
+        string,
+        unknown
+      >,
+    }));
+
+describe("pp callback (positions pagination)", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -63,95 +88,71 @@ describe("handlePositionsPage (unit)", () => {
     fetchSpy.mockRestore();
   });
 
-  const baseQuery = () => ({
-    id: "cbq-1",
-    from: { id: 7, is_bot: false, first_name: "Ada" },
-    chat_instance: "instance-1",
-    data: `pp:1:${WALLET}`,
-    message: {
-      message_id: 99,
-      date: 0,
-      chat: { id: 42, type: "private" as const },
-    },
+  it("toasts 'invalid page request' when the page index is not numeric", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:not-a-number:${WALLET}`));
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer?.body.text).toBe("Invalid page request.");
   });
 
-  it("rejects malformed args with an 'invalid page' toast", async () => {
-    fetchSpy.mockResolvedValue(new Response("{}", { status: 200 }));
-    const answer = await handlePositionsPage({
-      env,
-      query: baseQuery(),
-      args: ["not-a-number", WALLET],
-    });
-    expect(answer).toEqual({ text: "Invalid page request." });
+  it("toasts 'invalid page request' when the wallet arg is not an address", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    const h = makeBotHarness();
+    await h.run(ppCallback("pp:1:not-a-wallet"));
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer?.body.text).toBe("Invalid page request.");
   });
 
-  it("rejects a non-address wallet arg with an 'invalid page' toast", async () => {
-    fetchSpy.mockResolvedValue(new Response("{}", { status: 200 }));
-    const answer = await handlePositionsPage({
-      env,
-      query: baseQuery(),
-      args: ["1", "not-a-wallet"],
-    });
-    expect(answer).toEqual({ text: "Invalid page request." });
-  });
-
-  it("returns 'message no longer available' when the query has no message (inline mode / >48h old)", async () => {
-    fetchSpy.mockResolvedValue(new Response("{}", { status: 200 }));
-    const q = baseQuery();
-    delete (q as { message?: unknown }).message;
-    const answer = await handlePositionsPage({
-      env,
-      query: q,
-      args: ["1", WALLET],
-    });
-    expect(answer).toEqual({ text: "Message no longer available." });
-  });
-
-  it("returns 'data temporarily unavailable' when the upstream API is 503", async () => {
+  it("toasts a degraded-data message when the upstream API is 503", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       if (String(input).startsWith("https://api.test.local")) {
         return new Response("{}", { status: 503 });
       }
-      return new Response("{}", { status: 200 });
+      return new Response(
+        JSON.stringify({ ok: true, result: true }),
+        { status: 200 },
+      );
     });
-    const answer = await handlePositionsPage({
-      env,
-      query: baseQuery(),
-      args: ["1", WALLET],
-    });
-    expect(answer).toEqual({
-      text: "Data temporarily unavailable — try again in a moment.",
-    });
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:1:${WALLET}`));
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer?.body.text).toContain("Data temporarily unavailable");
   });
 
   it("edits the originating message with the requested page content + keyboard", async () => {
-    mockApi(250, 250);
-    await handlePositionsPage({
-      env,
-      query: baseQuery(),
-      args: ["1", WALLET],
-    });
-    const editCalls = (
-      fetchSpy.mock.calls as Array<[unknown, unknown?]>
-    ).filter((c) => String(c[0]).includes("/editMessageText"));
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    mockApi(fetchSpy, 250, 250);
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:1:${WALLET}`));
+    const editCalls = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
     expect(editCalls).toHaveLength(1);
-    const body = JSON.parse(
-      (editCalls[0]![1] as RequestInit).body as string,
-    ) as {
+    const body = editCalls[0]!.body as {
       chat_id: number;
       message_id: number;
       text: string;
-      reply_markup?: {
+      reply_markup: {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
     };
     expect(body.chat_id).toBe(42);
     expect(body.message_id).toBe(99);
     expect(body.text).toContain("Page 2 of");
-    // Middle/end page: both Prev and Next should be present if more pages exist,
-    // or only Prev on the last page. For 250 positions, page 1 is not last —
-    // so we expect both buttons.
-    const buttons = body.reply_markup!.inline_keyboard.flat();
+    const buttons = body.reply_markup.inline_keyboard.flat();
     const texts = buttons.map((b) => b.text);
     expect(texts).toContain("← Prev");
     if (texts.length > 1) expect(texts).toContain("Next →");
@@ -160,28 +161,24 @@ describe("handlePositionsPage (unit)", () => {
     }
   });
 
-  it("clamps requested page to the last available page (positions shrunk since render)", async () => {
-    // Only one position now → one page total → page 0 only.
-    mockApi(1, 1);
-    await handlePositionsPage({
-      env,
-      query: baseQuery(),
-      args: ["99", WALLET],
-    });
-    const editCalls = (
-      fetchSpy.mock.calls as Array<[unknown, unknown?]>
-    ).filter((c) => String(c[0]).includes("/editMessageText"));
+  it("clamps to the last available page when positions have shrunk since the button was rendered", async () => {
+    mockApi(fetchSpy, 1, 1);
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:99:${WALLET}`));
+    const editCalls = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
     expect(editCalls).toHaveLength(1);
-    const body = JSON.parse(
-      (editCalls[0]![1] as RequestInit).body as string,
-    ) as { text: string; reply_markup?: unknown };
+    const body = editCalls[0]!.body as {
+      text: string;
+      reply_markup?: unknown;
+    };
     // Single page → no "Page X of Y" footer, no keyboard.
     expect(body.text).not.toContain("Page ");
     expect(body.reply_markup).toBeUndefined();
   });
 
-  it("never throws when editMessageText returns 400 (deleted message / not modified)", async () => {
-    // Mock portfolio + balances 200, then editMessageText 400.
+  it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/v1/portfolio/")) {
@@ -204,7 +201,7 @@ describe("handlePositionsPage (unit)", () => {
           JSON.stringify({
             data: Array.from({ length: 250 }, (_, i) => ({
               address: `0x${i.toString(16).padStart(40, "0")}`,
-              name: `Long Token Name Number ${i}`,
+              name: `LT ${i}`,
               ticker: `LT${i}`,
               ltPair: "0xbbbb",
               leverage: 2,
@@ -226,68 +223,16 @@ describe("handlePositionsPage (unit)", () => {
           { status: 400 },
         );
       }
-      return new Response("{}", { status: 200 });
+      return new Response(
+        JSON.stringify({ ok: true, result: true }),
+        { status: 200 },
+      );
     });
-    await expect(
-      handlePositionsPage({
-        env,
-        query: baseQuery(),
-        args: ["1", WALLET],
-      }),
-    ).resolves.toBeUndefined();
-  });
-});
-
-describe("pp callback end-to-end via webhook", () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    fetchSpy = vi.spyOn(globalThis, "fetch");
-  });
-
-  afterEach(() => {
-    fetchSpy.mockRestore();
-  });
-
-  it("dispatches a pp callback through the webhook → answerCallbackQuery + editMessageText", async () => {
-    mockApi(250, 250);
-    const callbackUpdate = {
-      update_id: 10,
-      callback_query: {
-        id: "cbq-200",
-        from: { id: 7, is_bot: false, first_name: "Ada" },
-        chat_instance: "instance-1",
-        data: `pp:2:${WALLET}`,
-        message: {
-          message_id: 99,
-          date: 0,
-          chat: { id: 42, type: "private" },
-        },
-      },
-    };
-    const res = await app.request(
-      "/webhook",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": "test-secret",
-        },
-        body: JSON.stringify(callbackUpdate),
-      },
-      env,
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:1:${WALLET}`));
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
     );
-    expect(res.status).toBe(200);
-    const calls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
-    const urls = calls.map((c) => String(c[0]));
-    expect(urls.some((u) => u.includes("/editMessageText"))).toBe(true);
-    expect(urls.some((u) => u.includes("/answerCallbackQuery"))).toBe(true);
-    const editCall = calls.find((c) =>
-      String(c[0]).includes("/editMessageText"),
-    )!;
-    const editBody = JSON.parse(
-      (editCall[1] as RequestInit).body as string,
-    ) as { text: string };
-    expect(editBody.text).toContain("Page 3 of");
+    expect(answer).toBeDefined();
   });
 });
