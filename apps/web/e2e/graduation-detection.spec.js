@@ -214,39 +214,4 @@ test_1.test.describe("Graduation detection", function () {
             }
         });
     }); });
-    (0, test_1.test)("token detail footer shows token status", function (_a) { return __awaiter(void 0, [_a], void 0, function (_b) {
-        var firstTokenRow, rowVisible, statusLabels, footerStatus;
-        var page = _b.page;
-        return __generator(this, function (_c) {
-            switch (_c.label) {
-                case 0: return [4 /*yield*/, page.goto("/")];
-                case 1:
-                    _c.sent();
-                    firstTokenRow = page.locator("tr").filter({ hasText: /\$/ }).first();
-                    return [4 /*yield*/, firstTokenRow
-                            .isVisible({ timeout: 5000 })
-                            .catch(function () { return false; })];
-                case 2:
-                    rowVisible = _c.sent();
-                    if (!rowVisible) return [3 /*break*/, 6];
-                    return [4 /*yield*/, firstTokenRow.click()];
-                case 3:
-                    _c.sent();
-                    return [4 /*yield*/, page.waitForURL(/\/token\/0x/)];
-                case 4:
-                    _c.sent();
-                    statusLabels = page.locator("text=active, text=graduating, text=graduated");
-                    footerStatus = page
-                        .locator('[class*="footerStatus"]')
-                        .first();
-                    return [4 /*yield*/, (0, test_1.expect)(footerStatus.or(statusLabels.first())).toBeVisible({
-                            timeout: 5000,
-                        })];
-                case 5:
-                    _c.sent();
-                    _c.label = 6;
-                case 6: return [2 /*return*/];
-            }
-        });
-    }); });
 });

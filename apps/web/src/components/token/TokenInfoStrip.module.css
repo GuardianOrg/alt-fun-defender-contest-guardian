@@ -37,13 +37,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.valueMuted {
-  font-size: 13px;
-  color: var(--txt-4);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
 .statEnd {
   align-items: flex-end;
   text-align: right;

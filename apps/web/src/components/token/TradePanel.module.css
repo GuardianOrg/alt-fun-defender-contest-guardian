@@ -534,51 +534,6 @@ button.ctaConfirmed:disabled {
   animation: livep 2s ease-in-out infinite;
 }
 
-.footer {
-  border-top: 1px solid var(--border);
-  padding: 0.6rem 0.8rem;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-}
-
-.footerLeft {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-}
-
-/* Footer override on the shared `Chip` — the trade-panel footer is
- * already a 0.6rem-padded strip, so the chip drops its own padding to
- * sit flush with the rest of the inline metadata. The 11px font size
- * matches `.footerStatus` and `.footerLt` siblings. */
-.footerCaChip {
-  font-size: 11px;
-  padding: 0.2rem 0.4rem;
-}
-
-.footerDot {
-  color: var(--txt-4);
-}
-
-.footerLt {
-  color: var(--txt-3);
-}
-
-.footerStatus {
-  font-weight: 500;
-}
-
-.footerStatusGraduating {
-  color: var(--amber);
-}
-
-.footerStatusDefault {
-  color: var(--txt-4);
-}
-
 @media (max-width: 768px) {
   .panel {
     width: 100%;

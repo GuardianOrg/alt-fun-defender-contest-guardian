@@ -118,28 +118,4 @@ test.describe("Graduation detection", () => {
     await expect(page.locator("button", { hasText: "ALL" })).toBeVisible();
   });
 
-  test("token detail footer shows token status", async ({ page }) => {
-    await page.goto("/");
-
-    const firstTokenRow = page.locator("tr").filter({ hasText: /\$/ }).first();
-    const rowVisible = await firstTokenRow
-      .isVisible({ timeout: 5_000 })
-      .catch(() => false);
-
-    if (rowVisible) {
-      await firstTokenRow.click();
-      await page.waitForURL(/\/token\/0x/);
-
-      // Footer should show the token status (active, graduating, or graduated)
-      const statusLabels = page.locator(
-        "text=active, text=graduating, text=graduated",
-      );
-      const footerStatus = page
-        .locator('[class*="footerStatus"]')
-        .first();
-      await expect(footerStatus.or(statusLabels.first())).toBeVisible({
-        timeout: 5_000,
-      });
-    }
-  });
 });

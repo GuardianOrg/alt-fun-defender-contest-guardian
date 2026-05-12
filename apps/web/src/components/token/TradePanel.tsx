@@ -8,7 +8,6 @@ import CreatorBadge from "./CreatorBadge";
 import SettingsPopup from "./SettingsPopup";
 import styles from "./TradePanel.module.css";
 import TradePanelBufferWarning from "./TradePanelBufferWarning";
-import TradePanelFooter from "./TradePanelFooter";
 import TradePanelInput from "./TradePanelInput";
 import TradePanelQuote from "./TradePanelQuote";
 import { hyperEVM } from "../../config/chains";
@@ -356,7 +355,6 @@ export default function TradePanel({ token }: Props) {
           </div>
         </div>
         <CreatorBadge token={token} />
-        <TradePanelFooter token={token} />
       </div>
     );
   }
@@ -603,8 +601,6 @@ export default function TradePanel({ token }: Props) {
       </div>
 
       <CreatorBadge token={token} />
-
-      <TradePanelFooter token={token} />
     </div>
   );
 }

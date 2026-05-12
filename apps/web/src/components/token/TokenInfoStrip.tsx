@@ -70,16 +70,20 @@ export default function TokenInfoStrip({ token }: Props) {
   // Curate the socials defensively — `socialLinks` is optional on `Token`
   // and individual fields can be empty strings (the create form starts
   // with `""` defaults). Filter those out so we don't render dead links.
+  //
+  // Twitter is special: when the creator didn't submit a profile we still
+  // show the X icon, but point it at a search for the contract address so
+  // users can find community chatter without leaving the trade page.
   const socials: SocialEntry[] = [];
   const links = token.socialLinks;
-  if (links?.twitter) {
-    socials.push({
-      key: "twitter",
-      url: links.twitter,
-      label: "Twitter",
-      icon: TwitterIcon,
-    });
-  }
+  socials.push({
+    key: "twitter",
+    url:
+      links?.twitter ||
+      `https://x.com/search?q=${encodeURIComponent(token.address)}`,
+    label: links?.twitter ? "Twitter" : "Search X for contract address",
+    icon: TwitterIcon,
+  });
   if (links?.telegram) {
     socials.push({
       key: "telegram",
@@ -117,24 +121,20 @@ export default function TokenInfoStrip({ token }: Props) {
 
       <div className={`${styles.stat} ${styles.statEnd}`}>
         <span className={styles.label}>Socials</span>
-        {socials.length === 0 ? (
-          <span className={styles.valueMuted}>N/A</span>
-        ) : (
-          <div className={styles.socials}>
-            {socials.map((s) => (
-              <a
-                key={s.key}
-                href={s.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={s.label}
-                className={styles.socialLink}
-              >
-                {s.icon}
-              </a>
-            ))}
-          </div>
-        )}
+        <div className={styles.socials}>
+          {socials.map((s) => (
+            <a
+              key={s.key}
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={s.label}
+              className={styles.socialLink}
+            >
+              {s.icon}
+            </a>
+          ))}
+        </div>
       </div>
     </div>
   );
