@@ -45,6 +45,7 @@ const post = (body: object) =>
 interface SentMessage {
   chat_id: number;
   text: string;
+  reply_markup?: unknown;
 }
 
 const sentMessages = (fetchSpy: ReturnType<typeof vi.spyOn>): SentMessage[] =>
@@ -163,6 +164,60 @@ describe("/positions", () => {
     expect(text).toContain("Alpha Token (ALPHA)");
     expect(text).toContain("2.5");
     expect(text).toContain("$50");
+    // Single-page result must not attach a keyboard; an empty
+    // nav row would render as a zero-height inline strip.
+    expect(sent[0]!.reply_markup).toBeUndefined();
+  });
+
+  it("attaches a Next button when the response paginates", async () => {
+    // 250 long-name positions push the rendered output past 4096 chars
+    // and into multi-chunk territory — the same fixture used by
+    // format.test.ts to validate chunking.
+    const positions = Array.from({ length: 250 }, (_, i) => ({
+      tokenAddress: `0x${i.toString(16).padStart(40, "0")}`,
+      tokenAmount: "0",
+      costBasisUsdc: "1000000",
+    }));
+    const balances = Array.from({ length: 250 }, (_, i) => ({
+      address: `0x${i.toString(16).padStart(40, "0")}`,
+      name: `Long Token Name Number ${i}`,
+      ticker: `LT${i}`,
+      ltPair: "0xbbbb",
+      leverage: 2,
+      underlying: "HYPE",
+      ltDirection: "long",
+      balance: "1000000000000000000",
+    }));
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/portfolio/")) {
+        return new Response(
+          JSON.stringify({ data: { positions, approximate: false } }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/api/v1/balances/")) {
+        return new Response(JSON.stringify({ data: balances }), {
+          status: 200,
+        });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    await post(positionsUpdate(WALLET));
+    const sent = sentMessages(fetchSpy);
+    // Pagination replaces the old chunk-blast — exactly one outbound
+    // message regardless of how many pages the data occupies.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.text).toContain("Open positions (250)");
+    expect(sent[0]!.text).toContain("Page 1 of");
+    const markup = sent[0]!.reply_markup as {
+      inline_keyboard: { text: string; callback_data: string }[][];
+    };
+    expect(markup).toBeDefined();
+    const buttons = markup.inline_keyboard.flat();
+    expect(buttons.map((b) => b.text)).toEqual(["Next →"]);
+    // Page 0 — only Next, no Prev.
+    expect(buttons[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
   });
 
   it("replies with a degraded-data message when the API returns 503", async () => {

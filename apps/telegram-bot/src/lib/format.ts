@@ -1,4 +1,5 @@
 import type { BalanceEntry, PortfolioPosition } from "./api.js";
+import { encodeCallback } from "./callbacks.js";
 
 const TOKEN_DECIMALS = 18;
 const USDC_DECIMALS = 6;
@@ -143,4 +144,73 @@ export const formatPositionsResponse = (
     }
   }
   return chunks;
+};
+
+export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
+
+export interface InlineKeyboardButton {
+  text: string;
+  callback_data: string;
+}
+
+export interface InlineKeyboardMarkup {
+  inline_keyboard: InlineKeyboardButton[][];
+}
+
+/**
+ * Render one page of a chunked positions response. A multi-page reply
+ * gets a `Page X/Y` footer so the user knows where they are; a single
+ * page renders verbatim. The keyboard handles navigation — see
+ * `buildPositionsPageKeyboard` for the matching nav row.
+ */
+export const renderPaginatedPage = (
+  chunks: string[],
+  page: number,
+): string => {
+  if (chunks.length === 0) return "";
+  const safePage = Math.max(0, Math.min(page, chunks.length - 1));
+  const body = chunks[safePage]!;
+  if (chunks.length === 1) return body;
+  return `${body}\n\nPage ${safePage + 1} of ${chunks.length}`;
+};
+
+/**
+ * Build the `[← Prev] [Next →]` row that travels with a multi-page
+ * positions reply. Returns `null` for single-page outputs so the
+ * caller can omit `reply_markup` entirely — sending an empty keyboard
+ * would render an awkward zero-height bar in the Telegram client.
+ *
+ * The wallet rides in `callback_data` (not in server-side state) so
+ * the bot can survive Worker cold-starts and re-deploys without
+ * needing a KV-backed page cache. Recomputing on each click is cheap
+ * over the service binding.
+ */
+export const buildPositionsPageKeyboard = (
+  page: number,
+  totalPages: number,
+  wallet: string,
+): InlineKeyboardMarkup | null => {
+  if (totalPages <= 1) return null;
+  const row: InlineKeyboardButton[] = [];
+  if (page > 0) {
+    row.push({
+      text: "← Prev",
+      callback_data: encodeCallback(
+        POSITIONS_PAGE_CALLBACK_CMD,
+        String(page - 1),
+        wallet,
+      ),
+    });
+  }
+  if (page < totalPages - 1) {
+    row.push({
+      text: "Next →",
+      callback_data: encodeCallback(
+        POSITIONS_PAGE_CALLBACK_CMD,
+        String(page + 1),
+        wallet,
+      ),
+    });
+  }
+  return { inline_keyboard: [row] };
 };

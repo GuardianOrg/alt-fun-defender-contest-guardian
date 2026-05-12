@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  buildPositionsPageKeyboard,
   chunkPositionsMessage,
   formatFixed,
   formatPositionLine,
@@ -8,6 +9,8 @@ import {
   formatTokenAmount,
   formatUsdc,
   joinPositions,
+  POSITIONS_PAGE_CALLBACK_CMD,
+  renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
 import type { BalanceEntry, PortfolioPosition } from "../../lib/api.js";
@@ -187,5 +190,75 @@ describe("formatPositionsResponse", () => {
     expect(out.length).toBeGreaterThan(1);
     for (const chunk of out)
       expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+});
+
+describe("renderPaginatedPage", () => {
+  it("returns the only chunk verbatim when totalPages = 1 (no footer)", () => {
+    expect(renderPaginatedPage(["body"], 0)).toBe("body");
+  });
+
+  it("appends a 'Page X of Y' footer when totalPages > 1", () => {
+    const out = renderPaginatedPage(["a", "b", "c"], 1);
+    expect(out.startsWith("b")).toBe(true);
+    expect(out).toContain("Page 2 of 3");
+  });
+
+  it("clamps a too-high page index to the last available page", () => {
+    const out = renderPaginatedPage(["a", "b"], 99);
+    expect(out.startsWith("b")).toBe(true);
+    expect(out).toContain("Page 2 of 2");
+  });
+
+  it("clamps a negative page index to 0", () => {
+    const out = renderPaginatedPage(["a", "b"], -5);
+    expect(out.startsWith("a")).toBe(true);
+    expect(out).toContain("Page 1 of 2");
+  });
+
+  it("returns an empty string for an empty chunk list", () => {
+    expect(renderPaginatedPage([], 0)).toBe("");
+  });
+});
+
+describe("buildPositionsPageKeyboard", () => {
+  const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
+
+  it("returns null for single-page (avoids an empty inline strip)", () => {
+    expect(buildPositionsPageKeyboard(0, 1, WALLET)).toBeNull();
+  });
+
+  it("page 0 of N: emits only [Next →]", () => {
+    const kb = buildPositionsPageKeyboard(0, 3, WALLET);
+    const buttons = kb!.inline_keyboard.flat();
+    expect(buttons.map((b) => b.text)).toEqual(["Next →"]);
+    expect(buttons[0]!.callback_data).toBe(
+      `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,
+    );
+  });
+
+  it("middle page: emits [← Prev] and [Next →] with correct target indices", () => {
+    const kb = buildPositionsPageKeyboard(1, 3, WALLET);
+    const buttons = kb!.inline_keyboard.flat();
+    expect(buttons.map((b) => b.text)).toEqual(["← Prev", "Next →"]);
+    expect(buttons[0]!.callback_data).toBe(
+      `${POSITIONS_PAGE_CALLBACK_CMD}:0:${WALLET}`,
+    );
+    expect(buttons[1]!.callback_data).toBe(
+      `${POSITIONS_PAGE_CALLBACK_CMD}:2:${WALLET}`,
+    );
+  });
+
+  it("last page: emits only [← Prev]", () => {
+    const kb = buildPositionsPageKeyboard(2, 3, WALLET);
+    const buttons = kb!.inline_keyboard.flat();
+    expect(buttons.map((b) => b.text)).toEqual(["← Prev"]);
+  });
+
+  it("stays inside the 64-byte callback_data ceiling", () => {
+    const kb = buildPositionsPageKeyboard(999, 1000, WALLET);
+    for (const b of kb!.inline_keyboard.flat()) {
+      expect(b.callback_data.length).toBeLessThanOrEqual(64);
+    }
   });
 });
