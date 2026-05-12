@@ -1,0 +1,186 @@
+/* Profile page — sits inside the same layout outlet as TerminalView,
+ * so the outer wrapper mirrors `TerminalView`'s gutters (1.2rem all
+ * round) for visual continuity when navigating between tabs.
+ *
+ * Inside, a single bordered panel hosts the hero (large avatar +
+ * address) and the submenu of categories. The tab styling intentionally
+ * mirrors `CommandBar` (TRENDING / NEW / GRADUATING / GRADUATED) so
+ * the submenu reads as a sibling control to the home page's filter
+ * bar — same height, same typography, same mint underline indicator. */
+
+.wrapper {
+  display: flex;
+  flex: 1;
+  overflow: auto;
+  margin: 1.2rem;
+  min-height: 0;
+}
+
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  background: var(--bg-1);
+  min-width: 0;
+}
+
+/* Hero row — avatar + identity. Padded generously so the large
+ * circle has breathing room against the panel border, and stacks
+ * vertically on mobile. */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+  padding: 2.4rem 1.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.avatar {
+  /* Same diameter / ratio system as `ProfileButton.module.css` so the
+   * face inside the larger hero circle scales to match the header
+   * chip. Tweaking either variable cascades to the face automatically. */
+  --avatar-size: 6.4rem;
+  --face-ratio: 0.32;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  flex-shrink: 0;
+  padding: 0;
+  border: 2px solid var(--mint);
+  border-radius: 9999px;
+  background: var(--mint-bg);
+  color: var(--mint);
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.avatar:hover {
+  color: var(--mint-hover);
+  border-color: var(--mint-hover);
+}
+
+.avatar:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.avatarFace {
+  font-family: var(--font-mono);
+  font-size: calc(var(--avatar-size) * var(--face-ratio));
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.identity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+}
+
+.address {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+/* Submenu — same shape as `terminal/CommandBar.module.css`:
+ * horizontal scroll on overflow, 13px mono labels, mint indicator
+ * under the active tab. Kept as per-component CSS rather than a
+ * shared primitive because there's only the two consumers today;
+ * if a third surfaces we should promote it to `shared/`. */
+.tabBar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  flex-shrink: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  min-width: 0;
+}
+
+.tabBar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  position: relative;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--txt-3);
+  padding: 1.2rem 1.6rem;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  transition: all 0.15s ease;
+  line-height: normal;
+}
+
+.tab:hover {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tabActive {
+  color: var(--txt);
+  font-weight: 700;
+}
+
+.indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--mint);
+  border-radius: 9999px;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  padding: 1.6rem;
+}
+
+@media (max-width: 768px) {
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.2rem;
+    padding: 1.6rem;
+  }
+
+  .avatar {
+    --avatar-size: 4.8rem;
+  }
+
+  .address {
+    font-size: 14px;
+  }
+}

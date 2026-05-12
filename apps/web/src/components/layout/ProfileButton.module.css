@@ -1,0 +1,58 @@
+/* Circular profile chip on the far right of the header. The full
+ * round shape is an intentional break from the 2–3px radius rule —
+ * profile/avatar surfaces are the one place a perfect circle reads
+ * correctly, and this keeps it visually distinct from the chip /
+ * button family it sits next to. Sized to 3rem so it lines up with
+ * the search trigger, wallet chip, and launch button.
+ *
+ * Prototype: the centred kaomoji stands in for an avatar until real
+ * profile imagery is wired up. */
+
+.profileBtn {
+  /* Diameter is the single source of truth: width / height come off
+   * `--avatar-size`, and the inner face's font-size is derived from
+   * the same variable so resizing the circle keeps the face visually
+   * proportional. Same `--face-ratio` is used by `ProfileView`'s
+   * larger hero avatar to guarantee both renderings look identical at
+   * any size. */
+  --avatar-size: 3.2rem;
+  --face-ratio: 0.32;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  flex-shrink: 0;
+  border: 2px solid var(--mint);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--mint);
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.profileBtn:hover {
+  color: var(--mint-hover);
+  border-color: var(--mint-hover);
+  background: var(--mint-bg);
+}
+
+.profileBtn:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.face {
+  font-family: var(--font-mono);
+  font-size: calc(var(--avatar-size) * var(--face-ratio));
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  user-select: none;
+  white-space: nowrap;
+}
