@@ -46,8 +46,14 @@ export const isAddress = (value: string): boolean => ADDRESS_RE.test(value);
  */
 const buildHeaders = (apiKey: string | undefined): HeadersInit => {
   const headers: Record<string, string> = { accept: "application/json" };
-  if (apiKey !== undefined && apiKey !== "") {
-    headers["x-api-key"] = apiKey;
+  // Trim before checking — a whitespace-only secret would otherwise
+  // pass the truthy guard, get serialized as `" "` on the wire, hash
+  // to nothing the api keys table recognises, and surface as a 401.
+  // Treating whitespace as unset routes it cleanly into the anonymous
+  // bucket like a missing secret.
+  const normalized = apiKey?.trim();
+  if (normalized) {
+    headers["x-api-key"] = normalized;
   }
   return headers;
 };

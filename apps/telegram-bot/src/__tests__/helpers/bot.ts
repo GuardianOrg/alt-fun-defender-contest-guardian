@@ -24,7 +24,14 @@ export const mockTelegramOk = (
     if (String(input).startsWith(TELEGRAM_API_HOST)) {
       return okResponse(true);
     }
-    return new Response("{}", { status: 200 });
+    // Fail fast on any other URL — silently returning 200 `{}` would
+    // hide unmocked upstream calls (e.g. apps/api reads from inside a
+    // wallet handler) and weaken every test that uses this helper.
+    // Tests that need other URLs should compose their own mock via
+    // `withTelegramOk` or a bespoke `mockImplementation`.
+    throw new Error(
+      `Unexpected fetch in test (no mock registered): ${String(input)}`,
+    );
   });
 };
 

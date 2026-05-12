@@ -10,6 +10,7 @@ import {
   buildWalletMainKeyboard,
   buildWalletSwitchKeyboard,
 } from "../keyboards/wallet-actions.js";
+import { withAntiPhishing } from "../lib/anti-phishing.js";
 import {
   MAX_WALLETS_PER_USER,
   TooManyWalletsError,
@@ -21,7 +22,30 @@ import {
 const NO_USER_REPLY =
   "Wallets require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
 
+const NON_PRIVATE_CHAT_REPLY =
+  "Wallet flows are private-DM only — wallet labels and addresses must not surface in groups. Open a direct chat with the bot to manage wallets.";
+
 const RENAME_MAX_LEN = 32;
+
+const isPrivateChat = (ctx: AppContext): boolean =>
+  ctx.chat?.type === "private";
+
+/**
+ * Defense-in-depth: every wallet callback handler funnels through this
+ * before reading or mutating KV. The `/wallet` command itself is also
+ * private-only, so in practice inline buttons should only ever exist
+ * in private chats — but a forwarded message or future code path
+ * could still surface a button in a group. Silent toast + return is
+ * safer than answering with wallet state.
+ */
+const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
+  if (isPrivateChat(ctx)) return true;
+  await ctx.answerCallbackQuery({
+    text: "Wallet actions are private-DM only.",
+    show_alert: true,
+  });
+  return false;
+};
 
 const truncateAddress = (addr: string): string =>
   `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -85,7 +109,9 @@ const editToMain = async (ctx: AppContext): Promise<void> => {
   if (!ctx.from || !ctx.callbackQuery?.message) return;
   const wm = buildManager(ctx.env);
   const state = await renderMainState(wm, ctx.from.id);
-  await ctx.editMessageText(state.text, { reply_markup: state.reply_markup });
+  await ctx.editMessageText(withAntiPhishing(state.text), {
+    reply_markup: state.reply_markup,
+  });
 };
 
 /**
@@ -107,12 +133,16 @@ const renameWalletConversation = async (
   ctx: AppContext,
   walletId: string,
 ): Promise<void> => {
-  await ctx.reply("Send the new label for this wallet (max 32 chars).");
+  await ctx.reply(
+    withAntiPhishing("Send the new label for this wallet (max 32 chars)."),
+  );
   const reply = await conversation.waitFor("message:text");
   const label = reply.message.text.trim();
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
-      `Label must be 1–${RENAME_MAX_LEN} characters. Rename cancelled.`,
+      withAntiPhishing(
+        `Label must be 1–${RENAME_MAX_LEN} characters. Rename cancelled.`,
+      ),
     );
     return;
   }
@@ -124,7 +154,9 @@ const renameWalletConversation = async (
     );
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
-      await reply.reply("Wallet no longer exists. Rename cancelled.");
+      await reply.reply(
+        withAntiPhishing("Wallet no longer exists. Rename cancelled."),
+      );
       return;
     }
     throw err;
@@ -132,7 +164,9 @@ const renameWalletConversation = async (
   const state = await conversation.external(() =>
     renderMainState(wm, reply.from!.id),
   );
-  await reply.reply(state.text, { reply_markup: state.reply_markup });
+  await reply.reply(withAntiPhishing(state.text), {
+    reply_markup: state.reply_markup,
+  });
 };
 
 export const registerWalletCommand = (bot: Bot<AppContext>): void => {
@@ -151,12 +185,22 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    */
   bot.command("wallet", async (ctx) => {
     if (!ctx.from) {
-      await ctx.reply(NO_USER_REPLY);
+      await ctx.reply(withAntiPhishing(NO_USER_REPLY));
+      return;
+    }
+    // Wallet flows are private-only — group / supergroup / channel
+    // contexts would publicly leak wallet labels and addresses, and
+    // callback flows would let any group member mutate state. Reject
+    // anything that isn't a 1:1 chat before doing any KV reads.
+    if (!isPrivateChat(ctx)) {
+      await ctx.reply(withAntiPhishing(NON_PRIVATE_CHAT_REPLY));
       return;
     }
     const wm = buildManager(ctx.env);
     const state = await renderMainState(wm, ctx.from.id);
-    await ctx.reply(state.text, { reply_markup: state.reply_markup });
+    await ctx.reply(withAntiPhishing(state.text), {
+      reply_markup: state.reply_markup,
+    });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.create, async (ctx) => {
@@ -164,6 +208,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery({ text: "Missing user." });
       return;
     }
+    if (!(await ensurePrivate(ctx))) return;
     const wm = buildManager(ctx.env);
     try {
       const wallet = await wm.createWallet(ctx.from.id);
@@ -188,6 +233,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
+    if (!(await ensurePrivate(ctx))) return;
     const wm = buildManager(ctx.env);
     const wallets = await wm.listWallets(ctx.from.id);
     if (wallets.length === 0) {
@@ -198,11 +244,17 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const active = await wm.getActive(ctx.from.id);
-    await ctx.editMessageText("Pick the wallet to use as active:", {
-      reply_markup: {
-        inline_keyboard: buildWalletSwitchKeyboard(wallets, active?.id ?? null),
+    await ctx.editMessageText(
+      withAntiPhishing("Pick the wallet to use as active:"),
+      {
+        reply_markup: {
+          inline_keyboard: buildWalletSwitchKeyboard(
+            wallets,
+            active?.id ?? null,
+          ),
+        },
       },
-    });
+    );
     await ctx.answerCallbackQuery();
   });
 
@@ -213,6 +265,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
         await ctx.answerCallbackQuery();
         return;
       }
+      if (!(await ensurePrivate(ctx))) return;
       const data = ctx.callbackQuery.data ?? "";
       const walletId = data.split(":")[1];
       if (!walletId) {
@@ -241,6 +294,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   );
 
   bot.callbackQuery(WALLET_CALLBACK.mainBack, async (ctx) => {
+    if (!(await ensurePrivate(ctx))) return;
     await editToMain(ctx);
     await ctx.answerCallbackQuery();
   });
@@ -256,6 +310,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
+    if (!(await ensurePrivate(ctx))) return;
     const wm = buildManager(ctx.env);
     const active = await wm.getActive(ctx.from.id);
     if (!active) {

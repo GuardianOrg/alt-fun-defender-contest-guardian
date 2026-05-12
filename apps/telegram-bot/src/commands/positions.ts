@@ -131,11 +131,33 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
           page.reply_markup ? { reply_markup: page.reply_markup } : {},
         );
       } catch (err) {
-        // 400 "message not found" / "message is not modified" are
-        // benign — treat as no-op per AGENTS.md. Log for diagnostics.
-        logger.warn("editMessageText failed in positions pagination", {
+        // Only swallow the two known-benign Telegram 400 cases —
+        // anything else (network, auth, runtime) must surface so a
+        // real regression doesn't hide behind silent pagination
+        // failures.
+        //   - "message not found"           — user deleted the msg
+        //   - "message is not modified"     — user double-clicked
+        // grammY wraps Telegram errors with `error_code` + `description`
+        // on `GrammyError`; fall back to message-substring for any
+        // other shape.
+        const e = err as {
+          error_code?: number;
+          description?: string;
+          message?: string;
+        };
+        const desc = (e.description ?? e.message ?? "").toLowerCase();
+        const isBenign =
+          e.error_code === 400 &&
+          (desc.includes("message to edit not found") ||
+            desc.includes("message not found") ||
+            desc.includes("message is not modified"));
+        if (!isBenign) {
+          await ctx.answerCallbackQuery();
+          throw err;
+        }
+        logger.warn("editMessageText benign 400 in positions pagination", {
           queryId: ctx.callbackQuery.id,
-          err,
+          description: e.description,
         });
       }
       await ctx.answerCallbackQuery();

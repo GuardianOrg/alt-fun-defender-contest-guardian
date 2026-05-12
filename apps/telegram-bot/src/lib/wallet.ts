@@ -204,8 +204,22 @@ export class WalletManager {
     }
     const { privateKey, address } = this.generate();
     const encryptedKey = await this.encrypt(privateKey, userId);
+    // Collision-safe walletId. The base32-6 space (~1B ids) makes a
+    // collision astronomically unlikely under the 10-per-user cap, but
+    // a single overwrite would corrupt that user's wallet state, so
+    // the cost of guarding is negligible vs the cost of being wrong.
+    // Cap retries at 10 — past that the entropy source is suspect and
+    // failing loudly beats spinning forever.
+    const existingIds = new Set(index.wallets);
+    let id = generateWalletId();
+    for (let i = 0; existingIds.has(id) && i < 10; i++) {
+      id = generateWalletId();
+    }
+    if (existingIds.has(id)) {
+      throw new Error("walletId collision after 10 retries");
+    }
     const wallet: StoredWallet = {
-      id: generateWalletId(),
+      id,
       address,
       encryptedKey,
       label,
