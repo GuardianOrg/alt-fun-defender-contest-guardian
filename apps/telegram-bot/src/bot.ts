@@ -1,6 +1,8 @@
 import { KvAdapter } from "@grammyjs/storage-cloudflare";
 import {
+  type ConversationData,
   type ConversationFlavor,
+  type VersionedState,
   conversations,
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
@@ -128,7 +130,25 @@ export const createBot = (
     }),
   );
 
-  bot.use(conversations());
+  // Conversations plugin defaults to in-memory storage. Workers are
+  // stateless per request, so without a persistent adapter the active-
+  // conversation record is dropped between the `enter` call and the
+  // user's follow-up message — leaving the next update unmatched and
+  // silent. Back it with the same KV namespace that holds sessions.
+  bot.use(
+    conversations<AppContext, AppContext>({
+      storage: {
+        type: "key",
+        version: 0,
+        prefix: "conv:",
+        adapter: new KvAdapter<VersionedState<ConversationData>>(
+          env.WALLET_KV as unknown as ConstructorParameters<
+            typeof KvAdapter
+          >[0],
+        ),
+      },
+    }),
+  );
 
   registerStartCommand(bot);
   registerPositionsCommand(bot);

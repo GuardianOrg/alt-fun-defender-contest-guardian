@@ -42,6 +42,17 @@ const callbackUpdate = (data: string) => ({
   },
 });
 
+const textUpdate = (text: string, updateId = 3) => ({
+  update_id: updateId,
+  message: {
+    message_id: 200 + updateId,
+    date: 0,
+    chat: { id: 42, type: "private" as const },
+    from: { id: 7, is_bot: false, first_name: "Ada" },
+    text,
+  },
+});
+
 interface TgCall {
   url: string;
   body: Record<string, unknown>;
@@ -259,6 +270,55 @@ describe("/wallet command", () => {
       );
       expect(answer?.body.show_alert).toBe(true);
       expect(answer?.body.text).toContain("No active wallet");
+    });
+  });
+
+  // Each `h.run(...)` call rebuilds the Bot from scratch (see
+  // makeBotHarness), mirroring the Workers per-request lifecycle. The
+  // conversation state therefore has to round-trip through the shared
+  // KV adapter — exactly the path that was silently dropped when the
+  // conversations plugin was wired up with default in-memory storage.
+  describe("Rename conversation (wr → text reply)", () => {
+    it("persists the active conversation across worker invocations and renames the wallet on the follow-up text", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "old");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.rename));
+      const prompt = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          String(c.body.text).includes("Send the new label"),
+      );
+      expect(prompt).toBeDefined();
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+
+      await h.run(textUpdate("renamed"));
+
+      expect((await wm.listWallets(7))[0]?.label).toBe("renamed");
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(send?.body.text).toContain("renamed");
+    });
+
+    it("rejects an empty label and leaves the wallet untouched", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "old");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.rename));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("   "));
+
+      expect((await wm.listWallets(7))[0]?.label).toBe("old");
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(String(send?.body.text)).toMatch(/Label must be/);
     });
   });
 });

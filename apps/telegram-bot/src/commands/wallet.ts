@@ -180,10 +180,18 @@ const renameWalletConversation = async (
     return;
   }
   if (!reply.from) return;
-  const wm = await conversation.external(() => buildManager(ctx.env));
+  // The `ctx` captured in this closure is a *replay-time* context on
+  // every resume, not the one that originally entered the conversation
+  // — the outer `ctx.env = env` middleware never ran for it. Pull
+  // `env` off the live outside context via `conversation.external`,
+  // which is exactly what that escape hatch is for. `external` round-
+  // trips its return value through JSON, so we build a fresh
+  // `WalletManager` *inside* each `external` rather than capturing one
+  // — methods don't survive serialization.
+  const fromId = reply.from.id;
   try {
-    await conversation.external(() =>
-      wm.renameWallet(reply.from!.id, walletId, label),
+    await conversation.external((outerCtx) =>
+      buildManager(outerCtx.env).renameWallet(fromId, walletId, label),
     );
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
@@ -194,8 +202,8 @@ const renameWalletConversation = async (
     }
     throw err;
   }
-  const state = await conversation.external(() =>
-    renderMainState(wm, reply.from!.id),
+  const state = await conversation.external((outerCtx) =>
+    renderMainState(buildManager(outerCtx.env), fromId),
   );
   await reply.reply(withAntiPhishing(state.text), {
     reply_markup: state.reply_markup,
