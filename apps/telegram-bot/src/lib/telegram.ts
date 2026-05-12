@@ -47,6 +47,15 @@ export const callTelegram = async (
   });
 };
 
+/**
+ * Plain-text message by default. parse_mode is opt-in (`extra: { parse_mode:
+ * "HTML" }` or `"MarkdownV2"`) so callers that interpolate user-controlled
+ * strings (names, token symbols, addresses) don't accidentally let `<`, `>`,
+ * `&`, or `*` turn a greeting into a Telegram parser error or a markup
+ * injection. When you do enable parse_mode, escape the interpolated
+ * substrings — Telegram's HTML mode rejects unbalanced tags and entity errors
+ * surface as 400 responses.
+ */
 export const sendMessage = (
   botToken: string,
   chatId: number,
@@ -56,6 +65,5 @@ export const sendMessage = (
   callTelegram(botToken, "sendMessage", {
     chat_id: chatId,
     text,
-    parse_mode: "HTML",
     ...extra,
   });
