@@ -10,7 +10,11 @@
   overflow: hidden;
 }
 
-/* Left cluster: CA pill + mint share button. */
+/* Action cluster: CA pill + mint share button. Stays right-aligned on a
+ * single row at ≥1024px; on narrower widths the wrapper switches to a
+ * vertical stack (see the media query at the bottom of the file) so the
+ * cluster sits on its own row beneath the name/avatar group rather than
+ * being clipped by the wrapper's `overflow: hidden`. */
 .leftGroup {
   display: flex;
   align-items: center;
@@ -31,12 +35,16 @@
   color: var(--txt);
 }
 
-/* Right cluster: image + name stack. */
+/* Identity cluster: image + name stack. Allowed to shrink (no
+ * `flex-shrink: 0`) so on narrower viewports the name stack compresses
+ * before the action cluster does — the avatar itself is its own
+ * `flex-shrink: 0` child, so it stays a stable 6rem square; only the
+ * text column gives way, and `min-width: 0` lets the ticker / name lines
+ * inside wrap or ellide rather than push the row wider. */
 .rightGroup {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  flex-shrink: 0;
   min-width: 0;
   height: 100%;
 }
@@ -134,6 +142,14 @@
   color: var(--txt-2);
   letter-spacing: 0.01em;
   line-height: 1.1;
+  /* Keep the name on a single line so it can never push the wrapper
+   * taller than the avatar (6rem). At narrow widths the parent
+   * `.tickerNameContainer` has `min-width: 0`, so the ellipsis here
+   * actually engages instead of overflowing. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .byDev {
@@ -210,4 +226,24 @@
   max-height: 90vh;
   object-fit: contain;
   background: var(--bg-2);
+}
+
+/* Below 1024px the trade panel is still side-by-side (the global stack
+ * doesn't kick in until 768px), which leaves the hero too narrow to fit
+ * the name/avatar cluster *and* the CA + Share cluster on a single row.
+ * Drop the action cluster onto its own row beneath the identity cluster
+ * so neither overflows the wrapper. The wrapper grows in height to fit
+ * the second row; both rows keep their natural inline alignment (left
+ * for identity, left for actions) for a tidy stacked layout. */
+@media (max-width: 1023px) {
+  .wrapper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8rem;
+  }
+
+  .leftGroup {
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
