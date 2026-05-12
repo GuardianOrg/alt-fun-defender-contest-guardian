@@ -128,7 +128,6 @@ export default function LandingOverlay() {
       </header>
 
       <main className={styles.main}>
-        <div className={styles.eyebrow}>ALT.FUN&nbsp;&nbsp;//&nbsp;&nbsp;HYPEREVM</div>
         <h1 className={styles.heading}>
           Launch coins
           <span className={styles.headingAccent}>

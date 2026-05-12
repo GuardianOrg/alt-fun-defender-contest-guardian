@@ -89,19 +89,6 @@
   gap: 1.6rem;
 }
 
-.eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--mint);
-  font-weight: 600;
-  border: 1px solid var(--border-2);
-  padding: 0.6rem 0.8rem;
-  border-radius: 3px;
-  background: rgba(77, 232, 180, 0.04);
-  filter: drop-shadow(0 0 8px rgba(77, 232, 180, 0.15));
-}
-
 .heading {
   font-family: var(--font-display);
   font-weight: 600;
