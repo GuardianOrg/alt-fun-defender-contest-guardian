@@ -12,9 +12,10 @@ import { useCopyState } from "../../hooks/useCopyState";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
 import { selectEarningsOpen, setEarningsOpen } from "../../state/uiSlice";
-import { cn } from "../../utils/format";
 import Button from "../shared/Button";
+import Chip from "../shared/Chip";
 import Modal from "../shared/Modal";
+import SegmentedButton from "../shared/SegmentedButton";
 
 type Tab = "balances" | "rewards";
 
@@ -55,12 +56,8 @@ export default function EarningsPanel() {
         {isConnected ? (
           <div className={styles.avatarWrap}>
             <div>
-              <button
-                type="button"
-                className={cn(
-                  styles.addressCopyBtn,
-                  copied && styles.addressCopyBtnCopied,
-                )}
+              <Chip
+                success={copied}
                 onClick={() => address && copy(address)}
                 title={copied ? "Copied!" : "Copy full address"}
                 aria-label={
@@ -70,16 +67,39 @@ export default function EarningsPanel() {
                 <span id="earnings-panel-title" className={styles.addressText}>
                   {shortAddress}
                 </span>
-                <span
-                  className={cn(
-                    styles.copyIcon,
-                    copied ? styles.copyIconCopied : styles.copyIconDefault,
-                  )}
-                  aria-hidden="true"
-                >
-                  {copied ? "✓" : "⎘"}
-                </span>
-              </button>
+                {copied ? (
+                  <svg
+                    aria-hidden="true"
+                    focusable="false"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg
+                    aria-hidden="true"
+                    focusable="false"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </Chip>
               <div className={styles.chainRow}>
                 <span className={styles.chainText}>HyperEVM</span>
                 <span className={styles.chainSep} aria-hidden="true">
@@ -120,17 +140,14 @@ export default function EarningsPanel() {
         <>
           <div className={styles.tabBar}>
             {(["balances", "rewards"] as const).map((t) => (
-              <button
+              <SegmentedButton
                 key={t}
-                className={cn(
-                  styles.tabButton,
-                  tab === t && styles.tabButtonActive,
-                )}
+                tone="mint"
+                active={tab === t}
                 onClick={() => setTab(t)}
               >
                 {t === "balances" ? "Balances" : "Creator Rewards"}
-                {tab === t && <span className={styles.tabIndicator} />}
-              </button>
+              </SegmentedButton>
             ))}
           </div>
 

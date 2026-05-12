@@ -6,6 +6,7 @@ import { cn } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import Button from "../shared/Button";
+import Chip from "../shared/Chip";
 import Modal from "../shared/Modal";
 
 import type { Token } from "../../services/types";
@@ -105,24 +106,50 @@ export default function HeroSection({ token }: Props) {
 
       {/* Right: CA + share */}
       <div className={styles.leftGroup}>
-        <button
-          type="button"
-          className={styles.addrBlock}
+        <Chip
+          success={copied}
           onClick={() => copyCA(token.address)}
+          aria-label={`Copy contract address ${token.address}`}
         >
+          <span className={styles.addrLabel}>CA:</span>
           <span className={styles.addrText}>
             {`${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
           </span>
-          <span
-            className={cn(
-              styles.addrIcon,
-              copied ? styles.addrIconCopied : styles.addrIconDefault,
-            )}
-          >
-            {copied ? "✓" : "⎘"}
-          </span>
-        </button>
+          {copied ? (
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          ) : (
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          )}
+        </Chip>
         <Button variant="primary" size="sm" onClick={shareToken}>
+          {shared ? "Copied!" : "Share"}
           {shared ? (
             <svg
               aria-hidden="true"
@@ -156,7 +183,6 @@ export default function HeroSection({ token }: Props) {
               <line x1="12" y1="2" x2="12" y2="15" />
             </svg>
           )}
-          {shared ? "Copied!" : "Share"}
         </Button>
       </div>
 

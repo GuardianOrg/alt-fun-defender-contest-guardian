@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from "react";
 
 import styles from "./TradePanel.module.css";
 import { SLIPPAGE_OPTIONS } from "../../config/constants";
-import { cn } from "../../utils/format";
+import IconButton from "../shared/IconButton";
+import PresetChip from "../shared/PresetChip";
 
 interface Props {
   slippage: number;
@@ -40,9 +41,27 @@ export default function SettingsPopup({
     <div ref={ref} className={styles.settingsPopup}>
       <div className={styles.settingsHeader}>
         <span className={styles.settingsTitle}>Settings</span>
-        <button className={styles.settingsCloseBtn} onClick={onClose}>
-          [Close]
-        </button>
+        <IconButton
+          onClick={onClose}
+          aria-label="Close settings"
+          flush
+        >
+          <svg
+            aria-hidden="true"
+            focusable="false"
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </IconButton>
       </div>
 
       <div>
@@ -65,19 +84,17 @@ export default function SettingsPopup({
         </div>
         <div className={styles.presetRow}>
           {presets.map((p) => (
-            <button
+            <PresetChip
               key={p}
-              className={cn(
-                styles.presetBtn,
-                slippage === p / 100 && styles.presetBtnActive,
-              )}
+              fluid
+              active={slippage === p / 100}
               onClick={() => {
                 onSlippageChange(p / 100);
                 setCustom(String(p));
               }}
             >
               {p}%
-            </button>
+            </PresetChip>
           ))}
         </div>
       </div>

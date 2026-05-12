@@ -1,6 +1,7 @@
 import styles from "./TradePanel.module.css";
 import { useCopyState } from "../../hooks/useCopyState";
 import { cn } from "../../utils/format";
+import Chip from "../shared/Chip";
 
 import type { Token } from "../../services/types";
 
@@ -14,11 +15,16 @@ export default function TradePanelFooter({ token }: Props) {
   return (
     <div className={styles.footer}>
       <div className={styles.footerLeft}>
-        <a className={styles.footerCa} onClick={() => copyCA(token.address)}>
+        <Chip
+          success={copied}
+          onClick={() => copyCA(token.address)}
+          className={styles.footerCaChip}
+          aria-label={`Copy contract address ${token.address}`}
+        >
           {copied
             ? "✓ copied"
             : `${token.address.slice(0, 6)}…${token.address.slice(-4)}`}
-        </a>
+        </Chip>
         <span className={styles.footerDot}>·</span>
         <span className={styles.footerLt}>{token.ltName}</span>
       </div>

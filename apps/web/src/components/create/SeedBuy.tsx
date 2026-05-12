@@ -8,6 +8,7 @@ import { SEED_PCT_OPTIONS } from "../../config/constants";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { cn } from "../../utils/format";
 import { seedBuyStats, usdcForSupplyPct } from "../../utils/seedBuyMath";
+import PresetChip from "../shared/PresetChip";
 
 interface Props {
   seedAmount: string;
@@ -65,14 +66,10 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
           {SEED_PCT_OPTIONS.map((pct) => {
             const usd = usdcForSupplyPct(pct);
             return (
-              <button
+              <PresetChip
                 key={pct}
-                className={cn(
-                  styles.quickButton,
-                  activePct === pct
-                    ? styles.quickButtonActive
-                    : styles.quickButtonInactive,
-                )}
+                active={activePct === pct}
+                className={styles.quickButton}
                 onClick={() => {
                   onSeedChange(Math.ceil(usd).toString());
                   setActivePct(pct);
@@ -82,7 +79,7 @@ export default function SeedBuy({ seedAmount, onSeedChange }: Props) {
                 <div className={styles.quickSub}>
                   ${Math.ceil(usd).toLocaleString()}
                 </div>
-              </button>
+              </PresetChip>
             );
           })}
         </div>

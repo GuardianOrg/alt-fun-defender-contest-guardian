@@ -18,45 +18,17 @@
   flex-shrink: 0;
 }
 
-.addrBlock {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.6rem;
-  border-radius: 0.25rem;
-  cursor: pointer;
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
-  font-family: inherit;
-  color: inherit;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.addrBlock:hover {
-  border-color: var(--mint);
-}
-
-.addrText {
-  font-size: 12px;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--txt-2);
-}
-
-.addrIcon {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.addrIconDefault {
+/* `Chip` (shared/Chip) renders the CA pill chrome — the only HeroSection
+ * styles we keep are the inner label/value tones so the static "CA:"
+ * prefix can sit a notch quieter than the address itself. */
+.addrLabel {
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--txt-3);
 }
 
-.addrIconCopied {
-  color: var(--mint);
+.addrText {
+  color: var(--txt);
 }
 
 /* Right cluster: image + name stack. */

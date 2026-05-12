@@ -28,18 +28,7 @@
   color: var(--txt);
 }
 
-.settingsCloseBtn {
-  color: var(--txt-3);
-  font-size: 13px;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  font-family: var(--font-mono);
-}
-
-.settingsCloseBtn:hover {
-  color: var(--txt);
-}
+/* Settings popup close — uses `IconButton flush` from shared/. */
 
 .slippageLabel {
   font-size: 11px;
@@ -100,35 +89,7 @@
   gap: 0.4rem;
 }
 
-.presetBtn {
-  flex: 1;
-  padding: 0.4rem 0;
-  border-radius: 0;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.15s ease;
-  color: var(--txt-3);
-  background: transparent;
-}
-
-.presetBtn:hover {
-  border-color: var(--border-2);
-  color: var(--txt);
-}
-
-.presetBtnActive {
-  border-color: rgba(77, 232, 180, 0.4);
-  color: var(--mint);
-  background: rgba(77, 232, 180, 0.08);
-}
-
-.presetBtnActive:hover {
-  border-color: rgba(77, 232, 180, 0.4);
-  color: var(--mint);
-}
+/* Slippage preset row — uses `PresetChip fluid` from shared/. */
 
 .panel {
   width: 300px;
@@ -267,21 +228,6 @@
   opacity: 0.85;
 }
 
-.modeBtnDisabled {
-  cursor: not-allowed;
-  color: var(--txt-4);
-}
-
-.modeBtnDisabled:hover {
-  color: var(--txt-4);
-  background: transparent;
-}
-
-.modeBtnDisabled:disabled {
-  color: var(--txt-4);
-  cursor: not-allowed;
-}
-
 .toggleBar {
   display: flex;
   align-items: center;
@@ -295,106 +241,31 @@
   flex: 1;
 }
 
-.modeBtn {
-  position: relative;
-  height: 2.5rem;
+/* BUY/SELL toggle uses `SegmentedButton fluid` from shared/. The
+ * grid-cell siblings (gear wrap, etc.) need 2.4rem height alignment. */
+
+/* Layout-only placeholder used by `TradePanelSkeleton` to mimic a
+ * `SegmentedButton` cell while the token metadata is still loading.
+ * No hover / colour rules — the cell is `aria-hidden` and never
+ * receives interaction. */
+.modeSkeleton {
+  height: 2.4rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font-family: var(--font-mono);
-  transition: all 0.15s ease;
-  color: var(--txt-3);
-}
-
-.modeBtn:hover {
-  color: var(--txt);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.modeBtnBuyActive {
-  color: var(--mint);
-  background: rgba(77, 232, 180, 0.06);
-}
-
-.modeBtnBuyActive:hover {
-  color: var(--mint);
-  background: rgba(77, 232, 180, 0.06);
-}
-
-.modeBtnSellActive {
-  color: var(--red);
-  background: rgba(240, 80, 80, 0.05);
-}
-
-.modeBtnSellActive:hover {
-  color: var(--red);
-  background: rgba(240, 80, 80, 0.05);
-}
-
-.modeIndicatorMint {
-  position: absolute;
-  bottom: 0;
-  left: 0.6rem;
-  right: 0.6rem;
-  height: 2px;
-  background: var(--mint);
-  border-radius: 9999px;
-}
-
-.modeIndicatorRed {
-  position: absolute;
-  bottom: 0;
-  left: 0.6rem;
-  right: 0.6rem;
-  height: 2px;
-  background: var(--red);
-  border-radius: 9999px;
 }
 
 .gearWrap {
   position: relative;
   flex-shrink: 0;
   padding: 0 0.6rem;
-  height: 2.5rem;
+  height: 2.4rem;
   display: flex;
   align-items: center;
 }
 
-.gearBtn {
-  width: 1.75rem;
-  height: 1.75rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 0;
-  cursor: pointer;
-  border: 0;
-  transition: all 0.15s ease;
-  background: transparent;
-  color: var(--txt-3);
-}
-
-.gearBtn:hover {
-  color: var(--txt);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.gearBtnActive {
-  background: rgba(77, 232, 180, 0.1);
-  color: var(--mint);
-}
-
-.gearBtnActive:hover {
-  background: rgba(77, 232, 180, 0.1);
-  color: var(--mint);
-}
+/* `IconButton` (shared/IconButton) renders the gear chrome — no
+ * overrides needed at this callsite. */
 
 .formBody {
   padding: 1.2rem 0.8rem;
@@ -511,70 +382,15 @@
   gap: 0.4rem;
 }
 
-.resetBtn {
-  padding: 0.4rem 0.6rem;
-  border-radius: 0;
-  border: 1px solid var(--border);
-  color: var(--txt-3);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  background: transparent;
-}
-
-.resetBtn:hover {
-  border-color: var(--border-2);
-  color: var(--txt);
-}
-
-.quickBtn {
-  flex: 1;
-  padding: 0.4rem 0;
-  border-radius: 0;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.15s ease;
-  color: var(--txt-3);
-  background: transparent;
-}
-
-.quickBtn:hover {
-  border-color: var(--border-2);
-  color: var(--txt);
-}
-
-.quickBtnActive {
-  border-color: rgba(77, 232, 180, 0.4);
-  color: var(--mint);
-  background: rgba(77, 232, 180, 0.06);
-}
-
-.quickBtnActive:hover {
-  border-color: rgba(77, 232, 180, 0.4);
-  color: var(--mint);
-}
-
+/* Reset / quick / Max buttons all use `PresetChip` from shared/. The Max
+ * button keeps a mint resting tone (it's the most-used affordance in
+ * the row) and a slightly tighter, bolder type — everything else
+ * inherits the default chip styling. */
 .maxBtn {
-  padding: 0.4rem 0.6rem;
-  border-radius: 0;
-  border: 1px solid var(--border);
   color: var(--mint);
-  font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  background: transparent;
-}
-
-.maxBtn:hover {
-  border-color: rgba(77, 232, 180, 0.4);
-  background: rgba(77, 232, 180, 0.04);
 }
 
 .balanceRow {
@@ -734,19 +550,13 @@ button.ctaConfirmed:disabled {
   gap: 0.6rem;
 }
 
-.footerCa {
-  color: rgba(77, 232, 180, 0.7);
-  text-decoration: none;
-  cursor: pointer;
-  font-family: var(--font-mono);
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
-}
-
-.footerCa:hover {
-  color: var(--mint);
+/* Footer override on the shared `Chip` — the trade-panel footer is
+ * already a 0.6rem-padded strip, so the chip drops its own padding to
+ * sit flush with the rest of the inline metadata. The 11px font size
+ * matches `.footerStatus` and `.footerLt` siblings. */
+.footerCaChip {
+  font-size: 11px;
+  padding: 0.2rem 0.4rem;
 }
 
 .footerDot {

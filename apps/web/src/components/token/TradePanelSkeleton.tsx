@@ -12,10 +12,10 @@ export default function TradePanelSkeleton() {
     <div className={styles.panel} aria-busy="true" aria-label="Loading trade panel">
       <div className={styles.toggleBar} aria-hidden="true">
         <div className={styles.toggleGrid}>
-          <div className={styles.modeBtn}>
+          <div className={styles.modeSkeleton}>
             <Skeleton width="2rem" height="13px" />
           </div>
-          <div className={styles.modeBtn}>
+          <div className={styles.modeSkeleton}>
             <Skeleton width="2rem" height="13px" />
           </div>
         </div>

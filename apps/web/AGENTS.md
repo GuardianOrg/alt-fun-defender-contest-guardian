@@ -20,6 +20,26 @@ Plus: search modal (Cmd+K), profile panel (right drawer), bridge modal (LI.FI).
 - TradingView Lightweight Charts for candlestick charts
 - CSS Modules for styling — no Tailwind
 
+## Buttons (mandatory)
+
+Every button-shaped element on the page goes through one of five shared primitives in `src/components/shared/`. Per-component CSS is allowed only for sizing overrides (`height`, `padding`) — never to redeclare hover, active, focus, border, or background. If an existing primitive doesn't fit, add a variant to the primitive (and add a comment in the PR), don't roll a new bespoke button.
+
+| Use case | Primitive | Hover behaviour |
+|---|---|---|
+| Solid call-to-action (LAUNCH, Connect Wallet, Share) | [`Button`](src/components/shared/Button.tsx) | Filled bg shifts to `--mint-hover` (or variant equivalent) |
+| Small data pill — value + optional icon (CA address, wallet address, footer CA, click-to-copy chips) | [`Chip`](src/components/shared/Chip.tsx) | Border becomes `--mint`, bg tints `--mint-bg`, color goes to `--txt` |
+| Square icon-only trigger (gear, close, inline copy) | [`IconButton`](src/components/shared/IconButton.tsx) | Color goes to `--mint`, border becomes `--border-2`, bg tints `--mint-bg` |
+| Quick-pick toggle chip in a horizontal row (25/50/75/MAX, seed-buy %, slippage %) | [`PresetChip`](src/components/shared/PresetChip.tsx) | Border `--border` → `--border-2`, color `--txt-3` → `--txt` |
+| Segment of a mutually-exclusive control (BUY/SELL, tab bars, interval / timeframe / unit pickers) | [`SegmentedButton`](src/components/shared/SegmentedButton.tsx) | Color `--txt-3` → `--txt`, faint white-overlay bg; active state uses tone (`mint`/`red`/`neutral`) plus optional 2px bottom indicator |
+
+A few things that look button-shaped but **are not** in this taxonomy and are documented exceptions:
+
+- The **modal "esc" badge** (`shared/Modal`) — close affordance for every modal, intentionally a kbd-styled pill, not an `IconButton`. See [Modals & overlays](#modals--overlays-mandatory).
+- **Clickable list rows** (`TokenRow`, position rows, trade-feed rows, search results) — these are full-row affordances, styled per-component with a `bg-3` hover. Do not migrate these to `Button` / `Chip`.
+- **The `LANDING_OVERLAY` page CTA** — landing-page hero element, allowed to break the standard CTA visual since it's not in the dense-panel context.
+
+Do not invent a new variant of any primitive without updating this table at the same time.
+
 ## Modals & overlays (mandatory)
 
 Every dim-the-page popup — image lightboxes, search (Cmd+K), profile/earnings, future confirms — uses the shared [`shared/Modal`](src/components/shared/Modal.tsx) component. No exceptions, no hand-rolled overlays. `Modal` owns:
