@@ -20,8 +20,10 @@ import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
-import { cn, formatTokenAmount, formatUsd, shortenAddress } from "../../utils/format";
+import { formatTokenAmount, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
+import IconButton from "../shared/IconButton";
+import SegmentedButton from "../shared/SegmentedButton";
 import { buildTxAction, useToast } from "../shared/toast-context";
 
 import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
@@ -315,18 +317,16 @@ export default function TradePanel({ token }: Props) {
     <div className={styles.panel}>
       <div className={styles.toggleBar}>
         <div className={styles.toggleGrid}>
-          <button
-            className={cn(
-              styles.modeBtn,
-              mode === "buy" && styles.modeBtnBuyActive,
-              isMintPaused && styles.modeBtnDisabled,
-            )}
+          <SegmentedButton
+            fluid
+            tone="mint"
+            active={mode === "buy"}
+            disabled={isMintPaused}
             onClick={() => {
               setMode("buy");
               setAmount("");
               reset();
             }}
-            disabled={isMintPaused}
             title={
               isMintPaused
                 ? "Buys are paused while BounceTech has minting disabled on this leveraged token"
@@ -334,13 +334,11 @@ export default function TradePanel({ token }: Props) {
             }
           >
             BUY
-            {mode === "buy" && <span className={styles.modeIndicatorMint} />}
-          </button>
-          <button
-            className={cn(
-              styles.modeBtn,
-              mode === "sell" && styles.modeBtnSellActive,
-            )}
+          </SegmentedButton>
+          <SegmentedButton
+            fluid
+            tone="red"
+            active={mode === "sell"}
             onClick={() => {
               setMode("sell");
               setAmount("");
@@ -348,14 +346,15 @@ export default function TradePanel({ token }: Props) {
             }}
           >
             SELL
-            {mode === "sell" && <span className={styles.modeIndicatorRed} />}
-          </button>
+          </SegmentedButton>
         </div>
 
         <div className={styles.gearWrap}>
-          <button
-            className={cn(styles.gearBtn, settingsOpen && styles.gearBtnActive)}
+          <IconButton
+            active={settingsOpen}
             onClick={() => setSettingsOpen(!settingsOpen)}
+            aria-label="Trade settings"
+            aria-expanded={settingsOpen}
           >
             <svg
               width="14"
@@ -366,11 +365,12 @@ export default function TradePanel({ token }: Props) {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              aria-hidden="true"
             >
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-          </button>
+          </IconButton>
 
           {settingsOpen && (
             <SettingsPopup

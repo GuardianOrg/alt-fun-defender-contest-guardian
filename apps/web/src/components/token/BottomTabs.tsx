@@ -4,8 +4,8 @@ import styles from "./BottomTabs.module.css";
 import HoldersTab from "./HoldersTab";
 import TradesTab from "./TradesTab";
 import { useHolders } from "../../hooks/useHolders";
-import { cn } from "../../utils/format";
 import ErrorBoundary from "../shared/ErrorBoundary";
+import SegmentedButton from "../shared/SegmentedButton";
 
 import type { Token } from "../../services/types";
 
@@ -31,17 +31,15 @@ export default function BottomTabs({ token }: Props) {
     <>
       <div className={styles.tabBar}>
         {(["trades", "holders"] as Tab[]).map((tab) => (
-          <button
+          <SegmentedButton
             key={tab}
-            className={cn(
-              styles.tabBtn,
-              activeTab === tab && styles.tabBtnActive,
-            )}
+            tone="mint"
+            active={activeTab === tab}
             onClick={() => setActiveTab(tab)}
+            className={styles.tabBtn}
           >
             {tab}
-            {activeTab === tab && <span className={styles.tabIndicator} />}
-          </button>
+          </SegmentedButton>
         ))}
       </div>
       <div className={styles.tabContent}>

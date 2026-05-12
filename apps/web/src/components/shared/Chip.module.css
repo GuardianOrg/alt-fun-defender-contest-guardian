@@ -1,0 +1,53 @@
+/* Compact pill-shaped button used for data chips: contract addresses,
+ * wallet addresses, click-to-copy values, etc. Always shows a value plus
+ * an optional icon (caret, copy glyph, status tick). The hover affordance
+ * is intentionally subtle — chips are not CTAs, they're pieces of data
+ * that happen to be clickable, so a full-bleed background change would
+ * misread as primary action. */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--txt);
+  border-color: var(--mint);
+  background: var(--mint-bg);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* Post-action confirmation state — sticky mint border + mint-tinted bg
+ * so the user knows their click landed (e.g. after a copy). The
+ * `:hover` rule mirrors the resting style so the chip doesn't
+ * "ripple" while the user's cursor is still over it. */
+.chipSuccess,
+.chipSuccess:hover {
+  color: var(--mint);
+  border-color: var(--mint);
+  background: var(--mint-bg);
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

@@ -9,6 +9,7 @@ import {
   CHART_INTERVAL_SECONDS,
 } from "../../services/api";
 import { cn, formatPercent, formatUsdOrDash } from "../../utils/format";
+import SegmentedButton from "../shared/SegmentedButton";
 
 import type {
   ChartIntervalSeconds,
@@ -160,18 +161,16 @@ export default function Chart({ address, token }: Props) {
           {UNITS.map((u) => {
             const active = unit === u.value;
             return (
-              <button
+              <SegmentedButton
                 key={u.value}
-                type="button"
+                size="slim"
+                indicator={false}
+                active={active}
                 aria-pressed={active}
-                className={cn(
-                  styles.intervalBtn,
-                  active && styles.intervalBtnActive,
-                )}
                 onClick={() => setUnit(u.value)}
               >
                 {u.label}
-              </button>
+              </SegmentedButton>
             );
           })}
         </div>
@@ -216,16 +215,15 @@ export default function Chart({ address, token }: Props) {
       <div className={styles.periodBar}>
         <div className={styles.intervalGroup}>
           {TIMEFRAMES.map((tf) => (
-            <button
+            <SegmentedButton
               key={tf.value}
-              className={cn(
-                styles.intervalBtn,
-                isTimeframeActive(tf.value) && styles.intervalBtnActive,
-              )}
+              size="slim"
+              indicator={false}
+              active={isTimeframeActive(tf.value)}
               onClick={() => setMode({ kind: "timeframe", value: tf.value })}
             >
               {tf.label}
-            </button>
+            </SegmentedButton>
           ))}
         </div>
       </div>

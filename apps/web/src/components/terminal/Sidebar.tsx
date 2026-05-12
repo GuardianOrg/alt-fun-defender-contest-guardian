@@ -6,6 +6,7 @@ import { CREATE_PATH } from "../../app/routes";
 import { useAssets, usePlatformStats } from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
+import Button from "../shared/Button";
 
 // Skeleton row count mirrors the steady-state list so the panel doesn't
 // jump (and the CTA below doesn't shift) when real data lands.
@@ -86,31 +87,28 @@ export default function Sidebar() {
       </div>
 
       <div className={styles.ctaSection}>
-        <button
-          className={styles.ctaButton}
+        <Button
+          variant="primary"
+          fullWidth
           onClick={() => navigate(CREATE_PATH)}
         >
-          <span className={styles.ctaEmoji}>
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </span>
-          <span className={styles.ctaText}>
-            <span className={styles.ctaTitle}>create an altcoin</span>
-          </span>
-        </button>
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          create an altcoin
+        </Button>
       </div>
     </div>
   );

@@ -7,6 +7,8 @@ import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 import { useWallet } from "../../hooks/useWallet";
 import { setSearchOpen, setEarningsOpen } from "../../state/uiSlice";
 import { SEARCH_SHORTCUT_LABEL } from "../../utils/platform";
+import Button from "../shared/Button";
+import Chip from "../shared/Chip";
 
 export default function Header() {
   const navigate = useNavigate();
@@ -48,27 +50,30 @@ export default function Header() {
 
       <div className={styles.rightSide}>
         {isConnected ? (
-          <button
-            className={styles.walletAddress}
+          <Chip
+            className={styles.walletChip}
             onClick={() => dispatch(setEarningsOpen(true))}
+            aria-label="Open profile and earnings"
           >
             <span className={styles.fullText}>{shortAddress}</span>
             <span className={styles.shortText}>{tinyAddress}</span>
-          </button>
+          </Chip>
         ) : (
-          <button className={styles.walletAddress} onClick={connect}>
+          <Button variant="primary" size="sm" onClick={connect}>
             Connect Wallet
-          </button>
+          </Button>
         )}
         {isConnected && !isCreate && (
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             className={styles.launchBtn}
             onClick={() => navigate(CREATE_PATH)}
           >
             <span>+</span>
             <span className={styles.fullText}>create an altcoin</span>
             <span className={styles.shortText}>create</span>
-          </button>
+          </Button>
         )}
       </div>
     </header>

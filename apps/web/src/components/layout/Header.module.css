@@ -132,76 +132,26 @@
   gap: 0.8rem;
 }
 
-.walletAddress {
-  font-family: inherit;
-  font-size: 13px;
+/* Header overrides on the shared `Chip` — we want the wallet pill to
+ * align vertically with the search trigger (3rem tall) and read in
+ * mint as its resting state because the connected-wallet display is
+ * the only positive/identity affordance in the bar. The chip's own
+ * border and hover rules are inherited unchanged. */
+.walletChip {
+  height: 3rem;
   color: var(--mint);
   background: transparent;
-  border: 1px solid var(--border-2);
-  padding-left: 0.6rem;
-  padding-right: 0.6rem;
-  height: 3rem;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: all 0.15s ease;
 }
 
-.walletAddress:hover {
-  background: rgba(77, 232, 180, 0.1);
-  border-color: rgba(77, 232, 180, 0.4);
-}
-
-.connectButtonPrimary {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--bg);
-  background: var(--mint);
-  padding-left: 1.2rem;
-  padding-right: 1.2rem;
-  padding-top: 0.4rem;
-  padding-bottom: 0.4rem;
-  border-radius: 0.125rem;
-  border: 0;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  box-shadow: var(--shadow-mint-glow);
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.connectButtonPrimary:hover {
-  background: var(--mint-hover);
-}
-
+/* Header override on the shared CTA `Button` — the launch button
+ * needs to sit at 3rem to line up with the search trigger and wallet
+ * chip, and uses a slightly tighter horizontal padding than the
+ * default `sm` size so the icon + label fit in narrow viewports. */
 .launchBtn {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  font-weight: 700;
-  gap: 0.8rem;
-  color: var(--bg);
-  background: var(--mint);
-  padding-left: 0.6rem;
-  padding-right: 0.6rem;
   height: 3rem;
-  border-radius: 3px;
-  border: 1px solid var(--mint);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  box-shadow: var(--shadow-mint-glow);
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.launchBtn:hover {
-  background: var(--mint-hover);
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  gap: 0.4rem;
 }
 
 .shortText {

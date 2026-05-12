@@ -55,30 +55,11 @@
   margin-bottom: 1.2rem;
 }
 
+/* Seed-buy supply chips use `PresetChip` from shared/. Override here
+ * gives them a denser two-line layout (label + sub-USD value) than the
+ * single-line trade-input chips. */
 .quickButton {
   padding: 0.6rem 0.2rem;
-  border-radius: 0;
-  cursor: pointer;
-  text-align: center;
-  border: 1px solid;
-  font-family: var(--font-mono);
-  transition: all 0.15s ease;
-}
-
-.quickButtonActive {
-  border-color: rgba(77, 232, 180, 0.4);
-  background: rgba(77, 232, 180, 0.08);
-  box-shadow: var(--shadow-inner-mint);
-}
-
-.quickButtonInactive {
-  border-color: var(--border);
-  background: rgba(22, 48, 40, 0.5);
-}
-
-.quickButtonInactive:hover {
-  border-color: var(--border-2);
-  background: var(--bg-3);
 }
 
 .quickLabel {

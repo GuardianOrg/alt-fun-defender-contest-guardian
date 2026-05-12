@@ -1,0 +1,107 @@
+/* Mutually-exclusive segmented controls — BUY/SELL, bottom tabs,
+ * chart-interval picker. Always rendered as siblings inside a flex /
+ * grid wrapper. Resting state is muted (txt-3, transparent), hover
+ * lifts to `--txt`, active draws a 2px bottom indicator in the
+ * segment's tone (mint for positive/primary, red for negative). */
+
+.seg {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0 1.2rem;
+  height: 2.4rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  white-space: nowrap;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.seg:hover:not(:disabled):not(.disabled) {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.seg:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: -2px;
+}
+
+/* Active states — sticky color + tinted bg. The matching `:hover`
+ * rule keeps the active state visually flat so the cursor moving
+ * over it doesn't subtract the selection cue. */
+.activeMint,
+.activeMint:hover {
+  color: var(--mint);
+  background: var(--mint-bg);
+}
+
+.activeRed,
+.activeRed:hover {
+  color: var(--red);
+  background: var(--red-bg);
+}
+
+.activeNeutral,
+.activeNeutral:hover {
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0.6rem;
+  right: 0.6rem;
+  height: 2px;
+  border-radius: 9999px;
+}
+
+.indicatorMint {
+  background: var(--mint);
+}
+
+.indicatorRed {
+  background: var(--red);
+}
+
+.indicatorNeutral {
+  background: var(--txt);
+}
+
+/* Stretch — for full-width grid layouts (BUY/SELL split-toggle). */
+.fluid {
+  width: 100%;
+}
+
+/* Slim variant — for chart-interval pickers, in-toolbar controls,
+ * etc. that need to sit in a 2rem-tall row. */
+.slim {
+  height: 2rem;
+  font-size: 11px;
+  padding: 0 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.disabled,
+.seg:disabled {
+  cursor: not-allowed;
+  color: var(--txt-4);
+}
+
+.disabled:hover,
+.seg:disabled:hover {
+  color: var(--txt-4);
+  background: transparent;
+}

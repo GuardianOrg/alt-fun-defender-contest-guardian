@@ -224,41 +224,11 @@
   display: flex;
 }
 
+/* Bottom-tab segments use `SegmentedButton` from shared/. The override
+ * here just shrinks them to the slim 2rem height the existing footer
+ * row was designed around. */
 .tabBtn {
-  position: relative;
-  font-size: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--txt-3);
-  padding: 0 1.2rem;
   height: 2rem;
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  font-family: var(--font-mono);
-  transition: all 0.15s ease;
-}
-
-.tabBtn:hover {
-  color: var(--txt);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.tabBtnActive {
-  color: var(--mint);
-  font-weight: 600;
-}
-
-.tabIndicator {
-  position: absolute;
-  bottom: 0;
-  left: 0.6rem;
-  right: 0.6rem;
-  height: 2px;
-  background: var(--mint);
-  border-radius: 9999px;
 }
 
 /* Sibling flex child of the chart inside `.leftPanel`. Was a hard 200px,

@@ -4,6 +4,7 @@ import { cn } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import UsdcIcon from "../icons/UsdcIcon";
+import PresetChip from "../shared/PresetChip";
 
 import type { SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
@@ -76,28 +77,22 @@ export default function TradePanelInput({
       </div>
 
       <div className={styles.quickRow}>
-        <button
-          className={styles.resetBtn}
-          onClick={() => setAmount("")}
-          disabled={isBusy}
-        >
+        <PresetChip onClick={() => setAmount("")} disabled={isBusy}>
           Reset
-        </button>
+        </PresetChip>
         {mode === "buy" ? (
           QUICK_AMOUNTS.map((qa) => (
-            <button
+            <PresetChip
               key={qa}
-              className={cn(
-                styles.quickBtn,
-                amount === String(qa) && styles.quickBtnActive,
-              )}
+              fluid
+              active={amount === String(qa)}
               onClick={() => {
                 setAmount(String(qa));
               }}
               disabled={isBusy}
             >
               {qa >= 1000 ? `${qa / 1000}K` : qa}
-            </button>
+            </PresetChip>
           ))
         ) : (
           SELL_PERCENT_OPTIONS.map((pct) => {
@@ -112,14 +107,12 @@ export default function TradePanelInput({
                 })()
               : null;
             return (
-              <button
+              <PresetChip
                 key={pct}
-                className={cn(
-                  styles.quickBtn,
-                  computedValue !== null &&
-                    amount === computedValue &&
-                    styles.quickBtnActive,
-                )}
+                fluid
+                active={
+                  computedValue !== null && amount === computedValue
+                }
                 onClick={() => {
                   if (computedValue !== null) {
                     setAmount(computedValue);
@@ -128,12 +121,12 @@ export default function TradePanelInput({
                 disabled={isBusy || !maxBalance}
               >
                 {pct}%
-              </button>
+              </PresetChip>
             );
           })
         )}
         {mode === "buy" && (
-          <button
+          <PresetChip
             className={styles.maxBtn}
             onClick={() => {
               if (maxBalance) {
@@ -144,7 +137,7 @@ export default function TradePanelInput({
             disabled={isBusy || !maxBalance}
           >
             Max
-          </button>
+          </PresetChip>
         )}
       </div>
     </>

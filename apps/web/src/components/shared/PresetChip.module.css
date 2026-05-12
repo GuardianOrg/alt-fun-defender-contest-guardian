@@ -1,0 +1,54 @@
+/* Quick-pick toggle chips — the 25/50/75/MAX row in the trade input,
+ * the 10/20/50/100% supply chips on the seed-buy step, the 0.5/1/5%
+ * slippage row in the settings popup. Visually flatter than `Chip`
+ * (square corners, no resting bg) since they sit in dense flex rows
+ * and need to read as a group rather than as individual data pills. */
+
+.chip {
+  padding: 0.4rem 0.6rem;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--txt-3);
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+/* Stretch the chip across the row — used by the QUICK_AMOUNTS row in
+ * the trade input where chips need to fill all available width. */
+.fluid {
+  flex: 1;
+  padding: 0.4rem 0;
+}
+
+.chip:hover:not(:disabled) {
+  color: var(--txt);
+  border-color: var(--border-2);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* Selected state — mint accent + tinted bg. The hover rule mirrors
+ * the resting style so the chip doesn't lose its selection cue while
+ * the cursor is on it. */
+.active,
+.active:hover {
+  border-color: var(--border-2);
+  color: var(--mint);
+  background: var(--mint-bg);
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
