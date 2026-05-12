@@ -1,5 +1,5 @@
 import styles from "./EarningsPanel.module.css";
-import { FEES } from "../../config/constants";
+import { CREATOR_FEE_SHARE_PCT } from "../../config/constants";
 import { cn, formatCurveFilled, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 import Skeleton from "../shared/Skeleton";
@@ -107,9 +107,8 @@ export default function RewardsTab({
         <div className={styles.textCenter}>
           <div className={styles.emptyTitle}>No tokens created yet</div>
           <div className={styles.emptyText}>
-            Launch a levered token to start earning {FEES.creatorSplit * 100}% of
-            all trading volume on the bonding curve. Fees accrue in USDC and can
-            be claimed anytime.
+            Launch an altcoin to start earning {CREATOR_FEE_SHARE_PCT}% of all
+            trading fees. Fees accrue in USDC and can be claimed anytime.
           </div>
         </div>
         <Button variant="primary" onClick={onLaunch}>
@@ -267,10 +266,10 @@ export default function RewardsTab({
       <div className={styles.footer}>
         <div className={styles.footerText}>
           <span className={styles.footerHighlight}>
-            {FEES.creatorSplit * 100}%
+            {CREATOR_FEE_SHARE_PCT}%
           </span>{" "}
-          of all curve volume goes to token creators. Fees accrue in USDC and
-          can be claimed anytime.
+          of all trading fees go to token creators. Fees accrue in USDC and can
+          be claimed anytime.
         </div>
       </div>
     </>

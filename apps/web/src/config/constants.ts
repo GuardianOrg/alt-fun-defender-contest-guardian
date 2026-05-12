@@ -25,6 +25,22 @@ export const FEES = {
 } as const;
 
 /**
+ * Creator's share of the total Alt Fun trading fee (currently 20% — i.e.
+ * 0.1% creator out of the 0.5% total). Used in user-facing copy that frames
+ * the creator cut as a percentage of fees rather than of trade notional.
+ *
+ * Derived so the displayed % stays in lock-step with `FEES` if the split
+ * is ever rebalanced. Guarded against a zero-total split (would otherwise
+ * render `Infinity%` in copy if a future config sets both shares to 0)
+ * and rounded to 2dp so non-clean ratios stay display-friendly.
+ */
+const TOTAL_FEE_SPLIT = FEES.creatorSplit + FEES.protocolSplit;
+export const CREATOR_FEE_SHARE_PCT =
+  TOTAL_FEE_SPLIT > 0
+    ? Number(((FEES.creatorSplit / TOTAL_FEE_SPLIT) * 100).toFixed(2))
+    : 0;
+
+/**
  * Default referral code for the Referral Module.
  * Set to bytes32(0) for no referral — replace with partner codes in production.
  */

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import styles from "./CreatorBadge.module.css";
-import { FEES } from "../../config/constants";
+import { CREATOR_FEE_SHARE_PCT } from "../../config/constants";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
 import Button from "../shared/Button";
@@ -96,7 +96,8 @@ export default function CreatorBadge({ token }: Props) {
           </Button>
 
           <div className={styles.hint}>
-            You earn {FEES.creatorSplit * 100}% of all volume on this curve. Fees settle in USDC.
+            You earn {CREATOR_FEE_SHARE_PCT}% of all trading fees. Fees accrue
+            in USDC and can be claimed anytime.
           </div>
         </div>
       )}
