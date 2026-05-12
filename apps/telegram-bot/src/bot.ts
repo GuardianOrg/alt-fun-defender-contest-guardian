@@ -128,7 +128,41 @@ export const createBot = (
     }),
   );
 
-  bot.use(conversations());
+  // Conversations state MUST be backed by KV. The plugin's default
+  // is an in-memory `Map` scoped to a single Bot instance — fine for
+  // a long-lived process, but every webhook invocation builds a
+  // fresh Bot, so without this adapter `conversation.waitFor` would
+  // never resume across updates. We wrap WALLET_KV manually so the
+  // adapter shape matches the plugin's `VersionedStateStorage`
+  // (KvAdapter's generic doesn't line up — its `read()` returns
+  // `unknown` rather than the versioned wrapper). The plugin keys
+  // by `ctx.chatId`, distinct from the `session:*` prefix used by
+  // the session store, so there is no key collision.
+  bot.use(
+    conversations({
+      storage: {
+        type: "key",
+        adapter: {
+          // Cloudflare KV returns `null` for missing keys; the
+          // conversations plugin's `unpack` expects `undefined`
+          // and throws on `null` ("Cannot read properties of null
+          // (reading 'version')"). Coerce here so a fresh chat
+          // doesn't trip the unpack guard.
+          read: async (key) =>
+            ((await env.WALLET_KV.get(`conversation:${key}`, {
+              type: "json",
+            })) ?? undefined) as never,
+          write: async (key, state) =>
+            void env.WALLET_KV.put(
+              `conversation:${key}`,
+              JSON.stringify(state),
+            ),
+          delete: async (key) =>
+            void env.WALLET_KV.delete(`conversation:${key}`),
+        },
+      },
+    }),
+  );
 
   registerStartCommand(bot);
   registerPositionsCommand(bot);

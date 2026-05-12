@@ -62,8 +62,23 @@ export class MemoryKV {
   failPut = false;
   failDelete = false;
 
-  async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
+  /**
+   * Mirror Cloudflare KV's `type` option. `KvAdapter` (used by both
+   * the session plugin and the conversations plugin) calls
+   * `get(key, { type: 'json' })` and expects the parsed value back;
+   * a bare-string return slips past session reads (it just hands
+   * the same shape back) but blows up the conversations plugin's
+   * versioned-state `unpack` with "Unknown data format". Honouring
+   * the option keeps MemoryKV behaviour-compatible with real KV.
+   */
+  async get(
+    key: string,
+    options?: { type?: "json" | "text" },
+  ): Promise<unknown> {
+    const raw = this.store.get(key) ?? null;
+    if (raw === null) return null;
+    if (options?.type === "json") return JSON.parse(raw) as unknown;
+    return raw;
   }
 
   async put(key: string, value: string): Promise<void> {

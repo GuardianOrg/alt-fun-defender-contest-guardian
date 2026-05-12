@@ -6,6 +6,7 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { WALLET_CALLBACK } from "../../keyboards/wallet-actions.js";
+import { PinManager } from "../../lib/pin.js";
 import {
   MAX_WALLETS_PER_USER,
   WalletManager,
@@ -236,7 +237,6 @@ describe("/wallet command", () => {
     it.each([
       [WALLET_CALLBACK.import, /multi-step wizard/],
       [WALLET_CALLBACK.delete, /PIN/],
-      [WALLET_CALLBACK.exportKey, /PIN/],
       [WALLET_CALLBACK.withdraw, /PIN/],
     ])(
       "%s surfaces a 'coming soon' alert rather than silently no-op'ing",
@@ -259,6 +259,204 @@ describe("/wallet command", () => {
       );
       expect(answer?.body.show_alert).toBe(true);
       expect(answer?.body.text).toContain("No active wallet");
+    });
+  });
+
+  describe("Export key flow (we)", () => {
+    /**
+     * Conversations persist their cursor via the session middleware,
+     * so a multi-turn flow can be driven by replaying `h.run` against
+     * the same harness. Each text update reuses chat id 42 / user id 7
+     * to match the callback handler above; message_id is bumped so the
+     * harness's PIN-message deletion target stays unique per turn.
+     */
+    let textMessageId = 1000;
+    const textUpdate = (text: string) => ({
+      update_id: ++textMessageId,
+      message: {
+        message_id: ++textMessageId,
+        date: 0,
+        chat: { id: 42, type: "private" as const },
+        from: { id: 7, is_bot: false, first_name: "Ada" },
+        text,
+      },
+    });
+
+    const buildPm = (h: BotTestHarness): PinManager =>
+      new PinManager(h.kv as unknown as KVNamespace, { iterations: 1_000 });
+
+    it("toasts 'no active wallet' when invoked on an empty account", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer?.body.show_alert).toBe(true);
+      expect(answer?.body.text).toContain("No active wallet");
+    });
+
+    it("PIN set + correct verify reveals plaintext key with Delete-now button", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      const wallet = await wm.createWallet(7, "main");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      // Enter conversation: callback triggers PIN prompt.
+      fetchSpy.mockClear();
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      const promptCalls = capture(fetchSpy);
+      const prompt = promptCalls.find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(prompt?.body.text).toMatch(/Send your 6-digit PIN/);
+
+      // Send correct PIN → bot decrypts and reveals.
+      fetchSpy.mockClear();
+      await h.run(textUpdate("123456"));
+      const calls = capture(fetchSpy);
+      // PIN message swept from chat history.
+      const deletes = calls.filter((c) =>
+        c.url.includes("/deleteMessage"),
+      );
+      expect(deletes.length).toBeGreaterThanOrEqual(1);
+      // Reveal carries address + private key marker.
+      const reveal = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          typeof c.body.text === "string" &&
+          (c.body.text as string).includes("Private key:"),
+      );
+      expect(reveal).toBeDefined();
+      expect(reveal!.body.text).toContain(wallet.address);
+      const keyboard = (
+        reveal!.body.reply_markup as {
+          inline_keyboard: { text: string; callback_data: string }[][];
+        }
+      ).inline_keyboard;
+      expect(keyboard[0]?.[0]?.callback_data).toBe(
+        WALLET_CALLBACK.exportDelete,
+      );
+    });
+
+    it("wrong PIN reports remaining attempts and does not reveal the key", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      fetchSpy.mockClear();
+      await h.run(textUpdate("000000"));
+
+      const calls = capture(fetchSpy);
+      const wrongReply = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          typeof c.body.text === "string" &&
+          /Wrong PIN/.test(c.body.text as string),
+      );
+      expect(wrongReply).toBeDefined();
+      expect(wrongReply!.body.text).toMatch(/4 attempts remaining/);
+      const reveal = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          typeof c.body.text === "string" &&
+          (c.body.text as string).includes("Private key:"),
+      );
+      expect(reveal).toBeUndefined();
+    });
+
+    it("PIN unset → set wizard prompts twice, then verify reveals the key", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+
+      // Enter: bot prompts "No PIN set yet…"
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+
+      // Turn 1: send the new PIN. Bot asks for confirmation.
+      fetchSpy.mockClear();
+      await h.run(textUpdate("123456"));
+      const afterFirst = capture(fetchSpy);
+      const confirmPrompt = afterFirst.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Confirm/.test(c.body.text as string),
+      );
+      expect(confirmPrompt).toBeDefined();
+
+      // Turn 2: confirm. Bot asks to send once more to authorise.
+      fetchSpy.mockClear();
+      await h.run(textUpdate("123456"));
+      const afterConfirm = capture(fetchSpy);
+      expect(
+        afterConfirm.find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /authorise the export/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+
+      // Turn 3: verify. Bot reveals the key.
+      fetchSpy.mockClear();
+      await h.run(textUpdate("123456"));
+      const afterVerify = capture(fetchSpy);
+      const reveal = afterVerify.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          typeof c.body.text === "string" &&
+          (c.body.text as string).includes("Private key:"),
+      );
+      expect(reveal).toBeDefined();
+
+      // PIN persisted across the set + verify flow.
+      const pm = buildPm(h);
+      expect(await pm.isPinSet(7)).toBe(true);
+    });
+
+    it("/cancel during PIN set bails out without persisting a PIN", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      fetchSpy.mockClear();
+      await h.run(textUpdate("/cancel"));
+      const calls = capture(fetchSpy);
+      expect(
+        calls.find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /Export cancelled/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+      const pm = buildPm(h);
+      expect(await pm.isPinSet(7)).toBe(false);
+    });
+
+    it("Delete-now button calls Telegram deleteMessage on the reveal", async () => {
+      const h = makeBotHarness();
+      await h.run({
+        update_id: 9001,
+        callback_query: {
+          id: "cbq-del",
+          from: { id: 7, is_bot: false, first_name: "Ada" },
+          chat_instance: "i-del",
+          message: {
+            message_id: 555,
+            date: 0,
+            chat: { id: 42, type: "private" as const },
+          },
+          data: WALLET_CALLBACK.exportDelete,
+        },
+      });
+      const calls = capture(fetchSpy);
+      const del = calls.find((c) => c.url.includes("/deleteMessage"));
+      expect(del).toBeDefined();
+      expect(del!.body.chat_id).toBe(42);
+      expect(del!.body.message_id).toBe(555);
     });
   });
 });

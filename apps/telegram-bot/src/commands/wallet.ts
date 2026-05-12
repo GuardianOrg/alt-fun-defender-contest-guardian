@@ -11,6 +11,7 @@ import {
   buildWalletSwitchKeyboard,
 } from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
+import { PinManager } from "../lib/pin.js";
 import {
   MAX_WALLETS_PER_USER,
   TooManyWalletsError,
@@ -26,6 +27,15 @@ const NON_PRIVATE_CHAT_REPLY =
   "Wallet flows are private-DM only — wallet labels and addresses must not surface in groups. Open a direct chat with the bot to manage wallets.";
 
 const RENAME_MAX_LEN = 32;
+
+/**
+ * Plaintext-key reveal lives in the chat for 30 seconds before the
+ * bot deletes it. The 48-hour `deleteMessage` window is plenty of
+ * headroom (see AGENTS.md "Telegram nuance"); we use 30s for the
+ * security tradeoff, not the API limit. Users impatient with the
+ * wait have a "Delete now" button.
+ */
+const EXPORT_REVEAL_AUTO_DELETE_MS = 30_000;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -116,6 +126,9 @@ const renderMainText = (
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
 
+const buildPinManager = (env: AppContext["env"]): PinManager =>
+  new PinManager(env.WALLET_KV, { iterations: env.PIN_ITERATIONS });
+
 const renderMainState = async (
   wm: WalletManager,
   userId: number,
@@ -202,12 +215,290 @@ const renameWalletConversation = async (
   });
 };
 
+/**
+ * Delete a user-sent PIN message from the chat. The user's chat
+ * history would otherwise show their PIN forever; sweeping it the
+ * instant we read it is the minimum hygiene the AGENTS.md security
+ * model expects. Best-effort — a benign 400 (already gone, outside
+ * 48h window) is swallowed so the conversation flow continues.
+ */
+const sweepPinMessage = async (
+  ctx: AppContext,
+  chatId: number,
+  messageId: number,
+): Promise<void> => {
+  try {
+    await ctx.api.deleteMessage(chatId, messageId);
+  } catch {
+    // Telegram returns 400 when the message is already deleted or
+    // out of window. Either way, our hygiene goal (PIN no longer in
+    // chat history) is met or unattainable. Other failures here are
+    // not worth aborting the whole flow.
+  }
+};
+
+/**
+ * Fire-and-forget 30s auto-delete of the plaintext-key bubble.
+ *
+ * Cloudflare DOs don't expose `executionCtx.waitUntil` from the
+ * `fetch` handler, so the timer is genuinely best-effort: if the DO
+ * is evicted before 30s elapse the deletion misses. The reveal
+ * message ships with a "Delete now" inline button as the user-side
+ * safety net.
+ */
+const scheduleRevealAutoDelete = (
+  ctx: AppContext,
+  chatId: number,
+  messageId: number,
+): void => {
+  setTimeout(() => {
+    void ctx.api.deleteMessage(chatId, messageId).catch(() => {
+      // Already deleted (Delete-now button pressed, or 48h window
+      // closed on a wedged DO). Swallow.
+    });
+  }, EXPORT_REVEAL_AUTO_DELETE_MS);
+};
+
+const isCancel = (text: string): boolean => text.trim() === "/cancel";
+
+/**
+ * First-time PIN set wizard: ask, validate format, ask again to
+ * confirm, persist. Returns true on success, false if the user
+ * /cancel'd. Each PIN message is swept out of chat history the
+ * instant we've read it.
+ */
+const runPinSetFlow = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  userId: number,
+  chatId: number,
+): Promise<boolean> => {
+  await ctx.reply(
+    withAntiPhishing(
+      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions. Send /cancel to abort.",
+    ),
+  );
+
+  let candidate: string | null = null;
+  while (candidate === null) {
+    const msg = await conversation.waitFor("message:text");
+    const text = msg.message.text.trim();
+    await conversation.external((outside) =>
+      sweepPinMessage(outside, chatId, msg.message.message_id),
+    );
+    if (isCancel(text)) {
+      await ctx.reply(withAntiPhishing("Export cancelled."));
+      return false;
+    }
+    if (!PinManager.isValidPinFormat(text)) {
+      await ctx.reply(
+        withAntiPhishing(
+          "PIN must be exactly 6 digits. Send again or /cancel.",
+        ),
+      );
+      continue;
+    }
+    candidate = text;
+  }
+
+  await ctx.reply(
+    withAntiPhishing("Confirm — send the same 6 digits again."),
+  );
+
+  while (true) {
+    const msg = await conversation.waitFor("message:text");
+    const text = msg.message.text.trim();
+    await conversation.external((outside) =>
+      sweepPinMessage(outside, chatId, msg.message.message_id),
+    );
+    if (isCancel(text)) {
+      await ctx.reply(withAntiPhishing("Export cancelled."));
+      return false;
+    }
+    if (text !== candidate) {
+      await ctx.reply(
+        withAntiPhishing(
+          "PINs do not match. Send the confirmation PIN again or /cancel.",
+        ),
+      );
+      continue;
+    }
+    break;
+  }
+
+  await conversation.external((outside) =>
+    buildPinManager(outside.env).setPin(userId, candidate!),
+  );
+  await ctx.reply(
+    withAntiPhishing(
+      "PIN set. Send it once more to authorise the export, or /cancel.",
+    ),
+  );
+  return true;
+};
+
+/**
+ * PIN verify loop. Bails out on lockout or /cancel; otherwise loops
+ * the user back through retries. The PinManager owns the attempt
+ * counter and lockout state; we only render its result.
+ */
+const runPinVerifyFlow = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  userId: number,
+  chatId: number,
+  pinAlreadySet: boolean,
+): Promise<boolean> => {
+  if (pinAlreadySet) {
+    await ctx.reply(
+      withAntiPhishing(
+        "Send your 6-digit PIN to authorise the export, or /cancel.",
+      ),
+    );
+  }
+
+  while (true) {
+    const msg = await conversation.waitFor("message:text");
+    const text = msg.message.text.trim();
+    await conversation.external((outside) =>
+      sweepPinMessage(outside, chatId, msg.message.message_id),
+    );
+    if (isCancel(text)) {
+      await ctx.reply(withAntiPhishing("Export cancelled."));
+      return false;
+    }
+    const result = await conversation.external((outside) =>
+      buildPinManager(outside.env).verifyPin(userId, text),
+    );
+    if (result.ok) return true;
+    if (result.reason === "locked" || result.reason === "locked-now") {
+      const mins = Math.max(
+        1,
+        Math.ceil((result.retryAt - Date.now()) / 60_000),
+      );
+      await ctx.reply(
+        withAntiPhishing(
+          `Too many wrong PIN attempts — locked for ~${mins} min. Export cancelled.`,
+        ),
+      );
+      return false;
+    }
+    if (result.reason === "unset") {
+      // Shouldn't happen — we either just set the PIN above or
+      // confirmed `isPinSet` at entry. Surface a clean abort rather
+      // than looping forever if the KV state somehow vanished.
+      await ctx.reply(
+        withAntiPhishing("PIN state lost — re-run /wallet → Export key."),
+      );
+      return false;
+    }
+    await ctx.reply(
+      withAntiPhishing(
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+      ),
+    );
+  }
+};
+
+/**
+ * Export-key conversation. PIN-gates the reveal of a wallet's
+ * plaintext private key; first-time users are walked through a PIN
+ * set + confirm before the verify step.
+ *
+ * Replay-safety: every KV read, crypto op, and PIN verify happens
+ * inside `conversation.external` so the conversations plugin replays
+ * the recorded result instead of re-executing the side effect on
+ * every incoming update. The wallet record is fetched at decrypt
+ * time rather than at conversation entry — if the user deletes the
+ * wallet from another client between entering the PIN and finishing
+ * verification, we surface a clean "wallet no longer exists" rather
+ * than leaking a stale key.
+ */
+const exportKeyConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  walletId: string,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+
+  // Conversation bodies replay across waitFor boundaries; on replay
+  // the hydrated `ctx` does NOT carry `env` (that's set by an outer
+  // middleware which only runs on the active update, not on replayed
+  // entry contexts). Per the conversations plugin docs, `external`'s
+  // callback receives the *outside* context object — the one that
+  // triggered the resume, complete with middleware mutations. We
+  // route every env-dependent read through that escape hatch instead
+  // of capturing `ctx.env` from the entry closure.
+  const pinAlreadySet = await conversation.external((outside) =>
+    buildPinManager(outside.env).isPinSet(userId),
+  );
+
+  if (!pinAlreadySet) {
+    const setOk = await runPinSetFlow(conversation, ctx, userId, chatId);
+    if (!setOk) return;
+  }
+
+  const verifyOk = await runPinVerifyFlow(
+    conversation,
+    ctx,
+    userId,
+    chatId,
+    pinAlreadySet,
+  );
+  if (!verifyOk) return;
+
+  // Re-fetch the wallet now (not at entry) so a concurrent delete is
+  // caught here instead of leaking a stale key from a closure.
+  const walletRecord = await conversation.external((outside) =>
+    buildManager(outside.env).getWallet(userId, walletId),
+  );
+  if (!walletRecord) {
+    await ctx.reply(
+      withAntiPhishing("Wallet no longer exists. Export aborted."),
+    );
+    return;
+  }
+  const privateKey = await conversation.external((outside) =>
+    buildManager(outside.env).decrypt(walletRecord.encryptedKey, userId),
+  );
+  const wallet = walletRecord;
+
+  const revealBody = [
+    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
+    "",
+    `Address: ${wallet.address}`,
+    `Private key: ${privateKey}`,
+  ].join("\n");
+
+  const revealMessage = await ctx.reply(withAntiPhishing(revealBody), {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          {
+            text: "Delete now",
+            callback_data: WALLET_CALLBACK.exportDelete,
+          },
+        ],
+      ],
+    },
+  });
+
+  await conversation.external((outside) => {
+    scheduleRevealAutoDelete(outside, chatId, revealMessage.message_id);
+  });
+};
+
 export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // Conversation registration — must come before any handler that
   // calls `ctx.conversation.enter("...")`. The name is the public
   // identifier passed to `enter` from callback handlers below.
   bot.use(
     createConversation(renameWalletConversation, "wallet-rename"),
+  );
+  bot.use(
+    createConversation(exportKeyConversation, "wallet-export-key"),
   );
 
   /**
@@ -358,6 +649,51 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await ctx.conversation.enter("wallet-rename", active.id);
   });
 
+  /**
+   * Export key flow. Mirrors Rename's "operate on active wallet" v1
+   * shape: a per-wallet picker would be ergonomic but the PIN gate is
+   * the security-critical surface and shipping that with a smaller
+   * keyboard footprint is worth the v1 simplicity. A future PR can
+   * generalise to a picker → conversation once delete / withdraw /
+   * export converge on the same multi-wallet UX.
+   */
+  bot.callbackQuery(WALLET_CALLBACK.exportKey, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const wm = buildManager(ctx.env);
+    const active = await wm.getActive(ctx.from.id);
+    if (!active) {
+      await ctx.answerCallbackQuery({
+        text: "No active wallet to export.",
+        show_alert: true,
+      });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("wallet-export-key", active.id);
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.exportDelete, async (ctx) => {
+    if (!ctx.callbackQuery.message) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    try {
+      await ctx.api.deleteMessage(
+        ctx.callbackQuery.message.chat.id,
+        ctx.callbackQuery.message.message_id,
+      );
+    } catch {
+      // Already swept by the 30s auto-delete or out of the 48-hour
+      // deleteMessage window. The user's intent (no plaintext key in
+      // chat) is satisfied either way.
+    }
+    await ctx.answerCallbackQuery({ text: "Deleted." });
+  });
+
   // Stubs for actions still gated on missing infra. Surface a toast
   // alert rather than silently no-op'ing so users see a clear "not
   // yet". Callback codes reserved here so future PRs only swap the
@@ -377,6 +713,5 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(WALLET_CALLBACK.import, stubScene);
   bot.callbackQuery(WALLET_CALLBACK.delete, stubPin);
-  bot.callbackQuery(WALLET_CALLBACK.exportKey, stubPin);
   bot.callbackQuery(WALLET_CALLBACK.withdraw, stubPin);
 };

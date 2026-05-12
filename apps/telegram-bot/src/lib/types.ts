@@ -23,6 +23,14 @@ export interface Env {
    * in v1. See apps/telegram-bot/AGENTS.md for the threat model.
    */
   MASTER_KEY: string;
+  /**
+   * Optional override for the PBKDF2 iteration count used by
+   * `lib/pin.ts`. Production leaves this unset and falls back to the
+   * OWASP-grade default (600k). Tests inject a small value (~1k) so
+   * the multi-PIN conversation suite finishes in single-digit
+   * milliseconds per derive instead of the half-second prod cost.
+   */
+  PIN_ITERATIONS?: number;
   WALLET_KV: KVNamespace;
   /**
    * Durable Object namespace binding. One DO instance per Telegram chat
