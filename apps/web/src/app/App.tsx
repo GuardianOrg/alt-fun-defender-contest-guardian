@@ -18,6 +18,7 @@ import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
 import GeoBlockBanner from "../components/layout/GeoBlockBanner";
 import Header from "../components/layout/Header";
+import NotFound from "../components/layout/NotFound";
 import PrimerModal from "../components/layout/PrimerModal";
 import SearchModal from "../components/layout/SearchModal";
 import SiteFooter from "../components/layout/SiteFooter";
@@ -77,6 +78,10 @@ const router = createBrowserRouter([
             <CreateView />
           </ErrorBoundary>
         ),
+      },
+      {
+        path: "*",
+        element: <NotFound />,
       },
     ],
   },
