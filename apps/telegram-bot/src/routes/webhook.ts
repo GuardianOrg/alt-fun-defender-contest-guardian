@@ -7,6 +7,10 @@ import {
 } from "../lib/telegram.js";
 import { parseCommand } from "../lib/commands.js";
 import { handlePositions } from "../commands/positions.js";
+import {
+  callbackHandlers,
+  dispatchCallback,
+} from "../lib/callbacks.js";
 
 const webhook = new Hono<AppBindings>();
 
@@ -28,6 +32,22 @@ webhook.post("/webhook", async (c) => {
   try {
     update = await c.req.json<TelegramUpdate>();
   } catch {
+    return c.text("ok");
+  }
+
+  if (update.callback_query) {
+    try {
+      await dispatchCallback(
+        c.env,
+        update.callback_query,
+        callbackHandlers,
+      );
+    } catch (err) {
+      // dispatchCallback already swallows handler/Telegram errors,
+      // but a registry-level bug or programmer error in future
+      // handlers must still leave the webhook 200ing.
+      console.error("dispatchCallback failed", err);
+    }
     return c.text("ok");
   }
 

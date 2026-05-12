@@ -109,7 +109,7 @@ describe("POST /admin/set-webhook", () => {
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.url).toBe("https://example.com/webhook");
     expect(body.secret_token).toBe("test-secret");
-    expect(body.allowed_updates).toEqual(["message"]);
+    expect(body.allowed_updates).toEqual(["message", "callback_query"]);
   });
 });
 
