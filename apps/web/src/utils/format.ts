@@ -129,6 +129,26 @@ export function getErrorMessage(e: unknown): string {
   if (raw.includes("0x05eb05ac")) {
     return `Amount below minimum ($${MIN_USDC_BUY_AMOUNT} buy / $${MIN_USDC_SELL_AMOUNT} sell).`;
   }
+  // OpenZeppelin `Clones.FailedDeployment()` selector — thrown by
+  // `Bonding._deployAndSeed` when the predicted CREATE2 address already
+  // has bytecode. The `useCreateToken` pre-flight catches the common
+  // case before the wallet popup, but viem still surfaces this raw
+  // selector if a tx slips through (e.g. two parallel launches landing
+  // in the same block, with the second tx losing the race). Surface
+  // it as the same "change name/ticker, then retry" copy the
+  // pre-flight uses so the recovery path is consistent.
+  // Lowercase match on the named selector so we still catch RPC/wallet
+  // wrappers that normalise the error string casing (e.g. some
+  // providers re-emit "faileddeployment()" or wrap the revert in a
+  // pre-formatted "execution reverted: faileddeployment" line). The
+  // raw 4-byte selector is fixed-case hex, so a literal `includes` is
+  // sufficient for that arm.
+  if (raw.includes("0xb06ebf3d") || lower.includes("faileddeployment")) {
+    return (
+      "A token with this name and ticker already exists for your wallet. " +
+      "Change the name or ticker, or click Launch again to mine a new vanity address."
+    );
+  }
   if (lower.includes("wallet timeout") || lower.includes("request timeout")) {
     return "Wallet timed out — please try again. If using a mobile wallet, make sure the app is open.";
   }

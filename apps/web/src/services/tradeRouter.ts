@@ -76,7 +76,14 @@ const publicClient = createPublicClient({
 
 export type TransactionStep = "idle" | "approving" | "signing" | "confirmed" | "error";
 export type TxStep = TransactionStep | "executing";
-export type LaunchStep = TransactionStep | "deploying";
+/// `uploading` covers the multi-second OpenAI moderation + R2 write that
+/// happens before any wallet popup. Without it the create-token button
+/// would visibly look idle while the upload is in flight, and a
+/// re-clicking user could fire a parallel `Zap.createToken` tx — the
+/// second would land at the already-deployed CREATE2 clone address and
+/// revert with `Clones.FailedDeployment()` (`0xb06ebf3d`). See
+/// `useCreateToken.ts` for the matching busy-state + re-entry guard.
+export type LaunchStep = TransactionStep | "uploading" | "deploying";
 
 export interface BuyQuote {
   /**

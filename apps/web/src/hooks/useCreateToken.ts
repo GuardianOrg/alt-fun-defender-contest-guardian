@@ -1,7 +1,7 @@
-import { useState, useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { findLT, MAX_TOKEN_DESCRIPTION_LENGTH, MAX_TOKEN_IMAGE_URL_LENGTH, MAX_TOKEN_URL_LENGTH, MIN_USDC_BUY_AMOUNT, sanitizeTelegramHandle, sanitizeTwitterHandle, sanitizeWebsiteUrl, utf8ByteLength } from "@launchpad/shared";
-import { createPublicClient, http, maxUint256, parseEventLogs, parseUnits, type Hex } from "viem";
+import { createPublicClient, http, maxUint256, parseEventLogs, parseUnits, type Address, type Hex } from "viem";
 
 import { usePrivyWalletClient } from "./usePrivyWalletClient";
 import { useTokenPermit, type PermitData } from "./useTokenPermit";
@@ -36,13 +36,38 @@ export function useCreateToken() {
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [tokenAddress, setTokenAddress] = useState<string | null>(null);
+  /// Re-entry guard against double-clicks on the Launch button. Without
+  /// this, the multi-second `uploadImage` call (OpenAI moderation +
+  /// R2) ran while `step` was still `"idle"`, so the button stayed
+  /// enabled and a second click would fire a fully parallel
+  /// `Zap.createToken` flow against the same `(creator, name, ticker,
+  /// salt)` quartet — first tx deploys the clone, second reverts deep
+  /// inside `Clones.cloneDeterministic` with `FailedDeployment()`
+  /// (`0xb06ebf3d`). The ref is the source of truth (synchronous, beats
+  /// the async `setStep`); CSS-level disabling via the `"uploading"`
+  /// step is the visible companion. Both layers must agree.
+  const inFlightRef = useRef(false);
 
   const create = useCallback(
-    async (params: CreateTokenParams, userSalt: Hex) => {
+    async (
+      params: CreateTokenParams,
+      userSalt: Hex,
+      predictedAddress: Address,
+      onSaltCollision?: () => void,
+    ) => {
       if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
         return;
       }
+
+      if (inFlightRef.current) {
+        // Another launch is mid-flight (typically the user double-
+        // clicked during the upload window). Drop the duplicate
+        // silently — surfacing an error here would just confuse the
+        // user mid-launch.
+        return;
+      }
+      inFlightRef.current = true;
 
       try {
         setError(null);
@@ -113,8 +138,18 @@ export function useCreateToken() {
         // entirely. Upload failures abort the launch — an unmoderated
         // image must never reach the on-chain field, so the user must
         // remove or change the image to continue.
+        //
+        // `setStep("uploading")` flips the create button into its
+        // busy state for the duration of the OpenAI moderation +
+        // R2 write (typically 1-5s). Without this the button stayed
+        // visually idle and a second click during the upload window
+        // would fire a parallel launch tx that collides on CREATE2
+        // (issue: `0xb06ebf3d FailedDeployment`). The `inFlightRef`
+        // re-entry guard above is the synchronous belt-and-braces
+        // for the same race.
         let imageUrl = "";
         if (params.imageFile) {
+          setStep("uploading");
           try {
             const uploaded = await uploadImage(params.imageFile);
             imageUrl = uploaded.url;
@@ -128,6 +163,35 @@ export function useCreateToken() {
           if (utf8ByteLength(imageUrl) > MAX_TOKEN_IMAGE_URL_LENGTH) {
             throw new Error(`Image URL is too long (max ${MAX_TOKEN_IMAGE_URL_LENGTH} bytes)`);
           }
+        }
+
+        // Pre-flight: reject the launch before any wallet popup if the
+        // predicted CREATE2 clone address already has bytecode at it
+        // (i.e. a token with this exact `(creator, name, ticker,
+        // userSalt)` quartet has already been deployed). The on-chain
+        // path would otherwise revert deep inside
+        // `Clones.cloneDeterministic` with `FailedDeployment()`
+        // (`0xb06ebf3d`), an opaque error to the user.
+        //
+        // The miner caches the salt in `localStorage` keyed by
+        // `(creator, impl, name, ticker)`, so the obvious cause is the
+        // user previously launched a token with the same name + ticker
+        // (perhaps in an earlier session they've forgotten about). We
+        // hand control back to `useVanityAddress` via
+        // `onSaltCollision` so it can drop the stale cache row and
+        // restart mining — without that callback the next retry would
+        // pull the same colliding salt out of the cache and revert
+        // again.
+        const existingCode = await hyperEvmClient.getBytecode({
+          address: predictedAddress,
+        });
+        if (existingCode && existingCode !== "0x") {
+          if (onSaltCollision) onSaltCollision();
+          throw new Error(
+            `A token with this name and ticker already exists for your wallet. ` +
+              `Change the name or ticker, or click Launch again to mine a new ` +
+              `vanity address.`,
+          );
         }
 
         // Prefer `createTokenWithPermit` (1 tx) when a seed buy is needed and
@@ -285,6 +349,11 @@ export function useCreateToken() {
       } catch (e) {
         setError(getErrorMessage(e));
         setStep("error");
+      } finally {
+        // Always release the re-entry guard, even on success — the user
+        // might want to launch a second token after the redirect timer
+        // elapses (e.g. they cancel the navigation and try again).
+        inFlightRef.current = false;
       }
     },
     [isConnected, address, walletClient, signPermit],

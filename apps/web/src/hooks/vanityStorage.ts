@@ -147,3 +147,21 @@ export function writeVanityCache(key: string, entry: VanityCacheEntry): void {
     // best-effort.
   }
 }
+
+/**
+ * Drop a single cache row. Used by the create flow when the predicted
+ * clone address turns out to already have bytecode at it (i.e. the
+ * cached salt would collide with a previously-deployed token), so the
+ * miner can re-mine a fresh salt instead of handing back the same
+ * stale value on every retry. Best-effort — storage failures are
+ * swallowed for the same reason `writeVanityCache` swallows them.
+ */
+export function deleteVanityCache(key: string): void {
+  const ls = safeStorage();
+  if (!ls) return;
+  try {
+    ls.removeItem(key);
+  } catch {
+    // Storage disabled mid-session; treat as no-op.
+  }
+}

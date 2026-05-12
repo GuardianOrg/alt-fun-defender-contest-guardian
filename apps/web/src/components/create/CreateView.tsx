@@ -100,6 +100,7 @@ export default function CreateView() {
   );
   const pairMintPaused = selectedLT?.mintPaused === true;
   const isBusy =
+    launchStep === "uploading" ||
     launchStep === "approving" ||
     launchStep === "signing" ||
     launchStep === "deploying";
@@ -171,12 +172,20 @@ export default function CreateView() {
         ].filter(Boolean),
       },
       vanityResult.salt,
+      vanityResult.address,
+      // Bytecode-at-predicted-address means the cached salt collides
+      // with a previously-deployed token. Drop the cache row and
+      // restart the miner so the next click mines a fresh salt
+      // against a different CREATE2 address — otherwise the user is
+      // stranded behind a permanent `FailedDeployment()` revert.
+      () => vanity.invalidateCachedSalt(trimmedName, trimmedTicker),
     );
   };
 
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET TO LAUNCH";
     if (waitingForVanity) return "FINDING YOUR ADDRESS…";
+    if (launchStep === "uploading") return "UPLOADING IMAGE…";
     if (launchStep === "signing") return "SIGN IN WALLET…";
     if (launchStep === "approving") return "APPROVING USDC…";
     if (launchStep === "deploying") return "DEPLOYING…";
@@ -310,11 +319,13 @@ export default function CreateView() {
             {isBusy && (
               <div className={styles.busyRow}>
                 <div className={styles.busyDot} />
-                {launchStep === "signing"
-                  ? "Sign the USDC permit in your wallet…"
-                  : launchStep === "approving"
-                    ? "Approve USDC spend in your wallet…"
-                    : "Confirm deployment in your wallet…"}
+                {launchStep === "uploading"
+                  ? "Moderating and uploading image…"
+                  : launchStep === "signing"
+                    ? "Sign the USDC permit in your wallet…"
+                    : launchStep === "approving"
+                      ? "Approve USDC spend in your wallet…"
+                      : "Confirm deployment in your wallet…"}
               </div>
             )}
 

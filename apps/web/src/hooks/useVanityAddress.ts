@@ -14,6 +14,7 @@ import {
 
 import { useWallet } from "./useWallet";
 import {
+  deleteVanityCache,
   readVanityCache,
   vanityKey,
   writeVanityCache,
@@ -81,6 +82,22 @@ export interface UseVanityAddressReturn {
   ensureSalt: (name: string, ticker: string) => Promise<VanityResult>;
   /** Imperative restart (e.g. after impl rotation or wallet change). */
   restart: () => void;
+  /**
+   * Drop the cached salt for `(creator, impl, name, ticker)` and
+   * restart mining from scratch. The next `ensureSalt(name, ticker)`
+   * waits for a freshly-mined salt rather than handing back the stale
+   * cache entry.
+   *
+   * Called by the create flow when a pre-flight `getBytecode` on the
+   * predicted clone address shows the address is already taken — i.e.
+   * the user has previously launched a token with the same
+   * `(creator, name, ticker, salt)` quartet. Without this the miner
+   * would just keep serving the same colliding salt to every retry,
+   * stranding the user behind a permanent `Clones.FailedDeployment()`
+   * revert (`0xb06ebf3d`). Re-mining produces a fresh `userSalt` that
+   * derives a different CREATE2 address, breaking the collision.
+   */
+  invalidateCachedSalt: (name: string, ticker: string) => void;
 }
 
 const MINER_ERROR_MESSAGE =
@@ -401,6 +418,37 @@ export function useVanityAddress({
     [teardown],
   );
 
+  const invalidateCachedSalt = useCallback(
+    (currentName: string, currentTicker: string): void => {
+      if (!address || !effectiveImpl) return;
+      const trimmedName = currentName.trim();
+      const trimmedTicker = currentTicker.trim();
+      if (!trimmedName || !trimmedTicker) return;
+      const creator = getAddress(address);
+      const key = vanityKey(
+        creator,
+        effectiveImpl,
+        trimmedName,
+        trimmedTicker,
+      );
+      deleteVanityCache(key);
+      // Force `start` to re-spawn the worker pool from scratch even if
+      // `(creator, impl, name, ticker)` matches the running pool — the
+      // re-entry guard inside the auto-start `useEffect` would
+      // otherwise short-circuit. Clearing `lastSpawnRef` together with
+      // the cache row makes both layers agree the previous best is
+      // gone.
+      lastSpawnRef.current = {
+        creator,
+        impl: effectiveImpl,
+        name: trimmedName,
+        ticker: trimmedTicker,
+      };
+      start(creator, effectiveImpl, trimmedName, trimmedTicker);
+    },
+    [address, effectiveImpl, start],
+  );
+
   const refetchImpl = implQuery.refetch;
   const restart = useCallback(() => {
     if (!address) return;
@@ -582,5 +630,6 @@ export function useVanityAddress({
     elapsedMs,
     ensureSalt,
     restart,
+    invalidateCachedSalt,
   };
 }
