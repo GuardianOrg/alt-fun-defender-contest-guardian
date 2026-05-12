@@ -2,7 +2,7 @@
 
 Telegram trading bot for Alt Fun. Users buy/sell tokens on HyperEVM bonding curves and post-grad HyperSwap pools, manage custodial wallets, and view positions — all from Telegram chat.
 
-**v1 scope is intentionally narrow:** features that would require new endpoints in `apps/api` (snipe orders, copy-trade rules, limit/DCA orders, price/graduation alert subscriptions, wallet tracking, multi-timeframe portfolio aggregates) are **deferred**. The bot ships only what the existing `apps/api` surface and direct HyperEVM RPC already support. When `apps/api` adds an endpoint, the matching command lands in a follow-up — see *Deferred features* near the end of this doc.
+**v1 scope is intentionally narrow:** features that would require new endpoints in `apps/api` (snipe orders, copy-trade rules, limit/DCA orders, price/graduation alert subscriptions, wallet tracking) are **deferred**. The bot ships only what the existing `apps/api` surface (extended with the bot-router endpoints below) and direct HyperEVM RPC already support. When `apps/api` adds further endpoints, the matching command lands in a follow-up — see *Deferred features* near the end of this doc.
 
 ## Architecture
 
@@ -37,16 +37,17 @@ See [apps/api/AGENTS.md](../api/AGENTS.md) for the REST endpoints this bot consu
 
 ## API surface consumed from apps/api
 
-The bot consumes only endpoints `apps/api` already exposes today. No new api work is required for v1.
+The bot consumes the endpoints `apps/api` exposes today, plus three new bot-namespaced endpoints introduced for the bot fee model (see *Bot Fee Model* below).
 
 | Endpoint | Bot usage |
 |---|---|
 | `GET /api/v1/tokens/:addr` | Token card on `/buy`, `/sell`, `/track` — name, mcap, `curveFilled`, `curveFilledOrganic`, `curveFilledLeverageBoost`. Mirrors the web row exactly. |
 | `GET /api/v1/chart/:address` | Candle snapshot for `lib/chart.ts` — returns `candles[]`, `currentRatio`, `currentExchangeRate`. **Canonical chart endpoint shared with the web app's `fetchChart` in `apps/web/src/services/api.ts`.** The older `/trades/ohlcv/:address` route also exists but does not return `currentRatio` / `currentExchangeRate`, which are required for the in-progress candle to track the live LT rate; use `/chart` everywhere. |
 | `GET /api/v1/trades/:address` | Per-token trade history for `/track <contract>` (last N trades). |
-| `GET /api/v1/portfolio/:wallet` | Open positions (balance + cost basis). |
+| `GET /api/v1/bot/positions/:wallet` | **Bot-only.** Open + realised positions for `/positions`, sourced from `walletBotPosition` (driven by `BotRouterTrade` events). Includes cost basis, current value, unrealised PnL, realised PnL — see *Bot Fee Model → New `apps/api` endpoints*. |
 | `GET /api/v1/balances/:wallet` | **Indexed Alt Fun token balances only** — returns `{address, name, ticker, ltPair, leverage, balance, …}` per held token. Does *not* return native HYPE or USDC. For HYPE / USDC the bot reads `balanceOf` directly via `rpc.ts` (multicall) — see `/wallet` balance display. |
-| `GET /api/v1/referrals/:wallet` | Referred wallets + earned volume for `/referral`. Wallet-keyed — see *Referral identifier bridge* in Key Constraints. |
+| `GET /api/v1/bot/referrals/:wallet` | **Bot-only.** Referred count, lifetime earned, current rewards wallet for `/referral`, sourced from `referrerStats` and KV. |
+| `POST /api/v1/bot/referrals/:wallet/rewards-wallet` | **Bot-only.** Updates the user's rewards-wallet KV record. Does not touch on-chain attribution — see /referral → Rewards wallet. |
 | `GET /api/v1/stats` | Platform stats for `/help` and ambient context. |
 
 **No WebSocket consumption in v1.** Live `trade` / `price` / `graduation` / `newToken` feeds would only be useful for snipe / copy-trade / alert features, all of which are deferred. The bot is purely request/response.
@@ -54,6 +55,124 @@ The bot consumes only endpoints `apps/api` already exposes today. No new api wor
 **Auth model — bot uses a dedicated API key, not a magic internal secret.** `apps/api` applies `apiKeyAuth` middleware to every `/api/v1/*` route (see `apps/api/src/index.ts` `app.use("/api/v1/*", apiKeyAuth)` and `apps/api/src/middleware/api-key-auth.ts`). The middleware understands exactly one auth header — `X-API-Key`, validated against the `apiKeys` table. There is **no** `API_INTERNAL_SECRET` short-circuit and **no** service-binding bypass: requests over a service binding land on the same fetch handler with the same middleware as public traffic, and `CF-Connecting-IP` resolves to the bot Worker's egress identity rather than the end user's. If the bot sends no `X-API-Key`, it gets bucketed under the anonymous per-IP ceiling (240/min) keyed on that single Worker IP — every user shares one bucket and the bot starves itself within a few concurrent commands. Provision one dedicated `apiKeys` row for the bot (rate-limit sized for fleet aggregate, not per-user) and ship the value as a Worker secret. Treat the binding as a latency optimisation, not an auth bypass. If a write surface ever lands (deferred features), it must be a real authenticated route on `apps/api` keyed on `(apiKey, wallet)`, not an `X-Bot-Internal` shared secret.
 
 **Service binding scope.** The bot binds to `apps/api` for zero-egress latency on every read above. The binding does not change auth or rate limiting — every bound call still hits `apiKeyAuth` and counts against the bot's `X-API-Key` quota. It **does** bypass the Cloudflare edge cache (bound traffic lands directly on the api's fetch handler, never on a CDN colo), so the 15–30 s `s-maxage` on aggregate routes does nothing for the bot — assume each bound call costs one full Worker invocation on the api side and rely on the indexer-side O(1) counters rather than edge caching for latency.
+
+---
+
+## Bot Fee Model
+
+The bot is operated by an external team that charges its own fee on top of Alt Fun's 0.5% protocol fee. All trades route through a bot-team-owned `BotFeeRouter` contract, which skims the bot fee and forwards the remainder to Alt Fun's `Zap`. **The bot never calls `Zap.buy` / `Zap.sell` directly.**
+
+### Parameters (immutable in deployed router)
+
+| Parameter | Value |
+|---|---|
+| `botFeeBps` | `50` — 0.5% on buy, 0.5% on sell, flat. Charged on USDC notional both directions. |
+| `referrerShareBps` | `2_000` — 20% of `botFee` to the referrer's rewards wallet, 80% to treasury. |
+| `treasury` | Single-key cold wallet address. Baked into the router constructor — not settable post-deploy. |
+| Governance | None. To change `botFeeBps`, `referrerShareBps`, or `treasury`, deploy a new router and update the bot's `BOT_FEE_ROUTER_ADDRESS` secret. No admin key, no upgrade proxy. |
+
+### Buy flow
+
+```
+buyWithBotFee(token, usdcAmount, minTokensOut, referrer):
+  1. transferFrom(user → router, usdcAmount)
+  2. botFee = usdcAmount * botFeeBps / 10_000
+  3. if referrer != address(0):
+       referrerCut = botFee * referrerShareBps / 10_000
+       ok = USDC.transfer(referrer, referrerCut)
+       if !ok:
+         referrerCut = 0          // bad-referrer-wallet fallback — see below
+       else:
+         emit ReferralPaid(referrer, user, referrerCut, token, side='buy')
+       treasuryCut = botFee - referrerCut
+     else:
+       treasuryCut = botFee
+  4. USDC.transfer(treasury, treasuryCut)
+  5. USDC.approve(Zap, usdcAmount - botFee)
+  6. tokensOut = Zap.buy(token, usdcAmount - botFee, minTokensOut, address(0))
+  7. ERC20(token).transfer(user, tokensOut)
+  8. emit BotRouterTrade(user, token, 'buy', usdcAmount, tokensOut, botFee, referrer, referrerCut, treasuryCut)
+```
+
+Permit variant (`buyWithBotFeePermit`) takes the user's `Permit` signature and replaces step 1's `transferFrom` with a permit-then-transferFrom flow — same downstream logic.
+
+### Sell flow
+
+Symmetric. Pull tokens from user, call `Zap.sell` with `address(0)` as referralCode, take `botFeeBps` out of the returned USDC, split between treasury and referrer with the same fallback rule, forward the remaining USDC to the user. Bot fee on sells is paid in USDC out, not in tokens in.
+
+### Why a router (not direct Zap calls)
+
+The router exists exclusively to (a) charge the bot operator fee and (b) settle the referral split on-chain at trade time. It does not modify Alt Fun's curve mechanics, slippage protection, post-graduation routing, or graduation logic — those still happen inside `Zap` and the underlying contracts. The router is intentionally minimal: pull, skim, split, forward.
+
+### Why no claim / withdraw flow
+
+Referrer cuts settle on-chain to the referrer's rewards wallet in the same tx as the trade. There is no off-chain ledger, no treasury hot wallet, no payout queue, and no `claim()` button. The treasury is cold-wallet-only and never needs to sign anything for routine operation — funds arrive at the cold address directly from the router on every trade. This was the explicit constraint that drove the architecture: **the cold wallet must never be required to sign for payouts.**
+
+### Bad-referrer-wallet fallback
+
+If a referrer's rewards wallet rejects the USDC transfer (contract without `receive`/`fallback` for the token, frozen address, etc.), `USDC.transfer` returns false. The router treats that as `referrerCut = 0` and rolls the entire `botFee` into the treasury cut rather than reverting the trade. **A referrer's misconfigured wallet must never block trades by users they referred.**
+
+The bot surfaces this in `/referral` if it's detected (the indexer can compare attributed-trades count against successful `ReferralPaid` events) so the referrer knows to fix their rewards wallet.
+
+### Self-referral
+
+Allowed. No router-side guard. A self-referring user effectively pays a 0.4% bot fee instead of 0.5%, which is fine — that's the same behaviour as any other referred user, just with referrer = trader.
+
+### Alt Fun referrer slot
+
+Always passed as `address(0)`. The bot does not participate in Alt Fun's wallet-keyed referrer system. The web app's `?ref=<wallet>` deeplinks are out of scope for the bot. There is no mapping from Telegram userId to Alt Fun referrer wallet anywhere in the bot.
+
+### Indexer requirements
+
+The shared Ponder indexer (Alt Fun's, extended for the bot team) must add subscriptions to `BotFeeRouter` events and the entities below. None of this lives in bot KV — KV stores only session state and the per-user `rewardsWallet` mapping.
+
+```
+botRouterTrade {
+  txHash, blockNumber, timestamp,
+  trader,             // user wallet that signed the trade
+  token,              // traded token
+  side,               // 'buy' | 'sell'
+  usdcAmount,         // gross USDC for buy / gross USDC out for sell, before bot fee
+  tokenAmount,        // tokens received (buy) or sold (sell)
+  botFee,             // bot fee paid in USDC
+  referrer,           // referrer wallet or address(0)
+  referrerCut,        // 0 if no referrer or transfer failed
+  treasuryCut         // botFee - referrerCut
+}
+
+walletBotPosition {  // analogue of walletPosition; one row per (wallet, token)
+  wallet, token,
+  costBasisUsdc,     // sum of (usdcAmount on buys) for currently-held tokens
+  tokenBalance,      // tokens held (cleared to 0 when fully sold)
+  realisedPnlUsdc,   // running sum of (proceeds - cost) for closed-out chunks
+  totalCostUsdc,     // lifetime sum of buy notional
+  totalProceedsUsdc  // lifetime sum of sell notional
+}
+
+referrerStats {  // one row per referrer wallet
+  referrer,
+  referredCount,     // distinct trader wallets attributed to this referrer
+  lifetimeEarnedUsdc // sum of all ReferralPaid amounts (transfer-confirmed only)
+}
+```
+
+Cost basis on every buy and proceeds on every sell are read from the router's own event, so the bot fee is automatically included in user-visible PnL. Realised PnL uses average-cost accounting for partial sells (same model as the existing `walletPosition`).
+
+### New `apps/api` endpoints
+
+The shared API exposes three new endpoints for the bot. All key on wallet, all return JSON, all sit behind the existing `apiKeyAuth` middleware.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/v1/bot/positions/:wallet` | `{ open: [{ token, ticker, balance, costBasisUsdc, currentValueUsdc, unrealisedPnlUsdc, unrealisedPnlPct }], realised: [{ token, ticker, totalCostUsdc, totalProceedsUsdc, realisedPnlUsdc, realisedPnlPct }] }` — driven by `walletBotPosition`. |
+| `GET /api/v1/bot/referrals/:wallet` | `{ referredCount, lifetimeEarnedUsdc, rewardsWallet }` — driven by `referrerStats` plus the rewards-wallet KV record. |
+| `POST /api/v1/bot/referrals/:wallet/rewards-wallet` | Body `{ rewardsWallet }`. Updates the bot's KV mapping. **Does not touch on-chain attribution** — past referred users keep paying out to the previously-set wallet only if they retrade after the change; the change applies only to attributions where `ReferralPaid.referrer == newRewardsWallet`. See *Rewards wallet semantics* in `/referral`. |
+
+### Secrets
+
+| Secret | Purpose |
+|---|---|
+| `BOT_FEE_ROUTER_ADDRESS` | Deployed `BotFeeRouter` contract address. Rotated by deploying a new router and pushing the new address. |
 
 ---
 
@@ -82,12 +201,17 @@ The bot consumes only endpoints `apps/api` already exposes today. No new api wor
 ```
 Input:   none (optional deeplink parameter for referral)
 Output:  welcome message, risk disclaimer, create-or-import wallet prompt, main menu buttons
-Effects: create user profile in KV if missing; record referrer if deeplink present
+Effects: create user profile in KV if missing; record referrer if deeplink present;
+         write default rewardsWallet (= active custodial wallet address) into KV
 ```
 
 Referral deeplink: `t.me/<botname>?start=ref_<referrerUserId>`. Record referrer on first `/start` only — subsequent `/start` calls for existing users must not overwrite the referrer.
 
-**Strong consistency via Durable Object.** Profile creation and referrer recording go through `OnboardingDO` (one DO instance per `userId`, named `idFromName(userId)`), not raw KV. Cloudflare KV is eventually consistent — under concurrent `/start` spam, a raw KV `get-then-put` can double-create profiles or double-record referrers. The DO's single-threaded alarm model serialises all writes for a given user. This is the same pattern as `WsIpLimiter` in `apps/api`.
+**Referrer resolution.** When the deeplink param is `ref_<referrerUserId>`, `OnboardingDO` resolves it to the referrer's `rewardsWallet` (read from `GET /api/v1/bot/referrals/:referrerWallet` or KV directly via the DO) and stores **the resolved wallet address** as the new user's `referrer` in KV — never the userId. That stored wallet is the address passed to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user, making attribution lifetime by construction. See /referral → Referrer attribution for edge cases (referrer not yet onboarded, self-referral, no retro-link).
+
+**Default rewards wallet.** On first /start, the bot writes `rewardsWallet = activeCustodialWalletAddress` into KV unconditionally (whether or not the user came in via a deeplink). This guarantees /referral always has a rewards wallet to display, and that referrals from this user start paying out from their first referred trade.
+
+**Strong consistency via Durable Object.** Profile creation, referrer recording, and rewards-wallet defaulting go through `OnboardingDO` (one DO instance per `userId`, named `idFromName(userId)`), not raw KV. Cloudflare KV is eventually consistent — under concurrent `/start` spam, a raw KV `get-then-put` can double-create profiles or double-record referrers. The DO's single-threaded alarm model serialises all writes for a given user. This is the same pattern as `WsIpLimiter` in `apps/api`.
 
 ### /help
 
@@ -150,36 +274,45 @@ Output:
   - Static chart image (24h candles, rendered via lib/chart.ts from GET /api/v1/chart/:address, sent as Telegram photo)
   - Token card caption (name, ticker, mcap, curve fill %, 24h change, leverage boost indicator)
   - Risk summary (leverage level, vol decay warning if 5x LT)
+  - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered for the user, append "(0.1% goes to your referrer)".
   - Quick-amount buttons: $20 | $50 | $100 | Custom
   - Confirm button (if confirmations enabled in /settings)
 
 Effects (after confirmation):
   - Check user USDC balance ≥ (buy amount + gas estimate); surface "Insufficient USDC" if not
-  - Resolve USDC allowance for the Zap contract:
-      • If allowance < amount and the USDC token supports EIP-2612 permit, sign a permit
-        (no extra on-chain tx) and route through `Zap.buyWithPermit`.
-      • Otherwise (permit signature fails, or pre-permit token), submit an `approve(maxUint256)`
-        tx first and route through `Zap.buy`. Same fallback ladder as web — see
-        `apps/web/src/hooks/useTradeRouter.ts` `executeBuy`.
-  - Derive slippage bound: call `eth_call` simulation of `Zap.buy[WithPermit]`
-    with `minTokensOut = 0` to get a `quotedTokensOut`. Compute
-    `minTokensOut = quotedTokensOut * (10_000 - slippageBps) / 10_000` and submit
-    the real tx with that bound. **Never submit with `minTokensOut = 0` — that's a
-    fully-sandwichable trade.** This matches the web flow exactly.
+  - Resolve USDC allowance for `BotFeeRouter` (NOT Zap directly):
+      • If allowance < amount and USDC supports EIP-2612 permit, sign a permit
+        for the router and route through `BotFeeRouter.buyWithBotFeePermit`.
+      • Otherwise submit `approve(BotFeeRouter, maxUint256)` first, then route
+        through `BotFeeRouter.buyWithBotFee`. Same fallback ladder as web's
+        `useTradeRouter.executeBuy`, just with the router as approval target.
+  - Derive slippage bound: simulate `BotFeeRouter.buyWithBotFee[Permit]`
+    with `minTokensOut = 0` to get `quotedTokensOut`. The simulation already
+    accounts for the bot fee (router skims `botFeeBps` before forwarding to Zap),
+    so `quotedTokensOut` is the post-bot-fee token amount the user actually receives.
+    Compute `minTokensOut = quotedTokensOut * (10_000 - slippageBps) / 10_000` and
+    submit the real tx with that bound. **Never simulate Zap directly and never
+    submit with `minTokensOut = 0` — both reopen the sandwich window the bound
+    exists to close.**
+  - Pass the user's stored `referrer` (or `address(0)` if none) as the
+    `referrer` arg. Lifetime attribution is enforced by the bot writing the
+    referrer once at /start — see /referral and Bot Fee Model.
   - Estimate gas via `estimateContractGas` and submit with a 1.3× buffer.
-  - Show tx hash + explorer link; on receipt, update position cache.
+  - Show tx hash + explorer link. On receipt, the indexer's `BotRouterTrade`
+    event drives the next /positions read; do not maintain a parallel KV cache.
 
 Failure modes specific to buys:
-  - LT mint-paused: `Zap.buy` reverts because `lt.mint()` fails. Surface: "Buys paused for this token — BounceTech LT is temporarily mint-paused. Sells still work." Do not surface the raw revert.
-  - Slippage exceeded: surface "Price moved — try again or increase slippage in /settings."
+  - LT mint-paused: `Zap.buy` reverts inside the router, the router surfaces the inner revert. Surface to user: "Buys paused for this token — BounceTech LT is temporarily mint-paused. Sells still work." Do not surface the raw revert.
+  - Slippage exceeded: "Price moved — try again or increase slippage in /settings."
   - Minimum buy not met: surface before tx construction, not after revert.
+  - Bad referrer wallet: NOT a user-visible error. The router's bad-referrer-wallet fallback rolls the cut into treasury and the trade still settles. The referrer (a different user) sees a banner in their /referral the next time they open it.
 ```
 
 Token card format mirrors the web UI: name · ticker · mcap · curve-fill bar · leverage tag.
 
 Slippage default: from `/settings` (default 1%). Priority fee default: from `/settings`.
 
-**Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Import the constant; do not hardcode the number, because the buffer above BounceTech's $10 floor is tuned per-release. Quick-amount buttons start at the minimum (currently $20). Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
+**Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. Quick-amount buttons start at the minimum (currently $20). Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
 
 ### /sell
 
@@ -189,40 +322,77 @@ Input:
   optional: <percentage>% or <amount_in_tokens>  (default: show picker)
 
 Output:
-  - Position summary (token amount, cost basis)
-  - Estimated USDC out from simulation (after 0.5% Alt Fun fee + any HyperSwap LP fee post-grad)
+  - Position summary (token amount, cost basis from /api/v1/bot/positions)
+  - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
+  - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered, append "(0.1% goes to your referrer)".
   - Quick-sell buttons: 25% | 50% | 75% | 100% | Custom
   - Confirm button (if confirmations enabled)
 
 Effects:
-  - Check baseAssetBalance() ≥ sell value; cap and warn if buffer low
-  - Resolve token allowance for Zap:
-      • If allowance < amount and the token supports EIP-2612 permit, sign permit
-        and route through `Zap.sellWithPermit`.
-      • Otherwise submit `approve(maxUint256)` then route through `Zap.sell`.
-  - Derive slippage bound: simulate `Zap.sell[WithPermit]` with `minUsdcOut = 0` to
-    get `quotedUsdcOut`. Compute
+  - Check baseAssetBalance() ≥ sell value; cap and warn if buffer low (buffer check still applies — the router calls Zap.sell, which is what hits the buffer)
+  - Resolve token allowance for `BotFeeRouter` (NOT Zap directly):
+      • If allowance < amount and token supports EIP-2612 permit, sign permit
+        for the router and route through `BotFeeRouter.sellWithBotFeePermit`.
+      • Otherwise submit `approve(BotFeeRouter, maxUint256)` then route through
+        `BotFeeRouter.sellWithBotFee`.
+  - Derive slippage bound: simulate `BotFeeRouter.sellWithBotFee[Permit]` with
+    `minUsdcOut = 0` to get `quotedUsdcOut`. The simulation accounts for the bot
+    fee (router skims after Zap returns), so `quotedUsdcOut` is the post-bot-fee
+    USDC the user actually receives. Compute
     `minUsdcOut = quotedUsdcOut * (10_000 - slippageBps) / 10_000`,
-    **then floor at 1 wei** when `quotedUsdcOut > 0` and slippage rounding would drop
-    the bound to zero — passing 0 re-opens the unconstrained-execution window the
-    bound exists to close. Same as `apps/web/src/hooks/useTradeRouter.ts` `executeSell`.
+    **then floor at 1 wei** when `quotedUsdcOut > 0` and slippage rounding would
+    drop the bound to zero — passing 0 reopens the unconstrained-execution window
+    the bound exists to close. Note `minUsdcOut` is the floor on the user's net
+    receipt, not the gross amount returned by Zap; the router enforces this
+    bound after the bot fee is taken.
+  - Pass the user's stored `referrer` (same lifetime-attributed value used in /buy)
+    as the `referrer` arg. Sells from a referred user also accrue to that referrer.
   - Estimate gas; submit with 1.3× buffer; show receipt.
 ```
 
 Buffer-limited sells: if `redeem(sellAmount) > baseAssetBalance()`, surface: "Buffer low — max sell now is ~$X. Sell in chunks; buffer replenishes in ~10s." Never silently cap — require user to confirm the reduced amount.
 
-**Minimum sell: `MIN_USDC_SELL_AMOUNT` from `@launchpad/shared` (currently $12 USDC of estimated proceeds)** — checked against `quotedUsdcOut` from the simulation, not against the input token amount. Surface error: `` md`Minimum sell is $${MIN_USDC_SELL_AMOUNT} USDC` ``.
+**Minimum sell: `MIN_USDC_SELL_AMOUNT` from `@launchpad/shared` (currently $12 USDC of estimated proceeds)** — checked against `quotedUsdcOut` from the simulation (post-bot-fee, the user-facing number), not against the input token amount or the gross Zap output. Surface error: `` md`Minimum sell is $${MIN_USDC_SELL_AMOUNT} USDC` ``.
 
 ### /positions
 
 ```
 Input:  optional wallet address (default: active wallet)
 Output:
-  - List of open positions: token name, amount held, cost basis (USDC)
-  - Per-position buttons: [Sell 50%] [Sell 100%] [View Chart]
+  - Open positions section:
+      For each currently-held token:
+        token name · ticker
+        balance
+        cost basis (USDC)
+        current value (USDC)
+        unrealised PnL (USDC, signed) · unrealised PnL %
+      Per-position buttons: [Sell 50%] [Sell 100%] [View Chart]
+
+  - Realised positions section:
+      For each token with at least one closed-out chunk in lifetime:
+        token name · ticker
+        total cost (USDC, lifetime buy notional for closed chunks)
+        total proceeds (USDC, lifetime sell notional)
+        realised PnL (USDC, signed) · realised PnL %
+      No action buttons (position is closed).
+
+  - All-time only. No 24h / 7d / 30d filters.
+  - No total volume, fees paid, win rate, or best/worst trade.
 ```
 
-Data source: `GET /api/v1/portfolio/:wallet` — returns balance + cost basis per position. No live PnL or current-price column in v1: the existing endpoint does not return current price, and composing it token-by-token from the bot Worker (one `/tokens/:addr` per holding) would fan out badly under load. Live PnL is **deferred** until `apps/api` exposes an enriched portfolio endpoint — see *Deferred features*.
+Data source: `GET /api/v1/bot/positions/:wallet` (see *Bot Fee Model → New `apps/api` endpoints*). The endpoint reads `walletBotPosition` directly — one DB row per (wallet, token) — so the bot makes a single API call regardless of how many tokens the user holds. No per-token RPC fan-out.
+
+PnL math:
+
+- **Cost basis** on a buy = `usdcAmount` debited from the user (from `BotRouterTrade.usdcAmount` for `side='buy'`). This is the gross USDC the user spent, so it already includes the bot fee, the Alt Fun fee, and slippage. No separate fee subtraction needed.
+- **Proceeds** on a sell = USDC actually credited to the user, which is `quotedUsdcOut` minus the router's bot fee skim. The indexer reads this directly off the router event, not from the inner `Zap.sell` return value.
+- **Realised PnL** uses average-cost accounting on partial sells: when the user sells `n` of `N` held tokens, the realised cost for that chunk is `costBasisUsdc × (n / N)`, the realised proceeds are the sell's net USDC, and `realisedPnlUsdc += proceeds - realisedCost`. `costBasisUsdc` is then reduced by `costBasisUsdc × (n / N)` and `tokenBalance` by `n`. Once `tokenBalance` hits zero, the token continues to appear in the *Realised positions* section (with `totalCostUsdc` and `totalProceedsUsdc` accumulating across re-entries).
+- **Unrealised PnL** = `currentValueUsdc - costBasisUsdc`. `currentValueUsdc` is computed indexer-side from the latest known price for the token (curve quote pre-grad, HyperSwap pool quote post-grad), so the bot does not need a `/tokens/:addr` round-trip per holding.
+- **Percentages** = `pnl / cost × 100`. Floor at 2 decimal places. When cost is 0 (e.g. fully airdropped position), display `—` instead of `∞%`.
+
+Pagination: positions are sorted by `|unrealisedPnlUsdc|` descending for *Open*, by `realised PnL` descending for *Realised*. The 4096-char Telegram message limit applies — paginate with [Next →] when either section overflows. Open and Realised are sent as separate messages so each can paginate independently.
+
+Stale-data guarantee: indexed numbers may lag the chain by up to one block. The bot does not surface "live" prices for positions held in volatile tokens — if the user wants the freshest mark, they pull `/track` for that token. /positions is intentionally a snapshot.
 
 ### /track
 
@@ -300,13 +470,48 @@ The 24-hour delay mirrors the withdrawal lock cooldown. Do not allow instant res
 
 ```
 Output:
-  - Referral link: t.me/<botname>?start=ref_<userId>
+  - Your referral link: t.me/<botname>?start=ref_<userId>
+  - Your rewards wallet: 0xABCD...1234   [Change rewards wallet]
   - Referred users: N
-  - Earned fees: $X USDC (pending payout — v2)
-  - Referral tier: Standard | Silver | Gold
+  - Lifetime earned: $X USDC
+
+  Buttons:
+  - [Change rewards wallet]
+  - [Copy link]
 ```
 
-v1 tracking only — same model as web referrals (see [root AGENTS.md](../../AGENTS.md#referrals)). Fee payouts deferred to v2.
+There is **no** claim, withdraw, or payout button. Referrer cuts settle on-chain to the rewards wallet in the same transaction as the referred user's trade. See *Bot Fee Model* for the split mechanics. The user's rewards wallet shown here is wherever those USDC payments are already arriving.
+
+#### Rewards wallet
+
+- Defaults to the user's active custodial bot wallet on first /start. The bot writes this default into KV at /start so the wallet is unambiguous from day one.
+- Settable via [Change rewards wallet] → wizard prompts for an address (any HyperEVM address — does not have to be a bot custodial wallet). PIN-gated.
+- Stored as the user's `rewardsWallet` in KV via `POST /api/v1/bot/referrals/:wallet/rewards-wallet`.
+- **Effect on past attributions:** changing the rewards wallet does NOT redirect already-attributed referees. On-chain attribution is by the referrer arg the bot passed in those referees' first buys. Once a referee has a non-zero `referrer` recorded on chain in their first router trade, every subsequent trade of theirs continues to pay that exact address forever — even if the referrer later changes their bot rewards wallet. To redirect future earnings from existing referees, the user must control the previously-set address. **Surface this clearly in the wizard before confirmation.**
+- **Implication:** the rewards wallet should be set correctly on day one, ideally to a long-lived address the user controls (a hardware wallet or main custodial wallet). The bot warns if the user attempts to set the rewards wallet to an exchange deposit address pattern (rotating addresses) or a known burn address.
+
+#### Referrer attribution (lifetime, immutable after first trade)
+
+- Recorded on first /start when the deeplink param is `ref_<referrerUserId>`. The bot resolves `ref_<referrerUserId>` → that referrer's `rewardsWallet` via the indexer / api at /start time, and stores that resolved wallet address as the new user's `referrer` in KV.
+- The stored `referrer` is what the bot passes to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user. This makes it lifetime by construction: every trade pays out, forever, to the address resolved at /start.
+- Subsequent /start calls do not overwrite an existing `referrer`. Same OnboardingDO serialisation as profile creation (see /start).
+- If the referrer's rewards wallet is unset at the moment the new user runs /start (the referrer hasn't onboarded their own bot account yet), the deeplink is dropped silently and the new user has `referrer = address(0)` permanently. **No retro-linking.** Surface in the deeplink referrer's /referral the next time they open it: "Some users hit your link before you finished setup; their attribution was not assigned. Check that your rewards wallet is set so this doesn't happen again."
+- Self-referral allowed (router has no guard). Bot does not warn or block — users self-referring just lower their effective bot fee from 0.5% to 0.4%.
+
+#### Stats source
+
+`GET /api/v1/bot/referrals/:wallet` returns `{ referredCount, lifetimeEarnedUsdc, rewardsWallet }`. The two numbers come from `referrerStats` in the shared indexer:
+
+- `referredCount` = distinct trader wallets where `BotRouterTrade.referrer == this user's rewardsWallet` and `BotRouterTrade.referrerCut > 0` (the bad-referrer-wallet fallback excludes failed-payout trades from the earned total — see below).
+- `lifetimeEarnedUsdc` = `Σ ReferralPaid.amount` for `referrer == this user's rewardsWallet`. Counts only successful on-chain transfers, so it matches the user's actual USDC receipts to the wei.
+
+#### Bad-referrer-wallet detection
+
+If the indexer observes `BotRouterTrade.referrerCut == 0` while `referrer == this user's rewardsWallet` (i.e. the on-chain transfer to the user's rewards wallet failed and the cut went to treasury), it tags the referrer as "rewards wallet rejecting payments" and the bot surfaces a banner at the top of /referral:
+
+> Your rewards wallet is rejecting USDC transfers — N referral payments rolled into treasury and are not recoverable. Update your rewards wallet to fix future payments.
+
+Do not retroactively re-pay the lost cuts. They are gone (correct: the on-chain split is final, the treasury cut is sweeping into the cold wallet). The banner is preventative for future trades only.
 
 ---
 
@@ -407,6 +612,7 @@ No persistent process — stateless webhook handler. `OnboardingDO` is the only 
 | `WEBHOOK_SECRET` | Validated on every incoming Telegram request (`X-Telegram-Bot-Api-Secret-Token`) |
 | `HYPEREVM_RPC_URL` | Alchemy HyperEVM endpoint (same value as `apps/api`) |
 | `API_KEY` | Dedicated `X-API-Key` for the bot's calls to `apps/api`. Provisioned via the `apiKeys` table with a fleet-aggregate rate limit (the bot fans many users through one Worker IP, so the anonymous 240/min ceiling would starve under any real load). Rotate by issuing a new row, redeploying with the new secret, then deactivating the old row. |
+| `BOT_FEE_ROUTER_ADDRESS` | Deployed `BotFeeRouter` contract address. The bot routes every `/buy` and `/sell` through this contract. Rotation = deploy a new router and push the new address; immutable parameters (`botFeeBps`, `referrerShareBps`, `treasury`) require a new deployment. |
 
 ### Env vars (in `wrangler.jsonc`)
 
@@ -441,11 +647,9 @@ Explicit degraded-state behaviour for each dependency. Never show stale data as 
 - **Minimum trade: read `MIN_USDC_BUY_AMOUNT` / `MIN_USDC_SELL_AMOUNT` from `@launchpad/shared`.** Currently $20 buy / $12 sell, both above BounceTech's $10 LT floor. Enforce client-side before constructing any tx. Do not hardcode the number — the buffer is tuned per-release and is shared with `apps/web` (`TradePanel.tsx`, `format.ts`) plus the web `useCreateToken` anti-snipe floor.
 - **Buffer-limited sells must be user-visible.** Never silently cap — show max available and require confirmation of the reduced amount.
 - **Always derive slippage bounds from a simulation.** Mirror `useTradeRouter.executeBuy` / `executeSell` exactly: simulate the trade with `min*Out = 0` to get a quote, then submit the real tx with `min*Out = quote * (10_000 - slippageBps) / 10_000`. Floor `minUsdcOut` at 1 wei when the quote is non-zero. **Never submit a Zap trade with `minTokensOut = 0` or `minUsdcOut = 0` from a live signer — that is a fully-sandwichable trade.** Same constraint applies whether the path is `buy` / `sell` or `buyWithPermit` / `sellWithPermit`.
-- **Permit-first, approve as fallback.** Default to `Zap.buyWithPermit` / `sellWithPermit` for any token whose `permit` signature succeeds — the bot holds the private key, so signing EIP-2612 has zero UX cost and saves a tx. Fall back to legacy `approve(maxUint256)` + plain `buy` / `sell` only when permit signing throws (pre-permit token vintage). Match the try/catch ladder in `apps/web/src/hooks/useTradeRouter.ts`.
-- **Fees unchanged from web.** 0.5% Alt Fun fee on every buy/sell, curve and post-grad alike. HyperSwap LP fee (0.3%) also applies post-grad.
+- **Permit-first, approve as fallback.** Default to `BotFeeRouter.buyWithBotFeePermit` / `sellWithBotFeePermit` for any token whose `permit` signature succeeds — the bot holds the private key, so signing EIP-2612 has zero UX cost and saves a tx. Fall back to legacy `approve(BotFeeRouter, maxUint256)` + plain `buyWithBotFee` / `sellWithBotFee` only when permit signing throws (pre-permit token vintage). Match the try/catch ladder in `apps/web/src/hooks/useTradeRouter.ts`, but the approval target and call target are **the router, not Zap**.
+- **Fees: Alt Fun 0.5% + bot 0.5% on every buy/sell.** Alt Fun's protocol fee is unchanged (0.5%, curve and post-grad alike, plus HyperSwap LP 0.3% post-grad). The bot adds a flat 0.5% on top, charged in USDC at the router. See *Bot Fee Model*.
 - **Degen mode does not bypass PIN.** Only skips UI confirmation steps and risk-warning copy.
-- **Referrals v1: tracking only.** No on-chain fee split yet.
-- **Referral identifier bridge.** The web app keys referrals by wallet address — `useReferral.ts` reads `?ref=<wallet>` from the URL, stores it in `sessionStorage`, and passes it as the `referralCode` arg on `Bonding.buy`. The bot's deeplink is `t.me/<botname>?start=ref_<telegramUserId>`, which is a different namespace. On `/start` with a referral parameter, the bot must resolve `ref_<userId>` → that user's primary custodial wallet via `OnboardingDO`, then persist the resolved *wallet address* (not the userId) as the new user's referrer. Every subsequent bot-submitted buy passes that wallet as `Zap.buy(referralCode)` — interoperability with web referral payouts depends on this translation happening exactly once at onboarding. Edge cases: (a) referrer has no custodial wallet yet (Telegram-only user who hasn't run `/start`) → drop the deeplink silently, log a warning, do not retro-link when the referrer later onboards; (b) the referrer's primary wallet is later switched via `/wallet` → the stored referrer wallet does **not** update, matching the contract's immutable-after-first-buy semantics.
 
 ---
 
@@ -536,6 +740,7 @@ src/
       start.test.ts
       positions.test.ts
       track.test.ts
+      referral.test.ts
     lib/
       wallet.test.ts
       pin.test.ts
@@ -571,27 +776,33 @@ src/
 **`lib/format.test.ts`**
 - MarkdownV2 escaper escapes all reserved chars: `. - ( ) ! + = # > { }`
 - Token card truncates name/ticker to fit within 4096-char message budget
-- Signed-number formatter renders positive amounts with `+` prefix and negative with `−`, with a colour/indicator hint suitable for cost-basis deltas (v1 does not display live PnL — that test lands with the enriched portfolio endpoint, see *Deferred features*)
-- Long position lists split into chunks ≤ 4096 chars each
+- Signed-number formatter renders positive amounts with `+` prefix and negative with `−` (e.g. unrealised PnL, realised PnL deltas in /positions)
+- Long position lists split into chunks ≤ 4096 chars each, with /positions Open and Realised sections paginated independently
 
 **`commands/buy.test.ts`**
 - Amount below `MIN_USDC_BUY_AMOUNT` (read from `@launchpad/shared`) → error reply, no simulation, no tx constructed
-- Valid contract address → token card rendered with name, mcap, curve fill
-- LT mint-paused → "Buys paused for this token" reply, no raw revert exposed, no tx constructed
+- Valid contract address → token card rendered with name, mcap, curve fill, and fee summary line ("Bot fee 0.5% + Alt Fun fee 0.5%")
+- Token card shows referrer line ("(0.1% goes to your referrer)") iff user has a registered referrer in KV
+- LT mint-paused (router surfaces inner Zap revert) → "Buys paused for this token" reply, no raw revert exposed, no tx constructed
 - Confirm button with expired nonce → no-op (no tx submitted)
-- Confirm button with valid nonce → simulation runs, `minTokensOut` derived from quote and slippage, real tx submitted with that bound (never `minTokensOut = 0`)
-- Permit branch: token supports EIP-2612 → `buyWithPermit` path taken, no separate approve tx
-- Approve branch: permit signing throws → `approve(maxUint256)` submitted, then plain `buy`
-- Degen mode bypasses confirm step and goes straight to simulation+tx (still derives slippage bound)
+- Confirm button with valid nonce → simulation of `BotFeeRouter.buyWithBotFee` (NOT `Zap.buy`) runs, `minTokensOut` derived from the post-bot-fee `quotedTokensOut`, real tx submitted with that bound (never `minTokensOut = 0`)
+- Approval target is `BotFeeRouter`, not `Zap` — assert spent `approve` calls and permit `spender` arg both target the router address
+- `referrer` arg passed to the router equals the user's stored `referrer` in KV (or `address(0)` if none)
+- Permit branch: token supports EIP-2612 → `buyWithBotFeePermit` path taken, no separate approve tx
+- Approve branch: permit signing throws → `approve(BotFeeRouter, maxUint256)` submitted, then plain `buyWithBotFee`
+- Degen mode bypasses confirm step and goes straight to simulation+tx (still derives slippage bound, still routes through router)
 - `apps/api` 503 → "Data temporarily unavailable" reply, no crash
 
 **`commands/sell.test.ts`**
-- Sell 50% of position → correct token amount computed as `tokenAmount × 0.5`, where `tokenAmount` is the live indexed balance from `GET /api/v1/portfolio/:wallet` (sourced from `tokenBalance` per `apps/api/src/routes/portfolio.ts`). Never compute the sell size from `walletPosition.costBasisUsdc` — that field is cost basis in USDC and has no meaningful unit relationship to the token amount being sold.
+- Sell 50% of position → correct token amount computed as `tokenAmount × 0.5`, where `tokenAmount` is the live indexed balance from `GET /api/v1/bot/positions/:wallet` (sourced from `walletBotPosition.tokenBalance`). Never compute the sell size from `costBasisUsdc` — that field is cost basis in USDC and has no meaningful unit relationship to the token amount being sold.
 - Sell 100% → full position submitted
-- Simulation drives `minUsdcOut`: quote × (10_000 − slippageBps) / 10_000; floor at 1 wei when quote > 0 and result would round to 0
-- Estimated proceeds below `MIN_USDC_SELL_AMOUNT` → error reply, no tx constructed (the check runs against quoted USDC out, not the input token amount)
+- Simulation runs against `BotFeeRouter.sellWithBotFee` (NOT `Zap.sell`); `minUsdcOut` is derived from the post-bot-fee `quotedUsdcOut` so it represents the user's net receipt
+- Slippage bound: quote × (10_000 − slippageBps) / 10_000; floor at 1 wei when quote > 0 and result would round to 0
+- Estimated proceeds below `MIN_USDC_SELL_AMOUNT` → error reply, no tx constructed (the check runs against post-bot-fee quoted USDC out, not the input token amount or the gross Zap output)
 - Buffer < sell value → surface max available, require reduced-amount confirm
-- Permit branch: token supports permit → `sellWithPermit` path taken
+- Approval target is `BotFeeRouter`, not `Zap`
+- `referrer` arg passed to the router equals the user's stored `referrer`
+- Permit branch: token supports permit → `sellWithBotFeePermit` path taken
 - Approve fallback when permit signing throws
 - Ticker resolves to contract address via `api.ts`
 - Unknown ticker → "Token not found" reply
@@ -609,8 +820,31 @@ src/
 
 **`commands/start.test.ts`**
 - First `/start` → user profile created in KV
-- Referral deeplink → referrer recorded on first call only
-- Second `/start` → does not overwrite referrer or existing profile
+- Referral deeplink `ref_<refUserId>` where the referrer has a registered `rewardsWallet` → bot resolves to that wallet via `OnboardingDO`/api and stores it as the new user's `referrer` in KV (NOT the userId)
+- Referral deeplink where the referrer has not yet onboarded (no `rewardsWallet`) → deeplink dropped silently, new user has `referrer = address(0)`, no retro-link when the referrer later onboards
+- Second `/start` → does not overwrite `referrer` or existing profile (lifetime, immutable after first set)
+- Self-referral (`ref_<own userId>`) → allowed; the resolved address is the new user's own rewards wallet (which equals their custodial wallet on day one)
+
+**`commands/positions.test.ts`**
+- Single GET to `/api/v1/bot/positions/:wallet` returns both Open and Realised sections — assert no per-token RPC fan-out
+- Open positions render token, balance, cost basis, current value, unrealised PnL ($ + %)
+- Realised positions render token, total cost, total proceeds, realised PnL ($ + %)
+- Cost basis from a buy includes the bot fee (i.e. for a $20 buy, cost basis on the resulting position is $20, not $19.90) — assert against a fixture `BotRouterTrade` event
+- Sell of 50% of an open position → realised PnL row reflects exactly half the cost and half the indexer-side cost basis is decremented (next /positions read shows the remaining 50% as Open)
+- Position with `costBasisUsdc = 0` (e.g. fully airdropped) renders `—` for unrealised PnL %, not `∞%` or `NaN%`
+- Open and Realised sections paginate independently — each fits in ≤ 4096 chars, [Next →] buttons surface when overflowing
+- Empty wallet → "No positions yet — try /buy <contract>" reply, no API call retried
+- `apps/api` 503 → "Data temporarily unavailable" reply, no stale-cache fallback
+
+**`commands/referral.test.ts`**
+- Renders link, rewards wallet, referred count, lifetime earned — sourced from `/api/v1/bot/referrals/:wallet`
+- Default rewards wallet on first /start is the user's active custodial wallet — assert KV write at /start, not lazy on first /referral
+- [Change rewards wallet] wizard: PIN-gated, accepts any HyperEVM address, persists via `POST /api/v1/bot/referrals/:wallet/rewards-wallet`
+- Wizard surfaces a clear warning that past attributions do NOT redirect on rewards-wallet change
+- Bad-referrer-wallet banner: when the indexer reports `referrerCut == 0` for at least one trade where `referrer == this user's rewardsWallet`, the banner appears at the top of /referral with a count of failed payments
+- Failed payments banner does NOT include a "claim refund" button — the lost cuts are unrecoverable, surface only as preventative copy
+- Self-referral case: lifetime earned correctly accumulates the user's own self-referral cut on their own trades
+- No claim/withdraw/payout button anywhere in the screen
 
 **`api.test.ts`**
 - All methods return typed responses matching `apps/api` schema
@@ -664,7 +898,7 @@ cd apps/telegram-bot && npx tsx src/dev.ts
 /security       → set PIN → verify lockout after 5 wrong attempts
 ```
 
-Integration test: confirm bot `/buy` tx appears in `apps/api` trade history within 60s (Ponder indexing latency). Check `GET /api/v1/portfolio/:wallet` reflects the new position.
+Integration test: confirm bot `/buy` tx appears in `apps/api` trade history within 60s (Ponder indexing latency). Check `GET /api/v1/bot/positions/:wallet` reflects the new position with cost basis equal to the gross USDC spent (i.e. bot fee included). Check `GET /api/v1/bot/referrals/:wallet` for the referrer reflects an incremented `lifetimeEarnedUsdc` matching the on-chain `ReferralPaid` event.
 
 ---
 
@@ -674,13 +908,13 @@ Each of these was in an earlier draft of this spec and was cut because shipping 
 
 | Bot feature | Blocked on | Notes |
 |---|---|---|
-| `/positions` with live PnL & current price | `GET /api/v1/portfolio/:wallet/enriched` joining `tokenBalance` ⋈ `walletPosition` ⋈ live token price on the indexer side | Same counter-backed pattern as the issue #397 aggregate routes. v1 ships balance + cost basis only. |
-| `/portfolio` (24h / 7d / 30d / all timeframes, realised PnL, fees paid, best/worst trade, win rate) | `GET /api/v1/portfolio/:wallet/summary?timeframe=…` + `GET /api/v1/trades/wallet/:wallet` + indexer wallet-summary counter | Two new endpoints plus an indexer-side counter table (analogue of `walletPosition`). |
+| `/portfolio` (24h / 7d / 30d / all timeframes, realised PnL, fees paid, best/worst trade, win rate) | `GET /api/v1/portfolio/:wallet/summary?timeframe=…` + `GET /api/v1/trades/wallet/:wallet` + indexer wallet-summary counter | Two new endpoints plus an indexer-side counter table (analogue of `walletPosition`). v1 only ships all-time PnL via /positions; multi-timeframe aggregates and best/worst-trade analytics are out of scope. |
 | `/snipe` (target by contract / deployer / pair / keyword, risk filters, auto-sell) | `CRUD /api/v1/orders/snipe` (authenticated via the bot's existing `X-API-Key` plus an `ownerWallet` body field — same `apiKeyAuth` middleware as today, no new internal-secret scheme) + `SnipeKeeperDO` consuming `WS /ws?channel=newToken` | Snipes must persist in `apps/api` so they survive bot restarts and so web can later display them. Keeper DO is bot-side but depends on the api WS feed. |
 | `/copytrade` (mirror trades from a tracked wallet) | `CRUD /api/v1/copytrade` + `CopyKeeperDO` consuming `WS /ws?channel=trade` | Same rationale as `/snipe`. |
 | `/orders` (limit / DCA / TP-SL on positions) | `CRUD /api/v1/orders/limit` + `CRUD /api/v1/orders/dca` | TP/SL buttons on `/positions` are also gated on this. |
 | `/track <wallet>` (wallet activity) | `GET /api/v1/trades/wallet/:wallet` | Indexer already keys `routerTrades` by `trader`; this is a new GraphQL filter, not new indexing. v1 `/track` accepts a token address only. |
 | Price + graduation alerts (on `/track`, on `/settings → Notifications`) | `CRUD /api/v1/alerts` + a keeper subscribing to `WS /ws?channel=price` and `channel=graduation` + `BroadcastDO` for 30 msg/sec throttling | Alerts must persist in `apps/api` so they survive bot redeploys and so web can later show them. |
 | Privy ↔ custodial wallet bridge UX | `apps/web` Privy export path | `/wallet`-import wizard's "Import from Web App" copy must match the actual Privy export flow the web app exposes. Bot import already accepts a raw private key; the deferred work is the web-side export UX and matching docs. |
+| `/deposit` from Solana (and other non-EVM chains) | Third-party bridge integration (Jumper / deBridge / Mayan deeplink at minimum, programmatic SDK in a later tier) + HyperEVM balance polling for arrival detection + auto-gas-buy of a small USDC → HYPE on arrival | Three implementation tiers exist (deeplink-to-widget, programmatic SDK with custodial Solana wallet, custom solver). v1 ships none of them — users fund the bot wallet with USDC + HYPE on HyperEVM only, by sending to their custodial bot address. Add when conversion data shows the on-chain-only flow is friction. |
 
 When `apps/api` ships an endpoint from this list, the matching follow-up PR must (a) restore the relevant command spec to this file, (b) restore the relevant DO infrastructure (keeper / broadcast) if applicable, and (c) update the corresponding entry in `apps/api/AGENTS.md` so the cross-app contract stays in sync.
