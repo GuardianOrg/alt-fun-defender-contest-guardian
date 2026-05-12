@@ -1,16 +1,10 @@
 import type { JSX } from "react";
 
 import styles from "./TokenInfoStrip.module.css";
-import BTC from "../../assets/Logos/BTC.svg";
-import ETH from "../../assets/Logos/ETH.svg";
-import HYPE from "../../assets/Logos/HYPE.svg";
-import SOL from "../../assets/Logos/SOL.svg";
 import { useLiveTokenVolume24h } from "../../hooks/useLiveTokenVolume24h";
 import { formatUsdOrDash } from "../../utils/format";
 
 import type { Token } from "../../services/types";
-
-const UNDERLYING_LOGOS: Record<string, string> = { HYPE, ETH, BTC, SOL };
 
 interface Props {
   token: Token;
@@ -66,9 +60,6 @@ const WebsiteIcon = (
 );
 
 export default function TokenInfoStrip({ token }: Props) {
-  const logo = UNDERLYING_LOGOS[token.underlying];
-  const direction = token.direction === "short" ? "Short" : "Long";
-  const backing = `${token.underlying} ${token.leverage}x ${direction}`;
   // Live 24h volume: 30s polled snapshot from `/api/v1/market-data` plus
   // WS-driven `Zap:Buy`/`Zap:Sell` deltas for trades that have landed since
   // the last poll. Falls back to `token.volume24h` from the initial token
@@ -109,20 +100,6 @@ export default function TokenInfoStrip({ token }: Props) {
   return (
     <div className={styles.strip}>
       <div className={styles.statsGroup}>
-        <div className={styles.backingStat}>
-          {logo && (
-            <img
-              src={logo}
-              alt={token.underlying}
-              className={styles.underlyingLogo}
-            />
-          )}
-          <div className={styles.stat}>
-            <span className={styles.label}>Backing</span>
-            <span className={styles.value}>{backing}</span>
-          </div>
-        </div>
-
         <div className={styles.stat}>
           <span className={styles.label}>Vol 24hr</span>
           <span className={styles.value}>

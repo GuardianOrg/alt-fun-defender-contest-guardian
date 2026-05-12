@@ -154,7 +154,10 @@ export default function TokenDetailView() {
         )}
 
         {token?.description && (
-          <p className={styles.description}>{token.description}</p>
+          <section className={styles.descriptionSection}>
+            <span className={styles.descriptionLabel}>Description</span>
+            <p className={styles.description}>{token.description}</p>
+          </section>
         )}
 
         {token ? <TokenInfoStrip token={token} /> : <TokenInfoStripSkeleton />}
