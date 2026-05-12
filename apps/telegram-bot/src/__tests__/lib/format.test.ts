@@ -136,6 +136,25 @@ describe("formatPositionLine", () => {
     expect(line.endsWith("· cost basis $1")).toBe(true);
     expect(line).toContain("…");
   });
+
+  it("respects a tighter explicit limit (paginated path reserves footer budget)", () => {
+    // formatPositionsResponse passes TELEGRAM_MESSAGE_LIMIT - 24 so the
+    // line + footer stays under 4096. Lines pre-truncated to the chunker's
+    // actual ceiling don't slip past into single-line oversized chunks.
+    const TIGHT = 200;
+    const longLabel = "A".repeat(500);
+    const line = formatPositionLine(
+      {
+        address: "0xaaa",
+        label: longLabel,
+        amount: "1000000000000000000",
+        costBasisUsdc: "1000000",
+      },
+      TIGHT,
+    );
+    expect(line.length).toBeLessThanOrEqual(TIGHT);
+    expect(line).toContain("…");
+  });
 });
 
 describe("chunkPositionsMessage", () => {

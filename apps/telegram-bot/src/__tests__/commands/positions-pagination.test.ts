@@ -126,7 +126,7 @@ describe("handlePositionsPage (unit)", () => {
       args: ["1", WALLET],
     });
     expect(answer).toEqual({
-      text: "Data temporarily unavailable — try again.",
+      text: "Data temporarily unavailable — try again in a moment.",
     });
   });
 

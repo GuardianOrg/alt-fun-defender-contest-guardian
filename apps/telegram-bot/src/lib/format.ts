@@ -81,14 +81,19 @@ export const joinPositions = (
 const LINE_PREFIX = "• ";
 
 /**
- * Truncate the label so the rendered line always fits below
- * `TELEGRAM_MESSAGE_LIMIT`. A pathological token name (the indexer doesn't
- * cap them) would otherwise produce a single line longer than the chunker
- * can split, and Telegram would silent-400 the reply.
+ * Truncate the label so the rendered line always fits below the
+ * chunker's effective limit. Callers that paginate must pass the
+ * reduced limit (`TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET`)
+ * — otherwise a line in `(limit, TELEGRAM_MESSAGE_LIMIT]` slips past
+ * line truncation and ends up as a single oversized chunk, which the
+ * paginator's footer can then push over Telegram's 4096-char ceiling.
  */
-export const formatPositionLine = (pos: JoinedPosition): string => {
+export const formatPositionLine = (
+  pos: JoinedPosition,
+  limit: number = TELEGRAM_MESSAGE_LIMIT,
+): string => {
   const suffix = `\n  ${formatTokenAmount(pos.amount)} · cost basis $${formatUsdc(pos.costBasisUsdc)}`;
-  const budget = TELEGRAM_MESSAGE_LIMIT - LINE_PREFIX.length - suffix.length;
+  const budget = limit - LINE_PREFIX.length - suffix.length;
   const label =
     pos.label.length > budget
       ? `${pos.label.slice(0, Math.max(1, budget - 1))}…`
@@ -142,11 +147,14 @@ export const formatPositionsResponse = (
     return ["No open positions for this wallet."];
   }
   const header = `Open positions (${positions.length})`;
-  const lines = positions.map(formatPositionLine);
   // Tighter limit reserves room for the multi-page footer. Single-page
   // outputs effectively waste those bytes, but the cost is dwarfed by
-  // the silent-400 risk if a maxed chunk + footer overflows.
+  // the silent-400 risk if a maxed chunk + footer overflows. Same
+  // budget feeds back into formatPositionLine so pathological labels
+  // are pre-truncated against the chunker's actual ceiling, not the
+  // raw 4096-char Telegram limit.
   const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
+  const lines = positions.map((p) => formatPositionLine(p, limit));
   const chunks = chunkPositionsMessage(header, lines, limit);
   if (options.approximate) {
     const note =

@@ -122,7 +122,9 @@ export const handlePositionsPage: CallbackHandler = async ({
     fetchBalances(env, wallet),
   ]);
   if (!portfolioRes.ok || !balancesRes.ok) {
-    return { text: "Data temporarily unavailable — try again." };
+    return {
+      text: "Data temporarily unavailable — try again in a moment.",
+    };
   }
 
   const joined = joinPositions(

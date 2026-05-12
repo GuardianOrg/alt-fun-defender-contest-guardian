@@ -81,6 +81,62 @@ describe("fetchPortfolio / fetchBalances", () => {
     expect(res).toEqual({ ok: false, kind: "unknown" });
   });
 
+  it("returns unknown when fetchPortfolio payload has malformed shape (string instead of array)", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { positions: "nope", approximate: false } }),
+        { status: 200 },
+      ),
+    );
+    expect(await fetchPortfolio(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unknown",
+    });
+  });
+
+  it("returns unknown when a portfolio position is missing required string fields", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            positions: [{ tokenAddress: "0xaaa" }], // missing tokenAmount, costBasisUsdc
+            approximate: false,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    expect(await fetchPortfolio(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unknown",
+    });
+  });
+
+  it("returns unknown when fetchBalances payload is an object instead of an array", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: { not: "an array" } }), {
+        status: 200,
+      }),
+    );
+    expect(await fetchBalances(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unknown",
+    });
+  });
+
+  it("returns unknown when a balance entry is missing required string fields", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: [{ address: "0xaaa" }] }), // missing name/ticker/balance
+        { status: 200 },
+      ),
+    );
+    expect(await fetchBalances(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unknown",
+    });
+  });
+
   it("targets the balances route for fetchBalances", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: [] }), { status: 200 }),

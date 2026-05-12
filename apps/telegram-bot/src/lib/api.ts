@@ -72,14 +72,58 @@ async function getJson<T>(
   return { ok: true, data: body.data };
 }
 
-export const fetchPortfolio = (
-  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
-  wallet: string,
-): Promise<ApiResult<PortfolioResponse>> =>
-  getJson<PortfolioResponse>(env, `/api/v1/portfolio/${wallet}`);
+/**
+ * Validate that an unknown JSON value matches `PortfolioResponse`.
+ * The downstream join/format paths assume `positions` is iterable and
+ * each entry has string fields; a malformed envelope (api regression,
+ * upstream MITM, partial response) would otherwise crash at the
+ * format layer with a less-actionable error than `kind: "unknown"`.
+ */
+const isPortfolioResponse = (v: unknown): v is PortfolioResponse => {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as { positions?: unknown; approximate?: unknown };
+  if (!Array.isArray(obj.positions)) return false;
+  if (typeof obj.approximate !== "boolean") return false;
+  return obj.positions.every(
+    (p) =>
+      p &&
+      typeof p === "object" &&
+      typeof (p as { tokenAddress?: unknown }).tokenAddress === "string" &&
+      typeof (p as { tokenAmount?: unknown }).tokenAmount === "string" &&
+      typeof (p as { costBasisUsdc?: unknown }).costBasisUsdc === "string",
+  );
+};
 
-export const fetchBalances = (
+const isBalanceEntryArray = (v: unknown): v is BalanceEntry[] =>
+  Array.isArray(v) &&
+  v.every(
+    (b) =>
+      b &&
+      typeof b === "object" &&
+      typeof (b as { address?: unknown }).address === "string" &&
+      typeof (b as { name?: unknown }).name === "string" &&
+      typeof (b as { ticker?: unknown }).ticker === "string" &&
+      typeof (b as { balance?: unknown }).balance === "string",
+  );
+
+export const fetchPortfolio = async (
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   wallet: string,
-): Promise<ApiResult<BalanceEntry[]>> =>
-  getJson<BalanceEntry[]>(env, `/api/v1/balances/${wallet}`);
+): Promise<ApiResult<PortfolioResponse>> => {
+  const res = await getJson<unknown>(env, `/api/v1/portfolio/${wallet}`);
+  if (!res.ok) return res;
+  return isPortfolioResponse(res.data)
+    ? { ok: true, data: res.data }
+    : { ok: false, kind: "unknown" };
+};
+
+export const fetchBalances = async (
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  wallet: string,
+): Promise<ApiResult<BalanceEntry[]>> => {
+  const res = await getJson<unknown>(env, `/api/v1/balances/${wallet}`);
+  if (!res.ok) return res;
+  return isBalanceEntryArray(res.data)
+    ? { ok: true, data: res.data }
+    : { ok: false, kind: "unknown" };
+};
