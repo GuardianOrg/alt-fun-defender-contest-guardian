@@ -28,7 +28,7 @@
   font-size: 13px;
   letter-spacing: 0.04em;
   color: var(--txt-3);
-  padding: 1.6rem;
+  padding: 1.28rem 1.6rem;
   display: flex;
   align-items: center;
   cursor: pointer;
@@ -52,8 +52,8 @@
 .indicator {
   position: absolute;
   bottom: 0;
-  left: 0.6rem;
-  right: 0.6rem;
+  left: 0;
+  right: 0;
   height: 2px;
   background: var(--mint);
   border-radius: 9999px;
@@ -65,7 +65,7 @@
   align-items: center;
   gap: 0.6rem;
   flex-shrink: 0;
-  padding: 1.6rem;
+  padding: 1.28rem 1.6rem;
 }
 
 @media (max-width: 1239px) {

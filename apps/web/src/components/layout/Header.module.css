@@ -4,7 +4,7 @@
   background: var(--bg-1);
   flex-shrink: 0;
   position: relative;
-  margin-top: 1.6rem;
+  margin-top: 1.28rem;
 }
 
 .logo {
@@ -85,7 +85,7 @@
   padding-bottom: 0.4rem;
   cursor: pointer;
   height: 3rem;
-  min-width: 240px;
+  min-width: 280px;
   transition: all 0.15s ease;
 }
 
@@ -111,7 +111,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 16px;
+  height: 20px;
   font-size: 11px;
   line-height: 1;
   color: var(--txt-2);

@@ -1,5 +1,5 @@
 .panel {
-  width: 220px;
+  width: 242px;
   flex-shrink: 0;
   border: 1px solid var(--border);
   display: flex;
@@ -210,6 +210,6 @@
 
 @media (max-width: 1024px) {
   .panel {
-    width: 180px;
+    width: 198px;
   }
 }
