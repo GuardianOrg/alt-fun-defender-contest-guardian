@@ -120,6 +120,19 @@ describe("formatPositionLine", () => {
     });
     expect(line).toBe("• Token One (ONE)\n  1.5 · cost basis $20");
   });
+
+  it("truncates pathologically long labels so the line still fits Telegram's limit", () => {
+    const giantLabel = "A".repeat(TELEGRAM_MESSAGE_LIMIT + 200);
+    const line = formatPositionLine({
+      address: "0xaaa",
+      label: giantLabel,
+      amount: "1000000000000000000",
+      costBasisUsdc: "1000000",
+    });
+    expect(line.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(line.endsWith("· cost basis $1")).toBe(true);
+    expect(line).toContain("…");
+  });
 });
 
 describe("chunkPositionsMessage", () => {

@@ -77,8 +77,23 @@ export const joinPositions = (
   });
 };
 
-export const formatPositionLine = (pos: JoinedPosition): string =>
-  `• ${pos.label}\n  ${formatTokenAmount(pos.amount)} · cost basis $${formatUsdc(pos.costBasisUsdc)}`;
+const LINE_PREFIX = "• ";
+
+/**
+ * Truncate the label so the rendered line always fits below
+ * `TELEGRAM_MESSAGE_LIMIT`. A pathological token name (the indexer doesn't
+ * cap them) would otherwise produce a single line longer than the chunker
+ * can split, and Telegram would silent-400 the reply.
+ */
+export const formatPositionLine = (pos: JoinedPosition): string => {
+  const suffix = `\n  ${formatTokenAmount(pos.amount)} · cost basis $${formatUsdc(pos.costBasisUsdc)}`;
+  const budget = TELEGRAM_MESSAGE_LIMIT - LINE_PREFIX.length - suffix.length;
+  const label =
+    pos.label.length > budget
+      ? `${pos.label.slice(0, Math.max(1, budget - 1))}…`
+      : pos.label;
+  return `${LINE_PREFIX}${label}${suffix}`;
+};
 
 /**
  * Chunk position lines into one or more messages that each fit inside
