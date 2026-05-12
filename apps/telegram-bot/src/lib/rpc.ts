@@ -8,6 +8,15 @@ import type { Env } from "./types.js";
  */
 const DEFAULT_RPC_URL = "https://rpc.hyperliquid.xyz/evm";
 
+/**
+ * Hard ceiling on a single RPC call. Telegram retries the webhook
+ * aggressively when the handler doesn't ACK quickly, so a stalled RPC
+ * must surface as `null` ("Balance unavailable" in the UI) rather
+ * than blocking the whole update. 3s is well above p99 for a live
+ * eth_getBalance and well below Telegram's webhook timeout.
+ */
+const RPC_TIMEOUT_MS = 3000;
+
 interface JsonRpcResponse {
   result?: string;
   error?: { code: number; message: string };
@@ -26,11 +35,14 @@ export const fetchNativeBalance = async (
   address: string,
 ): Promise<bigint | null> => {
   const url = env.HYPEREVM_RPC_URL ?? DEFAULT_RPC_URL;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
@@ -39,7 +51,11 @@ export const fetchNativeBalance = async (
       }),
     });
   } catch {
+    // AbortError from the timeout lands here too — same fallback as
+    // network errors. Caller renders "—" either way.
     return null;
+  } finally {
+    clearTimeout(timer);
   }
   if (!res.ok) return null;
   let body: JsonRpcResponse;
