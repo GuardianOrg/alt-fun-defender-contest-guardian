@@ -1,9 +1,16 @@
 import type { StoredWallet } from "../lib/wallet.js";
 
-export interface InlineKeyboardButton {
+export interface InlineCallbackButton {
   text: string;
   callback_data: string;
 }
+
+export interface InlineUrlButton {
+  text: string;
+  url: string;
+}
+
+export type InlineKeyboardButton = InlineCallbackButton | InlineUrlButton;
 
 export type InlineKeyboard = InlineKeyboardButton[][];
 

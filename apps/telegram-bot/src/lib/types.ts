@@ -24,6 +24,21 @@ export interface Env {
    */
   MASTER_KEY: string;
   /**
+   * HyperEVM RPC endpoint. Used by `lib/rpc.ts` for read-only balance
+   * lookups on `/start` and refresh. Optional — falls back to the
+   * public HyperEVM RPC (`https://rpc.hyperliquid.xyz/evm`) when unset
+   * so smoke deploys keep working without Alchemy provisioning. Match
+   * apps/api's `HYPEREVM_RPC_URL` secret in production.
+   */
+  HYPEREVM_RPC_URL?: string;
+  /**
+   * Link surfaced on the `/start` welcome message as "Buy HYPE via
+   * Privy here". Optional — defaults to the Hyperliquid app where
+   * users can on-ramp HYPE today. Wire to the eventual Privy on-ramp
+   * URL when the bridge UX lands.
+   */
+  BUY_HYPE_URL?: string;
+  /**
    * Optional override for the bcrypt cost factor used by
    * `lib/pin.ts`. Production leaves this unset and falls back to the
    * OWASP-recommended default (rounds=12, ~250ms per hash on

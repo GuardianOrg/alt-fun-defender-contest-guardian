@@ -1,0 +1,57 @@
+import type { Env } from "./types.js";
+
+/**
+ * Public HyperEVM RPC fallback. Used when `HYPEREVM_RPC_URL` is unset
+ * (smoke deploys, local dev). Production should provision the same
+ * Alchemy endpoint as `apps/api` for consistent rate limits — see
+ * AGENTS.md "Infrastructure".
+ */
+const DEFAULT_RPC_URL = "https://rpc.hyperliquid.xyz/evm";
+
+interface JsonRpcResponse {
+  result?: string;
+  error?: { code: number; message: string };
+}
+
+/**
+ * Read a wallet's native HYPE balance via `eth_getBalance`. Returns
+ * `null` on any failure (network, non-2xx, malformed body, JSON-RPC
+ * error) so the caller can render a clean "—" instead of crashing the
+ * webhook. AGENTS.md "Error Handling" requires HYPE balance reads to
+ * go through `rpc.ts`; this is the v1 single-call shape — multicall
+ * lands when `/wallet` needs simultaneous HYPE + USDC + token reads.
+ */
+export const fetchNativeBalance = async (
+  env: Pick<Env, "HYPEREVM_RPC_URL">,
+  address: string,
+): Promise<bigint | null> => {
+  const url = env.HYPEREVM_RPC_URL ?? DEFAULT_RPC_URL;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      }),
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  let body: JsonRpcResponse;
+  try {
+    body = (await res.json()) as JsonRpcResponse;
+  } catch {
+    return null;
+  }
+  if (body.error || typeof body.result !== "string") return null;
+  try {
+    return BigInt(body.result);
+  } catch {
+    return null;
+  }
+};

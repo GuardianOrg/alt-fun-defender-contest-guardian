@@ -1,0 +1,279 @@
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+import {
+  makeBotHarness,
+  withTelegramOk,
+  type BotTestHarness,
+} from "../helpers/bot.js";
+import { START_CALLBACK } from "../../keyboards/start-menu.js";
+import { WalletManager } from "../../lib/wallet.js";
+
+const ZERO_MASTER_KEY = btoa("\0".repeat(32));
+const RPC_URL = "https://rpc.test.local";
+
+const startUpdate = (fromId: number | null, chatType = "private") => ({
+  update_id: 1,
+  message: {
+    message_id: 1,
+    date: 0,
+    chat: { id: 42, type: chatType as "private" | "group" },
+    ...(fromId !== null
+      ? { from: { id: fromId, is_bot: false, first_name: "Ada" } }
+      : {}),
+    text: "/start",
+    entities: [{ type: "bot_command", offset: 0, length: 6 }],
+  },
+});
+
+const callbackUpdate = (data: string, chatType = "private") => ({
+  update_id: 2,
+  callback_query: {
+    id: "cbq-1",
+    from: { id: 7, is_bot: false, first_name: "Ada" },
+    chat_instance: "i-1",
+    message: {
+      message_id: 100,
+      date: 0,
+      chat: { id: 42, type: chatType as "private" | "group" },
+    },
+    data,
+  },
+});
+
+interface TgCall {
+  url: string;
+  body: Record<string, unknown>;
+}
+
+const capture = (fetchSpy: ReturnType<typeof vi.spyOn>): TgCall[] =>
+  (fetchSpy.mock.calls as Array<[unknown, unknown?]>).map((call) => ({
+    url: String(call[0]),
+    body: JSON.parse((call[1] as RequestInit).body as string) as Record<
+      string,
+      unknown
+    >,
+  }));
+
+const walletManager = (h: BotTestHarness): WalletManager =>
+  new WalletManager(h.kv as unknown as KVNamespace, ZERO_MASTER_KEY);
+
+/**
+ * Mock the Telegram + HyperEVM RPC fetches in one go. RPC responses
+ * carry a hex-encoded balance — the bot decodes via `BigInt(result)`.
+ */
+const mockBoth = (
+  fetchSpy: ReturnType<typeof vi.spyOn>,
+  opts: {
+    rpcBalance?: bigint | "error" | "fail";
+  } = {},
+): void => {
+  withTelegramOk(fetchSpy, async (input) => {
+    if (String(input) === RPC_URL) {
+      if (opts.rpcBalance === "fail") throw new Error("network down");
+      if (opts.rpcBalance === "error") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            error: { code: -1, message: "bad" },
+          }),
+          { status: 200 },
+        );
+      }
+      const balance = opts.rpcBalance ?? 0n;
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: `0x${balance.toString(16)}`,
+        }),
+        { status: 200 },
+      );
+    }
+    throw new Error(`Unexpected fetch: ${String(input)}`);
+  });
+};
+
+const harnessWithRpc = (): BotTestHarness => {
+  const h = makeBotHarness();
+  h.env.HYPEREVM_RPC_URL = RPC_URL;
+  return h;
+};
+
+describe("/start command", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("auto-creates a wallet on first interaction and renders address + balance", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy, { rpcBalance: 2_500_000_000_000_000_000n });
+
+    await h.run(startUpdate(7));
+
+    const wallets = await walletManager(h).listWallets(7);
+    expect(wallets).toHaveLength(1);
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send).toBeDefined();
+    expect(send!.body.parse_mode).toBe("HTML");
+    expect(send!.body.text).toContain("Welcome to AltFunBot");
+    // Wallet address rendered inside <code> for tap-to-copy.
+    expect(send!.body.text).toContain(`<code>${wallets[0]!.address}</code>`);
+    expect(send!.body.text).toContain("Balance: 2.5 HYPE");
+  });
+
+  it("does not create a second wallet on a repeat /start", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+    const wm = walletManager(h);
+    const existing = await wm.createWallet(7, "main");
+
+    await h.run(startUpdate(7));
+
+    const wallets = await wm.listWallets(7);
+    expect(wallets).toHaveLength(1);
+    expect(wallets[0]!.id).toBe(existing.id);
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain(`<code>${existing.address}</code>`);
+  });
+
+  it("renders an em-dash for balance when the RPC fails", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy, { rpcBalance: "fail" });
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain("Balance: — HYPE");
+  });
+
+  it("renders the full main-menu keyboard with a Buy-HYPE URL button and Refresh", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const keyboard = (
+      send!.body.reply_markup as {
+        inline_keyboard: ({ text: string; url?: string; callback_data?: string })[][];
+      }
+    ).inline_keyboard;
+    // First row: URL button + Refresh
+    expect(keyboard[0]?.[0]?.url).toBeDefined();
+    expect(keyboard[0]?.[0]?.text).toContain("Buy HYPE");
+    expect(keyboard[0]?.[1]?.callback_data).toBe(START_CALLBACK.refresh);
+    // Remaining rows cover every supported command.
+    const allCallbacks = keyboard
+      .flat()
+      .map((b) => b.callback_data)
+      .filter((d): d is string => d !== undefined);
+    expect(allCallbacks).toEqual(
+      expect.arrayContaining([
+        START_CALLBACK.refresh,
+        START_CALLBACK.buy,
+        START_CALLBACK.sell,
+        START_CALLBACK.positions,
+        START_CALLBACK.track,
+        START_CALLBACK.wallet,
+        START_CALLBACK.withdraw,
+        START_CALLBACK.settings,
+        START_CALLBACK.security,
+        START_CALLBACK.referral,
+        START_CALLBACK.help,
+      ]),
+    );
+  });
+
+  it("rejects /start in a non-private chat without exposing wallet state", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(startUpdate(7, "group"));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain("private-DM only");
+    expect(send!.body.text).not.toContain("Welcome to AltFunBot");
+    // No wallet created for a group invocation.
+    expect(await walletManager(h).listWallets(7)).toHaveLength(0);
+  });
+
+  it("rejects /start with no `from` user (channel post / anon admin)", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(startUpdate(null));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain("Wallets require a personal");
+  });
+
+  it("Refresh callback edits the welcome message in place with a fresh balance", async () => {
+    const h = harnessWithRpc();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockBoth(fetchSpy, { rpcBalance: 1_000_000_000_000_000_000n });
+
+    await h.run(callbackUpdate(START_CALLBACK.refresh));
+
+    const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
+    const answer = calls.find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(edit).toBeDefined();
+    expect(edit!.body.text).toContain("Balance: 1 HYPE");
+    expect(answer!.body.text).toBe("Balance refreshed");
+  });
+
+  it("Refresh toasts 'No active wallet' when the user has no wallet (and does not auto-create)", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.refresh));
+
+    const answer = capture(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer!.body.show_alert).toBe(true);
+    expect(answer!.body.text).toContain("No active wallet");
+    expect(await walletManager(h).listWallets(7)).toHaveLength(0);
+  });
+
+  it.each([
+    [START_CALLBACK.buy, /\/buy/],
+    [START_CALLBACK.sell, /\/sell/],
+    [START_CALLBACK.positions, /\/positions/],
+    [START_CALLBACK.help, /\/help/],
+  ])(
+    "%s surfaces a hint toast pointing at the slash command",
+    async (cmd, pattern) => {
+      const h = harnessWithRpc();
+      mockBoth(fetchSpy);
+      await h.run(callbackUpdate(cmd));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer!.body.show_alert).toBe(true);
+      expect(answer!.body.text).toMatch(pattern);
+    },
+  );
+});
