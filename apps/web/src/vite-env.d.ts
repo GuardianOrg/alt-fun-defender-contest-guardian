@@ -7,6 +7,7 @@ interface ImportMetaEnv {
   readonly VITE_WS_URL: string;
   readonly VITE_API_URL: string;
   readonly VITE_PRIVY_APP_ID: string;
+  readonly VITE_LANDING_BYPASS_SECRET: string;
   readonly VITE_GEO_COUNTRY_OVERRIDE?: string;
 }
 

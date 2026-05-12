@@ -44,3 +44,14 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/telegram-bot
           command: deploy
+
+      # `setWebhook`'s `allowed_updates` list is sticky on Telegram's side —
+      # if the bot grows a new update type (e.g. callback_query for inline
+      # keyboards), an old registration will silently drop those updates and
+      # the Worker will see nothing. Re-running set-webhook every deploy
+      # keeps the registered list in sync with `routes/admin.ts`.
+      - name: Register Telegram webhook
+        env:
+          WORKER_URL: ${{ vars.TELEGRAM_BOT_WORKER_URL }}
+          ADMIN_API_KEY: ${{ secrets.TELEGRAM_BOT_ADMIN_API_KEY }}
+        run: apps/telegram-bot/scripts/register-webhook.sh

@@ -62,21 +62,18 @@ export class MemoryKV {
   failPut = false;
   failDelete = false;
 
-  /**
-   * Mirror Cloudflare KV's `type` option. `KvAdapter` (used by both
-   * the session plugin and the conversations plugin) calls
-   * `get(key, { type: 'json' })` and expects the parsed value back;
-   * a bare-string return slips past session reads (it just hands
-   * the same shape back) but blows up the conversations plugin's
-   * versioned-state `unpack` with "Unknown data format". Honouring
-   * the option keeps MemoryKV behaviour-compatible with real KV.
-   */
+  // grammy storage adapters call `kv.get(key, { type: "json" })` so the
+  // value comes back already parsed (Cloudflare KV's edge-side JSON
+  // mode). We mirror that contract here — `wallet.ts` callers pass no
+  // options and still get the raw string back. Without this, the
+  // conversations plugin's versioned-state `unpack` blows up with
+  // "Unknown data format" because it receives a raw string.
   async get(
     key: string,
-    options?: { type?: "json" | "text" },
+    options?: { type?: "text" | "json" },
   ): Promise<unknown> {
-    const raw = this.store.get(key) ?? null;
-    if (raw === null) return null;
+    const raw = this.store.get(key);
+    if (raw === undefined) return null;
     if (options?.type === "json") return JSON.parse(raw) as unknown;
     return raw;
   }

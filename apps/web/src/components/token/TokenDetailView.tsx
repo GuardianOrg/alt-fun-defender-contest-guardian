@@ -115,15 +115,26 @@ export default function TokenDetailView() {
         {token && (
           <div className={styles.curveStrip}>
             <span className={styles.curveLabel}>curve</span>
-            <span className={styles.curveRaised}>
-              {formatUsdOrDash(token.curveRaisedUsd)}
-            </span>
+            {/* `curveRaisedUsd` is `null` post-graduation by API contract
+             *  (the on-chain curve no longer holds the LT reserve that
+             *  drives the figure — see `apps/api/AGENTS.md`). Rendering
+             *  `formatUsdOrDash(null)` would leave a stray `—` floating
+             *  to the left of the bar; the right side already drops the
+             *  `$threshold` for the `graduated` badge in the same
+             *  branch, so we mirror that on the left and hide the
+             *  raised figure entirely once the token has graduated. */}
+            {!isGraduated && (
+              <span className={styles.curveRaised}>
+                {formatUsdOrDash(token.curveRaisedUsd)}
+              </span>
+            )}
             <div className={styles.progressWrapper}>
               <ProgressBar
                 buyPercent={buyW}
                 leveragePercent={levW}
                 isShort={token.direction === "short"}
                 isGraduating={token.status === "graduating"}
+                isGraduated={isGraduated}
                 size="sm"
               />
             </div>
@@ -140,6 +151,10 @@ export default function TokenDetailView() {
               </>
             )}
           </div>
+        )}
+
+        {token?.description && (
+          <p className={styles.description}>{token.description}</p>
         )}
 
         {token ? <TokenInfoStrip token={token} /> : <TokenInfoStripSkeleton />}

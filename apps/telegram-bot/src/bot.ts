@@ -1,6 +1,8 @@
 import { KvAdapter } from "@grammyjs/storage-cloudflare";
 import {
+  type ConversationData,
   type ConversationFlavor,
+  type VersionedState,
   conversations,
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
@@ -128,40 +130,23 @@ export const createBot = (
     }),
   );
 
-  // Conversations state MUST be backed by KV. The plugin's default
-  // is an in-memory `Map` scoped to a single Bot instance — fine for
-  // a long-lived process, but every webhook invocation builds a
-  // fresh Bot, so without this adapter `conversation.waitFor` would
-  // never resume across updates. We wrap WALLET_KV manually so the
-  // adapter shape matches the plugin's `VersionedStateStorage`
-  // (KvAdapter's generic doesn't line up — its `read()` returns
-  // `unknown` rather than the versioned wrapper). The plugin keys
-  // by `ctx.chatId`, distinct from the `session:*` prefix used by
-  // the session store, so there is no key collision.
+  // Conversations plugin defaults to in-memory storage. Workers are
+  // stateless per request, so without a persistent adapter the active-
+  // conversation record is dropped between the `enter` call and the
+  // user's follow-up message — leaving the next update unmatched and
+  // silent. Back it with the same KV namespace that holds sessions
+  // under a `conv:` prefix so it never collides with `session:*`.
   bot.use(
-    conversations({
+    conversations<AppContext, AppContext>({
       storage: {
         type: "key",
-        adapter: {
-          // Cloudflare KV returns `null` for missing keys; the
-          // conversations plugin's `unpack` expects `undefined`
-          // and throws on `null` ("Cannot read properties of null
-          // (reading 'version')"). Coerce here so a fresh chat
-          // doesn't trip the unpack guard.
-          read: async (key) =>
-            ((await env.WALLET_KV.get(`conversation:${key}`, {
-              type: "json",
-            })) ?? undefined) as never,
-          write: async (key, state) => {
-            await env.WALLET_KV.put(
-              `conversation:${key}`,
-              JSON.stringify(state),
-            );
-          },
-          delete: async (key) => {
-            await env.WALLET_KV.delete(`conversation:${key}`);
-          },
-        },
+        version: 0,
+        prefix: "conv:",
+        adapter: new KvAdapter<VersionedState<ConversationData>>(
+          env.WALLET_KV as unknown as ConstructorParameters<
+            typeof KvAdapter
+          >[0],
+        ),
       },
     }),
   );

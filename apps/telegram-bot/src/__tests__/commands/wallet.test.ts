@@ -43,6 +43,17 @@ const callbackUpdate = (data: string) => ({
   },
 });
 
+const textUpdate = (text: string, updateId = 3) => ({
+  update_id: updateId,
+  message: {
+    message_id: 200 + updateId,
+    date: 0,
+    chat: { id: 42, type: "private" as const },
+    from: { id: 7, is_bot: false, first_name: "Ada" },
+    text,
+  },
+});
+
 interface TgCall {
   url: string;
   body: Record<string, unknown>;
@@ -262,26 +273,56 @@ describe("/wallet command", () => {
     });
   });
 
-  describe("Export key flow (we)", () => {
-    /**
-     * Conversations persist their cursor via the session middleware,
-     * so a multi-turn flow can be driven by replaying `h.run` against
-     * the same harness. Each text update reuses chat id 42 / user id 7
-     * to match the callback handler above; message_id is bumped so the
-     * harness's PIN-message deletion target stays unique per turn.
-     */
-    let textMessageId = 1000;
-    const textUpdate = (text: string) => ({
-      update_id: ++textMessageId,
-      message: {
-        message_id: ++textMessageId,
-        date: 0,
-        chat: { id: 42, type: "private" as const },
-        from: { id: 7, is_bot: false, first_name: "Ada" },
-        text,
-      },
+  // Each `h.run(...)` call rebuilds the Bot from scratch (see
+  // makeBotHarness), mirroring the Workers per-request lifecycle. The
+  // conversation state therefore has to round-trip through the shared
+  // KV adapter — exactly the path that was silently dropped when the
+  // conversations plugin was wired up with default in-memory storage.
+  describe("Rename conversation (wr → text reply)", () => {
+    it("persists the active conversation across worker invocations and renames the wallet on the follow-up text", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "old");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.rename));
+      const prompt = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          String(c.body.text).includes("Send the new label"),
+      );
+      expect(prompt).toBeDefined();
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+
+      await h.run(textUpdate("renamed"));
+
+      expect((await wm.listWallets(7))[0]?.label).toBe("renamed");
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(send?.body.text).toContain("renamed");
     });
 
+    it("rejects an empty label and leaves the wallet untouched", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "old");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.rename));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("   "));
+
+      expect((await wm.listWallets(7))[0]?.label).toBe("old");
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(String(send?.body.text)).toMatch(/Label must be/);
+    });
+  });
+
+  describe("Export key flow (we)", () => {
     const buildPm = (h: BotTestHarness): PinManager =>
       new PinManager(h.kv as unknown as KVNamespace, { saltRounds: 4 });
 
@@ -304,6 +345,7 @@ describe("/wallet command", () => {
 
       // Enter conversation: callback triggers PIN prompt.
       fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
       await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
       const promptCalls = capture(fetchSpy);
       const prompt = promptCalls.find((c) =>
@@ -313,7 +355,8 @@ describe("/wallet command", () => {
 
       // Send correct PIN → bot decrypts and reveals.
       fetchSpy.mockClear();
-      await h.run(textUpdate("123456"));
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
       const calls = capture(fetchSpy);
       // PIN message swept from chat history.
       const deletes = calls.filter((c) =>
@@ -348,7 +391,8 @@ describe("/wallet command", () => {
 
       await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
       fetchSpy.mockClear();
-      await h.run(textUpdate("000000"));
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("000000", 3));
 
       const calls = capture(fetchSpy);
       const wrongReply = calls.find(
@@ -378,7 +422,8 @@ describe("/wallet command", () => {
 
       // Turn 1: send the new PIN. Bot asks for confirmation.
       fetchSpy.mockClear();
-      await h.run(textUpdate("123456"));
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
       const afterFirst = capture(fetchSpy);
       const confirmPrompt = afterFirst.find(
         (c) =>
@@ -389,7 +434,8 @@ describe("/wallet command", () => {
 
       // Turn 2: confirm. Bot asks to send once more to authorise.
       fetchSpy.mockClear();
-      await h.run(textUpdate("123456"));
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 4));
       const afterConfirm = capture(fetchSpy);
       expect(
         afterConfirm.find(
@@ -401,7 +447,8 @@ describe("/wallet command", () => {
 
       // Turn 3: verify. Bot reveals the key.
       fetchSpy.mockClear();
-      await h.run(textUpdate("123456"));
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 5));
       const afterVerify = capture(fetchSpy);
       const reveal = afterVerify.find(
         (c) =>
@@ -423,7 +470,8 @@ describe("/wallet command", () => {
 
       await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
       fetchSpy.mockClear();
-      await h.run(textUpdate("/cancel"));
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("/cancel", 3));
       const calls = capture(fetchSpy);
       expect(
         calls.find(
