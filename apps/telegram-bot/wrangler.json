@@ -4,7 +4,29 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
-  "vars": {},
+  "vars": {
+    "API_BASE_URL": "https://launchpad-api.chase-7a6.workers.dev"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "WALLET_KV",
+      "id": "25ca96dbbc9043899a87afc55654f1c5"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CHAT_DO",
+        "class_name": "ChatDO"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-chat-do",
+      "new_classes": ["ChatDO"]
+    }
+  ],
   "observability": {
     "enabled": true
   }

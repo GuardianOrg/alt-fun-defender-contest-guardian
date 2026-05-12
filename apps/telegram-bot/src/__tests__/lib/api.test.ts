@@ -36,6 +36,41 @@ describe("fetchPortfolio / fetchBalances", () => {
     fetchSpy.mockRestore();
   });
 
+  it("omits X-API-Key when env.API_KEY is undefined (falls into apps/api anonymous bucket, see #640)", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { positions: [], approximate: false } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    await fetchPortfolio(
+      { API_BASE_URL: env.API_BASE_URL, API_KEY: undefined },
+      "0xabc",
+    );
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+    const headers = new Headers(init.headers);
+    // Header absent — NOT `"undefined"` string. Sending the literal
+    // string would trip apps/api's 401 path; omitting it routes the
+    // request into the anonymous 240/min per-IP bucket.
+    expect(headers.has("x-api-key")).toBe(false);
+  });
+
+  it("omits X-API-Key when env.API_KEY is the empty string", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { positions: [], approximate: false } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    await fetchPortfolio(
+      { API_BASE_URL: env.API_BASE_URL, API_KEY: "" },
+      "0xabc",
+    );
+    const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.has("x-api-key")).toBe(false);
+  });
+
   it("sends X-API-Key header and returns parsed data on 200", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(

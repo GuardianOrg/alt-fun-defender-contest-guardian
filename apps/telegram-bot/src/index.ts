@@ -15,4 +15,8 @@ app.get("/health", (c) => c.json({ status: "ok" }));
 app.route("/", webhook);
 app.route("/admin", admin);
 
+// Re-export the ChatDO so Cloudflare can bind it via wrangler.json.
+// The DO class must be a named export from the worker's main module.
+export { ChatDO } from "./chat-do.js";
+
 export default app;

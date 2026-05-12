@@ -35,10 +35,28 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 export const isAddress = (value: string): boolean => ADDRESS_RE.test(value);
 
-const buildHeaders = (apiKey: string): HeadersInit => ({
-  "x-api-key": apiKey,
-  accept: "application/json",
-});
+/**
+ * When `apiKey` is unset, omit the header entirely rather than sending
+ * `x-api-key: undefined` (which serializes to the literal string
+ * `"undefined"` and trips apps/api's 401 path). Missing header instead
+ * routes the request into apps/api's anonymous per-IP rate limit
+ * (240/min, see AGENTS.md "Auth model"). Tracked for proper
+ * provisioning in #640 — fine for solo dev / smoke tests, will starve
+ * under concurrent users.
+ */
+const buildHeaders = (apiKey: string | undefined): HeadersInit => {
+  const headers: Record<string, string> = { accept: "application/json" };
+  // Trim before checking — a whitespace-only secret would otherwise
+  // pass the truthy guard, get serialized as `" "` on the wire, hash
+  // to nothing the api keys table recognises, and surface as a 401.
+  // Treating whitespace as unset routes it cleanly into the anonymous
+  // bucket like a missing secret.
+  const normalized = apiKey?.trim();
+  if (normalized) {
+    headers["x-api-key"] = normalized;
+  }
+  return headers;
+};
 
 interface ApiEnvelope<T> {
   data?: T;

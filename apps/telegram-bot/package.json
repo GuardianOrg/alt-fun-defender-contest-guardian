@@ -12,7 +12,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "hono": "^4.12.14"
+    "@grammyjs/conversations": "^2.1.1",
+    "@grammyjs/storage-cloudflare": "^2.4.2",
+    "grammy": "^1.42.0",
+    "hono": "^4.12.14",
+    "viem": "^2.47.12"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260421.1",
