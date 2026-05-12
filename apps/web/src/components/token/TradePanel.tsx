@@ -14,6 +14,7 @@ import TradePanelQuote from "./TradePanelQuote";
 import { hyperEVM } from "../../config/chains";
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
+import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useIsMintPaused } from "../../hooks/useLeveragedTokens";
 import { useReferral } from "../../hooks/useReferral";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
@@ -44,6 +45,12 @@ export default function TradePanel({ token }: Props) {
   // preferable to freezing both sides — see AGENTS.md → "Mint-pause is
   // asymmetric (accepted)" for the contract-side rationale.
   const isMintPaused = useIsMintPaused(token.ltAddress);
+  // CDN-derived geo gate. Mirrors `isMintPaused` semantics — buys are
+  // blocked, sells stay open so users in restricted regions can always
+  // exit. Fail-open while the trace fetch is in flight (the hook returns
+  // `false` until it resolves), so the form is never blocked on a slow
+  // edge response.
+  const { isGeoBlocked } = useIsGeoBlocked();
   const [mode, setMode] = useState<"buy" | "sell">("buy");
   // Auto-swap to sell mode the first time we learn the LT is paused — and
   // only when the user hasn't typed anything yet, so we never clobber an
@@ -206,6 +213,10 @@ export default function TradePanel({ token }: Props) {
     // a click) the tx would revert against BounceTech anyway, so bail out
     // cleanly without surfacing a wallet popup.
     if (isMintPaused && mode === "buy") return;
+    // Same belt-and-braces for the geo gate — the button is disabled, but
+    // a stale render between a country flip and the click shouldn't be
+    // able to slip a tx through.
+    if (isGeoBlocked && mode === "buy") return;
 
     if (mode === "buy") {
       pendingTradeRef.current = {
@@ -253,14 +264,18 @@ export default function TradePanel({ token }: Props) {
   const isBusy = step === "approving" || step === "signing" || step === "executing";
 
   const buyDisabledByPause = isMintPaused && mode === "buy";
+  const buyDisabledByGeo = isGeoBlocked && mode === "buy";
+  const geoBlockShown = buyDisabledByGeo && amtNum > 0;
 
+  // The label is intentionally minimal: anything that has a dedicated
+  // error/status surface above the button (paused banner, minimum-amount
+  // / insufficient-funds / buffer / geo-block error boxes) is *not*
+  // duplicated here — the button just renders disabled with the default
+  // BUY/SELL label so the same message isn't shown twice on screen. Only
+  // labels with no above-the-button equivalent stay (the connect CTA and
+  // the live tx-progress states).
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
-    if (buyDisabledByPause) return "BUYS PAUSED";
-    if (belowMinimum) return `MINIMUM $${MIN_USDC_BUY_AMOUNT} USDC`;
-    if (sellBelowMinimum) return `MINIMUM $${MIN_USDC_SELL_AMOUNT} USDC`;
-    if (sellExceedsBuffer) return "EXCEEDS AVAILABLE LIQUIDITY";
-    if (insufficientUsdc) return "INSUFFICIENT USDC";
     if (step === "signing") return "SIGN IN WALLET…";
     if (step === "approving") return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
@@ -434,7 +449,20 @@ export default function TradePanel({ token }: Props) {
           <TradePanelBufferWarning sellQuote={sellQuote} ticker={ticker} />
         )}
 
-        {belowMinimum && (
+        {/* Geo block takes priority over every other error in this stack —
+            once the user is gated at the CDN layer, the minimum-buy /
+            insufficient-funds / tx-router errors below are noise. They're
+            suppressed via the `!geoBlockShown` guard on each. Sell-side
+            errors aren't gated because the geo block is buy-only and the
+            two can't coexist. */}
+        {geoBlockShown && (
+          <div className={styles.errorBox}>
+            <span className={styles.errorIcon}>⚠</span>
+            Service unavailable in your region
+          </div>
+        )}
+
+        {!geoBlockShown && belowMinimum && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Minimum buy is ${MIN_USDC_BUY_AMOUNT} USDC
@@ -448,7 +476,7 @@ export default function TradePanel({ token }: Props) {
           </div>
         )}
 
-        {insufficientUsdc && (
+        {!geoBlockShown && insufficientUsdc && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             Insufficient USDC — wallet holds $
@@ -459,7 +487,7 @@ export default function TradePanel({ token }: Props) {
           </div>
         )}
 
-        {error && (
+        {!geoBlockShown && error && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
             {error}
@@ -501,6 +529,7 @@ export default function TradePanel({ token }: Props) {
           disabled={
             step === "confirmed" ||
             buyDisabledByPause ||
+            buyDisabledByGeo ||
             belowMinimum ||
             sellBelowMinimum ||
             sellExceedsBuffer ||

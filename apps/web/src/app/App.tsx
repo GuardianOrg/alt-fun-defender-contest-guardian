@@ -16,6 +16,7 @@ import LandingOverlay from "../components/landing/LandingOverlay";
 import AssetTape from "../components/layout/AssetTape";
 import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
+import GeoBlockBanner from "../components/layout/GeoBlockBanner";
 import Header from "../components/layout/Header";
 import PrimerModal from "../components/layout/PrimerModal";
 import SearchModal from "../components/layout/SearchModal";
@@ -35,6 +36,7 @@ const Layout = () => {
 
   return (
     <div className={cn(styles.app, isTokenPage && styles.ambpulse)}>
+      <GeoBlockBanner />
       <DegradedBanner />
       <Header />
       <AssetTape />
