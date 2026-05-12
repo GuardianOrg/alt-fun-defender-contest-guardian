@@ -119,6 +119,9 @@ describe("POST /webhook", () => {
       env,
     );
     expect(res.status).toBe(200);
+    // Prove sendMessage was actually attempted — otherwise this test passes
+    // even if /start silently stops dispatching.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
   it("ignores non-command messages", async () => {

@@ -80,6 +80,24 @@ describe("POST /admin/set-webhook", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("502s when Telegram fetch throws (network failure)", async () => {
+    fetchSpy.mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("telegram_unreachable");
+  });
+
+  it("502s when Telegram returns non-JSON body", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response("<html>bad gateway</html>", { status: 502 }),
+    );
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("telegram_invalid_response");
+  });
+
   it("forwards valid https url to Telegram with secret_token", async () => {
     const res = await post({ url: "https://example.com/webhook" });
     expect(res.status).toBe(200);

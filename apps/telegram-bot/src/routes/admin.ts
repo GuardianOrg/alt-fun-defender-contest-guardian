@@ -42,17 +42,43 @@ admin.post("/set-webhook", async (c) => {
     return c.json({ error: "url must use https" }, 400);
   }
 
-  const res = await callTelegram(c.env.TELEGRAM_BOT_TOKEN, "setWebhook", {
+  return proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "setWebhook", {
     url: webhookUrl.toString(),
     secret_token: c.env.TELEGRAM_WEBHOOK_SECRET,
     allowed_updates: ["message"],
   });
-  return c.json(await res.json(), res.status as 200);
 });
 
-admin.get("/webhook-info", async (c) => {
-  const res = await callTelegram(c.env.TELEGRAM_BOT_TOKEN, "getWebhookInfo", {});
-  return c.json(await res.json(), res.status as 200);
-});
+admin.get("/webhook-info", async (c) =>
+  proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "getWebhookInfo", {}),
+);
+
+// Centralise Telegram-side failures so the admin routes return a deterministic
+// 502 instead of a generic 500 when the upstream is down or returns junk JSON.
+async function proxyTelegram(
+  token: string,
+  method: string,
+  payload: Record<string, unknown>,
+): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await callTelegram(token, method, payload);
+  } catch (err) {
+    return Response.json(
+      { error: "telegram_unreachable", message: String(err) },
+      { status: 502 },
+    );
+  }
+  let body: unknown;
+  try {
+    body = await upstream.json();
+  } catch {
+    return Response.json(
+      { error: "telegram_invalid_response", status: upstream.status },
+      { status: 502 },
+    );
+  }
+  return Response.json(body, { status: upstream.status });
+}
 
 export default admin;
