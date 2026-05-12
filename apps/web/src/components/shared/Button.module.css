@@ -16,7 +16,7 @@
 
 /* Sizes */
 .sm {
-  font-size: 11px;
+  font-size: 12px;
   padding: 0.4rem 0.8rem;
 }
 
@@ -34,11 +34,17 @@
 .primary {
   background: var(--mint);
   color: var(--bg);
+  /* Same-colour border so the button picks up the +2px of vertical
+   * chrome carried by `Chip`'s 1px border, keeping primary buttons and
+   * data chips flush when they sit side-by-side (e.g. CA + Share in
+   * the token hero, wallet + Create in the header). */
+  border: 1px solid var(--mint);
   box-shadow: var(--shadow-mint-glow);
 }
 
 .primary:hover:not(:disabled) {
   background: var(--mint-hover);
+  border-color: var(--mint-hover);
 }
 
 .secondary {
