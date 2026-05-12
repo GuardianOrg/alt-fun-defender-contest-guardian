@@ -59,13 +59,45 @@ export interface LiveLeveragedToken extends LeveragedTokenInfo {
 }
 
 /**
+ * Underlying assets we've hard-coded out of every Alt Fun UI surface
+ * (markets sidebar, create-token pair selector, home-page token list,
+ * token search). Add an entry here to retire a market without touching
+ * any other call site — `filterSupportedLTs` drops matching LTs from
+ * the BounceTech directory, and the API's `/tokens` list + search
+ * routes drop matching tokens from PostgreSQL responses.
+ *
+ * We don't purge underlying data: tokens already in the DB stay
+ * registered (and accessible by direct URL for existing holders), and
+ * the LT directory is read-through. The exclusion is a UI-level
+ * filter, applied at every read boundary.
+ *
+ * PAXG was added when BounceTech announced it was winding the LT down
+ * — we hide it from the launchpad UI so creators don't pick a market
+ * with no future, while leaving existing PAXG-backed tokens tradeable
+ * by people who already hold them. Issue #639.
+ */
+export const EXCLUDED_UNDERLYING_ASSETS = ["PAXG"] as const;
+export type ExcludedUnderlyingAsset = (typeof EXCLUDED_UNDERLYING_ASSETS)[number];
+
+/**
+ * Cheap predicate used by every callsite that reads a token's
+ * `underlying` (DB row, on-chain `targetAsset`, etc.) to decide
+ * whether to hide it. Centralised here so adding/removing an entry to
+ * `EXCLUDED_UNDERLYING_ASSETS` flows everywhere automatically.
+ */
+export function isExcludedUnderlying(asset: string): boolean {
+  return (EXCLUDED_UNDERLYING_ASSETS as readonly string[]).includes(asset);
+}
+
+/**
  * Assets that Alt Fun supports for token creation. Mirrors the full set of
  * underlying assets in the BounceTech LT directory at
  * `https://indexing.bounce.tech/leveraged-tokens` that ship with at least one
- * 2x/3x/5x LT.
+ * 2x/3x/5x LT, minus anything currently listed in
+ * `EXCLUDED_UNDERLYING_ASSETS` (e.g. PAXG, which BounceTech is winding down).
  *
  * Two families:
- *   - **Crypto:** `HYPE`, `ETH`, `BTC`, `SOL`, `DOGE`, `PAXG`, `ZEC`, `kPEPE`.
+ *   - **Crypto:** `HYPE`, `ETH`, `BTC`, `SOL`, `DOGE`, `ZEC`, `kPEPE`.
  *     Spot prices come from Hyperliquid's default `allMids` payload.
  *   - **xyz: equity / commodity perps:** `xyz:CL`, `xyz:BRENTOIL`, `xyz:GOLD`,
  *     `xyz:SILVER`, `xyz:NVDA`, `xyz:SP500`, `xyz:XYZ100`. Prices come from
@@ -83,7 +115,6 @@ export const SUPPORTED_UNDERLYING_ASSETS = [
   "BTC",
   "SOL",
   "DOGE",
-  "PAXG",
   "ZEC",
   "kPEPE",
   "xyz:CL",
@@ -107,7 +138,6 @@ export const HYPERLIQUID_DEFAULT_ASSETS = [
   "BTC",
   "SOL",
   "DOGE",
-  "PAXG",
   "ZEC",
   "kPEPE",
 ] as const;
@@ -157,10 +187,20 @@ export type SupportedLeverage = (typeof SUPPORTED_LEVERAGES)[number];
 
 /**
  * Filter a live LT list down to the ones Alt Fun supports.
+ *
+ * The redundant `!isExcludedUnderlying(...)` guard is deliberate: while
+ * `SUPPORTED_UNDERLYING_ASSETS` already omits everything in
+ * `EXCLUDED_UNDERLYING_ASSETS`, the explicit check makes the exclusion
+ * authoritative in one place. If a future change adds an entry to
+ * `EXCLUDED_UNDERLYING_ASSETS` without remembering to drop it from the
+ * supported list, the LT directory filter still keeps it out — matching
+ * the behaviour at every other call site that reads the excluded list
+ * directly (API token list / search, etc.).
  */
 export function filterSupportedLTs(lts: LiveLeveragedToken[]): LiveLeveragedToken[] {
   return lts.filter(
     (lt) =>
+      !isExcludedUnderlying(lt.targetAsset) &&
       (SUPPORTED_UNDERLYING_ASSETS as readonly string[]).includes(lt.targetAsset) &&
       (SUPPORTED_LEVERAGES as readonly number[]).includes(lt.targetLeverage),
   );

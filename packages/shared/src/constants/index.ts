@@ -10,6 +10,7 @@ export {
   MIN_USDC_BUY_AMOUNT,
   MIN_USDC_SELL_AMOUNT,
   SUPPORTED_UNDERLYING_ASSETS,
+  EXCLUDED_UNDERLYING_ASSETS,
   HYPERLIQUID_DEFAULT_ASSETS,
   XYZ_DEX_ASSETS,
   HYPERLIQUID_XYZ_DEX,
@@ -18,8 +19,15 @@ export {
   findLT,
   getAssetDisplayName,
   getHyperliquidDex,
+  isExcludedUnderlying,
 } from "./bouncetech.js";
-export type { LeveragedTokenInfo, LiveLeveragedToken, SupportedAsset, SupportedLeverage } from "./bouncetech.js";
+export type {
+  ExcludedUnderlyingAsset,
+  LeveragedTokenInfo,
+  LiveLeveragedToken,
+  SupportedAsset,
+  SupportedLeverage,
+} from "./bouncetech.js";
 export {
   MIN_TOKEN_NAME_LENGTH,
   MAX_TOKEN_NAME_LENGTH,

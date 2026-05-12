@@ -39,7 +39,7 @@ const CACHE_TTL = 5_000;
  * Fetch mid prices for every tracked asset. Hyperliquid splits its asset
  * universe across two `allMids` payloads:
  *   - default (no `dex` field): spot + main perps — covers HYPE/ETH/BTC/SOL,
- *     plus crypto majors like DOGE/PAXG/ZEC/kPEPE.
+ *     plus crypto majors like DOGE/ZEC/kPEPE.
  *   - `dex: "xyz"`: builder-deployed equity / commodity perps — covers
  *     `xyz:SP500`, `xyz:NVDA`, `xyz:GOLD`, etc.
  *
