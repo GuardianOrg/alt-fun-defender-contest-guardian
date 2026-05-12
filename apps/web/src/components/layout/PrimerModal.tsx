@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 
 import styles from "./PrimerModal.module.css";
 import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
+import {
+  LANDING_BYPASS_EVENT,
+  LANDING_BYPASS_KEY,
+} from "../landing/LandingOverlay";
 import Button from "../shared/Button";
 import Modal from "../shared/Modal";
 
 const PRIMER_KEY = "altfun-primer-seen";
-const LANDING_BYPASS_KEY = "altfun-landing-bypass";
-const LANDING_BYPASS_EVENT = "altfun-landing-bypassed";
 
 // Static legal docs rendered from `apps/web/legal-source/*.md` by
 // `scripts/build-legal-docs.mjs`. Mirror the URLs in `SiteFooter.tsx`
@@ -50,12 +52,13 @@ const markPrimerSeen = () => {
  *
  * Visibility rules:
  *   - Only shown after the user has cleared the pre-launch landing gate
- *     (`altfun-landing-bypass === "1"`). Otherwise the primer would mount
- *     behind `LandingOverlay`'s full-screen wireframe and an `esc` press
- *     would silently dismiss something the user never saw.
+ *     (`LANDING_BYPASS_KEY === "1"`). Since `LandingOverlay` now gates the
+ *     entire provider tree, this component only mounts after the gate has
+ *     been cleared in the first place — but we keep the check defensively
+ *     so the primer never appears behind the landing wireframe.
  *   - Only shown once per browser (`altfun-primer-seen === "1"` after the
  *     user clicks Continue / closes the modal).
- *   - Listens for the `altfun-landing-bypassed` window event so the primer
+ *   - Listens for the `LANDING_BYPASS_EVENT` window event so the primer
  *     can flip on the moment `LandingOverlay` accepts the secret in the
  *     same tab (storage events only fire across tabs).
  */
