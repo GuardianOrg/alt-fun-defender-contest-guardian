@@ -245,10 +245,7 @@ describe("/wallet command", () => {
   });
 
   describe("Stub buttons", () => {
-    it.each([
-      [WALLET_CALLBACK.delete, /PIN/],
-      [WALLET_CALLBACK.withdraw, /PIN/],
-    ])(
+    it.each([[WALLET_CALLBACK.withdraw, /PIN/]])(
       "%s surfaces a 'coming soon' alert rather than silently no-op'ing",
       async (cmd, pattern) => {
         const h = makeBotHarness();
@@ -483,7 +480,7 @@ describe("/wallet command", () => {
       expect(await pm.isPinSet(7)).toBe(false);
     });
 
-    it("Delete-now button calls Telegram deleteMessage on the reveal", async () => {
+    it("Delete-now button calls Telegram deleteMessage on the reveal (export)", async () => {
       const h = makeBotHarness();
       await h.run({
         update_id: 9001,
@@ -634,6 +631,185 @@ describe("/wallet command", () => {
           /Paste the private key/.test(c.body.text as string),
       );
       expect(prompt).toBeUndefined();
+    });
+  });
+
+  describe("Delete wallet flow (wd)", () => {
+    const buildPm = (h: BotTestHarness): PinManager =>
+      new PinManager(h.kv as unknown as KVNamespace, { saltRounds: 4 });
+
+    it("toasts 'no active wallet' when invoked on an empty account", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer?.body.show_alert).toBe(true);
+      expect(answer?.body.text).toContain("No active wallet");
+    });
+
+    it("PIN verify + 'DELETE' confirm removes the wallet and refreshes the main view", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      const alt = await wm.createWallet(7, "alt");
+      // Switch active to 'alt' so we can assert reassignment to wallets[0]
+      // ('main') after delete.
+      await wm.setActive(7, alt.id);
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
+      const afterPin = capture(fetchSpy);
+      const confirmPrompt = afterPin.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Type DELETE to confirm/.test(c.body.text as string),
+      );
+      expect(confirmPrompt).toBeDefined();
+      expect(confirmPrompt!.body.text).toContain(alt.address.slice(0, 6));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("DELETE", 4));
+      const afterConfirm = capture(fetchSpy);
+      const success = afterConfirm.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Deleted /.test(c.body.text as string),
+      );
+      expect(success).toBeDefined();
+
+      const remaining = await wm.listWallets(7);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.label).toBe("main");
+      // Active reassigned to wallets[0] (the surviving wallet).
+      expect((await wm.getActive(7))?.label).toBe("main");
+    });
+
+    it("anything other than DELETE at the confirm step aborts without deleting", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "keepme");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("delete", 4));
+      const calls = capture(fetchSpy);
+      expect(
+        calls.find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /Delete cancelled/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+      expect(await wm.listWallets(7)).toHaveLength(1);
+    });
+
+    it("wrong PIN reports remaining attempts and does not delete", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("000000", 3));
+
+      const calls = capture(fetchSpy);
+      const wrongReply = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Wrong PIN/.test(c.body.text as string),
+      );
+      expect(wrongReply).toBeDefined();
+      expect(wrongReply!.body.text).toMatch(/4 attempts remaining/);
+      expect(await wm.listWallets(7)).toHaveLength(1);
+    });
+
+    it("/cancel at PIN step bails out with 'Delete cancelled' and leaves the wallet intact", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("/cancel", 3));
+      const calls = capture(fetchSpy);
+      expect(
+        calls.find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /Delete cancelled/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+      expect(await wm.listWallets(7)).toHaveLength(1);
+    });
+
+    it("PIN unset → set wizard runs with 'delete' copy, then confirms delete", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.delete));
+
+      // Turn 1: send new PIN. Bot asks for confirmation.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
+      expect(
+        capture(fetchSpy).find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /Confirm/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+
+      // Turn 2: confirm. Bot asks to authorise the delete.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 4));
+      expect(
+        capture(fetchSpy).find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /authorise the delete/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+
+      // Turn 3: verify PIN. Bot asks for typed DELETE confirm.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 5));
+      expect(
+        capture(fetchSpy).find(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /Type DELETE to confirm/.test(c.body.text as string),
+        ),
+      ).toBeDefined();
+
+      // Turn 4: confirm.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("DELETE", 6));
+      expect(await wm.listWallets(7)).toHaveLength(0);
+      expect(await buildPm(h).isPinSet(7)).toBe(true);
     });
   });
 });
