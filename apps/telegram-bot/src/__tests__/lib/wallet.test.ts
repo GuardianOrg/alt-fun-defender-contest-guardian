@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { privateKeyToAddress } from "viem/accounts";
 
 import {
+  DuplicateWalletError,
+  InvalidPrivateKeyError,
   MAX_WALLETS_PER_USER,
   TooManyWalletsError,
   WalletManager,
   WalletNotFoundError,
   generateWalletId,
+  parsePrivateKey,
   type StoredWallet,
   type WalletIndex,
 } from "../../lib/wallet.js";
@@ -246,6 +250,98 @@ describe("WalletManager", () => {
       expect(u1).toHaveLength(1);
       expect(u2).toHaveLength(1);
       expect(u1[0]?.id).not.toBe(u2[0]?.id);
+    });
+  });
+
+  describe("parsePrivateKey", () => {
+    it("accepts a 0x-prefixed 64 hex char string", () => {
+      expect(parsePrivateKey(PRIVATE_KEY)).toBe(PRIVATE_KEY);
+    });
+
+    it("trims surrounding whitespace before validation", () => {
+      expect(parsePrivateKey(`  ${PRIVATE_KEY}  \n`)).toBe(PRIVATE_KEY);
+    });
+
+    it("auto-prepends the 0x prefix when missing", () => {
+      const bare = PRIVATE_KEY.slice(2);
+      expect(parsePrivateKey(bare)).toBe(PRIVATE_KEY);
+    });
+
+    it("lowercases mixed-case hex so storage is canonical", () => {
+      const mixed = `0x${"AbCdEf12".repeat(8)}`;
+      expect(parsePrivateKey(mixed)).toBe(mixed.toLowerCase());
+    });
+
+    it("rejects shapes that are not 64 hex chars", () => {
+      expect(parsePrivateKey("")).toBeNull();
+      expect(parsePrivateKey("0x1234")).toBeNull();
+      expect(parsePrivateKey(`0x${"z".repeat(64)}`)).toBeNull();
+      expect(parsePrivateKey(`0x${"a".repeat(63)}`)).toBeNull();
+      expect(parsePrivateKey(`0x${"a".repeat(65)}`)).toBeNull();
+    });
+  });
+
+  describe("importWallet", () => {
+    it("derives the address from the private key and lists the wallet", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      const wallet = await wm.importWallet(1, PRIVATE_KEY, "imported");
+      expect(wallet.address).toBe(privateKeyToAddress(PRIVATE_KEY));
+      expect(wallet.label).toBe("imported");
+      expect(wallet.encryptedKey).not.toContain(PRIVATE_KEY.slice(2));
+      const list = await wm.listWallets(1);
+      expect(list).toHaveLength(1);
+      expect(list[0]?.id).toBe(wallet.id);
+    });
+
+    it("round-trips the imported key through encrypt -> store -> decrypt", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      const wallet = await wm.importWallet(1, PRIVATE_KEY);
+      const pt = await wm.decrypt(wallet.encryptedKey, 1);
+      expect(pt).toBe(PRIVATE_KEY);
+    });
+
+    it("makes the first imported wallet active automatically", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      const wallet = await wm.importWallet(1, PRIVATE_KEY);
+      expect((await wm.getActive(1))?.id).toBe(wallet.id);
+    });
+
+    it("rejects a duplicate import of the same key (DuplicateWalletError)", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      await wm.importWallet(1, PRIVATE_KEY);
+      await expect(wm.importWallet(1, PRIVATE_KEY)).rejects.toThrow(
+        DuplicateWalletError,
+      );
+      expect((await wm.listWallets(1))).toHaveLength(1);
+    });
+
+    it("rejects an import that would push the user past MAX_WALLETS_PER_USER", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      for (let i = 0; i < MAX_WALLETS_PER_USER; i++) {
+        await wm.createWallet(1, `w${i}`);
+      }
+      await expect(wm.importWallet(1, PRIVATE_KEY)).rejects.toThrow(
+        TooManyWalletsError,
+      );
+      expect((await wm.listWallets(1)).length).toBe(MAX_WALLETS_PER_USER);
+    });
+
+    it("rejects a malformed private key with InvalidPrivateKeyError", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      await expect(
+        wm.importWallet(1, "0xnothex" as unknown as `0x${string}`),
+      ).rejects.toThrow(InvalidPrivateKeyError);
+      expect(await wm.listWallets(1)).toEqual([]);
+    });
+
+    it("allows the same key to be imported by two different users (per-user isolation)", async () => {
+      const wm = new WalletManager(store as unknown as KVNamespace, b64key(1));
+      const a = await wm.importWallet(1, PRIVATE_KEY);
+      const b = await wm.importWallet(2, PRIVATE_KEY);
+      expect(a.address).toBe(b.address);
+      // Ciphertexts must differ — per-user HKDF derivation guarantees
+      // one user's leak cannot unlock the other's record.
+      expect(a.encryptedKey).not.toBe(b.encryptedKey);
     });
   });
 

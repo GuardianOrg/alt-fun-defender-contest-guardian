@@ -13,10 +13,13 @@ import {
 import { withAntiPhishing } from "../lib/anti-phishing.js";
 import { PinManager } from "../lib/pin.js";
 import {
+  DuplicateWalletError,
+  InvalidPrivateKeyError,
   MAX_WALLETS_PER_USER,
   TooManyWalletsError,
   WalletManager,
   WalletNotFoundError,
+  parsePrivateKey,
   type StoredWallet,
 } from "../lib/wallet.js";
 
@@ -96,18 +99,14 @@ const renderMainText = (
   active: StoredWallet | null,
 ): string => {
   if (wallets.length === 0) {
-    // Import paths reserved but the wizard isn't wired yet — toasts
-    // emit "Coming soon". Don't instruct users to paste secrets ahead
-    // of a flow that can actually consume them safely (message-
-    // delete-on-receipt, no-log-of-plaintext, etc.). "Import from Web
-    // App" stays first-class per AGENTS.md "Key Constraints" so users
-    // who already have a Privy wallet see the eventual bridge.
+    // "Import from Web App" stays first-class per AGENTS.md "Key
+    // Constraints" so users who already have a Privy wallet see the
+    // bridge path. Both Create and Import are now wired.
     return [
       "No wallets yet.",
       "",
       "• Create — generate a new bot-managed wallet to start trading",
-      "• Import from Web App — coming soon (do not paste your Privy key until the wizard prompts you)",
-      "• Import — coming soon",
+      "• Import — paste an existing private key (including a Privy key exported from the Web App)",
     ].join("\n");
   }
   const lines = [`Wallets (${wallets.length}/${MAX_WALLETS_PER_USER})`, ""];
@@ -498,6 +497,136 @@ const exportKeyConversation = async (
   });
 };
 
+type ImportResult =
+  | { kind: "ok"; wallet: StoredWallet }
+  | { kind: "invalid" }
+  | { kind: "duplicate" }
+  | { kind: "cap" };
+
+/**
+ * Import-wallet conversation. Prompts the user for a raw private key
+ * in DM, sweeps the message out of chat history the instant we've
+ * read it (same hygiene as the PIN flow), validates the key shape,
+ * derives the address, and persists via `WalletManager.importWallet`.
+ *
+ * Security notes:
+ *   - The user's message is deleted before we even attempt to parse —
+ *     parse failures would otherwise leak the key in chat for the full
+ *     48-hour deleteMessage window if a later step throws.
+ *   - The plaintext key is never echoed back; only the derived address
+ *     (truncated) appears in the success toast.
+ *   - The flow is private-DM only; the entry callback already enforces
+ *     `ensurePrivate`, so the conversation body assumes a 1:1 chat.
+ */
+const importWalletConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+
+  await ctx.reply(
+    withAntiPhishing(
+      [
+        "Paste the private key for the wallet you want to import (0x-prefixed, 64 hex chars).",
+        "",
+        "Your message is deleted from this chat the instant the bot reads it. The bot never stores the plaintext key — only an encrypted copy.",
+        "",
+        "Send /cancel to abort.",
+      ].join("\n"),
+    ),
+  );
+
+  while (true) {
+    const reply = await conversation.waitFor("message:text");
+    const text = reply.message.text;
+    // Sweep before parse / validate so a malformed key cannot linger
+    // in the chat while the bot replies with an error. Telegram's 48h
+    // deleteMessage window is plenty for a freshly-sent message; the
+    // sweep itself is best-effort and tolerates already-gone messages.
+    await conversation.external((outside) =>
+      sweepPinMessage(outside, chatId, reply.message.message_id),
+    );
+
+    if (isCancel(text)) {
+      await ctx.reply(withAntiPhishing("Import cancelled."));
+      return;
+    }
+
+    const parsed = parsePrivateKey(text);
+    if (!parsed) {
+      await ctx.reply(
+        withAntiPhishing(
+          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again or send /cancel.",
+        ),
+      );
+      continue;
+    }
+
+    // Import happens inside `external` so the side effect is recorded
+    // once and replayed verbatim. Errors out of `external` round-trip
+    // through `structuredClone`, which strips custom Error subclass
+    // identity (only built-in error types survive). To keep the
+    // user-visible failure modes addressable on this side of the
+    // boundary, the inside-callback catches the known failures and
+    // returns a tagged discriminated union instead of throwing; only
+    // genuinely-unexpected errors propagate as exceptions.
+    const result = await conversation.external((outside) =>
+      buildManager(outside.env)
+        .importWallet(userId, parsed)
+        .then(
+          (w): ImportResult => ({ kind: "ok", wallet: w }),
+          (err: unknown): ImportResult => {
+            if (err instanceof InvalidPrivateKeyError)
+              return { kind: "invalid" };
+            if (err instanceof DuplicateWalletError)
+              return { kind: "duplicate" };
+            if (err instanceof TooManyWalletsError)
+              return { kind: "cap" };
+            throw err;
+          },
+        ),
+    );
+    if (result.kind === "invalid") {
+      await ctx.reply(
+        withAntiPhishing(
+          "That private key is invalid. Paste it again or send /cancel.",
+        ),
+      );
+      continue;
+    }
+    if (result.kind === "duplicate") {
+      await ctx.reply(
+        withAntiPhishing(
+          "That wallet is already in your list. Import cancelled.",
+        ),
+      );
+      return;
+    }
+    if (result.kind === "cap") {
+      await ctx.reply(
+        withAntiPhishing(
+          `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first, then try importing again.`,
+        ),
+      );
+      return;
+    }
+    const wallet = result.wallet;
+
+    const state = await conversation.external((outside) =>
+      renderMainState(buildManager(outside.env), userId),
+    );
+    await ctx.reply(
+      withAntiPhishing(
+        `Imported ${truncateAddress(wallet.address)}.\n\n${state.text}`,
+      ),
+      { reply_markup: state.reply_markup },
+    );
+    return;
+  }
+};
+
 export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // Conversation registration — must come before any handler that
   // calls `ctx.conversation.enter("...")`. The name is the public
@@ -507,6 +636,9 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   );
   bot.use(
     createConversation(exportKeyConversation, "wallet-export-key"),
+  );
+  bot.use(
+    createConversation(importWalletConversation, "wallet-import"),
   );
 
   /**
@@ -706,12 +838,6 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // alert rather than silently no-op'ing so users see a clear "not
   // yet". Callback codes reserved here so future PRs only swap the
   // handler body.
-  const stubScene = async (ctx: AppContext): Promise<void> => {
-    await ctx.answerCallbackQuery({
-      text: "Coming soon — needs the multi-step wizard infra.",
-      show_alert: true,
-    });
-  };
   const stubPin = async (ctx: AppContext): Promise<void> => {
     await ctx.answerCallbackQuery({
       text: "Coming soon — needs the PIN flow.",
@@ -719,7 +845,30 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     });
   };
 
-  bot.callbackQuery(WALLET_CALLBACK.import, stubScene);
+  /**
+   * Import entry point. Cap-checks before entering the conversation so
+   * a user at MAX_WALLETS_PER_USER sees a clean toast instead of being
+   * walked through a prompt that can only fail at the persist step.
+   */
+  bot.callbackQuery(WALLET_CALLBACK.import, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const wm = buildManager(ctx.env);
+    const wallets = await wm.listWallets(ctx.from.id);
+    if (wallets.length >= MAX_WALLETS_PER_USER) {
+      await ctx.answerCallbackQuery({
+        text: `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first.`,
+        show_alert: true,
+      });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("wallet-import");
+  });
+
   bot.callbackQuery(WALLET_CALLBACK.delete, stubPin);
   bot.callbackQuery(WALLET_CALLBACK.withdraw, stubPin);
 };

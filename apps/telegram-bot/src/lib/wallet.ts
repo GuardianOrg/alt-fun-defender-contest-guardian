@@ -44,6 +44,39 @@ export class WalletNotFoundError extends Error {
   }
 }
 
+export class InvalidPrivateKeyError extends Error {
+  constructor() {
+    super("invalid private key — expected 0x-prefixed 32-byte hex");
+    this.name = "InvalidPrivateKeyError";
+  }
+}
+
+export class DuplicateWalletError extends Error {
+  constructor(address: Address) {
+    super(`wallet already imported: ${address}`);
+    this.name = "DuplicateWalletError";
+  }
+}
+
+const PRIVATE_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
+
+/**
+ * Validate + normalise a hex private key candidate. Returns the
+ * lowercased 0x-prefixed form on success, null otherwise. Used by the
+ * import flow before any encryption happens — a malformed key would
+ * otherwise crash deep inside viem; surfacing a clean "invalid"
+ * message up front is the better UX.
+ */
+export const parsePrivateKey = (input: string): Hex | null => {
+  const trimmed = input.trim();
+  const candidate =
+    trimmed.startsWith("0x") || trimmed.startsWith("0X")
+      ? trimmed
+      : `0x${trimmed}`;
+  if (!PRIVATE_KEY_PATTERN.test(candidate)) return null;
+  return candidate.toLowerCase() as Hex;
+};
+
 const b64encode = (bytes: Uint8Array): string => {
   let bin = "";
   for (const b of bytes) bin += String.fromCharCode(b);
@@ -229,6 +262,55 @@ export class WalletManager {
     // fails, the orphan record is harmless (listWallets won't surface
     // it). The reverse ordering would leave the index pointing at a
     // record that was never written.
+    await this.save(userId, wallet);
+    await this.writeIndex(userId, {
+      wallets: [...index.wallets, wallet.id],
+      active: index.active ?? wallet.id,
+    });
+    return wallet;
+  }
+
+  /**
+   * Import an existing private key. Mirrors `createWallet` once the
+   * key is in hand — derive the address, encrypt under the per-user
+   * key, persist record-then-index. Rejects duplicates by address
+   * (case-insensitive) so a user can't end up with two index entries
+   * pointing at the same underlying account.
+   */
+  async importWallet(
+    userId: number,
+    privateKey: Hex,
+    label?: string,
+  ): Promise<StoredWallet> {
+    if (!PRIVATE_KEY_PATTERN.test(privateKey)) {
+      throw new InvalidPrivateKeyError();
+    }
+    const index = await this.readIndex(userId);
+    if (index.wallets.length >= MAX_WALLETS_PER_USER) {
+      throw new TooManyWalletsError();
+    }
+    const address = privateKeyToAddress(privateKey);
+    const existing = await this.listWallets(userId);
+    const lowered = address.toLowerCase();
+    if (existing.some((w) => w.address.toLowerCase() === lowered)) {
+      throw new DuplicateWalletError(address);
+    }
+    const encryptedKey = await this.encrypt(privateKey, userId);
+    const existingIds = new Set(index.wallets);
+    let id = generateWalletId();
+    for (let i = 0; existingIds.has(id) && i < 10; i++) {
+      id = generateWalletId();
+    }
+    if (existingIds.has(id)) {
+      throw new Error("walletId collision after 10 retries");
+    }
+    const wallet: StoredWallet = {
+      id,
+      address,
+      encryptedKey,
+      label,
+      createdAt: Date.now(),
+    };
     await this.save(userId, wallet);
     await this.writeIndex(userId, {
       wallets: [...index.wallets, wallet.id],
