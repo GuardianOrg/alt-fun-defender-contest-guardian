@@ -124,6 +124,55 @@ describe("POST /webhook", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("ACKs and no-ops when update.message is absent", async () => {
+    const res = await app.request(
+      "/webhook",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "test-secret",
+        },
+        body: JSON.stringify({ update_id: 99 }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to 'there' greeting when from.first_name is absent", async () => {
+    const noFromUpdate = {
+      update_id: 3,
+      message: {
+        message_id: 3,
+        date: 0,
+        chat: { id: 42, type: "private" },
+        // no `from` — happens for channel posts, anonymous group admins
+        text: "/start",
+        entities: [{ type: "bot_command", offset: 0, length: 6 }],
+      },
+    };
+    const res = await app.request(
+      "/webhook",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "test-secret",
+        },
+        body: JSON.stringify(noFromUpdate),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
+    );
+    expect(body.text).toContain("Hi there!");
+  });
+
   it("ignores non-command messages", async () => {
     const res = await app.request(
       "/webhook",
