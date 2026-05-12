@@ -26,7 +26,32 @@
 const OPENAI_MODERATION_URL = "https://api.openai.com/v1/moderations";
 const MODERATION_MODEL = "omni-moderation-latest";
 
-const REQUEST_TIMEOUT_MS = 10_000;
+/**
+ * Per-request abort window for the OpenAI moderation call. Sized to
+ * absorb the long tail of legitimate slow responses (cold Worker
+ * isolate → cold TCP/TLS to api.openai.com + OpenAI's own occasional
+ * multi-second multimodal latency) without the fail-closed path
+ * stamping a 503 on the user.
+ *
+ * Empirically, warm-isolate calls land in <1s and slow-but-healthy
+ * cold-isolate calls land in 2–5s. The previous 10s cap was tight
+ * enough that one cold isolate per region per ~30s tripped the abort,
+ * which then engaged the cooldown (`COOLDOWN_MS` below) and 503'd the
+ * user for a full additional 30s on that isolate — a single OpenAI
+ * tail event surfaced as "Image moderation is temporarily unavailable"
+ * in the launch flow. 25s gives OpenAI ~5–10× headroom over the
+ * observed slow-path while staying well inside Cloudflare Workers'
+ * subrequest budget, so the abort now only fires on actually-stuck
+ * requests rather than slow-but-progressing ones.
+ *
+ * Why not even higher: token creation has the user staring at a
+ * spinner before the wallet popup. Beyond ~25s the perceived UX is
+ * "frozen", and at that point a fail-fast → user retry is a better
+ * outcome than continuing to wait. 25s is the sweet spot between
+ * "swallows OpenAI's natural tail" and "doesn't make the launch flow
+ * feel hung".
+ */
+const REQUEST_TIMEOUT_MS = 25_000;
 
 /**
  * When OpenAI returns 429 / 5xx we enter a process-local cooldown for
@@ -334,13 +359,13 @@ export async function moderateImage(
     );
     // Trip the cooldown here too. Reaching this branch means we
     // failed to even *read* an HTTP status from OpenAI — either our
-    // 10s `AbortController` fired (upstream slower than 10s ≈ overload)
-    // or the connection died outright (DNS / TCP / TLS / transport).
-    // Both shapes are the "upstream is unhealthy from this isolate"
-    // case the cooldown is meant to dampen. Without this, a hung
-    // upstream that times out instead of returning 5xx escapes the
-    // backoff entirely and we keep paying the 10s timeout per request
-    // for the whole burst.
+    // `AbortController` fired (upstream slower than `REQUEST_TIMEOUT_MS`
+    // ≈ overload) or the connection died outright (DNS / TCP / TLS /
+    // transport). Both shapes are the "upstream is unhealthy from this
+    // isolate" case the cooldown is meant to dampen. Without this, a
+    // hung upstream that times out instead of returning 5xx escapes the
+    // backoff entirely and we keep paying the full `REQUEST_TIMEOUT_MS`
+    // per request for the whole burst.
     cooldownUntil = Date.now() + COOLDOWN_MS;
     return unavailable();
   } finally {
