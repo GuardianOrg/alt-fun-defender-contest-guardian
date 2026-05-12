@@ -129,6 +129,12 @@ export function useChart({
         // hid useful precision on the new sub-minute intervals.
         secondsVisible: true,
       },
+      handleScale: {
+        mouseWheel: false,
+      },
+      handleScroll: {
+        vertTouchDrag: false,
+      },
     });
 
     chartRef.current = chart;
