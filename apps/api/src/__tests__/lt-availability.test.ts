@@ -129,6 +129,69 @@ describe("getLiveLtAvailability", () => {
     expect(result.liveSymbols.has("INTERNAL2L")).toBe(false);
   });
 
+  it("treats a 200 with `text/html` (SPA shell fallback) as not-live", async () => {
+    // bounce.tech is a SPA that returns its HTML shell with HTTP 200
+    // for every URL that doesn't match a real static asset, including
+    // `/leveraged-tokens/<not-yet-published>.png`. Without inspecting
+    // the response `Content-Type`, the live filter is permanently
+    // no-op'd because every HEAD comes back 200. This test pins the
+    // SPA-shell rejection so a regression here can't silently re-open
+    // the filter to every unsupported LT.
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if ((init?.method ?? "GET").toUpperCase() === "HEAD") {
+        return new Response(null, {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+      }
+      throw new Error("Unexpected fetch path");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getLiveLtAvailability({
+      fetchSupportedLts: async () => [
+        makeLT({
+          address: "0xcccc0000000000000000000000000000000000cc",
+          symbol: "BRENTOIL2L",
+          targetAsset: "xyz:BRENTOIL",
+          targetLeverage: 2,
+          isLong: true,
+        }),
+      ],
+    });
+
+    expect(result.liveSymbols.has("BRENTOIL2L")).toBe(false);
+    expect(result.liveUnderlyings.has("xyz:BRENTOIL")).toBe(false);
+  });
+
+  it("treats a 200 with an `image/*` Content-Type as live", async () => {
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if ((init?.method ?? "GET").toUpperCase() === "HEAD") {
+        return new Response(null, {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        });
+      }
+      throw new Error("Unexpected fetch path");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getLiveLtAvailability({
+      fetchSupportedLts: async () => [
+        makeLT({
+          address: "0xdddd0000000000000000000000000000000000dd",
+          symbol: "HYPE2L",
+          targetAsset: "HYPE",
+          targetLeverage: 2,
+          isLong: true,
+        }),
+      ],
+    });
+
+    expect(result.liveSymbols.has("HYPE2L")).toBe(true);
+    expect(result.liveUnderlyings.has("HYPE")).toBe(true);
+  });
+
   it("treats LTs as live when the HEAD checker throws (fail-open)", async () => {
     // Failure-mode rationale lives on the module — a transient CDN error
     // should never flip a previously-live LT to hidden, so the checker

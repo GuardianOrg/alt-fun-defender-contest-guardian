@@ -332,14 +332,23 @@ async function defaultSymbolChecker(symbol: string): Promise<boolean> {
   const timer = setTimeout(() => controller.abort(), HEAD_REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(url, { method: "HEAD", signal: controller.signal });
-    if (res.ok) return true;
-    // 404 is the only "definitively not live" status — BounceTech's
-    // CDN doesn't host the logo because the LT isn't published yet.
-    // Every other non-2xx (403 from auth misconfig, 429 from rate-
-    // limits, 5xx from CDN edge failures) is a transient state we
-    // shouldn't punish users for: fail open and treat the LT as live.
-    if (res.status === 404) return false;
-    return true;
+    // 404 is the one definitive "not published" status (BounceTech CDN
+    // truly has no asset at this path). Every other non-2xx (403, 429,
+    // 5xx) is a transient outage class — fail open.
+    if (!res.ok) {
+      if (res.status === 404) return false;
+      return true;
+    }
+    // `res.ok` alone is NOT enough: bounce.tech is a SPA and serves
+    // its HTML shell (with a 200 status) for **every** URL that doesn't
+    // match a static asset, including `/leveraged-tokens/<unknown>.png`.
+    // The only way to tell a real published logo from the SPA-fallback
+    // shell is the `Content-Type` header — a real PNG comes back as
+    // `image/png` (with `Content-Length` and a numeric body), the SPA
+    // fallback comes back as `text/html`. Without this gate the live
+    // filter is permanently no-op'd because every `HEAD` returns 200.
+    const contentType = res.headers.get("content-type") ?? "";
+    return contentType.toLowerCase().startsWith("image/");
   } catch {
     // Network / abort — caller's `try/catch` already flips this to "live".
     throw new Error("HEAD failed");

@@ -14,8 +14,13 @@ export const BOUNCE_UI_BASE_URL = "https://bounce.tech" as const;
 
 /**
  * Canonical URL of an LT's logo on the BounceTech UI. The HEAD response on
- * this URL drives the live-LT filter — a 2xx means BounceTech has published
- * the LT, anything else means it's still internal/draft.
+ * this URL drives the live-LT filter, but the status alone is **not enough**
+ * because bounce.tech is a SPA: every URL (including `/leveraged-tokens/<not-
+ * yet-published>.png`) returns HTTP 200 with the SPA HTML shell rather than
+ * a clean 404. The check that actually distinguishes "live" from "internal"
+ * is the response `Content-Type` — a real PNG comes back as `image/png`,
+ * the SPA fallback comes back as `text/html`. See
+ * `apps/api/src/lib/lt-availability.ts → defaultSymbolChecker`.
  */
 export function getBounceLtImageUrl(symbol: string): string {
   return `${BOUNCE_UI_BASE_URL}/leveraged-tokens/${symbol}.png`;
