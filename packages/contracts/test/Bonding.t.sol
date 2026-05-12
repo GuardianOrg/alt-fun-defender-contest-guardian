@@ -579,6 +579,101 @@ contract BondingTest is DeployHelper {
         assertTrue(bonding.canGraduate(tokenAddr), "Should be graduatable after exchange rate increase");
     }
 
+    // ─── triggerGraduation Tests ─────────────────────────────────────────
+    // Permissionless phase-1 entry point. Used by the auto-buy keeper to
+    // unstick tokens whose `canGraduate` flips to true via LT
+    // appreciation alone (no buy in the loop) and which would otherwise
+    // require a sub-mint-floor closing buy through `Zap.buy`.
+
+    function test_triggerGraduation_succeedsWhenCanGraduate() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        assertTrue(bonding.canGraduate(tokenAddr));
+
+        // Permissionless caller — no router/owner role required.
+        address randomCaller = makeAddr("randomCaller");
+        vm.prank(randomCaller);
+        bonding.triggerGraduation(tokenAddr);
+
+        assertTrue(bonding.isGraduating(tokenAddr));
+        assertFalse(bonding.canGraduate(tokenAddr));
+    }
+
+    function test_triggerGraduation_emitsTokenGraduating() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+
+        vm.expectEmit(true, false, false, false);
+        emit Bonding.TokenGraduating(tokenAddr, 0, 0, 0, 0);
+        bonding.triggerGraduation(tokenAddr);
+    }
+
+    function test_triggerGraduation_advancesToGraduatedAfterFinalize() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+
+        bonding.triggerGraduation(tokenAddr);
+        bonding.finalizeGraduation(tokenAddr);
+
+        assertTrue(bonding.isGraduated(tokenAddr));
+    }
+
+    function test_triggerGraduation_revertsWhenCanGraduateFalse() public {
+        (address tokenAddr,) = _launchToken();
+        // Fresh-ish curve; nowhere near the USD threshold.
+        assertFalse(bonding.canGraduate(tokenAddr));
+
+        vm.expectRevert(Bonding.NotGraduatable.selector);
+        bonding.triggerGraduation(tokenAddr);
+    }
+
+    function test_triggerGraduation_revertsWhenAlreadyGraduating() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+
+        bonding.triggerGraduation(tokenAddr);
+
+        vm.expectRevert(Bonding.TokenIsGraduating.selector);
+        bonding.triggerGraduation(tokenAddr);
+    }
+
+    function test_triggerGraduation_revertsWhenAlreadyGraduated() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        // `_buyTokens` finalises inline if the trade flips the lifecycle.
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
+        assertTrue(bonding.isGraduated(tokenAddr));
+
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.triggerGraduation(tokenAddr);
+    }
+
+    function test_triggerGraduation_revertsForUnknownToken() public {
+        address unknown = address(0xdead);
+        vm.expectRevert(Bonding.TokenNotTrading.selector);
+        bonding.triggerGraduation(unknown);
+    }
+
+    function test_triggerGraduation_isPermissionless() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+
+        // Caller has no router role, no creator privilege, no ownership.
+        address rando = makeAddr("rando");
+        assertFalse(bonding.isRouter(rando));
+        assertTrue(bonding.owner() != rando);
+
+        vm.prank(rando);
+        bonding.triggerGraduation(tokenAddr);
+        assertTrue(bonding.isGraduating(tokenAddr));
+    }
+
     // ─── Post-Graduation Tests ───────────────────────────────────────────
 
     function test_postGraduation_buyReverts() public {

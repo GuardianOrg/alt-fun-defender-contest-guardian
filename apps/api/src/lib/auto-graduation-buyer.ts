@@ -1,8 +1,8 @@
 /**
- * Auto-buy keeper. Runs on the API Worker's `scheduled()` cron tick and
- * triggers phase 1 of graduation for tokens that have been pushed past
- * the USD threshold by LT price appreciation alone (i.e. without a buy
- * since the LT rallied).
+ * Auto-graduation keeper. Runs on the API Worker's `scheduled()` cron
+ * tick and triggers phase 1 of graduation for tokens that have been
+ * pushed past the USD threshold by LT price appreciation alone (i.e.
+ * without a buy since the LT rallied).
  *
  * Why this exists, in one paragraph
  * ---------------------------------
@@ -17,72 +17,65 @@
  * on its own. The contract is satisfied (`canGraduate(token) == true`)
  * but no user is in the loop to land the triggering buy. Without this
  * keeper the token sits in that limbo until the next user buy of any
- * size, which can be hours or days. This keeper closes that gap by
- * placing the smallest possible Zap buy — pure mechanical trigger,
- * no economic position taken — and then unwinds the resulting token
- * holding back to USDC the moment phase 2 finalises (or back through
- * the curve if the buy somehow didn't actually trigger graduation).
+ * size, which can be hours or days.
+ *
+ * The keeper closes that gap by calling the permissionless
+ * `Bonding.triggerGraduation(token)` entry point, which runs the same
+ * `_enterGraduating` flow the inline post-buy trigger uses but without
+ * needing a buy. No USDC, no LT, no token positions accumulated — pure
+ * mechanical trigger.
  *
  * Two phases per cron tick
  * ------------------------
- * 1. **Buy phase.** Sweep curve-phase tokens, filter to those where
- *    `Bonding.canGraduate(token) == true`, fire one minimum-size
- *    `Zap.buy` per match. Any buy of any size when `canGraduate` is
- *    already true will trigger phase 1 — the buy adds LT to the
- *    reserve, so the post-buy USD value is strictly larger than the
- *    pre-buy value that already passed the threshold (assuming the LT
- *    rate doesn't whipsaw between our `canGraduate` read and the buy
- *    landing — which is rare and self-healing: any leftover position
- *    is unwound by the sell phase).
- * 2. **Sell phase.** Sweep wallet positions accrued from past buys,
- *    sell anything we still hold via `Zap.sell`. We can sell a Curve-
- *    phase position back to the curve and a Graduated-phase position
- *    against the HyperSwap pair — only `Graduating` blocks us (Zap
- *    reverts with `TokenIsGraduating`), and that's transient
- *    (~60s window driven by the existing finalize keeper).
+ * 1. **Trigger phase.** Sweep curve-phase tokens, filter to those where
+ *    `Bonding.canGraduate(token) == true`, fire one
+ *    `Bonding.triggerGraduation(token)` per match.
+ * 2. **Sell phase.** Defensive: any token positions accumulated by the
+ *    legacy `Zap.buy`-trigger flow before the switch to
+ *    `triggerGraduation` are drained back to USDC via `Zap.sell`. The
+ *    new trigger flow doesn't create positions, so this phase is a
+ *    no-op once any historical inventory is gone.
  *
  * Wallet separation from the finalize keeper (intentional)
  * --------------------------------------------------------
  * The finalize keeper (`KEEPER_PRIVATE_KEY`) is on **big blocks** for
  * the ~2.5M-gas `Bonding.finalizeGraduation` call. This keeper must
- * stay on **small blocks** so its sub-second buys/sells aren't queued
- * behind the finalize keeper's ~60s big-block confirmations. Because
- * Hyperliquid L1's small/big-block toggle is sticky per-wallet, the
- * two keepers MUST be different wallets — never reuse keys. Setup
+ * stay on **small blocks** so its sub-second triggers/sells aren't
+ * queued behind the finalize keeper's ~60s big-block confirmations.
+ * Because Hyperliquid L1's small/big-block toggle is sticky per-wallet,
+ * the two keepers MUST be different wallets — never reuse keys. Setup
  * checklist for this wallet:
  *   1. Generate a fresh key — DO NOT reuse `KEEPER_PRIVATE_KEY` or
  *      the deployer key.
- *   2. Fund with HYPE for gas (each cycle is two ~120k-gas txs).
- *   3. Fund with USDC — sized for ~`MAX_BUYS_PER_TICK × TRIGGER_BUY_USDC`
- *      of in-flight capital plus a cushion for the brief window where
- *      tokens have been bought but not yet sold (until phase 2 lands).
- *   4. **Leave big blocks OFF** (default). If the wallet was ever
+ *   2. Fund with HYPE for gas (each trigger is one ~120k-gas tx; sells
+ *      are one or two depending on whether the token approval is
+ *      already in place).
+ *   3. **Leave big blocks OFF** (default). If the wallet was ever
  *      toggled on, run
  *        `DEPLOYER_PRIVATE_KEY=<this key> node packages/contracts/scripts/toggle-big-blocks.mjs off`
  *      to flip back to small blocks before deploying the secret.
- *   5. `wrangler secret put AUTO_GRADUATION_BUYER_PRIVATE_KEY` for
+ *   4. `wrangler secret put AUTO_GRADUATION_BUYER_PRIVATE_KEY` for
  *      prod / preview.
  *
  * Idempotency / safety properties
  * --------------------------------
- *   - `Bonding.canGraduate` is the same view the contract uses to
- *     decide whether to enter `Graduating` post-buy, so a `true` reply
- *     here means the next buy *will* fire phase 1 (modulo LT rate
- *     drift between read and tx, see above).
- *   - `Zap.buy` reverts with `TokenIsGraduating` once the lifecycle
- *     has flipped, so a race against another buyer who beat us to the
- *     trigger is safely caught and logged — not a double-trigger.
+ *   - `Bonding.canGraduate` is the same view `triggerGraduation`
+ *     re-checks on-chain, so a `true` reply here means the trigger
+ *     will succeed (modulo LT rate drift between read and tx — rare,
+ *     and the failed submit drops out cleanly with `NotGraduatable`).
+ *   - `triggerGraduation` reverts with `TokenIsGraduating` if another
+ *     caller (or a buy that crossed the threshold) beat us to it —
+ *     safely caught and logged, not a double-trigger.
  *   - `Zap.sell` reverts on `Graduating` lifecycle. Filter on the
  *     authoritative `Bonding.isGraduating` view so we only attempt
  *     sells in `Curve` or `Graduated`.
- *   - Per-tick caps (`MAX_BUYS_PER_TICK`, `MAX_SELLS_PER_TICK`) bound
- *     wall-clock per tick and capital exposure.
+ *   - Per-tick caps (`MAX_TRIGGERS_PER_TICK`, `MAX_SELLS_PER_TICK`)
+ *     bound wall-clock per tick.
  *   - All txs use manually-managed sequential nonces, matching
  *     `graduation-keeper.ts` — viem's pending-nonce auto-fetch double-
  *     counts on rapid back-to-back submits.
- *   - USDC is approved to `Zap` once at `MAX_UINT256`; the per-tick
- *     allowance check is a no-op after the first tick. Per-token
- *     approvals for sells use the same one-time `MAX_UINT256` pattern.
+ *   - Per-token approvals for sells use the one-time `MAX_UINT256`
+ *     pattern.
  */
 
 import {
@@ -95,10 +88,10 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
+  BondingAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
   TokenAbi,
-  USDC_ADDRESS,
   ZapAbi,
 } from "@launchpad/shared";
 
@@ -116,53 +109,14 @@ const MULTICALL3_ADDRESS =
   "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
 /**
- * Trigger buy size in USDC (6dp). Two floors interact here, and the
- * sell-side floor is the binding one — not the buy-side floor as the
- * earlier `$11` sizing assumed:
- *
- *   1. **Buy-side**: `Zap.MIN_USDC_AMOUNT` ($10) and the post-fee
- *      `netUsdc ≥ $10` check in `Zap._executeBuy`. A `$11` gross
- *      survives any `buyFeeBps ≤ Zap.MAX_FEE_BPS` (2%) skim, so the
- *      buy itself was never the constraint. This is the floor the
- *      original `$11` sizing was tuned against.
- *   2. **Sell-side (binding)**: `Zap._sellInternal` reverts with
- *      `BelowMinAmount` if `(ltReceived × exchangeRate) / 1e12 <
- *      MIN_USDC_AMOUNT` — i.e. the gross USDC the redemption would
- *      yield must be ≥ $10. The bot's roundtrip is buy → token →
- *      (graduation) → sell-back-to-USDC; if the LT exchange rate
- *      drifts down between the buy and the sell, the same LT
- *      quantity yields proportionally less USDC. With a `$11` gross
- *      buy (`$10.945` net of the 0.5% fee) the bot can only
- *      tolerate a `~9%` LT drawdown before the sell reverts and
- *      the position is stranded as undrainable dust.
- *
- * `$20` widens the LT-drift cushion to ~`50%` (`$19.90` net buy →
- * sell would only revert if the LT halved between phases). That's
- * comfortably above any realistic intra-cron LT move on the 2x/3x/5x
- * leveraged tokens we run against, with a meaningful margin even for
- * the 5x volatility profile during a market-wide flash crash. The
- * tradeoff is doubling the per-trigger capital exposure (`$11 → $20`
- * × `MAX_BUYS_PER_TICK = 5` → ~`$100` in flight), which is fine for a
- * pure mechanical trigger that the bot never wants as an economic
- * position. Stranded dust would be a worse outcome than slightly
- * higher in-flight capital, since the keeper has no recovery path
- * for sub-`$10` positions other than waiting for the LT to recover.
- *
- * Both floors are still cleared with comfortable margin under the
- * worst-case `Zap.MAX_FEE_BPS` (2%) so a future fee bump can't
- * quietly brick this keeper.
+ * Cap on `Bonding.triggerGraduation` submissions per cron tick. Each
+ * submission is sub-second (no receipt wait), so even at the cap the
+ * trigger phase costs ~5s wall-clock — well inside the ~30s cron
+ * budget shared with the other `scheduled()` jobs. A flood of newly-
+ * eligible tokens (e.g. an LT spikes 50% in a minute and pushes 20
+ * tokens over their thresholds at once) drains across multiple ticks.
  */
-const TRIGGER_BUY_USDC = 20_000_000n;
-
-/**
- * Cap on `Zap.buy` submissions per cron tick. Each submission is
- * sub-second (no receipt wait), so even at the cap the buy phase
- * costs ~5s wall-clock — well inside the ~30s cron budget shared
- * with the other `scheduled()` jobs. A flood of newly-eligible
- * tokens (e.g. an LT spikes 50% in a minute and pushes 20 tokens
- * over their thresholds at once) drains across multiple ticks.
- */
-const MAX_BUYS_PER_TICK = 5;
+const MAX_TRIGGERS_PER_TICK = 5;
 
 /**
  * Cap on `Zap.sell` submissions per cron tick. Sells are 2 txs each
@@ -183,10 +137,10 @@ const CURVE_TOKEN_FETCH_LIMIT = 500;
 
 /**
  * Pre-filter pool size pulled from Ponder for the sell phase. The
- * keeper's wallet only ever holds positions it acquired itself, so
- * this caps how many positions we'll consider in one tick. 200 is
- * far more than `MAX_BUYS_PER_TICK × <ticks-until-finalize>` could
- * ever produce, leaving headroom for any backlog.
+ * keeper's wallet only ever holds positions it acquired itself
+ * (legacy holdings from the previous `Zap.buy`-trigger flow); the
+ * current `triggerGraduation` flow doesn't accumulate any. 200 is
+ * far more than the legacy backlog could ever produce.
  */
 const POSITION_FETCH_LIMIT = 200;
 
@@ -297,8 +251,8 @@ export async function runAutoGraduationBuyer(
     blockTag: "pending",
   });
 
-  // ─── Buy phase ─────────────────────────────────────────────────────
-  nonce = await runBuyPhase(env, publicClient, wallet, account.address, nonce);
+  // ─── Trigger phase ─────────────────────────────────────────────────
+  nonce = await runTriggerPhase(env, publicClient, wallet, nonce);
 
   // ─── Sell phase ────────────────────────────────────────────────────
   await runSellPhase(env, publicClient, wallet, account.address, nonce);
@@ -321,16 +275,15 @@ type WalletClientT = ReturnType<
 >;
 type HttpTransportT = ReturnType<typeof http>;
 
-async function runBuyPhase(
+async function runTriggerPhase(
   env: AppBindings,
   publicClient: PublicClientT,
   wallet: WalletClientT,
-  bot: `0x${string}`,
   startNonce: number,
 ): Promise<number> {
   const candidates = await fetchCurveTokens(env.PONDER_URL);
   if (candidates === null) {
-    log("warn", "auto_buyer_ponder_unreachable", { phase: "buy" });
+    log("warn", "auto_buyer_ponder_unreachable", { phase: "trigger" });
     return startNonce;
   }
   if (candidates.length === 0) return startNonce;
@@ -339,7 +292,9 @@ async function runBuyPhase(
   // only when (a) the token exists, (b) lifecycle == Curve, AND (c)
   // either supply has sold out OR `realLT × exchangeRate ≥ threshold`.
   // (a) and (b) filter out anything that isn't a valid trigger target;
-  // (c) is the actual signal.
+  // (c) is the actual signal. `Bonding.triggerGraduation` re-checks
+  // all three on-chain so a stale-by-one-block `true` here just gets
+  // rejected with a clean `NotGraduatable` revert.
   const canGraduateResults = await publicClient.multicall({
     multicallAddress: MULTICALL3_ADDRESS,
     allowFailure: true,
@@ -363,23 +318,9 @@ async function runBuyPhase(
   if (triggerable.length === 0) return startNonce;
 
   let nonce = startNonce;
-
-  // One-time USDC approval to Zap. Allowance is read post-trigger so
-  // we don't burn an RPC call on the common "nothing to do" path.
-  // `MAX_UINT256` keeps subsequent ticks from re-spending gas on
-  // approvals — USDC supports it (no `revert`-on-existing-allowance
-  // quirks like the legacy USDT pattern).
-  const usdcAllowance = (await publicClient.readContract({
-    address: USDC_ADDRESS as `0x${string}`,
-    abi: ERC20_BALANCE_ABI,
-    functionName: "allowance",
-    args: [bot, CONTRACT_ADDRESSES.zap as `0x${string}`],
-  })) as bigint;
-
-  if (
-    usdcAllowance <
-    TRIGGER_BUY_USDC * BigInt(MAX_BUYS_PER_TICK)
-  ) {
+  let submitted = 0;
+  for (const tokenAddr of triggerable) {
+    if (submitted >= MAX_TRIGGERS_PER_TICK) break;
     try {
       // `account` and `chain` are intentionally omitted — they
       // default to the `LocalAccount` and `chain` bound at
@@ -392,59 +333,27 @@ async function runBuyPhase(
       // declared above keeps this call-site signature happy without
       // either override.
       const hash = await wallet.writeContract({
-        address: USDC_ADDRESS as `0x${string}`,
-        abi: TokenAbi,
-        functionName: "approve",
-        args: [CONTRACT_ADDRESSES.zap as `0x${string}`, maxUint256],
+        address: CONTRACT_ADDRESSES.bonding as `0x${string}`,
+        abi: BondingAbi,
+        functionName: "triggerGraduation",
+        args: [tokenAddr],
         nonce,
       });
-      log("info", "auto_buyer_usdc_approve_submitted", { hash, nonce });
-      nonce++;
-    } catch (err) {
-      log("error", "auto_buyer_usdc_approve_failed", {
-        nonce,
-        error: errMessage(err),
-      });
-      // Approval is a precondition for the buys — abort the buy
-      // phase and let the next tick retry. No nonce consumed.
-      return nonce;
-    }
-  }
-
-  let submitted = 0;
-  for (const tokenAddr of triggerable) {
-    if (submitted >= MAX_BUYS_PER_TICK) break;
-    try {
-      // See the USDC-approve writeContract above for the
-      // omit-`account`-and-`chain` rationale.
-      const hash = await wallet.writeContract({
-        address: CONTRACT_ADDRESSES.zap as `0x${string}`,
-        abi: ZapAbi,
-        functionName: "buy",
-        args: [
-          tokenAddr,
-          TRIGGER_BUY_USDC,
-          0n,
-          "0x0000000000000000000000000000000000000000",
-        ],
-        nonce,
-      });
-      log("info", "auto_buyer_buy_submitted", {
+      log("info", "auto_buyer_trigger_submitted", {
         token: tokenAddr,
         hash,
         nonce,
-        usdcAmount: TRIGGER_BUY_USDC.toString(),
       });
       submitted++;
       nonce++;
     } catch (err) {
       // Most likely cause: race with a real user buy that landed first
-      // and flipped lifecycle to `Graduating` (Zap reverts with
-      // `TokenIsGraduating`). Other causes: LT mint paused, USDC
-      // balance exhausted, nonce drift from the cron lapping itself.
-      // All recoverable next tick. No local nonce consumed (submission
-      // never broadcast).
-      log("warn", "auto_buyer_buy_failed", {
+      // and flipped lifecycle to `Graduating` (Bonding reverts with
+      // `TokenIsGraduating`); or LT rate drift between our
+      // `canGraduate` read and the trigger landing
+      // (`NotGraduatable`). All recoverable next tick. No local nonce
+      // consumed (submission never broadcast).
+      log("warn", "auto_buyer_trigger_failed", {
         token: tokenAddr,
         nonce,
         error: errMessage(err),

@@ -10,6 +10,17 @@ contract MockLeveragedToken is ERC20 {
     bool private _isLong;
     string private _underlyingSymbol;
     address public baseAsset; // USDC
+    /// @dev Mirrors BounceTech's `globalStorage.minTransactionSize()`
+    ///      floor on `mint`/`redeem`. When non-zero, calls below this
+    ///      base-asset threshold revert with `BelowMinTransactionSize`
+    ///      (selector `0x05eb05ac`), the same surface live LTs expose.
+    ///      Defaults to 0 so existing tests are unaffected.
+    uint256 private _minTransactionSize;
+
+    /// @dev Selector for `BelowMinTransactionSize()` — matches the bare
+    ///      4-byte hex BounceTech LTs surface, which the protocol's own
+    ///      ABI cannot decode.
+    error BelowMinTransactionSize();
 
     constructor(
         string memory name_,
@@ -32,6 +43,9 @@ contract MockLeveragedToken is ERC20 {
         uint256 baseAmount,
         uint256
     ) external returns (uint256 ltAmount) {
+        if (_minTransactionSize > 0 && baseAmount < _minTransactionSize) {
+            revert BelowMinTransactionSize();
+        }
         ERC20(baseAsset).transferFrom(msg.sender, address(this), baseAmount);
         ltAmount = baseToLtAmount(baseAmount);
         _mint(to, ltAmount);
@@ -44,6 +58,9 @@ contract MockLeveragedToken is ERC20 {
     ) external returns (uint256 baseAmount) {
         _burn(msg.sender, ltAmount);
         baseAmount = ltToBaseAmount(ltAmount);
+        if (_minTransactionSize > 0 && baseAmount < _minTransactionSize) {
+            revert BelowMinTransactionSize();
+        }
         ERC20(baseAsset).transfer(to, baseAmount);
     }
 
@@ -83,6 +100,18 @@ contract MockLeveragedToken is ERC20 {
         uint256 rate
     ) external {
         _exchangeRate = rate;
+    }
+
+    /// @dev Configure the mint/redeem floor. `0` (default) disables
+    ///      the check so existing tests remain unaffected.
+    function setMinTransactionSize(
+        uint256 size
+    ) external {
+        _minTransactionSize = size;
+    }
+
+    function minTransactionSize() external view returns (uint256) {
+        return _minTransactionSize;
     }
 
     /// @dev Mint LT directly for testing (no USDC required)

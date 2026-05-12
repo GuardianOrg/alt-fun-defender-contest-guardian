@@ -161,31 +161,30 @@ Two keepers run from the API Worker's `scheduled()` handler, each with its own h
 | Keeper | File | Wallet env | Block size | Job |
 |---|---|---|---|---|
 | Finalize | `src/lib/graduation-keeper.ts` | `KEEPER_PRIVATE_KEY` | **Big** (~2.5M gas / ~60s confirm) | Drives phase 2 — calls `Bonding.finalizeGraduation` for tokens currently in `Lifecycle.Graduating`. |
-| Auto-buy | `src/lib/auto-graduation-buyer.ts` | `AUTO_GRADUATION_BUYER_PRIVATE_KEY` | **Small** (~120k gas / sub-second) | Drives phase 1 for tokens whose `realLT × exchangeRate` crossed the USD threshold via pure LT price appreciation (no user buy in the loop). Fires the smallest valid `Zap.buy` to trigger graduation, then unwinds the resulting position via `Zap.sell` once phase 2 finalises. |
+| Auto-graduation | `src/lib/auto-graduation-buyer.ts` | `AUTO_GRADUATION_BUYER_PRIVATE_KEY` | **Small** (~120k gas / sub-second) | Drives phase 1 for tokens whose `realLT × exchangeRate` crossed the USD threshold via pure LT price appreciation (no user buy in the loop). Calls the permissionless `Bonding.triggerGraduation(token)` entry point — no USDC, no LT, no token positions accumulated. |
 
-The two keepers cooperate cleanly: the auto-buy keeper produces `Lifecycle.Graduating` tokens (via the trigger buy) and the finalize keeper drains them. Wall-clock recovery from "LT pumped, threshold crossed, no buys happening" to "token graduated and bot fully unwound" is `~1 cron tick + ~60s big-block confirm + 1 cron tick` ≈ 2-3 minutes.
+The two keepers cooperate cleanly: the auto-graduation keeper produces `Lifecycle.Graduating` tokens and the finalize keeper drains them. Wall-clock recovery from "LT pumped, threshold crossed, no buys happening" to "token graduated" is `~1 cron tick + ~60s big-block confirm` ≈ 1-2 minutes.
 
-### Auto-buyer wallet setup
+### Auto-graduation wallet setup
 
 1. Generate a fresh key — never reuse `KEEPER_PRIVATE_KEY` or the deployer key.
-2. Fund with HYPE for gas + `~$120` USDC of in-flight capital (`MAX_BUYS_PER_TICK × TRIGGER_BUY_USDC` = 5 × `$20`, plus a cushion for positions not yet unwound).
-3. **Leave big blocks OFF** (default). If the wallet was ever toggled on, run `DEPLOYER_PRIVATE_KEY=<this key> node packages/contracts/scripts/toggle-big-blocks.mjs off` to flip back to small blocks before deploying the secret. A wallet stuck on big blocks would queue every trigger buy behind a ~60s confirm, defeating the keeper's purpose.
+2. Fund with HYPE for gas. No USDC needed — `triggerGraduation` is a pure on-chain trigger and doesn't move any tokens. (Legacy `Zap.buy`-trigger flow used to need ~`$120` of USDC for in-flight capital; that's no longer the case.)
+3. **Leave big blocks OFF** (default). If the wallet was ever toggled on, run `DEPLOYER_PRIVATE_KEY=<this key> node packages/contracts/scripts/toggle-big-blocks.mjs off` to flip back to small blocks before deploying the secret. A wallet stuck on big blocks would queue every trigger behind a ~60s confirm, defeating the keeper's purpose.
 4. `wrangler secret put AUTO_GRADUATION_BUYER_PRIVATE_KEY` for prod / preview. Set in `.dev.vars` for local development. Leaving blank disables the keeper and logs a warn on every cron tick.
 
-### Auto-buyer mechanics
+### Auto-graduation mechanics
 
-The trigger amount (`TRIGGER_BUY_USDC` = `$20`, hard-coded) is sized against the **sell-side** floor, not the buy-side one. The buy-side check (`Zap.MIN_USDC_AMOUNT` = `$10` plus the post-fee `netUsdc ≥ $10` check in `Zap._executeBuy`) clears at any gross above `~$10.20`, but `Zap._sellInternal` reverts when `(ltReceived × exchangeRate) / 1e12 < MIN_USDC_AMOUNT` — i.e. the bot's sell-back-to-USDC must still yield ≥ `$10` gross. With a `$11` gross trigger (`$10.945` net after the 0.5% fee), the keeper could only tolerate a ~`9%` LT drawdown between buy and sell before the position stranded as undrainable dust; `$20` widens that cushion to ~`50%`, comfortably above any realistic intra-cron LT move on the 2x/3x/5x leveraged tokens we run against. Doubling per-trigger capital exposure (`$11 → $20` × 5 → ~`$100` in flight) is the cheap side of the trade — the keeper has no recovery path for sub-`$10` positions other than waiting for the LT to recover.
+Why the keeper exists at all: graduation phase 1 normally fires inline at the end of a `Zap.buy` whose post-buy `realLT × exchangeRate ≥ Bonding.graduationThresholdUsd`. But because the bonding curve's reserve is a leveraged token, the USD value can drift past the threshold without any buys — a user funds the bonding curve close to the threshold, stops, and the LT then rallies on its own. `Bonding.canGraduate(token)` is `true` but no user is in the loop to land the triggering tx.
 
-Detection uses `Bonding.canGraduate(token)`, the same view the contract checks post-buy when deciding whether to enter `Lifecycle.Graduating`. Any buy of any size when `canGraduate` is already `true` will fire phase 1 (the buy adds LT to the reserve, so post-buy `realLT × exchangeRate` is strictly larger than the pre-buy value that already passed the threshold).
+`Bonding.triggerGraduation(token)` is the permissionless entry point that runs `_enterGraduating` directly without requiring a buy. It re-checks all the same lifecycle gates (`creator != 0`, `lifecycle == Curve`, `canGraduate(token)`) on-chain, so a stale-by-one-block read just gets rejected with a clean `NotGraduatable` revert and the keeper retries on the next tick. This entry point also closes a structural-stuck case at the contract layer: a closing `Zap.buy` of size N can hit the BounceTech LT mint floor (`$10`) when the cap-implied `baseToConvert` falls below it; without the trigger entry point, such tokens would be permanently un-graduatable via `Zap.buy` (the Zap-side floor-bump in `Zap._executeBuy` is the matching contract-layer fix on the user path).
 
-The unwind step is robust to two failure modes the trigger buy could land in:
+Detection uses `Bonding.canGraduate(token)`, the same view the contract checks post-buy when deciding whether to enter `Lifecycle.Graduating` — single source of truth across the keeper, the inline post-buy trigger, and `triggerGraduation`'s own pre-check.
 
-- **Trigger buy fired but graduation didn't complete in the same tx** (LT rate dropped between the `canGraduate` read and the buy landing — rare but possible). Token stays on the curve; `Zap.sell` works against the curve directly. Position drains on the next sell-phase tick.
-- **Trigger buy fired and graduation completed**. Token enters `Lifecycle.Graduating`, then `Lifecycle.Graduated` once the finalize keeper lands. Sell phase skips while `Bonding.isGraduating(token)` returns `true`, then sells against the HyperSwap V2 pair on the next tick after finalize.
+The sell phase is purely defensive — it drains any token positions accumulated by the legacy `Zap.buy`-trigger flow before this switch. `triggerGraduation` doesn't custody anything, so the sell phase is a no-op once the historical inventory is gone (and can be removed in a later release).
 
-Both per-tick caps (`MAX_BUYS_PER_TICK = 5`, `MAX_SELLS_PER_TICK = 5`) bound capital exposure and wall-clock per tick. A flood of newly-eligible tokens drains across multiple ticks; the `tokens.ltReserve desc` Ponder ordering on the candidate fetch means closest-to-threshold tokens are drained first.
+Per-tick cap `MAX_TRIGGERS_PER_TICK = 5` bounds wall-clock per tick. A flood of newly-eligible tokens drains across multiple ticks; the `tokens.ltReserve desc` Ponder ordering on the candidate fetch means closest-to-threshold tokens are drained first.
 
-Manual nonce management mirrors `graduation-keeper.ts` (viem's pending-nonce auto-fetch double-counts on rapid back-to-back submits); USDC + per-token approvals to `Zap` are done once at `MAX_UINT256` and then skipped on subsequent ticks via an allowance pre-check.
+Manual nonce management mirrors `graduation-keeper.ts` (viem's pending-nonce auto-fetch double-counts on rapid back-to-back submits). The trigger phase has no allowance / approval surface; per-token approvals for the legacy sell phase are still done once at `MAX_UINT256`.
 
 ## Durable Objects
 

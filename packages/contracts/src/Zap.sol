@@ -330,6 +330,21 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
                     baseToConvert += 1;
                 }
                 if (baseToConvert > netUsdc) baseToConvert = netUsdc;
+
+                // Floor-bump: the cap-implied mint can fall below the LT
+                // mint floor (BounceTech reverts with `BelowMinTransactionSize`,
+                // selector `0x05eb05ac`), making the token un-graduatable
+                // via any `Zap.buy`. Mint at the floor instead and refund
+                // the LT overshoot to `msg.sender` after the curve buy
+                // (see the LT-excess transfer below). Refund must be in
+                // LT, not USDC — round-tripping the overshoot through
+                // `redeem` would re-incur BounceTech's redemption fee on
+                // dust, defeating the pre-sizing optimisation this branch
+                // exists for.
+                if (baseToConvert < MIN_USDC_AMOUNT) {
+                    baseToConvert = MIN_USDC_AMOUNT;
+                    if (baseToConvert > netUsdc) revert BelowMinAmount();
+                }
             }
 
             $.usdc.forceApprove(lt, baseToConvert);
@@ -339,9 +354,28 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
 
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
 
-        // Pro-rate in USDC space: after pre-sizing `amountInUsed ≈ ltMinted`,
-        // so the user's actual spend ratio is `baseToConvert / netUsdc`.
-        actualFee = (usdcAmount * buyFeeBps_ * baseToConvert) / (BPS_DENOM * netUsdc);
+        // Refund LT we minted but the curve didn't consume. In the
+        // floor-bump branch this is the meaningful overshoot; on the
+        // dust-cap branch it's at most sub-wei from `_computeBuy`'s
+        // round-up; on the non-cap and post-graduation branches it's
+        // identically zero (`amountInUsed == ltMinted` by construction).
+        // Sent to `msg.sender` — `_buyInternal` is `nonReentrant`,
+        // mirroring the safe-transfer-at-end-of-flow pattern used for
+        // the USDC refund below.
+        uint256 ltExcess = ltMinted - amountInUsed;
+        if (ltExcess > 0) {
+            IERC20(lt).safeTransfer(msg.sender, ltExcess);
+        }
+
+        // Pro-rate fees against the LT actually consumed by the curve.
+        // For non-cap and dust-cap buys `amountInUsed ≈ ltMinted` so
+        // `effectiveBaseSpent ≈ baseToConvert` and behaviour matches the
+        // pre-floor-bump formula. The floor-bump branch overshoots the
+        // mint past what the curve consumes; charging fee on the minted
+        // size (rather than the consumed slice) would over-charge users
+        // who hit this dust band.
+        uint256 effectiveBaseSpent = (amountInUsed * baseToConvert) / ltMinted;
+        actualFee = (usdcAmount * buyFeeBps_ * effectiveBaseSpent) / (BPS_DENOM * netUsdc);
         uint256 feeRefund = feeOnGross - actualFee;
 
         uint256 usdcLeft = netUsdc - baseToConvert;

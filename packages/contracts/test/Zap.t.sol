@@ -8,6 +8,8 @@ import {Token} from "../src/Token.sol";
 import {FeeVault} from "../src/FeeVault.sol";
 import {Zap} from "../src/Zap.sol";
 import {IBounceLeveragedToken} from "../src/interfaces/IBounceLeveragedToken.sol";
+import {IPair} from "../src/interfaces/IPair.sol";
+import {MockLeveragedToken} from "./mocks/MockLeveragedToken.sol";
 import {DeployHelper} from "./DeployHelper.sol";
 
 contract ZapV2 is Zap {
@@ -542,9 +544,9 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
     }
 
-    /// @dev Issue #12: the cap-binding buy must not round-trip leftover LT
-    ///      through `redeem`. With `LT.redeem` mocked to revert, the
-    ///      graduating buy must still succeed.
+    /// @dev The cap-binding buy must not round-trip leftover LT through
+    ///      `redeem`. With `LT.redeem` mocked to revert, the graduating
+    ///      buy must still succeed.
     function test_buy_capPath_doesNotInvokeLTRedeem() public {
         address tokenAddr = _createToken(0);
 
@@ -558,9 +560,12 @@ contract ZapTest is DeployHelper {
         zap.buy(tokenAddr, buyAmount, 0, address(0));
         vm.stopPrank();
 
-        assertEq(lt.balanceOf(trader), 0, "User must not be left holding LT");
         // Sub-wei rounding residue from `_computeBuy`'s round-up of
-        // `amountInUsed`. Sits below BounceTech's `$10` redeem floor.
+        // `amountInUsed` is now refunded to `msg.sender` rather than
+        // sitting in the Zap. Same dust either way — well below the LT
+        // mint/redeem floor — and this matches the production refund
+        // path for the floor-bump branch.
+        assertLt(lt.balanceOf(trader), 1e6, "Trader LT residue must be dust");
         assertLt(lt.balanceOf(address(zap)), 1e6, "Zap LT residue must be dust");
         assertTrue(bonding.isGraduated(tokenAddr) || bonding.isGraduating(tokenAddr));
     }
@@ -593,6 +598,148 @@ contract ZapTest is DeployHelper {
         vm.stopPrank();
 
         assertEq(usdc.balanceOf(trader), 0, "Non-cap buy should spend full USDC");
+    }
+
+    // ─── Floor-bump tests (structural-stuck case) ────────────────────────
+    // When LT appreciation pushes a near-sellout curve past the USD
+    // graduation threshold, the next cap-binding buy can size a sub-
+    // `MIN_USDC_AMOUNT` LT mint. BounceTech LTs reject such mints with
+    // `BelowMinTransactionSize` (selector `0x05eb05ac`). Without the
+    // Zap floor-bump these tokens would be permanently un-graduatable
+    // via `Zap.buy`. The fix bumps `baseToConvert` up to
+    // `MIN_USDC_AMOUNT` and refunds the LT overshoot to `msg.sender`.
+
+    /// @dev Drains the curve via direct `bonding.buy` calls (bypassing
+    ///      Zap, fees, and the LT mint floor) to set up a tightly-capped
+    ///      closing-buy state. Uses `mintDirect` so it works regardless
+    ///      of any configured `minTransactionSize` on the mock LT.
+    function _drainCurveDirectly(
+        address tokenAddr,
+        uint256 ltAmount
+    ) internal {
+        address drainer = makeAddr("curveDrainer");
+        lt.mintDirect(drainer, ltAmount);
+        if (!bonding.isRouter(drainer)) bonding.addRouter(drainer);
+        vm.startPrank(drainer);
+        lt.approve(address(curveRouter), ltAmount);
+        bonding.buy(ltAmount, tokenAddr, 0, drainer);
+        vm.stopPrank();
+    }
+
+    /// @dev Computes the LT amount needed to push the pair's `reserveAsset`
+    ///      to within `headroomWei` of the overflow cap (i.e. the next
+    ///      cap-binding buy will size `amountInUsed = headroomWei`).
+    function _drainAmountForCapHeadroom(
+        address tokenAddr,
+        uint256 headroomWei
+    ) internal view returns (uint256) {
+        address pairAddr = bonding.getTokenInfo(tokenAddr).pair;
+        IPair pair = IPair(pairAddr);
+        (uint256 reserveToken, uint256 reserveAsset) = pair.getReserves();
+        uint256 realBalance = pair.tokenBalance();
+        uint256 cappedReserveToken = reserveToken - realBalance;
+        uint256 capCeiling = (pair.k() + cappedReserveToken - 1) / cappedReserveToken;
+        return capCeiling - reserveAsset - headroomWei;
+    }
+
+    function test_buy_capPath_floorBump_succeeds() public {
+        address tokenAddr = _createToken(0);
+
+        // Drain the curve to leave a tiny gap (5e6 wei LT) below the
+        // overflow cap, so the next cap-binding buy sizes `amountInUsed
+        // = 5e6 wei`. With rate `1` and the floor at `MIN_USDC_AMOUNT
+        // = 10e6` wei, the cap-implied `baseToConvert = 5e6` wei is
+        // half the floor — squarely in the structural-stuck band.
+        uint256 drainHeadroom = 5e6;
+        uint256 drainAmount = _drainAmountForCapHeadroom(tokenAddr, drainHeadroom);
+        _drainCurveDirectly(tokenAddr, drainAmount);
+
+        // Pump the rate so `canGraduate` flips true via the USD trigger
+        // without an additional buy. 10% bump puts the LT raised
+        // comfortably over the threshold.
+        lt.setExchangeRate((LT_EXCHANGE_RATE * 11) / 10);
+        assertTrue(bonding.canGraduate(tokenAddr), "Curve should be graduatable post rate pump");
+
+        // Activate the BounceTech-style mint floor that mirrors
+        // `Zap.MIN_USDC_AMOUNT`. Without the floor-bump, the closing buy
+        // would call `lt.mint(baseToConvert < MIN_USDC_AMOUNT)` and
+        // revert with `BelowMinTransactionSize`.
+        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderLtBefore = lt.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        uint256 tokensOut = zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        // Buy completed instead of reverting — the floor-bump branch
+        // bypassed the BounceTech mint floor.
+        assertGt(tokensOut, 0, "Closing buy should consume the dust supply");
+        assertGt(lt.balanceOf(trader) - traderLtBefore, 0, "Floor-bump LT excess must refund to trader");
+        assertTrue(
+            bonding.isGraduating(tokenAddr) || bonding.isGraduated(tokenAddr), "Closing buy should arm graduation"
+        );
+    }
+
+    function test_buy_capPath_floorBump_refundsLtToCaller() public {
+        address tokenAddr = _createToken(0);
+
+        // Same drain as the success test, but verify the LT excess
+        // matches `ltMinted - amountInUsed`. With base = MIN_USDC_AMOUNT
+        // and rate `1.1`, ltMinted = MIN_USDC_AMOUNT * 1e18 / 1.1e18 ≈
+        // 9.09e6 wei; amountInUsed = 5e6 wei; ltExcess ≈ 4.09e6 wei.
+        uint256 drainHeadroom = 5e6;
+        _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, drainHeadroom));
+
+        uint256 newRate = (LT_EXCHANGE_RATE * 11) / 10;
+        lt.setExchangeRate(newRate);
+        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderLtBefore = lt.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        uint256 ltMinted = (zap.MIN_USDC_AMOUNT() * 1e18) / newRate;
+        uint256 ltExcessExpected = ltMinted - drainHeadroom;
+        assertApproxEqAbs(lt.balanceOf(trader) - traderLtBefore, ltExcessExpected, 1, "LT excess refund");
+    }
+
+    function test_buy_capPath_floorBump_proratesFee() public {
+        address tokenAddr = _createToken(0);
+
+        uint256 drainHeadroom = 5e6;
+        _drainCurveDirectly(tokenAddr, _drainAmountForCapHeadroom(tokenAddr, drainHeadroom));
+
+        lt.setExchangeRate((LT_EXCHANGE_RATE * 11) / 10);
+        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 vaultBefore = usdc.balanceOf(address(feeVault));
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        // Floor-bump branch overshoots the mint past what the curve
+        // consumes; fee is prorated against LT actually consumed
+        // (sub-MIN_USDC_AMOUNT here), not against the minted amount.
+        // `feeOnGross` would be (buyAmount * 50) / 10000 ≈ 6e18;
+        // actualFee on a few-wei curve consumption is a tiny fraction
+        // of that.
+        uint256 feeOnGross = (buyAmount * zap.buyFeeBps()) / zap.BPS_DENOM();
+        uint256 actualFee = usdc.balanceOf(address(feeVault)) - vaultBefore;
+        assertLt(actualFee, feeOnGross, "Fee must be prorated below the gross fee");
+        assertGt(actualFee, 0, "Some fee should still accrue from the dust consumption");
     }
 
     // ─── Round Trip Tests ────────────────────────────────────────────────

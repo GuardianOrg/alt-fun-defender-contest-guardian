@@ -946,6 +946,19 @@ export const BondingAbi = [
   },
   {
     "type": "function",
+    "name": "triggerGraduation",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "uniswapV2Factory",
     "inputs": [],
     "outputs": [
@@ -1434,6 +1447,11 @@ export const BondingAbi = [
   {
     "type": "error",
     "name": "NotCreator",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotGraduatable",
     "inputs": []
   },
   {

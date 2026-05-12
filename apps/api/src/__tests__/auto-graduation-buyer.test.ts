@@ -8,7 +8,7 @@ import type { AppBindings } from "../lib/types.js";
 //
 // The keeper does three things at viem's surface:
 //   - `getTransactionCount` (initial nonce read)
-//   - `readContract` (USDC allowance pre-buy)
+//   - `readContract` (legacy: held in case we need it again)
 //   - `multicall` (canGraduate / balanceOf+allowance / isGraduating)
 //   - `writeContract` (every submitted tx)
 // Mocking at the viem boundary keeps the keeper's branching logic
@@ -165,7 +165,7 @@ describe("runAutoGraduationBuyer — gating", () => {
     expect(mockGetTransactionCount).toHaveBeenCalledTimes(1);
   });
 
-  it("aborts the buy phase when Ponder is unreachable but still runs the sell phase", async () => {
+  it("aborts the trigger phase when Ponder is unreachable but still runs the sell phase", async () => {
     mockGetTransactionCount.mockResolvedValue(7);
     mockFetch.mockImplementation(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(init.body as string) as PonderRequestBody;
@@ -178,17 +178,18 @@ describe("runAutoGraduationBuyer — gating", () => {
 
     await runAutoGraduationBuyer(baseEnv);
 
-    // Buy phase aborted before any RPC reads (Ponder returned null).
+    // Trigger phase aborted before any RPC reads (Ponder returned null).
     expect(mockMulticall).not.toHaveBeenCalled();
     expect(mockReadContract).not.toHaveBeenCalled();
     expect(mockWriteContract).not.toHaveBeenCalled();
 
     // BUT — and this is the point of the test — a Ponder failure
-    // on the buy-phase fetch must NOT short-circuit the sell phase.
-    // The sell phase must still query Ponder for the bot's
-    // outstanding positions so any token whose phase 2 just landed
-    // gets unwound. Assert the sell-phase fetch fired by checking
-    // mockFetch saw a body containing the `walletPositions` query.
+    // on the trigger-phase fetch must NOT short-circuit the sell
+    // phase. The sell phase must still query Ponder for any legacy
+    // positions accumulated by the previous `Zap.buy`-trigger flow
+    // so they get unwound. Assert the sell-phase fetch fired by
+    // checking mockFetch saw a body containing the `walletPositions`
+    // query.
     const sellFetchSeen = mockFetch.mock.calls.some((call) => {
       const init = call[1] as RequestInit;
       const body = JSON.parse(init.body as string) as PonderRequestBody;
@@ -198,10 +199,10 @@ describe("runAutoGraduationBuyer — gating", () => {
   });
 });
 
-describe("runAutoGraduationBuyer — buy phase", () => {
-  it("submits one Zap.buy per `canGraduate=true` token, capped at MAX_BUYS_PER_TICK", async () => {
-    // Six candidates — five expected to clear the per-tick cap, the
-    // sixth held back for the next tick. Two of the six report
+describe("runAutoGraduationBuyer — trigger phase", () => {
+  it("submits one Bonding.triggerGraduation per `canGraduate=true` token, capped at MAX_TRIGGERS_PER_TICK", async () => {
+    // Eight candidates — five expected to clear the per-tick cap, the
+    // sixth held back for the next tick. Two of the eight report
     // `canGraduate=false` (e.g. their LT just dropped between Ponder
     // freshness and the multicall) and must be filtered out.
     const candidates = Array.from(
@@ -235,10 +236,6 @@ describe("runAutoGraduationBuyer — buy phase", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
-    // USDC allowance is already at MAX — skip the approval branch
-    // so the test asserts purely on the buy submissions.
-    mockReadContract.mockResolvedValue(2n ** 256n - 1n);
-
     let writeCallCount = 0;
     mockWriteContract.mockImplementation(() =>
       Promise.resolve(`0x${"a".repeat(64)}${writeCallCount++}` as `0x${string}`),
@@ -246,23 +243,25 @@ describe("runAutoGraduationBuyer — buy phase", () => {
 
     await runAutoGraduationBuyer(baseEnv);
 
-    // 5 buys (per-tick cap), 0 approvals (already maxed), 0 sells.
+    // 5 triggers (per-tick cap), 0 sells. No USDC approval — the
+    // permissionless `triggerGraduation` entry point doesn't move
+    // any tokens, so the keeper has nothing to pre-approve.
     expect(mockWriteContract).toHaveBeenCalledTimes(5);
 
-    // Every write must be a `Zap.buy` and use sequential nonces
-    // starting at the pending-nonce read.
+    // Every write must be a `Bonding.triggerGraduation` and use
+    // sequential nonces starting at the pending-nonce read.
     for (let i = 0; i < 5; i++) {
       const call = mockWriteContract.mock.calls[i]![0];
-      expect(call.functionName).toBe("buy");
+      expect(call.functionName).toBe("triggerGraduation");
       expect(call.nonce).toBe(100 + i);
     }
 
-    // Buys hit candidates[0..4], skipping nothing — the false-canGraduate
-    // entries (indices 6, 7) are filtered before the cap kicks in.
-    const buyTokens = mockWriteContract.mock.calls
+    // Triggers hit candidates[0..4] — the false-canGraduate entries
+    // (indices 6, 7) are filtered before the cap kicks in.
+    const triggerTokens = mockWriteContract.mock.calls
       .slice(0, 5)
       .map((c) => c[0].args[0]);
-    expect(buyTokens).toEqual(candidates.slice(0, 5));
+    expect(triggerTokens).toEqual(candidates.slice(0, 5));
 
     // Regression guard: writeContract calls MUST NOT pass an `account`
     // override. Passing an Address string (e.g. `account: bot`) here
@@ -278,7 +277,12 @@ describe("runAutoGraduationBuyer — buy phase", () => {
     }
   });
 
-  it("submits a USDC approval before buys when the existing allowance is too low", async () => {
+  it("does not pre-approve USDC — `triggerGraduation` doesn't move any tokens", async () => {
+    // Regression guard against the legacy `Zap.buy`-trigger flow,
+    // which prepended a `MAX_UINT256` USDC approve. The new flow
+    // doesn't custody USDC at all, so any approve here would be a
+    // wasted gas + nonce burn (and a misleading on-chain footprint
+    // for anyone tracing the keeper wallet).
     const candidate = "0x000000000000000000000000000000000000000a" as const;
 
     mockGetTransactionCount.mockResolvedValue(50);
@@ -295,8 +299,6 @@ describe("runAutoGraduationBuyer — buy phase", () => {
       .mockResolvedValueOnce([{ status: "success", result: true }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
-    // Allowance below the per-tick budget → approve must fire first.
-    mockReadContract.mockResolvedValue(0n);
 
     let i = 0;
     mockWriteContract.mockImplementation(() =>
@@ -305,24 +307,26 @@ describe("runAutoGraduationBuyer — buy phase", () => {
 
     await runAutoGraduationBuyer(baseEnv);
 
-    expect(mockWriteContract).toHaveBeenCalledTimes(2);
-    expect(mockWriteContract.mock.calls[0]![0].functionName).toBe("approve");
+    // Single tx — the trigger itself. No allowance read, no
+    // approval write.
+    expect(mockReadContract).not.toHaveBeenCalled();
+    expect(mockWriteContract).toHaveBeenCalledTimes(1);
+    expect(mockWriteContract.mock.calls[0]![0].functionName).toBe(
+      "triggerGraduation",
+    );
     expect(mockWriteContract.mock.calls[0]![0].nonce).toBe(50);
-    expect(mockWriteContract.mock.calls[1]![0].functionName).toBe("buy");
-    // Buy nonce = approval nonce + 1.
-    expect(mockWriteContract.mock.calls[1]![0].nonce).toBe(51);
   });
 
-  it("reuses the same nonce for the next buy when a submission rejects pre-broadcast", async () => {
+  it("reuses the same nonce for the next trigger when a submission rejects pre-broadcast", async () => {
     // The keeper's nonce-management contract: a `writeContract` that
     // throws (typically a viem pre-flight `eth_call` revert — token
-    // raced into `Graduating`, USDC balance exhausted, etc.) does
-    // NOT consume the local nonce slot, because the tx never went
-    // out on the wire. The next iteration of the buy loop must
-    // therefore reuse that same nonce. Without this property a
-    // single mid-batch failure would silently shift every subsequent
-    // tx into a nonce-gap and they'd all stall in the mempool until
-    // the gap fills (or never).
+    // raced into `Graduating`, LT rate dropped so `canGraduate`
+    // flipped to false, etc.) does NOT consume the local nonce slot,
+    // because the tx never went out on the wire. The next iteration
+    // of the trigger loop must therefore reuse that same nonce.
+    // Without this property a single mid-batch failure would
+    // silently shift every subsequent tx into a nonce-gap and they'd
+    // all stall in the mempool until the gap fills (or never).
     const candidates = [
       "0x000000000000000000000000000000000000000a",
       "0x000000000000000000000000000000000000000b",
@@ -345,10 +349,9 @@ describe("runAutoGraduationBuyer — buy phase", () => {
       )
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
-    mockReadContract.mockResolvedValue(2n ** 256n - 1n); // skip approval
 
-    // First buy rejects (simulating a `TokenIsGraduating` race);
-    // remaining buys succeed.
+    // First trigger rejects (simulating a `TokenIsGraduating` race);
+    // remaining triggers succeed.
     let i = 0;
     mockWriteContract.mockImplementation(() => {
       const callIdx = i++;
@@ -362,10 +365,11 @@ describe("runAutoGraduationBuyer — buy phase", () => {
 
     // Three writeContract calls fired (one rejected + two
     // succeeded). The two successful ones must use nonces 900 and
-    // 901 — i.e. the second buy reused the slot the rejected first
-    // buy didn't consume. If the keeper had naively incremented
-    // post-throw, the second buy would have used nonce 901 and the
-    // third 902, leaving nonce 900 permanently unfilled.
+    // 901 — i.e. the second trigger reused the slot the rejected
+    // first trigger didn't consume. If the keeper had naively
+    // incremented post-throw, the second trigger would have used
+    // nonce 901 and the third 902, leaving nonce 900 permanently
+    // unfilled.
     expect(mockWriteContract).toHaveBeenCalledTimes(3);
     expect(mockWriteContract.mock.calls[0]![0].nonce).toBe(900);
     expect(mockWriteContract.mock.calls[1]![0].nonce).toBe(900); // retry reuses

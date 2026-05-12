@@ -275,6 +275,8 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     ///      overlay rather than a generic error.
     error TokenIsGraduating();
     error NotGraduating();
+    /// @dev `triggerGraduation` called when `canGraduate(token)` is false.
+    error NotGraduatable();
     error ZeroAddress();
     error InvalidInput();
     error SlippageExceeded();
@@ -842,6 +844,32 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         });
 
         emit TokenGraduating(tokenAddress, tokensForLP, ltFromPair, lpBurned, unsoldBurned);
+    }
+
+    /// @notice Permissionless trigger for phase 1 of graduation. Same flow as
+    ///         the inline post-buy trigger inside `_executeBuy`, but callable
+    ///         without any buy. Closes the case where `canGraduate` is true
+    ///         (LT appreciation pushed the curve past the USD threshold) but
+    ///         the closing buy on the curve would mint below the BounceTech
+    ///         LT mint floor and revert with `BelowMinTransactionSize`,
+    ///         making the token un-graduatable via `Zap.buy`.
+    /// @dev    `_enterGraduating` reads pair reserves and the launch-time
+    ///         virtual reserve only — it does not depend on a buy having
+    ///         just landed, so the same logic is safe to expose as a
+    ///         standalone entry point. The lifecycle pre-checks mirror
+    ///         `Bonding.buy`; the launch trading delay is intentionally
+    ///         not enforced because `canGraduate` already requires either
+    ///         the USD threshold or full curve sellout, both of which are
+    ///         unreachable from a fresh launch within the delay window.
+    function triggerGraduation(
+        address tokenAddress
+    ) external nonReentrant {
+        TokenInfo storage info = _s().tokenInfo[tokenAddress];
+        if (info.creator == address(0)) revert TokenNotTrading();
+        if (info.lifecycle == Lifecycle.Graduating) revert TokenIsGraduating();
+        if (info.lifecycle != Lifecycle.Curve) revert TokenNotTrading();
+        if (!canGraduate(tokenAddress)) revert NotGraduatable();
+        _enterGraduating(tokenAddress);
     }
 
     /// @notice Phase 2: seed the V2 LP and lock it. Permissionless —
