@@ -274,11 +274,15 @@ const isCancel = (text: string): boolean => text.trim() === "/cancel";
  * /cancel'd. Each PIN message is swept out of chat history the
  * instant we've read it.
  */
+const capitalize = (s: string): string =>
+  s.charAt(0).toUpperCase() + s.slice(1);
+
 const runPinSetFlow = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   userId: number,
   chatId: number,
+  actionLabel: string,
 ): Promise<boolean> => {
   await ctx.reply(
     withAntiPhishing(
@@ -294,7 +298,9 @@ const runPinSetFlow = async (
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Export cancelled."));
+      await ctx.reply(
+        withAntiPhishing(`${capitalize(actionLabel)} cancelled.`),
+      );
       return false;
     }
     if (!PinManager.isValidPinFormat(text)) {
@@ -319,7 +325,9 @@ const runPinSetFlow = async (
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Export cancelled."));
+      await ctx.reply(
+        withAntiPhishing(`${capitalize(actionLabel)} cancelled.`),
+      );
       return false;
     }
     if (text !== candidate) {
@@ -338,7 +346,7 @@ const runPinSetFlow = async (
   );
   await ctx.reply(
     withAntiPhishing(
-      "PIN set. Send it once more to authorise the export, or /cancel.",
+      `PIN set. Send it once more to authorise the ${actionLabel}, or /cancel.`,
     ),
   );
   return true;
@@ -355,11 +363,13 @@ const runPinVerifyFlow = async (
   userId: number,
   chatId: number,
   pinAlreadySet: boolean,
+  actionLabel: string,
+  retryHint: string,
 ): Promise<boolean> => {
   if (pinAlreadySet) {
     await ctx.reply(
       withAntiPhishing(
-        "Send your 6-digit PIN to authorise the export, or /cancel.",
+        `Send your 6-digit PIN to authorise the ${actionLabel}, or /cancel.`,
       ),
     );
   }
@@ -371,7 +381,9 @@ const runPinVerifyFlow = async (
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Export cancelled."));
+      await ctx.reply(
+        withAntiPhishing(`${capitalize(actionLabel)} cancelled.`),
+      );
       return false;
     }
     const result = await conversation.external((outside) =>
@@ -385,7 +397,7 @@ const runPinVerifyFlow = async (
       );
       await ctx.reply(
         withAntiPhishing(
-          `Too many wrong PIN attempts — locked for ~${mins} min. Export cancelled.`,
+          `Too many wrong PIN attempts — locked for ~${mins} min. ${capitalize(actionLabel)} cancelled.`,
         ),
       );
       return false;
@@ -395,7 +407,7 @@ const runPinVerifyFlow = async (
       // confirmed `isPinSet` at entry. Surface a clean abort rather
       // than looping forever if the KV state somehow vanished.
       await ctx.reply(
-        withAntiPhishing("PIN state lost — re-run /wallet → Export key."),
+        withAntiPhishing(`PIN state lost — re-run ${retryHint}.`),
       );
       return false;
     }
@@ -443,7 +455,13 @@ const exportKeyConversation = async (
   );
 
   if (!pinAlreadySet) {
-    const setOk = await runPinSetFlow(conversation, ctx, userId, chatId);
+    const setOk = await runPinSetFlow(
+      conversation,
+      ctx,
+      userId,
+      chatId,
+      "export",
+    );
     if (!setOk) return;
   }
 
@@ -453,6 +471,8 @@ const exportKeyConversation = async (
     userId,
     chatId,
     pinAlreadySet,
+    "export",
+    "/wallet → Export key",
   );
   if (!verifyOk) return;
 
@@ -627,6 +647,105 @@ const importWalletConversation = async (
   }
 };
 
+/**
+ * Delete-wallet conversation. PIN-gates removal of a wallet from KV +
+ * the user's index, with a typed "DELETE" confirmation after the PIN
+ * verifies so a casual mis-tap doesn't nuke a funded wallet. Matches
+ * the AGENTS.md `/wallet` row "Delete wallet | … | PIN + confirm".
+ *
+ * Side effects happen only after both gates pass; `WalletManager.deleteWallet`
+ * reassigns the active pointer to `wallets[0]` (or null) so subsequent
+ * `/wallet` renders stay consistent without a follow-up Switch.
+ */
+const deleteWalletConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  walletId: string,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+
+  const pinAlreadySet = await conversation.external((outside) =>
+    buildPinManager(outside.env).isPinSet(userId),
+  );
+
+  if (!pinAlreadySet) {
+    const setOk = await runPinSetFlow(
+      conversation,
+      ctx,
+      userId,
+      chatId,
+      "delete",
+    );
+    if (!setOk) return;
+  }
+
+  const verifyOk = await runPinVerifyFlow(
+    conversation,
+    ctx,
+    userId,
+    chatId,
+    pinAlreadySet,
+    "delete",
+    "/wallet → Delete",
+  );
+  if (!verifyOk) return;
+
+  // Re-fetch the wallet after PIN passes so a concurrent delete (from a
+  // second client) is caught here rather than blowing up inside
+  // `deleteWallet` with a `WalletNotFoundError`.
+  const walletRecord = await conversation.external((outside) =>
+    buildManager(outside.env).getWallet(userId, walletId),
+  );
+  if (!walletRecord) {
+    await ctx.reply(
+      withAntiPhishing("Wallet no longer exists. Delete aborted."),
+    );
+    return;
+  }
+
+  await ctx.reply(
+    withAntiPhishing(
+      `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or /cancel.`,
+    ),
+  );
+
+  const confirmMsg = await conversation.waitFor("message:text");
+  const confirmText = confirmMsg.message.text.trim();
+  if (confirmText !== "DELETE") {
+    // Anything other than the exact uppercase token aborts — `/cancel`,
+    // lowercase, typo, fat-fingered emoji. The strictness is the point;
+    // this gate exists to require deliberate action.
+    await ctx.reply(withAntiPhishing("Delete cancelled."));
+    return;
+  }
+
+  try {
+    await conversation.external((outside) =>
+      buildManager(outside.env).deleteWallet(userId, walletId),
+    );
+  } catch (err) {
+    if (err instanceof WalletNotFoundError) {
+      await ctx.reply(
+        withAntiPhishing("Wallet no longer exists. Delete aborted."),
+      );
+      return;
+    }
+    throw err;
+  }
+
+  const state = await conversation.external((outside) =>
+    renderMainState(buildManager(outside.env), userId),
+  );
+  await ctx.reply(
+    withAntiPhishing(
+      `Deleted ${truncateAddress(walletRecord.address)}.\n\n${state.text}`,
+    ),
+    { reply_markup: state.reply_markup },
+  );
+};
+
 export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // Conversation registration — must come before any handler that
   // calls `ctx.conversation.enter("...")`. The name is the public
@@ -639,6 +758,9 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   );
   bot.use(
     createConversation(importWalletConversation, "wallet-import"),
+  );
+  bot.use(
+    createConversation(deleteWalletConversation, "wallet-delete"),
   );
 
   /**
@@ -834,6 +956,32 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await ctx.answerCallbackQuery({ text: "Deleted." });
   });
 
+  /**
+   * Delete flow. Mirrors Export's "operate on active wallet" v1 shape:
+   * a per-wallet picker would let users delete a non-active wallet
+   * directly, but the PIN + typed-confirm gate is the security surface
+   * worth getting right first. A future PR can generalise to a picker
+   * → conversation once delete / withdraw / export share that UX.
+   */
+  bot.callbackQuery(WALLET_CALLBACK.delete, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const wm = buildManager(ctx.env);
+    const active = await wm.getActive(ctx.from.id);
+    if (!active) {
+      await ctx.answerCallbackQuery({
+        text: "No active wallet to delete.",
+        show_alert: true,
+      });
+      return;
+    }
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("wallet-delete", active.id);
+  });
+
   // Stubs for actions still gated on missing infra. Surface a toast
   // alert rather than silently no-op'ing so users see a clear "not
   // yet". Callback codes reserved here so future PRs only swap the
@@ -869,6 +1017,5 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await ctx.conversation.enter("wallet-import");
   });
 
-  bot.callbackQuery(WALLET_CALLBACK.delete, stubPin);
   bot.callbackQuery(WALLET_CALLBACK.withdraw, stubPin);
 };
