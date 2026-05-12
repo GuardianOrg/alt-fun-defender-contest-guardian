@@ -13,6 +13,7 @@
  */
 export const DEFAULT_ADMIN_WALLETS = [
   "0xef126Ea643fC8940D9D6634DCd07F3989963Fbe6",
+  "0x6D0D39aD22689eBfe8Cd5010a97E1b5458B231Cb",
 ] as const;
 
 /** Matches a 0x-prefixed 40-hex-character Ethereum address. */
