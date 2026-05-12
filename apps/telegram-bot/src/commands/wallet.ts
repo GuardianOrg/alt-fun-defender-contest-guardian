@@ -5,6 +5,7 @@ import {
 import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
+import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
   WALLET_CALLBACK,
   buildWalletMainKeyboard,
@@ -1027,4 +1028,18 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   });
 
   bot.callbackQuery(WALLET_CALLBACK.withdraw, stubPin);
+
+  bot.callbackQuery(START_CALLBACK.wallet, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Missing user." });
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const wm = buildManager(ctx.env);
+    const state = await renderMainState(wm, ctx.from.id);
+    await ctx.answerCallbackQuery();
+    await ctx.reply(withAntiPhishing(state.text), {
+      reply_markup: state.reply_markup,
+    });
+  });
 };

@@ -276,4 +276,23 @@ describe("/start command", () => {
       expect(answer!.body.text).toMatch(pattern);
     },
   );
+
+  it("Wallet button sends wallet UI directly without prompting the user to type /wallet", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+
+    await h.run(callbackUpdate(START_CALLBACK.wallet));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    // Must send the wallet UI as a new message, not a toast hint.
+    expect(send).toBeDefined();
+    expect(send!.body.text).toContain("Wallets");
+    // answerCallbackQuery must not be a show_alert hint toast.
+    expect(answer!.body.show_alert).toBeFalsy();
+    expect(answer!.body.text ?? "").not.toMatch(/\/wallet/);
+  });
 });
