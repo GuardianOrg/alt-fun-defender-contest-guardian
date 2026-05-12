@@ -721,18 +721,27 @@ const deleteWalletConversation = async (
     return;
   }
 
-  try {
-    await conversation.external((outside) =>
-      buildManager(outside.env).deleteWallet(userId, walletId),
+  // Errors thrown out of `conversation.external` are structured-cloned
+  // by the conversations plugin, which strips custom Error subclass
+  // identity — an `instanceof WalletNotFoundError` check on the outside
+  // would be dead code. Catch the error inside the callback and return
+  // a tagged union instead. Same pattern as `importWalletConversation`.
+  const deleteResult = await conversation.external((outside) =>
+    buildManager(outside.env)
+      .deleteWallet(userId, walletId)
+      .then(
+        (): { kind: "ok" } | { kind: "missing" } => ({ kind: "ok" }),
+        (err: unknown): { kind: "ok" } | { kind: "missing" } => {
+          if (err instanceof WalletNotFoundError) return { kind: "missing" };
+          throw err;
+        },
+      ),
+  );
+  if (deleteResult.kind === "missing") {
+    await ctx.reply(
+      withAntiPhishing("Wallet no longer exists. Delete aborted."),
     );
-  } catch (err) {
-    if (err instanceof WalletNotFoundError) {
-      await ctx.reply(
-        withAntiPhishing("Wallet no longer exists. Delete aborted."),
-      );
-      return;
-    }
-    throw err;
+    return;
   }
 
   const state = await conversation.external((outside) =>
