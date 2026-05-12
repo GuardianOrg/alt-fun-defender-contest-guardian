@@ -189,36 +189,6 @@
   background: rgba(240, 80, 80, 0.1);
 }
 
-.gradBadge {
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding-left: 0.4rem;
-  padding-right: 0.4rem;
-  padding-top: 1px;
-  padding-bottom: 1px;
-  border-radius: 2px;
-  border: 1px solid;
-  animation: badgep 1.4s ease-in-out infinite;
-  flex-shrink: 0;
-}
-
-/* Final-state variant: the row no longer pulses, so the badge shouldn't
- * either — it's a static lifecycle marker, not an in-progress signal. */
-.gradBadgeStatic {
-  animation: none;
-}
-
-.gradBadgeLong {
-  color: var(--mint);
-  border-color: rgba(77, 232, 180, 0.5);
-}
-
-.gradBadgeShort {
-  color: var(--red);
-  border-color: rgba(240, 80, 80, 0.5);
-}
-
 .ltName {
   font-size: 12px;
   font-family: var(--font-mono);
@@ -238,7 +208,7 @@
 .changeCell {
   display: flex;
   align-items: center;
-  width: 70px;
+  width: 90px;
   flex-shrink: 0;
 }
 

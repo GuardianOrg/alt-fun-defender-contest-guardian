@@ -37,6 +37,16 @@
   background: var(--mint-dim);
 }
 
+/* Graduated lifecycle marker — bar collapses to a single solid amber fill
+ * (no organic/boost split per `apps/web/AGENTS.md`) and intentionally
+ * skips mint so a feed of graduated rows doesn't read as "everything is
+ * up". Pairs with `overflowHidden` on the track so the right edge of a
+ * 100% fill gets clipped into a clean pill by the track's 9999px
+ * radius. */
+.buySegmentGraduated {
+  background: var(--amber);
+}
+
 .graduating {
   animation: gradpulse 1.8s ease-in-out infinite;
 }

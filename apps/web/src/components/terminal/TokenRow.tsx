@@ -11,6 +11,8 @@ import { cn, formatPercentOrDash, formatUsdOrDash } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import AssetIcon from "../shared/AssetIcon";
+import GraduatedPill from "../shared/GraduatedPill";
+import GraduatingPill from "../shared/GraduatingPill";
 import ProgressBar from "../shared/ProgressBar";
 
 import type { Token } from "../../services/types";
@@ -87,27 +89,8 @@ export default function TokenRow({ token }: Props) {
         <div className={styles.nameWrap}>
           <div className={styles.nameRow}>
             <span className={styles.tokenTicker}>{token.ticker}</span>
-            {isGraduating && (
-              <span
-                className={cn(
-                  styles.gradBadge,
-                  isShort ? styles.gradBadgeShort : styles.gradBadgeLong,
-                )}
-              >
-                GRAD
-              </span>
-            )}
-            {isGraduated && (
-              <span
-                className={cn(
-                  styles.gradBadge,
-                  styles.gradBadgeStatic,
-                  isShort ? styles.gradBadgeShort : styles.gradBadgeLong,
-                )}
-              >
-                GRADUATED
-              </span>
-            )}
+            {isGraduating && <GraduatingPill />}
+            {isGraduated && <GraduatedPill />}
           </div>
           <span className={styles.tokenFullName}>{token.name}</span>
         </div>
@@ -156,6 +139,7 @@ export default function TokenRow({ token }: Props) {
           leveragePercent={levW}
           isShort={isShort}
           isGraduating={isGraduating}
+          isGraduated={isGraduated}
         />
       </div>
 
