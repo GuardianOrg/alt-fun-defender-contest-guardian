@@ -134,7 +134,8 @@ export const createBot = (
   // stateless per request, so without a persistent adapter the active-
   // conversation record is dropped between the `enter` call and the
   // user's follow-up message — leaving the next update unmatched and
-  // silent. Back it with the same KV namespace that holds sessions.
+  // silent. Back it with the same KV namespace that holds sessions
+  // under a `conv:` prefix so it never collides with `session:*`.
   bot.use(
     conversations<AppContext, AppContext>({
       storage: {

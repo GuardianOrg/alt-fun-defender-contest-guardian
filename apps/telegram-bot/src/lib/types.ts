@@ -23,6 +23,14 @@ export interface Env {
    * in v1. See apps/telegram-bot/AGENTS.md for the threat model.
    */
   MASTER_KEY: string;
+  /**
+   * Optional override for the bcrypt cost factor used by
+   * `lib/pin.ts`. Production leaves this unset and falls back to the
+   * OWASP-recommended default (rounds=12, ~250ms per hash on
+   * Workers). Tests inject the bcrypt minimum (rounds=4, <5ms) so
+   * the multi-PIN conversation suite stays under a second.
+   */
+  PIN_SALT_ROUNDS?: number;
   WALLET_KV: KVNamespace;
   /**
    * Durable Object namespace binding. One DO instance per Telegram chat

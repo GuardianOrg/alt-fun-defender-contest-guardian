@@ -65,7 +65,9 @@ export class MemoryKV {
   // grammy storage adapters call `kv.get(key, { type: "json" })` so the
   // value comes back already parsed (Cloudflare KV's edge-side JSON
   // mode). We mirror that contract here — `wallet.ts` callers pass no
-  // options and still get the raw string back.
+  // options and still get the raw string back. Without this, the
+  // conversations plugin's versioned-state `unpack` blows up with
+  // "Unknown data format" because it receives a raw string.
   async get(
     key: string,
     options?: { type?: "text" | "json" },
