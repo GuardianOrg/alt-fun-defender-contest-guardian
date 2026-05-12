@@ -78,6 +78,11 @@ The Alt Fun 0.5% is **not** lifted at graduation. Post-grad trades are routed th
 
 Strict invariants (zero-gap, supply conservation, parabola cap) are enforced in `test/GraduationInvariants.t.sol`; phase-1 gas budget + brick resistance in `test/TwoPhaseGraduation.t.sol`; hostile-pre-seed defense in `test/HostilePreSeed.t.sol` and `test/NoFeeSwapInput.t.sol`.
 
+Two cron-driven Worker keepers cooperate around this two-phase split, each with its own hot wallet on a different Hyperliquid block-size setting:
+
+- **Finalize keeper** (`apps/api/src/lib/graduation-keeper.ts`, `KEEPER_PRIVATE_KEY`, **big blocks**) drives phase 2 — calls `Bonding.finalizeGraduation` for tokens currently in `Lifecycle.Graduating`.
+- **Auto-buy keeper** (`apps/api/src/lib/auto-graduation-buyer.ts`, `AUTO_GRADUATION_BUYER_PRIVATE_KEY`, **small blocks**) drives phase 1 for tokens whose `realLT × exchangeRate` crossed the USD threshold via pure LT price appreciation (no user buy in the loop). Fires the smallest valid `Zap.buy` to trigger graduation, then unwinds the resulting position via `Zap.sell` once phase 2 finalises. The two wallets MUST be different — the small/big-block toggle is sticky per wallet and a single wallet can only target one regime. See [`apps/api/AGENTS.md`](apps/api/AGENTS.md#graduation-keepers-two-distinct-cron-jobs) for the full cooperation model.
+
 **Phase 3 — Open Trading:** TOKEN/LT pool on HyperSwap. All trades still go through Zap (USDC in/out).
 
 ---

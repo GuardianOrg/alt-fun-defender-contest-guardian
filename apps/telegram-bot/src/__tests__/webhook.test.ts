@@ -225,4 +225,83 @@ describe("POST /webhook", () => {
     expect(res.status).toBe(200);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("dispatches callback_query updates and ACKs 200 even with no handler registered", async () => {
+    // Production registry is empty — clicks land on the dispatcher, which
+    // answers with an "unknown action" toast. This proves the webhook is
+    // actually routing callback_query (vs. silently dropping it).
+    const callbackUpdate = {
+      update_id: 5,
+      callback_query: {
+        id: "cbq-99",
+        from: { id: 7, is_bot: false, first_name: "Ada" },
+        chat_instance: "instance-1",
+        data: "no-such-cmd",
+      },
+    };
+    const res = await app.request(
+      "/webhook",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "test-secret",
+        },
+        body: JSON.stringify(callbackUpdate),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "https://api.telegram.org/bottest-bot-token/answerCallbackQuery",
+    );
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      callback_query_id: string;
+      text?: string;
+    };
+    expect(body.callback_query_id).toBe("cbq-99");
+    expect(body.text).toBe("Unknown action.");
+  });
+
+  it("does not invoke the command path when callback_query is present", async () => {
+    // A single update should not be processed twice — verify the
+    // callback_query branch returns before the message dispatch runs.
+    const both = {
+      update_id: 6,
+      callback_query: {
+        id: "cbq-100",
+        from: { id: 7, is_bot: false, first_name: "Ada" },
+        chat_instance: "instance-2",
+        data: "ping",
+      },
+      message: {
+        message_id: 1,
+        date: 0,
+        chat: { id: 42, type: "private" },
+        from: { id: 7, is_bot: false, first_name: "Ada" },
+        text: "/start",
+        entities: [{ type: "bot_command", offset: 0, length: 6 }],
+      },
+    };
+    const res = await app.request(
+      "/webhook",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "test-secret",
+        },
+        body: JSON.stringify(both),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+    // Exactly one call (answerCallbackQuery), zero sendMessage.
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0]![0])).toContain(
+      "answerCallbackQuery",
+    );
+  });
 });

@@ -45,7 +45,7 @@ admin.post("/set-webhook", async (c) => {
   return proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "setWebhook", {
     url: webhookUrl.toString(),
     secret_token: c.env.TELEGRAM_WEBHOOK_SECRET,
-    allowed_updates: ["message"],
+    allowed_updates: ["message", "callback_query"],
   });
 });
 

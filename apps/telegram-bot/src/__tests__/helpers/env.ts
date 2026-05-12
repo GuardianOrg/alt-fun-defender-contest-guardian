@@ -17,6 +17,8 @@ export const makeTestEnv = (overrides: Partial<Env> = {}): Env => ({
   TELEGRAM_BOT_TOKEN: "test-bot-token",
   TELEGRAM_WEBHOOK_SECRET: "test-secret",
   ADMIN_API_KEY: "test-admin-key",
+  API_BASE_URL: "https://api.test.local",
+  API_KEY: "test-api-key",
   MASTER_KEY: ZERO_MASTER_KEY,
   WALLET_KV: stubKV(),
   ...overrides,

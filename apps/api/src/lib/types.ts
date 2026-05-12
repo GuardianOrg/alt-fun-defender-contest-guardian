@@ -61,7 +61,36 @@ export interface AppBindings {
   KEEPER_PRIVATE_KEY?: string;
   /**
    * RPC URL the keeper uses to broadcast `finalizeGraduation`. Falls back
-   * to the public HyperEVM RPC if unset.
+   * to the public HyperEVM RPC if unset. Shared with the auto-graduation
+   * buyer keeper.
    */
   HYPEREVM_RPC_URL?: string;
+  /**
+   * Hot-wallet private key (`0x…`-prefixed) for the auto-graduation buyer.
+   * Drives phase 1 of graduation for tokens that have crossed the USD
+   * threshold purely from LT price appreciation (i.e. `Bonding.canGraduate`
+   * returns true but no user buy has landed since the LT rallied). The
+   * worker fires the smallest possible `Zap.buy` to trigger phase 1, then
+   * unwinds the resulting token holding back to USDC via `Zap.sell` once
+   * phase 2 finalises. Required setup:
+   *   1. Generate a fresh wallet — never reuse `KEEPER_PRIVATE_KEY` or the
+   *      deployer key. The two keepers MUST be different wallets because
+   *      they target different block sizes.
+   *   2. Fund with HYPE for gas (each cycle is two ~120k-gas txs).
+   *   3. Fund with USDC — sized to ~$120 of in-flight capital plus a
+   *      cushion (max 5 buys × $20 trigger amount per tick, with
+   *      headroom for positions awaiting phase 2 finalize).
+   *   4. **Leave big blocks OFF** (default). The finalize keeper toggles
+   *      its wallet ON for ~2.5M-gas finalize calls; this keeper must
+   *      stay on small blocks so its sub-second buys/sells aren't queued
+   *      behind ~60s big-block confirmations. If the wallet was ever
+   *      toggled, run
+   *        DEPLOYER_PRIVATE_KEY=<this key> node packages/contracts/scripts/toggle-big-blocks.mjs off
+   *      to flip back before deploying the secret.
+   *   5. `wrangler secret put AUTO_GRADUATION_BUYER_PRIVATE_KEY` for prod
+   *      / preview. Set in `.dev.vars` for local development.
+   * Optional in dev: leaving this blank disables the keeper and logs a
+   * warn on every cron tick.
+   */
+  AUTO_GRADUATION_BUYER_PRIVATE_KEY?: string;
 }

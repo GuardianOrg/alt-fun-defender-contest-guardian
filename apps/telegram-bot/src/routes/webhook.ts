@@ -1,9 +1,15 @@
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
-import { type TelegramUpdate } from "../lib/telegram.js";
+import { type TelegramUpdate, sendMessage } from "../lib/telegram.js";
 import { parseCommand } from "../lib/commands.js";
-import { commandRegistry } from "../commands/registry.js";
+import { handlePositions } from "../commands/positions.js";
+import { handleWallet } from "../commands/wallet.js";
+import {
+  callbackHandlers,
+  dispatchCallback,
+} from "../lib/callbacks.js";
+import { logger } from "../lib/logger.js";
 
 const webhook = new Hono<AppBindings>();
 
@@ -28,19 +34,52 @@ webhook.post("/webhook", async (c) => {
     return c.text("ok");
   }
 
+  if (update.callback_query) {
+    try {
+      await dispatchCallback(
+        c.env,
+        update.callback_query,
+        callbackHandlers,
+      );
+    } catch (err) {
+      // dispatchCallback already swallows handler/Telegram errors,
+      // but a registry-level bug or programmer error in future
+      // handlers must still leave the webhook 200ing.
+      logger.error("dispatchCallback failed", {
+        queryId: update.callback_query.id,
+        err,
+      });
+    }
+    return c.text("ok");
+  }
+
   const msg = update.message;
   if (!msg) return c.text("ok");
 
   const cmd = parseCommand(msg);
-  if (!cmd) return c.text("ok");
-
-  const handler = commandRegistry[cmd.name];
-  if (!handler) return c.text("ok");
-
-  try {
-    await handler({ env: c.env, message: msg, command: cmd });
-  } catch (err) {
-    console.error(`command /${cmd.name} failed`, err);
+  if (cmd?.name === "start") {
+    const name = msg.from?.first_name ?? "there";
+    try {
+      await sendMessage(
+        c.env.TELEGRAM_BOT_TOKEN,
+        msg.chat.id,
+        `Hi ${name}! Alt Fun bot is online. End-to-end check OK.`,
+      );
+    } catch (err) {
+      logger.error("sendMessage failed", { command: "start", err });
+    }
+  } else if (cmd?.name === "positions") {
+    try {
+      await handlePositions(c.env, msg.chat.id, cmd.args);
+    } catch (err) {
+      logger.error("handlePositions failed", { err });
+    }
+  } else if (cmd?.name === "wallet") {
+    try {
+      await handleWallet(c.env, msg.chat.id);
+    } catch (err) {
+      logger.error("handleWallet failed", { err });
+    }
   }
 
   return c.text("ok");

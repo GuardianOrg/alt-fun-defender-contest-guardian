@@ -39,7 +39,27 @@ ADMIN_WALLETS=
 KEEPER_PRIVATE_KEY=
 
 # Optional override for the HyperEVM RPC URL. Defaults to the public RPC.
+# Shared by the finalize keeper and the auto-graduation buyer.
 HYPEREVM_RPC_URL=
+
+# Auto-graduation buyer hot-wallet private key (`0x…`). Distinct from the
+# finalize `KEEPER_PRIVATE_KEY` above — this wallet must stay on **small
+# blocks** so its sub-second buys/sells aren't queued behind the finalize
+# keeper's ~60s big-block confirmations. Drives phase 1 for tokens whose
+# raised-LT crossed the USD threshold purely from LT price appreciation
+# (no user buy in the loop) and unwinds the resulting position once
+# phase 2 finalises.
+# Setup:
+#   1. Generate a fresh key — never reuse `KEEPER_PRIVATE_KEY` or the
+#      deployer key. Two keepers, two wallets, two block-size settings.
+#   2. Fund with HYPE for gas + ~$120 USDC of in-flight capital
+#      (5 buys × $20 trigger amount per tick, plus a cushion for
+#      positions awaiting phase 2 finalize).
+#   3. Leave big blocks OFF (default). If the wallet was ever toggled,
+#      run `toggle-big-blocks.mjs off` before deploying the secret.
+#   4. `wrangler secret put AUTO_GRADUATION_BUYER_PRIVATE_KEY` for prod.
+# Leave blank in local dev to disable the keeper (cron will log a warn).
+AUTO_GRADUATION_BUYER_PRIVATE_KEY=
 
 # OpenAI API key for image moderation (token-logo uploads). Drives the
 # `omni-moderation-latest` call in `apps/api/src/lib/image-moderation.ts`.
