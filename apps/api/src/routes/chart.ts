@@ -33,18 +33,18 @@ const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
 // Must stay in sync with CHART_INTERVAL_SECONDS in
 // `apps/web/src/services/api.ts`.
 const VALID_INTERVAL_SECONDS = new Set<number>([
-  5,        // 5s
-  15,       // 15s
-  30,       // 30s
-  60,       // 1m
-  300,      // 5m
-  900,      // 15m
-  1_800,    // 30m
-  3_600,    // 1h
-  14_400,   // 4h
-  21_600,   // 6h
-  43_200,   // 12h
-  86_400,   // 1D
+  5, // 5s
+  15, // 15s
+  30, // 30s
+  60, // 1m
+  300, // 5m
+  900, // 15m
+  1_800, // 30m
+  3_600, // 1h
+  14_400, // 4h
+  21_600, // 6h
+  43_200, // 12h
+  86_400, // 1D
 ]);
 
 const MIN_CANDLE_SECONDS = 5;
@@ -197,11 +197,26 @@ function buildCandles(
  * `ltRows`); ratio ticks before the first LT sample are skipped because
  * we have no rate to multiply against.
  *
+ * Additionally, whenever event iteration crosses into a new candle
+ * bucket and the first event in that bucket is NOT at the bucket
+ * boundary, a synthetic carry-forward tick is emitted at the bucket
+ * boundary using the most recent known ratio × exchange rate. This
+ * makes the server-rebuilt timeline behave like the live aggregator
+ * (which initialises each new bucket from the ~1 s LT WebSocket tick
+ * that crosses the boundary). Without it, a trade landing in the first
+ * `sampleSec` seconds of a bucket — before any LT sample of that bucket
+ * — would set `open = post-trade price`, leaving the previous bucket's
+ * close at the pre-trade price and the chart rendering as two flat
+ * lines with a vertical gap instead of a candle body. The issue #599
+ * fix injected trade timestamps as ticks but didn't cover this
+ * trade-before-first-LT-sample alignment case.
+ *
  * Exported for unit testing.
  */
 export function buildPriceTimeline(
   ltRows: LtSnapshotRow[],
   ratioTimeline: RatioSnapshot[],
+  candleSec: number,
 ): { ts: number; price: number }[] {
   if (ltRows.length === 0 || ratioTimeline.length === 0) return [];
 
@@ -233,8 +248,36 @@ export function buildPriceTimeline(
   const out: { ts: number; price: number }[] = [];
   let ratioIdx = 0;
   let exchangeRate = 0;
+  // Bucket of the last emitted real tick; -1 before any event has been
+  // emitted. Used to detect when we cross into a new bucket and need to
+  // inject a carry-forward boundary tick. Tracking emitted (rather than
+  // observed) buckets ensures pre-rate ratio events that get skipped
+  // don't suppress the boundary tick for the first real bucket.
+  let lastEmittedBucketTs = -1;
 
   for (const e of events) {
+    const bucketTs = Math.floor(e.ts / candleSec) * candleSec;
+
+    // Crossing into a new bucket: if this event is not exactly at the
+    // boundary, inject a synthetic carry-forward tick at the boundary so
+    // the new bucket's `open` is the most recent known price, not
+    // whatever the first in-bucket real event happens to be. Uses the
+    // state BEFORE this event is applied — the boundary tick reflects
+    // the state at `bucketTs`, the new event's effects appear at `e.ts`.
+    if (
+      lastEmittedBucketTs >= 0 &&
+      bucketTs > lastEmittedBucketTs &&
+      e.ts > bucketTs &&
+      exchangeRate > 0 &&
+      ratioTimeline[ratioIdx].timestamp <= bucketTs
+    ) {
+      out.push({
+        ts: bucketTs,
+        price: ratioTimeline[ratioIdx].ratio * exchangeRate,
+      });
+      lastEmittedBucketTs = bucketTs;
+    }
+
     if (e.kind === "lt") {
       exchangeRate = e.rate;
     }
@@ -247,6 +290,7 @@ export function buildPriceTimeline(
     if (ratioTimeline[ratioIdx].timestamp > e.ts) continue;
     if (exchangeRate <= 0) continue;
     out.push({ ts: e.ts, price: ratioTimeline[ratioIdx].ratio * exchangeRate });
+    lastEmittedBucketTs = bucketTs;
   }
 
   return out;
@@ -355,7 +399,10 @@ chart.get("/:address", async (c) => {
   ]);
 
   if (healthCheck === null) {
-    return c.json(formatError("Indexer unavailable — chart data cannot be loaded"), 503);
+    return c.json(
+      formatError("Indexer unavailable — chart data cannot be loaded"),
+      503,
+    );
   }
 
   const [dbToken] = dbTokenResult;
@@ -390,7 +437,14 @@ chart.get("/:address", async (c) => {
   const checksummedLt = getAddress(ltAddress);
 
   if (!c.env.BOUNCETECH_DATABASE_URL) {
-    return c.json(formatError("BOUNCETECH_DATABASE_URL is not configured"), 500);
+    // Log the specific binding name server-side for ops triage, but
+    // return a generic error to the client — the binding name is an
+    // internal deployment detail (see project rule: never expose
+    // internal error details to clients).
+    console.error(
+      "chart route misconfigured: BOUNCETECH_DATABASE_URL binding is missing",
+    );
+    return c.json(formatError("Internal server error"), 500);
   }
   const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
 
@@ -534,7 +588,7 @@ chart.get("/:address", async (c) => {
     );
   }
 
-  const rawPrices = buildPriceTimeline(ltRows, ratioTimeline);
+  const rawPrices = buildPriceTimeline(ltRows, ratioTimeline, candleSec);
 
   const candles = buildCandles(rawPrices, candleSec);
 
