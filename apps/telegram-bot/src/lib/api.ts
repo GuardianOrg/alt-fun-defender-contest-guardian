@@ -47,6 +47,7 @@ export interface TokenInfo {
   mcapUsd: number | null;
   change24h: number | null;
   ltChange24h: number | null;
+  volume24hUsd: number | null;
   curveFilled: number | null;
   status: string;
 }
@@ -232,7 +233,14 @@ export const fetchBalances = async (
 const isOptionalNumber = (v: unknown): boolean =>
   v === null || typeof v === "number";
 
-const isTokenInfo = (v: unknown): v is TokenInfo => {
+// Wire shape: mirrors `TokenInfo` but allows `volume24hUsd` to be
+// absent so older API builds that predate the field still parse.
+// `fetchToken` normalises to canonical `TokenInfo` (always `number | null`).
+type TokenInfoWire = Omit<TokenInfo, "volume24hUsd"> & {
+  volume24hUsd?: number | null;
+};
+
+const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
   if (!v || typeof v !== "object") return false;
   const obj = v as Record<string, unknown>;
   return (
@@ -243,6 +251,7 @@ const isTokenInfo = (v: unknown): v is TokenInfo => {
     isOptionalNumber(obj.mcapUsd) &&
     isOptionalNumber(obj.change24h) &&
     isOptionalNumber(obj.ltChange24h) &&
+    (obj.volume24hUsd === undefined || isOptionalNumber(obj.volume24hUsd)) &&
     isOptionalNumber(obj.curveFilled) &&
     typeof obj.status === "string"
   );
@@ -254,9 +263,12 @@ export const fetchToken = async (
 ): Promise<ApiResult<TokenInfo>> => {
   const res = await getJsonWithNotFound<unknown>(env, `/api/v1/tokens/${address}`);
   if (!res.ok) return res;
-  return isTokenInfo(res.data)
-    ? { ok: true, data: res.data as TokenInfo }
-    : { ok: false, kind: "unknown" };
+  if (!isTokenInfoWire(res.data)) return { ok: false, kind: "unknown" };
+  const wire = res.data;
+  return {
+    ok: true,
+    data: { ...wire, volume24hUsd: wire.volume24hUsd ?? null },
+  };
 };
 
 /**

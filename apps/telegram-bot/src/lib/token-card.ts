@@ -52,6 +52,15 @@ const formatMcap = (v: number | null): string => {
   return `$${v.toFixed(0)}`;
 };
 
+const formatVolume = (v: number | null): string => {
+  if (v === null) return "—";
+  if (v === 0) return "$0";
+  if (v >= 1_000_000_000) return `$${(v / 1_000_000_000).toFixed(2)}B`;
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${v.toFixed(2)}`;
+};
+
 const statusLabel = (status: string): string => {
   if (status === "graduated") return "Graduated ✅";
   if (status === "graduating") return "Graduating 🔄";
@@ -80,6 +89,7 @@ export const renderBuyTokenCardText = (
     lines.push(`⚡ <b>LT 24h:</b> ${formatPct(token.ltChange24h)}`);
   }
   lines.push(`💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`);
+  lines.push(`📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`);
   if (token.status !== "graduated") {
     lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
   }
@@ -128,6 +138,7 @@ export const renderSellTokenCardText = (
     lines.push(`⚡ <b>LT 24h:</b> ${formatPct(token.ltChange24h)}`);
   }
   lines.push(`💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`);
+  lines.push(`📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`);
   lines.push(
     "",
     `💼 <b>Your Balance:</b> ${holdingText}`,
