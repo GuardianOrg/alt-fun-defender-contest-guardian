@@ -5,6 +5,7 @@ import {
   cancelTrade,
   confirmKeyboard,
   confirmTrade,
+  loadReferrer,
   renderConfirmReply,
   stageBuy,
   stageSell,
@@ -283,6 +284,99 @@ describe("renderConfirmReply", () => {
       },
     });
     expect(reply).toMatch(/Price moved/);
+  });
+});
+
+describe("loadReferrer", () => {
+  const ZERO = "0x0000000000000000000000000000000000000000";
+  const env = (kv: MemoryKV) =>
+    ({
+      WALLET_KV: kv as unknown as KVNamespace,
+      MASTER_KEY: ZERO_MASTER_KEY,
+    } as unknown as AppContext["env"]);
+
+  it("returns ZERO_ADDRESS when no referrer is recorded", async () => {
+    const kv = new MemoryKV();
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(ZERO);
+  });
+
+  it("returns the stored wallet when one is recorded", async () => {
+    const kv = new MemoryKV();
+    const wallet = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+    await kv.put("referrer:7", wallet);
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(wallet);
+  });
+
+  it("coerces a malformed KV value to ZERO_ADDRESS", async () => {
+    const kv = new MemoryKV();
+    await kv.put("referrer:7", "not-an-address");
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(ZERO);
+  });
+
+  it("trims whitespace before validating", async () => {
+    const kv = new MemoryKV();
+    const wallet = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+    await kv.put("referrer:7", `  ${wallet}  `);
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(wallet);
+  });
+});
+
+describe("confirmTrade referrer propagation", () => {
+  let execBuySpy: ReturnType<typeof vi.spyOn>;
+  let execSellSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    execBuySpy = vi.spyOn(trade, "executeBuy");
+    execSellSpy = vi.spyOn(trade, "executeSell");
+  });
+  afterEach(() => {
+    execBuySpy.mockRestore();
+    execSellSpy.mockRestore();
+  });
+
+  it("passes the user's stored referrer to executeBuy (not ZERO_ADDRESS)", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, kv } = await fakeCtx();
+    const referrer = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+    await kv.put("referrer:7", referrer);
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    expect(execBuySpy).toHaveBeenCalledTimes(1);
+    const call = execBuySpy.mock.calls[0] as [unknown, { referrer: string }];
+    expect(call[1].referrer).toBe(referrer);
+  });
+
+  it("falls back to ZERO_ADDRESS when no referrer KV entry exists", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx } = await fakeCtx();
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    const call = execBuySpy.mock.calls[0] as [unknown, { referrer: string }];
+    expect(call[1].referrer).toBe("0x0000000000000000000000000000000000000000");
   });
 });
 

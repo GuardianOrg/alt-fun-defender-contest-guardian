@@ -28,6 +28,31 @@ export const CONFIRM_WINDOW_MS = 60_000;
 
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
+/** KV key holding the lifetime referrer wallet for a Telegram user. */
+const referrerKey = (userId: number): string => `referrer:${userId}`;
+
+const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+/**
+ * Read the user's lifetime-attributed referrer wallet from KV. Written
+ * once at /start when the user lands via a `ref_` deeplink (see AGENTS.md
+ * "/start → Referrer resolution"); reads on every trade for lifetime
+ * attribution. Returns `ZERO_ADDRESS` when no referrer is recorded (the
+ * common case for users who came in without a deeplink). Malformed KV
+ * values are also coerced to `ZERO_ADDRESS` so a corrupt record cannot
+ * route a referrer cut to a junk address — auditors flagged this as a
+ * Major issue (PR #707 CodeRabbit review).
+ */
+export const loadReferrer = async (
+  env: AppContext["env"],
+  userId: number,
+): Promise<Hex> => {
+  const raw = await env.WALLET_KV.get(referrerKey(userId));
+  if (raw === null) return ZERO_ADDRESS;
+  const trimmed = raw.trim();
+  return HEX_ADDRESS_RE.test(trimmed) ? (trimmed as Hex) : ZERO_ADDRESS;
+};
+
 /** Short opaque nonce so a stale `cnf:` callback can be detected. */
 const newNonce = (): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(6));
@@ -141,6 +166,7 @@ export const confirmTrade = async (
   const trader = active.address as Hex;
   const token = intent.token as Hex;
   const amount = BigInt(intent.amountRaw);
+  const referrer = await loadReferrer(ctx.env, ctx.from.id);
 
   const result =
     intent.side === "buy"
@@ -150,7 +176,7 @@ export const confirmTrade = async (
           trader,
           privateKey,
           slippageBps,
-          referrer: ZERO_ADDRESS,
+          referrer,
         })
       : await executeSell(ctx.env, {
           token,
@@ -158,7 +184,7 @@ export const confirmTrade = async (
           trader,
           privateKey,
           slippageBps,
-          referrer: ZERO_ADDRESS,
+          referrer,
         });
 
   return { kind: "executed", result, ticker: intent.ticker, side: intent.side };

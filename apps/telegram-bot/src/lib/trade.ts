@@ -456,6 +456,19 @@ export const executeBuy = async (
   const router = asHex(routerAddr) as Address;
 
   try {
+    // Approve BEFORE simulating so a first-buy user (zero USDC allowance)
+    // doesn't get a confusing `ERC20InsufficientAllowance` revert mapped
+    // to a generic error. Mirrors the order in `executeSell`. Flagged
+    // by CodeRabbit on PR #707.
+    await ensureAllowance(
+      publicClient,
+      walletClient,
+      USDC_ADDRESS as Address,
+      args.trader,
+      router,
+      args.usdcAmount,
+    );
+
     const sim = await publicClient.simulateContract({
       address: router,
       abi: BotFeeRouterAbi,
@@ -470,15 +483,6 @@ export const executeBuy = async (
     });
     const quotedTokensOut = sim.result;
     const minTokensOut = computeMinTokensOut(quotedTokensOut, args.slippageBps);
-
-    await ensureAllowance(
-      publicClient,
-      walletClient,
-      USDC_ADDRESS as Address,
-      args.trader,
-      router,
-      args.usdcAmount,
-    );
 
     const data = encodeFunctionData({
       abi: BotFeeRouterAbi,
