@@ -135,11 +135,15 @@ export const generateWalletId = (): string => {
  *     reordering is O(1) and never moves the encrypted material
  *   - Single index record per user tracks order + active pointer
  *
- * Concurrency: v1 assumes a user does not run parallel `/wallet`
- * mutations from two clients. Cloudflare KV provides strong
- * per-key consistency on the index but no cross-key transactions, so
- * a true race could partially update. If this becomes a problem,
- * promote to an `OnboardingDO`-style Durable Object.
+ * Concurrency: v1 leans on `ChatDO` for serialisation. Every webhook
+ * update for a given chat funnels through one DO event loop, and
+ * `/wallet` is private-DM only — where Telegram's `chat.id` equals
+ * the user's `from.id` — so parallel `/wallet` mutations from one
+ * user already arrive serialised at the handler. Cloudflare KV
+ * provides strong per-key consistency on the index but no cross-key
+ * transactions; without that per-chat serialisation a true race
+ * could partially update. If `/wallet` is ever allowed outside
+ * private DMs, this needs an explicit per-user Durable Object.
  */
 export class WalletManager {
   private readonly masterKey: Uint8Array;
