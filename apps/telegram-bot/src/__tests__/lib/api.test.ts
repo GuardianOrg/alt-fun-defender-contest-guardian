@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { fetchBalances, fetchPortfolio, isAddress } from "../../lib/api.js";
+import {
+  fetchBalances,
+  fetchPortfolio,
+  fetchToken,
+  extractTokenAddress,
+  isAddress,
+} from "../../lib/api.js";
 
 const env = {
   API_BASE_URL: "https://api.test.local",
@@ -180,5 +186,112 @@ describe("fetchPortfolio / fetchBalances", () => {
     expect(fetchSpy.mock.calls[0]![0]).toBe(
       "https://api.test.local/api/v1/balances/0xabc",
     );
+  });
+});
+
+describe("extractTokenAddress", () => {
+  it("extracts a bare 0x address", () => {
+    expect(extractTokenAddress("0x1111111111111111111111111111111111111111")).toBe(
+      "0x1111111111111111111111111111111111111111",
+    );
+  });
+
+  it("extracts address from an alt.fun URL", () => {
+    expect(
+      extractTokenAddress("https://alt.fun/0x1111111111111111111111111111111111111111"),
+    ).toBe("0x1111111111111111111111111111111111111111");
+  });
+
+  it("extracts address from a hyperevmscan URL", () => {
+    expect(
+      extractTokenAddress(
+        "https://hyperevmscan.io/token/0x1111111111111111111111111111111111111111",
+      ),
+    ).toBe("0x1111111111111111111111111111111111111111");
+  });
+
+  it("rejects a truncated address inside a longer hex run", () => {
+    // 82 hex chars — address regex must not match a 40-char slice of this
+    const longHex = "0x" + "a".repeat(82);
+    expect(extractTokenAddress(longHex)).toBeNull();
+  });
+
+  it("returns null for plaintext with no address", () => {
+    expect(extractTokenAddress("no address here")).toBeNull();
+  });
+});
+
+describe("fetchToken", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  const VALID_TOKEN = {
+    address: "0x1111111111111111111111111111111111111111",
+    name: "Test",
+    ticker: "TST",
+    priceUsd: 0.001,
+    mcapUsd: 5000,
+    change24h: 1.5,
+    ltChange24h: null,
+    curveFilled: 30,
+    status: "curve",
+  };
+
+  it("returns token data for a well-formed response", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: VALID_TOKEN }), { status: 200 }),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.ticker).toBe("TST");
+  });
+
+  it("returns not_found for 404", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("{}", { status: 404 }));
+    const result = await fetchToken(env, "0x" + "1".repeat(40));
+    expect(result).toEqual({ ok: false, kind: "not_found" });
+  });
+
+  it("returns unavailable for 503", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("", { status: 503 }));
+    const result = await fetchToken(env, "0x" + "1".repeat(40));
+    expect(result).toEqual({ ok: false, kind: "unavailable" });
+  });
+
+  it("rejects a payload where a numeric field is undefined (missing from JSON)", async () => {
+    // priceUsd omitted — isOptionalNumber must reject undefined
+    const { priceUsd: _omit, ...withoutPrice } = VALID_TOKEN;
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: withoutPrice }), { status: 200 }),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result).toEqual({ ok: false, kind: "unknown" });
+  });
+
+  it("accepts a payload where a numeric field is null", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { ...VALID_TOKEN, ltChange24h: null } }),
+        { status: 200 },
+      ),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a payload with missing status field", async () => {
+    const { status: _omit, ...withoutStatus } = VALID_TOKEN;
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: withoutStatus }), { status: 200 }),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result).toEqual({ ok: false, kind: "unknown" });
   });
 });

@@ -273,4 +273,69 @@ describe("Sell flow (st:s button → conversation)", () => {
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     expect(String(send!.body.text)).toMatch(/not found/i);
   });
+
+  it("conversation aborts (not loops) when token API is unavailable", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.sell));
+    fetchSpy.mockClear();
+    mockTokenAndRpc(fetchSpy, { apiDown: true });
+
+    await h.run(messageUpdate(TOKEN_ADDR, 10));
+
+    const calls = capture(fetchSpy);
+    const sends = calls.filter((c) => c.url.includes("/sendMessage"));
+    // Exactly one message: the abort reply. No re-prompt.
+    expect(sends).toHaveLength(1);
+    expect(String(sends[0]!.body.text)).toMatch(/unavailable|try again/i);
+    expect(String(sends[0]!.body.text)).not.toMatch(/contract address|alt\.fun/i);
+  });
+
+  it("Sell All callback aborts when token balance RPC is unavailable (null)", async () => {
+    const h = await harnessWithWallet();
+    // Token API works but RPC throws → balance is null
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url === RPC_URL) throw new Error("RPC down");
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR, name: "Test Token", ticker: "TEST",
+              priceUsd: 0.001, mcapUsd: 5000, change24h: 0,
+              ltChange24h: null, curveFilled: 30, status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(/balance|unavailable|verify/i);
+  });
+
+  it("Sell All confirmation includes fee summary line", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, {
+      tokenBalance: 100_000n * 10n ** 18n,
+      priceUsd: 0.001,
+    });
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toContain("Ready to sell");
+    // Fee summary line is mandatory per AGENTS.md
+    expect(String(send!.body.text)).toContain("Bot fee 0.5%");
+    expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
+  });
 });

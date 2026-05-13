@@ -217,7 +217,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(text).toContain("Test Token");
   });
 
-  it("shows API unavailable message and re-prompts when token API is down", async () => {
+  it("conversation aborts (not loops) when token API is unavailable", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
 
@@ -228,8 +228,41 @@ describe("Buy flow (st:b button → conversation)", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 10));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(String(send!.body.text)).toMatch(/unavailable|try again/i);
+    const sends = calls.filter((c) => c.url.includes("/sendMessage"));
+    // Exactly one message: the abort reply. No re-prompt asking for address again.
+    expect(sends).toHaveLength(1);
+    expect(String(sends[0]!.body.text)).toMatch(/unavailable|try again/i);
+    // The abort message must NOT contain the token address prompt again
+    expect(String(sends[0]!.body.text)).not.toMatch(/contract address|alt\.fun/i);
+  });
+
+  it("Buy 20 callback aborts with error when USDC balance RPC is unavailable (null)", async () => {
+    const h = await harnessWithWallet();
+    // Simulate RPC failure by making the mock throw for the RPC URL
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url === RPC_URL) throw new Error("RPC down");
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR, name: "Test Token", ticker: "TEST",
+              priceUsd: 0.001, mcapUsd: 5000, change24h: 0,
+              ltChange24h: null, curveFilled: 30, status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(`bt20:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(/balance|unavailable|verify/i);
   });
 
   it("Buy 20 callback validates USDC balance is sufficient", async () => {
@@ -259,7 +292,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/insufficient|balance/i);
   });
 
-  it("Buy 20 callback shows confirmation when balance is sufficient", async () => {
+  it("Buy 20 callback shows confirmation with fee summary when balance is sufficient", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
 
@@ -270,6 +303,9 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to buy");
     expect(String(send!.body.text)).toContain("20");
+    // Fee summary line is mandatory per AGENTS.md
+    expect(String(send!.body.text)).toContain("Bot fee 0.5%");
+    expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
   });
 
   it("Refresh callback re-fetches data and edits the card in-place", async () => {
