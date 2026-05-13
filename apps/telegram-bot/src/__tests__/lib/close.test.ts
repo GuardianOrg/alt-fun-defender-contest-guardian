@@ -41,7 +41,11 @@ describe("closeButtonRow", () => {
 
   it("uses a callback_data that stays well inside Telegram's 64-byte budget", () => {
     const [btn] = closeButtonRow();
-    expect(btn!.callback_data.length).toBeLessThanOrEqual(64);
+    // Telegram measures `callback_data` in UTF-8 bytes, not UTF-16 code
+    // units — encode before comparing so a future multibyte change to
+    // CLOSE_CALLBACK doesn't silently pass while overflowing the wire.
+    const bytes = new TextEncoder().encode(btn!.callback_data).length;
+    expect(bytes).toBeLessThanOrEqual(64);
   });
 });
 
