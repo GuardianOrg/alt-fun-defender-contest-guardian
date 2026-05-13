@@ -280,7 +280,7 @@ export default function RightPanel() {
                         {t.walletAddress}
                       </span>
                       <CopyAddressButton
-                        address={t.walletAddress}
+                        address={t.walletAddressFull}
                         className={styles.tradeCopyBtn}
                       />
                     </div>
