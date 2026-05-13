@@ -992,17 +992,6 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await ctx.conversation.enter("wallet-delete", active.id);
   });
 
-  // Stubs for actions still gated on missing infra. Surface a toast
-  // alert rather than silently no-op'ing so users see a clear "not
-  // yet". Callback codes reserved here so future PRs only swap the
-  // handler body.
-  const stubPin = async (ctx: AppContext): Promise<void> => {
-    await ctx.answerCallbackQuery({
-      text: "Coming soon — needs the PIN flow.",
-      show_alert: true,
-    });
-  };
-
   /**
    * Import entry point. Cap-checks before entering the conversation so
    * a user at MAX_WALLETS_PER_USER sees a clean toast instead of being
@@ -1027,7 +1016,8 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await ctx.conversation.enter("wallet-import");
   });
 
-  bot.callbackQuery(WALLET_CALLBACK.withdraw, stubPin);
+  // WALLET_CALLBACK.withdraw is owned by commands/withdraw.ts and
+  // enters the same wizard as the /start → Withdraw button.
 
   bot.callbackQuery(START_CALLBACK.wallet, async (ctx) => {
     if (!ctx.from) {
