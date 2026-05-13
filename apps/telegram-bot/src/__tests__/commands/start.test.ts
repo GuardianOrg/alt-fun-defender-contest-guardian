@@ -274,21 +274,20 @@ describe("/start command", () => {
     expect(await walletManager(h).listWallets(7)).toHaveLength(0);
   });
 
-  it.each([
-    [START_CALLBACK.settings, /\/settings/],
-  ])(
-    "%s surfaces a hint toast pointing at the slash command",
-    async (cmd, pattern) => {
-      const h = harnessWithRpc();
-      mockBoth(fetchSpy);
-      await h.run(callbackUpdate(cmd));
-      const answer = capture(fetchSpy).find((c) =>
-        c.url.includes("/answerCallbackQuery"),
-      );
-      expect(answer!.body.show_alert).toBe(true);
-      expect(answer!.body.text).toMatch(pattern);
-    },
-  );
+  it("Settings button opens the settings panel inline instead of showing a hint toast", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+    await h.run(callbackUpdate(START_CALLBACK.settings));
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    // Silent callback ack — no hint toast.
+    expect(answer!.body.show_alert).toBeFalsy();
+    expect(String(answer!.body.text ?? "")).not.toMatch(/\/settings/);
+    // Bot replies with the settings status view.
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toMatch(/Slippage:/);
+  });
 
   it.each([START_CALLBACK.buy, START_CALLBACK.sell, START_CALLBACK.track])(
     "%s enters the token-lookup flow instead of showing a hint toast",

@@ -64,8 +64,6 @@ const renderStatusText = (status: SettingsStatus): string =>
     `• Slippage: ${formatBpsLabel(status.slippageBps)}`,
     `• Default buy: $${status.defaultBuyUsdc} USDC`,
     `• Degen mode: ${status.degenMode ? "on" : "off"}`,
-    "",
-    "Anti-phishing phrase lives in /security.",
   ].join("\n");
 
 interface RenderedState {

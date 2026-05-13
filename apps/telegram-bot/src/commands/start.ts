@@ -144,14 +144,6 @@ const safeEditMessageText = async (
   }
 };
 
-// buy (st:b), sell (st:s), help (st:h), wallet (st:w), positions (st:p),
-// security (st:sec), referral (st:ref), withdraw (st:wd) and track (st:t)
-// are handled by their dedicated register* functions — they reply with
-// full views (or enter a conversation) instead of a hint toast.
-const CALLBACK_HINTS: Record<string, string> = {
-  [START_CALLBACK.settings]: "Type /settings to adjust slippage and defaults.",
-};
-
 export const registerStartCommand = (bot: Bot<AppContext>): void => {
   bot.command("start", async (ctx) => {
     if (!ctx.from) {
@@ -258,14 +250,4 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       text: balance === null ? "Balance unavailable" : "Balance refreshed",
     });
   });
-
-  // Hint toasts for buttons that route to commands needing arguments
-  // (or stubs for commands not yet wired). Each surfaces a short
-  // alert pointing the user at the right slash command — better than
-  // silently no-op'ing the tap.
-  for (const [callbackData, hint] of Object.entries(CALLBACK_HINTS)) {
-    bot.callbackQuery(callbackData, async (ctx) => {
-      await ctx.answerCallbackQuery({ text: hint, show_alert: true });
-    });
-  }
 };
