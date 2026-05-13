@@ -8,6 +8,7 @@ import { isAddress } from "viem";
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
+  ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
   wrapWithCtxPhrase as wrap,
 } from "../lib/anti-phishing.js";
@@ -448,7 +449,17 @@ const changeRewardsWalletConversation = async (
     return;
   }
 
-  const warningMsg = await ctx.reply(REWARDS_WALLET_WARNING, {
+  // Anti-phishing header is mandatory on every outbound user-facing
+  // message (AGENTS.md "Security Model"). The static `wrap()` helper
+  // is plain-text only — this reply uses parse_mode=HTML so the user's
+  // phrase must be HTML-escaped before concatenation to avoid breaking
+  // Telegram's parser if a phrase contains `<` or `&`.
+  const warningText = [
+    escapeHtml(resolveAntiPhishingHeader(ctxAntiPhishingPhrase(ctx))),
+    "",
+    REWARDS_WALLET_WARNING,
+  ].join("\n");
+  const warningMsg = await ctx.reply(warningText, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
