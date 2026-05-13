@@ -109,11 +109,13 @@ export default function ProfileView() {
       return (
         <div aria-busy="true" aria-label="Loading balances">
           <BalancesSummarySkeleton />
-          <BalancesListHeader />
-          <div className={styles.balanceList}>
-            {Array.from({ length: BALANCE_SKELETON_COUNT }, (_, i) => (
-              <BalanceRowSkeleton key={i} />
-            ))}
+          <div className={styles.tableScroll}>
+            <BalancesListHeader />
+            <div className={styles.balanceList}>
+              {Array.from({ length: BALANCE_SKELETON_COUNT }, (_, i) => (
+                <BalanceRowSkeleton key={i} />
+              ))}
+            </div>
           </div>
         </div>
       );
@@ -126,15 +128,17 @@ export default function ProfileView() {
     return (
       <>
         <BalancesSummary totalValue={totalValue} />
-        <BalancesListHeader />
-        <div className={styles.balanceList}>
-          {heldTokens.map((t) => (
-            <BalanceRow
-              key={t.address}
-              token={t}
-              onClick={() => navigate(tokenPath(t.address))}
-            />
-          ))}
+        <div className={styles.tableScroll}>
+          <BalancesListHeader />
+          <div className={styles.balanceList}>
+            {heldTokens.map((t) => (
+              <BalanceRow
+                key={t.address}
+                token={t}
+                onClick={() => navigate(tokenPath(t.address))}
+              />
+            ))}
+          </div>
         </div>
       </>
     );
@@ -150,11 +154,13 @@ export default function ProfileView() {
       return (
         <div aria-busy="true" aria-label="Loading creator rewards">
           <RewardsSummarySkeleton />
-          <RewardsListHeader />
-          <div className={styles.balanceList}>
-            {Array.from({ length: REWARDS_SKELETON_COUNT }, (_, i) => (
-              <RewardsRowSkeleton key={i} />
-            ))}
+          <div className={styles.tableScroll}>
+            <RewardsListHeader />
+            <div className={styles.balanceList}>
+              {Array.from({ length: REWARDS_SKELETON_COUNT }, (_, i) => (
+                <RewardsRowSkeleton key={i} />
+              ))}
+            </div>
           </div>
         </div>
       );
@@ -173,15 +179,17 @@ export default function ProfileView() {
           claiming={claiming}
           onClaim={claim}
         />
-        <RewardsListHeader />
-        <div className={styles.balanceList}>
-          {earnings.tokens.map((t) => (
-            <RewardsRow
-              key={t.address}
-              token={t}
-              onClick={() => navigate(tokenPath(t.address))}
-            />
-          ))}
+        <div className={styles.tableScroll}>
+          <RewardsListHeader />
+          <div className={styles.balanceList}>
+            {earnings.tokens.map((t) => (
+              <RewardsRow
+                key={t.address}
+                token={t}
+                onClick={() => navigate(tokenPath(t.address))}
+              />
+            ))}
+          </div>
         </div>
       </>
     );
@@ -511,7 +519,6 @@ function RewardsListHeader() {
     <div className={styles.rewardsHeader}>
       <span>Altcoin</span>
       <span className={styles.balanceHeadAddress}>Address</span>
-      <span className={styles.rewardsHeadStatus}>Status</span>
       <span>Volume</span>
       <span>Earned</span>
     </div>
@@ -558,8 +565,8 @@ function RewardsRow({ token, onClick }: RewardsRowProps) {
           )}
         </div>
         <div className={styles.balanceTokenMeta}>
-          <span className={styles.balanceTokenTicker}>{token.name}</span>
-          <span className={styles.balanceTokenName}>{token.ltName}</span>
+          <span className={styles.balanceTokenTicker}>{token.ticker}</span>
+          <span className={styles.balanceTokenName}>{token.name}</span>
         </div>
       </div>
       <div
@@ -575,18 +582,6 @@ function RewardsRow({ token, onClick }: RewardsRowProps) {
           {shortenAddress(token.address)}
         </span>
         <CopyAddressButton address={token.address} />
-      </div>
-      <div className={styles.statusCell}>
-        <span
-          className={cn(
-            styles.statusBadge,
-            token.status === "graduating" && styles.statusGraduating,
-            token.status === "graduated" && styles.statusGraduated,
-            token.status === "active" && styles.statusActive,
-          )}
-        >
-          {token.status}
-        </span>
       </div>
       <div className={styles.balanceValue}>
         {formatUsd(token.totalVolumeUsd)}
@@ -612,9 +607,6 @@ function RewardsRowSkeleton() {
       </div>
       <div className={styles.balanceAddress}>
         <Skeleton width="6rem" height="12px" />
-      </div>
-      <div className={styles.statusCell}>
-        <Skeleton width="4rem" height="14px" />
       </div>
       <div className={styles.balanceValue}>
         <Skeleton width="4rem" height="12px" />
