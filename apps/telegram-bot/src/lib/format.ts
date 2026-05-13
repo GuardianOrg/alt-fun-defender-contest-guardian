@@ -115,11 +115,50 @@ const formatPct = (pct: number | null): string => {
   return "0.00%";
 };
 
-const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
-  const labelRaw = `${pos.ticker}`;
+/**
+ * Escape a string for safe interpolation inside a Telegram HTML
+ * message body. Tickers come from on-chain `Token.symbol()` and can
+ * contain any UTF-8 — including `<`, `>`, `&` — so anything that lands
+ * outside an HTML attribute must go through this. Attribute values
+ * (the addresses in `<a href="...">`) are ASCII hex so they don't need
+ * escaping, but we wrap them anyway to keep the call shape uniform.
+ */
+export const escapeHtml = (s: string): string =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/**
+ * Build the inline `Buy` / `Sell` HTML link pair that follows the
+ * value/PnL row of every open position. The links point at the bot's
+ * own `t.me` deeplink with a `buy_<addr>` / `sell_<addr>` `start`
+ * payload — tapping the text returns the user to the bot chat and
+ * fires `/start <payload>`, which the start handler routes to a fresh
+ * buy/sell card for the selected token (see `commands/start.ts`).
+ *
+ * Inline HTML anchors replace the bottom-of-message keyboard rows
+ * that this command used to emit, so the actions live next to the
+ * position they apply to instead of stacking at the end of the
+ * message.
+ */
+const formatBuySellLinks = (token: string, botUsername: string): string => {
+  const buy = `https://t.me/${botUsername}?start=buy_${token}`;
+  const sell = `https://t.me/${botUsername}?start=sell_${token}`;
+  return ` · <a href="${escapeHtml(buy)}">Buy</a> · <a href="${escapeHtml(sell)}">Sell</a>`;
+};
+
+const formatOpenLine = (
+  pos: BotOpenPosition,
+  limit: number,
+  botUsername: string,
+): string => {
+  const labelRaw = escapeHtml(pos.ticker);
+  const actions = formatBuySellLinks(pos.token, botUsername);
   const suffix =
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
-    `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
+    `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})${actions}`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
   const label =
     labelRaw.length > budget
@@ -132,7 +171,7 @@ const formatRealisedLine = (
   pos: BotRealisedPosition,
   limit: number,
 ): string => {
-  const labelRaw = `${pos.ticker}`;
+  const labelRaw = escapeHtml(pos.ticker);
   const suffix =
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
@@ -145,106 +184,42 @@ const formatRealisedLine = (
 };
 
 /**
- * One rendered page of the positions reply: the text body plus the
- * subset of open positions whose lines are visible on that page. The
- * `openPositions` list drives the per-position [Buy] [Sell] rows the
- * page keyboard emits — only positions visible on the current page
- * get buttons so the keyboard stays aligned with the body.
- */
-export interface PositionsChunk {
-  text: string;
-  openPositions: BotOpenPosition[];
-}
-
-interface TaggedLine {
-  text: string;
-  openPos?: BotOpenPosition;
-}
-
-/**
- * Chunker variant of `chunkPositionsMessage` that propagates per-line
- * `openPos` tags so each emitted chunk also exposes which open
- * positions landed in it. Same packing rules and footer reservation
- * as the untagged chunker — kept separate to avoid churning the
- * existing string-array helper used by the test suite.
- */
-const chunkTaggedLines = (
-  header: string,
-  lines: TaggedLine[],
-  limit: number,
-): PositionsChunk[] => {
-  if (lines.length === 0) return [{ text: header, openPositions: [] }];
-  const chunks: PositionsChunk[] = [];
-  let currentText = header;
-  let currentOpen: BotOpenPosition[] = [];
-  for (const line of lines) {
-    const joiner = currentText === "" ? "" : "\n\n";
-    if (currentText.length + joiner.length + line.text.length > limit) {
-      if (currentText !== "")
-        chunks.push({ text: currentText, openPositions: currentOpen });
-      currentText = line.text;
-      currentOpen = line.openPos ? [line.openPos] : [];
-      continue;
-    }
-    currentText =
-      currentText === "" ? line.text : `${currentText}${joiner}${line.text}`;
-    if (line.openPos) currentOpen.push(line.openPos);
-  }
-  if (currentText !== "")
-    chunks.push({ text: currentText, openPositions: currentOpen });
-  return chunks;
-};
-
-/**
  * Render the bot-positions response as a list of paginated chunks. Open
  * and Realised sections share one paginated stream: Open header +
  * lines first, then Realised header + lines if any closed-out chunks
  * exist. The 4096-char-per-chunk limit and the pagination-footer
  * reservation match `formatPositionsResponse`.
  *
- * Each chunk also exposes the open positions whose lines are visible
- * on it (`openPositions`). The `/positions` command uses that list to
- * build per-position [Buy] [Sell] callback rows aligned with the
- * lines actually rendered on the page.
+ * Each open-position line carries inline `Buy` / `Sell` HTML links
+ * pointing at the bot's `t.me?start=buy_<addr>` / `sell_<addr>`
+ * deeplinks — tapping returns the user to the bot chat and fires
+ * `/start <payload>`, which routes to a fresh buy/sell card for the
+ * selected token. The reply must be sent with `parse_mode: "HTML"`.
  */
 export const formatBotPositionsResponse = (
   data: BotPositionsResponse,
-): PositionsChunk[] => {
+  botUsername: string,
+): string[] => {
   if (data.open.length === 0 && data.realised.length === 0) {
-    return [
-      { text: "No open positions for this wallet.", openPositions: [] },
-    ];
+    return ["No open positions for this wallet."];
   }
   const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
-  const lines: TaggedLine[] = [];
+  const lines: string[] = [];
+  let header = "";
   if (data.open.length > 0) {
-    lines.push({ text: `Open positions (${data.open.length})` });
-    for (const p of data.open)
-      lines.push({ text: formatOpenLine(p, limit), openPos: p });
+    header = `Open positions (${data.open.length})`;
+    for (const p of data.open) lines.push(formatOpenLine(p, limit, botUsername));
   }
   if (data.realised.length > 0) {
-    lines.push({ text: `Realised positions (${data.realised.length})` });
-    for (const p of data.realised)
-      lines.push({ text: formatRealisedLine(p, limit) });
+    const realisedHeader = `Realised positions (${data.realised.length})`;
+    if (header === "") header = realisedHeader;
+    else lines.push(realisedHeader);
+    for (const p of data.realised) lines.push(formatRealisedLine(p, limit));
   }
-  // First line becomes the chunk header so a section header always
-  // sticks with the lines below it when chunking spills.
-  const [header, ...body] = lines;
-  return chunkTaggedLines(header?.text ?? "", body, limit);
+  return chunkPositionsMessage(header, lines, limit);
 };
 
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
-
-/**
- * Per-open-position callback codes emitted by `/positions`. Each pairs
- * with a token address (3+1+42 = 46 bytes, safely under the 64-byte
- * `callback_data` budget). Handlers in `commands/positions.ts` open a
- * fresh buy/sell card for the selected token — mirrors `/track`'s
- * `trkb` / `trks` pattern but keeps the wiring local so the positions
- * UI doesn't reach across commands.
- */
-export const POSITION_BUY_CALLBACK_CMD = "pob";
-export const POSITION_SELL_CALLBACK_CMD = "pos";
 
 export interface InlineKeyboardButton {
   text: string;
@@ -287,21 +262,8 @@ export const buildPositionsPageKeyboard = (
   page: number,
   totalPages: number,
   wallet: string,
-  openPositions: readonly BotOpenPosition[] = [],
 ): InlineKeyboardMarkup | null => {
   const rows: InlineKeyboardButton[][] = [];
-  for (const pos of openPositions) {
-    rows.push([
-      {
-        text: `Buy ${pos.ticker}`,
-        callback_data: encodeCallback(POSITION_BUY_CALLBACK_CMD, pos.token),
-      },
-      {
-        text: `Sell ${pos.ticker}`,
-        callback_data: encodeCallback(POSITION_SELL_CALLBACK_CMD, pos.token),
-      },
-    ]);
-  }
   const nav: InlineKeyboardButton[] = [];
   if (totalPages > 1) {
     if (page > 0) {

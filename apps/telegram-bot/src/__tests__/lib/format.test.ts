@@ -3,16 +3,17 @@ import { describe, it, expect } from "vitest";
 import {
   buildPositionsPageKeyboard,
   chunkPositionsMessage,
+  escapeHtml,
   formatBotPositionsResponse,
   formatFixed,
   formatTokenAmount,
   formatUsdc,
-  POSITION_BUY_CALLBACK_CMD,
-  POSITION_SELL_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
+
+const BOT = "CortisolTestBot";
 import type {
   BotOpenPosition,
   BotPositionsResponse,
@@ -109,19 +110,16 @@ describe("chunkPositionsMessage", () => {
 
 describe("formatBotPositionsResponse", () => {
   it("returns an empty-state message when both sections are empty", () => {
-    const out = formatBotPositionsResponse({ open: [], realised: [] });
-    expect(out.map((c) => c.text)).toEqual([
-      "No open positions for this wallet.",
-    ]);
-    expect(out[0]!.openPositions).toEqual([]);
+    const out = formatBotPositionsResponse({ open: [], realised: [] }, BOT);
+    expect(out).toEqual(["No open positions for this wallet."]);
   });
 
   it("renders an Open header, ticker, balance, cost, value, signed PnL, and percent", () => {
-    const out = formatBotPositionsResponse({
-      open: [openPos()],
-      realised: [],
-    });
-    const joined = out.map((c) => c.text).join("\n");
+    const out = formatBotPositionsResponse(
+      { open: [openPos()], realised: [] },
+      BOT,
+    );
+    const joined = out.join("\n");
     expect(joined).toContain("Open positions (1)");
     expect(joined).toContain("ONE");
     expect(joined).toContain("1.5");
@@ -131,12 +129,48 @@ describe("formatBotPositionsResponse", () => {
     expect(joined).toContain("+25.00%");
   });
 
-  it("renders a Realised header with proceeds, cost, signed PnL, percent", () => {
-    const out = formatBotPositionsResponse({
-      open: [],
-      realised: [realisedPos()],
+  it("appends inline Buy/Sell HTML anchors to each open position line", () => {
+    const pos = openPos({
+      token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ticker: "ALPHA",
     });
-    const joined = out.map((c) => c.text).join("\n");
+    const out = formatBotPositionsResponse({ open: [pos], realised: [] }, BOT);
+    const joined = out.join("\n");
+    // Anchors land on the same line as PnL — the user's eye lands on
+    // the action right after the numbers without scanning to a
+    // bottom-of-message keyboard.
+    expect(joined).toContain(
+      `<a href="https://t.me/${BOT}?start=buy_${pos.token}">Buy</a>`,
+    );
+    expect(joined).toContain(
+      `<a href="https://t.me/${BOT}?start=sell_${pos.token}">Sell</a>`,
+    );
+  });
+
+  it("does not append inline action links to realised (closed) positions", () => {
+    const out = formatBotPositionsResponse(
+      { open: [], realised: [realisedPos()] },
+      BOT,
+    );
+    const joined = out.join("\n");
+    expect(joined).not.toContain("?start=buy_");
+    expect(joined).not.toContain("?start=sell_");
+  });
+
+  it("HTML-escapes the ticker so an attacker-controlled symbol can't inject markup", () => {
+    const pos = openPos({ ticker: "<img src=x onerror=1>" });
+    const out = formatBotPositionsResponse({ open: [pos], realised: [] }, BOT);
+    const joined = out.join("\n");
+    expect(joined).not.toContain("<img src=x");
+    expect(joined).toContain("&lt;img src=x onerror=1&gt;");
+  });
+
+  it("renders a Realised header with proceeds, cost, signed PnL, percent", () => {
+    const out = formatBotPositionsResponse(
+      { open: [], realised: [realisedPos()] },
+      BOT,
+    );
+    const joined = out.join("\n");
     expect(joined).toContain("Realised positions (1)");
     expect(joined).toContain("TWO");
     expect(joined).toContain("cost $10");
@@ -146,32 +180,38 @@ describe("formatBotPositionsResponse", () => {
   });
 
   it("renders a negative PnL with the Unicode minus sign and floored percent", () => {
-    const out = formatBotPositionsResponse({
-      open: [
-        openPos({
-          unrealisedPnlUsdc: "-1234567",
-          unrealisedPnlPct: -12.349,
-        }),
-      ],
-      realised: [],
-    });
-    const joined = out.map((c) => c.text).join("\n");
+    const out = formatBotPositionsResponse(
+      {
+        open: [
+          openPos({
+            unrealisedPnlUsdc: "-1234567",
+            unrealisedPnlPct: -12.349,
+          }),
+        ],
+        realised: [],
+      },
+      BOT,
+    );
+    const joined = out.join("\n");
     expect(joined).toContain("−$1.23");
     // Math.floor on negatives rounds toward -∞: -12.349 → -12.35.
     expect(joined).toContain("−12.35%");
   });
 
   it("renders an em-dash when percent is null (cost basis was zero)", () => {
-    const out = formatBotPositionsResponse({
-      open: [
-        openPos({
-          costBasisUsdc: "0",
-          unrealisedPnlPct: null,
-        }),
-      ],
-      realised: [],
-    });
-    expect(out.map((c) => c.text).join("\n")).toContain("(—)");
+    const out = formatBotPositionsResponse(
+      {
+        open: [
+          openPos({
+            costBasisUsdc: "0",
+            unrealisedPnlPct: null,
+          }),
+        ],
+        realised: [],
+      },
+      BOT,
+    );
+    expect(out.join("\n")).toContain("(—)");
   });
 
   it("chunks output into <=4096-char Telegram messages for large lists", () => {
@@ -181,62 +221,27 @@ describe("formatBotPositionsResponse", () => {
         ticker: `LT${i}`,
       }),
     );
-    const out = formatBotPositionsResponse({ open: many, realised: [] });
+    const out = formatBotPositionsResponse({ open: many, realised: [] }, BOT);
     expect(out.length).toBeGreaterThan(1);
     for (const chunk of out)
-      expect(chunk.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
   });
 
   it("includes both sections when both have entries", () => {
-    const out = formatBotPositionsResponse({
-      open: [openPos()],
-      realised: [realisedPos()],
-    });
-    const joined = out.map((c) => c.text).join("\n");
+    const out = formatBotPositionsResponse(
+      { open: [openPos()], realised: [realisedPos()] },
+      BOT,
+    );
+    const joined = out.join("\n");
     expect(joined).toContain("Open positions (1)");
     expect(joined).toContain("Realised positions (1)");
   });
+});
 
-  it("tags each chunk with the open positions whose lines it contains", () => {
-    const a = openPos({
-      token: "0x1111111111111111111111111111111111111111",
-      ticker: "AAA",
-    });
-    const b = openPos({
-      token: "0x2222222222222222222222222222222222222222",
-      ticker: "BBB",
-    });
-    const out = formatBotPositionsResponse({
-      open: [a, b],
-      realised: [realisedPos()],
-    });
-    const allTagged = out.flatMap((c) => c.openPositions);
-    // Open positions are surfaced for keyboard wiring; realised
-    // entries are intentionally not — closed positions have no
-    // [Sell]/[Buy] action.
-    expect(allTagged.map((p) => p.ticker)).toEqual(["AAA", "BBB"]);
-  });
-
-  it("groups tagged open positions with the chunk where their line lands", () => {
-    // Force chunk-splitting by generating many positions, then verify
-    // every visible ticker is exposed via the matching chunk's
-    // `openPositions` (i.e. the tag tracks the body it was rendered
-    // into, not the input order).
-    const many: BotOpenPosition[] = Array.from({ length: 80 }, (_, i) =>
-      openPos({
-        token: `0x${i.toString(16).padStart(40, "0")}`,
-        ticker: `LT${i}`,
-      }),
-    );
-    const out = formatBotPositionsResponse({ open: many, realised: [] });
-    expect(out.length).toBeGreaterThan(1);
-    for (const chunk of out) {
-      for (const pos of chunk.openPositions) {
-        expect(chunk.text).toContain(pos.ticker);
-      }
-    }
-    const totalTagged = out.reduce((n, c) => n + c.openPositions.length, 0);
-    expect(totalTagged).toBe(many.length);
+describe("escapeHtml", () => {
+  it("escapes the five HTML metacharacters and leaves other UTF-8 alone", () => {
+    expect(escapeHtml("a & <b> \"c\"")).toBe("a &amp; &lt;b&gt; &quot;c&quot;");
+    expect(escapeHtml("ALPHA · 25.00%")).toBe("ALPHA · 25.00%");
   });
 });
 
@@ -284,11 +289,13 @@ describe("renderPaginatedPage", () => {
         ticker: `LT${i}`,
       }),
     );
-    const chunks = formatBotPositionsResponse({ open: many, realised: [] });
+    const chunks = formatBotPositionsResponse(
+      { open: many, realised: [] },
+      BOT,
+    );
     expect(chunks.length).toBeGreaterThan(1);
-    const texts = chunks.map((c) => c.text);
-    for (let i = 0; i < texts.length; i++) {
-      const rendered = renderPaginatedPage(texts, i);
+    for (let i = 0; i < chunks.length; i++) {
+      const rendered = renderPaginatedPage(chunks, i);
       expect(rendered.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
     }
   });
@@ -297,9 +304,8 @@ describe("renderPaginatedPage", () => {
 describe("buildPositionsPageKeyboard", () => {
   const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 
-  it("returns null for single-page with no open positions (avoids an empty inline strip)", () => {
+  it("returns null for single-page output (Buy/Sell rendered inline as text, no keyboard rows needed)", () => {
     expect(buildPositionsPageKeyboard(0, 1, WALLET)).toBeNull();
-    expect(buildPositionsPageKeyboard(0, 1, WALLET, [])).toBeNull();
   });
 
   it("page 0 of N: emits only [Next →]", () => {
@@ -331,65 +337,6 @@ describe("buildPositionsPageKeyboard", () => {
 
   it("stays inside the 64-byte callback_data ceiling", () => {
     const kb = buildPositionsPageKeyboard(999, 1000, WALLET);
-    for (const b of kb!.inline_keyboard.flat()) {
-      expect(b.callback_data.length).toBeLessThanOrEqual(64);
-    }
-  });
-
-  it("emits a Buy/Sell row per open position above the nav row", () => {
-    const positions = [
-      openPos({
-        token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        ticker: "AAA",
-      }),
-      openPos({
-        token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        ticker: "BBB",
-      }),
-    ];
-    const kb = buildPositionsPageKeyboard(0, 1, WALLET, positions);
-    expect(kb).not.toBeNull();
-    expect(kb!.inline_keyboard).toHaveLength(2);
-
-    const [rowA, rowB] = kb!.inline_keyboard;
-    expect(rowA!.map((b) => b.text)).toEqual(["Buy AAA", "Sell AAA"]);
-    expect(rowA![0]!.callback_data).toBe(
-      `${POSITION_BUY_CALLBACK_CMD}:${positions[0]!.token}`,
-    );
-    expect(rowA![1]!.callback_data).toBe(
-      `${POSITION_SELL_CALLBACK_CMD}:${positions[0]!.token}`,
-    );
-    expect(rowB!.map((b) => b.text)).toEqual(["Buy BBB", "Sell BBB"]);
-    expect(rowB![0]!.callback_data).toBe(
-      `${POSITION_BUY_CALLBACK_CMD}:${positions[1]!.token}`,
-    );
-    expect(rowB![1]!.callback_data).toBe(
-      `${POSITION_SELL_CALLBACK_CMD}:${positions[1]!.token}`,
-    );
-  });
-
-  it("appends the nav row after the per-position rows when paginating", () => {
-    const positions = [
-      openPos({
-        token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        ticker: "AAA",
-      }),
-    ];
-    const kb = buildPositionsPageKeyboard(0, 3, WALLET, positions);
-    expect(kb).not.toBeNull();
-    expect(kb!.inline_keyboard).toHaveLength(2);
-    const nav = kb!.inline_keyboard[1]!;
-    expect(nav.map((b) => b.text)).toEqual(["Next →"]);
-  });
-
-  it("buy/sell button callback_data stays within the 64-byte ceiling", () => {
-    const positions = [
-      openPos({
-        token: "0xffffffffffffffffffffffffffffffffffffffff",
-        ticker: "Z",
-      }),
-    ];
-    const kb = buildPositionsPageKeyboard(0, 1, WALLET, positions);
     for (const b of kb!.inline_keyboard.flat()) {
       expect(b.callback_data.length).toBeLessThanOrEqual(64);
     }

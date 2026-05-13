@@ -6,12 +6,20 @@ import {
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
 import {
+  buildBuyTokenKeyboard,
+  buildSellTokenKeyboard,
+  normaliseDefaultBuyUsdc,
+  normaliseDefaultSellUsdc,
+} from "../keyboards/buy-sell-token.js";
+import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
+import { fetchToken } from "../lib/api.js";
 import { logger } from "../lib/logger.js";
 import {
+  parseActionStartParam,
   parseStartParam,
   readProfile,
   recordUsername,
@@ -20,8 +28,12 @@ import {
   writeProfile,
 } from "../lib/onboarding.js";
 import { resolveBuyUsdcUrl } from "../lib/relay.js";
-import { fetchUsdcBalance } from "../lib/rpc.js";
-import { formatUsdc6 } from "../lib/token-card.js";
+import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
+import {
+  formatUsdc6,
+  renderBuyTokenCardText,
+  renderSellTokenCardText,
+} from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
@@ -122,6 +134,58 @@ const ensureActiveAddress = async (
 const WALLET_CREATE_FAILED =
   "Could not create your wallet — please try /start again in a moment.";
 
+const ACTION_TOKEN_OUTAGE =
+  "Token data temporarily unavailable — try again in a moment.";
+
+/**
+ * Render the buy or sell card for an action deeplink payload
+ * (`/start buy_<addr>` or `/start sell_<addr>`). Tapping the inline
+ * `Buy` / `Sell` HTML anchor on a `/positions` entry returns the user
+ * to the bot chat and fires `/start` with this payload — we route it
+ * straight to the standard buy/sell card instead of re-rendering the
+ * welcome screen so the click lands on the action the user picked.
+ */
+const replyWithActionCard = async (
+  ctx: AppContext,
+  walletAddress: string,
+  action: "buy" | "sell",
+  token: Address,
+): Promise<void> => {
+  const [tokenResult, balance] = await Promise.all([
+    fetchToken(ctx.env, token),
+    action === "buy"
+      ? fetchUsdcBalance(ctx.env, walletAddress)
+      : fetchErc20Balance(ctx.env, token, walletAddress),
+  ]);
+  if (!tokenResult.ok) {
+    await ctx.reply(ACTION_TOKEN_OUTAGE);
+    return;
+  }
+  if (action === "buy") {
+    await ctx.reply(renderBuyTokenCardText(tokenResult.data, balance), {
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: buildBuyTokenKeyboard(
+          token,
+          normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+        ),
+      },
+      link_preview_options: { is_disabled: true },
+    });
+    return;
+  }
+  await ctx.reply(renderSellTokenCardText(tokenResult.data, balance), {
+    parse_mode: "HTML",
+    reply_markup: {
+      inline_keyboard: buildSellTokenKeyboard(
+        token,
+        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
+      ),
+    },
+    link_preview_options: { is_disabled: true },
+  });
+};
+
 const safeEditMessageText = async (
   ctx: AppContext,
   text: string,
@@ -171,14 +235,37 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
 
+    const rawParam = typeof ctx.match === "string" ? ctx.match : undefined;
+    const actionParam = parseActionStartParam(rawParam);
+    if (actionParam !== null) {
+      // Deeplink from `/positions` inline `Buy` / `Sell` anchor — skip
+      // the welcome screen and route straight to the matching trade
+      // card. First-start callers still get the wallet+profile created
+      // above; we just don't re-render the welcome message on top of
+      // the action card. No referrer is captured from action payloads
+      // (those carry a token address, not a referral handle).
+      if (isFirstStart) {
+        await writeDefaultRewardsWallet(ctx.env, address as Address);
+        await writeProfile(ctx.env.WALLET_KV, userId, {
+          createdAt: Date.now(),
+          referrer: null,
+        });
+      }
+      await replyWithActionCard(
+        ctx,
+        address,
+        actionParam.action,
+        actionParam.token,
+      );
+      return;
+    }
+
     if (isFirstStart) {
       // Resolve referrer AFTER the wallet exists so a self-referral
       // (`ref_<own userId>`) maps to the new user's own active wallet
       // — the spec allows self-referral and on day one their rewards
       // wallet equals the custodial wallet just minted above.
-      const param = parseStartParam(
-        typeof ctx.match === "string" ? ctx.match : undefined,
-      );
+      const param = parseStartParam(rawParam);
       let referrer: Address | null = null;
       if (param !== null) {
         referrer = await resolveReferrer(ctx.env, buildManager(ctx.env), param);

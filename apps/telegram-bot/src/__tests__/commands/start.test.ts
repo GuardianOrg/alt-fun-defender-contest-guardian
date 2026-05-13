@@ -775,3 +775,136 @@ describe("/start referral onboarding", () => {
     );
   });
 });
+
+/**
+ * Action deeplink behaviour for /start — `buy_<addr>` and `sell_<addr>`
+ * payloads emitted by the inline `Buy` / `Sell` HTML anchors on each
+ * open position in `/positions`. The handler must skip the welcome
+ * screen and reply with a fresh buy/sell card pre-loaded for the
+ * selected token.
+ */
+describe("/start action deeplink (buy_/sell_)", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  const TOKEN = "0xaaaa000000000000000000000000000000000000";
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  const mockActionFetch = (): void => {
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        // ERC-20 `balanceOf` + native HYPE both decoded via BigInt.
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://api.test.local")) {
+        // POST .../rewards-wallet — echo back the wallet supplied by
+        // the first-start onboarding side-effect.
+        if (
+          url.endsWith("/rewards-wallet") &&
+          (init?.method ?? "GET") === "POST"
+        ) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            rewardsWallet?: string;
+          };
+          return new Response(
+            JSON.stringify({
+              data: {
+                rewardsWallet: (body.rewardsWallet ?? "").toLowerCase(),
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes(`/api/v1/tokens/${TOKEN}`)) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                address: TOKEN,
+                name: "Test Token",
+                ticker: "ALPHA",
+                priceUsd: 0.05,
+                mcapUsd: 50_000,
+                change24h: 12.5,
+                ltChange24h: null,
+                volume24hUsd: 1000,
+                curveFilled: 0.42,
+                status: "curve",
+                ltPair: null,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  };
+
+  const sentBodies = (): Array<{
+    text: string;
+    reply_markup?: unknown;
+  }> =>
+    (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .filter((call) => String(call[0]).includes("/sendMessage"))
+      .map(
+        (call) =>
+          JSON.parse((call[1] as RequestInit).body as string) as {
+            text: string;
+            reply_markup?: unknown;
+          },
+      );
+
+  it("buy_<addr> deeplink replies with a buy card and skips the welcome screen", async () => {
+    const h = harnessWithRpc();
+    mockActionFetch();
+    await h.run(startUpdate(7, "private", { param: `buy_${TOKEN}` }));
+    const sent = sentBodies();
+    expect(sent).toHaveLength(1);
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup).toBeDefined();
+    const allButtons = markup!.inline_keyboard.flat();
+    // The buy-card keyboard exposes the standard quick-buy amounts —
+    // proof the handler routed to `renderBuyTokenCardText`, not the
+    // welcome message.
+    expect(allButtons.some((b) => b.text.includes("Buy 20"))).toBe(true);
+    // Welcome message would carry the address as a tap-to-copy block.
+    expect(sent[0]!.text).not.toContain("Welcome to");
+  });
+
+  it("sell_<addr> deeplink replies with a sell card", async () => {
+    const h = harnessWithRpc();
+    mockActionFetch();
+    await h.run(startUpdate(7, "private", { param: `sell_${TOKEN}` }));
+    const sent = sentBodies();
+    expect(sent).toHaveLength(1);
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup).toBeDefined();
+    const allButtons = markup!.inline_keyboard.flat();
+    expect(allButtons.some((b) => b.text.includes("Sell All"))).toBe(true);
+    expect(sent[0]!.text).not.toContain("Welcome to");
+  });
+
+  it("falls back to the welcome screen for a malformed action payload", async () => {
+    const h = harnessWithRpc();
+    // No token-data fetch should fire — only the welcome RPC + Telegram.
+    mockBoth(fetchSpy);
+    await h.run(startUpdate(7, "private", { param: "buy_not-an-address" }));
+    const sent = sentBodies();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.text).toContain("Welcome to");
+  });
+});
