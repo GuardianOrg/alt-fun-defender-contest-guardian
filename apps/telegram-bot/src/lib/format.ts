@@ -4,6 +4,7 @@ import type {
   BotRealisedPosition,
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
+import { closeButtonRow } from "./close.js";
 
 const TOKEN_DECIMALS = 18;
 const USDC_DECIMALS = 6;
@@ -323,9 +324,9 @@ const truncateTickerForButton = (ticker: string): string => {
  * Build the inline-keyboard markup for one page: a `[Buy <TICKER>]
  * [Sell <TICKER>]` row per open position on the page, optionally
  * followed by a `[← Prev] [Next →]` nav row when the response
- * paginates. Returns `null` only when there is nothing to attach
- * (single-page realised-only or empty-state) — sending an empty
- * keyboard renders an awkward zero-height bar in the Telegram client.
+ * paginates, then a trailing `[Close]` row. Always returns a
+ * keyboard — even an empty-state page surfaces Close so the user can
+ * dismiss the prompt.
  *
  * Per-position buttons replace the legacy `Buy` / `Sell` HTML anchors
  * that pointed at `t.me/<bot>?start=buy_<addr>` deeplinks. The anchors
@@ -343,7 +344,7 @@ export const buildPositionsPageKeyboard = (
   totalPages: number,
   wallet: string,
   openActions: PositionActionTarget[],
-): InlineKeyboardMarkup | null => {
+): InlineKeyboardMarkup => {
   const rows: InlineKeyboardButton[][] = [];
   for (const action of openActions) {
     const label = truncateTickerForButton(action.ticker);
@@ -388,5 +389,6 @@ export const buildPositionsPageKeyboard = (
     }
   }
   if (nav.length > 0) rows.push(nav);
-  return rows.length > 0 ? { inline_keyboard: rows } : null;
+  rows.push(closeButtonRow());
+  return { inline_keyboard: rows };
 };

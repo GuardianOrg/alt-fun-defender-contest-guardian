@@ -7,6 +7,7 @@ import {
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
+import { registerCloseCallback } from "./lib/close.js";
 import { logger } from "./lib/logger.js";
 import { registerBuyCommand } from "./commands/buy.js";
 import { registerHelpCommand } from "./commands/help.js";
@@ -192,6 +193,7 @@ export const createBot = (
     }),
   );
 
+  registerCloseCallback(bot);
   registerHelpCommand(bot);
   registerStartCommand(bot);
   registerBuyCommand(bot);

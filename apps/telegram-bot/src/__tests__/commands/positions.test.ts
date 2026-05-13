@@ -198,11 +198,15 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    expect(markup.inline_keyboard).toHaveLength(1);
+    // One action row + trailing Close row.
+    expect(markup.inline_keyboard).toHaveLength(2);
     const row = markup.inline_keyboard[0]!;
     expect(row.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     expect(row[0]!.callback_data).toBe(`pb:${TOKEN}`);
     expect(row[1]!.callback_data).toBe(`ps:${TOKEN}`);
+    expect(markup.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual([
+      "Close",
+    ]);
   });
 
   it("renders both Open and Realised sections when both have rows", async () => {
@@ -280,13 +284,15 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // Multiple per-position rows + a final nav row. Last row is nav.
-    expect(markup.inline_keyboard.length).toBeGreaterThan(1);
-    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
+    // Multiple per-position rows + a nav row + a trailing Close row.
+    expect(markup.inline_keyboard.length).toBeGreaterThan(2);
+    const closeRow = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
+    expect(closeRow.map((b) => b.text)).toEqual(["Close"]);
+    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
     // Every non-nav row must be a Buy/Sell pair with `pb:` / `ps:` data.
-    for (let i = 0; i < markup.inline_keyboard.length - 1; i++) {
+    for (let i = 0; i < markup.inline_keyboard.length - 2; i++) {
       const row = markup.inline_keyboard[i]!;
       expect(row).toHaveLength(2);
       expect(row[0]!.text.startsWith("Buy ")).toBe(true);

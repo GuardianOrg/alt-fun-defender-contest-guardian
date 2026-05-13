@@ -1,3 +1,4 @@
+import { closeButtonRow } from "../lib/close.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
@@ -84,5 +85,6 @@ export const buildSecurityKeyboard = (
     ]);
   }
 
+  rows.push(closeButtonRow());
   return rows;
 };

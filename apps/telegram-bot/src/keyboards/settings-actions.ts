@@ -1,3 +1,4 @@
+import { closeButtonRow } from "../lib/close.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
@@ -69,6 +70,7 @@ export const buildSettingsKeyboard = (
         callback_data: SETTINGS_CALLBACK.degenToggle,
       },
     ],
+    closeButtonRow(),
   ];
 };
 
