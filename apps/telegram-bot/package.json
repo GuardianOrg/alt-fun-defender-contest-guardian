@@ -14,8 +14,9 @@
   },
   "dependencies": {
     "@grammyjs/conversations": "^2.1.1",
-    "@launchpad/shared": "*",
     "@grammyjs/storage-cloudflare": "^2.4.2",
+    "@launchpad/shared": "*",
+    "@resvg/resvg-wasm": "^2.6.2",
     "bcryptjs": "^3.0.3",
     "grammy": "^1.42.0",
     "hono": "^4.12.14",

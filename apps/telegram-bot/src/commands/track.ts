@@ -2,7 +2,7 @@ import {
   type Conversation,
   createConversation,
 } from "@grammyjs/conversations";
-import type { Bot } from "grammy";
+import { InputFile, type Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
 import {
@@ -19,6 +19,7 @@ import {
   type TokenInfo,
 } from "../lib/api.js";
 import { encodeCallback, parseCallback } from "../lib/callbacks.js";
+import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
@@ -151,6 +152,8 @@ const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
 interface TrackRender {
   text: string;
   keyboard: InlineKeyboard;
+  chartPng: Uint8Array | null;
+  tokenName: string;
 }
 
 /**
@@ -175,17 +178,22 @@ const buildTrack = async (
     }
     return { ok: false, kind: "unavailable" };
   }
-  // Trades failures degrade gracefully — the token card is still useful
-  // on its own; a 503 here returns an empty list rather than aborting
-  // the whole render. This matches /positions which prefers a partial
-  // view to a complete outage when only one upstream is down.
-  const tradesResult = await fetchTrades(env, address, TRADES_PER_CARD);
+  // Trades + chart failures degrade gracefully — the token card is
+  // still useful on its own. Both run in parallel since neither depends
+  // on the other. Chart errors are swallowed inside `buildTrackChartPng`
+  // so the /track text reply never fails on a renderer outage.
+  const [tradesResult, chartPng] = await Promise.all([
+    fetchTrades(env, address, TRADES_PER_CARD),
+    buildTrackChartPng(env, address, tokenResult.data.name),
+  ]);
   const trades = tradesResult.ok ? tradesResult.data : [];
   return {
     ok: true,
     render: {
       text: renderTrackBody(tokenResult.data, trades),
       keyboard: buildTrackKeyboard(tokenResult.data.address),
+      chartPng,
+      tokenName: tokenResult.data.name,
     },
   };
 };
@@ -236,13 +244,37 @@ const trackLookupConversation = async (
       await msgCtx.reply(API_UNAVAILABLE);
       return;
     }
-    await msgCtx.reply(result.render.text, {
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: result.render.keyboard },
-      link_preview_options: { is_disabled: true },
-    });
+    await sendTrackReply(msgCtx, result.render);
     return;
   }
+};
+
+/**
+ * Send the chart image (when available) then the token card + trades.
+ * Telegram's photo-caption budget is 1024 chars — far short of the
+ * card-plus-20-trades body — so the image and text are sent as two
+ * separate messages with the buttons attached to the text. A photo
+ * failure (Telegram 400 on a malformed PNG, e.g.) is logged and
+ * swallowed so the user still gets the text card.
+ */
+const sendTrackReply = async (
+  ctx: AppContext,
+  render: TrackRender,
+): Promise<void> => {
+  if (render.chartPng) {
+    try {
+      await ctx.replyWithPhoto(
+        new InputFile(render.chartPng, `${render.tokenName || "chart"}.png`),
+      );
+    } catch (err) {
+      logger.warn("track chart send failed", { err });
+    }
+  }
+  await ctx.reply(render.text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: render.keyboard },
+    link_preview_options: { is_disabled: true },
+  });
 };
 
 /** Render /track for a known address as a direct reply (no conversation). */
@@ -261,11 +293,7 @@ const replyTrack = async (
     );
     return;
   }
-  await ctx.reply(result.render.text, {
-    parse_mode: "HTML",
-    reply_markup: { inline_keyboard: result.render.keyboard },
-    link_preview_options: { is_disabled: true },
-  });
+  await sendTrackReply(ctx, result.render);
 };
 
 /** Send a fresh buy card for the tracked token. Mirrors the /buy entry view. */

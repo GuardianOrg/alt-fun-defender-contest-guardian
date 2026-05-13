@@ -94,6 +94,13 @@ interface MockOpts {
   tokenApiDown?: boolean;
   tradesApiDown?: boolean;
   trades?: Trade[];
+  chartCandles?: Array<{
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+  }>;
 }
 
 const mockApi = (
@@ -128,6 +135,22 @@ const mockApi = (
     if (url.startsWith(API_BASE) && url.includes("/api/v1/trades/")) {
       if (opts.tradesApiDown) return new Response("", { status: 503 });
       return new Response(JSON.stringify({ data: trades }), { status: 200 });
+    }
+    if (url.startsWith(API_BASE) && url.includes("/api/v1/chart/")) {
+      // Chart is best-effort — default tests get an empty-candle response
+      // so the renderer short-circuits to "no image" without needing the
+      // resvg-wasm module to load in the node test env. Specific tests
+      // can pass `chartCandles` to exercise the photo-send path.
+      return new Response(
+        JSON.stringify({
+          data: {
+            candles: opts.chartCandles ?? [],
+            currentRatio: 1,
+            currentExchangeRate: 1,
+          },
+        }),
+        { status: 200 },
+      );
     }
     throw new Error(`Unexpected fetch: ${url}`);
   });
