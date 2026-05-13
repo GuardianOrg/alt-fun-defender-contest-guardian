@@ -77,7 +77,10 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       // `Zap.buy/sell` regardless of execution venue), so a single poll
       // catches everything. The previous Ponder `trades` GraphQL path was
       // bonding-only and silently dropped post-grad activity from the feed.
-      const trades = await fetchRouterTradesGlobal(20);
+      // Pull 50 — `RightPanel` keeps up to 50 in `useTradeFeed` so the
+      // scrollable feed has enough rows to feel populated on first paint,
+      // and the API caps `limit` at 100 so we have headroom.
+      const trades = await fetchRouterTradesGlobal(50);
       if (cancelled) return;
 
       // Warm the name cache for every unique token in this batch in
