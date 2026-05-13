@@ -397,6 +397,65 @@ export const fetchToken = async (
 };
 
 /**
+ * Single trade row from `GET /api/v1/trades/:address`. Mirrors the
+ * `routerTrades` Ponder entity — amounts are raw decimal strings (USDC
+ * 6dp, token 18dp) so the bot keeps full precision through formatting.
+ */
+export interface Trade {
+  id: string;
+  tokenAddress: string;
+  trader: string;
+  isBuy: boolean;
+  /** USDC raw (6 decimals) as decimal string. */
+  usdcAmount: string;
+  /** Token raw (18 decimals) as decimal string. */
+  tokenAmount: string;
+  blockNumber: string;
+  /** Unix seconds as decimal string. */
+  timestamp: string;
+}
+
+const isTrade = (v: unknown): v is Trade => {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.id === "string" &&
+    typeof o.tokenAddress === "string" &&
+    typeof o.trader === "string" &&
+    typeof o.isBuy === "boolean" &&
+    typeof o.usdcAmount === "string" &&
+    typeof o.tokenAmount === "string" &&
+    typeof o.blockNumber === "string" &&
+    typeof o.timestamp === "string"
+  );
+};
+
+const isTradeArray = (v: unknown): v is Trade[] =>
+  Array.isArray(v) && v.every(isTrade);
+
+/**
+ * Fetch the most recent trades for a token. `limit` defaults to the
+ * /track spec's 20 rows; the api caps at 100 server-side. Returns
+ * `not_found` only when the api itself surfaces a 404 — an empty trade
+ * list is `{ ok: true, data: [] }`, which the caller renders as "no
+ * trades yet" rather than an error.
+ */
+export const fetchTrades = async (
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  address: string,
+  limit = 20,
+): Promise<ApiResult<Trade[]>> => {
+  const res = await getJson<unknown>(
+    env,
+    `/api/v1/trades/${address}?limit=${limit}`,
+  );
+  if (!res.ok) return res;
+  return isTradeArray(res.data)
+    ? { ok: true, data: res.data }
+    : { ok: false, kind: "unknown" };
+};
+
+/**
  * Extract the first 0x-prefixed 40-hex-char address from raw input or a URL.
  * The non-hex boundaries prevent matching a truncated address from a longer hex run.
  */

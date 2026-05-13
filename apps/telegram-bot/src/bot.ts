@@ -15,6 +15,7 @@ import { registerReferralCommand } from "./commands/referral.js";
 import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerStartCommand } from "./commands/start.js";
+import { registerTrackCommand } from "./commands/track.js";
 import { registerWalletCommand } from "./commands/wallet.js";
 import { registerWithdrawCommand } from "./commands/withdraw.js";
 import type { Env } from "./lib/types.js";
@@ -197,6 +198,7 @@ export const createBot = (
   registerPositionsCommand(bot);
   registerReferralCommand(bot);
   registerSecurityCommand(bot);
+  registerTrackCommand(bot);
   registerWalletCommand(bot);
   registerWithdrawCommand(bot);
 
