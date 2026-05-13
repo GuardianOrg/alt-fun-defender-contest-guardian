@@ -448,23 +448,38 @@ Output:
   - Anti-phishing phrase (set / not set)
 
 Actions via inline keyboard:
-  - Set PIN / Change PIN (6-digit numeric; bcrypt-hashed in KV)
-  - Enable/Disable withdrawal lock (24h cooldown to disable)
-  - Set anti-phishing phrase (prepended to every bot message)
-  - Revoke all sessions (invalidates all active session tokens)
-  - Manage withdrawal address whitelist
+  - Set PIN / Change PIN (6-digit numeric; bcrypt-hashed in KV).
+    Change-PIN verifies the existing PIN first (subject to the 5-attempt
+    lockout) before prompting for the new one.
+  - Reset PIN (24h delay) — see "PIN reset flow" below
+  - Set / Change / Clear anti-phishing phrase (≤ 64 chars; stored on the
+    grammY session). Wiring the phrase into the prepend in
+    `lib/anti-phishing.ts` is tracked separately — see *Anti-phishing
+    prepend* below.
+  - Enable / Disable withdrawal lock. Enable is instant; disable is a
+    two-phase request → 24h cooldown → second tap that actually clears
+    the lock. A pending disable surfaces a [Cancel disable] button so
+    the user can revoke it.
+  - Revoke all sessions — DEFERRED (no session-token system shipped;
+    grammY's KV-backed session is implicit per Telegram user, not a
+    bearer token the user can revoke).
+  - Manage withdrawal address whitelist — DEFERRED until `/withdraw` ships.
 ```
+
+**Anti-phishing prepend.** The phrase is stored today (`ctx.session.antiPhishingPhrase`) and surfaced in the `/security` status panel, but `lib/anti-phishing.ts :: withAntiPhishing` is still the static header. Wiring the user phrase into every outbound message (the "prepended to every bot message" half of the spec) requires either threading `ctx` through every callsite or adding a middleware that intercepts `ctx.reply` / `ctx.editMessageText` — out of scope for the `/security` UX PR. Track as follow-up.
 
 PIN brute-force protection: 5 wrong attempts → 30-minute lockout. Lockout state stored in KV with TTL.
 
 **PIN reset flow (forgotten PIN).** Without a reset path, a forgotten PIN permanently locks a user out of their funds. Reset is available via [Reset PIN] in `/security` and works as follows:
 
-1. User requests reset → bot records a `pin_reset_requested_at` timestamp in KV and sends confirmation message: "PIN reset requested. For security, your reset will be available in 24 hours."
-2. During the 24-hour window, all PIN-gated actions remain locked. The delay gives the user time to revoke the reset if their Telegram account was compromised.
-3. After 24 hours, user returns to `/security` → [Complete PIN Reset] → sets a new PIN. Old PIN hash is deleted.
-4. Bot sends notification at the start of the window and again when the window opens.
+1. User requests reset → bot records a `pin_reset_requested_at` timestamp in KV and surfaces a toast: "PIN reset requested. Complete in ~24h. The old PIN still works during the cooldown."
+2. During the 24-hour window, the existing PIN remains valid. The legitimate user keeps full bot access; the delay window is for *spotting* a hostile reset request from a compromised Telegram session and revoking it via [Cancel PIN reset]. Locking out the user entirely (the earlier draft of this spec) gave no extra security — an attacker with stolen Telegram session does not gain access during the cooldown either way — and stranded legitimate users from their funds for a day.
+3. After 24 hours, the [Complete PIN reset] button in `/security` opens a new-PIN wizard; on confirmation the new bcrypt hash replaces the old one and the reset state clears. The cooldown is re-checked at write time, so a stray callback in the last seconds before `readyAt` cannot bypass the gate.
+4. [Cancel PIN reset] in `/security` wipes the request without touching the hash. Surfaced as the only action on the status row while a reset is pending, so the path to revoke is one tap from the panel.
 
 The 24-hour delay mirrors the withdrawal lock cooldown. Do not allow instant reset — a stolen Telegram session + instant reset = full funds drain.
+
+**Notification on reset request:** v1 does not push a separate Telegram notification at the start of the cooldown; the toast surfaces on the resetting client, and the next `/security` open shows the panel state. A dedicated push notification (so a victim on a different client sees the reset request even if they never open `/security`) lands when the bot adds outbound notification infrastructure for price / graduation alerts (see *Deferred features*).
 
 ### /referral
 

@@ -12,6 +12,7 @@ import { registerBuyCommand } from "./commands/buy.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
 import { registerReferralCommand } from "./commands/referral.js";
+import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerStartCommand } from "./commands/start.js";
 import { registerWalletCommand } from "./commands/wallet.js";
@@ -161,6 +162,7 @@ export const createBot = (
   registerSellCommand(bot);
   registerPositionsCommand(bot);
   registerReferralCommand(bot);
+  registerSecurityCommand(bot);
   registerWalletCommand(bot);
 
   bot.catch((err) => {
