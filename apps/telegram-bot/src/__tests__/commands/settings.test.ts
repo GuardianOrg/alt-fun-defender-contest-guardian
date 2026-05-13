@@ -7,6 +7,7 @@ import {
 } from "../helpers/bot.js";
 import {
   SETTINGS_CALLBACK,
+  SLIPPAGE_PRESETS_BPS,
   encodeSlippagePreset,
 } from "../../keyboards/settings-actions.js";
 
@@ -103,7 +104,7 @@ describe("/settings command", () => {
   });
 
   describe("status view", () => {
-    it("renders defaults (1% / $20 / degen on) on a brand-new account", async () => {
+    it("renders defaults (10% / $20 / degen on) on a brand-new account", async () => {
       const h = makeBotHarness();
       await h.run(settingsCommand(7));
       const send = capture(fetchSpy).find((c) =>
@@ -111,7 +112,7 @@ describe("/settings command", () => {
       );
       expect(send).toBeDefined();
       const text = send!.body.text as string;
-      expect(text).toContain("Slippage: 1%");
+      expect(text).toContain("Slippage: 10%");
       expect(text).toContain("Default buy: $20 USDC");
       expect(text).toContain("Degen mode: on");
       expect(text).not.toContain("Anti-phishing phrase lives in /security");
@@ -127,13 +128,17 @@ describe("/settings command", () => {
         send!.body.reply_markup as { inline_keyboard: { text: string }[][] }
       ).inline_keyboard.flat();
       const labels = buttons.map((b) => b.text);
-      expect(labels).toContain("• 1% •"); // current selection
-      expect(labels).toContain("0.5%");
-      expect(labels).toContain("2%");
+      expect(labels).toContain("• 10% •"); // current selection
       expect(labels).toContain("5%");
+      expect(labels).toContain("15%");
+      expect(labels).toContain("20%");
       expect(labels).toContain("Custom %");
       expect(labels).toContain("Default buy: $20");
       expect(labels).toContain("Disable degen mode");
+    });
+
+    it("exposes 5/10/15/20% as the four slippage presets (issue #816)", async () => {
+      expect(SLIPPAGE_PRESETS_BPS).toEqual([500, 1000, 1500, 2000]);
     });
 
     it("rejects /settings in a group chat without leaking state", async () => {
@@ -156,18 +161,18 @@ describe("/settings command", () => {
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      await h.run(callbackUpdate(encodeSlippagePreset(500)));
+      await h.run(callbackUpdate(encodeSlippagePreset(1500)));
 
       const session = await readSession(h);
-      expect(session.slippageBps).toBe(500);
+      expect(session.slippageBps).toBe(1500);
 
       const calls = capture(fetchSpy);
       const ack = calls.find((c) =>
         c.url.includes("/answerCallbackQuery"),
       );
-      expect(ack!.body.text).toContain("5%");
+      expect(ack!.body.text).toContain("15%");
       const edit = calls.find((c) => c.url.includes("/editMessageText"));
-      expect(edit!.body.text).toContain("Slippage: 5%");
+      expect(edit!.body.text).toContain("Slippage: 15%");
     });
 
     it("ignores a malformed slippage preset callback payload", async () => {
@@ -179,7 +184,7 @@ describe("/settings command", () => {
       await h.run(callbackUpdate("set:slipabc"));
       const session = await readSession(h);
       // Default unchanged.
-      expect(session.slippageBps).toBe(100);
+      expect(session.slippageBps).toBe(1000);
     });
   });
 
@@ -238,7 +243,7 @@ describe("/settings command", () => {
 
       const session = await readSession(h);
       // Default unchanged — wizard rejected the input.
-      expect(session.slippageBps).toBe(100);
+      expect(session.slippageBps).toBe(1000);
       const reply = capture(fetchSpy).find(
         (c) =>
           c.url.includes("/sendMessage") &&
@@ -261,7 +266,7 @@ describe("/settings command", () => {
           /positive number/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
-      expect((await readSession(h)).slippageBps).toBe(100);
+      expect((await readSession(h)).slippageBps).toBe(1000);
     });
 
     it("/cancel exits the wizard without touching the session", async () => {
@@ -272,7 +277,7 @@ describe("/settings command", () => {
       mockTelegramOk(fetchSpy);
       await h.run(textUpdate("/cancel", 3));
 
-      expect((await readSession(h)).slippageBps).toBe(100);
+      expect((await readSession(h)).slippageBps).toBe(1000);
       const reply = capture(fetchSpy).find(
         (c) =>
           c.url.includes("/sendMessage") &&

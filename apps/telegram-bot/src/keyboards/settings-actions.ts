@@ -14,7 +14,7 @@ export const SETTINGS_CALLBACK = {
 } as const;
 
 /** Slippage presets surfaced as one-tap buttons. Values are bps. */
-export const SLIPPAGE_PRESETS_BPS: readonly number[] = [50, 100, 200, 500];
+export const SLIPPAGE_PRESETS_BPS: readonly number[] = [500, 1000, 1500, 2000];
 
 export interface SettingsStatus {
   slippageBps: number;
