@@ -1,3 +1,5 @@
+import { TRENDING_BOOST_AMOUNT } from "./trending-tuning.js";
+
 import type { tokens } from "../db/schema.js";
 
 /** Total initial supply (1B × 1e18). */
@@ -377,6 +379,14 @@ export interface EnrichedToken
  *   6. Dead penalty — −1000 if no trade within 24h AND older than 7 days.
  *                     Prevents ancient quiet tokens from leaking into
  *                     trending on pure LT-rate drift.
+ *   7. Boost        — `+TRENDING_BOOST_AMOUNT` when `isBoosted` is set.
+ *                     Internal-only lever sourced from
+ *                     `lib/trending-tuning.ts`; never exposed via the
+ *                     API response or logs. Additive (not multiplicative)
+ *                     so it can't accidentally amplify the dead-token
+ *                     penalty into a promotion — a boosted dead token
+ *                     scores `−950`, still buried far below any active
+ *                     non-boosted token.
  *
  * `null` inputs are treated as 0 / "unknown, assumed quiet" rather than
  * as missing data — the sort needs a total order and punting a token to
@@ -395,6 +405,14 @@ export function computeTrendingScore(
     lastTradeAtSec: number | null;
     /** Unix seconds — current time (injected for test determinism). */
     nowSec: number;
+    /**
+     * When true, adds the flat `TRENDING_BOOST_AMOUNT` defined in
+     * `lib/trending-tuning.ts`. Defaults to false. Callers (currently
+     * the trending sort branch in `routes/tokens/list.ts`) resolve this
+     * via `isBoostedToken(address)` so the address list stays
+     * call-site-only and never reaches the response payload.
+     */
+    isBoosted?: boolean;
   },
 ): number {
   const {
@@ -404,6 +422,7 @@ export function computeTrendingScore(
     createdAtSec,
     lastTradeAtSec,
     nowSec,
+    isBoosted = false,
   } = inputs;
 
   const change = change24h ?? 0;
@@ -425,12 +444,15 @@ export function computeTrendingScore(
   const deadPenalty =
     lastTradeHours > 24 && ageHours > 24 * 7 ? -1000 : 0;
 
+  const boost = isBoosted ? TRENDING_BOOST_AMOUNT : 0;
+
   return (
     change +
     volumeTerm +
     mcapTerm +
     freshnessBonus +
     recencyBonus +
-    deadPenalty
+    deadPenalty +
+    boost
   );
 }

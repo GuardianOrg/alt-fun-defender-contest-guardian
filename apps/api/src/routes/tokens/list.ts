@@ -28,6 +28,7 @@ import {
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
+import { isBoostedToken } from "../../lib/trending-tuning.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -516,6 +517,7 @@ listRoute.get("/", async (c) => {
         createdAtSec,
         lastTradeAtSec,
         nowSec,
+        isBoosted: isBoostedToken(t.address),
       });
       return { token: t, score };
     });

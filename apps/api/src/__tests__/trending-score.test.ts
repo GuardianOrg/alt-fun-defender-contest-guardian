@@ -126,6 +126,39 @@ describe("computeTrendingScore", () => {
     expect(Number.isFinite(score)).toBe(true);
   });
 
+  it("adds a flat boost when isBoosted is set, without disturbing other components", () => {
+    const plain = computeTrendingScore({ ...baseInputs() });
+    const boosted = computeTrendingScore({ ...baseInputs(), isBoosted: true });
+    expect(boosted - plain).toBeCloseTo(50, 5);
+  });
+
+  it("does not let the boost rescue a dead token", () => {
+    // A boosted token still hit by the −1000 dead-token penalty must
+    // remain deeply negative — boost is additive (+50), so the penalty
+    // wins by ~950 points and the dead boosted token can't leapfrog
+    // any active non-boosted token. This is the "stealth" property the
+    // route relies on.
+    const deadInputs = {
+      ...baseInputs(),
+      createdAtSec: NOW_SEC - 30 * DAY,
+      lastTradeAtSec: null,
+    };
+    const deadPlain = computeTrendingScore(deadInputs);
+    const deadBoosted = computeTrendingScore({ ...deadInputs, isBoosted: true });
+    const liveQuiet = computeTrendingScore({
+      ...baseInputs(),
+      change24h: 0,
+      volume24hUsd: 0,
+    });
+    // Boost only chips +50 off a −1000 penalty — the penalty still wins
+    // by an order of magnitude.
+    expect(deadBoosted - deadPlain).toBeCloseTo(50, 5);
+    expect(deadBoosted).toBeLessThan(liveQuiet);
+    // Still well into "buried" territory; the boost cannot lift the
+    // token anywhere near zero.
+    expect(deadBoosted).toBeLessThan(-800);
+  });
+
   it("orders a realistic mix the way a human would", () => {
     // Mover: mid-aged, pumping, decent volume, active.
     const mover = computeTrendingScore({
