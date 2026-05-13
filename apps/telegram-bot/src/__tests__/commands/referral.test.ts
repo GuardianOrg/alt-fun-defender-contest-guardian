@@ -11,25 +11,49 @@ import { WalletManager } from "../../lib/wallet.js";
 const ZERO_MASTER_KEY = btoa("\0".repeat(32));
 const API_BASE_URL = "https://api.test.local";
 
-const referralUpdate = (fromId: number | null, chatType = "private") => ({
+interface FromOpts {
+  username?: string;
+}
+
+const referralUpdate = (
+  fromId: number | null,
+  chatType = "private",
+  opts: FromOpts = {},
+) => ({
   update_id: 1,
   message: {
     message_id: 1,
     date: 0,
     chat: { id: 42, type: chatType as "private" | "group" },
     ...(fromId !== null
-      ? { from: { id: fromId, is_bot: false, first_name: "Ada" } }
+      ? {
+          from: {
+            id: fromId,
+            is_bot: false,
+            first_name: "Ada",
+            ...(opts.username ? { username: opts.username } : {}),
+          },
+        }
       : {}),
     text: "/referral",
     entities: [{ type: "bot_command", offset: 0, length: 9 }],
   },
 });
 
-const callbackUpdate = (data: string, chatType = "private") => ({
+const callbackUpdate = (
+  data: string,
+  chatType = "private",
+  opts: FromOpts = {},
+) => ({
   update_id: 2,
   callback_query: {
     id: "cbq-1",
-    from: { id: 7, is_bot: false, first_name: "Ada" },
+    from: {
+      id: 7,
+      is_bot: false,
+      first_name: "Ada",
+      ...(opts.username ? { username: opts.username } : {}),
+    },
     chat_instance: "i-1",
     message: {
       message_id: 100,
@@ -118,6 +142,7 @@ describe("/referral command", () => {
     expect(send).toBeDefined();
     expect(send!.body.parse_mode).toBe("HTML");
     expect(send!.body.text).toContain("Your referral");
+    // No username on this update — link falls back to the numeric userId.
     expect(send!.body.text).toContain(
       "https://t.me/AltFunTestBot?start=ref_7",
     );
@@ -125,6 +150,44 @@ describe("/referral command", () => {
     expect(send!.body.text).toContain("Referred wallets: 3");
     // 1,500,000,000 raw at 6dp → $1,500
     expect(send!.body.text).toContain("Referred volume: $1,500 USDC");
+  });
+
+  it("uses the Telegram username in the referral link when set", async () => {
+    const h = makeBotHarness();
+    h.env.BOT_USERNAME = "AltFunTestBot";
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockApi(fetchSpy);
+
+    await h.run(referralUpdate(7, "private", { username: "abc_user" }));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain(
+      "https://t.me/AltFunTestBot?start=ref_abc_user",
+    );
+    // The numeric-userId form must not leak through once a username is set —
+    // otherwise referral attribution would have two competing handles.
+    expect(send!.body.text).not.toContain("?start=ref_7");
+  });
+
+  it("falls back to userId when the Telegram username fails validation", async () => {
+    const h = makeBotHarness();
+    h.env.BOT_USERNAME = "AltFunTestBot";
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockApi(fetchSpy);
+
+    // "ab" is shorter than Telegram's 5-char minimum — treat as absent.
+    await h.run(referralUpdate(7, "private", { username: "ab" }));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain(
+      "https://t.me/AltFunTestBot?start=ref_7",
+    );
   });
 
   it("calls the v1 referrals endpoint with the active wallet address", async () => {
