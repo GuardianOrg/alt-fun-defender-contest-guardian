@@ -259,7 +259,6 @@ describe("/start command", () => {
   });
 
   it.each([
-    [START_CALLBACK.positions, /\/positions/],
     [START_CALLBACK.help, /\/help/],
   ])(
     "%s surfaces a hint toast pointing at the slash command",
@@ -291,6 +290,78 @@ describe("/start command", () => {
       expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
     },
   );
+
+  it("Positions button opens positions for the active wallet directly without prompting the user to type /positions", async () => {
+    const h = harnessWithRpc();
+    const wm = walletManager(h);
+    const created = await wm.createWallet(7, "main");
+
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/api/v1/portfolio/")) {
+        return new Response(
+          JSON.stringify({ data: { positions: [], approximate: false } }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/api/v1/balances/")) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(START_CALLBACK.positions));
+
+    // Telegram fetches carry a JSON body; upstream API GETs do not.
+    // Slice the two surfaces apart so capture()'s JSON.parse doesn't
+    // trip on the bodyless GETs.
+    const allCalls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
+    const tgCalls = allCalls
+      .filter(([url]) => String(url).startsWith("https://api.telegram.org"))
+      .map(([url, init]) => ({
+        url: String(url),
+        body: JSON.parse((init as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+    const apiUrls = allCalls
+      .map(([url]) => String(url))
+      .filter((u) => u.startsWith("https://api.test.local"));
+
+    const send = tgCalls.find((c) => c.url.includes("/sendMessage"));
+    const answer = tgCalls.find((c) => c.url.includes("/answerCallbackQuery"));
+    // Must reply with the positions view, not a hint toast.
+    expect(send).toBeDefined();
+    expect(send!.body.text).toContain("No open positions for this wallet.");
+    expect(answer!.body.show_alert).toBeFalsy();
+    expect(answer!.body.text ?? "").not.toMatch(/\/positions/);
+    // Active wallet must be the one we created, not an arg-supplied address.
+    expect(apiUrls.length).toBeGreaterThan(0);
+    for (const u of apiUrls) {
+      expect(u.toLowerCase()).toContain(created.address.toLowerCase());
+    }
+  });
+
+  it("Positions button surfaces a 'No active wallet' alert when the user has no wallet", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.positions));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(send).toBeUndefined();
+    expect(answer!.body.show_alert).toBe(true);
+    expect(answer!.body.text).toContain("No active wallet");
+  });
 
   it("Wallet button sends wallet UI directly without prompting the user to type /wallet", async () => {
     const h = harnessWithRpc();

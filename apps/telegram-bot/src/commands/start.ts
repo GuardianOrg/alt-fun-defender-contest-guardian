@@ -153,8 +153,6 @@ const safeEditMessageText = async (
 // registerSellCommand in commands/buy.ts and commands/sell.ts respectively —
 // they enter conversations directly instead of showing a hint toast.
 const CALLBACK_HINTS: Record<string, string> = {
-  [START_CALLBACK.positions]:
-    "Type /positions <wallet> to view positions for a wallet.",
   [START_CALLBACK.track]: "Type /track <contract> to view a token card.",
   [START_CALLBACK.withdraw]:
     "Type /withdraw <asset> <amount> <address> to send funds out.",
