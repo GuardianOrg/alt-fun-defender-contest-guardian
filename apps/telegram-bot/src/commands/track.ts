@@ -36,6 +36,7 @@ import {
   renderTrackTokenCardText,
 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import { pushWorkflowMessage } from "../lib/workflow-stack.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -355,16 +356,23 @@ const handleTrackBuy = async (
     return;
   }
   await ctx.answerCallbackQuery();
-  await ctx.reply(renderBuyTokenCardText(tokenResult.data, usdcBalance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildBuyTokenKeyboard(
-        tokenAddress,
-        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
-      ),
+  const cardMsg = await ctx.reply(
+    renderBuyTokenCardText(tokenResult.data, usdcBalance),
+    {
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: buildBuyTokenKeyboard(
+          tokenAddress,
+          normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+        ),
+      },
+      link_preview_options: { is_disabled: true },
     },
-    link_preview_options: { is_disabled: true },
-  });
+  );
+  // Track the card so the post-trade sweep clears it once a buy lands.
+  if (ctx.chat) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  }
 };
 
 /** Send a fresh sell card for the tracked token. Mirrors the /sell entry view. */
@@ -388,13 +396,19 @@ const handleTrackSell = async (
     return;
   }
   await ctx.answerCallbackQuery();
-  await ctx.reply(renderSellTokenCardText(tokenResult.data, tokenBalance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(tokenAddress),
+  const cardMsg = await ctx.reply(
+    renderSellTokenCardText(tokenResult.data, tokenBalance),
+    {
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: buildSellTokenKeyboard(tokenAddress),
+      },
+      link_preview_options: { is_disabled: true },
     },
-    link_preview_options: { is_disabled: true },
-  });
+  );
+  if (ctx.chat) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  }
 };
 
 export const registerTrackCommand = (bot: Bot<AppContext>): void => {

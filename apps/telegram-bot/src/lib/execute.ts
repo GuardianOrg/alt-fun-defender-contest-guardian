@@ -14,7 +14,9 @@
 
 import type { AppContext } from "../bot.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
+import { logger } from "./logger.js";
 import { formatToken18 } from "./token-card.js";
+import { clearWorkflowMessages } from "./workflow-stack.js";
 import {
   executeBuy,
   executeSell,
@@ -203,6 +205,23 @@ export const confirmTrade = async (
           referrer,
           idempotency,
         });
+
+  // Best-effort sweep of every transient message tracked on the
+  // workflow stack for this chat (token-detail card + "Ready to…"
+  // staging prompt + any leftover wizard prompts). Once the trade has
+  // committed on-chain, all of those views are stale and clutter the
+  // chat above the receipt. Only fires on receipt-confirmed success —
+  // a `pending` (still in mempool) or `failed` outcome means the user
+  // may want to retry from the same card, so we leave the stack
+  // intact. `clearWorkflowMessages` is already per-chat scoped and
+  // swallows `message not found` errors (already deleted, >48h old).
+  if (result?.ok && ctx.chat) {
+    try {
+      await clearWorkflowMessages(ctx.session, ctx.api, ctx.chat.id);
+    } catch (err) {
+      logger.debug("post-trade workflow sweep failed", { err });
+    }
+  }
 
   return { kind: "executed", result, ticker: intent.ticker, side: intent.side };
 };
