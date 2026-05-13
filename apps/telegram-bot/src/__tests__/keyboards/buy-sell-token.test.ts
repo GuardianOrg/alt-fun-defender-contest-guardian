@@ -54,7 +54,7 @@ describe("Close row", () => {
   });
 
   it("sell keyboard ends with a Close row", () => {
-    const rows = buildSellTokenKeyboard(TOKEN, 20);
+    const rows = buildSellTokenKeyboard(TOKEN);
     const last = rows[rows.length - 1]!;
     expect(last.map((b) => b.text)).toEqual(["Close"]);
     expect((last[0] as { callback_data: string }).callback_data).toBe("cls");
@@ -62,26 +62,30 @@ describe("Close row", () => {
 });
 
 describe("buildSellTokenKeyboard", () => {
-  it("labels the first button with the session defaultBuyUsdc", () => {
-    expect(flatLabels(buildSellTokenKeyboard(TOKEN, 20))).toContain(
-      "Sell 20 USDC",
-    );
-    expect(flatLabels(buildSellTokenKeyboard(TOKEN, 250))).toContain(
-      "Sell 250 USDC",
-    );
+  it("renders Sell 10% / 25% / 50% / 100% buttons", () => {
+    const labels = flatLabels(buildSellTokenKeyboard(TOKEN));
+    expect(labels).toContain("Sell 10%");
+    expect(labels).toContain("Sell 25%");
+    expect(labels).toContain("Sell 50%");
+    expect(labels).toContain("Sell 100%");
   });
 
-  it("first-button callback resolves at click time (no amount in payload)", () => {
-    const callbacks = flatCallbacks(buildSellTokenKeyboard(TOKEN, 75));
-    const firstCb = callbacks[0]!;
-    expect(firstCb.startsWith(`${SELL_TOKEN_CMD.sellDefault}:`)).toBe(true);
-    expect(firstCb).not.toContain("75");
+  it("encodes the percent as a positional callback arg", () => {
+    const cbs = flatCallbacks(buildSellTokenKeyboard(TOKEN));
+    expect(cbs).toContain(`${SELL_TOKEN_CMD.sellPercent}:${TOKEN}:10`);
+    expect(cbs).toContain(`${SELL_TOKEN_CMD.sellPercent}:${TOKEN}:25`);
+    expect(cbs).toContain(`${SELL_TOKEN_CMD.sellPercent}:${TOKEN}:50`);
+    expect(cbs).toContain(`${SELL_TOKEN_CMD.sellPercent}:${TOKEN}:100`);
   });
 
-  it("keeps the Sell All / Custom / Refresh buttons intact", () => {
-    const labels = flatLabels(buildSellTokenKeyboard(TOKEN, 20));
-    expect(labels).toContain("Sell All");
-    expect(labels).toContain("Sell X USDC");
+  it("renders Sell X% / Refresh buttons", () => {
+    const labels = flatLabels(buildSellTokenKeyboard(TOKEN));
+    expect(labels).toContain("Sell X%");
     expect(labels.some((t) => t.includes("Refresh"))).toBe(true);
+  });
+
+  it("Sell X% callback enters the custom-percent flow (no amount in payload)", () => {
+    const cbs = flatCallbacks(buildSellTokenKeyboard(TOKEN));
+    expect(cbs).toContain(`${SELL_TOKEN_CMD.sellCustomPercent}:${TOKEN}`);
   });
 });

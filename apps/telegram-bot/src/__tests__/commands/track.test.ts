@@ -395,6 +395,6 @@ describe("/track command", () => {
       inline_keyboard?: Array<Array<{ text: string }>>;
     })?.inline_keyboard ?? [];
     const allBtns = keyboard.flat();
-    expect(allBtns.some((b) => b.text.includes("Sell All"))).toBe(true);
+    expect(allBtns.some((b) => b.text === "Sell 100%")).toBe(true);
   });
 });

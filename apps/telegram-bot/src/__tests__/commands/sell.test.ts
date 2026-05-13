@@ -198,17 +198,19 @@ describe("Sell flow (st:s button → conversation)", () => {
       send!.body.reply_markup as { inline_keyboard?: unknown[][] }
     )?.inline_keyboard ?? [];
     const allBtns = keyboard.flat() as Array<{ text: string }>;
-    expect(allBtns.some((b) => b.text.includes("Sell 20"))).toBe(true);
-    expect(allBtns.some((b) => b.text.includes("Sell All"))).toBe(true);
-    expect(allBtns.some((b) => b.text.includes("Sell X"))).toBe(true);
+    expect(allBtns.some((b) => b.text === "Sell 10%")).toBe(true);
+    expect(allBtns.some((b) => b.text === "Sell 25%")).toBe(true);
+    expect(allBtns.some((b) => b.text === "Sell 50%")).toBe(true);
+    expect(allBtns.some((b) => b.text === "Sell 100%")).toBe(true);
+    expect(allBtns.some((b) => b.text === "Sell X%")).toBe(true);
     expect(allBtns.some((b) => b.text.includes("Refresh"))).toBe(true);
   });
 
-  it("Sell 20 callback rejects when holding is zero", async () => {
+  it("Sell 25% callback rejects when holding is zero", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 0n });
 
-    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:25`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -216,7 +218,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/no.*TEST|hold/i);
   });
 
-  it("Sell 20 rejects when holding is below minimum proceeds threshold", async () => {
+  it("Sell 25% rejects when holding is below minimum proceeds threshold", async () => {
     const h = await harnessWithWallet();
     // 10 tokens × $0.001 = $0.01 — far below the $12 minimum sell
     mockTokenAndRpc(fetchSpy, {
@@ -224,7 +226,7 @@ describe("Sell flow (st:s button → conversation)", () => {
       priceUsd: 0.001,
     });
 
-    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:25`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -232,7 +234,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/minimum|proceeds/i);
   });
 
-  it("Sell All shows confirmation when balance is sufficient", async () => {
+  it("Sell 100% shows confirmation when balance is sufficient", async () => {
     const h = await harnessWithWallet();
     // 100k tokens × $0.001 = $100 holding
     mockTokenAndRpc(fetchSpy, {
@@ -240,7 +242,7 @@ describe("Sell flow (st:s button → conversation)", () => {
       priceUsd: 0.001,
     });
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -249,15 +251,29 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(send!.body.text)).toContain("TEST");
   });
 
-  it("Sell All rejects when holding is zero", async () => {
+  it("Sell 100% rejects when holding is zero", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 0n });
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     expect(answer!.body.show_alert).toBe(true);
+  });
+
+  it("Sell percent callback drops malformed percent payloads", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
+
+    // 33 isn't in the preset set; handler must silently ACK without
+    // surfacing a confirm card (otherwise a crafted callback could
+    // bypass the keyboard's percent set).
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:33`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeUndefined();
   });
 
   it("Sell Refresh edits the card in-place", async () => {
@@ -327,7 +343,7 @@ describe("Sell flow (st:s button → conversation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -335,14 +351,14 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/balance|unavailable|verify/i);
   });
 
-  it("Sell All confirmation includes fee summary line", async () => {
+  it("Sell 100% confirmation includes fee summary line", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, {
       tokenBalance: 100_000n * 10n ** 18n,
       priceUsd: 0.001,
     });
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -353,11 +369,10 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
   });
 
-  // Regression: btsr / btsd / btsa handlers used to .catch() unhandled
-  // throws with a log-only sink, leaving the Telegram client spinner
-  // stuck until its 30s timeout. The outer catch must ACK with
-  // show_alert so the user sees the failure instead of a silent
-  // button.
+  // Regression: btsr / btsp handlers used to .catch() unhandled throws
+  // with a log-only sink, leaving the Telegram client spinner stuck
+  // until its 30s timeout. The outer catch must ACK with show_alert so
+  // the user sees the failure instead of a silent button.
   it("btsr surfaces an outage toast when the handler throws (KV down)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
@@ -378,7 +393,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     }
   });
 
-  it("btsd surfaces an outage toast when the handler throws (KV down)", async () => {
+  it("btsp 25% surfaces an outage toast when the handler throws (KV down)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
     const getActiveSpy = vi
@@ -386,7 +401,7 @@ describe("Sell flow (st:s button → conversation)", () => {
       .mockRejectedValue(new Error("kv down"));
 
     try {
-      await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:25`));
 
       const calls = capture(fetchSpy);
       const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -398,7 +413,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     }
   });
 
-  it("btsa surfaces an outage toast when the handler throws (KV down)", async () => {
+  it("btsp 100% surfaces an outage toast when the handler throws (KV down)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
     const getActiveSpy = vi
@@ -406,7 +421,7 @@ describe("Sell flow (st:s button → conversation)", () => {
       .mockRejectedValue(new Error("kv down"));
 
     try {
-      await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
       const calls = capture(fetchSpy);
       const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -495,26 +510,26 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     });
   };
 
-  it("rejects Sell 20 when simulated proceeds < minimum, even if priceUsd × balance suggests otherwise", async () => {
+  it("rejects Sell 25% when simulated proceeds < minimum, even if priceUsd × balance suggests otherwise", async () => {
     const h = await harnessWithWallet();
     h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
-    // priceUsd × balance heuristic: 100k × $0.001 = $100 (would PASS the
-    // $12 minimum). Simulation says the user only nets $5 (e.g. curve
-    // is much thinner than the indexer's last reported price). The
-    // simulation must win.
+    // priceUsd × balance heuristic on 25%: 25k × $0.001 = $25 (would
+    // PASS the $12 minimum). Simulation says the user only nets $5
+    // (e.g. curve is much thinner than the indexer's last reported
+    // price). The simulation must win.
     wireMocks(100_000n * 10n ** 18n, 5_000_000n /* $5 */, 0.001);
 
-    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:25`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     expect(answer!.body.show_alert).toBe(true);
     expect(String(answer!.body.text)).toMatch(/minimum/i);
-    // Must include the simulated $5, not the $99 heuristic value.
+    // Must include the simulated $5, not the $24 heuristic value.
     expect(String(answer!.body.text)).toContain("5.00");
   });
 
-  it("accepts Sell All when simulated proceeds clear the minimum", async () => {
+  it("accepts Sell 100% when simulated proceeds clear the minimum", async () => {
     const h = await harnessWithWallet();
     h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
     // Heuristic would say $0.05 (below $12 min) — sim says $50, so the
@@ -523,27 +538,12 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     // simulation.
     wireMocks(50_000n * 10n ** 18n, 50_000_000n /* $50 */, 0.000001);
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to sell");
-  });
-
-  it("rejects Sell 20 when simulated proceeds < target, surfacing the simulated value", async () => {
-    const h = await harnessWithWallet();
-    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
-    // Min ($12) clears, target ($20) doesn't.
-    wireMocks(100_000n * 10n ** 18n, 15_000_000n /* $15 */, 1);
-
-    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
-
-    const calls = capture(fetchSpy);
-    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
-    expect(answer!.body.show_alert).toBe(true);
-    expect(String(answer!.body.text)).toMatch(/Insufficient|< \$20/i);
-    expect(String(answer!.body.text)).toContain("15.00");
   });
 
   /**
@@ -553,7 +553,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
    * The handler must abort with a clear retry message rather than
    * silently letting the trade through.
    */
-  it("aborts Sell 20 when simulation reverts AND priceUsd is null (fail-closed)", async () => {
+  it("aborts Sell 25% when simulation reverts AND priceUsd is null (fail-closed)", async () => {
     const h = await harnessWithWallet();
     h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
     withTelegramOk(fetchSpy, async (input, init) => {
@@ -604,7 +604,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:25`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -617,7 +617,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     expect(send).toBeUndefined();
   });
 
-  it("aborts Sell All when simulation reverts AND priceUsd is null (fail-closed)", async () => {
+  it("aborts Sell 100% when simulation reverts AND priceUsd is null (fail-closed)", async () => {
     const h = await harnessWithWallet();
     h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
     withTelegramOk(fetchSpy, async (input, init) => {
@@ -667,7 +667,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -759,7 +759,7 @@ describe("Sell flow (LT buffer preflight)", () => {
     });
   };
 
-  it("Sell All caps the trade and requires explicit confirm when buffer < proceeds", async () => {
+  it("Sell 100% caps the trade and requires explicit confirm when buffer < proceeds", async () => {
     const h = await harnessWithWallet();
     // 100k tokens × $0.001 = $100 expected proceeds. LT buffer holds
     // only $40 in USDC (raw 6dp) — well above the $12 minimum, so the
@@ -767,7 +767,7 @@ describe("Sell flow (LT buffer preflight)", () => {
     // reject or silently truncate.
     wireMocks(100_000n * 10n ** 18n, 40_000_000n, 0.001);
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -788,14 +788,15 @@ describe("Sell flow (LT buffer preflight)", () => {
     expect(btns.some((b) => b.text.includes("Confirm"))).toBe(true);
   });
 
-  it("Sell 20 rejects with retry copy when buffer can't even support the minimum", async () => {
+  it("Sell 50% rejects with retry copy when buffer can't even support the minimum", async () => {
     const h = await harnessWithWallet();
-    // Plenty of holding ($100) — but buffer is only $5, below the $12
-    // minimum sell after the safety factor. Must reject outright with
-    // the transient-replenish copy rather than stage a sub-minimum sell.
+    // Plenty of holding ($100) — 50% expected proceeds ≈ $49.50 — but
+    // buffer is only $5, below the $12 minimum sell after the safety
+    // factor. Must reject outright with the transient-replenish copy
+    // rather than stage a sub-minimum sell.
     wireMocks(100_000n * 10n ** 18n, 5_000_000n, 0.001);
 
-    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:50`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -806,13 +807,13 @@ describe("Sell flow (LT buffer preflight)", () => {
     expect(send).toBeUndefined();
   });
 
-  it("Sell All proceeds normally when buffer comfortably exceeds proceeds", async () => {
+  it("Sell 100% proceeds normally when buffer comfortably exceeds proceeds", async () => {
     const h = await harnessWithWallet();
     // $100 proceeds, $10k buffer — preflight is a no-op. Confirm message
     // must NOT mention buffer cap.
     wireMocks(100_000n * 10n ** 18n, 10_000_000_000n, 0.001);
 
-    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));

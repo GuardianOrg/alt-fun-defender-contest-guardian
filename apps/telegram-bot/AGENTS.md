@@ -184,7 +184,7 @@ The shared API exposes three new endpoints for the bot. All key on wallet, all r
 | `/help` | Command list + security guidance | None |
 | `/wallet` | Manage wallets (create/import/switch/export) | PIN for export |
 | `/buy <contract> [amount] [slippage]` | Buy token | PIN if confirmations on |
-| `/sell <contract_or_symbol> [%\|amount]` | Sell position | PIN if confirmations on |
+| `/sell <contract_or_symbol>` | Sell position by % of balance (10/25/50/100% buttons + Sell X% prompt) | PIN if confirmations on |
 | `/positions [wallet]` | Open positions (balance + cost basis) | None |
 | `/track <contract>` | Show token info card + recent trades | None |
 | `/withdraw <asset> <amount> <address>` | Withdraw to external wallet | PIN + confirm |
@@ -319,13 +319,14 @@ Slippage default: from `/settings` (default 1%). Priority fee default: from `/se
 ```
 Input:
   required: <contract_address> or <ticker_symbol>
-  optional: <percentage>% or <amount_in_tokens>  (default: show picker)
+  (no positional amount — sell sizing is button-driven; tap a preset
+   percent or use Sell X% for a custom integer percent of balance)
 
 Output:
   - Position summary (token amount, cost basis from /api/v1/bot/positions)
   - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
   - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered, append "(0.1% goes to your referrer)".
-  - Quick-sell buttons: 25% | 50% | 75% | 100% | Custom
+  - Quick-sell buttons: 10% | 25% | 50% | 100% | Sell X% (custom-percent prompt, integer 1–100)
   - Confirm button (if confirmations enabled)
 
 Effects:
@@ -427,7 +428,7 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 | Setting | Default | Description |
 |---|---|---|
 | Slippage | 1% (100 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `0.5% / 1% / 2% / 5%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). |
-| Default buy amount | `$20 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. **Consumed at click time by the first button on the `/buy` and `/sell` cards** (`Buy $N USDC` / `Sell $N USDC` — see `keyboards/buy-sell-token.ts`). The handlers resolve the value from the live session at the moment the user taps, so a /settings change applies immediately even on a stale card. |
+| Default buy amount | `$20 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. **Consumed at click time by the first button on the `/buy` card** (`Buy $N USDC` — see `keyboards/buy-sell-token.ts`); the handler resolves the value from the live session at the moment the user taps, so a /settings change applies immediately even on a stale card. The `/sell` card is percent-of-balance and does not consume this setting. |
 | Degen mode | On | One-tap toggle. Stored as `session.degenMode`. **Default on for new accounts** — the bot is targeted at active traders who want to skip the confirm tap, so the friction-free path is the default; users who want the confirm card flip it off in /settings. When on, `/buy` and `/sell` skip the inline [Confirm] / [Cancel] keyboard and submit the trade as soon as the quick-amount button is tapped (or the custom-amount wizard completes). Slippage bound, referrer attribution, and `BotFeeRouter` routing are identical to the confirm path — only the user-facing confirm step is removed. **Buffer-capped sells still require an explicit confirm tap regardless of degen mode** per the AGENTS.md "Buffer-limited sells must be user-visible" constraint. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
 
 State lives entirely on the grammY session (KV-backed under `session:<userId>`) — same store every other setting on this bot uses. No new KV namespace, no new endpoints.

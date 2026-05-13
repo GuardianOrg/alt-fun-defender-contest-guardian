@@ -1,7 +1,4 @@
-import {
-  MIN_USDC_BUY_AMOUNT,
-  MIN_USDC_SELL_AMOUNT,
-} from "@launchpad/shared";
+import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 
 import { encodeCallback } from "../lib/callbacks.js";
 import { closeButtonRow } from "../lib/close.js";
@@ -10,16 +7,13 @@ import type { InlineKeyboard } from "./wallet-actions.js";
 /**
  * Normalise the user's stored `session.defaultBuyUsdc` against the
  * relevant minimum-trade floor. The /settings wizard already floors
- * writes at `MIN_USDC_BUY_AMOUNT`, but routing every read through these
- * helpers means the label and the click-time handler can never drift
+ * writes at `MIN_USDC_BUY_AMOUNT`, but routing every read through this
+ * helper means the label and the click-time handler can never drift
  * from each other — even on stale sessions written before a constant
  * bump.
  */
 export const normaliseDefaultBuyUsdc = (raw: number): number =>
   Math.max(raw, MIN_USDC_BUY_AMOUNT);
-
-export const normaliseDefaultSellUsdc = (raw: number): number =>
-  Math.max(raw, MIN_USDC_SELL_AMOUNT);
 
 /**
  * Short callback command codes for token buy/sell actions. All commands
@@ -27,10 +21,13 @@ export const normaliseDefaultSellUsdc = (raw: number): number =>
  * 42-char token address they stay within Telegram's 64-byte limit:
  *   e.g. "bt100:0x<40hex>" = 5+1+42 = 48 bytes.
  *
- * `buyDefault` / `sellDefault` resolve their amount from
- * `ctx.session.defaultBuyUsdc` at click time — not from the callback
- * payload — so the most recent /settings value always wins on a stale
- * card.
+ * `buyDefault` resolves its amount from `ctx.session.defaultBuyUsdc` at
+ * click time — not from the callback payload — so the most recent
+ * /settings value always wins on a stale card.
+ *
+ * Sell buttons are percentage-based; `sellPercent` encodes the percent
+ * (10 / 25 / 50 / 100) as a positional arg, and `sellCustomPercent`
+ * enters a conversation that prompts for a custom percent.
  */
 export const BUY_TOKEN_CMD = {
   refresh: "btr",
@@ -41,10 +38,16 @@ export const BUY_TOKEN_CMD = {
 
 export const SELL_TOKEN_CMD = {
   refresh: "btsr",
-  sellDefault: "btsd",
-  sellAll: "btsa",
-  sellCustom: "btsx",
+  sellPercent: "btsp",
+  sellCustomPercent: "btspx",
 } as const;
+
+/** Fixed quick-sell percentages rendered on the sell card. */
+export const SELL_PERCENT_PRESETS = [10, 25, 50, 100] as const;
+export type SellPercentPreset = (typeof SELL_PERCENT_PRESETS)[number];
+
+export const isSellPercentPreset = (n: number): n is SellPercentPreset =>
+  (SELL_PERCENT_PRESETS as readonly number[]).includes(n);
 
 export type BuyTokenCmd = (typeof BUY_TOKEN_CMD)[keyof typeof BUY_TOKEN_CMD];
 export type SellTokenCmd = (typeof SELL_TOKEN_CMD)[keyof typeof SELL_TOKEN_CMD];
@@ -84,22 +87,50 @@ export const buildBuyTokenKeyboard = (
 
 export const buildSellTokenKeyboard = (
   tokenAddress: string,
-  defaultBuyUsdc: number,
 ): InlineKeyboard => [
   [
     {
-      text: `Sell ${defaultBuyUsdc} USDC`,
-      callback_data: encodeCallback(SELL_TOKEN_CMD.sellDefault, tokenAddress),
+      text: "Sell 10%",
+      callback_data: encodeCallback(
+        SELL_TOKEN_CMD.sellPercent,
+        tokenAddress,
+        "10",
+      ),
     },
     {
-      text: "Sell All",
-      callback_data: encodeCallback(SELL_TOKEN_CMD.sellAll, tokenAddress),
+      text: "Sell 25%",
+      callback_data: encodeCallback(
+        SELL_TOKEN_CMD.sellPercent,
+        tokenAddress,
+        "25",
+      ),
     },
   ],
   [
     {
-      text: "Sell X USDC",
-      callback_data: encodeCallback(SELL_TOKEN_CMD.sellCustom, tokenAddress),
+      text: "Sell 50%",
+      callback_data: encodeCallback(
+        SELL_TOKEN_CMD.sellPercent,
+        tokenAddress,
+        "50",
+      ),
+    },
+    {
+      text: "Sell 100%",
+      callback_data: encodeCallback(
+        SELL_TOKEN_CMD.sellPercent,
+        tokenAddress,
+        "100",
+      ),
+    },
+  ],
+  [
+    {
+      text: "Sell X%",
+      callback_data: encodeCallback(
+        SELL_TOKEN_CMD.sellCustomPercent,
+        tokenAddress,
+      ),
     },
     {
       text: "🔄 Refresh",

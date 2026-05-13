@@ -971,7 +971,7 @@ describe("/start action deeplink (buy_/sell_)", () => {
       | undefined;
     expect(markup).toBeDefined();
     const allButtons = markup!.inline_keyboard.flat();
-    expect(allButtons.some((b) => b.text.includes("Sell All"))).toBe(true);
+    expect(allButtons.some((b) => b.text === "Sell 100%")).toBe(true);
     expect(sent[0]!.text).not.toContain("Welcome to");
   });
 
