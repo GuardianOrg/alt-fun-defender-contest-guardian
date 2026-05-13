@@ -60,7 +60,7 @@ describe("renderHelp (pure)", () => {
   it("returns the overview when no topic is supplied", () => {
     const html = renderHelp(undefined, undefined);
     expect(html).toContain(ANTI_PHISHING_HEADER);
-    expect(html).toContain("AltFunBot Help");
+    expect(html).toContain("CortisolBot Help");
     expect(html).toContain("/wallet");
     expect(html).toContain("/buy");
     expect(html).toContain("/help wallet");
@@ -145,7 +145,7 @@ describe("/help command", () => {
     const send = capture(fetchSpy).find((c) => c.url.includes("/sendMessage"));
     expect(send).toBeDefined();
     expect(send!.body.parse_mode).toBe("HTML");
-    expect(send!.body.text).toContain("AltFunBot Help");
+    expect(send!.body.text).toContain("CortisolBot Help");
     expect(send!.body.text).toContain(ANTI_PHISHING_HEADER);
     // Help responses must not generate a link-preview card — the bot
     // links out to alt.fun and a preview would push the topic list
@@ -161,7 +161,7 @@ describe("/help command", () => {
     expect(send!.body.text).toContain("Bot fee 0.5%");
     expect(send!.body.text).toContain("Alt Fun fee 0.5%");
     // Overview-specific heading must not leak into the topic view.
-    expect(send!.body.text).not.toContain("AltFunBot Help");
+    expect(send!.body.text).not.toContain("CortisolBot Help");
   });
 
   it("handles the start-menu Help button (st:h) with the overview", async () => {
@@ -176,6 +176,6 @@ describe("/help command", () => {
     expect(answer).toBeDefined();
     expect(answer!.body.show_alert).toBeFalsy();
     expect(send).toBeDefined();
-    expect(send!.body.text).toContain("AltFunBot Help");
+    expect(send!.body.text).toContain("CortisolBot Help");
   });
 });

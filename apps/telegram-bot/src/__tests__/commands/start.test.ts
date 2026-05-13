@@ -139,7 +139,7 @@ describe("/start command", () => {
     );
     expect(send).toBeDefined();
     expect(send!.body.parse_mode).toBe("HTML");
-    expect(send!.body.text).toContain("Welcome to AltFunBot");
+    expect(send!.body.text).toContain("Welcome to CortisolBot");
     // Wallet address rendered inside <code> for tap-to-copy.
     expect(send!.body.text).toContain(`<code>${wallets[0]!.address}</code>`);
     expect(send!.body.text).toContain("Balance: $2.50 USDC");
@@ -224,7 +224,7 @@ describe("/start command", () => {
       c.url.includes("/sendMessage"),
     );
     expect(send!.body.text).toContain("private-DM only");
-    expect(send!.body.text).not.toContain("Welcome to AltFunBot");
+    expect(send!.body.text).not.toContain("Welcome to CortisolBot");
     // No wallet created for a group invocation.
     expect(await walletManager(h).listWallets(7)).toHaveLength(0);
   });
