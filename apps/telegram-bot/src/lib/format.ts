@@ -130,9 +130,20 @@ export const escapeHtml = (s: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+/**
+ * Wrap a 0x-prefixed token address in `<code>` so Telegram renders it
+ * as a tap-to-copy monospace span on every platform (mobile long-press,
+ * desktop click). The address is ASCII hex so no HTML escaping is
+ * needed — kept as a raw string passthrough rather than running
+ * `escapeHtml` unnecessarily.
+ */
+const formatTokenAddress = (token: string): string =>
+  `<code>${token}</code>`;
+
 const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
+    `\n  ${formatTokenAddress(pos.token)}` +
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
     `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
@@ -149,6 +160,7 @@ const formatRealisedLine = (
 ): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
+    `\n  ${formatTokenAddress(pos.token)}` +
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;

@@ -131,6 +131,25 @@ describe("formatBotPositionsResponse", () => {
     expect(joined).toContain("+25.00%");
   });
 
+  it("renders the open-position token address inside <code> so it's tap-to-copy", () => {
+    const pos = openPos({
+      token: "0xbBf3457b56e4B3E8Eb0c66cb9a626219d3000000",
+      ticker: "ALPHA",
+    });
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).toContain(`<code>${pos.token}</code>`);
+  });
+
+  it("renders the realised-position token address inside <code>", () => {
+    const pos = realisedPos({
+      token: "0xbBf3457b56e4B3E8Eb0c66cb9a626219d3000000",
+    });
+    const pages = formatBotPositionsResponse({ open: [], realised: [pos] });
+    const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).toContain(`<code>${pos.token}</code>`);
+  });
+
   it("emits one openActions entry per open position on the page it lands on", () => {
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
