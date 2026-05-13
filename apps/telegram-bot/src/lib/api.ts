@@ -278,6 +278,13 @@ export const setBotRewardsWallet = async (
   wallet: string,
   rewardsWallet: string,
 ): Promise<ApiResult<{ rewardsWallet: string }>> => {
+  // 10s budget matches `getJsonWithNotFound` — long enough to ride
+  // through a slow but healthy api, short enough that a hung worker
+  // doesn't wedge the user mid-wizard. AbortError lands in the catch
+  // below and surfaces as `unavailable`, the same shape as a network
+  // refusal, so the wizard's user-facing copy stays uniform.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
   let res: Response;
   try {
     res = await fetch(
@@ -289,10 +296,13 @@ export const setBotRewardsWallet = async (
           ...buildHeaders(env.API_KEY),
         },
         body: JSON.stringify({ rewardsWallet }),
+        signal: controller.signal,
       },
     );
   } catch {
     return { ok: false, kind: "unavailable" };
+  } finally {
+    clearTimeout(timer);
   }
   if (res.status === 400) return { ok: false, kind: "invalid_address" };
   if (res.status === 503 || res.status >= 500)

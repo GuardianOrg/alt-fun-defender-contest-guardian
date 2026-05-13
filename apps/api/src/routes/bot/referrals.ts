@@ -97,27 +97,37 @@ const fetchReferrerStats = async (
   ponderUrl: string,
   rewardsWallet: string,
 ): Promise<ReferrerStats> => {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const result = await queryPonder<{
-    referrerStats: ReferrerStatsRow | null;
-  }>(
-    `query ($rewardsWallet: String!) {
-      referrerStats(id: $rewardsWallet) {
-        referredCount
-        lifetimeEarnedUsdc
-        badPaymentCount
-        attributionLossCount
-      }
-    }`,
-    { rewardsWallet: rewardsWallet.toLowerCase() },
-  );
-  if (!result || !isReferrerStatsRow(result.referrerStats)) return ZERO_STATS;
-  return {
-    referredCount: result.referrerStats.referredCount,
-    lifetimeEarnedUsdc: result.referrerStats.lifetimeEarnedUsdc,
-    badPaymentCount: result.referrerStats.badPaymentCount,
-    attributionLossCount: result.referrerStats.attributionLossCount,
-  };
+  // `createPonderQuery` already returns null on network / GraphQL
+  // failure, but a synchronous throw inside this wrapper (e.g. a
+  // future logger call, JSON validator change, or upstream regression)
+  // would otherwise surface as a 500. The route documents zeroed
+  // stats as the indexer-unavailable fallback, so collapse every
+  // failure mode to the same shape.
+  try {
+    const queryPonder = createPonderQuery(ponderUrl);
+    const result = await queryPonder<{
+      referrerStats: ReferrerStatsRow | null;
+    }>(
+      `query ($rewardsWallet: String!) {
+        referrerStats(id: $rewardsWallet) {
+          referredCount
+          lifetimeEarnedUsdc
+          badPaymentCount
+          attributionLossCount
+        }
+      }`,
+      { rewardsWallet: rewardsWallet.toLowerCase() },
+    );
+    if (!result || !isReferrerStatsRow(result.referrerStats)) return ZERO_STATS;
+    return {
+      referredCount: result.referrerStats.referredCount,
+      lifetimeEarnedUsdc: result.referrerStats.lifetimeEarnedUsdc,
+      badPaymentCount: result.referrerStats.badPaymentCount,
+      attributionLossCount: result.referrerStats.attributionLossCount,
+    };
+  } catch {
+    return ZERO_STATS;
+  }
 };
 
 const referrals = new Hono<{ Bindings: AppBindings }>();

@@ -481,6 +481,51 @@ describe("Change rewards wallet wizard", () => {
     );
   });
 
+  it("warns + requires explicit 'confirm' before accepting a known burn address", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
+
+    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", 40));
+    await h.run(
+      textUpdate("0x0000000000000000000000000000000000000000", 41),
+    );
+
+    const sends = capture(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const text = sends[sends.length - 1].body.text as string;
+    expect(text).toContain("known burn");
+    expect(text).toContain("confirm");
+    // No POST to /rewards-wallet yet — the wizard is gated on the
+    // user typing 'confirm'.
+    const postCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>).find(
+      (c) =>
+        String(c[0]).endsWith("/rewards-wallet") &&
+        ((c[1] as RequestInit | undefined)?.method ?? "GET") === "POST",
+    );
+    expect(postCall).toBeUndefined();
+  });
+
+  it("aborts cleanly on /cancel from inside the burn-address gate", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
+
+    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", 50));
+    await h.run(
+      textUpdate("0x000000000000000000000000000000000000dEaD", 51),
+    );
+    await h.run(textUpdate("/cancel", 52));
+
+    const sends = capture(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(sends[sends.length - 1].body.text).toContain("cancelled");
+  });
+
   it("cancels cleanly on /cancel before address entry", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);

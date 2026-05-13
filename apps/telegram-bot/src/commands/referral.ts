@@ -239,6 +239,23 @@ const REWARDS_WALLET_WARNING = [
 const isCancel = (text: string): boolean => text.trim() === "/cancel";
 
 /**
+ * Well-known burn / null addresses. `0x0` is the EVM null sink;
+ * `0xdEaD…dEaD` is the de-facto community burn (used by countless
+ * token deployers including Uniswap's `MINIMUM_LIQUIDITY` lock).
+ * USDC sent to either is unrecoverable forever — surface a warning
+ * before persisting so a fat-finger doesn't silently torch every
+ * future referral cut. Lowercased for comparison.
+ */
+const KNOWN_BURN_ADDRESSES: ReadonlySet<string> = new Set([
+  "0x0000000000000000000000000000000000000000",
+  "0x000000000000000000000000000000000000dead",
+  "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+]);
+
+const isKnownBurnAddress = (addr: string): boolean =>
+  KNOWN_BURN_ADDRESSES.has(addr.toLowerCase());
+
+/**
  * Best-effort delete of a user-sent PIN message from the chat so the
  * PIN doesn't sit in chat history. Mirrors the same hygiene as the
  * /wallet PIN flows. Benign 400s (already gone, outside the 48h
@@ -429,7 +446,56 @@ const changeRewardsWalletConversation = async (
       );
       continue;
     }
-    candidate = text.toLowerCase();
+    const lowered = text.toLowerCase();
+    if (isKnownBurnAddress(lowered)) {
+      // AGENTS.md /referral → Rewards wallet: "The bot warns if the
+      // user attempts to set the rewards wallet to … a known burn
+      // address." Gate the persist behind an explicit `confirm` so a
+      // mis-paste can't permanently route earnings into a null sink.
+      await ctx.reply(
+        withAntiPhishing(
+          [
+            "⚠️ That address is a known burn / null address.",
+            "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
+            "",
+            "Send 'confirm' to proceed anyway, /cancel to abort, or send a different address.",
+          ].join("\n"),
+        ),
+      );
+      const confirmMsg = await conversation.waitFor("message:text");
+      const confirmText = confirmMsg.message.text.trim();
+      if (isCancel(confirmText)) {
+        await ctx.reply(
+          withAntiPhishing("Rewards-wallet change cancelled."),
+        );
+        return;
+      }
+      if (confirmText.toLowerCase() !== "confirm") {
+        // Treat anything else as a fresh address attempt — loop back
+        // through the validator so the user can recover from the
+        // warning without restarting the wizard.
+        if (!isAddress(confirmText, { strict: false })) {
+          await ctx.reply(
+            withAntiPhishing(
+              "Aborted. Send 'confirm', /cancel, or a new 0x-prefixed address.",
+            ),
+          );
+          continue;
+        }
+        const next = confirmText.toLowerCase();
+        if (isKnownBurnAddress(next)) {
+          await ctx.reply(
+            withAntiPhishing(
+              "That's still a known burn address. Send 'confirm' to proceed, /cancel to abort, or a different address.",
+            ),
+          );
+          continue;
+        }
+        candidate = next;
+        continue;
+      }
+    }
+    candidate = lowered;
   }
   const newRewardsWallet: string = candidate;
 
