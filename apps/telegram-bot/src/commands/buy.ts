@@ -3,6 +3,7 @@ import {
   createConversation,
 } from "@grammyjs/conversations";
 import type { Bot } from "grammy";
+import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 
 import type { AppContext } from "../bot.js";
 import { buildBuyTokenKeyboard } from "../keyboards/buy-sell-token.js";
@@ -14,11 +15,11 @@ import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 
-/** $20 minimum buy — mirrors MIN_USDC_BUY_AMOUNT from @launchpad/shared. */
-const MIN_BUY_USDC = 20;
-
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
+
+/** Required fee-summary line per AGENTS.md key constraints. */
+const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
 
 const PROMPT_HTML =
   "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
@@ -35,8 +36,9 @@ const TOKEN_NOT_FOUND_HTML =
   "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
   "Try again or send /cancel to exit.";
 
+/** Exact outage copy mandated by AGENTS.md Error Handling table. */
 const API_UNAVAILABLE =
-  "Data temporarily unavailable — please try again in a moment.";
+  "Data temporarily unavailable — try again in a moment.";
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -62,7 +64,7 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
 
 /**
  * Conversation: collect token address → show buy card.
- * Loops on invalid input, exits after sending the card.
+ * Loops on not-found / invalid input; aborts on API unavailability.
  */
 const buyLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
@@ -92,8 +94,7 @@ const buyLookupConversation = async (
     }
 
     // `ctx.env` is not available on the replay-time context — use the
-    // `outerCtx` argument that `conversation.external` provides, which
-    // is the live context with the env middleware already applied.
+    // `outerCtx` argument that `conversation.external` provides.
     const tokenResult = await conversation.external((outerCtx) =>
       fetchToken(outerCtx.env, addr),
     );
@@ -106,10 +107,11 @@ const buyLookupConversation = async (
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
-      } else {
-        await msgCtx.reply(API_UNAVAILABLE);
+        continue;
       }
-      continue;
+      // API unavailable — abort per AGENTS.md Error Handling
+      await msgCtx.reply(API_UNAVAILABLE);
+      return;
     }
 
     const token = tokenResult.data;
@@ -146,7 +148,7 @@ const buyCustomConversation = async (
   tokenAddress: string,
 ): Promise<void> => {
   await ctx.reply(
-    `Enter the USDC amount to buy (minimum $${MIN_BUY_USDC}):\n\nSend /cancel to exit.`,
+    `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nSend /cancel to exit.`,
   );
 
   while (true) {
@@ -161,13 +163,13 @@ const buyCustomConversation = async (
     const amount = parseFloat(text.replace(/[$,]/g, ""));
     if (isNaN(amount) || amount <= 0) {
       await msgCtx.reply(
-        `Please enter a valid number (e.g. 50). Minimum is $${MIN_BUY_USDC}.`,
+        `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
       );
       continue;
     }
-    if (amount < MIN_BUY_USDC) {
+    if (amount < MIN_USDC_BUY_AMOUNT) {
       await msgCtx.reply(
-        `Minimum buy is $${MIN_BUY_USDC} USDC. Enter a larger amount or send /cancel.`,
+        `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount or send /cancel.`,
       );
       continue;
     }
@@ -188,8 +190,15 @@ const buyCustomConversation = async (
     const usdcBalance = await conversation.external((outerCtx) =>
       fetchUsdcBalance(outerCtx.env, active.address),
     );
-    const usdcRaw = usdcBalance ?? 0n;
-    const usdcAvailable = Number(usdcRaw) / 1_000_000;
+    // Null means RPC failed — don't treat as zero, which would produce
+    // a false "insufficient balance" rejection for a working wallet.
+    if (usdcBalance === null) {
+      await msgCtx.reply(
+        `Unable to verify your USDC balance — please try again.`,
+      );
+      continue;
+    }
+    const usdcAvailable = Number(usdcBalance) / 1_000_000;
     const totalNeeded = amount * (1 + COMBINED_FEE_RATE);
 
     if (usdcAvailable < totalNeeded) {
@@ -209,8 +218,10 @@ const buyCustomConversation = async (
       return;
     }
 
+    const ticker = tokenResult.data.ticker;
     await msgCtx.reply(
-      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tokenResult.data.ticker}</b>\n\n` +
+      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${ticker}</b>\n\n` +
+        `<i>${FEE_SUMMARY}</i>\n\n` +
         `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
       { parse_mode: "HTML" },
     );
@@ -232,7 +243,7 @@ const handleBuyRefresh = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: "Data temporarily unavailable — try again.",
+      text: API_UNAVAILABLE,
       show_alert: true,
     });
     return;
@@ -247,7 +258,7 @@ const handleBuyRefresh = async (
   await ctx.answerCallbackQuery({ text: "Refreshed" });
 };
 
-/** Validate balance then show confirmation stub for a fixed buy amount. */
+/** Validate balance then show confirmation for a fixed buy amount. */
 const handleFixedBuy = async (
   ctx: AppContext,
   tokenAddress: string,
@@ -274,13 +285,22 @@ const handleFixedBuy = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: "Data temporarily unavailable — try again.",
+      text: API_UNAVAILABLE,
       show_alert: true,
     });
     return;
   }
 
-  const usdcAvailable = Number(usdcBalance ?? 0n) / 1_000_000;
+  // Null balance = RPC unavailable; do not coerce to zero.
+  if (usdcBalance === null) {
+    await ctx.answerCallbackQuery({
+      text: "Unable to verify your USDC balance — please try again.",
+      show_alert: true,
+    });
+    return;
+  }
+
+  const usdcAvailable = Number(usdcBalance) / 1_000_000;
   const totalNeeded = amountUsdc * (1 + COMBINED_FEE_RATE);
   if (usdcAvailable < totalNeeded) {
     await ctx.answerCallbackQuery({
@@ -293,6 +313,7 @@ const handleFixedBuy = async (
   await ctx.answerCallbackQuery();
   await ctx.reply(
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
+      `<i>${FEE_SUMMARY}</i>\n\n` +
       `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
     { parse_mode: "HTML" },
   );
@@ -341,9 +362,11 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedBuy(ctx, parsed.args[0], 20).catch((err) => {
-      logger.error("buy 20 handler failed", { err });
-    });
+    await handleFixedBuy(ctx, parsed.args[0], MIN_USDC_BUY_AMOUNT).catch(
+      (err) => {
+        logger.error("buy 20 handler failed", { err });
+      },
+    );
   });
 
   // Buy 100 USDC

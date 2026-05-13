@@ -103,7 +103,9 @@ export const renderSellTokenCardText = (
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
 
   let holdingText: string;
-  if (tokenBalance !== null && tokenBalance > 0n) {
+  if (tokenBalance === null) {
+    holdingText = "— (balance unavailable)";
+  } else if (tokenBalance > 0n) {
     const formattedBal = formatToken18(tokenBalance);
     let usdEquiv = "";
     if (token.priceUsd !== null) {

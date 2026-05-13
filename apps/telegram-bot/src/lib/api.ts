@@ -189,10 +189,22 @@ export const fetchBalances = async (
     : { ok: false, kind: "unknown" };
 };
 
+const isOptionalNumber = (v: unknown): boolean =>
+  v === null || v === undefined || typeof v === "number";
+
 const isTokenInfo = (v: unknown): v is TokenInfo => {
   if (!v || typeof v !== "object") return false;
   const obj = v as Record<string, unknown>;
-  return typeof obj.address === "string" && typeof obj.name === "string" && typeof obj.ticker === "string";
+  return (
+    typeof obj.address === "string" &&
+    typeof obj.name === "string" &&
+    typeof obj.ticker === "string" &&
+    isOptionalNumber(obj.priceUsd) &&
+    isOptionalNumber(obj.mcapUsd) &&
+    isOptionalNumber(obj.change24h) &&
+    isOptionalNumber(obj.ltChange24h) &&
+    isOptionalNumber(obj.curveFilled)
+  );
 };
 
 export const fetchToken = async (
@@ -206,8 +218,13 @@ export const fetchToken = async (
     : { ok: false, kind: "unknown" };
 };
 
-/** Extract the first 0x-prefixed 40-hex-char address from raw input or a URL. */
+/**
+ * Extract the first 0x-prefixed 40-hex-char address from raw input or a URL.
+ * The non-hex boundaries prevent matching a truncated address from a longer hex run.
+ */
 export const extractTokenAddress = (input: string): string | null => {
-  const match = /0x[0-9a-fA-F]{40}/.exec(input.trim());
+  const match = /(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/.exec(
+    input.trim(),
+  );
   return match ? match[0] : null;
 };

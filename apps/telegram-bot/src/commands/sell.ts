@@ -3,6 +3,7 @@ import {
   createConversation,
 } from "@grammyjs/conversations";
 import type { Bot } from "grammy";
+import { MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
 
 import type { AppContext } from "../bot.js";
 import { buildSellTokenKeyboard } from "../keyboards/buy-sell-token.js";
@@ -18,11 +19,11 @@ import {
 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 
-/** $12 minimum sell proceeds — mirrors MIN_USDC_SELL_AMOUNT from @launchpad/shared. */
-const MIN_SELL_USDC = 12;
-
 /** Rough combined fee rate applied to estimated proceeds (1%). */
 const COMBINED_FEE_RATE = 0.01;
+
+/** Required fee-summary line per AGENTS.md key constraints. */
+const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
 
 const PROMPT_HTML =
   "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
@@ -39,8 +40,9 @@ const TOKEN_NOT_FOUND_HTML =
   "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
   "Try again or send /cancel to exit.";
 
+/** Exact outage copy mandated by AGENTS.md Error Handling table. */
 const API_UNAVAILABLE =
-  "Data temporarily unavailable — please try again in a moment.";
+  "Data temporarily unavailable — try again in a moment.";
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -70,7 +72,7 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
 
 /**
  * Conversation: collect token address → show sell card with user's balance.
- * Loops on invalid input, exits after sending the card.
+ * Loops on not-found / invalid input; aborts on API unavailability.
  */
 const sellLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
@@ -113,10 +115,11 @@ const sellLookupConversation = async (
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
-      } else {
-        await msgCtx.reply(API_UNAVAILABLE);
+        continue;
       }
-      continue;
+      // API unavailable — abort per AGENTS.md Error Handling
+      await msgCtx.reply(API_UNAVAILABLE);
+      return;
     }
 
     const token = tokenResult.data;
@@ -153,7 +156,7 @@ const sellCustomConversation = async (
   tokenAddress: string,
 ): Promise<void> => {
   await ctx.reply(
-    `Enter the USDC amount to receive (minimum $${MIN_SELL_USDC}):\n\nSend /cancel to exit.`,
+    `Enter the USDC amount to receive (minimum $${MIN_USDC_SELL_AMOUNT}):\n\nSend /cancel to exit.`,
   );
 
   while (true) {
@@ -168,13 +171,13 @@ const sellCustomConversation = async (
     const amount = parseFloat(text.replace(/[$,]/g, ""));
     if (isNaN(amount) || amount <= 0) {
       await msgCtx.reply(
-        `Please enter a valid number (e.g. 50). Minimum is $${MIN_SELL_USDC}.`,
+        `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_SELL_AMOUNT}.`,
       );
       continue;
     }
-    if (amount < MIN_SELL_USDC) {
+    if (amount < MIN_USDC_SELL_AMOUNT) {
       await msgCtx.reply(
-        `Minimum sell is $${MIN_SELL_USDC} USDC proceeds. Enter a larger amount or send /cancel.`,
+        `Minimum sell is $${MIN_USDC_SELL_AMOUNT} USDC proceeds. Enter a larger amount or send /cancel.`,
       );
       continue;
     }
@@ -207,8 +210,16 @@ const sellCustomConversation = async (
     }
 
     const token = tokenResult.data;
-    const balance = tokenBalance ?? 0n;
-    if (balance === 0n) {
+
+    // Null balance = RPC unavailable; don't coerce to zero.
+    if (tokenBalance === null) {
+      await msgCtx.reply(
+        "Unable to verify your token balance — please try again.",
+      );
+      continue;
+    }
+
+    if (tokenBalance === 0n) {
       await msgCtx.reply(
         `You hold no ${token.ticker}. Get some via the buy flow first.`,
       );
@@ -216,11 +227,11 @@ const sellCustomConversation = async (
     }
 
     if (token.priceUsd !== null) {
-      const holdingUsdc = estimateHoldingUsdc(balance, token.priceUsd);
+      const holdingUsdc = estimateHoldingUsdc(tokenBalance, token.priceUsd);
       const estimatedProceeds = holdingUsdc * (1 - COMBINED_FEE_RATE);
       if (estimatedProceeds < amount) {
         await msgCtx.reply(
-          `Insufficient balance. Your ${formatToken18(balance)} ${token.ticker} is worth ≈$${holdingUsdc.toFixed(2)} (est. proceeds ≈$${estimatedProceeds.toFixed(2)} after fees).\n\nEnter a smaller amount or send /cancel.`,
+          `Insufficient balance. Your ${formatToken18(tokenBalance)} ${token.ticker} is worth ≈$${holdingUsdc.toFixed(2)} (est. proceeds ≈$${estimatedProceeds.toFixed(2)} after fees).\n\nEnter a smaller amount or send /cancel.`,
         );
         continue;
       }
@@ -228,6 +239,7 @@ const sellCustomConversation = async (
 
     await msgCtx.reply(
       `✅ <b>Ready to sell $${amount.toFixed(2)} USDC worth of ${token.ticker}</b>\n\n` +
+        `<i>${FEE_SUMMARY}</i>\n\n` +
         `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
       { parse_mode: "HTML" },
     );
@@ -251,7 +263,7 @@ const handleSellRefresh = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: "Data temporarily unavailable — try again.",
+      text: API_UNAVAILABLE,
       show_alert: true,
     });
     return;
@@ -266,7 +278,7 @@ const handleSellRefresh = async (
   await ctx.answerCallbackQuery({ text: "Refreshed" });
 };
 
-/** Validate holding then show confirmation stub for a fixed USDC target sell. */
+/** Validate holding then show confirmation for a fixed USDC target sell. */
 const handleFixedSell = async (
   ctx: AppContext,
   tokenAddress: string,
@@ -293,15 +305,24 @@ const handleFixedSell = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: "Data temporarily unavailable — try again.",
+      text: API_UNAVAILABLE,
       show_alert: true,
     });
     return;
   }
 
   const token = tokenResult.data;
-  const balance = tokenBalance ?? 0n;
-  if (balance === 0n) {
+
+  // Null balance = RPC unavailable; don't coerce to zero.
+  if (tokenBalance === null) {
+    await ctx.answerCallbackQuery({
+      text: "Unable to verify your token balance — please try again.",
+      show_alert: true,
+    });
+    return;
+  }
+
+  if (tokenBalance === 0n) {
     await ctx.answerCallbackQuery({
       text: `You hold no ${token.ticker}.`,
       show_alert: true,
@@ -310,11 +331,11 @@ const handleFixedSell = async (
   }
 
   if (token.priceUsd !== null) {
-    const holdingUsdc = estimateHoldingUsdc(balance, token.priceUsd);
+    const holdingUsdc = estimateHoldingUsdc(tokenBalance, token.priceUsd);
     const estimatedProceeds = holdingUsdc * (1 - COMBINED_FEE_RATE);
-    if (estimatedProceeds < MIN_SELL_USDC) {
+    if (estimatedProceeds < MIN_USDC_SELL_AMOUNT) {
       await ctx.answerCallbackQuery({
-        text: `Estimated proceeds ≈$${estimatedProceeds.toFixed(2)} would be below the $${MIN_SELL_USDC} minimum.`,
+        text: `Estimated proceeds ≈$${estimatedProceeds.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
         show_alert: true,
       });
       return;
@@ -331,12 +352,13 @@ const handleFixedSell = async (
   await ctx.answerCallbackQuery();
   await ctx.reply(
     `✅ <b>Ready to sell $${targetUsdc} USDC worth of ${token.ticker}</b>\n\n` +
+      `<i>${FEE_SUMMARY}</i>\n\n` +
       `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
     { parse_mode: "HTML" },
   );
 };
 
-/** Validate holding then show confirmation stub to sell the entire position. */
+/** Validate holding then show confirmation to sell the entire position. */
 const handleSellAll = async (
   ctx: AppContext,
   tokenAddress: string,
@@ -362,15 +384,24 @@ const handleSellAll = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: "Data temporarily unavailable — try again.",
+      text: API_UNAVAILABLE,
       show_alert: true,
     });
     return;
   }
 
   const token = tokenResult.data;
-  const balance = tokenBalance ?? 0n;
-  if (balance === 0n) {
+
+  // Null balance = RPC unavailable; don't coerce to zero.
+  if (tokenBalance === null) {
+    await ctx.answerCallbackQuery({
+      text: "Unable to verify your token balance — please try again.",
+      show_alert: true,
+    });
+    return;
+  }
+
+  if (tokenBalance === 0n) {
     await ctx.answerCallbackQuery({
       text: `You hold no ${token.ticker}.`,
       show_alert: true,
@@ -379,11 +410,11 @@ const handleSellAll = async (
   }
 
   if (token.priceUsd !== null) {
-    const holdingUsdc = estimateHoldingUsdc(balance, token.priceUsd);
+    const holdingUsdc = estimateHoldingUsdc(tokenBalance, token.priceUsd);
     const estimatedProceeds = holdingUsdc * (1 - COMBINED_FEE_RATE);
-    if (estimatedProceeds < MIN_SELL_USDC) {
+    if (estimatedProceeds < MIN_USDC_SELL_AMOUNT) {
       await ctx.answerCallbackQuery({
-        text: `Estimated proceeds ≈$${estimatedProceeds.toFixed(2)} would be below the $${MIN_SELL_USDC} minimum.`,
+        text: `Estimated proceeds ≈$${estimatedProceeds.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
         show_alert: true,
       });
       return;
@@ -392,7 +423,8 @@ const handleSellAll = async (
 
   await ctx.answerCallbackQuery();
   await ctx.reply(
-    `✅ <b>Ready to sell all ${formatToken18(balance)} ${token.ticker}</b>\n\n` +
+    `✅ <b>Ready to sell all ${formatToken18(tokenBalance)} ${token.ticker}</b>\n\n` +
+      `<i>${FEE_SUMMARY}</i>\n\n` +
       `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
     { parse_mode: "HTML" },
   );
@@ -441,9 +473,11 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedSell(ctx, parsed.args[0], 20).catch((err) => {
-      logger.error("sell 20 handler failed", { err });
-    });
+    await handleFixedSell(ctx, parsed.args[0], 20).catch(
+      (err) => {
+        logger.error("sell 20 handler failed", { err });
+      },
+    );
   });
 
   // Sell All
