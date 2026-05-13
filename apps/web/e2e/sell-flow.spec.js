@@ -117,7 +117,7 @@ test_1.test.describe("Sell flow", function () {
                 case 2:
                     _c.sent();
                     // Wait for quote to appear showing USDC output
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=≈ you receive")).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=You receive ≈")).toBeVisible({
                             timeout: 5000,
                         })];
                 case 3:
@@ -153,7 +153,7 @@ test_1.test.describe("Sell flow", function () {
                     _c.sent();
                     bufferWarning = page.locator("text=Sell amount exceeds available liquidity");
                     minimumError = page.locator("text=Minimum trade");
-                    quoteOrWarning = bufferWarning.or(minimumError).or(page.locator("text=≈ you receive"));
+                    quoteOrWarning = bufferWarning.or(minimumError).or(page.locator("text=You receive ≈"));
                     return [4 /*yield*/, (0, test_1.expect)(quoteOrWarning.first()).toBeVisible({ timeout: 5000 })];
                 case 4:
                     _c.sent();

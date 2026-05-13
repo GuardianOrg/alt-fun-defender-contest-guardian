@@ -589,7 +589,7 @@ export default function TradePanel({ token }: Props) {
 
         {step === "confirmed" && txHash && (
           <div className={styles.confirmedBox}>
-            <span>✓ Transaction confirmed</span>
+            <span>✓ Transaction Confirmed</span>
             <a
               className={styles.confirmedTxLink}
               href={`https://hyperevmscan.io/tx/${txHash}`}
