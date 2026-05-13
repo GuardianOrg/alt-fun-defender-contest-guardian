@@ -6,6 +6,7 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
+import * as trade from "../../lib/trade.js";
 import { WalletManager } from "../../lib/wallet.js";
 
 const ZERO_MASTER_KEY = btoa("\0".repeat(32));
@@ -306,6 +307,67 @@ describe("Buy flow (st:b button → conversation)", () => {
     // Fee summary line is mandatory per AGENTS.md
     expect(String(send!.body.text)).toContain("Bot fee 0.5%");
     expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
+  });
+
+  it("Degen mode: Buy 20 skips the Confirm keyboard and submits immediately", async () => {
+    const h = await harnessWithWallet();
+    // Seed degen-mode = true on the user's session. The session adapter
+    // hydrates this JSON on the next update.
+    await h.kv.put(
+      "session:7",
+      JSON.stringify({
+        slippageBps: 100,
+        defaultBuyUsdc: 50,
+        degenMode: true,
+      }),
+    );
+    mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
+
+    // Mock the chain-side call so we can assert it ran and so the test
+    // never reaches actual RPC.
+    const execSpy = vi.spyOn(trade, "executeBuy").mockResolvedValue({
+      ok: true,
+      txHash: "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+
+    try {
+      await h.run(callbackUpdate(`bt20:${TOKEN_ADDR}`));
+
+      const calls = capture(fetchSpy);
+      const sends = calls.filter((c) => c.url.includes("/sendMessage"));
+
+      // No "Ready to buy" + confirm-button card in degen mode.
+      const confirmCard = sends.find((s) =>
+        String(s.body.text).includes("Ready to buy"),
+      );
+      expect(confirmCard).toBeUndefined();
+
+      // The reply chain renders the tx receipt instead.
+      const receipt = sends.find((s) =>
+        String(s.body.text).includes("Buy confirmed"),
+      );
+      expect(receipt).toBeDefined();
+
+      // No sendMessage carries a `cnf:` callback button.
+      const hasConfirmButton = sends.some((s) => {
+        const kb = (s.body.reply_markup as
+          | { inline_keyboard?: Array<Array<{ callback_data?: string }>> }
+          | undefined)?.inline_keyboard;
+        return (
+          kb?.flat().some((b) => (b.callback_data ?? "").startsWith("cnf:")) ??
+          false
+        );
+      });
+      expect(hasConfirmButton).toBe(false);
+
+      // The chain-side path actually ran — degen mode is wired all the
+      // way through executeBuy, not just a UI toggle.
+      expect(execSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      execSpy.mockRestore();
+    }
   });
 
   it("Refresh callback re-fetches data and edits the card in-place", async () => {

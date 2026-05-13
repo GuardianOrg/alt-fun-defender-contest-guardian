@@ -217,6 +217,31 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   return `❌ ${renderExecutionError(result)}`;
 };
 
+/**
+ * Degen-mode entry point: stage the intent and immediately confirm it in
+ * the same call, skipping the inline `[Confirm]` / `[Cancel]` keyboard.
+ *
+ * Routes through the same `stageBuy` → `confirmTrade` plumbing as the
+ * button-driven flow so the slippage bound, referrer attribution, and
+ * pending-slot bookkeeping stay identical — only the user-facing confirm
+ * step is removed. PIN gates and other auth checks remain untouched per
+ * AGENTS.md `/settings → Degen mode` ("PIN gates stay active regardless
+ * of degen mode — toggling this never bypasses authentication").
+ */
+export const submitBuy = async (
+  args: StageBuyArgs,
+): Promise<ConfirmOutcome> => {
+  const { nonce } = stageBuy(args);
+  return confirmTrade(args.ctx, nonce);
+};
+
+export const submitSell = async (
+  args: StageSellArgs,
+): Promise<ConfirmOutcome> => {
+  const { nonce } = stageSell(args);
+  return confirmTrade(args.ctx, nonce);
+};
+
 /** Cancel callback handler shared by /buy and /sell. */
 export const cancelTrade = (ctx: AppContext, nonce: string): boolean => {
   const intent = ctx.session.pendingTrade;

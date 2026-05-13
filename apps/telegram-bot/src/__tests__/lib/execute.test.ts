@@ -9,6 +9,8 @@ import {
   renderConfirmReply,
   stageBuy,
   stageSell,
+  submitBuy,
+  submitSell,
 } from "../../lib/execute.js";
 import * as trade from "../../lib/trade.js";
 import { MemoryKV } from "../helpers/bot.js";
@@ -377,6 +379,82 @@ describe("confirmTrade referrer propagation", () => {
     await confirmTrade(ctx, nonce);
     const call = execBuySpy.mock.calls[0] as [unknown, { referrer: string }];
     expect(call[1].referrer).toBe("0x0000000000000000000000000000000000000000");
+  });
+});
+
+describe("submitBuy / submitSell (degen-mode entry)", () => {
+  let execBuySpy: ReturnType<typeof vi.spyOn>;
+  let execSellSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    execBuySpy = vi.spyOn(trade, "executeBuy");
+    execSellSpy = vi.spyOn(trade, "executeSell");
+  });
+  afterEach(() => {
+    execBuySpy.mockRestore();
+    execSellSpy.mockRestore();
+  });
+
+  it("submitBuy stages and immediately executes — no nonce-gated confirm step", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx } = await fakeCtx();
+    const outcome = await submitBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "TEST",
+      usdcRaw: 20_000_000n,
+    });
+    expect(outcome.kind).toBe("executed");
+    expect(execBuySpy).toHaveBeenCalledTimes(1);
+    // The intent slot is cleared by the time the call returns — a Confirm
+    // tap from a stale UI message must not be able to replay.
+    expect(ctx.session.pendingTrade).toBeUndefined();
+  });
+
+  it("submitSell routes through executeSell with the staged token amount", async () => {
+    execSellSpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xbeef",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx } = await fakeCtx();
+    const outcome = await submitSell({
+      ctx,
+      token: TOKEN,
+      ticker: "TEST",
+      tokenRaw: 10n ** 18n,
+    });
+    expect(outcome.kind).toBe("executed");
+    expect(execSellSpy).toHaveBeenCalledTimes(1);
+    expect(execBuySpy).not.toHaveBeenCalled();
+    const call = execSellSpy.mock.calls[0] as [unknown, { tokenAmount: bigint }];
+    expect(call[1].tokenAmount).toBe(10n ** 18n);
+  });
+
+  it("submitBuy still propagates the user's stored referrer", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, kv } = await fakeCtx();
+    const referrer = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+    await kv.put("referrer:7", referrer);
+    await submitBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    const call = execBuySpy.mock.calls[0] as [unknown, { referrer: string }];
+    expect(call[1].referrer).toBe(referrer);
   });
 });
 

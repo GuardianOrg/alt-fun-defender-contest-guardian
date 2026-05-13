@@ -428,7 +428,7 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 |---|---|---|
 | Slippage | 1% (100 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `0.5% / 1% / 2% / 5%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). |
 | Default buy amount | `$50 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. |
-| Degen mode | Off | One-tap toggle. Stored as `session.degenMode`. Persisted now; consumed once `/buy` and `/sell` learn to skip confirm steps when it's on. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
+| Degen mode | Off | One-tap toggle. Stored as `session.degenMode`. When on, `/buy` and `/sell` skip the inline [Confirm] / [Cancel] keyboard and submit the trade as soon as the quick-amount button is tapped (or the custom-amount wizard completes). Slippage bound, referrer attribution, and `BotFeeRouter` routing are identical to the confirm path — only the user-facing confirm step is removed. **Buffer-capped sells still require an explicit confirm tap regardless of degen mode** per the AGENTS.md "Buffer-limited sells must be user-visible" constraint. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
 
 State lives entirely on the grammY session (KV-backed under `session:<userId>`) — same store every other setting on this bot uses. No new KV namespace, no new endpoints.
 
@@ -438,11 +438,11 @@ State lives entirely on the grammY session (KV-backed under `session:<userId>`) 
 
 - **Priority fee** — `lib/trade.ts` submits with `estimateContractGas` + 1.3× buffer using the wallet's default gas pricing. There is no priority-fee field on the session and no plumbing from session → trade builder. Reintroduce alongside the wallet-fee-routing change in `lib/trade.ts`.
 - **MEV protection** — HyperEVM has no public Flashbots-style protected RPC endpoint today; routing a "protect" toggle through the same `HYPEREVM_RPC_URL` is purely cosmetic. Reintroduce when an alternate RPC binding lands.
-- **Trade confirmations toggle** — `/buy` and `/sell` always show the Confirm button (60 s timeout, nonce-gated). Until those flows learn to branch on the degen-mode flag and skip the staging step, exposing a separate "Trade confirmations: on/off" toggle would be a dangling UI control.
+- **Trade confirmations toggle** — folded into the existing **Degen mode** toggle. The dedicated on/off control was cut to avoid two settings that mean the same thing.
 
 Notifications (trade fills, TP/SL triggers, graduation alerts) are intentionally absent from v1 — they require either a keeper or alert-subscription endpoint, both deferred. The bot replies inline to every command but does not push unsolicited messages.
 
-Degen mode: documented as "skip confirmations and risk warnings" once `/buy` and `/sell` consume it. Today only persists the flag — flipping it has no behavioural effect on trades. The toggle is exposed so the surface area is testable + recoverable from now; the trade-side wiring lands in a follow-up.
+Degen mode: skips the [Confirm] / [Cancel] step on `/buy` and `/sell`. The quick-amount buttons (and the custom-amount wizard) call `submitBuy` / `submitSell` from `lib/execute.ts`, which stages the intent and immediately runs `confirmTrade` in the same call — the user sees a `⚡ Submitting…` toast/reply followed by the same tx-receipt-or-error message the confirm path would have produced. Slippage bounds, referrer attribution, router routing, and PIN gates are unchanged. Buffer-capped sells still require an explicit confirm tap because the AGENTS.md `/sell` "Buffer-limited sells must be user-visible" rule outranks the degen toggle.
 
 ### /security
 
