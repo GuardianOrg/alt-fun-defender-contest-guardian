@@ -1,6 +1,7 @@
 import type { TokenInfo } from "./api.js";
 
 const HYPEREVMSCAN_BASE = "https://hyperevmscan.io";
+const ALTFUN_BASE = "https://alt.fun";
 
 /** 6-decimal USDC raw → "$X.XX" string. */
 export const formatUsdc6 = (raw: bigint | null): string => {
@@ -76,6 +77,7 @@ export const renderBuyTokenCardText = (
   usdcBalance: bigint | null,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
+  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
@@ -98,6 +100,7 @@ export const renderBuyTokenCardText = (
     `💼 <b>Your USDC Balance:</b> ${formatUsdc6(usdcBalance)}`,
     "",
     `🔍 <a href="${explorerUrl}">View on Explorer</a>`,
+    `🚀 <a href="${altFunUrl}">View on Alt Fun</a>`,
   );
   return lines.join("\n");
 };
@@ -111,6 +114,7 @@ export const renderSellTokenCardText = (
   tokenBalance: bigint | null,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
+  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
 
   let holdingText: string;
   if (tokenBalance === null) {
@@ -144,6 +148,7 @@ export const renderSellTokenCardText = (
     `💼 <b>Your Balance:</b> ${holdingText}`,
     "",
     `🔍 <a href="${explorerUrl}">View on Explorer</a>`,
+    `🚀 <a href="${altFunUrl}">View on Alt Fun</a>`,
   );
   return lines.join("\n");
 };
@@ -155,6 +160,7 @@ export const renderSellTokenCardText = (
  */
 export const renderTrackTokenCardText = (token: TokenInfo): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
+  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
@@ -172,7 +178,11 @@ export const renderTrackTokenCardText = (token: TokenInfo): string => {
   if (token.status !== "graduated") {
     lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
   }
-  lines.push("", `🔍 <a href="${explorerUrl}">View on Explorer</a>`);
+  lines.push(
+    "",
+    `🔍 <a href="${explorerUrl}">View on Explorer</a>`,
+    `🚀 <a href="${altFunUrl}">View on Alt Fun</a>`,
+  );
   return lines.join("\n");
 };
 

@@ -4,6 +4,7 @@ import type { TokenInfo } from "../../lib/api.js";
 import {
   renderBuyTokenCardText,
   renderSellTokenCardText,
+  renderTrackTokenCardText,
 } from "../../lib/token-card.js";
 
 const baseToken = (overrides: Partial<TokenInfo> = {}): TokenInfo => ({
@@ -35,6 +36,13 @@ describe("renderBuyTokenCardText", () => {
     expect(text).toContain("Your USDC Balance");
     expect(text).toContain("$50.00");
     expect(text).toContain("View on Explorer");
+    expect(text).toContain("View on Alt Fun");
+    expect(text).toContain(
+      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+    );
+    const explorerIdx = text.indexOf("View on Explorer");
+    const altFunIdx = text.indexOf("View on Alt Fun");
+    expect(altFunIdx).toBeGreaterThan(explorerIdx);
   });
 
   it("renders dash when volume24hUsd is null (older API response)", () => {
@@ -59,5 +67,31 @@ describe("renderSellTokenCardText", () => {
   it("shows zero balance when user holds none", () => {
     const text = renderSellTokenCardText(baseToken(), 0n);
     expect(text).toContain("0 TEST");
+  });
+
+  it("includes Alt Fun link after Explorer link", () => {
+    const text = renderSellTokenCardText(baseToken(), 0n);
+    expect(text).toContain("View on Explorer");
+    expect(text).toContain("View on Alt Fun");
+    expect(text).toContain(
+      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+    );
+    expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
+      text.indexOf("View on Explorer"),
+    );
+  });
+});
+
+describe("renderTrackTokenCardText", () => {
+  it("includes Alt Fun link after Explorer link", () => {
+    const text = renderTrackTokenCardText(baseToken());
+    expect(text).toContain("View on Explorer");
+    expect(text).toContain("View on Alt Fun");
+    expect(text).toContain(
+      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+    );
+    expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
+      text.indexOf("View on Explorer"),
+    );
   });
 });
