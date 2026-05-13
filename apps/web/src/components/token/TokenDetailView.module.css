@@ -65,9 +65,10 @@
 
 .graduatingBadge {
   font-size: 11px;
-  color: var(--amber);
+  color: var(--mint);
   font-weight: 600;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
   animation: badgep 1.4s ease-in-out infinite;
   flex-shrink: 0;
 }

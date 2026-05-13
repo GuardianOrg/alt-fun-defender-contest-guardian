@@ -1,6 +1,13 @@
+import { useMemo, useSyncExternalStore } from "react";
+
 import { useQuery } from "@tanstack/react-query";
 
 import { useWallet } from "./useWallet";
+import {
+  applyTokenOverride,
+  getTokenOverride,
+  subscribeTokenOverrides,
+} from "../dev/devTokenOverrides";
 import { tokenService } from "../services/tokenService";
 
 import type { Token } from "../services/types";
@@ -57,7 +64,7 @@ export function useToken(address: string | undefined) {
   // baked into the query key so a connect / disconnect / wallet switch
   // re-fetches under the right lens (public 404 vs holder-only 200).
   const { address: wallet } = useWallet();
-  return useQuery({
+  const query = useQuery({
     queryKey: ["token", address, wallet ?? null],
     queryFn: () => {
       if (!address) throw new Error("Address required");
@@ -66,4 +73,28 @@ export function useToken(address: string | undefined) {
     enabled: !!address,
     refetchInterval: (query) => tokenRefetchInterval(query.state.data),
   });
+
+  // Dev-only overlay (DCE'd in production by the `import.meta.env.DEV`
+  // gate below). The override store lives outside the TanStack Query
+  // cache so WS-driven invalidations from `useTokenLiveFeed` keep
+  // refreshing the underlying real data each tick — clearing the
+  // override snaps back to the API response on the next render with
+  // no refetch required. See `dev/devTokenOverrides.ts`.
+  const override = useSyncExternalStore(
+    subscribeTokenOverrides,
+    () => (import.meta.env.DEV ? getTokenOverride(address) : undefined),
+    () => undefined,
+  );
+
+  const data = useMemo(() => {
+    if (!query.data || !override) return query.data;
+    return applyTokenOverride(query.data, override);
+  }, [query.data, override]);
+
+  // Re-shape the query result with the overridden `data`. We can't just
+  // mutate `query.data` (TanStack Query owns that reference) and
+  // returning a fresh object every render is fine — consumers
+  // destructure `{ data, isError, isLoading }`, none of which are
+  // referentially compared.
+  return data === query.data ? query : { ...query, data };
 }
