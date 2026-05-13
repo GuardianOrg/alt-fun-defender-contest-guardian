@@ -94,6 +94,13 @@ interface MockOpts {
   tokenApiDown?: boolean;
   tradesApiDown?: boolean;
   trades?: Trade[];
+  chartCandles?: Array<{
+    time: number;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+  }>;
 }
 
 const mockApi = (
@@ -128,6 +135,22 @@ const mockApi = (
     if (url.startsWith(API_BASE) && url.includes("/api/v1/trades/")) {
       if (opts.tradesApiDown) return new Response("", { status: 503 });
       return new Response(JSON.stringify({ data: trades }), { status: 200 });
+    }
+    if (url.startsWith(API_BASE) && url.includes("/api/v1/chart/")) {
+      // Chart is best-effort — default tests get an empty-candle response
+      // so the renderer short-circuits to "no image" without needing the
+      // resvg-wasm module to load in the node test env. Specific tests
+      // can pass `chartCandles` to exercise the photo-send path.
+      return new Response(
+        JSON.stringify({
+          data: {
+            candles: opts.chartCandles ?? [],
+            currentRatio: 1,
+            currentExchangeRate: 1,
+          },
+        }),
+        { status: 200 },
+      );
     }
     throw new Error(`Unexpected fetch: ${url}`);
   });
@@ -312,6 +335,53 @@ describe("/track command", () => {
     const allBtns = keyboard.flat();
     expect(allBtns.some((b) => b.text.includes("Buy 20"))).toBe(true);
   });
+
+  it("still sends the text card when the chart fetch hangs past the timeout", async () => {
+    const h = harness();
+    // Hold the chart endpoint open past CHART_TIMEOUT_MS so the race
+    // resolves to null on the timer side. The token + trades fetches
+    // still come back fast, so the text reply must go out without
+    // waiting on the chart. Real timers — vitest's fakeTimers would
+    // also have to drive the timeout we're testing, complicating the
+    // setup. 5.5s is safely past CHART_TIMEOUT_MS = 5s.
+    h.env.HYPEREVM_RPC_URL = RPC_URL;
+    let chartResolver: (() => void) | undefined;
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x00" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(JSON.stringify({ data: TOKEN_INFO_FIXTURE }), {
+          status: 200,
+        });
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/trades/")) {
+        return new Response(JSON.stringify({ data: [] }), { status: 200 });
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/chart/")) {
+        await new Promise<void>((resolve) => {
+          chartResolver = resolve;
+        });
+        return new Response(JSON.stringify({ data: { candles: [] } }), {
+          status: 200,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(messageUpdate(`/track ${TOKEN_ADDR}`, 11));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toContain("Test Token");
+    // Release the hung chart fetch so vitest can exit cleanly.
+    chartResolver?.();
+  }, 10_000);
 
   it("Sell button on the track card sends a sell token card", async () => {
     const h = harness();

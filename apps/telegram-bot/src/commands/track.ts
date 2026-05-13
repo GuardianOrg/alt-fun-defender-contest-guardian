@@ -2,7 +2,7 @@ import {
   type Conversation,
   createConversation,
 } from "@grammyjs/conversations";
-import type { Bot } from "grammy";
+import { InputFile, type Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
 import {
@@ -19,6 +19,7 @@ import {
   type TokenInfo,
 } from "../lib/api.js";
 import { encodeCallback, parseCallback } from "../lib/callbacks.js";
+import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
@@ -32,6 +33,16 @@ import { WalletManager } from "../lib/wallet.js";
 
 /** Number of trades shown under the token card per AGENTS.md /track spec. */
 const TRADES_PER_CARD = 20;
+
+/**
+ * Upper bound on how long we'll wait for the chart image before sending
+ * the /track text reply without it. The renderer fans out to an HTTP
+ * fetch + a wasm-backed PNG conversion, either of which can blow past
+ * the user's perception threshold on a cold-isolate Worker. Capping the
+ * wait keeps the text card responsive — a missing chart is recoverable
+ * (user can refresh), a multi-second silent /track is not.
+ */
+const CHART_TIMEOUT_MS = 5_000;
 
 const ALT_FUN_TOKEN_BASE = "https://alt.fun";
 
@@ -151,6 +162,8 @@ const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
 interface TrackRender {
   text: string;
   keyboard: InlineKeyboard;
+  chartPng: Uint8Array | null;
+  tokenName: string;
 }
 
 /**
@@ -175,17 +188,29 @@ const buildTrack = async (
     }
     return { ok: false, kind: "unavailable" };
   }
-  // Trades failures degrade gracefully — the token card is still useful
-  // on its own; a 503 here returns an empty list rather than aborting
-  // the whole render. This matches /positions which prefers a partial
-  // view to a complete outage when only one upstream is down.
-  const tradesResult = await fetchTrades(env, address, TRADES_PER_CARD);
+  // Trades + chart failures degrade gracefully — the token card is
+  // still useful on its own. Trades run in parallel with a *bounded*
+  // chart render: the chart promise races a `CHART_TIMEOUT_MS` timeout
+  // so a slow wasm-init or upstream `/chart` fetch can't gate the
+  // text reply (CodeRabbit #731). Chart errors are swallowed inside
+  // `buildTrackChartPng` for the same reason — the user always gets
+  // the text card.
+  const chartPromise: Promise<Uint8Array | null> = Promise.race([
+    buildTrackChartPng(env, address, tokenResult.data.name),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), CHART_TIMEOUT_MS)),
+  ]);
+  const [tradesResult, chartPng] = await Promise.all([
+    fetchTrades(env, address, TRADES_PER_CARD),
+    chartPromise,
+  ]);
   const trades = tradesResult.ok ? tradesResult.data : [];
   return {
     ok: true,
     render: {
       text: renderTrackBody(tokenResult.data, trades),
       keyboard: buildTrackKeyboard(tokenResult.data.address),
+      chartPng,
+      tokenName: tokenResult.data.name,
     },
   };
 };
@@ -236,13 +261,37 @@ const trackLookupConversation = async (
       await msgCtx.reply(API_UNAVAILABLE);
       return;
     }
-    await msgCtx.reply(result.render.text, {
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: result.render.keyboard },
-      link_preview_options: { is_disabled: true },
-    });
+    await sendTrackReply(msgCtx, result.render);
     return;
   }
+};
+
+/**
+ * Send the chart image (when available) then the token card + trades.
+ * Telegram's photo-caption budget is 1024 chars — far short of the
+ * card-plus-20-trades body — so the image and text are sent as two
+ * separate messages with the buttons attached to the text. A photo
+ * failure (Telegram 400 on a malformed PNG, e.g.) is logged and
+ * swallowed so the user still gets the text card.
+ */
+const sendTrackReply = async (
+  ctx: AppContext,
+  render: TrackRender,
+): Promise<void> => {
+  if (render.chartPng) {
+    try {
+      await ctx.replyWithPhoto(
+        new InputFile(render.chartPng, `${render.tokenName || "chart"}.png`),
+      );
+    } catch (err) {
+      logger.warn("track chart send failed", { err });
+    }
+  }
+  await ctx.reply(render.text, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: render.keyboard },
+    link_preview_options: { is_disabled: true },
+  });
 };
 
 /** Render /track for a known address as a direct reply (no conversation). */
@@ -261,11 +310,7 @@ const replyTrack = async (
     );
     return;
   }
-  await ctx.reply(result.render.text, {
-    parse_mode: "HTML",
-    reply_markup: { inline_keyboard: result.render.keyboard },
-    link_preview_options: { is_disabled: true },
-  });
+  await sendTrackReply(ctx, result.render);
 };
 
 /** Send a fresh buy card for the tracked token. Mirrors the /buy entry view. */
