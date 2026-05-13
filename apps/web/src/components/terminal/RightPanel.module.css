@@ -102,6 +102,43 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Newly arrived trade rows fade a neutral white wash to invisible
+ * over ~2s. Buys and sells share a single class so the highlight is
+ * unambiguous regardless of side — colour-coding the flash on top of
+ * the row's own buy / sell tinting muddies which signal the user is
+ * meant to read.
+ *
+ * Keyframe is intentionally co-located with the consuming class.
+ * Defining it in `index.css` and referencing it from a `.module.css`
+ * can fail under some CSS-module bundler configs (the animation
+ * name gets hashed in the module but not in the global stylesheet,
+ * leaving the reference orphaned). The duplication across
+ * `TokenRow` / `BottomTabs` / this file is small.
+ *
+ * End-state is `rgba(255, 255, 255, 0)` so the fade stays on the
+ * white hue ramp instead of interpolating through dark grey on the
+ * way to invisible. `forwards` pins the transparent end-state in
+ * case React removes `.flash` after the animation has already
+ * completed. */
+@keyframes feedFlash {
+  0% {
+    background-color: rgba(255, 255, 255, 0.25);
+  }
+  100% {
+    background-color: rgba(255, 255, 255, 0);
+  }
+}
+
+.flash {
+  animation: feedFlash 2.2s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+  }
+}
+
 .tradeInfo {
   flex: 1;
   min-width: 0;

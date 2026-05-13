@@ -24,9 +24,16 @@ import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
+  /**
+   * When true, the row paints with a fading mint background to flag it
+   * as newly arrived (live WS update or dev-injected mock token). Set
+   * by `TokenTable` via the shared `useFlashOnNew` hook; defaults to
+   * false everywhere else.
+   */
+  isNew?: boolean;
 }
 
-export default function TokenRow({ token }: Props) {
+export default function TokenRow({ token, isNew = false }: Props) {
   const navigate = useNavigate();
   const [imgError, setImgError] = useState(false);
   const stats = useTokenMarketStats(token.address);
@@ -79,6 +86,7 @@ export default function TokenRow({ token }: Props) {
               styles.normalRow,
               isShort ? styles.borderRed : styles.borderMint,
             ),
+        isNew && styles.flashNew,
       )}
       role="link"
       tabIndex={0}

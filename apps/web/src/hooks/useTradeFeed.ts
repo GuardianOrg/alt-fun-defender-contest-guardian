@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
+import { subscribeMockTrades } from "../dev/mockFeed";
 import {
   hasResolvedTokenName,
   prefetchTokenName,
@@ -92,6 +93,20 @@ export function useTradeFeed(maxItems = 14): UseTradeFeedResult {
       }
     });
 
+    // Dev-only easter egg (`DevSimulator`). The mock bus is inert in
+    // production: nothing emits into it, and `import.meta.env.DEV` lets
+    // bundlers strip this branch on `vite build`.
+    const unsubMock = import.meta.env.DEV
+      ? subscribeMockTrades((trade) => {
+          setTrades((prev) => [trade, ...prev].slice(0, maxItems));
+          setIsLoading(false);
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
+        })
+      : () => {};
+
     // Heal rows that were appended with the truncated-address fallback
     // once their real symbol lands in `tokenNameMap`. Without this, a
     // freshly-deployed token's row stays frozen on the address until a
@@ -121,6 +136,7 @@ export function useTradeFeed(maxItems = 14): UseTradeFeedResult {
 
     return () => {
       unsub();
+      unsubMock();
       unsubNames();
       clearInterval(retryInterval);
       if (timeoutRef.current) {
@@ -186,6 +202,23 @@ export function useTokenTrades(
       }
     });
 
+    // Mirror the global-feed easter egg for the per-token tab: mock
+    // trades whose `tokenAddress` matches the current detail page
+    // flow into this list too, so the row-level flash UI can be
+    // exercised from a token detail view as well as the homepage.
+    const normalized = address.toLowerCase();
+    const unsubMock = import.meta.env.DEV
+      ? subscribeMockTrades((trade) => {
+          if (trade.tokenAddress.toLowerCase() !== normalized) return;
+          setTrades((prev) => [trade, ...prev].slice(0, maxItems));
+          setIsLoading(false);
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
+          }
+        })
+      : () => {};
+
     // Heal the per-token trade rows the same way `useTradeFeed` does:
     // `subscribeTokenTrades` already filters to this address, so we only
     // need to listen for the single name that matters. Patching is still
@@ -198,6 +231,7 @@ export function useTokenTrades(
 
     return () => {
       unsub();
+      unsubMock();
       unsubNames();
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);

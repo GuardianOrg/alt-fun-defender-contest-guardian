@@ -1,10 +1,14 @@
 import styles from "./BottomTabs.module.css";
+import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
 import { cn, formatTimeAgo, shortenAddress } from "../../utils/format";
 import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
-import type { Token } from "../../services/types";
+import type { Token, Trade } from "../../services/types";
+
+const getTradeId = (t: Trade) => t.id;
+const getTradeTimestamp = (t: Trade) => t.timestamp;
 
 function extractTxHash(tradeId: string): string {
   const dashIdx = tradeId.lastIndexOf("-");
@@ -20,6 +24,14 @@ export default function TradesTab({ token }: { token: Token }) {
   const { trades, isLoading } = useTokenTrades(token.address);
   const ticker = token.ticker;
   const showSkeletons = isLoading && trades.length === 0;
+  // Highlight newly arrived trade rows; covers both real WS events
+  // and dev-injected mock trades whose `tokenAddress` matches. The
+  // hook's timestamp gate filters out the historical REST batch
+  // pulled on tab open so only trades that actually happen while
+  // the user is on the page light up.
+  const flashingTradeIds = useFlashOnNew(trades, getTradeId, {
+    getTimestamp: getTradeTimestamp,
+  });
 
   return (
     <table
@@ -63,8 +75,12 @@ export default function TradesTab({ token }: { token: Token }) {
         {!showSkeletons && trades.map((t) => {
           const txHash = extractTxHash(t.id);
           const isBuy = t.side === "BUY";
+          const flashing = flashingTradeIds.has(t.id);
           return (
-            <tr key={t.id} className={styles.tradeRow}>
+            <tr
+              key={t.id}
+              className={cn(styles.tradeRow, flashing && styles.flash)}
+            >
               <td className={styles.tdLeft}>
                 <div className={styles.walletCell}>
                   <span className={styles.walletAddress}>

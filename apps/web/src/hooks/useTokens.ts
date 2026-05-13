@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
+import { subscribeMockTokens } from "../dev/mockFeed";
 import { tokenService, TOKENS_PAGE_SIZE } from "../services/tokenService";
 
-import type { TokenFilter } from "../services/types";
+import type { Token, TokenFilter } from "../services/types";
 
 /**
  * Token list for the home page + search modal. The server handles all
@@ -48,10 +49,41 @@ export function useInfiniteTokens(filter?: TokenFilter) {
     refetchInterval: 10_000,
   });
 
-  const tokens = useMemo(
-    () => query.data?.pages.flat() ?? [],
-    [query.data],
-  );
+  // Dev-only easter egg: tokens injected via `DevSimulator` get
+  // prepended to the rendered list so the new-token flash UI can be
+  // exercised without a fresh on-chain `Zap.createToken` round-trip.
+  // `subscribeMockTokens` is never emitted into outside dev mode, and
+  // bundlers strip the subscribe call on `vite build`.
+  const [mockTokens, setMockTokens] = useState<Token[]>([]);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    return subscribeMockTokens((token) => {
+      setMockTokens((prev) => [token, ...prev]);
+    });
+  }, []);
+
+  const tokens = useMemo(() => {
+    const fromQuery = query.data?.pages.flat() ?? [];
+    if (mockTokens.length === 0) return fromQuery;
+    // De-duplicate by address — a real API response that happens to
+    // include a mock-shaped address (the random hex is statistically
+    // unique, but make the merge robust to refetch overlap anyway).
+    const seen = new Set<string>();
+    const merged: Token[] = [];
+    for (const t of mockTokens) {
+      const key = t.address.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(t);
+    }
+    for (const t of fromQuery) {
+      const key = t.address.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(t);
+    }
+    return merged;
+  }, [query.data, mockTokens]);
 
   return { ...query, tokens };
 }

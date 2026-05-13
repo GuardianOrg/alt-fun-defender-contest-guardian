@@ -63,6 +63,31 @@
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* Newly arrived rows fade a neutral white wash to invisible over
+ * ~2s. Keyframe is co-located with the consuming class because
+ * CSS-module bundlers can mangle cross-file `animation: name`
+ * references and silently break them; the values below are kept in
+ * sync with `RightPanel.module.css` so the global feed and this tab
+ * stay visually identical. */
+@keyframes feedFlash {
+  0% {
+    background-color: rgba(255, 255, 255, 0.25);
+  }
+  100% {
+    background-color: rgba(255, 255, 255, 0);
+  }
+}
+
+.flash {
+  animation: feedFlash 2.2s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+  }
+}
+
 .tdLeft {
   padding: 0.6rem 1.2rem;
   white-space: nowrap;

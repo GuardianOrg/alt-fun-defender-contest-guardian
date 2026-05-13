@@ -1,0 +1,115 @@
+/* Inline trigger that lives inside the footer's left group, next to
+ * the Whitepaper / Audit links. `position: relative` anchors the
+ * popover panel just above the trigger via `bottom: 100%`. */
+.wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Match the visual register of `SiteFooter`'s `.docLink` so the
+ * trigger reads as a peer of Whitepaper / Audit Report rather than a
+ * bespoke control — same font size, padding, hover-to-mint, and 12px
+ * leading icon. The cursor + button reset keep the native `<button>`
+ * affordance consistent with the surrounding `<a>` elements. */
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--txt-2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.toggle:hover {
+  color: var(--mint);
+}
+
+.toggle svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+/* Popover panel — anchored to the trigger's left edge and floated
+ * above it (`bottom: 100% + small gap`). High z-index keeps it over
+ * the right-panel feed and any sticky chrome the user hovers over
+ * while testing. */
+.panel {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 240px;
+  padding: 0.8rem;
+  background: var(--bg-1);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  box-shadow: var(--shadow-panel);
+  animation: modalin 0.15s ease-out;
+}
+
+.panelHeader {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mint);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.4rem;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.groupLabel {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.btn {
+  flex: 1 1 auto;
+  min-width: 2.6rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--txt-2);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.btn:hover {
+  color: var(--txt);
+  background: var(--mint-bg);
+  border-color: var(--border-2);
+}
+
+.btn:active {
+  background: rgba(77, 232, 180, 0.15);
+}

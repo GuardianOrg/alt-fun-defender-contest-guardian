@@ -6,6 +6,7 @@ import { useNavigate } from "react-router";
 import styles from "./RightPanel.module.css";
 import { tokenPath } from "../../app/routes";
 import { useBalances } from "../../hooks/useBalances";
+import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
 import { useWallet } from "../../hooks/useWallet";
@@ -19,7 +20,15 @@ import {
 import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
-import type { HeldToken } from "../../services/types";
+import type { HeldToken, Trade } from "../../services/types";
+
+const getTradeId = (t: Trade) => t.id;
+// `Trade.timestamp` is an ISO-8601 string set from the on-chain
+// trade's block timestamp — the hook's live-arrival gate compares
+// it against the hook's mount time so REST-poll history (initial
+// 50 rows pulled at mount, all minutes/hours old) never flashes,
+// while a fresh WS broadcast lands on the right side of the gate.
+const getTradeTimestamp = (t: Trade) => t.timestamp;
 
 // How many placeholder rows to render while the trade WS hasn't sent
 // anything yet. The trades section now fills the rest of the right
@@ -135,6 +144,15 @@ export default function RightPanel() {
   const { isConnected } = useWallet();
   const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
   const navigate = useNavigate();
+  // Newly arrived trades flash a buy/sell-tinted background that
+  // fades to transparent over ~2s. The hook's timestamp gate compares
+  // each trade's on-chain timestamp to the hook's mount time, so the
+  // initial REST-poll batch (every row is from before the user
+  // opened the page) is silently retired into "seen" and only
+  // genuinely-live WS broadcasts trigger the animation.
+  const flashingTradeIds = useFlashOnNew(trades, getTradeId, {
+    getTimestamp: getTradeTimestamp,
+  });
 
   const positions = [...heldTokens]
     .sort((a, b) => b.valueUsd - a.valueUsd)
@@ -234,10 +252,11 @@ export default function RightPanel() {
           ) : (
             trades.map((t) => {
               const isBuy = t.side === "BUY";
+              const flashing = flashingTradeIds.has(t.id);
               return (
                 <div
                   key={t.id}
-                  className={styles.tradeRow}
+                  className={cn(styles.tradeRow, flashing && styles.flash)}
                   tabIndex={0}
                   role="button"
                   aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}

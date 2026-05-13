@@ -1,4 +1,5 @@
 import styles from "./SiteFooter.module.css";
+import DevSimulator from "../dev/DevSimulator";
 
 const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
@@ -90,6 +91,9 @@ export default function SiteFooter() {
           <ShieldCheckIcon />
           Audit Report
         </a>
+        {/* Dev-only simulator trigger — returns `null` outside
+         * `import.meta.env.DEV` so production renders nothing here. */}
+        <DevSimulator />
       </div>
 
       <div className={styles.legal}>

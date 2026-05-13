@@ -5,9 +5,21 @@ import { useSelector } from "react-redux";
 import TokenRow from "./TokenRow";
 import TokenRowSkeleton from "./TokenRowSkeleton";
 import styles from "./TokenTable.module.css";
+import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokenListLiveFeed } from "../../hooks/useTokenListLiveFeed";
 import { useInfiniteTokens } from "../../hooks/useTokens";
 import { selectActiveFilter } from "../../state/uiSlice";
+
+import type { Token } from "../../services/types";
+
+// Stable accessors for `useFlashOnNew` — defined at module scope so
+// the hook doesn't see a fresh function identity on every render.
+// Token addresses are unique across the catalogue (the contract
+// address is the natural key); `createdAt` is an ISO-8601 string the
+// API serves on every `/tokens` row and is what gates the live-vs-
+// historical decision inside the hook (see its JSDoc).
+const getTokenId = (t: Token) => t.address.toLowerCase();
+const getTokenTimestamp = (t: Token) => t.createdAt;
 
 function TableHead() {
   return (
@@ -46,6 +58,22 @@ export default function TokenTable() {
   // market-data queries off the global `trade` WS channel. See issue
   // #710 and the JSDoc on `useTokenListLiveFeed`.
   useTokenListLiveFeed();
+
+  // Highlight newly arrived tokens for ~2s — only on the NEW tab,
+  // where the list IS sorted by recency and a fresh arrival
+  // legitimately lands at the top. On the other tabs we pass
+  // `enabled: false`, which makes the hook silently record every
+  // token it sees as "already known" and clear its session anchor.
+  // The result: a token that slid into the catalogue while the user
+  // was looking at TRENDING does NOT retroactively flash the moment
+  // they switch to NEW — only tokens that arrive WHILE the user is
+  // actively viewing NEW light up. The internal timestamp gate
+  // additionally filters out the initial page, scrolled-in
+  // pagination, and any older row that resurfaces in a refetch.
+  const flashingIds = useFlashOnNew(tokens, getTokenId, {
+    getTimestamp: getTokenTimestamp,
+    enabled: activeFilter === "new",
+  });
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -98,7 +126,13 @@ export default function TokenTable() {
                   { length: INITIAL_SKELETON_ROW_COUNT },
                   (_, i) => <TokenRowSkeleton key={i} />,
                 )
-              : tokens.map((t) => <TokenRow key={t.address} token={t} />)}
+              : tokens.map((t) => (
+                  <TokenRow
+                    key={t.address}
+                    token={t}
+                    isNew={flashingIds.has(getTokenId(t))}
+                  />
+                ))}
             {hasNextPage && (
               <div ref={sentinelRef} className={styles.sentinel} aria-hidden />
             )}

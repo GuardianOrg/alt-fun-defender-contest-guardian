@@ -40,6 +40,45 @@
   background: rgba(255, 255, 255, 0.02);
 }
 
+/* Newly arrived token rows fade a neutral white wash to invisible
+ * over ~2s — eye is drawn to the new row, then the row settles into
+ * the rest of the table. White (rather than a mint / red tint) keeps
+ * the highlight unambiguous: every fresh row reads the same whether
+ * it's a long or short token and however the row's own colouring
+ * skews.
+ *
+ * Keyframe is intentionally co-located with the consuming class.
+ * Defining it in `index.css` and referencing it from a `.module.css`
+ * can fail under some CSS-module bundler configs (the animation name
+ * gets hashed in the module but not in the global stylesheet,
+ * leaving the reference orphaned). The duplication across
+ * `RightPanel` / `BottomTabs` / this file is small.
+ *
+ * End-state is `rgba(255, 255, 255, 0)` (same hue, alpha 0) rather
+ * than the `transparent` keyword so the fade stays on the white hue
+ * ramp instead of interpolating through dark grey on its way to
+ * invisible. `forwards` pins the final invisible state in case the
+ * row is removed before the React-side timer flips `isNew` back to
+ * false. */
+@keyframes feedFlashToken {
+  0% {
+    background-color: rgba(255, 255, 255, 0.18);
+  }
+  100% {
+    background-color: rgba(255, 255, 255, 0);
+  }
+}
+
+.flashNew {
+  animation: feedFlashToken 2.2s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flashNew {
+    animation: none;
+  }
+}
+
 .borderMint {
   border-left-color: color-mix(in srgb, var(--mint-dim) 50%, transparent);
 }
