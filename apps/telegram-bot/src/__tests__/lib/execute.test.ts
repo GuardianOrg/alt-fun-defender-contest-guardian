@@ -382,6 +382,74 @@ describe("confirmTrade referrer propagation", () => {
   });
 });
 
+describe("confirmTrade idempotency wiring", () => {
+  let execBuySpy: ReturnType<typeof vi.spyOn>;
+  let execSellSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    execBuySpy = vi.spyOn(trade, "executeBuy");
+    execSellSpy = vi.spyOn(trade, "executeSell");
+  });
+  afterEach(() => {
+    execBuySpy.mockRestore();
+    execSellSpy.mockRestore();
+  });
+
+  it("passes a KV-backed idempotency binding keyed on (userId, nonce) to executeBuy", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, kv } = await fakeCtx();
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    const call = execBuySpy.mock.calls[0] as [
+      unknown,
+      { idempotency?: { kv: unknown; key: string } },
+    ];
+    // The binding is what protects against double-spend on webhook retry —
+    // if this regresses to `undefined`, the commit-log layer is bypassed
+    // and the only protection left is the in-memory session clear.
+    expect(call[1].idempotency).toBeDefined();
+    expect(call[1].idempotency?.kv).toBe(kv);
+    // Key encodes both the Telegram user id and the staged nonce so
+    // different users / intents never collide. The user id here matches
+    // the `fakeCtx` setup (7) and the nonce is the one `stageBuy`
+    // minted into the session.
+    expect(call[1].idempotency?.key).toBe(`txintent:7:${nonce}`);
+  });
+
+  it("passes the same idempotency binding shape to executeSell", async () => {
+    execSellSpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xbeef",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx } = await fakeCtx();
+    const { nonce } = stageSell({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      tokenRaw: 10n ** 18n,
+    });
+    await confirmTrade(ctx, nonce);
+    const call = execSellSpy.mock.calls[0] as [
+      unknown,
+      { idempotency?: { kv: unknown; key: string } },
+    ];
+    expect(call[1].idempotency).toBeDefined();
+    expect(call[1].idempotency?.key).toBe(`txintent:7:${nonce}`);
+  });
+});
+
 describe("submitBuy / submitSell (degen-mode entry)", () => {
   let execBuySpy: ReturnType<typeof vi.spyOn>;
   let execSellSpy: ReturnType<typeof vi.spyOn>;

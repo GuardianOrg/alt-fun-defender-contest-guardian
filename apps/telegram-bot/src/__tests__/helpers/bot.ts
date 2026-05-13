@@ -83,7 +83,13 @@ export class MemoryKV {
     return raw;
   }
 
-  async put(key: string, value: string): Promise<void> {
+  // Accept Cloudflare KV's third options arg (e.g. `{ expirationTtl }`)
+  // so callers that pass it don't crash; the in-memory store ignores TTL.
+  async put(
+    key: string,
+    value: string,
+    _options?: { expirationTtl?: number },
+  ): Promise<void> {
     if (this.failPut) throw new Error("kv put failed");
     this.store.set(key, value);
   }

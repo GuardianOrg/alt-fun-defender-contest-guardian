@@ -36,6 +36,14 @@ import {
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
+import {
+  claimIntent,
+  markFinal,
+  markSubmitted,
+  type IdempotencyKv,
+  type IntentRecord,
+  type IntentResult,
+} from "./idempotency.js";
 import type { Env } from "./types.js";
 
 /** Viem `Chain` for HyperEVM — minimal shape needed for `createPublicClient`. */
@@ -471,6 +479,18 @@ const bufferGas = (estimated: bigint): bigint => {
   return buffered > GAS_LIMIT_CAP ? GAS_LIMIT_CAP : buffered;
 };
 
+/**
+ * KV-backed commit-log binding for trade idempotency. When provided,
+ * `executeBuy` / `executeSell` claim a slot in KV before `sendTransaction`
+ * fires; a retry of the same `(userId, nonce)` reads the existing record and
+ * returns the recorded outcome instead of submitting a second tx. See
+ * `lib/idempotency.ts` for the protocol.
+ */
+export interface IdempotencyBinding {
+  kv: IdempotencyKv;
+  key: string;
+}
+
 export interface ExecuteBuyArgs {
   /** Token being bought. */
   token: Hex;
@@ -484,6 +504,8 @@ export interface ExecuteBuyArgs {
   slippageBps: number;
   /** Referrer wallet, or zero address. */
   referrer?: Hex;
+  /** Optional KV commit-log to dedupe submission retries. */
+  idempotency?: IdempotencyBinding;
 }
 
 export interface ExecuteSellArgs {
@@ -499,6 +521,8 @@ export interface ExecuteSellArgs {
   slippageBps: number;
   /** Referrer wallet, or zero address. */
   referrer?: Hex;
+  /** Optional KV commit-log to dedupe submission retries. */
+  idempotency?: IdempotencyBinding;
 }
 
 export type ExecutionResult =
@@ -678,6 +702,99 @@ const permitDeadline = (): bigint =>
   BigInt(Math.floor(Date.now() / 1000)) + PERMIT_DEADLINE_SECONDS;
 
 /**
+ * Project an `ExecutionResult` onto the JSON-safe shape we persist in the
+ * commit-log. `bigint`s are stringified so the record round-trips through
+ * `JSON.stringify` — `JSON.parse` cannot rehydrate them on its own.
+ */
+const toIntentResult = (result: ExecutionResult): IntentResult => {
+  if (result.ok) {
+    return {
+      ok: true,
+      txHash: result.txHash,
+      quotedOut: result.quotedOut.toString(),
+      minOut: result.minOut.toString(),
+    };
+  }
+  return {
+    ok: false,
+    kind: result.kind,
+    reason: result.reason,
+    txHash: result.txHash,
+  };
+};
+
+/**
+ * Reverse of `toIntentResult` — rebuild the `ExecutionResult` from the stored
+ * record. Used when a retry hits a duplicate commit-log entry and we want to
+ * surface the original outcome instead of submitting again. Defensive on
+ * malformed data: a record we can't decode falls back to `unavailable` so
+ * callers don't crash and at worst the user sees a retry prompt.
+ */
+const fromIntentResult = (
+  result: IntentResult | undefined,
+): ExecutionResult | null => {
+  if (!result) return null;
+  if (result.ok) {
+    if (!result.txHash || result.quotedOut === undefined || result.minOut === undefined) {
+      return null;
+    }
+    try {
+      return {
+        ok: true,
+        txHash: result.txHash,
+        quotedOut: BigInt(result.quotedOut),
+        minOut: BigInt(result.minOut),
+      };
+    } catch {
+      return null;
+    }
+  }
+  return {
+    ok: false,
+    kind: result.kind ?? "unavailable",
+    reason: result.reason,
+    txHash: result.txHash,
+  };
+};
+
+/**
+ * Map a duplicate commit-log record to a safe `ExecutionResult`:
+ *
+ *   - `completed` / `failed` → return the recorded outcome verbatim (the user
+ *     sees the same Confirm reply the original tap produced).
+ *   - `submitted` → we know a tx hash but the original receipt-wait didn't
+ *     persist a final result (Worker died, RPC stalled, etc). Re-poll the
+ *     receipt here so the retry can still surface success/revert correctly
+ *     without firing a second on-chain tx.
+ *   - `submitting` → we claimed the slot but `sendTransaction` either didn't
+ *     return or crashed before we could record the hash. Refuse to resubmit;
+ *     surface `unavailable` so the user can check the explorer / retry the
+ *     trade after the TTL window.
+ */
+const resolveDuplicate = async (
+  publicClient: PublicClient,
+  record: IntentRecord,
+): Promise<ExecutionResult> => {
+  const decoded = fromIntentResult(record.result);
+  if (decoded) return decoded;
+  if (record.status === "submitted" && record.txHash) {
+    // Receipt wasn't persisted last time around — re-await it now. Falls
+    // through to the same `awaitReceipt` taxonomy as the happy path.
+    return awaitReceipt(publicClient, record.txHash, {
+      quotedOut: 0n,
+      minOut: 0n,
+    });
+  }
+  return {
+    ok: false,
+    kind: "unavailable",
+    reason:
+      "Trade already in flight — wait a moment, then check the explorer or retry.",
+    txHash: record.txHash,
+  };
+};
+
+/**
  * Execute a buy through `BotFeeRouter.buyWithBotFee[Permit]`.
  *
  * Permit-first ladder per apps/telegram-bot/AGENTS.md → *Permit-first,
@@ -789,6 +906,23 @@ export const executeBuy = async (
       to: router,
       data,
     });
+
+    // Claim the idempotency slot in the narrowest possible window — after
+    // every read-only step (simulate, gas estimate) and immediately before
+    // `sendTransaction`. Putting it any earlier would mean a retry that
+    // arrived while the original was still warming up couldn't even reach
+    // sendTransaction itself; putting it later (after the hash is back) is
+    // useless because the on-chain tx has already fired.
+    if (args.idempotency) {
+      const claim = await claimIntent(
+        args.idempotency.kv,
+        args.idempotency.key,
+      );
+      if (claim.kind === "duplicate") {
+        return resolveDuplicate(publicClient, claim.record);
+      }
+    }
+
     const txHash = await walletClient.sendTransaction({
       account: walletClient.account!,
       chain: viemChain,
@@ -796,10 +930,25 @@ export const executeBuy = async (
       data,
       gas: bufferGas(estimated),
     });
-    return awaitReceipt(publicClient, txHash, {
+
+    if (args.idempotency) {
+      await markSubmitted(args.idempotency.kv, args.idempotency.key, txHash);
+    }
+
+    const result = await awaitReceipt(publicClient, txHash, {
       quotedOut: quotedTokensOut,
       minOut: minTokensOut,
     });
+
+    if (args.idempotency) {
+      await markFinal(
+        args.idempotency.kv,
+        args.idempotency.key,
+        toIntentResult(result),
+      );
+    }
+
+    return result;
   } catch (err) {
     return mapExecutionError(err);
   }
@@ -908,6 +1057,17 @@ export const executeSell = async (
       to: router,
       data,
     });
+
+    if (args.idempotency) {
+      const claim = await claimIntent(
+        args.idempotency.kv,
+        args.idempotency.key,
+      );
+      if (claim.kind === "duplicate") {
+        return resolveDuplicate(publicClient, claim.record);
+      }
+    }
+
     const txHash = await walletClient.sendTransaction({
       account: walletClient.account!,
       chain: viemChain,
@@ -915,10 +1075,25 @@ export const executeSell = async (
       data,
       gas: bufferGas(estimated),
     });
-    return awaitReceipt(publicClient, txHash, {
+
+    if (args.idempotency) {
+      await markSubmitted(args.idempotency.kv, args.idempotency.key, txHash);
+    }
+
+    const result = await awaitReceipt(publicClient, txHash, {
       quotedOut: quotedUsdcOut,
       minOut: minUsdcOut,
     });
+
+    if (args.idempotency) {
+      await markFinal(
+        args.idempotency.kv,
+        args.idempotency.key,
+        toIntentResult(result),
+      );
+    }
+
+    return result;
   } catch (err) {
     return mapExecutionError(err);
   }
