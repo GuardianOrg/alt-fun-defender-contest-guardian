@@ -199,7 +199,14 @@ export const fetchBalances = async (
 const isOptionalNumber = (v: unknown): boolean =>
   v === null || typeof v === "number";
 
-const isTokenInfo = (v: unknown): v is TokenInfo => {
+// Wire shape: mirrors `TokenInfo` but allows `volume24hUsd` to be
+// absent so older API builds that predate the field still parse.
+// `fetchToken` normalises to canonical `TokenInfo` (always `number | null`).
+type TokenInfoWire = Omit<TokenInfo, "volume24hUsd"> & {
+  volume24hUsd?: number | null;
+};
+
+const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
   if (!v || typeof v !== "object") return false;
   const obj = v as Record<string, unknown>;
   return (
@@ -210,9 +217,6 @@ const isTokenInfo = (v: unknown): v is TokenInfo => {
     isOptionalNumber(obj.mcapUsd) &&
     isOptionalNumber(obj.change24h) &&
     isOptionalNumber(obj.ltChange24h) &&
-    // Older API builds may omit `volume24hUsd` entirely — accept that
-    // and fall through to `undefined → null` in the consumer rather
-    // than failing the whole type guard on a single missing field.
     (obj.volume24hUsd === undefined || isOptionalNumber(obj.volume24hUsd)) &&
     isOptionalNumber(obj.curveFilled) &&
     typeof obj.status === "string"
@@ -225,15 +229,12 @@ export const fetchToken = async (
 ): Promise<ApiResult<TokenInfo>> => {
   const res = await getJsonWithNotFound<unknown>(env, `/api/v1/tokens/${address}`);
   if (!res.ok) return res;
-  if (!isTokenInfo(res.data)) return { ok: false, kind: "unknown" };
-  // Normalise the optional `volume24hUsd` field so consumers can read
-  // a uniform `number | null` instead of `number | null | undefined`.
-  const raw = res.data as TokenInfo & { volume24hUsd?: number | null };
-  const normalised: TokenInfo = {
-    ...raw,
-    volume24hUsd: raw.volume24hUsd ?? null,
+  if (!isTokenInfoWire(res.data)) return { ok: false, kind: "unknown" };
+  const wire = res.data;
+  return {
+    ok: true,
+    data: { ...wire, volume24hUsd: wire.volume24hUsd ?? null },
   };
-  return { ok: true, data: normalised };
 };
 
 /**
