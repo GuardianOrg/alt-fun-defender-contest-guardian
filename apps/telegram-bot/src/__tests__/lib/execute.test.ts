@@ -274,6 +274,48 @@ describe("renderConfirmReply", () => {
     expect(reply).toContain("hyperevmscan.io/tx/0xdeadbeef");
   });
 
+  it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
+    // Confirm reply now surfaces the actual on-chain amount decoded
+    // from the BotRouterTrade log, formatted via formatToken18 against
+    // the user-supplied ticker. Pre-fix the user saw only the tx hash.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1_200n * 10n ** 18n,
+        minOut: 1_100n * 10n ** 18n,
+        // 1234.5 tokens, 18-dp raw.
+        actualTokensOut: 1_234_500_000_000_000_000_000n,
+      },
+    });
+    expect(reply).toMatch(/Received:\s+1,?234\.50\d* TEST/);
+    expect(reply).toContain("Buy confirmed for TEST");
+  });
+
+  it("omits the received line on a sell success (semantics differ)", () => {
+    // For sells, BotRouterTrade.tokenAmount is tokens sold, not tokens
+    // received, so executeSell never sets actualTokensOut. The sell
+    // confirm reply must not surface a misleading "Received" line.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "sell",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(reply).not.toMatch(/Received:/);
+    expect(reply).toContain("Sell confirmed for TEST");
+  });
+
   it("renders the mapped error copy on failure", () => {
     const reply = renderConfirmReply({
       kind: "executed",

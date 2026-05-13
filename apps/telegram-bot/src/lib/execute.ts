@@ -14,6 +14,7 @@
 
 import type { AppContext } from "../bot.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
+import { formatToken18 } from "./token-card.js";
 import {
   executeBuy,
   executeSell,
@@ -225,8 +226,18 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
     const verb = side === "buy" ? "Buy" : "Sell";
+    // For buys, show the on-chain tokens received (decoded from the
+    // BotRouterTrade event) instead of just the tx hash. The line is
+    // skipped when actualTokensOut is missing (router version drift,
+    // log-stripping relayer) rather than falling back to the quote —
+    // showing a stale pre-trade estimate as "received" would mislead.
+    const receivedLine =
+      side === "buy" && result.actualTokensOut !== undefined
+        ? `Received: ${formatToken18(result.actualTokensOut)} ${ticker}\n`
+        : "";
     return (
       `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
+      `${receivedLine}` +
       `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }

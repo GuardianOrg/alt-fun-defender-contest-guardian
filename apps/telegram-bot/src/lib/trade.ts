@@ -25,6 +25,7 @@ import {
   WaitForTransactionReceiptTimeoutError,
   createPublicClient,
   createWalletClient,
+  decodeEventLog,
   domainSeparator,
   encodeFunctionData,
   http,
@@ -32,6 +33,7 @@ import {
   parseSignature,
   type Address,
   type Hash,
+  type Log,
   type PublicClient,
   type WalletClient,
 } from "viem";
@@ -527,7 +529,22 @@ export interface ExecuteSellArgs {
 }
 
 export type ExecutionResult =
-  | { ok: true; txHash: Hash; quotedOut: bigint; minOut: bigint }
+  | {
+      ok: true;
+      txHash: Hash;
+      quotedOut: bigint;
+      minOut: bigint;
+      /**
+       * Tokens actually received on a buy, parsed from the
+       * `BotRouterTrade.tokenAmount` field of the receipt's log. Undefined
+       * for sells (where `BotRouterTrade.tokenAmount` is the tokens *sold*,
+       * not received) and when the event can't be decoded from the receipt
+       * (e.g. a future router version that doesn't emit the event, or a
+       * partial-log receipt). Callers render this when present and fall
+       * back to `quotedOut` otherwise.
+       */
+      actualTokensOut?: bigint;
+    }
   /**
    * Tx was accepted into the mempool but `waitForTransactionReceipt`
    * didn't mine within `RECEIPT_TIMEOUT_MS`. Distinct from `unavailable`
@@ -603,6 +620,37 @@ const ensureAllowance = async (
 };
 
 /**
+ * Decode the `BotRouterTrade` event from a receipt's logs and return its
+ * `tokenAmount` field. Used by `awaitReceipt` to surface the real tokens
+ * received on a confirmed buy — the on-chain truth, not the pre-trade
+ * quote, so the user sees what actually landed in their wallet even if
+ * slippage moved the trade between sim and execution.
+ *
+ * Returns `undefined` when the event isn't present (router version drift,
+ * a relayer that strips logs) or when decoding fails — callers fall back
+ * to the simulation quote rather than failing the whole reply. We only
+ * read the first matching log; the router emits exactly one
+ * `BotRouterTrade` per trade.
+ */
+const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
+  for (const log of logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: BotFeeRouterAbi,
+        eventName: "BotRouterTrade",
+        topics: log.topics,
+        data: log.data,
+      });
+      const args = decoded.args as { tokenAmount?: bigint };
+      if (typeof args.tokenAmount === "bigint") return args.tokenAmount;
+    } catch {
+      // Not a BotRouterTrade log — skip.
+    }
+  }
+  return undefined;
+};
+
+/**
  * Wait for a submitted tx's receipt and translate the outcome into the
  * `ExecutionResult` taxonomy.
  *
@@ -624,7 +672,7 @@ const ensureAllowance = async (
 export const awaitReceipt = async (
   publicClient: PublicClient,
   txHash: Hash,
-  successOut: { quotedOut: bigint; minOut: bigint },
+  successOut: { quotedOut: bigint; minOut: bigint; side?: "buy" | "sell" },
 ): Promise<ExecutionResult> => {
   try {
     const receipt = await publicClient.waitForTransactionReceipt({
@@ -639,7 +687,17 @@ export const awaitReceipt = async (
         txHash,
       };
     }
-    return { ok: true, txHash, quotedOut: successOut.quotedOut, minOut: successOut.minOut };
+    const actualTokensOut =
+      successOut.side === "buy"
+        ? extractBuyTokensOut(receipt.logs)
+        : undefined;
+    return {
+      ok: true,
+      txHash,
+      quotedOut: successOut.quotedOut,
+      minOut: successOut.minOut,
+      ...(actualTokensOut !== undefined ? { actualTokensOut } : {}),
+    };
   } catch (err) {
     // Receipt-timeout is the common case here: the tx is in the mempool
     // and may still mine to success or revert. Surface as `pending` so
@@ -747,6 +805,9 @@ const toIntentResult = (result: ExecutionResult): IntentResult => {
       txHash: result.txHash,
       quotedOut: result.quotedOut.toString(),
       minOut: result.minOut.toString(),
+      ...(result.actualTokensOut !== undefined
+        ? { actualTokensOut: result.actualTokensOut.toString() }
+        : {}),
     };
   }
   return {
@@ -790,11 +851,16 @@ const fromIntentResult = (
       return null;
     }
     try {
+      const actualTokensOut =
+        result.actualTokensOut !== undefined
+          ? BigInt(result.actualTokensOut)
+          : undefined;
       return {
         ok: true,
         txHash: result.txHash,
         quotedOut: BigInt(result.quotedOut),
         minOut: BigInt(result.minOut),
+        ...(actualTokensOut !== undefined ? { actualTokensOut } : {}),
       };
     } catch {
       return null;
@@ -837,6 +903,7 @@ const fromIntentResult = (
 const resolveDuplicate = async (
   publicClient: PublicClient,
   record: IntentRecord,
+  side: "buy" | "sell",
 ): Promise<ExecutionResult> => {
   const decoded = fromIntentResult(record.result);
   if (decoded) return decoded;
@@ -846,6 +913,7 @@ const resolveDuplicate = async (
     return awaitReceipt(publicClient, record.txHash, {
       quotedOut: 0n,
       minOut: 0n,
+      side,
     });
   }
   return {
@@ -982,7 +1050,7 @@ export const executeBuy = async (
         args.idempotency.key,
       );
       if (claim.kind === "duplicate") {
-        return resolveDuplicate(publicClient, claim.record);
+        return resolveDuplicate(publicClient, claim.record, "buy");
       }
     }
 
@@ -1001,6 +1069,7 @@ export const executeBuy = async (
     const result = await awaitReceipt(publicClient, txHash, {
       quotedOut: quotedTokensOut,
       minOut: minTokensOut,
+      side: "buy",
     });
 
     if (args.idempotency) {
@@ -1127,7 +1196,7 @@ export const executeSell = async (
         args.idempotency.key,
       );
       if (claim.kind === "duplicate") {
-        return resolveDuplicate(publicClient, claim.record);
+        return resolveDuplicate(publicClient, claim.record, "sell");
       }
     }
 
@@ -1146,6 +1215,7 @@ export const executeSell = async (
     const result = await awaitReceipt(publicClient, txHash, {
       quotedOut: quotedUsdcOut,
       minOut: minUsdcOut,
+      side: "sell",
     });
 
     if (args.idempotency) {
