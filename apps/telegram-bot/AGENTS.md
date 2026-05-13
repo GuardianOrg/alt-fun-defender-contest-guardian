@@ -276,7 +276,7 @@ Output:
   - Risk summary (leverage level, vol decay warning if 5x LT)
   - Quick-amount buttons: `$<defaultBuyUsdc>` | `$100` | Custom (first button reads `session.defaultBuyUsdc`, default `$20`)
   - Confirm button (if confirmations enabled in /settings)
-  - **No fee summary in the buy menu.** The line "Bot fee 0.5% + Alt Fun fee 0.5%" is rendered on the post-tx receipt instead (issue #801) — see `renderConfirmReply` in `lib/execute.ts`. `/help fees` carries the full referrer-aware breakdown for users who want it before trading.
+  - **No fee summary anywhere in the buy flow.** The line "Bot fee 0.5% + Alt Fun fee 0.5%" was removed from the menu, the staging confirm, and the post-tx receipt (issue #801). `/help fees` is the single canonical surface for fee disclosure and carries the full referrer-aware breakdown.
 
 Effects (after confirmation):
   - Check user USDC balance ≥ (buy amount + gas estimate); surface "Insufficient USDC" if not
@@ -327,7 +327,7 @@ Output:
   - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
   - Quick-sell buttons: 10% | 25% | 50% | 100% | Sell X% (custom-percent prompt, integer 1–100)
   - Confirm button (if confirmations enabled)
-  - **No fee summary in the sell menu.** Same placement as `/buy` — "Bot fee 0.5% + Alt Fun fee 0.5%" lands on the post-tx receipt per issue #801, not on the staging confirm card.
+  - **No fee summary anywhere in the sell flow.** Same as `/buy` — fees are not displayed on the menu, staging confirm, or receipt. `/help fees` is the single canonical surface (issue #801).
 
 Effects:
   - Check baseAssetBalance() ≥ sell value; cap and warn if buffer low (buffer check still applies — the router calls Zap.sell, which is what hits the buffer)
@@ -806,7 +806,7 @@ src/
 
 **`commands/buy.test.ts`**
 - Amount below `MIN_USDC_BUY_AMOUNT` (read from `@launchpad/shared`) → error reply, no simulation, no tx constructed
-- Valid contract address → token card rendered with name, mcap, and curve fill. The fee summary "Bot fee 0.5% + Alt Fun fee 0.5%" is **not** on the buy menu — it lands on the post-tx receipt via `renderConfirmReply` in `lib/execute.ts` (issue #801). `/help fees` carries the pre-trade breakdown.
+- Valid contract address → token card rendered with name, mcap, and curve fill. The fee summary "Bot fee 0.5% + Alt Fun fee 0.5%" is **not** rendered anywhere in the /buy flow (menu, staging confirm, or receipt) per issue #801 — `/help fees` is the single canonical fee surface.
 - Token card shows referrer line ("(0.1% goes to your referrer)") iff user has a registered referrer in KV
 - LT mint-paused (router surfaces inner Zap revert) → "Buys paused for this token" reply, no raw revert exposed, no tx constructed
 - Confirm button with expired nonce → no-op (no tx submitted)

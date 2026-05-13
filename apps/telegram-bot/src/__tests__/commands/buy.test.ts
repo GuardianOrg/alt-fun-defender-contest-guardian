@@ -350,15 +350,15 @@ describe("Buy flow (st:b button → conversation)", () => {
       );
       expect(confirmCard).toBeUndefined();
 
-      // The reply chain renders the tx receipt instead. The receipt is
-      // the user-facing endpoint where the fee summary must appear
-      // (issue #801 — fees are shown post-tx, not in the buy menu).
+      // The reply chain renders the tx receipt instead. Fee summary
+      // lives only in /help fees per issue #801 — never on the buy
+      // menu and never on the receipt.
       const receipt = sends.find((s) =>
         String(s.body.text).includes("Buy confirmed"),
       );
       expect(receipt).toBeDefined();
-      expect(String(receipt!.body.text)).toContain("Bot fee 0.5%");
-      expect(String(receipt!.body.text)).toContain("Alt Fun fee 0.5%");
+      expect(String(receipt!.body.text)).not.toContain("Bot fee 0.5%");
+      expect(String(receipt!.body.text)).not.toContain("Alt Fun fee 0.5%");
 
       // No sendMessage carries a `cnf:` callback button.
       const hasConfirmButton = sends.some((s) => {

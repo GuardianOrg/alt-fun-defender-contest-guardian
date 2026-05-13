@@ -272,26 +272,10 @@ describe("renderConfirmReply", () => {
     });
     expect(reply).toContain("Buy confirmed for TEST");
     expect(reply).toContain("hyperevmscan.io/tx/0xdeadbeef");
-    // Fee summary is rendered on the tx-receipt endpoint per issue #801
-    // (and no longer in the buy/sell menu).
-    expect(reply).toContain("Bot fee 0.5% + Alt Fun fee 0.5%");
-  });
-
-  it("renders the fee summary on a successful sell receipt", () => {
-    const reply = renderConfirmReply({
-      kind: "executed",
-      side: "sell",
-      ticker: "TEST",
-      result: {
-        ok: true,
-        txHash:
-          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
-        quotedOut: 1n,
-        minOut: 1n,
-      },
-    });
-    expect(reply).toContain("Sell confirmed for TEST");
-    expect(reply).toContain("Bot fee 0.5% + Alt Fun fee 0.5%");
+    // Fee summary lives only in /help fees per issue #801 — never on
+    // the buy/sell menu and never on the receipt.
+    expect(reply).not.toContain("Bot fee 0.5%");
+    expect(reply).not.toContain("Alt Fun fee 0.5%");
   });
 
   it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
