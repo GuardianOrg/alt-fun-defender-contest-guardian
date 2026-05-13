@@ -46,7 +46,7 @@ const TRADES_PER_CARD = 20;
  */
 const CHART_TIMEOUT_MS = 5_000;
 
-const ALT_FUN_TOKEN_BASE = "https://alt.fun";
+const ALT_FUN_TOKEN_BASE = "https://alt.fun/token";
 
 /**
  * Short callback codes scoped to /track. `trkb` and `trks` carry a
