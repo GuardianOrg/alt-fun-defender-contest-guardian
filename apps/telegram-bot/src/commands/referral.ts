@@ -20,7 +20,7 @@ const NO_WALLET_REPLY =
   "No active wallet yet — run /start to create one before sharing your referral link.";
 
 const OUTAGE_REPLY =
-  "Referral stats temporarily unavailable — try again in a moment.";
+  "Data temporarily unavailable — try again in a moment.";
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";

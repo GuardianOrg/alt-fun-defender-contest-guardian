@@ -193,8 +193,10 @@ const isReferralStats = (v: unknown): v is ReferralStats => {
   const obj = v as { referredWallets?: unknown; referredVolume?: unknown };
   return (
     typeof obj.referredWallets === "number" &&
-    Number.isFinite(obj.referredWallets) &&
-    typeof obj.referredVolume === "string"
+    Number.isInteger(obj.referredWallets) &&
+    obj.referredWallets >= 0 &&
+    typeof obj.referredVolume === "string" &&
+    /^[0-9]+$/.test(obj.referredVolume)
   );
 };
 
