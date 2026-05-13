@@ -126,6 +126,12 @@ const harnessWithWallet = async (): Promise<BotTestHarness> => {
   const parsed = JSON.parse(stored) as { address: string };
   parsed.address = WALLET_ADDR;
   await h.kv.put(`wallet:7:${w.id}`, JSON.stringify(parsed));
+  // Seed degenMode: false so the default test path exercises the
+  // confirm-card flow. Degen-on is asserted in its own dedicated test.
+  await h.kv.put(
+    "session:7",
+    JSON.stringify({ slippageBps: 100, defaultBuyUsdc: 20, degenMode: false }),
+  );
   return h;
 };
 

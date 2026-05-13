@@ -103,7 +103,7 @@ describe("/settings command", () => {
   });
 
   describe("status view", () => {
-    it("renders defaults (1% / $20 / degen off) on a brand-new account", async () => {
+    it("renders defaults (1% / $20 / degen on) on a brand-new account", async () => {
       const h = makeBotHarness();
       await h.run(settingsCommand(7));
       const send = capture(fetchSpy).find((c) =>
@@ -113,7 +113,7 @@ describe("/settings command", () => {
       const text = send!.body.text as string;
       expect(text).toContain("Slippage: 1%");
       expect(text).toContain("Default buy: $20 USDC");
-      expect(text).toContain("Degen mode: off");
+      expect(text).toContain("Degen mode: on");
       expect(text).not.toContain("Anti-phishing phrase lives in /security");
     });
 
@@ -133,7 +133,7 @@ describe("/settings command", () => {
       expect(labels).toContain("5%");
       expect(labels).toContain("Custom %");
       expect(labels).toContain("Default buy: $20");
-      expect(labels).toContain("Enable degen mode");
+      expect(labels).toContain("Disable degen mode");
     });
 
     it("rejects /settings in a group chat without leaking state", async () => {
@@ -184,27 +184,27 @@ describe("/settings command", () => {
   });
 
   describe("degen-mode toggle", () => {
-    it("toggles the flag on and back off across two taps", async () => {
+    it("toggles the flag off and back on across two taps", async () => {
       const h = makeBotHarness();
       await h.run(settingsCommand(7));
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(callbackUpdate(SETTINGS_CALLBACK.degenToggle));
-      expect((await readSession(h)).degenMode).toBe(true);
-      const onAck = capture(fetchSpy).find((c) =>
-        c.url.includes("/answerCallbackQuery"),
-      );
-      expect(onAck!.body.text).toMatch(/enabled/i);
-
-      fetchSpy.mockClear();
-      mockTelegramOk(fetchSpy);
-      await h.run(callbackUpdate(SETTINGS_CALLBACK.degenToggle, 3));
       expect((await readSession(h)).degenMode).toBe(false);
       const offAck = capture(fetchSpy).find((c) =>
         c.url.includes("/answerCallbackQuery"),
       );
       expect(offAck!.body.text).toMatch(/disabled/i);
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.degenToggle, 3));
+      expect((await readSession(h)).degenMode).toBe(true);
+      const onAck = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(onAck!.body.text).toMatch(/enabled/i);
     });
   });
 

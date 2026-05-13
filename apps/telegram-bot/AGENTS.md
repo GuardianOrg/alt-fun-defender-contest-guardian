@@ -428,7 +428,7 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 |---|---|---|
 | Slippage | 1% (100 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `0.5% / 1% / 2% / 5%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). |
 | Default buy amount | `$20 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. **Consumed at click time by the first button on the `/buy` and `/sell` cards** (`Buy $N USDC` / `Sell $N USDC` — see `keyboards/buy-sell-token.ts`). The handlers resolve the value from the live session at the moment the user taps, so a /settings change applies immediately even on a stale card. |
-| Degen mode | Off | One-tap toggle. Stored as `session.degenMode`. When on, `/buy` and `/sell` skip the inline [Confirm] / [Cancel] keyboard and submit the trade as soon as the quick-amount button is tapped (or the custom-amount wizard completes). Slippage bound, referrer attribution, and `BotFeeRouter` routing are identical to the confirm path — only the user-facing confirm step is removed. **Buffer-capped sells still require an explicit confirm tap regardless of degen mode** per the AGENTS.md "Buffer-limited sells must be user-visible" constraint. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
+| Degen mode | On | One-tap toggle. Stored as `session.degenMode`. **Default on for new accounts** — the bot is targeted at active traders who want to skip the confirm tap, so the friction-free path is the default; users who want the confirm card flip it off in /settings. When on, `/buy` and `/sell` skip the inline [Confirm] / [Cancel] keyboard and submit the trade as soon as the quick-amount button is tapped (or the custom-amount wizard completes). Slippage bound, referrer attribution, and `BotFeeRouter` routing are identical to the confirm path — only the user-facing confirm step is removed. **Buffer-capped sells still require an explicit confirm tap regardless of degen mode** per the AGENTS.md "Buffer-limited sells must be user-visible" constraint. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
 
 State lives entirely on the grammY session (KV-backed under `session:<userId>`) — same store every other setting on this bot uses. No new KV namespace, no new endpoints.
 
@@ -871,11 +871,11 @@ src/
 - No claim/withdraw/payout button anywhere in the screen
 
 **`commands/settings.test.ts`**
-- Status view renders the default trio (`Slippage: 1%` / `Default buy: $20 USDC` / `Degen mode: off`) on a brand-new account, with the [• 1% •] preset marked and an `Anti-phishing phrase lives in /security` pointer
+- Status view renders the default trio (`Slippage: 1%` / `Default buy: $20 USDC` / `Degen mode: on`) on a brand-new account, with the [• 1% •] preset marked and an `Anti-phishing phrase lives in /security` pointer
 - `/settings` in a group chat is rejected with the "private-DM only" copy and never leaks slippage / buy-amount state into the group transcript
 - Tapping a preset slippage button (`set:slip<bps>`) persists the new `slippageBps` on the session and the panel edit reflects the new value
 - A malformed `set:slip…` callback payload (no integer) is a no-op — session unchanged, no crash
-- Degen-mode toggle flips `session.degenMode` on the first tap and back off on the second; both branches surface the matching toast
+- Degen-mode toggle flips `session.degenMode` off on the first tap (starting from the on-by-default state) and back on on the second; both branches surface the matching toast
 - Custom-slippage wizard accepts decimal percent input (e.g. `2.5` → `250` bps), capped at 50% (`100` rejected with "capped at 50%" copy), rejects non-numeric input, and `/cancel` exits without touching the session
 - Default-buy wizard rounds to whole USDC (`$75.4` → `75`), floors at `MIN_USDC_BUY_AMOUNT` (a `5` USDC entry is rejected with the minimum-buy copy and the session is unchanged)
 
