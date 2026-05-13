@@ -139,6 +139,9 @@ describe("POST /admin/set-webhook", () => {
     );
   });
 
+  // Telegram returns HTTP 200 with `{ ok: false, error_code, description }`
+  // for API-level errors (bad token, malformed payload, etc.). The handler
+  // must treat that as a failure even though the HTTP layer says success.
   it("surfaces setMyCommands failure without claiming success", async () => {
     fetchSpy
       .mockResolvedValueOnce(
@@ -153,11 +156,13 @@ describe("POST /admin/set-webhook", () => {
             error_code: 400,
             description: "Bad Request",
           }),
-          { status: 400 },
+          { status: 200 },
         ),
       );
     const res = await post({ url: "https://example.com/webhook" });
-    expect(res.status).toBe(400);
+    // 200-with-ok:false must NOT propagate as 200 — the deploy script
+    // depends on the status to detect a failed publish.
+    expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("set_commands_failed");
   });
@@ -170,11 +175,11 @@ describe("POST /admin/set-webhook", () => {
           error_code: 401,
           description: "Unauthorized",
         }),
-        { status: 401 },
+        { status: 200 },
       ),
     );
     const res = await post({ url: "https://example.com/webhook" });
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(502);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -60,7 +60,13 @@ admin.post("/set-webhook", async (c) => {
     },
   );
   if (!webhookResult.ok) {
-    return Response.json(webhookResult.body, { status: webhookResult.status });
+    // Telegram API errors arrive as HTTP 200 with `{ ok: false }`, so when
+    // callTelegramJson flips ok via the body check we have to manufacture
+    // a non-2xx status — bubbling the 200 would tell the deploy script
+    // the call succeeded.
+    return Response.json(webhookResult.body, {
+      status: webhookResult.status >= 400 ? webhookResult.status : 502,
+    });
   }
 
   const commandsResult = await callTelegramJson(
@@ -75,7 +81,7 @@ admin.post("/set-webhook", async (c) => {
         webhook: webhookResult.body,
         commands: commandsResult.body,
       },
-      { status: commandsResult.status },
+      { status: commandsResult.status >= 400 ? commandsResult.status : 502 },
     );
   }
 
@@ -120,6 +126,12 @@ interface TelegramCallResult {
 // Internal variant of proxyTelegram that returns parsed body + status so the
 // caller can chain multiple Telegram calls (e.g. setWebhook + setMyCommands)
 // and decide whether to short-circuit on partial failure.
+//
+// Telegram signals success via the JSON body's `ok` field, not the HTTP
+// status — `setWebhook` against a stale URL or `setMyCommands` with a bad
+// description still come back as HTTP 200 with `{ ok: false, error_code,
+// description }`. Inspect the body and only return ok=true when both layers
+// agree, so callers don't silently chain past an API-level failure.
 async function callTelegramJson(
   token: string,
   method: string,
@@ -145,7 +157,16 @@ async function callTelegramJson(
       body: { error: "telegram_invalid_response", status: upstream.status },
     };
   }
-  return { ok: upstream.ok, status: upstream.status, body };
+  const apiOk =
+    typeof body === "object" &&
+    body !== null &&
+    "ok" in body &&
+    (body as { ok: unknown }).ok === true;
+  return {
+    ok: upstream.ok && apiOk,
+    status: upstream.status,
+    body,
+  };
 }
 
 export default admin;
