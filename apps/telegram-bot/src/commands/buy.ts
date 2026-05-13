@@ -31,6 +31,10 @@ import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import {
+  clearWorkflowMessages,
+  pushWorkflowMessage,
+} from "../lib/workflow-stack.js";
 
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
@@ -77,6 +81,28 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
 
 /**
+ * Sweep tracked transient prompts/replies for the current chat. Inside
+ * a conversation, all session/api access must hop through
+ * `conversation.external` — the replay-time ctx has no live env binding.
+ */
+const sweepWorkflow = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<void> =>
+  conversation.external(async (outer) => {
+    if (!outer.chat) return;
+    await clearWorkflowMessages(outer.session, outer.api, outer.chat.id);
+  });
+
+/** Append a transient id to the per-user workflow stack. */
+const trackWorkflowMessage = async (
+  conversation: Conversation<AppContext, AppContext>,
+  messageId: number,
+): Promise<void> =>
+  conversation.external((outer) => {
+    pushWorkflowMessage(outer.session, messageId);
+  });
+
+/**
  * Conversation: collect token address → show buy card.
  * Loops on not-found / invalid input; aborts on API unavailability.
  */
@@ -84,29 +110,39 @@ const buyLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
-  await ctx.reply(PROMPT_HTML, {
+  // Sweep any prompts left behind by a prior interrupted flow so the
+  // user's view opens cleanly on the new lookup. Idempotent — no-op if
+  // the stack is already empty.
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
     if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
     }
     if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
       await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
     }
 
@@ -120,14 +156,16 @@ const buyLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
+        await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -158,6 +196,9 @@ const buyLookupConversation = async (
       },
       link_preview_options: { is_disabled: true },
     });
+    // Token card is the lookup's terminal result — sweep the chain of
+    // prompts + retries above it so the user sees only the card.
+    await sweepWorkflow(conversation);
     return;
   }
 };
@@ -171,33 +212,41 @@ const buyCustomConversation = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
-  await ctx.reply(
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(
     `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nSend /cancel to exit.`,
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
     if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
     }
     if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
       await haltAndForward(conversation);
     }
 
     const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
     if (amount === null) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (amount < MIN_USDC_BUY_AMOUNT) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount or send /cancel.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
@@ -211,6 +260,7 @@ const buyCustomConversation = async (
       await msgCtx.reply(
         "No active wallet — run /wallet to create or import one.",
       );
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -220,20 +270,22 @@ const buyCustomConversation = async (
     // Null means RPC failed — don't treat as zero, which would produce
     // a false "insufficient balance" rejection for a working wallet.
     if (usdcBalance === null) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Unable to verify your USDC balance — please try again.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const usdcAvailable = Number(usdcBalance) / 1_000_000;
     const totalNeeded = amount * (1 + COMBINED_FEE_RATE);
 
     if (usdcAvailable < totalNeeded) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Insufficient USDC balance.\n` +
           `You need $${totalNeeded.toFixed(2)} (amount + fees) but have ${formatUsdc6(usdcBalance)}.\n\n` +
           `Enter a smaller amount or send /cancel.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
@@ -242,6 +294,7 @@ const buyCustomConversation = async (
     );
     if (!tokenResult.ok) {
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -267,6 +320,7 @@ const buyCustomConversation = async (
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await sweepWorkflow(conversation);
       return;
     }
     const { nonce } = await conversation.external(
@@ -286,6 +340,7 @@ const buyCustomConversation = async (
         reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
       },
     );
+    await sweepWorkflow(conversation);
     return;
   }
 };

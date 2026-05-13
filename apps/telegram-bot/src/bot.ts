@@ -69,6 +69,15 @@ export interface SessionData {
     nonce: string;
     expiresAt: number;
   };
+  /**
+   * Workflow-stack of transient message ids generated during a multi-
+   * step prompt flow (e.g. /buy lookup → user reply → custom amount →
+   * user reply). Cleared on cancel, on interruption by another slash
+   * command, and on successful completion so the bot doesn't leave a
+   * tail of stale prompts above the result card. See `lib/workflow-
+   * stack.ts`.
+   */
+  workflowMessages?: number[];
 }
 
 const DEFAULT_SESSION: SessionData = {
