@@ -1,7 +1,7 @@
 import type { TokenInfo } from "./api.js";
 
 const HYPEREVMSCAN_BASE = "https://hyperevmscan.io";
-const ALTFUN_BASE = "https://alt.fun";
+const ALTFUN_TOKEN_BASE = "https://alt.fun/token";
 
 /** 6-decimal USDC raw → "$X.XX" string. */
 export const formatUsdc6 = (raw: bigint | null): string => {
@@ -77,7 +77,7 @@ export const renderBuyTokenCardText = (
   usdcBalance: bigint | null,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
-  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
+  const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
@@ -114,7 +114,7 @@ export const renderSellTokenCardText = (
   tokenBalance: bigint | null,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
-  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
+  const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
 
   let holdingText: string;
   if (tokenBalance === null) {
@@ -160,7 +160,7 @@ export const renderSellTokenCardText = (
  */
 export const renderTrackTokenCardText = (token: TokenInfo): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
-  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
+  const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [

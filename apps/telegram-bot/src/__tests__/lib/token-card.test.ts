@@ -38,7 +38,7 @@ describe("renderBuyTokenCardText", () => {
     expect(text).toContain("View on Explorer");
     expect(text).toContain("View on Alt Fun");
     expect(text).toContain(
-      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+      `https://alt.fun/token/0x1111111111111111111111111111111111111111`,
     );
     const explorerIdx = text.indexOf("View on Explorer");
     const altFunIdx = text.indexOf("View on Alt Fun");
@@ -74,7 +74,7 @@ describe("renderSellTokenCardText", () => {
     expect(text).toContain("View on Explorer");
     expect(text).toContain("View on Alt Fun");
     expect(text).toContain(
-      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+      `https://alt.fun/token/0x1111111111111111111111111111111111111111`,
     );
     expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
       text.indexOf("View on Explorer"),
@@ -88,7 +88,7 @@ describe("renderTrackTokenCardText", () => {
     expect(text).toContain("View on Explorer");
     expect(text).toContain("View on Alt Fun");
     expect(text).toContain(
-      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+      `https://alt.fun/token/0x1111111111111111111111111111111111111111`,
     );
     expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
       text.indexOf("View on Explorer"),

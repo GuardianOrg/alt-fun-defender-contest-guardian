@@ -244,7 +244,7 @@ describe("/track command", () => {
     expect(allBtns.some((b) => b.text.includes("Buy"))).toBe(true);
     expect(allBtns.some((b) => b.text.includes("Sell"))).toBe(true);
     const altFun = allBtns.find((b) => b.text.includes("Open on Alt Fun"));
-    expect(altFun?.url).toBe(`https://alt.fun/${TOKEN_ADDR}`);
+    expect(altFun?.url).toBe(`https://alt.fun/token/${TOKEN_ADDR}`);
   });
 
   it("`/track <addr>` renders the card directly without the prompt", async () => {
