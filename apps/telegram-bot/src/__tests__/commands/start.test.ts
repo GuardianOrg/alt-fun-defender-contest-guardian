@@ -259,8 +259,6 @@ describe("/start command", () => {
   });
 
   it.each([
-    [START_CALLBACK.buy, /\/buy/],
-    [START_CALLBACK.sell, /\/sell/],
     [START_CALLBACK.positions, /\/positions/],
     [START_CALLBACK.help, /\/help/],
   ])(
@@ -274,6 +272,23 @@ describe("/start command", () => {
       );
       expect(answer!.body.show_alert).toBe(true);
       expect(answer!.body.text).toMatch(pattern);
+    },
+  );
+
+  it.each([START_CALLBACK.buy, START_CALLBACK.sell])(
+    "%s enters the token-lookup flow instead of showing a hint toast",
+    async (cmd) => {
+      const h = harnessWithRpc();
+      mockBoth(fetchSpy);
+      await h.run(callbackUpdate(cmd));
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      const send = calls.find((c) => c.url.includes("/sendMessage"));
+      // Silent callback query ack (no show_alert toast)
+      expect(answer!.body.show_alert).toBeFalsy();
+      // Bot sends the token-address prompt message
+      expect(send).toBeDefined();
+      expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
     },
   );
 

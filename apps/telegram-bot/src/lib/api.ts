@@ -29,7 +29,22 @@ export interface BalanceEntry {
  */
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; kind: "invalid_address" | "unavailable" | "unknown" };
+  | {
+      ok: false;
+      kind: "invalid_address" | "not_found" | "unavailable" | "unknown";
+    };
+
+export interface TokenInfo {
+  address: string;
+  name: string;
+  ticker: string;
+  priceUsd: number | null;
+  mcapUsd: number | null;
+  change24h: number | null;
+  ltChange24h: number | null;
+  curveFilled: number | null;
+  status: string;
+}
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
@@ -76,6 +91,39 @@ async function getJson<T>(
     return { ok: false, kind: "unavailable" };
   }
   if (res.status === 400) return { ok: false, kind: "invalid_address" };
+  if (res.status === 503 || res.status >= 500)
+    return { ok: false, kind: "unavailable" };
+  if (!res.ok) return { ok: false, kind: "unknown" };
+  let body: ApiEnvelope<T>;
+  try {
+    body = (await res.json()) as ApiEnvelope<T>;
+  } catch {
+    return { ok: false, kind: "unknown" };
+  }
+  if (!body || body.data === undefined)
+    return { ok: false, kind: "unknown" };
+  return { ok: true, data: body.data };
+}
+
+async function getJsonWithNotFound<T>(
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  path: string,
+): Promise<ApiResult<T>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  let res: Response;
+  try {
+    res = await fetch(`${env.API_BASE_URL}${path}`, {
+      headers: buildHeaders(env.API_KEY),
+      signal: controller.signal,
+    });
+  } catch {
+    return { ok: false, kind: "unavailable" };
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.status === 400) return { ok: false, kind: "invalid_address" };
+  if (res.status === 404) return { ok: false, kind: "not_found" };
   if (res.status === 503 || res.status >= 500)
     return { ok: false, kind: "unavailable" };
   if (!res.ok) return { ok: false, kind: "unknown" };
@@ -144,4 +192,46 @@ export const fetchBalances = async (
   return isBalanceEntryArray(res.data)
     ? { ok: true, data: res.data }
     : { ok: false, kind: "unknown" };
+};
+
+// JSON payloads never carry `undefined`; accept only `null` or a number.
+const isOptionalNumber = (v: unknown): boolean =>
+  v === null || typeof v === "number";
+
+const isTokenInfo = (v: unknown): v is TokenInfo => {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as Record<string, unknown>;
+  return (
+    typeof obj.address === "string" &&
+    typeof obj.name === "string" &&
+    typeof obj.ticker === "string" &&
+    isOptionalNumber(obj.priceUsd) &&
+    isOptionalNumber(obj.mcapUsd) &&
+    isOptionalNumber(obj.change24h) &&
+    isOptionalNumber(obj.ltChange24h) &&
+    isOptionalNumber(obj.curveFilled) &&
+    typeof obj.status === "string"
+  );
+};
+
+export const fetchToken = async (
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  address: string,
+): Promise<ApiResult<TokenInfo>> => {
+  const res = await getJsonWithNotFound<unknown>(env, `/api/v1/tokens/${address}`);
+  if (!res.ok) return res;
+  return isTokenInfo(res.data)
+    ? { ok: true, data: res.data as TokenInfo }
+    : { ok: false, kind: "unknown" };
+};
+
+/**
+ * Extract the first 0x-prefixed 40-hex-char address from raw input or a URL.
+ * The non-hex boundaries prevent matching a truncated address from a longer hex run.
+ */
+export const extractTokenAddress = (input: string): string | null => {
+  const match = /(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/.exec(
+    input.trim(),
+  );
+  return match ? match[0] : null;
 };

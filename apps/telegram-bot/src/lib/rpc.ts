@@ -17,6 +17,12 @@ const DEFAULT_RPC_URL = "https://rpc.hyperliquid.xyz/evm";
  */
 const RPC_TIMEOUT_MS = 3000;
 
+/** USDC on HyperEVM. See AGENTS.md "Contract Addresses". */
+export const USDC_CONTRACT = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
+
+/** ERC-20 `balanceOf(address)` function selector. */
+const BALANCE_OF_SELECTOR = "0x70a08231";
+
 interface JsonRpcResponse {
   result?: string;
   error?: { code: number; message: string };
@@ -71,3 +77,59 @@ export const fetchNativeBalance = async (
     return null;
   }
 };
+
+/**
+ * Read an ERC-20 token balance via `eth_call` → `balanceOf(walletAddress)`.
+ * Returns `null` on any network/RPC failure so callers render "—" cleanly.
+ */
+export const fetchErc20Balance = async (
+  env: Pick<Env, "HYPEREVM_RPC_URL">,
+  tokenAddress: string,
+  walletAddress: string,
+): Promise<bigint | null> => {
+  const url = env.HYPEREVM_RPC_URL ?? DEFAULT_RPC_URL;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+  const data =
+    BALANCE_OF_SELECTOR + walletAddress.slice(2).toLowerCase().padStart(64, "0");
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [{ to: tokenAddress, data }, "latest"],
+      }),
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) return null;
+  let body: JsonRpcResponse;
+  try {
+    body = (await res.json()) as JsonRpcResponse;
+  } catch {
+    return null;
+  }
+  if (body.error || typeof body.result !== "string") return null;
+  const hex = body.result;
+  if (hex === "0x" || hex === "0x0") return 0n;
+  try {
+    return BigInt(hex);
+  } catch {
+    return null;
+  }
+};
+
+/** Read the caller's USDC (6-decimal) balance on HyperEVM. */
+export const fetchUsdcBalance = async (
+  env: Pick<Env, "HYPEREVM_RPC_URL">,
+  walletAddress: string,
+): Promise<bigint | null> =>
+  fetchErc20Balance(env, USDC_CONTRACT, walletAddress);
