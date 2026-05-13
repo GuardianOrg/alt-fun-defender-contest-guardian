@@ -4,9 +4,11 @@ import {
   domainSeparator,
   encodeAbiParameters,
   encodeErrorResult,
+  encodeEventTopics,
   parseAbi,
   recoverTypedDataAddress,
 } from "viem";
+import { BotFeeRouterAbi } from "@launchpad/shared";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
@@ -538,6 +540,111 @@ describe("awaitReceipt", () => {
       expect(result.txHash).toBe(TX_HASH);
     }
     waitSpy.mockRestore();
+  });
+
+  it("decodes actualTokensOut from the BotRouterTrade log on a successful buy", async () => {
+    // Issue #802: confirm message must include the on-chain tokens the
+    // user actually received. The router emits one `BotRouterTrade` per
+    // trade with `tokenAmount` set to the tokens transferred to the
+    // trader on a buy. awaitReceipt decodes that log when invoked with
+    // `side: "buy"` so the caller can render "Received N TICKER".
+    const TOKENS_RECEIVED = 1_234_500_000_000_000_000_000n; // 1234.5 * 1e18
+    const ZERO = "0x0000000000000000000000000000000000000000" as const;
+    const topics = encodeEventTopics({
+      abi: BotFeeRouterAbi,
+      eventName: "BotRouterTrade",
+      args: { trader: TRADER, token: TOKEN, referrer: ZERO },
+    });
+    // Non-indexed payload: side, usdcAmount, tokenAmount, botFee, referrerCut, treasuryCut.
+    const data = encodeAbiParameters(
+      [
+        { type: "uint8" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+      ],
+      [0, 20_000_000n, TOKENS_RECEIVED, 100_000n, 0n, 100_000n],
+    );
+    const receiptWithLog: Response = new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          transactionHash: TX_HASH,
+          blockNumber: "0x1",
+          blockHash:
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+          transactionIndex: "0x0",
+          from: TRADER,
+          to: ROUTER,
+          cumulativeGasUsed: "0x1",
+          gasUsed: "0x1",
+          contractAddress: null,
+          logs: [
+            {
+              address: ROUTER,
+              topics,
+              data,
+              blockNumber: "0x1",
+              transactionHash: TX_HASH,
+              transactionIndex: "0x0",
+              blockHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+              logIndex: "0x0",
+              removed: false,
+            },
+          ],
+          logsBloom: `0x${"0".repeat(512)}`,
+          status: "0x1",
+          type: "0x0",
+          effectiveGasPrice: "0x1",
+        },
+      }),
+      { status: 200 },
+    );
+    fetchSpy.mockImplementation(async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string) as { method: string };
+      if (body.method === "eth_getTransactionReceipt") return receiptWithLog;
+      if (body.method === "eth_blockNumber") return blockNumberResponse();
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x" }),
+        { status: 200 },
+      );
+    });
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 1_200n * 10n ** 18n,
+      minOut: 1_100n * 10n ** 18n,
+      side: "buy",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.actualTokensOut).toBe(TOKENS_RECEIVED);
+    }
+  });
+
+  it("leaves actualTokensOut undefined when side is omitted (sell path)", async () => {
+    // Sell side: `BotRouterTrade.tokenAmount` is tokens *sold*, not
+    // received, so the buy-only `actualTokensOut` field must stay
+    // undefined for sells to avoid mislabelling. The current call sites
+    // pass `side: "sell"` from executeSell and no side from legacy
+    // callers — both should leave the field unset.
+    fetchSpy.mockImplementation(routeRpc("0x1") as never);
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.actualTokensOut).toBeUndefined();
+    }
   });
 
   it("returns ok:false kind:reverted with txHash when the receipt is reverted", async () => {
