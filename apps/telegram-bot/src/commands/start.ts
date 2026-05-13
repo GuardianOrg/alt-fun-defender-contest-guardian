@@ -145,11 +145,10 @@ const safeEditMessageText = async (
 };
 
 // buy (st:b), sell (st:s), help (st:h), wallet (st:w), positions (st:p),
-// security (st:sec) and withdraw (st:wd) are handled by their dedicated
-// register* functions in commands/{buy,sell,help,wallet,positions,security,withdraw}.ts —
-// they reply with full views (or enter a conversation) instead of a hint toast.
+// security (st:sec), referral (st:ref), withdraw (st:wd) and track (st:t)
+// are handled by their dedicated register* functions — they reply with
+// full views (or enter a conversation) instead of a hint toast.
 const CALLBACK_HINTS: Record<string, string> = {
-  [START_CALLBACK.track]: "Type /track <contract> to view a token card.",
   [START_CALLBACK.settings]: "Type /settings to adjust slippage and defaults.",
 };
 

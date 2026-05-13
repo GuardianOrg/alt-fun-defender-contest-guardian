@@ -275,7 +275,6 @@ describe("/start command", () => {
   });
 
   it.each([
-    [START_CALLBACK.track, /\/track/],
     [START_CALLBACK.settings, /\/settings/],
   ])(
     "%s surfaces a hint toast pointing at the slash command",
@@ -291,7 +290,7 @@ describe("/start command", () => {
     },
   );
 
-  it.each([START_CALLBACK.buy, START_CALLBACK.sell])(
+  it.each([START_CALLBACK.buy, START_CALLBACK.sell, START_CALLBACK.track])(
     "%s enters the token-lookup flow instead of showing a hint toast",
     async (cmd) => {
       const h = harnessWithRpc();

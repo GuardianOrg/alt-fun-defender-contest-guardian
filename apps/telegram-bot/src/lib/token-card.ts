@@ -148,6 +148,34 @@ export const renderSellTokenCardText = (
   return lines.join("\n");
 };
 
+/**
+ * Render the HTML token card for the /track flow. Info-only — no
+ * USDC or token balance line because /track does not require an
+ * active wallet (the user may be researching before funding).
+ */
+export const renderTrackTokenCardText = (token: TokenInfo): string => {
+  const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
+  const curvePct =
+    token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
+  const lines: string[] = [
+    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    `<i>${statusLabel(token.status)}</i>`,
+    "",
+    `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
+    `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
+  ];
+  if (token.ltChange24h !== null) {
+    lines.push(`⚡ <b>LT 24h:</b> ${formatPct(token.ltChange24h)}`);
+  }
+  lines.push(`💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`);
+  lines.push(`📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`);
+  if (token.status !== "graduated") {
+    lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
+  }
+  lines.push("", `🔍 <a href="${explorerUrl}">View on Explorer</a>`);
+  return lines.join("\n");
+};
+
 /** Estimate the USDC value of a token holding using the current priceUsd. */
 export const estimateHoldingUsdc = (
   tokenBalance: bigint,
