@@ -11,7 +11,7 @@ import {
   buildWalletMainKeyboard,
   buildWalletSwitchKeyboard,
 } from "../keyboards/wallet-actions.js";
-import { withAntiPhishing } from "../lib/anti-phishing.js";
+import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { PinManager } from "../lib/pin.js";
 import {
   DuplicateWalletError,
@@ -155,7 +155,7 @@ const editToMain = async (ctx: AppContext): Promise<void> => {
   if (!ctx.from || !ctx.callbackQuery?.message) return;
   const wm = buildManager(ctx.env);
   const state = await renderMainState(wm, ctx.from.id);
-  await safeEditMessageText(ctx, withAntiPhishing(state.text), {
+  await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
 };
@@ -180,13 +180,13 @@ const renameWalletConversation = async (
   walletId: string,
 ): Promise<void> => {
   await ctx.reply(
-    withAntiPhishing("Send the new label for this wallet (max 32 chars)."),
+    wrap(ctx, "Send the new label for this wallet (max 32 chars)."),
   );
   const reply = await conversation.waitFor("message:text");
   const label = reply.message.text.trim();
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `Label must be 1–${RENAME_MAX_LEN} characters. Rename cancelled.`,
       ),
     );
@@ -209,7 +209,7 @@ const renameWalletConversation = async (
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
       await reply.reply(
-        withAntiPhishing("Wallet no longer exists. Rename cancelled."),
+        wrap(ctx, "Wallet no longer exists. Rename cancelled."),
       );
       return;
     }
@@ -218,7 +218,7 @@ const renameWalletConversation = async (
   const state = await conversation.external((outerCtx) =>
     renderMainState(buildManager(outerCtx.env), fromId),
   );
-  await reply.reply(withAntiPhishing(state.text), {
+  await reply.reply(wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
 };
@@ -286,7 +286,7 @@ const runPinSetFlow = async (
   actionLabel: string,
 ): Promise<boolean> => {
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions. Send /cancel to abort.",
     ),
   );
@@ -300,13 +300,13 @@ const runPinSetFlow = async (
     );
     if (isCancel(text)) {
       await ctx.reply(
-        withAntiPhishing(`${capitalize(actionLabel)} cancelled.`),
+        wrap(ctx, `${capitalize(actionLabel)} cancelled.`),
       );
       return false;
     }
     if (!PinManager.isValidPinFormat(text)) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "PIN must be exactly 6 digits. Send again or /cancel.",
         ),
       );
@@ -316,7 +316,7 @@ const runPinSetFlow = async (
   }
 
   await ctx.reply(
-    withAntiPhishing("Confirm — send the same 6 digits again."),
+    wrap(ctx, "Confirm — send the same 6 digits again."),
   );
 
   while (true) {
@@ -327,13 +327,13 @@ const runPinSetFlow = async (
     );
     if (isCancel(text)) {
       await ctx.reply(
-        withAntiPhishing(`${capitalize(actionLabel)} cancelled.`),
+        wrap(ctx, `${capitalize(actionLabel)} cancelled.`),
       );
       return false;
     }
     if (text !== candidate) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "PINs do not match. Send the confirmation PIN again or /cancel.",
         ),
       );
@@ -346,7 +346,7 @@ const runPinSetFlow = async (
     buildPinManager(outside.env).setPin(userId, candidate!),
   );
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       `PIN set. Send it once more to authorise the ${actionLabel}, or /cancel.`,
     ),
   );
@@ -369,7 +369,7 @@ const runPinVerifyFlow = async (
 ): Promise<boolean> => {
   if (pinAlreadySet) {
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `Send your 6-digit PIN to authorise the ${actionLabel}, or /cancel.`,
       ),
     );
@@ -383,7 +383,7 @@ const runPinVerifyFlow = async (
     );
     if (isCancel(text)) {
       await ctx.reply(
-        withAntiPhishing(`${capitalize(actionLabel)} cancelled.`),
+        wrap(ctx, `${capitalize(actionLabel)} cancelled.`),
       );
       return false;
     }
@@ -397,7 +397,7 @@ const runPinVerifyFlow = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           `Too many wrong PIN attempts — locked for ~${mins} min. ${capitalize(actionLabel)} cancelled.`,
         ),
       );
@@ -408,12 +408,12 @@ const runPinVerifyFlow = async (
       // confirmed `isPinSet` at entry. Surface a clean abort rather
       // than looping forever if the KV state somehow vanished.
       await ctx.reply(
-        withAntiPhishing(`PIN state lost — re-run ${retryHint}.`),
+        wrap(ctx, `PIN state lost — re-run ${retryHint}.`),
       );
       return false;
     }
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
       ),
     );
@@ -484,7 +484,7 @@ const exportKeyConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      withAntiPhishing("Wallet no longer exists. Export aborted."),
+      wrap(ctx, "Wallet no longer exists. Export aborted."),
     );
     return;
   }
@@ -500,7 +500,7 @@ const exportKeyConversation = async (
     `Private key: ${privateKey}`,
   ].join("\n");
 
-  const revealMessage = await ctx.reply(withAntiPhishing(revealBody), {
+  const revealMessage = await ctx.reply(wrap(ctx, revealBody), {
     reply_markup: {
       inline_keyboard: [
         [
@@ -548,7 +548,7 @@ const importWalletConversation = async (
   const chatId = ctx.chat.id;
 
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       [
         "Paste the private key for the wallet you want to import (0x-prefixed, 64 hex chars).",
         "",
@@ -571,14 +571,14 @@ const importWalletConversation = async (
     );
 
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Import cancelled."));
+      await ctx.reply(wrap(ctx, "Import cancelled."));
       return;
     }
 
     const parsed = parsePrivateKey(text);
     if (!parsed) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again or send /cancel.",
         ),
       );
@@ -611,7 +611,7 @@ const importWalletConversation = async (
     );
     if (result.kind === "invalid") {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "That private key is invalid. Paste it again or send /cancel.",
         ),
       );
@@ -619,7 +619,7 @@ const importWalletConversation = async (
     }
     if (result.kind === "duplicate") {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "That wallet is already in your list. Import cancelled.",
         ),
       );
@@ -627,7 +627,7 @@ const importWalletConversation = async (
     }
     if (result.kind === "cap") {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first, then try importing again.`,
         ),
       );
@@ -639,7 +639,7 @@ const importWalletConversation = async (
       renderMainState(buildManager(outside.env), userId),
     );
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `Imported ${truncateAddress(wallet.address)}.\n\n${state.text}`,
       ),
       { reply_markup: state.reply_markup },
@@ -701,13 +701,13 @@ const deleteWalletConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      withAntiPhishing("Wallet no longer exists. Delete aborted."),
+      wrap(ctx, "Wallet no longer exists. Delete aborted."),
     );
     return;
   }
 
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or /cancel.`,
     ),
   );
@@ -718,7 +718,7 @@ const deleteWalletConversation = async (
     // Anything other than the exact uppercase token aborts — `/cancel`,
     // lowercase, typo, fat-fingered emoji. The strictness is the point;
     // this gate exists to require deliberate action.
-    await ctx.reply(withAntiPhishing("Delete cancelled."));
+    await ctx.reply(wrap(ctx, "Delete cancelled."));
     return;
   }
 
@@ -740,7 +740,7 @@ const deleteWalletConversation = async (
   );
   if (deleteResult.kind === "missing") {
     await ctx.reply(
-      withAntiPhishing("Wallet no longer exists. Delete aborted."),
+      wrap(ctx, "Wallet no longer exists. Delete aborted."),
     );
     return;
   }
@@ -749,7 +749,7 @@ const deleteWalletConversation = async (
     renderMainState(buildManager(outside.env), userId),
   );
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       `Deleted ${truncateAddress(walletRecord.address)}.\n\n${state.text}`,
     ),
     { reply_markup: state.reply_markup },
@@ -781,7 +781,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
    */
   bot.command("wallet", async (ctx) => {
     if (!ctx.from) {
-      await ctx.reply(withAntiPhishing(NO_USER_REPLY));
+      await ctx.reply(wrap(ctx, NO_USER_REPLY));
       return;
     }
     // Wallet flows are private-only — group / supergroup / channel
@@ -789,12 +789,12 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     // callback flows would let any group member mutate state. Reject
     // anything that isn't a 1:1 chat before doing any KV reads.
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(withAntiPhishing(NON_PRIVATE_CHAT_REPLY));
+      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
       return;
     }
     const wm = buildManager(ctx.env);
     const state = await renderMainState(wm, ctx.from.id);
-    await ctx.reply(withAntiPhishing(state.text), {
+    await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });
@@ -842,7 +842,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     await safeEditMessageText(
       ctx,
-      withAntiPhishing("Pick the wallet to use as active:"),
+      wrap(ctx, "Pick the wallet to use as active:"),
       {
         reply_markup: {
           inline_keyboard: buildWalletSwitchKeyboard(
@@ -1038,7 +1038,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const wm = buildManager(ctx.env);
     const state = await renderMainState(wm, ctx.from.id);
     await ctx.answerCallbackQuery();
-    await ctx.reply(withAntiPhishing(state.text), {
+    await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });

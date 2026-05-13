@@ -1,13 +1,12 @@
 /**
  * Anti-phishing header prepended to every user-facing chat message
- * (sendMessage / editMessageText) per AGENTS.md "Security Model" and
- * the /help spec.
+ * (sendMessage / editMessageText) per AGENTS.md "Security Model".
  *
- * v1 is the static phrase below. /settings will let users set a
- * personal phrase (shown back to them as proof the message is from
- * the real bot, not a Telegram-account phisher); when that lands,
- * `withAntiPhishing` should pull the user's phrase from session and
- * fall back to this static text for users who haven't set one.
+ * When the user has set a personal phrase via /security it is used in
+ * place of the static fallback — that's what makes the header proof
+ * the message is from the real bot, since a copycat account can't see
+ * the user's session and won't know their phrase. Users who have not
+ * set a phrase fall back to the static reminder below.
  *
  * Toast / callback answer text (answerCallbackQuery, ~200 char limit)
  * is intentionally exempt — the header would consume most of the
@@ -16,5 +15,34 @@
 export const ANTI_PHISHING_HEADER =
   "This bot will never ask for your seed phrase or private key via DM.";
 
-export const withAntiPhishing = (body: string): string =>
-  `${ANTI_PHISHING_HEADER}\n\n${body}`;
+export const resolveAntiPhishingHeader = (
+  phrase: string | null | undefined,
+): string => phrase ?? ANTI_PHISHING_HEADER;
+
+export const withAntiPhishing = (
+  body: string,
+  phrase?: string | null,
+): string => `${resolveAntiPhishingHeader(phrase)}\n\n${body}`;
+
+/**
+ * Pull the user's phrase from a grammY context safely. Two callsites
+ * hit `ctx.session` without a real backing store: conversations replay
+ * (no `session` property) and channel-post / anonymous-admin updates
+ * where the session-key resolver returns undefined (grammY throws on
+ * access). Both surface as the static fallback — the phrase is per-
+ * user, so no user means no phrase.
+ */
+export const ctxAntiPhishingPhrase = (ctx: {
+  session?: { antiPhishingPhrase?: string };
+}): string | undefined => {
+  try {
+    return ctx.session?.antiPhishingPhrase;
+  } catch {
+    return undefined;
+  }
+};
+
+export const wrapWithCtxPhrase = (
+  ctx: { session?: { antiPhishingPhrase?: string } },
+  body: string,
+): string => withAntiPhishing(body, ctxAntiPhishingPhrase(ctx));
