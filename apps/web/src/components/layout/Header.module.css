@@ -107,23 +107,6 @@
   white-space: nowrap;
 }
 
-.searchKbd {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  font-size: 11px;
-  line-height: 1;
-  color: var(--txt-2);
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--border-2);
-  border-radius: 0.125rem;
-  padding-left: 0.4rem;
-  padding-right: 0.4rem;
-  margin-left: auto;
-  font-family: var(--font-mono);
-}
-
 .rightSide {
   margin-left: auto;
   margin-right: 1.2rem;
@@ -178,12 +161,10 @@
 }
 
 @media (max-width: 1024px) {
-  /* On mobile the logo sits on the left and everything else (search
-   * trigger when shown, plus the buttons cluster) hugs the right
-   * edge. Pushing the first non-logo child with `margin-left: auto`
-   * absorbs all the slack so the right-hand items stay grouped —
-   * regardless of whether the search trigger is rendered on this
-   * route (e.g. it's hidden on `/create`). */
+  /* On mobile the logo sits on the left and everything else (the
+   * search trigger plus the buttons cluster) hugs the right edge.
+   * Pushing the first non-logo child with `margin-left: auto`
+   * absorbs all the slack so the right-hand items stay grouped. */
   .header > :nth-child(2) {
     margin-left: auto;
   }
@@ -224,10 +205,6 @@
   }
 
   .searchText {
-    display: none;
-  }
-
-  .searchKbd {
     display: none;
   }
 }

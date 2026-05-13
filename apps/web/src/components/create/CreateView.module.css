@@ -73,7 +73,7 @@
   color: var(--red);
   background: rgba(240, 80, 80, 0.06);
   border: 1px solid rgba(240, 80, 80, 0.2);
-  border-radius: 0.5rem;
+  border-radius: 0;
   padding: 0.6rem 0.8rem;
   margin-bottom: 1.2rem;
   display: flex;
@@ -90,7 +90,7 @@
   color: var(--yellow, #f0c050);
   background: rgba(240, 192, 80, 0.06);
   border: 1px solid rgba(240, 192, 80, 0.2);
-  border-radius: 0.5rem;
+  border-radius: 0;
   padding: 0.6rem 0.8rem;
   margin-bottom: 1.2rem;
   display: flex;
@@ -107,7 +107,7 @@
   color: var(--mint);
   background: rgba(77, 232, 180, 0.06);
   border: 1px solid rgba(77, 232, 180, 0.2);
-  border-radius: 0.5rem;
+  border-radius: 0;
   padding: 0.6rem 0.8rem;
   margin-bottom: 1.2rem;
   display: flex;
@@ -162,7 +162,7 @@ button.launchButtonConfirmed:disabled {
   color: var(--txt-3);
   background: rgba(16, 37, 32, 0.4);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: 0;
   padding: 0.6rem 0.8rem;
   margin-top: 0.8rem;
   line-height: 1.625;

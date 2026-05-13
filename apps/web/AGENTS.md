@@ -36,7 +36,7 @@ For the recurring "copy this wallet address" affordance specifically, use the sh
 
 A few things that look button-shaped but **are not** in this taxonomy and are documented exceptions:
 
-- The **modal "esc" badge** (`shared/Modal`) — close affordance for every modal, intentionally a kbd-styled pill, not an `IconButton`. See [Modals & overlays](#modals--overlays-mandatory).
+- The **modal close badge** (`shared/Modal`) — close affordance for every modal, a small `×` glyph in a kbd-styled square, not an `IconButton`. See [Modals & overlays](#modals--overlays-mandatory).
 - **Clickable list rows** (`TokenRow`, position rows, trade-feed rows, search results) — these are full-row affordances, styled per-component with a `bg-3` hover. Do not migrate these to `Button` / `Chip`.
 - **The `LANDING_OVERLAY` page CTA** — landing-page hero element, allowed to break the standard CTA visual since it's not in the dense-panel context.
 
@@ -48,10 +48,10 @@ Every dim-the-page popup — image lightboxes, search (Cmd+K), profile/earnings,
 
 - the dim/blurred backdrop
 - the panel chrome (`var(--bg-1)`, `1px solid var(--border-2)`, `border-radius: 3px`, `--shadow-panel`, `modalin` enter animation)
-- the close button (esc badge, top-right)
+- the close button (`×` badge, top-right)
 - esc-to-close, click-outside-to-close, focus trap, body scroll lock
 
-Per-modal CSS only sets sizing (width / max-height) via `panelClassName` — never re-declares background / border / radius / shadow / animation. The "esc" badge is the only close affordance; do not add an extra `×` button. If a modal needs a custom header that includes the close (rare), pass `hideCloseButton` to `Modal` and render `<ModalCloseButton>` from the same module — same visual, same behaviour.
+Per-modal CSS only sets sizing (width / max-height) via `panelClassName` — never re-declares background / border / radius / shadow / animation. The `×` badge is the only close affordance; do not add a second close button. If a modal needs a custom header that includes the close (rare), pass `hideCloseButton` to `Modal` and render `<ModalCloseButton>` from the same module — same visual, same behaviour.
 
 Inline anchored popovers (e.g. [`SettingsPopup`](src/components/token/SettingsPopup.tsx)) are **not** modals — they don't dim the page or trap focus, and shouldn't use `Modal`.
 

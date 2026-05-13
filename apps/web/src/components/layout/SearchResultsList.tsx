@@ -62,7 +62,17 @@ export default function SearchResultsList({
               onKeyDown={handleKeyDown}
               onMouseEnter={() => onHighlight(i)}
             >
-              <div className={styles.resultIcon}>{t.emoji}</div>
+              <div className={styles.resultIcon}>
+                {t.image ? (
+                  <img
+                    src={t.image}
+                    alt={t.name}
+                    className={styles.resultIconImg}
+                  />
+                ) : (
+                  t.emoji
+                )}
+              </div>
               <div>
                 <div className={styles.resultName}>{t.name}</div>
                 <div className={styles.resultLtName}>{t.ltName}</div>

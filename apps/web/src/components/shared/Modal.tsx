@@ -157,8 +157,9 @@ interface CloseButtonProps {
 }
 
 /**
- * Standard "esc" close badge. Use inside a modal's custom header (then pass
- * `hideCloseButton` to `Modal`); otherwise let `Modal` render its own.
+ * Standard close badge — a kbd-styled `×` pill in the top-right of every
+ * modal. Use inside a modal's custom header (then pass `hideCloseButton`
+ * to `Modal`); otherwise let `Modal` render its own.
  */
 export function ModalCloseButton({ onClose, className }: CloseButtonProps) {
   return (
@@ -166,9 +167,9 @@ export function ModalCloseButton({ onClose, className }: CloseButtonProps) {
       type="button"
       className={cn(styles.closeButton, className)}
       onClick={onClose}
-      aria-label="Close (Esc)"
+      aria-label="Close"
     >
-      esc
+      ×
     </button>
   );
 }

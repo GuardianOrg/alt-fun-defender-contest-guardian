@@ -30,7 +30,7 @@
 
 .tokenCard {
   border: 1px solid;
-  border-radius: 0.75rem;
+  border-radius: 0;
   overflow: hidden;
   margin-bottom: 1.2rem;
   transition: all 0.3s ease;
@@ -64,7 +64,7 @@
 .tokenImage {
   width: 3rem;
   height: 3rem;
-  border-radius: 0.75rem;
+  border-radius: 0;
   background: var(--bg-3);
   border: 1px solid var(--border);
   display: flex;
@@ -113,7 +113,7 @@
   font-size: 11px;
   font-weight: 600;
   padding: 2px 0.6rem;
-  border-radius: 0.375rem;
+  border-radius: 0;
   border: 1px solid;
 }
 
@@ -216,7 +216,7 @@
 
 .chartCard {
   border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  border-radius: 0;
   overflow: hidden;
   background: rgba(16, 37, 32, 0.6);
 }
@@ -248,7 +248,7 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   padding: 0.2rem 0.6rem;
-  border-radius: 0.375rem;
+  border-radius: 0;
 }
 
 .chartChgBadgeUp {
@@ -273,7 +273,7 @@
 
 .infoBox {
   border: 1px solid;
-  border-radius: 0.75rem;
+  border-radius: 0;
   padding: 0.8rem 1.2rem;
   margin-top: 1.2rem;
   font-size: 13px;
