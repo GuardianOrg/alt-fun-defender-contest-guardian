@@ -9,10 +9,11 @@ import {IZap} from "./interfaces/IZap.sol";
 
 /// @title BotFeeRouter
 /// @notice External-bot fee-skimming router that wraps `Zap`. Pulls user
-///         funds, skims `BOT_FEE_BPS`, splits the skim between an opt-in
-///         referrer and an immutable treasury, then forwards the remainder
-///         through `Zap.buy` / `Zap.sell`. Full spec in
-///         [`apps/telegram-bot/AGENTS.md → Bot Fee Model`].
+///         funds, skims `BOT_FEE_BPS` (50 bps = 0.5% flat on USDC notional,
+///         both buy and sell), splits the skim 20/80 between an opt-in
+///         referrer wallet and an immutable treasury, then forwards the
+///         remainder through `Zap.buy` / `Zap.sell`. Bot operator's fee
+///         is independent of and additive to Alt Fun's protocol fee.
 /// @dev    Immutable by design — no admin key, no upgrade proxy.
 ///         Parameter changes require a fresh deployment + a new
 ///         `BOT_FEE_ROUTER_ADDRESS` secret on the bot Worker. This is the
@@ -121,8 +122,10 @@ contract BotFeeRouter is ReentrancyGuard {
         (uint256 referrerCut, uint256 treasuryCut) = _splitAndPay(botFee, referrer, msg.sender, token, Side.Buy);
 
         usdc.forceApprove(address(zap), net);
-        // Alt Fun referrer slot is always address(0) — see
-        // apps/telegram-bot/AGENTS.md "Alt Fun referrer slot".
+        // Alt Fun referrer slot is always address(0). This router has its
+        // own bot-side referral system (`referrer` arg + `ReferralPaid`
+        // event); it does not participate in Alt Fun's wallet-keyed
+        // referrer attribution.
         tokensOut = zap.buy(token, net, minTokensOut, address(0));
         IERC20(token).safeTransfer(msg.sender, tokensOut);
 
