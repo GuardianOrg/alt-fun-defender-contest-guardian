@@ -1,6 +1,7 @@
 import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
+import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { fetchBalances, fetchPortfolio, isAddress } from "../lib/api.js";
 import {
   POSITIONS_PAGE_CALLBACK_CMD,
@@ -10,11 +11,15 @@ import {
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
+import { WalletManager } from "../lib/wallet.js";
 
 const USAGE = "Usage: /positions <wallet_address>";
 const OUTAGE = "Data temporarily unavailable — try again in a moment.";
 const INVALID_ADDRESS =
   "Invalid wallet address. Expected a 0x-prefixed 40-character hex address.";
+const NON_PRIVATE_CHAT_REPLY =
+  "Positions are private-DM only — open a direct chat with the bot to view your positions.";
+const NO_ACTIVE_WALLET = "No active wallet. Run /wallet to create one.";
 
 interface RenderedPage {
   text: string;
@@ -163,4 +168,48 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
     },
   );
+
+  /**
+   * Start-menu "Positions" button: open positions for the user's
+   * active custodial wallet directly instead of toasting a /positions
+   * hint. Mirrors the wallet-button pattern (start menu → command UI
+   * in one tap). Private-chat only — group/channel taps see the same
+   * gating as /start.
+   */
+  bot.callbackQuery(START_CALLBACK.positions, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Missing user." });
+      return;
+    }
+    if (ctx.chat?.type !== "private") {
+      await ctx.answerCallbackQuery({
+        text: NON_PRIVATE_CHAT_REPLY,
+        show_alert: true,
+      });
+      return;
+    }
+    const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
+    const active = await wm.getActive(ctx.from.id);
+    if (!active) {
+      await ctx.answerCallbackQuery({
+        text: NO_ACTIVE_WALLET,
+        show_alert: true,
+      });
+      return;
+    }
+    const page = await renderPage(ctx.env, active.address, 0);
+    await ctx.answerCallbackQuery();
+    if ("invalid" in page) {
+      await ctx.reply(INVALID_ADDRESS);
+      return;
+    }
+    if ("outage" in page) {
+      await ctx.reply(OUTAGE);
+      return;
+    }
+    await ctx.reply(
+      page.text,
+      page.reply_markup ? { reply_markup: page.reply_markup } : {},
+    );
+  });
 };
