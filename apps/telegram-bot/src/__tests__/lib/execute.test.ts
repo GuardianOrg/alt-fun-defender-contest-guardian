@@ -287,6 +287,29 @@ describe("renderConfirmReply", () => {
     });
     expect(reply).toMatch(/Price moved/);
   });
+
+  it("renders ⏳ (not ❌) with explorer link for a pending receipt-timeout result", () => {
+    // Receipt-timeout = tx in mempool, outcome unknown. Prefixing with
+    // ❌ would tell the user their trade failed even though the chain
+    // may still mine it to success or revert. ⏳ matches the "pending,
+    // check explorer" semantics the reviewer asked for.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: false,
+        kind: "pending",
+        reason: "WaitForTransactionReceiptTimeoutError",
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+      },
+    });
+    expect(reply.startsWith("⏳")).toBe(true);
+    expect(reply).not.toMatch(/^❌/);
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0xdeadbeef");
+  });
 });
 
 describe("loadReferrer", () => {

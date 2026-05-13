@@ -230,7 +230,12 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
       `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
-  return `❌ ${renderExecutionError(result)}`;
+  // `pending` is not a failure — the tx is in the mempool and may still
+  // mine. Render with ⏳ so users don't read it as a revert. ❌ stays
+  // reserved for outcomes the chain has definitively rejected or where
+  // no tx ever landed.
+  const prefix = result.kind === "pending" ? "⏳" : "❌";
+  return `${prefix} ${renderExecutionError(result)}`;
 };
 
 /**

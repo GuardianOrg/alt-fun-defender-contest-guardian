@@ -22,6 +22,7 @@ import {
 import {
   BaseError,
   ContractFunctionRevertedError,
+  WaitForTransactionReceiptTimeoutError,
   createPublicClient,
   createWalletClient,
   domainSeparator,
@@ -529,13 +530,27 @@ export type ExecutionResult =
   | { ok: true; txHash: Hash; quotedOut: bigint; minOut: bigint }
   | {
       ok: false;
-      kind: "not_configured" | "reverted" | "unavailable" | "insufficient_funds";
+      kind:
+        | "not_configured"
+        | "reverted"
+        | "unavailable"
+        | "insufficient_funds"
+        /**
+         * Tx was accepted into the mempool but `waitForTransactionReceipt`
+         * didn't mine within `RECEIPT_TIMEOUT_MS`. Distinct from
+         * `unavailable` (RPC error, no on-chain action) and `reverted`
+         * (mined-and-failed) — the chain may still settle this hash as
+         * success or revert later, so the UI must render a neutral
+         * "pending, check explorer" message rather than ❌.
+         */
+        | "pending";
       reason?: string;
       /**
        * Set when the tx was actually submitted on-chain — i.e. failure
        * happened post-`sendTransaction` (reverted receipt, or receipt
        * wait timed out). Lets the UI surface an explorer link so the
-       * user can audit the on-chain outcome themselves.
+       * user can audit the on-chain outcome themselves. Always set on
+       * `pending`.
        */
       txHash?: Hash;
     };
@@ -599,9 +614,11 @@ const ensureAllowance = async (
  * user-facing copy reflects the real chain state.
  *
  * Bounded by `RECEIPT_TIMEOUT_MS`: a stuck node or a pending tx that
- * never mines within the window surfaces as `unavailable` with the
- * txHash attached so the user can check the explorer themselves. Never
- * claim success without an on-chain confirmation.
+ * never mines within the window surfaces as `pending` with the txHash
+ * attached so the UI can render "tx pending — check explorer" (⏳, not
+ * ❌) instead of misleading the user into thinking the trade failed.
+ * Other RPC failures still surface as `unavailable`. Never claim success
+ * without an on-chain confirmation.
  */
 export const awaitReceipt = async (
   publicClient: PublicClient,
@@ -623,6 +640,22 @@ export const awaitReceipt = async (
     }
     return { ok: true, txHash, quotedOut: successOut.quotedOut, minOut: successOut.minOut };
   } catch (err) {
+    // Receipt-timeout is the common case here: the tx is in the mempool
+    // and may still mine to success or revert. Surface as `pending` so
+    // the user sees a neutral "check explorer" message instead of a
+    // failure indicator. Anything else (network drop, RPC 5xx, malformed
+    // response) stays `unavailable`.
+    if (
+      err instanceof WaitForTransactionReceiptTimeoutError ||
+      (err instanceof Error && err.name === "WaitForTransactionReceiptTimeoutError")
+    ) {
+      return {
+        ok: false,
+        kind: "pending",
+        reason: err.message,
+        txHash,
+      };
+    }
     return {
       ok: false,
       kind: "unavailable",
@@ -721,6 +754,23 @@ const toIntentResult = (result: ExecutionResult): IntentResult => {
     reason: result.reason,
     txHash: result.txHash,
   };
+};
+
+/**
+ * Persist the receipt outcome to the commit-log, skipping `pending` so the
+ * record stays at `status: "submitted"` with the txHash intact. A retry of
+ * the same idempotency key then re-enters `resolveDuplicate`, which sees
+ * `submitted` + txHash and re-polls the receipt — letting a tx that mines
+ * after our local timeout still surface success/revert on retry instead
+ * of being frozen as a permanent failure.
+ */
+const recordReceiptOutcome = async (
+  kv: IdempotencyKv,
+  key: string,
+  result: ExecutionResult,
+): Promise<void> => {
+  if (!result.ok && result.kind === "pending") return;
+  await markFinal(kv, key, toIntentResult(result));
 };
 
 /**
@@ -941,10 +991,10 @@ export const executeBuy = async (
     });
 
     if (args.idempotency) {
-      await markFinal(
+      await recordReceiptOutcome(
         args.idempotency.kv,
         args.idempotency.key,
-        toIntentResult(result),
+        result,
       );
     }
 
@@ -1086,10 +1136,10 @@ export const executeSell = async (
     });
 
     if (args.idempotency) {
-      await markFinal(
+      await recordReceiptOutcome(
         args.idempotency.kv,
         args.idempotency.key,
-        toIntentResult(result),
+        result,
       );
     }
 
@@ -1120,6 +1170,16 @@ export const renderExecutionError = (
   }
   if (result.kind === "insufficient_funds") {
     return "Insufficient HYPE for gas — top up the wallet and retry.";
+  }
+  if (result.kind === "pending") {
+    // `pending` always carries a txHash (set by awaitReceipt on timeout).
+    // The `?? "the explorer"` is a defensive fallback so a malformed
+    // record from the commit-log can't crash the renderer.
+    return (
+      `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
+      `Check the explorer: ` +
+      (result.txHash ? explorerTxUrl(result.txHash) : "the explorer")
+    );
   }
   if (result.kind === "unavailable") {
     if (result.txHash) {
