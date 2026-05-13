@@ -166,9 +166,8 @@ const fetchPositions = async (
 ): Promise<PositionsResponse> => {
   try {
     const queryPonder = createPonderQuery(ponderUrl);
-    const result = await queryPonder<{
+    const positionsResult = await queryPonder<{
       walletBotPositions: { items: unknown[] } | null;
-      tokenBalances: { items: PonderTokenBalance[] } | null;
     }>(
       `query ($wallet: String!, $limit: Int!) {
         walletBotPositions(where: { wallet: $wallet }, limit: $limit) {
@@ -183,21 +182,12 @@ const fetchPositions = async (
             totalProceedsUsdc
           }
         }
-        tokenBalances(
-          where: { wallet: $wallet, balance_gt: "0" }
-          limit: $limit
-        ) {
-          items {
-            tokenAddress
-            balance
-          }
-        }
       }`,
       { wallet, limit: PAGE_SIZE },
     );
 
-    if (!result || !result.walletBotPositions) return EMPTY;
-    const items = result.walletBotPositions.items;
+    if (!positionsResult || !positionsResult.walletBotPositions) return EMPTY;
+    const items = positionsResult.walletBotPositions.items;
     if (!Array.isArray(items)) return EMPTY;
 
     // True on-chain balance per token, indexed off every ERC-20 Transfer
@@ -209,12 +199,55 @@ const fetchPositions = async (
     // balance = 0) and clamp displayed balance to `min(routerBalance,
     // chainBalance)` for partial-disposal cases so PnL never quotes against
     // tokens the wallet doesn't actually hold.
+    //
+    // The lookup is scoped to the token addresses we actually have positions
+    // for — a wallet that holds many non-bot tokens would otherwise crowd the
+    // bot-relevant rows out of a global limit and surface them as phantom 0n
+    // entries.
+    const openTokenAddresses = Array.from(
+      new Set(
+        items
+          .filter(isWalletBotPositionRow)
+          .filter((row) => BigInt(row.tokenBalance) > 0n)
+          .map((row) => row.token.toLowerCase()),
+      ),
+    );
     const chainBalanceByToken = new Map<string, bigint>();
-    for (const tb of result.tokenBalances?.items ?? []) {
-      chainBalanceByToken.set(
-        tb.tokenAddress.toLowerCase(),
-        BigInt(tb.balance),
+    if (openTokenAddresses.length > 0) {
+      const balancesResult = await queryPonder<{
+        tokenBalances: { items: PonderTokenBalance[] } | null;
+      }>(
+        `query ($wallet: String!, $tokens: [String!]!, $limit: Int!) {
+          tokenBalances(
+            where: { wallet: $wallet, tokenAddress_in: $tokens, balance_gt: "0" }
+            limit: $limit
+          ) {
+            items {
+              tokenAddress
+              balance
+            }
+          }
+        }`,
+        { wallet, tokens: openTokenAddresses, limit: PAGE_SIZE },
       );
+      for (const tb of balancesResult?.tokenBalances?.items ?? []) {
+        // Validate the row before BigInt-converting — a single malformed
+        // balance (non-digit characters, missing field) would otherwise throw
+        // and the outer catch would wipe both `open` and `realised` to empty
+        // arrays.
+        if (
+          !tb ||
+          typeof tb.tokenAddress !== "string" ||
+          typeof tb.balance !== "string" ||
+          !/^[0-9]+$/.test(tb.balance)
+        ) {
+          continue;
+        }
+        chainBalanceByToken.set(
+          tb.tokenAddress.toLowerCase(),
+          BigInt(tb.balance),
+        );
+      }
     }
 
     const open: OpenPosition[] = [];

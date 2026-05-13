@@ -219,6 +219,34 @@ function sellEvent(
   });
 }
 
+/**
+ * The /bot/positions route fetches positions in one GraphQL query and the
+ * chain-balance map in a second query scoped to the open token addresses.
+ * Route both calls to the right response shape. Mirroring production
+ * `balance_gt: "0"` semantics, the chain-balance fixture only includes the
+ * token when the indexer's `tokenBalance` would actually be > 0.
+ */
+const mockPositionsAndBalance = (row: Record<string, unknown>): void => {
+  mockPonderQuery.mockImplementation((query: string) => {
+    if (query.includes("walletBotPositions")) {
+      return Promise.resolve({
+        walletBotPositions: {
+          items: [serialiseRow(row, POSITION_BIGINTS)],
+        },
+      });
+    }
+    if (query.includes("tokenBalances")) {
+      const balance = row.tokenBalance as bigint;
+      const items =
+        balance > 0n
+          ? [{ tokenAddress: TOKEN_ADDR, balance: balance.toString() }]
+          : [];
+      return Promise.resolve({ tokenBalances: { items } });
+    }
+    return Promise.resolve(null);
+  });
+};
+
 interface PositionsResponseBody {
   data: {
     open: Array<{
@@ -302,19 +330,7 @@ describe("BotRouterTrade → /api/v1/bot/positions (integration)", () => {
     const archive = db._insertCalls.find((c) => c.table === botRouterTrade);
     expect(archive).toBeDefined();
 
-    mockPonderQuery.mockResolvedValue({
-      walletBotPositions: {
-        items: [serialiseRow(row!, POSITION_BIGINTS)],
-      },
-      tokenBalances: {
-        items: [
-          {
-            tokenAddress: TOKEN_ADDR,
-            balance: (row!.tokenBalance as bigint).toString(),
-          },
-        ],
-      },
-    });
+    mockPositionsAndBalance(row!);
 
     const res = await positionsApp().request(
       `/bot/positions/${TRADER}`,
@@ -361,19 +377,7 @@ describe("BotRouterTrade → /api/v1/bot/positions (integration)", () => {
       totalProceedsUsdc: 25_000_000n,
     });
 
-    mockPonderQuery.mockResolvedValue({
-      walletBotPositions: {
-        items: [serialiseRow(row!, POSITION_BIGINTS)],
-      },
-      tokenBalances: {
-        items: [
-          {
-            tokenAddress: TOKEN_ADDR,
-            balance: (row!.tokenBalance as bigint).toString(),
-          },
-        ],
-      },
-    });
+    mockPositionsAndBalance(row!);
 
     const res = await positionsApp().request(
       `/bot/positions/${TRADER}`,
@@ -437,19 +441,7 @@ describe("BotRouterTrade → /api/v1/bot/positions (integration)", () => {
       totalProceedsUsdc: 25_000_000n,
     });
 
-    mockPonderQuery.mockResolvedValue({
-      walletBotPositions: {
-        items: [serialiseRow(row!, POSITION_BIGINTS)],
-      },
-      tokenBalances: {
-        items: [
-          {
-            tokenAddress: TOKEN_ADDR,
-            balance: (row!.tokenBalance as bigint).toString(),
-          },
-        ],
-      },
-    });
+    mockPositionsAndBalance(row!);
 
     const res = await positionsApp().request(
       `/bot/positions/${TRADER}`,
