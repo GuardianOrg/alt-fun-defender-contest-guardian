@@ -508,23 +508,35 @@
 
 /* ---------- Creator Rewards ---------- */
 
-/* Summary block above the rewards table — stacks the two figures
- * a creator cares about (claimable + total earned), the claim CTA,
- * an optional "Confirm in wallet…" indicator while the tx is in
- * flight, and the lifetime claimed total below a divider so the
- * historical figure never competes with the live numbers above. */
+/* Summary block above the rewards table. Three vertical zones,
+ * each centered horizontally on the panel:
+ *   1. Hero — the live `claimable` figure (mint), the eye-catcher.
+ *   2. CTA — the `Claim $X USDC` button capped at 32rem so it
+ *      doesn't read as an "intensely wide" bar on the wide profile
+ *      panel; the optional "Confirm in wallet…" indicator sits
+ *      inside the same wrapper so it tracks the button width.
+ *   3. Stats — `total earned` + `previously claimed` in a matched
+ *      two-column grid below a divider, capped to the same 32rem
+ *      so all three zones share one centered vertical axis.
+ *      Sharing one stat treatment means both historical figures
+ *      read as siblings of each other rather than the previous
+ *      mismatch (centered column-block vs. row-with-space-between
+ *      strip below the button). */
 .rewardsSummary {
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
-  padding: 1.6rem;
+  align-items: center;
+  gap: 1.6rem;
+  padding: 2.4rem 1.6rem;
   border-bottom: 1px solid var(--border);
 }
 
-.rewardsGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.6rem;
+.rewardsHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
 }
 
 .rewardsLabel {
@@ -533,27 +545,34 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--txt-3);
-  margin-bottom: 0.4rem;
 }
 
-/* Claimable is the call-to-action number — mint to mirror the
- * Claim button so the eye links the two. Total earned is the calmer
- * historical figure, rendered in the panel's primary text colour. */
-.rewardsClaimable,
-.rewardsTotalEarned {
+/* Hero claimable figure — bigger than the secondary stats below so
+ * the visual hierarchy reads claim-this-now → click-here → context.
+ * Mint colour mirrors the Claim button so the eye links the two. */
+.rewardsClaimable {
   font-family: var(--font-mono);
-  font-size: 24px;
+  font-size: 32px;
+  line-height: 1;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
-}
-
-.rewardsClaimable {
   color: var(--mint);
 }
 
-.rewardsTotalEarned {
-  color: var(--txt);
+/* CTA wrapper — caps the claim button width at 32rem on wider
+ * viewports (the profile panel runs the full content column at
+ * desktop widths, easily 1000px+). Without the cap, `Button
+ * fullWidth` would span the entire panel and read as an "intensely
+ * wide" bar disproportionate to the figure above it. `width: 100%`
+ * lets it shrink below the cap on narrow viewports. */
+.rewardsCtaWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 32rem;
 }
 
 /* Inline "Confirm in wallet…" status with a pulsing mint dot —
@@ -577,24 +596,37 @@
   animation: livep 2s ease-in-out infinite;
 }
 
-.prevClaimed {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--txt-3);
-  padding-top: 0.8rem;
+/* Secondary stats grid — `total earned` + `previously claimed`.
+ * Two equal columns so both historical figures share an identical
+ * label/value treatment. The grid sits under a divider and is
+ * width-capped to the same 32rem as the CTA above so all three
+ * zones (hero / CTA / stats) share one centered axis. */
+.rewardsStats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.6rem;
+  width: 100%;
+  max-width: 32rem;
+  padding-top: 1.6rem;
   border-top: 1px solid var(--border);
 }
 
-.prevClaimedValue {
-  color: var(--txt-2);
+.rewardsStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.4rem;
+}
+
+.rewardsStatValue {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--txt);
   font-variant-numeric: tabular-nums;
-  text-transform: none;
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
 }
 
 /* Rewards table — mirrors `.balanceHeader` / `.balanceRow` exactly

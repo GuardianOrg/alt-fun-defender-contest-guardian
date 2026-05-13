@@ -443,13 +443,17 @@ function BalanceRowSkeleton() {
 /* ---------- Creator Rewards sub-components ---------- */
 
 /**
- * Summary strip above the per-token list. Surfaces the two figures
- * a creator checks most often (`claimable` and `total earned`),
- * exposes a single-call drain via `Claim $X USDC`, and tucks the
- * historic `previously claimed` total beneath a divider so it never
- * competes with the live numbers above. Mirrors the EarningsPanel
- * `RewardsTab` semantically; visuals are tuned for the wider Profile
- * panel.
+ * Summary strip above the per-token list. The hero is the live
+ * `Claimable` figure — a centered, mint-coloured number that
+ * visually couples to the `Claim $X USDC` CTA directly below it.
+ * The CTA is capped at `--rewards-cta-max` so it never spans the
+ * full width of the (wide) profile panel; capping keeps the button
+ * proportional to the hero number rather than reading as an
+ * "intensely wide" bar at desktop widths. The historical figures
+ * (`total earned` + `previously claimed`) sit below a divider in a
+ * matched two-column grid so both secondary stats render with the
+ * same label/value treatment instead of one being a centered
+ * column-block and the other a row-with-space-between strip.
  */
 interface RewardsSummaryProps {
   totalClaimable: number;
@@ -468,47 +472,49 @@ function RewardsSummary({
 }: RewardsSummaryProps) {
   return (
     <div className={styles.rewardsSummary}>
-      <div className={styles.rewardsGrid}>
-        <div>
-          <div className={styles.rewardsLabel}>claimable</div>
-          <div className={styles.rewardsClaimable}>
-            ${totalClaimable.toFixed(2)}
-          </div>
-        </div>
-        <div>
-          <div className={styles.rewardsLabel}>total earned</div>
-          <div className={styles.rewardsTotalEarned}>
-            ${totalEarned.toFixed(2)}
-          </div>
+      <div className={styles.rewardsHero}>
+        <div className={styles.rewardsLabel}>claimable</div>
+        <div className={styles.rewardsClaimable}>
+          ${totalClaimable.toFixed(2)}
         </div>
       </div>
 
-      <Button
-        variant="primary"
-        fullWidth
-        busy={claiming}
-        disabled={totalClaimable <= 0}
-        onClick={onClaim}
-      >
-        {claiming
-          ? "Claiming\u2026"
-          : totalClaimable > 0
-            ? `Claim $${totalClaimable.toFixed(2)} USDC`
-            : "Nothing to claim"}
-      </Button>
+      <div className={styles.rewardsCtaWrap}>
+        <Button
+          variant="primary"
+          fullWidth
+          busy={claiming}
+          disabled={totalClaimable <= 0}
+          onClick={onClaim}
+        >
+          {claiming
+            ? "Claiming\u2026"
+            : totalClaimable > 0
+              ? `Claim $${totalClaimable.toFixed(2)} USDC`
+              : "Nothing to claim"}
+        </Button>
 
-      {claiming && (
-        <div className={styles.claimingIndicator}>
-          <div className={styles.claimingDot} />
-          Confirm in wallet&hellip;
+        {claiming && (
+          <div className={styles.claimingIndicator}>
+            <div className={styles.claimingDot} />
+            Confirm in wallet&hellip;
+          </div>
+        )}
+      </div>
+
+      <div className={styles.rewardsStats}>
+        <div className={styles.rewardsStat}>
+          <div className={styles.rewardsLabel}>total earned</div>
+          <div className={styles.rewardsStatValue}>
+            ${totalEarned.toFixed(2)}
+          </div>
         </div>
-      )}
-
-      <div className={styles.prevClaimed}>
-        <span>previously claimed</span>
-        <span className={styles.prevClaimedValue}>
-          ${totalClaimed.toFixed(2)}
-        </span>
+        <div className={styles.rewardsStat}>
+          <div className={styles.rewardsLabel}>previously claimed</div>
+          <div className={styles.rewardsStatValue}>
+            ${totalClaimed.toFixed(2)}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -517,17 +523,23 @@ function RewardsSummary({
 function RewardsSummarySkeleton() {
   return (
     <div className={styles.rewardsSummary} aria-hidden="true">
-      <div className={styles.rewardsGrid}>
-        <div>
-          <div className={styles.rewardsLabel}>claimable</div>
-          <Skeleton width="6rem" height="2rem" />
-        </div>
-        <div>
+      <div className={styles.rewardsHero}>
+        <div className={styles.rewardsLabel}>claimable</div>
+        <Skeleton width="8rem" height="2.4rem" />
+      </div>
+      <div className={styles.rewardsCtaWrap}>
+        <Skeleton shape="block" width="100%" height="3rem" radius="3px" />
+      </div>
+      <div className={styles.rewardsStats}>
+        <div className={styles.rewardsStat}>
           <div className={styles.rewardsLabel}>total earned</div>
-          <Skeleton width="6rem" height="2rem" />
+          <Skeleton width="5rem" height="1.4rem" />
+        </div>
+        <div className={styles.rewardsStat}>
+          <div className={styles.rewardsLabel}>previously claimed</div>
+          <Skeleton width="5rem" height="1.4rem" />
         </div>
       </div>
-      <Skeleton shape="block" width="100%" height="3rem" radius="3px" />
     </div>
   );
 }

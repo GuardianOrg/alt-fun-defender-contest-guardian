@@ -35,22 +35,16 @@ export default function RewardsTab({
   onTokenClick,
   onLaunch,
 }: Props) {
-  // Loading state mirrors the live layout (summary card + per-token cards)
+  // Loading state mirrors the live layout (hero + CTA + 2-col stats)
   // so users get a shaped placeholder instead of the "No tokens created
   // yet" empty state flashing while the first fetch is still in flight.
   if (isLoading && !earnings) {
     return (
       <div aria-busy="true" aria-label="Loading creator rewards">
         <div className={styles.rewardsSummary}>
-          <div className={styles.rewardsGrid}>
-            <div>
-              <div className={styles.rewardsLabel}>claimable</div>
-              <Skeleton width="5rem" height="1.5rem" />
-            </div>
-            <div>
-              <div className={styles.rewardsLabel}>total earned</div>
-              <Skeleton width="5rem" height="1.5rem" />
-            </div>
+          <div className={styles.rewardsHero}>
+            <div className={styles.rewardsLabel}>claimable</div>
+            <Skeleton width="6rem" height="1.75rem" />
           </div>
           <Skeleton
             shape="block"
@@ -58,6 +52,16 @@ export default function RewardsTab({
             height="2.4rem"
             radius="2px"
           />
+          <div className={styles.rewardsStats}>
+            <div className={styles.rewardsStat}>
+              <div className={styles.rewardsLabel}>total earned</div>
+              <Skeleton width="4rem" height="1.125rem" />
+            </div>
+            <div className={styles.rewardsStat}>
+              <div className={styles.rewardsLabel}>previously claimed</div>
+              <Skeleton width="4rem" height="1.125rem" />
+            </div>
+          </div>
         </div>
 
         <div className={styles.tokensSection}>
@@ -121,18 +125,10 @@ export default function RewardsTab({
   return (
     <>
       <div className={styles.rewardsSummary}>
-        <div className={styles.rewardsGrid}>
-          <div>
-            <div className={styles.rewardsLabel}>claimable</div>
-            <div className={styles.rewardsClaimable}>
-              ${earnings.totalClaimable.toFixed(2)}
-            </div>
-          </div>
-          <div>
-            <div className={styles.rewardsLabel}>total earned</div>
-            <div className={styles.rewardsTotalEarned}>
-              ${earnings.totalEarned.toFixed(2)}
-            </div>
+        <div className={styles.rewardsHero}>
+          <div className={styles.rewardsLabel}>claimable</div>
+          <div className={styles.rewardsClaimable}>
+            ${earnings.totalClaimable.toFixed(2)}
           </div>
         </div>
 
@@ -157,11 +153,19 @@ export default function RewardsTab({
           </div>
         )}
 
-        <div className={styles.prevClaimed}>
-          <span>previously claimed</span>
-          <span className={styles.prevClaimedValue}>
-            ${earnings.totalClaimed.toFixed(2)}
-          </span>
+        <div className={styles.rewardsStats}>
+          <div className={styles.rewardsStat}>
+            <div className={styles.rewardsLabel}>total earned</div>
+            <div className={styles.rewardsStatValue}>
+              ${earnings.totalEarned.toFixed(2)}
+            </div>
+          </div>
+          <div className={styles.rewardsStat}>
+            <div className={styles.rewardsLabel}>previously claimed</div>
+            <div className={styles.rewardsStatValue}>
+              ${earnings.totalClaimed.toFixed(2)}
+            </div>
+          </div>
         </div>
       </div>
 

@@ -275,19 +275,32 @@
 
 /* ─── Creator Rewards tab ─── */
 
+/* Three centered vertical zones — hero `claimable` figure, the
+ * `Claim $X USDC` CTA, then a matched two-column grid pairing
+ * `total earned` with `previously claimed`. Sharing one stat
+ * treatment for the two historical figures is what unifies this
+ * surface; previously `previously claimed` rendered as a
+ * row-with-space-between strip below the button while `total
+ * earned` was a centered column block, which is what the issue is
+ * pointing at. The narrow side-panel keeps the CTA `fullWidth`
+ * (the panel itself is only 380px so it never reads as
+ * disproportionate); the wider profile-page variant in
+ * `ProfileView.module.css` caps the CTA width separately. */
 .rewardsSummary {
-  padding-left: 1.2rem;
-  padding-right: 1.2rem;
-  padding-top: 1.2rem;
-  padding-bottom: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+  padding: 1.2rem;
   border-bottom: 1px solid var(--border);
 }
 
-.rewardsGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1.2rem;
-  margin-bottom: 1.2rem;
+.rewardsHero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.4rem;
 }
 
 .rewardsLabel {
@@ -295,26 +308,14 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--txt-3);
-  margin-bottom: 0.2rem;
 }
 
 .rewardsClaimable {
   font-family: var(--font-display);
-  font-size: 1.5rem;
-  line-height: 2rem;
+  font-size: 1.75rem;
+  line-height: 1;
   font-weight: 700;
   color: var(--mint);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-
-.rewardsTotalEarned {
-  font-family: var(--font-display);
-  font-size: 1.5rem;
-  line-height: 2rem;
-  font-weight: 700;
-  color: var(--txt);
-  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
@@ -325,7 +326,6 @@
   gap: 0.6rem;
   font-size: 11px;
   color: var(--txt-3);
-  margin-top: 0.6rem;
 }
 
 .claimingDot {
@@ -336,19 +336,29 @@
   animation: livep 2s ease-in-out infinite;
 }
 
-.prevClaimed {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--txt-3);
-  margin-top: 0.8rem;
-  padding-top: 0.6rem;
+.rewardsStats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.8rem;
+  width: 100%;
+  padding-top: 1rem;
   border-top: 1px solid var(--border);
 }
 
-.prevClaimedValue {
-  color: var(--txt-2);
+.rewardsStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.3rem;
+}
+
+.rewardsStatValue {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--txt);
   font-variant-numeric: tabular-nums;
 }
 
