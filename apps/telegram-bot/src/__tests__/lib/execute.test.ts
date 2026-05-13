@@ -268,7 +268,7 @@ describe("renderConfirmReply", () => {
         minOut: 1n,
       },
     });
-    expect(reply).toContain("Buy submitted for TEST");
+    expect(reply).toContain("Buy confirmed for TEST");
     expect(reply).toContain("hyperevmscan.io/tx/0xdeadbeef");
   });
 

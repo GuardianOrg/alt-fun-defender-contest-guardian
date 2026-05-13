@@ -204,9 +204,13 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   }
   const { result, ticker, side } = outcome;
   if (result.ok) {
+    // Receipt-confirmed success — `executeBuy` / `executeSell` only flip
+    // `ok` to true after waitForTransactionReceipt returns status=success,
+    // so this branch is safe to label "confirmed". A reverted tx never
+    // lands here even though sendTransaction returned a hash.
     const verb = side === "buy" ? "Buy" : "Sell";
     return (
-      `✅ <b>${verb} submitted for ${ticker}</b>\n\n` +
+      `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
       `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
