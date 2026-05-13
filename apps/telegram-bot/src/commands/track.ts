@@ -352,8 +352,11 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleTrackBuy(ctx, parsed.args[0]).catch((err) => {
+    await handleTrackBuy(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("track buy handler failed", { err });
+      // Always ack so the user's callback spinner doesn't hang. The
+      // inner handler may have thrown before reaching its own ack.
+      await ctx.answerCallbackQuery().catch(() => {});
     });
   });
 
@@ -363,8 +366,9 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleTrackSell(ctx, parsed.args[0]).catch((err) => {
+    await handleTrackSell(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("track sell handler failed", { err });
+      await ctx.answerCallbackQuery().catch(() => {});
     });
   });
 };
