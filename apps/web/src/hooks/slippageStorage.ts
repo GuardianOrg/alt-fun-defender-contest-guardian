@@ -32,7 +32,10 @@ export function readSlippageFromStorage(): number {
   try {
     const raw = window.localStorage.getItem(SLIPPAGE_STORAGE_KEY);
     if (raw === null) return DEFAULT_SLIPPAGE;
-    const parsed = parseFloat(raw);
+    // `Number(raw)` rather than `parseFloat(raw)` so a tampered value
+    // like `"0.1abc"` rejects cleanly. `parseFloat` would happily strip
+    // the trailing garbage and accept the `0.1` prefix.
+    const parsed = Number(raw.trim());
     return clampSlippage(parsed) ?? DEFAULT_SLIPPAGE;
   } catch {
     return DEFAULT_SLIPPAGE;

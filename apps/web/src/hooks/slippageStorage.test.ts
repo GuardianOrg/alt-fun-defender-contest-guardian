@@ -66,6 +66,15 @@ describe("slippage storage", () => {
     expect(readSlippageFromStorage()).toBe(DEFAULT_SLIPPAGE);
   });
 
+  // Regression guard: `parseFloat("0.1abc")` returns `0.1` (it strips the
+  // trailing garbage), so a tampered entry could otherwise sneak past the
+  // validator. We use `Number(...)` instead, which rejects the entire
+  // string if any non-numeric tail is present.
+  it("rejects values with trailing non-numeric characters", () => {
+    window.localStorage.setItem(SLIPPAGE_STORAGE_KEY, "0.1abc");
+    expect(readSlippageFromStorage()).toBe(DEFAULT_SLIPPAGE);
+  });
+
   // A `0` value would route trades with zero slippage and effectively make
   // every quote unfillable. `Infinity`/`NaN` are similarly degenerate. All
   // three must fall back to the default rather than be honoured.

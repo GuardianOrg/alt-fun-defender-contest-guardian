@@ -25,7 +25,12 @@ export function useSlippage(): [number, (next: number) => void] {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handler = (e: StorageEvent) => {
-      if (e.key !== SLIPPAGE_STORAGE_KEY) return;
+      // `StorageEvent.key` is `null` when another tab calls
+      // `localStorage.clear()` — the spec uses null to signal a wholesale
+      // wipe. Treating null as "ours might have been touched" makes us
+      // re-read storage and fall back to the default if our key was in
+      // the cleared batch, rather than leaving stale state in place.
+      if (e.key !== null && e.key !== SLIPPAGE_STORAGE_KEY) return;
       setSlippageState(readSlippageFromStorage());
     };
     window.addEventListener("storage", handler);
