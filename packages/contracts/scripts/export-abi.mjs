@@ -15,6 +15,7 @@ const contracts = [
   "Zap",
   "LPLock",
   "FeeVault",
+  "BotFeeRouter",
 ];
 
 if (!existsSync(abiDir)) {

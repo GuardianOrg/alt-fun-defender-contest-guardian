@@ -1,121 +1,401 @@
-/**
- * BotFeeRouter — external bot operator's fee-skimming router that wraps
- * Alt Fun's Zap. Spec lives in `apps/telegram-bot/AGENTS.md → Bot Fee Model`.
- * The contract is owned and deployed by the bot team, not by Alt Fun, and is
- * not in this repo's `packages/contracts/`. This ABI is hand-derived from the
- * functional spec — when the canonical Solidity source lands, regenerate from
- * Foundry artifacts via the same export-abi flow used for `Zap`, etc.
- *
- * Only the surface the telegram bot needs is included:
- *   - `sellWithBotFee` / `sellWithBotFeePermit` — for `simulateContract` sell
- *     quotes (issue #686) and eventual tx submission.
- *   - `buyWithBotFee`  / `buyWithBotFeePermit`  — symmetric, for buy flow.
- *   - `BotRouterTrade` / `ReferralPaid` events — consumed by the indexer.
- */
 export const BotFeeRouterAbi = [
   {
-    type: "function",
-    name: "buyWithBotFee",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "usdcAmount", type: "uint256" },
-      { name: "minTokensOut", type: "uint256" },
-      { name: "referrer", type: "address" },
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "zap_",
+        "type": "address",
+        "internalType": "contract IZap"
+      },
+      {
+        "name": "usdc_",
+        "type": "address",
+        "internalType": "contract IERC20"
+      },
+      {
+        "name": "treasury_",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
-    outputs: [{ name: "tokensOut", type: "uint256" }],
+    "stateMutability": "nonpayable"
   },
   {
-    type: "function",
-    name: "buyWithBotFeePermit",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "usdcAmount", type: "uint256" },
-      { name: "minTokensOut", type: "uint256" },
-      { name: "referrer", type: "address" },
-      { name: "deadline", type: "uint256" },
-      { name: "v", type: "uint8" },
-      { name: "r", type: "bytes32" },
-      { name: "s", type: "bytes32" },
+    "type": "function",
+    "name": "BOT_FEE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
-    outputs: [{ name: "tokensOut", type: "uint256" }],
+    "stateMutability": "view"
   },
   {
-    type: "function",
-    name: "sellWithBotFee",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "tokenAmount", type: "uint256" },
-      { name: "minUsdcOut", type: "uint256" },
-      { name: "referrer", type: "address" },
+    "type": "function",
+    "name": "BPS_DENOM",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
-    outputs: [{ name: "usdcOut", type: "uint256" }],
+    "stateMutability": "view"
   },
   {
-    type: "function",
-    name: "sellWithBotFeePermit",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "token", type: "address" },
-      { name: "tokenAmount", type: "uint256" },
-      { name: "minUsdcOut", type: "uint256" },
-      { name: "referrer", type: "address" },
-      { name: "deadline", type: "uint256" },
-      { name: "v", type: "uint8" },
-      { name: "r", type: "bytes32" },
-      { name: "s", type: "bytes32" },
+    "type": "function",
+    "name": "REFERRER_SHARE_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
     ],
-    outputs: [{ name: "usdcOut", type: "uint256" }],
+    "stateMutability": "view"
   },
   {
-    type: "function",
-    name: "botFeeBps",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint16" }],
-  },
-  {
-    type: "function",
-    name: "referrerShareBps",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "uint16" }],
-  },
-  {
-    type: "function",
-    name: "treasury",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ name: "", type: "address" }],
-  },
-  {
-    type: "event",
-    name: "BotRouterTrade",
-    inputs: [
-      { indexed: true, name: "trader", type: "address" },
-      { indexed: true, name: "token", type: "address" },
-      { indexed: false, name: "side", type: "uint8" },
-      { indexed: false, name: "usdcAmount", type: "uint256" },
-      { indexed: false, name: "tokenAmount", type: "uint256" },
-      { indexed: false, name: "botFee", type: "uint256" },
-      { indexed: true, name: "referrer", type: "address" },
-      { indexed: false, name: "referrerCut", type: "uint256" },
-      { indexed: false, name: "treasuryCut", type: "uint256" },
+    "type": "function",
+    "name": "buyWithBotFee",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referrer",
+        "type": "address",
+        "internalType": "address"
+      }
     ],
-    anonymous: false,
+    "outputs": [
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
   {
-    type: "event",
-    name: "ReferralPaid",
-    inputs: [
-      { indexed: true, name: "referrer", type: "address" },
-      { indexed: true, name: "user", type: "address" },
-      { indexed: false, name: "amount", type: "uint256" },
-      { indexed: true, name: "token", type: "address" },
-      { indexed: false, name: "side", type: "uint8" },
+    "type": "function",
+    "name": "buyWithBotFeePermit",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referrer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
     ],
-    anonymous: false,
+    "outputs": [
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   },
+  {
+    "type": "function",
+    "name": "sellWithBotFee",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minUsdcOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referrer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "usdcOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sellWithBotFeePermit",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minUsdcOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referrer",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "usdcOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "treasury",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "zap",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IZap"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "BotRouterTrade",
+    "inputs": [
+      {
+        "name": "trader",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "side",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "usdcAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "tokenAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "botFee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "referrer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "referrerCut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "treasuryCut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ReferralPaid",
+    "inputs": [
+      {
+        "name": "referrer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "user",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "side",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ZeroAddress",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ZeroAmount",
+    "inputs": []
+  }
 ] as const;
