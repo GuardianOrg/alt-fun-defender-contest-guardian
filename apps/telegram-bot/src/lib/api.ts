@@ -194,8 +194,9 @@ export const fetchBalances = async (
     : { ok: false, kind: "unknown" };
 };
 
+// JSON payloads never carry `undefined`; accept only `null` or a number.
 const isOptionalNumber = (v: unknown): boolean =>
-  v === null || v === undefined || typeof v === "number";
+  v === null || typeof v === "number";
 
 const isTokenInfo = (v: unknown): v is TokenInfo => {
   if (!v || typeof v !== "object") return false;
