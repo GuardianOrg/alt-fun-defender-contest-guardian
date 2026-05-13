@@ -15,6 +15,23 @@ import type { CandlestickData, Time } from "lightweight-charts";
  * testing. The `value` is whatever scale the candles are stored at —
  * either market cap (price × supply) or per-token USD price; the helper is
  * unit-agnostic.
+ *
+ * Bucket-boundary carry-forward: when this call opens a new bucket, the
+ * new candle's `open` is anchored to the previous bucket's `close` (the
+ * most recent known price), NOT to the incoming `value`. This mirrors
+ * the synthetic boundary-tick logic that `buildPriceTimeline` emits on
+ * the API side (see `apps/api/src/routes/chart.ts` and PRs #662 / #664).
+ * Without the carry-forward, a trade WS event whose block timestamp
+ * crosses a bucket boundary BEFORE the next LtTicker WS tick lands —
+ * which happens whenever the trade callback fires first in the
+ * JS event loop, common on 5 s / 15 s / 30 s candles — would set
+ * `open = post-trade price`. The previous candle's close still sits at
+ * the pre-trade price, so the chart renders the new bucket as a tiny
+ * horizontal line "jumping" with no body and no visible link back to
+ * the previous candle's tail. The carry-forward bridges that gap so a
+ * live trade produces the same green/red body the historical
+ * backfill draws. Refreshing the page used to "fix" the gap because
+ * the snapshot pass is already boundary-corrected on the server.
  */
 export function mergePriceIntoCandles(
   prev: CandlestickData[],
@@ -41,13 +58,21 @@ export function mergePriceIntoCandles(
   const lastTime = last.time as number;
 
   if (bucketTs > lastTime) {
+    // Carry-forward the previous bucket's close as the new bucket's open
+    // so a trade that crosses the boundary doesn't produce a flat doji
+    // at the post-trade price with a vertical gap back to the previous
+    // candle (the "small horizontal lines instead of full candles" bug
+    // from issues #599 / #662 / #664 — fixed on the API for backfilled
+    // history, but the live aggregator was still anchoring `open` to
+    // the incoming tick value).
+    const carry = last.close as number;
     return [
       ...prev,
       {
         time: bucketTs as unknown as Time,
-        open: mcap,
-        high: mcap,
-        low: mcap,
+        open: carry,
+        high: Math.max(carry, mcap),
+        low: Math.min(carry, mcap),
         close: mcap,
       },
     ];
