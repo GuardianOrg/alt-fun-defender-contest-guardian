@@ -7,7 +7,12 @@ import { useNavigate } from "react-router";
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
-import { cn, formatPercentOrDash, formatUsdOrDash } from "../../utils/format";
+import {
+  cn,
+  formatPercentOrDash,
+  formatUsdOrDash,
+  isRecentlyDeployed,
+} from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 import AssetIcon from "../shared/AssetIcon";
@@ -28,7 +33,16 @@ export default function TokenRow({ token }: Props) {
   const isGraduating = token.status === "graduating";
   const isGraduated = token.status === "graduated";
   const isShort = token.direction === "short";
-  const up = (stats.change24h ?? 0) >= 0;
+  // For tokens launched within the last 24h, treat a null mcap / 24h-change
+  // as `0` rather than "unknown" — they can't have a meaningful 24h price
+  // comparison yet (didn't exist 24h ago) and the `/market-data` snapshot
+  // often hasn't populated their row, so the unfiltered hook value falls back
+  // to null. Older tokens keep the existing `—` placeholder so a degraded
+  // indexer remains visible. See issue #709.
+  const fresh = isRecentlyDeployed(token.createdAt);
+  const changeDisplay = stats.change24h ?? (fresh ? 0 : null);
+  const mcapDisplay = stats.mcapUsd ?? (fresh ? 0 : null);
+  const up = (changeDisplay ?? 0) >= 0;
   // Width math renders `null` (unknown) as an empty bar — we can't guess
   // progress, so we show none. The text-only sites use `formatCurveFilled`
   // which renders `—` instead.
@@ -70,7 +84,7 @@ export default function TokenRow({ token }: Props) {
       tabIndex={0}
       onClick={handleNavigate}
       onKeyDown={handleKeyDown}
-      aria-label={`${token.name} — ${formatPercentOrDash(stats.change24h)} — market cap ${formatUsdOrDash(stats.mcapUsd)}`}
+      aria-label={`${token.name} — ${formatPercentOrDash(changeDisplay)} — market cap ${formatUsdOrDash(mcapDisplay)}`}
     >
       <div className={styles.tokenCell}>
         <div className={styles.iconWrap}>
@@ -128,7 +142,7 @@ export default function TokenRow({ token }: Props) {
             up ? styles.changeUp : styles.changeDown,
           )}
         >
-          {formatPercentOrDash(stats.change24h)}
+          {formatPercentOrDash(changeDisplay)}
         </span>
       </div>
 
@@ -145,9 +159,7 @@ export default function TokenRow({ token }: Props) {
 
       {/* MCAP */}
       <div className={styles.mcapCell}>
-        <span className={styles.mcapValue}>
-          {formatUsdOrDash(stats.mcapUsd)}
-        </span>
+        <span className={styles.mcapValue}>{formatUsdOrDash(mcapDisplay)}</span>
       </div>
     </div>
   );
