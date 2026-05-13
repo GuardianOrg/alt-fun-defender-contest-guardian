@@ -23,6 +23,17 @@ export const USDC_CONTRACT = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
 /** ERC-20 `balanceOf(address)` function selector. */
 const BALANCE_OF_SELECTOR = "0x70a08231";
 
+/**
+ * `IBounceLeveragedToken.baseAssetBalance()` function selector. Returns
+ * the LT's idle USDC buffer available for atomic `redeem()` — see
+ * `packages/contracts/src/interfaces/IBounceLeveragedToken.sol`. Used by
+ * /sell's buffer preflight: when a sell's expected USDC out exceeds this,
+ * the on-chain `redeem` reverts with `InsufficientBalance` and we cap
+ * the sell instead per AGENTS.md "BounceTech LT Integration →
+ * Buffer-limited sells".
+ */
+const BASE_ASSET_BALANCE_SELECTOR = "0x1bc865d6";
+
 interface JsonRpcResponse {
   result?: string;
   error?: { code: number; message: string };
@@ -133,3 +144,57 @@ export const fetchUsdcBalance = async (
   walletAddress: string,
 ): Promise<bigint | null> =>
   fetchErc20Balance(env, USDC_CONTRACT, walletAddress);
+
+/**
+ * Read a BounceTech Leveraged Token's idle USDC buffer via
+ * `baseAssetBalance()`. The on-chain `redeem()` consumes USDC from this
+ * buffer at trade time — a sell whose expected USDC out exceeds the
+ * buffer reverts with `InsufficientBalance`. Used as the /sell preflight
+ * cap per AGENTS.md "BounceTech LT Integration → Buffer-limited sells".
+ *
+ * Returns `null` on any RPC failure so the caller can skip the preflight
+ * and fall back to the post-tx revert path (matching every other
+ * RPC helper in this module — preflight is a UX improvement, not a
+ * correctness gate, so a transient RPC blip must not block valid sells).
+ */
+export const fetchLtBaseAssetBalance = async (
+  env: Pick<Env, "HYPEREVM_RPC_URL">,
+  ltAddress: string,
+): Promise<bigint | null> => {
+  const url = env.HYPEREVM_RPC_URL ?? DEFAULT_RPC_URL;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "eth_call",
+        params: [{ to: ltAddress, data: BASE_ASSET_BALANCE_SELECTOR }, "latest"],
+      }),
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!res.ok) return null;
+  let body: JsonRpcResponse;
+  try {
+    body = (await res.json()) as JsonRpcResponse;
+  } catch {
+    return null;
+  }
+  if (body.error || typeof body.result !== "string") return null;
+  const hex = body.result;
+  if (hex === "0x" || hex === "0x0") return 0n;
+  try {
+    return BigInt(hex);
+  } catch {
+    return null;
+  }
+};

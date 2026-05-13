@@ -77,6 +77,15 @@ export interface TokenInfo {
   volume24hUsd: number | null;
   curveFilled: number | null;
   status: string;
+  /**
+   * Address of the BounceTech Leveraged Token used as the bonding-curve
+   * reserve. Required by /sell's buffer preflight — see
+   * `commands/sell.ts` and AGENTS.md "BounceTech LT Integration →
+   * Buffer-limited sells". Optional on the wire because pre-#XYZ
+   * api builds did not expose it; in that case the preflight is
+   * skipped and the user falls back to the post-tx revert.
+   */
+  ltPair: string | null;
 }
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -358,11 +367,13 @@ export const setBotRewardsWallet = async (
 const isOptionalNumber = (v: unknown): boolean =>
   v === null || typeof v === "number";
 
-// Wire shape: mirrors `TokenInfo` but allows `volume24hUsd` to be
-// absent so older API builds that predate the field still parse.
-// `fetchToken` normalises to canonical `TokenInfo` (always `number | null`).
-type TokenInfoWire = Omit<TokenInfo, "volume24hUsd"> & {
+// Wire shape: mirrors `TokenInfo` but allows `volume24hUsd` and `ltPair`
+// to be absent so older API builds that predate those fields still parse.
+// `fetchToken` normalises to canonical `TokenInfo` (always `number | null`
+// / `string | null`).
+type TokenInfoWire = Omit<TokenInfo, "volume24hUsd" | "ltPair"> & {
   volume24hUsd?: number | null;
+  ltPair?: string | null;
 };
 
 const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
@@ -378,7 +389,10 @@ const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
     isOptionalNumber(obj.ltChange24h) &&
     (obj.volume24hUsd === undefined || isOptionalNumber(obj.volume24hUsd)) &&
     isOptionalNumber(obj.curveFilled) &&
-    typeof obj.status === "string"
+    typeof obj.status === "string" &&
+    (obj.ltPair === undefined ||
+      obj.ltPair === null ||
+      (typeof obj.ltPair === "string" && ADDRESS_RE.test(obj.ltPair)))
   );
 };
 
@@ -392,7 +406,11 @@ export const fetchToken = async (
   const wire = res.data;
   return {
     ok: true,
-    data: { ...wire, volume24hUsd: wire.volume24hUsd ?? null },
+    data: {
+      ...wire,
+      volume24hUsd: wire.volume24hUsd ?? null,
+      ltPair: wire.ltPair ?? null,
+    },
   };
 };
 

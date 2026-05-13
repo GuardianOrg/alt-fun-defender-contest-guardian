@@ -15,7 +15,7 @@ import {
   stageSell,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
-import { fetchErc20Balance } from "../lib/rpc.js";
+import { fetchErc20Balance, fetchLtBaseAssetBalance } from "../lib/rpc.js";
 import {
   estimateHoldingUsdc,
   formatToken18,
@@ -40,6 +40,24 @@ const COMBINED_FEE_RATE = 0.01;
 
 /** Required fee-summary line per AGENTS.md key constraints. */
 const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
+
+/**
+ * Headroom kept between the user's post-fee proceeds and the LT's idle
+ * USDC buffer. The LT's `redeem()` is consumed at the executed
+ * `exchangeRate()` (which can tick up between preflight and inclusion)
+ * and the gross USDC `Zap` redeems for is slightly larger than the
+ * `quotedUsdcOut` we compare against (the bot's 0.5% fee is skimmed
+ * *after* `Zap.sell` returns). 1% covers both — matches the safety
+ * factor the web client applies in `services/tradeRouter.ts`.
+ */
+const BUFFER_REQUIRED_FACTOR = 1.01;
+
+/**
+ * Multiplier on the size we cap a buffer-limited sell at. We size below
+ * the raw buffer so the on-chain `redeem` has a margin if the LT rate
+ * moves up between the preflight and the user's confirm tap.
+ */
+const BUFFER_CAP_SAFETY = 0.99;
 
 const PROMPT_HTML =
   "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
@@ -70,6 +88,18 @@ const API_UNAVAILABLE =
  */
 const PROCEEDS_UNAVAILABLE =
   "Unable to estimate proceeds right now — please try again in a moment.";
+
+/**
+ * Shown when the LT's idle USDC buffer would not even support the
+ * `MIN_USDC_SELL_AMOUNT` floor. The user has to wait for BounceTech's
+ * automation layer to replenish the buffer (~10s per AGENTS.md). Same
+ * tone as the buffer-low confirm copy so the user understands this is
+ * transient.
+ */
+const BUFFER_BELOW_MIN_HTML = (maxUsd: number): string =>
+  `❌ <b>LT buffer too low to sell.</b>\n\n` +
+  `Max sell right now is ≈$${maxUsd.toFixed(2)}, which is below the $${MIN_USDC_SELL_AMOUNT} minimum. ` +
+  `BounceTech replenishes the buffer in ~10s — try again shortly.`;
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -114,6 +144,89 @@ const sellTokenAmount = (
   const ratio = BigInt(Math.floor((targetUsdc / proceedsUsdc) * 1_000_000));
   const amount = (balance * ratio) / 1_000_000n;
   return amount === 0n ? balance : amount;
+};
+
+/**
+ * Result of the LT-buffer preflight check.
+ *
+ * `kind: "ok"` — buffer comfortably covers the planned sell; submit as-is.
+ *
+ * `kind: "capped"` — buffer cannot cover the planned proceeds. The
+ * handler must surface the reduced amount and require an explicit
+ * confirm before submitting. Includes both the original target (so the
+ * UX can show "reduced from $Y → $X") and the reduced token amount
+ * pre-sized to fit under the buffer with `BUFFER_CAP_SAFETY` headroom.
+ *
+ * `kind: "below_min"` — even the buffer-capped sell would land under
+ * `MIN_USDC_SELL_AMOUNT`. The handler must reject the trade outright
+ * with the transient-replenish copy.
+ *
+ * `kind: "skipped"` — the LT address or buffer read was unavailable
+ * (old api build with no `ltPair`, RPC blip). The handler falls back
+ * to today's post-tx revert path: the sell submits and the user sees
+ * `InsufficientBalance` mapped to the buffer-low copy in
+ * `renderExecutionError`. Preflight is a UX improvement, not a
+ * correctness gate.
+ */
+type BufferCheck =
+  | { kind: "ok" }
+  | {
+      kind: "capped";
+      reducedTokenAmount: bigint;
+      reducedProceedsUsd: number;
+      originalProceedsUsd: number;
+      bufferUsd: number;
+    }
+  | { kind: "below_min"; bufferUsd: number; maxProceedsUsd: number }
+  | { kind: "skipped" };
+
+/**
+ * Preflight the BounceTech LT idle-USDC buffer against the user's
+ * expected proceeds. When `redeem(sellAmount) > baseAssetBalance()` the
+ * on-chain tx reverts; this surfaces the cap before tx construction per
+ * AGENTS.md "Error Handling → BounceTech buffer low".
+ *
+ * Scales the token amount linearly by the buffer-vs-proceeds ratio —
+ * the curve's price impact is sub-linear, so the reduced amount is a
+ * conservative under-estimate (real proceeds will be slightly higher).
+ */
+const previewBufferCap = async (
+  env: AppContext["env"],
+  ltAddress: string | null,
+  tokenAmount: bigint,
+  proceedsUsd: number,
+): Promise<BufferCheck> => {
+  if (!ltAddress || tokenAmount === 0n || proceedsUsd <= 0) {
+    return { kind: "skipped" };
+  }
+  const bufferRaw = await fetchLtBaseAssetBalance(env, ltAddress);
+  if (bufferRaw === null) return { kind: "skipped" };
+
+  const bufferUsd = Number(bufferRaw) / 1_000_000;
+  const requiredUsd = proceedsUsd * BUFFER_REQUIRED_FACTOR;
+  if (bufferUsd >= requiredUsd) return { kind: "ok" };
+
+  const reducedProceedsUsd = bufferUsd * BUFFER_CAP_SAFETY;
+  if (reducedProceedsUsd < MIN_USDC_SELL_AMOUNT) {
+    return { kind: "below_min", bufferUsd, maxProceedsUsd: reducedProceedsUsd };
+  }
+  // Scale tokenAmount × (reducedProceeds / originalProceeds). Use 1e6 ppm
+  // precision — enough resolution for the largest plausible sell and
+  // safely within bigint arithmetic.
+  const ratioPpm = BigInt(
+    Math.floor((reducedProceedsUsd / proceedsUsd) * 1_000_000),
+  );
+  const reducedTokenAmount = (tokenAmount * ratioPpm) / 1_000_000n;
+  if (reducedTokenAmount === 0n) {
+    return { kind: "below_min", bufferUsd, maxProceedsUsd: reducedProceedsUsd };
+  }
+  return {
+    kind: "capped",
+    reducedTokenAmount,
+    reducedProceedsUsd,
+    originalProceedsUsd: proceedsUsd,
+    bufferUsd,
+  };
 };
 
 /**
@@ -346,24 +459,44 @@ const sellCustomConversation = async (
     }
 
     const tokenRaw = sellTokenAmount(tokenBalance, amount, quote.proceedsUsd);
+    const buffer = await conversation.external((outerCtx) =>
+      previewBufferCap(outerCtx.env, token.ltPair, tokenRaw, amount),
+    );
+    if (buffer.kind === "below_min") {
+      await msgCtx.reply(BUFFER_BELOW_MIN_HTML(buffer.maxProceedsUsd), {
+        parse_mode: "HTML",
+      });
+      return;
+    }
+
+    const effectiveTokenRaw =
+      buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenRaw;
+    const effectiveProceedsUsd =
+      buffer.kind === "capped" ? buffer.reducedProceedsUsd : amount;
+
     const { nonce } = await conversation.external(
       (outerCtx): { nonce: string } =>
         stageSell({
           ctx: outerCtx,
           token: token.address,
           ticker: token.ticker,
-          tokenRaw,
+          tokenRaw: effectiveTokenRaw,
         }),
     );
-    await msgCtx.reply(
-      `✅ <b>Ready to sell $${amount.toFixed(2)} USDC worth of ${token.ticker}</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`,
-      {
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
-      },
-    );
+    const header =
+      buffer.kind === "capped"
+        ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
+          `(reduced from $${amount.toFixed(2)}).\n` +
+          `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
+          `<i>${FEE_SUMMARY}</i>\n\n` +
+          `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
+        : `✅ <b>Ready to sell $${amount.toFixed(2)} USDC worth of ${token.ticker}</b>\n\n` +
+          `<i>${FEE_SUMMARY}</i>\n\n` +
+          `Tap <b>Confirm</b> within 60s to submit.`;
+    await msgCtx.reply(header, {
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+    });
     return;
   }
 };
@@ -480,23 +613,45 @@ const handleFixedSell = async (
     return;
   }
 
-  await ctx.answerCallbackQuery();
   const tokenRaw = sellTokenAmount(tokenBalance, targetUsdc, quote.proceedsUsd);
+  const buffer = await previewBufferCap(
+    ctx.env,
+    token.ltPair,
+    tokenRaw,
+    targetUsdc,
+  );
+  if (buffer.kind === "below_min") {
+    await ctx.answerCallbackQuery({
+      text: `LT buffer too low — max sell ≈$${buffer.maxProceedsUsd.toFixed(2)} < $${MIN_USDC_SELL_AMOUNT} min. Retry in ~10s.`,
+      show_alert: true,
+    });
+    return;
+  }
+  await ctx.answerCallbackQuery();
+  const effectiveTokenRaw =
+    buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenRaw;
+  const effectiveProceedsUsd =
+    buffer.kind === "capped" ? buffer.reducedProceedsUsd : targetUsdc;
   const { nonce } = stageSell({
     ctx,
     token: token.address,
     ticker: token.ticker,
-    tokenRaw,
+    tokenRaw: effectiveTokenRaw,
   });
-  await ctx.reply(
-    `✅ <b>Ready to sell $${targetUsdc} USDC worth of ${token.ticker}</b>\n\n` +
-      `<i>${FEE_SUMMARY}</i>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.`,
-    {
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
-    },
-  );
+  const header =
+    buffer.kind === "capped"
+      ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
+        `(reduced from $${targetUsdc}).\n` +
+        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
+        `<i>${FEE_SUMMARY}</i>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
+      : `✅ <b>Ready to sell $${targetUsdc} USDC worth of ${token.ticker}</b>\n\n` +
+        `<i>${FEE_SUMMARY}</i>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit.`;
+  await ctx.reply(header, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+  });
 };
 
 /** Validate holding then show confirmation to sell the entire position. */
@@ -572,22 +727,44 @@ const handleSellAll = async (
     return;
   }
 
+  const buffer = await previewBufferCap(
+    ctx.env,
+    token.ltPair,
+    tokenBalance,
+    quote.proceedsUsd,
+  );
+  if (buffer.kind === "below_min") {
+    await ctx.answerCallbackQuery({
+      text: `LT buffer too low — max sell ≈$${buffer.maxProceedsUsd.toFixed(2)} < $${MIN_USDC_SELL_AMOUNT} min. Retry in ~10s.`,
+      show_alert: true,
+    });
+    return;
+  }
+
   await ctx.answerCallbackQuery();
+  const effectiveTokenRaw =
+    buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenBalance;
   const { nonce } = stageSell({
     ctx,
     token: token.address,
     ticker: token.ticker,
-    tokenRaw: tokenBalance,
+    tokenRaw: effectiveTokenRaw,
   });
-  await ctx.reply(
-    `✅ <b>Ready to sell all ${formatToken18(tokenBalance)} ${token.ticker}</b>\n\n` +
-      `<i>${FEE_SUMMARY}</i>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.`,
-    {
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
-    },
-  );
+  const header =
+    buffer.kind === "capped"
+      ? `⚠️ <b>Buffer low — capping sell at $${buffer.reducedProceedsUsd.toFixed(2)}</b> ` +
+        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)}).\n` +
+        `Selling ${formatToken18(effectiveTokenRaw)} of ${formatToken18(tokenBalance)} ${token.ticker}. ` +
+        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
+        `<i>${FEE_SUMMARY}</i>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
+      : `✅ <b>Ready to sell all ${formatToken18(tokenBalance)} ${token.ticker}</b>\n\n` +
+        `<i>${FEE_SUMMARY}</i>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit.`;
+  await ctx.reply(header, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+  });
 };
 
 export const registerSellCommand = (bot: Bot<AppContext>): void => {
