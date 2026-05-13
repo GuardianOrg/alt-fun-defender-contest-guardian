@@ -32,9 +32,9 @@ import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import {
-  clearWorkflowMessages,
-  pushWorkflowMessage,
-} from "../lib/workflow-stack.js";
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
@@ -79,31 +79,6 @@ const safeEditMessageText = async (
 
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
-
-/**
- * Sweep tracked transient prompts/replies for the current chat. Inside
- * a conversation, all session/api access must hop through
- * `conversation.external` — the replay-time ctx has no live env binding.
- * The chatId filter on `clearWorkflowMessages` keeps a parallel flow in
- * another chat from getting swept (the session is per-user, not per-chat).
- */
-const sweepWorkflow = async (
-  conversation: Conversation<AppContext, AppContext>,
-): Promise<void> =>
-  conversation.external(async (outer) => {
-    if (!outer.chat) return;
-    await clearWorkflowMessages(outer.session, outer.api, outer.chat.id);
-  });
-
-/** Append a transient (chatId, messageId) pair to the workflow stack. */
-const trackWorkflowMessage = async (
-  conversation: Conversation<AppContext, AppContext>,
-  messageId: number,
-): Promise<void> =>
-  conversation.external((outer) => {
-    if (!outer.chat) return;
-    pushWorkflowMessage(outer.session, outer.chat.id, messageId);
-  });
 
 /**
  * Conversation: collect token address → show buy card.

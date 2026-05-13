@@ -39,6 +39,10 @@ import {
   type Hex,
 } from "../lib/trade.js";
 import { WalletManager } from "../lib/wallet.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 /**
  * Heuristic combined fee rate applied to `priceUsd × balance` when the
@@ -292,29 +296,36 @@ const sellLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
-  await ctx.reply(PROMPT_HTML, {
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
     if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
     }
     if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
       await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
     }
 
@@ -328,14 +339,16 @@ const sellLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
+        await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -361,6 +374,7 @@ const sellLookupConversation = async (
       },
       link_preview_options: { is_disabled: true },
     });
+    await sweepWorkflow(conversation);
     return;
   }
 };
@@ -388,31 +402,39 @@ const sellCustomConversation = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
-  await ctx.reply(
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(
     "Enter a percent of your position to sell (1–100):\n\nSend /cancel to exit.",
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
     if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
     }
     if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
       await haltAndForward(conversation);
     }
 
     const percent = parsePercentInput(text);
     if (percent === null) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         "Please enter a whole number between 1 and 100 (e.g. 35).",
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
     await runPercentSell(conversation, msgCtx, tokenAddress, percent);
+    await sweepWorkflow(conversation);
     return;
   }
 };
