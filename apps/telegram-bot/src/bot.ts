@@ -32,6 +32,23 @@ export interface SessionData {
   defaultBuyUsdc: number;
   antiPhishingPhrase?: string;
   degenMode: boolean;
+  /**
+   * One-shot trade intent staged by a quick-amount button and committed
+   * by the matching Confirm callback. Per-user single slot — the next
+   * Buy/Sell button click overwrites it, which is the right UX (latest
+   * intent wins, the previous Confirm becomes a stale-nonce no-op).
+   * Stored as raw strings to round-trip through grammY's JSON session
+   * storage (bigint is not JSON-serialisable).
+   */
+  pendingTrade?: {
+    side: "buy" | "sell";
+    token: string;
+    /** USDC raw (6dp) for buy notional, token raw (18dp) for sell amount. */
+    amountRaw: string;
+    ticker: string;
+    nonce: string;
+    expiresAt: number;
+  };
 }
 
 const DEFAULT_SESSION: SessionData = {
