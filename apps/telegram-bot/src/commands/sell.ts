@@ -56,6 +56,17 @@ const TOKEN_NOT_FOUND_HTML =
 const API_UNAVAILABLE =
   "Data temporarily unavailable — try again in a moment.";
 
+/**
+ * Shown when both the `BotFeeRouter` simulation and the priceUsd
+ * heuristic come back empty (sim reverted/unavailable + no indexer
+ * price). Fail-closed: never confirm a sell whose proceeds we cannot
+ * estimate, since `MIN_USDC_SELL_AMOUNT` would otherwise be silently
+ * bypassed. Surfaces the same retry copy AGENTS.md uses for the
+ * upstream-unavailable case.
+ */
+const PROCEEDS_UNAVAILABLE =
+  "Unable to estimate proceeds right now — please try again in a moment.";
+
 const safeEditMessageText = async (
   ctx: AppContext,
   text: string,
@@ -300,7 +311,11 @@ const sellCustomConversation = async (
         token.priceUsd,
       ),
     );
-    if (quote && quote.proceedsUsd < amount) {
+    if (quote === null) {
+      await msgCtx.reply(PROCEEDS_UNAVAILABLE);
+      return;
+    }
+    if (quote.proceedsUsd < amount) {
       await msgCtx.reply(
         `Insufficient balance. Your ${formatToken18(tokenBalance)} ${token.ticker} would yield ≈$${quote.proceedsUsd.toFixed(2)} after fees.\n\nEnter a smaller amount or send /cancel.`,
       );
@@ -407,21 +422,26 @@ const handleFixedSell = async (
     active.address,
     token.priceUsd,
   );
-  if (quote) {
-    if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
-      await ctx.answerCallbackQuery({
-        text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
-        show_alert: true,
-      });
-      return;
-    }
-    if (quote.proceedsUsd < targetUsdc) {
-      await ctx.answerCallbackQuery({
-        text: `Insufficient holding: estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} < $${targetUsdc} target.`,
-        show_alert: true,
-      });
-      return;
-    }
+  if (quote === null) {
+    await ctx.answerCallbackQuery({
+      text: PROCEEDS_UNAVAILABLE,
+      show_alert: true,
+    });
+    return;
+  }
+  if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
+    await ctx.answerCallbackQuery({
+      text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
+      show_alert: true,
+    });
+    return;
+  }
+  if (quote.proceedsUsd < targetUsdc) {
+    await ctx.answerCallbackQuery({
+      text: `Insufficient holding: estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} < $${targetUsdc} target.`,
+      show_alert: true,
+    });
+    return;
   }
 
   await ctx.answerCallbackQuery();
@@ -491,7 +511,14 @@ const handleSellAll = async (
     active.address,
     token.priceUsd,
   );
-  if (quote && quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
+  if (quote === null) {
+    await ctx.answerCallbackQuery({
+      text: PROCEEDS_UNAVAILABLE,
+      show_alert: true,
+    });
+    return;
+  }
+  if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
     await ctx.answerCallbackQuery({
       text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
       show_alert: true,

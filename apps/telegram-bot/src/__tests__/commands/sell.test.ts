@@ -473,4 +473,137 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     expect(String(answer!.body.text)).toMatch(/Insufficient|< \$20/i);
     expect(String(answer!.body.text)).toContain("15.00");
   });
+
+  /**
+   * Fail-closed regression (CodeRabbit feedback on #690). When the
+   * router simulation is unavailable AND the indexer omits `priceUsd`,
+   * neither validation path can confirm proceeds ≥ MIN_USDC_SELL_AMOUNT.
+   * The handler must abort with a clear retry message rather than
+   * silently letting the trade through.
+   */
+  it("aborts Sell 20 when simulation reverts AND priceUsd is null (fail-closed)", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR,
+              name: "Test Token",
+              ticker: "TEST",
+              priceUsd: null,
+              mcapUsd: null,
+              change24h: null,
+              ltChange24h: null,
+              curveFilled: 30,
+              status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(RPC_URL)) {
+        const body = JSON.parse(
+          (init as RequestInit).body as string,
+        ) as { params: [{ to: string }, string] };
+        const to = body.params[0].to.toLowerCase();
+        if (to === ROUTER_ADDR.toLowerCase()) {
+          // Router reverts the simulation — no priceUsd to fall back on.
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              error: { code: 3, message: "execution reverted" },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000n * 10n ** 18n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(
+      /Unable to estimate proceeds|try again/i,
+    );
+    // No "Ready to sell" confirmation must have been emitted.
+    expect(send).toBeUndefined();
+  });
+
+  it("aborts Sell All when simulation reverts AND priceUsd is null (fail-closed)", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR,
+              name: "Test Token",
+              ticker: "TEST",
+              priceUsd: null,
+              mcapUsd: null,
+              change24h: null,
+              ltChange24h: null,
+              curveFilled: 30,
+              status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(RPC_URL)) {
+        const body = JSON.parse(
+          (init as RequestInit).body as string,
+        ) as { params: [{ to: string }, string] };
+        const to = body.params[0].to.toLowerCase();
+        if (to === ROUTER_ADDR.toLowerCase()) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              error: { code: 3, message: "execution reverted" },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(50_000n * 10n ** 18n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(
+      /Unable to estimate proceeds|try again/i,
+    );
+    expect(send).toBeUndefined();
+  });
 });
