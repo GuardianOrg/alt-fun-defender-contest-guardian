@@ -5,7 +5,6 @@ import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
   normaliseDefaultBuyUsdc,
-  normaliseDefaultSellUsdc,
 } from "../keyboards/buy-sell-token.js";
 import { fetchToken } from "./api.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "./rpc.js";
@@ -56,10 +55,7 @@ export const replyWithActionCard = async (
   await ctx.reply(renderSellTokenCardText(tokenResult.data, balance), {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(
-        token,
-        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
-      ),
+      inline_keyboard: buildSellTokenKeyboard(token),
     },
     link_preview_options: { is_disabled: true },
   });

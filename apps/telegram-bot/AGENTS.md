@@ -325,7 +325,7 @@ Output:
   - Position summary (token amount, cost basis from /api/v1/bot/positions)
   - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
   - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered, append "(0.1% goes to your referrer)".
-  - Quick-sell buttons: 25% | 50% | 75% | 100% | Custom
+  - Quick-sell buttons: 10% | 25% | 50% | 100% | Sell X% (custom-percent prompt, integer 1–100)
   - Confirm button (if confirmations enabled)
 
 Effects:

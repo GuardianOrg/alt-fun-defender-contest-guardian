@@ -9,7 +9,6 @@ import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
   normaliseDefaultBuyUsdc,
-  normaliseDefaultSellUsdc,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import type { InlineKeyboard } from "../keyboards/wallet-actions.js";
@@ -370,10 +369,7 @@ const handleTrackSell = async (
   await ctx.reply(renderSellTokenCardText(tokenResult.data, tokenBalance), {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(
-        tokenAddress,
-        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
-      ),
+      inline_keyboard: buildSellTokenKeyboard(tokenAddress),
     },
     link_preview_options: { is_disabled: true },
   });

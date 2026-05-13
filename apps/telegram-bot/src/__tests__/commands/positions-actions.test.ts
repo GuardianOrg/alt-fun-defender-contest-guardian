@@ -144,7 +144,7 @@ describe("positions Buy/Sell callbacks (pb / ps)", () => {
       inline_keyboard: { text: string }[][];
     };
     const labels = markup.inline_keyboard.flat().map((b) => b.text);
-    expect(labels.some((t) => t.includes("Sell All"))).toBe(true);
+    expect(labels.some((t) => t === "Sell 100%")).toBe(true);
   });
 
   it("acks the callback query (no silent un-spin) when handling pb/ps", async () => {
