@@ -806,7 +806,7 @@ src/
 
 **`commands/buy.test.ts`**
 - Amount below `MIN_USDC_BUY_AMOUNT` (read from `@launchpad/shared`) → error reply, no simulation, no tx constructed
-- Valid contract address → token card rendered with name, mcap, curve fill, and fee summary line ("Bot fee 0.5% + Alt Fun fee 0.5%")
+- Valid contract address → token card rendered with name, mcap, and curve fill. The fee summary "Bot fee 0.5% + Alt Fun fee 0.5%" is **not** on the buy menu — it lands on the post-tx receipt via `renderConfirmReply` in `lib/execute.ts` (issue #801). `/help fees` carries the pre-trade breakdown.
 - Token card shows referrer line ("(0.1% goes to your referrer)") iff user has a registered referrer in KV
 - LT mint-paused (router surfaces inner Zap revert) → "Buys paused for this token" reply, no raw revert exposed, no tx constructed
 - Confirm button with expired nonce → no-op (no tx submitted)
