@@ -5,18 +5,12 @@ import {
   START_CALLBACK,
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
-import {
-  buildBuyTokenKeyboard,
-  buildSellTokenKeyboard,
-  normaliseDefaultBuyUsdc,
-  normaliseDefaultSellUsdc,
-} from "../keyboards/buy-sell-token.js";
+import { replyWithActionCard } from "../lib/action-card.js";
 import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
-import { fetchToken } from "../lib/api.js";
 import { logger } from "../lib/logger.js";
 import {
   parseActionStartParam,
@@ -28,12 +22,8 @@ import {
   writeProfile,
 } from "../lib/onboarding.js";
 import { resolveBuyUsdcUrl } from "../lib/relay.js";
-import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
-import {
-  formatUsdc6,
-  renderBuyTokenCardText,
-  renderSellTokenCardText,
-} from "../lib/token-card.js";
+import { fetchUsdcBalance } from "../lib/rpc.js";
+import { formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
@@ -133,58 +123,6 @@ const ensureActiveAddress = async (
 
 const WALLET_CREATE_FAILED =
   "Could not create your wallet — please try /start again in a moment.";
-
-const ACTION_TOKEN_OUTAGE =
-  "Token data temporarily unavailable — try again in a moment.";
-
-/**
- * Render the buy or sell card for an action deeplink payload
- * (`/start buy_<addr>` or `/start sell_<addr>`). Tapping the inline
- * `Buy` / `Sell` HTML anchor on a `/positions` entry returns the user
- * to the bot chat and fires `/start` with this payload — we route it
- * straight to the standard buy/sell card instead of re-rendering the
- * welcome screen so the click lands on the action the user picked.
- */
-const replyWithActionCard = async (
-  ctx: AppContext,
-  walletAddress: string,
-  action: "buy" | "sell",
-  token: Address,
-): Promise<void> => {
-  const [tokenResult, balance] = await Promise.all([
-    fetchToken(ctx.env, token),
-    action === "buy"
-      ? fetchUsdcBalance(ctx.env, walletAddress)
-      : fetchErc20Balance(ctx.env, token, walletAddress),
-  ]);
-  if (!tokenResult.ok) {
-    await ctx.reply(ACTION_TOKEN_OUTAGE);
-    return;
-  }
-  if (action === "buy") {
-    await ctx.reply(renderBuyTokenCardText(tokenResult.data, balance), {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildBuyTokenKeyboard(
-          token,
-          normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
-        ),
-      },
-      link_preview_options: { is_disabled: true },
-    });
-    return;
-  }
-  await ctx.reply(renderSellTokenCardText(tokenResult.data, balance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(
-        token,
-        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
-      ),
-    },
-    link_preview_options: { is_disabled: true },
-  });
-};
 
 const safeEditMessageText = async (
   ctx: AppContext,

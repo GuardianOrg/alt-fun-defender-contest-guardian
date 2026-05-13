@@ -1,11 +1,14 @@
 import type { Bot } from "grammy";
+import type { Address } from "viem";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { BOT_NAME } from "../lib/branding.js";
+import { replyWithActionCard } from "../lib/action-card.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
+  POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
+  POSITIONS_SELL_CALLBACK_CMD,
   buildPositionsPageKeyboard,
   formatBotPositionsResponse,
   renderPaginatedPage,
@@ -20,15 +23,6 @@ const INVALID_ADDRESS =
 const NON_PRIVATE_CHAT_REPLY =
   "Positions are private-DM only — open a direct chat with the bot to view your positions.";
 const NO_ACTIVE_WALLET = "No active wallet. Run /wallet to create one.";
-
-/**
- * Resolve the deeplink-friendly bot handle for the `Buy` / `Sell` HTML
- * anchors emitted next to each open position. Mirrors `referral.ts`'s
- * fallback so smoke deploys without a configured `BOT_USERNAME` still
- * render functional links.
- */
-const resolveBotUsername = (env: AppContext["env"]): string =>
-  env.BOT_USERNAME?.trim() || BOT_NAME;
 
 interface RenderedPage {
   text: string;
@@ -46,22 +40,27 @@ const renderPage = async (
   }
   if (!res.ok) return { outage: true };
 
-  const chunks = formatBotPositionsResponse(res.data, resolveBotUsername(env));
+  const pages = formatBotPositionsResponse(res.data);
   // Clamp the requested page — positions may have shrunk since the
   // button was rendered, in which case `page` could exceed the new
-  // chunk count.
-  const clamped = Math.min(Math.max(page, 0), chunks.length - 1);
-  const text = renderPaginatedPage(chunks, clamped);
-  const keyboard = buildPositionsPageKeyboard(clamped, chunks.length, wallet);
+  // page count.
+  const clamped = Math.min(Math.max(page, 0), pages.length - 1);
+  const text = renderPaginatedPage(pages, clamped);
+  const keyboard = buildPositionsPageKeyboard(
+    clamped,
+    pages.length,
+    wallet,
+    pages[clamped]!.openActions,
+  );
   return keyboard ? { text, reply_markup: keyboard } : { text };
 };
 
 /**
- * Common reply options for every `/positions` response. Body uses HTML
- * so the inline `Buy` / `Sell` anchors render as clickable text next
- * to each open position — see `formatBotPositionsResponse`. Link
- * previews are disabled because the deeplink hosts (t.me) would
- * otherwise render a redundant preview card under the message.
+ * Common reply options for `/positions`. The body contains escaped
+ * tickers (`<` / `>` / `&`) so HTML parse mode keeps an attacker-
+ * controlled symbol from injecting markup. Link previews are disabled
+ * to keep the pagination keyboard from being pushed off-screen by an
+ * incidental preview card.
  */
 const HTML_REPLY = {
   parse_mode: "HTML" as const,
@@ -191,6 +190,58 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
     },
   );
+
+  /**
+   * Per-position `[Buy <TICKER>]` / `[Sell <TICKER>]` callbacks. These
+   * replace the legacy `t.me?start=buy_<addr>` HTML anchors that
+   * shipped on each open-position line — the anchors bounced the user
+   * through Telegram's link-handler UI even inside the same bot's
+   * chat, where the username mismatch (`CortisolBot` vs the deployed
+   * `trade_cortisol_bot`) actively broke the deeplink. Callback
+   * buttons fire inline so the action card lands as the next message
+   * in the same chat with no extra navigation.
+   *
+   * Private-DM only — the action card prints USDC balance and a buy/
+   * sell keyboard scoped to the user's active wallet, which we won't
+   * surface in a group transcript.
+   */
+  const registerActionCallback = (
+    cmd: typeof POSITIONS_BUY_CALLBACK_CMD | typeof POSITIONS_SELL_CALLBACK_CMD,
+    action: "buy" | "sell",
+  ): void => {
+    bot.callbackQuery(new RegExp(`^${cmd}:`), async (ctx) => {
+      const data = ctx.callbackQuery.data ?? "";
+      const token = data.slice(cmd.length + 1);
+      if (!isAddress(token)) {
+        await ctx.answerCallbackQuery({ text: "Invalid token." });
+        return;
+      }
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery({ text: "Missing user." });
+        return;
+      }
+      if (ctx.chat?.type !== "private") {
+        await ctx.answerCallbackQuery({
+          text: NON_PRIVATE_CHAT_REPLY,
+          show_alert: true,
+        });
+        return;
+      }
+      const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
+      const active = await wm.getActive(ctx.from.id);
+      if (!active) {
+        await ctx.answerCallbackQuery({
+          text: NO_ACTIVE_WALLET,
+          show_alert: true,
+        });
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      await replyWithActionCard(ctx, active.address, action, token as Address);
+    });
+  };
+  registerActionCallback(POSITIONS_BUY_CALLBACK_CMD, "buy");
+  registerActionCallback(POSITIONS_SELL_CALLBACK_CMD, "sell");
 
   /**
    * Start-menu "Positions" button: open positions for the user's
