@@ -66,15 +66,22 @@ const API_UNAVAILABLE =
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
 
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 const shortAddress = (addr: string): string =>
   addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 
 /**
  * Render a single trade row. USDC amounts are formatted off the raw
  * 6-decimal string so we never lose precision through Number coercion
- * for the larger trades on the curve.
+ * for the larger trades on the curve. The trader address is HTML-escaped
+ * before interpolation — Telegram parses replies as HTML and a stray
+ * `<` from a malformed indexer payload would otherwise drop the entire
+ * message with a 400.
  */
 const renderTradeRow = (trade: Trade, nowSec: number): string => {
+  const trader = escapeHtml(shortAddress(trade.trader));
   let usdc: bigint;
   let tokens: bigint;
   try {
@@ -84,16 +91,12 @@ const renderTradeRow = (trade: Trade, nowSec: number): string => {
     // Malformed numeric strings would otherwise crash the formatter and
     // strand a whole /track view over one bad row. Skip the amount but
     // keep the row so the user still sees the trade happened.
-    return `${trade.isBuy ? "🟢 BUY" : "🔴 SELL"} • ${shortAddress(
-      trade.trader,
-    )} • —`;
+    return `${trade.isBuy ? "🟢 BUY" : "🔴 SELL"} • ${trader} • —`;
   }
   const tsSec = Number.parseInt(trade.timestamp, 10);
   const rel = Number.isFinite(tsSec) ? formatRelative(nowSec - tsSec) : "—";
   const side = trade.isBuy ? "🟢 BUY" : "🔴 SELL";
-  return `${side} ${formatUsdc6(usdc)} (${formatToken18(tokens)}) • ${shortAddress(
-    trade.trader,
-  )} • ${rel}`;
+  return `${side} ${formatUsdc6(usdc)} (${formatToken18(tokens)}) • ${trader} • ${rel}`;
 };
 
 /** Relative-time formatter for trade rows. Caps at days for older entries. */
@@ -354,9 +357,12 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
     }
     await handleTrackBuy(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("track buy handler failed", { err });
-      // Always ack so the user's callback spinner doesn't hang. The
-      // inner handler may have thrown before reaching its own ack.
-      await ctx.answerCallbackQuery().catch(() => {});
+      // Surface the outage explicitly rather than acking silently — a
+      // silent ack on an unhandled throw looks identical to a no-op
+      // button on the client, which masks real failures.
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
@@ -368,7 +374,9 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
     }
     await handleTrackSell(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("track sell handler failed", { err });
-      await ctx.answerCallbackQuery().catch(() => {});
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 };
