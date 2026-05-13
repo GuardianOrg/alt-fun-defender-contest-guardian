@@ -22,8 +22,8 @@ import {
   writeProfile,
 } from "../lib/onboarding.js";
 import { resolveBuyUsdcUrl } from "../lib/relay.js";
-import { fetchUsdcBalance } from "../lib/rpc.js";
-import { formatUsdc6 } from "../lib/token-card.js";
+import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
+import { formatHype18, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
@@ -52,9 +52,11 @@ const escapeHtml = (s: string): string =>
 const renderWelcomeHtml = (
   address: string,
   usdcBalance: bigint | null,
+  hypeBalance: bigint | null,
   phrase: string | null | undefined,
 ): string => {
-  const balance = formatUsdc6(usdcBalance);
+  const usdc = formatUsdc6(usdcBalance);
+  const hype = formatHype18(hypeBalance);
   return [
     escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
@@ -64,7 +66,8 @@ const renderWelcomeHtml = (
     `<code>${escapeHtml(address)}</code>`,
     "(Tap to copy)",
     "",
-    `Balance: ${escapeHtml(balance)} USDC`,
+    `Balance: ${escapeHtml(usdc)} USDC`,
+    `Gas balance: ${escapeHtml(hype)} HYPE`,
     "",
     "Once funded, tap Refresh and your balance will appear here.",
   ].join("\n");
@@ -81,9 +84,10 @@ const renderStart = async (
   env: AppContext["env"],
   address: string,
   usdcBalance: bigint | null,
+  hypeBalance: bigint | null,
   phrase: string | null | undefined,
 ): Promise<RenderedStart> => ({
-  text: renderWelcomeHtml(address, usdcBalance, phrase),
+  text: renderWelcomeHtml(address, usdcBalance, hypeBalance, phrase),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
       resolveBuyUsdcUrl(env, address),
@@ -221,11 +225,15 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       });
     }
 
-    const balance = await fetchUsdcBalance(ctx.env, address);
+    const [usdcBalance, hypeBalance] = await Promise.all([
+      fetchUsdcBalance(ctx.env, address),
+      fetchNativeBalance(ctx.env, address),
+    ]);
     const rendered = await renderStart(
       ctx.env,
       address,
-      balance,
+      usdcBalance,
+      hypeBalance,
       ctxAntiPhishingPhrase(ctx),
     );
     await ctx.reply(rendered.text, {
@@ -260,11 +268,15 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
-    const balance = await fetchUsdcBalance(ctx.env, active.address);
+    const [usdcBalance, hypeBalance] = await Promise.all([
+      fetchUsdcBalance(ctx.env, active.address),
+      fetchNativeBalance(ctx.env, active.address),
+    ]);
     const rendered = await renderStart(
       ctx.env,
       active.address,
-      balance,
+      usdcBalance,
+      hypeBalance,
       ctxAntiPhishingPhrase(ctx),
     );
     await safeEditMessageText(ctx, rendered.text, {
@@ -273,7 +285,10 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       link_preview_options: rendered.link_preview_options,
     });
     await ctx.answerCallbackQuery({
-      text: balance === null ? "Balance unavailable" : "Balance refreshed",
+      text:
+        usdcBalance === null && hypeBalance === null
+          ? "Balance unavailable"
+          : "Balance refreshed",
     });
   });
 };

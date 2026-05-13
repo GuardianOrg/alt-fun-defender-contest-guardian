@@ -74,35 +74,62 @@ const walletManager = (h: BotTestHarness): WalletManager =>
 /**
  * Mock the Telegram + HyperEVM RPC fetches in one go. RPC responses
  * carry a hex-encoded balance — the bot decodes via `BigInt(result)`.
+ *
+ * The /start panel issues two RPC calls in parallel:
+ *  - `eth_call` → USDC `balanceOf` (6-decimal)
+ *  - `eth_getBalance` → native HYPE gas balance (18-decimal)
+ *
+ * `rpcBalance` controls USDC; `rpcHypeBalance` controls HYPE. Each
+ * side is independent — when omitted, that side defaults to `0n`
+ * (the mock returns a zero hex result), not to whatever the other
+ * side was set to. This keeps 6-dec USDC fixtures from bleeding into
+ * the 18-dec HYPE path in legacy tests. Either side can be set to
+ * `"error"` (JSON-RPC error body) or `"fail"` (transport throw) to
+ * exercise the degraded-balance fallback in isolation.
  */
+type RpcMockSetting = bigint | "error" | "fail";
+
 const mockBoth = (
   fetchSpy: ReturnType<typeof vi.spyOn>,
   opts: {
-    rpcBalance?: bigint | "error" | "fail";
+    rpcBalance?: RpcMockSetting;
+    rpcHypeBalance?: RpcMockSetting;
   } = {},
 ): void => {
-  withTelegramOk(fetchSpy, async (input) => {
-    if (String(input) === RPC_URL) {
-      if (opts.rpcBalance === "fail") throw new Error("network down");
-      if (opts.rpcBalance === "error") {
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            error: { code: -1, message: "bad" },
-          }),
-          { status: 200 },
-        );
-      }
-      const balance = opts.rpcBalance ?? 0n;
+  const respond = (setting: RpcMockSetting | undefined): Response => {
+    if (setting === "error") {
       return new Response(
         JSON.stringify({
           jsonrpc: "2.0",
           id: 1,
-          result: `0x${balance.toString(16)}`,
+          error: { code: -1, message: "bad" },
         }),
         { status: 200 },
       );
+    }
+    const balance = (setting as bigint | undefined) ?? 0n;
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: `0x${balance.toString(16)}`,
+      }),
+      { status: 200 },
+    );
+  };
+  withTelegramOk(fetchSpy, async (input, init) => {
+    if (String(input) === RPC_URL) {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        method?: string;
+      };
+      const isHype = body.method === "eth_getBalance";
+      // Default the unspecified side to 0 rather than mirroring the
+      // other balance — USDC is 6-dec, HYPE is 18-dec, so feeding a
+      // USDC fixture into the HYPE path produces nonsense like
+      // 2.5e-12 HYPE in legacy tests that only meant to set USDC.
+      const setting = isHype ? opts.rpcHypeBalance : opts.rpcBalance;
+      if (setting === "fail") throw new Error("network down");
+      return respond(setting);
     }
     throw new Error(`Unexpected fetch: ${String(input)}`);
   });
@@ -164,7 +191,7 @@ describe("/start command", () => {
 
   it("renders an em-dash for balance when the RPC fails", async () => {
     const h = harnessWithRpc();
-    mockBoth(fetchSpy, { rpcBalance: "fail" });
+    mockBoth(fetchSpy, { rpcBalance: "fail", rpcHypeBalance: "fail" });
 
     await h.run(startUpdate(7));
 
@@ -172,6 +199,39 @@ describe("/start command", () => {
       c.url.includes("/sendMessage"),
     );
     expect(send!.body.text).toContain("Balance: — USDC");
+    expect(send!.body.text).toContain("Gas balance: — HYPE");
+  });
+
+  it("renders both USDC and native HYPE (gas) balances on first /start", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy, {
+      rpcBalance: 2_500_000n, // $2.50 USDC (6-dec)
+      rpcHypeBalance: 1_234_500_000_000_000_000n, // 1.2345 HYPE (18-dec)
+    });
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain("Balance: $2.50 USDC");
+    expect(send!.body.text).toContain("Gas balance: 1.2345 HYPE");
+  });
+
+  it("HYPE balance falls back to em-dash independently of USDC when only HYPE RPC fails", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy, {
+      rpcBalance: 2_500_000n,
+      rpcHypeBalance: "error",
+    });
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send!.body.text).toContain("Balance: $2.50 USDC");
+    expect(send!.body.text).toContain("Gas balance: — HYPE");
   });
 
   it("renders the full main-menu keyboard with a Buy-USDC URL button and Refresh", async () => {
@@ -241,12 +301,14 @@ describe("/start command", () => {
     expect(send!.body.text).toContain("Wallets require a personal");
   });
 
-  it("Refresh callback edits the welcome message in place with a fresh balance", async () => {
+  it("Refresh callback edits the welcome message in place with fresh USDC + HYPE balances", async () => {
     const h = harnessWithRpc();
     const wm = walletManager(h);
     await wm.createWallet(7, "main");
-    // 1.00 USDC (6 decimals).
-    mockBoth(fetchSpy, { rpcBalance: 1_000_000n });
+    mockBoth(fetchSpy, {
+      rpcBalance: 1_000_000n, // $1.00 USDC
+      rpcHypeBalance: 500_000_000_000_000_000n, // 0.5 HYPE
+    });
 
     await h.run(callbackUpdate(START_CALLBACK.refresh));
 
@@ -257,7 +319,22 @@ describe("/start command", () => {
     );
     expect(edit).toBeDefined();
     expect(edit!.body.text).toContain("Balance: $1.00 USDC");
+    expect(edit!.body.text).toContain("Gas balance: 0.5 HYPE");
     expect(answer!.body.text).toBe("Balance refreshed");
+  });
+
+  it("Refresh toast falls back to 'Balance unavailable' only when both USDC and HYPE RPCs fail", async () => {
+    const h = harnessWithRpc();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockBoth(fetchSpy, { rpcBalance: "fail", rpcHypeBalance: "fail" });
+
+    await h.run(callbackUpdate(START_CALLBACK.refresh));
+
+    const answer = capture(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer!.body.text).toBe("Balance unavailable");
   });
 
   it("Refresh toasts 'No active wallet' when the user has no wallet (and does not auto-create)", async () => {
