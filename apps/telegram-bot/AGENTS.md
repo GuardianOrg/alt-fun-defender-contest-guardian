@@ -426,17 +426,23 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 
 | Setting | Default | Description |
 |---|---|---|
-| Default buy amount | $50 USDC | Pre-filled amount on /buy |
-| Slippage | 1% | Applied to buy/sell |
-| Priority fee | Auto | Extra gwei for faster inclusion |
-| MEV protection | On | Route through protected RPC if available |
-| Trade confirmations | On | Require explicit confirm button before tx |
-| Degen mode | Off | Skip confirmations and risk warnings |
-| Anti-phishing phrase | — | Shown in every bot message header |
+| Slippage | 1% (100 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `0.5% / 1% / 2% / 5%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). |
+| Default buy amount | `$50 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. |
+| Degen mode | Off | One-tap toggle. Stored as `session.degenMode`. Persisted now; consumed once `/buy` and `/sell` learn to skip confirm steps when it's on. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
+
+State lives entirely on the grammY session (KV-backed under `session:<userId>`) — same store every other setting on this bot uses. No new KV namespace, no new endpoints.
+
+**Anti-phishing phrase is managed exclusively in `/security`** — surfaced on the `/settings` panel only as a one-line pointer (`"Anti-phishing phrase lives in /security."`). Owning the phrase from two commands would double the audit surface for the impersonation defence; AGENTS.md `/security → Anti-phishing prepend` is the single source of truth.
+
+**Deferred in v1** (deliberately not surfaced to avoid storing UI state that no code consumes):
+
+- **Priority fee** — `lib/trade.ts` submits with `estimateContractGas` + 1.3× buffer using the wallet's default gas pricing. There is no priority-fee field on the session and no plumbing from session → trade builder. Reintroduce alongside the wallet-fee-routing change in `lib/trade.ts`.
+- **MEV protection** — HyperEVM has no public Flashbots-style protected RPC endpoint today; routing a "protect" toggle through the same `HYPEREVM_RPC_URL` is purely cosmetic. Reintroduce when an alternate RPC binding lands.
+- **Trade confirmations toggle** — `/buy` and `/sell` always show the Confirm button (60 s timeout, nonce-gated). Until those flows learn to branch on the degen-mode flag and skip the staging step, exposing a separate "Trade confirmations: on/off" toggle would be a dangling UI control.
 
 Notifications (trade fills, TP/SL triggers, graduation alerts) are intentionally absent from v1 — they require either a keeper or alert-subscription endpoint, both deferred. The bot replies inline to every command but does not push unsolicited messages.
 
-Degen mode: disables confirmation steps and risk warnings. Requires explicit opt-in acknowledgement. PIN gates remain active regardless of degen mode.
+Degen mode: documented as "skip confirmations and risk warnings" once `/buy` and `/sell` consume it. Today only persists the flag — flipping it has no behavioural effect on trades. The toggle is exposed so the surface area is testable + recoverable from now; the trade-side wiring lands in a follow-up.
 
 ### /security
 
@@ -754,6 +760,7 @@ src/
       wallet.test.ts
       withdraw.test.ts
       security.test.ts
+      settings.test.ts
       start.test.ts
       positions.test.ts
       track.test.ts
@@ -862,6 +869,15 @@ src/
 - Failed payments banner does NOT include a "claim refund" button — the lost cuts are unrecoverable, surface only as preventative copy
 - Self-referral case: lifetime earned correctly accumulates the user's own self-referral cut on their own trades
 - No claim/withdraw/payout button anywhere in the screen
+
+**`commands/settings.test.ts`**
+- Status view renders the default trio (`Slippage: 1%` / `Default buy: $50 USDC` / `Degen mode: off`) on a brand-new account, with the [• 1% •] preset marked and an `Anti-phishing phrase lives in /security` pointer
+- `/settings` in a group chat is rejected with the "private-DM only" copy and never leaks slippage / buy-amount state into the group transcript
+- Tapping a preset slippage button (`set:slip<bps>`) persists the new `slippageBps` on the session and the panel edit reflects the new value
+- A malformed `set:slip…` callback payload (no integer) is a no-op — session unchanged, no crash
+- Degen-mode toggle flips `session.degenMode` on the first tap and back off on the second; both branches surface the matching toast
+- Custom-slippage wizard accepts decimal percent input (e.g. `2.5` → `250` bps), capped at 50% (`100` rejected with "capped at 50%" copy), rejects non-numeric input, and `/cancel` exits without touching the session
+- Default-buy wizard rounds to whole USDC (`$75.4` → `75`), floors at `MIN_USDC_BUY_AMOUNT` (a `5` USDC entry is rejected with the minimum-buy copy and the session is unchanged)
 
 **`api.test.ts`**
 - All methods return typed responses matching `apps/api` schema

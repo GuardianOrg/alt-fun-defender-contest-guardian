@@ -24,5 +24,6 @@ export const BOT_COMMANDS: readonly BotCommandSpec[] = [
   { command: "sell", description: "Sell a token from your positions" },
   { command: "positions", description: "Show open and realised positions" },
   { command: "wallet", description: "Manage wallets — create, import, switch, export" },
+  { command: "settings", description: "Slippage, default buy amount, degen mode" },
   { command: "referral", description: "Your referral link and earned rewards" },
 ];
