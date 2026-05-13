@@ -9,6 +9,7 @@ import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
 import { logger } from "./lib/logger.js";
 import { registerBuyCommand } from "./commands/buy.js";
+import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
 import { registerReferralCommand } from "./commands/referral.js";
 import { registerSellCommand } from "./commands/sell.js";
@@ -154,6 +155,7 @@ export const createBot = (
     }),
   );
 
+  registerHelpCommand(bot);
   registerStartCommand(bot);
   registerBuyCommand(bot);
   registerSellCommand(bot);
