@@ -44,8 +44,14 @@
 }
 
 .list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 768px) {
+  .list {
+    grid-template-columns: 1fr;
+  }
 }
 
 .row {
@@ -54,6 +60,10 @@
   gap: 1.2rem;
   padding: 1.6rem;
   border-bottom: 1px solid var(--border);
+}
+
+.row:nth-child(odd):not(:last-child) {
+  border-right: 1px solid var(--border);
 }
 
 .rowHead {
@@ -148,6 +158,10 @@
 @media (max-width: 768px) {
   .row {
     padding: 1.2rem;
+  }
+
+  .row:nth-child(odd):not(:last-child) {
+    border-right: none;
   }
 
   .tokenAddress {
