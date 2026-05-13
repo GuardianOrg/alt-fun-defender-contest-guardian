@@ -7,10 +7,12 @@ import {
   TokenAbi,
   FactoryAbi,
   ZapAbi,
+  BotFeeRouterAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
   BONDING_START_BLOCK,
+  BOT_FEE_ROUTER_START_BLOCK,
 } from "@launchpad/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -33,7 +35,19 @@ const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
 const factoryAddress = CONTRACT_ADDRESSES.factory as `0x${string}`;
 const zapAddress = CONTRACT_ADDRESSES.zap as `0x${string}`;
 const feeVaultAddress = CONTRACT_ADDRESSES.feeVault as `0x${string}`;
+const botFeeRouterAddress = (
+  process.env.BOT_FEE_ROUTER_ADDRESS ?? CONTRACT_ADDRESSES.botFeeRouter
+) as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
+/**
+ * The bot-team `BotFeeRouter` deployed later than the core protocol, so
+ * it gets its own start block — backfilling from `BONDING_START_BLOCK`
+ * across an empty range would just burn RPC budget for nothing. Override
+ * via `BOT_FEE_ROUTER_START_BLOCK` env if the router is ever redeployed.
+ */
+const botFeeRouterStartBlock = Number(
+  process.env.BOT_FEE_ROUTER_START_BLOCK ?? BOT_FEE_ROUTER_START_BLOCK,
+);
 
 if (bondingAddress === ZERO_ADDRESS) {
   throw new Error(
@@ -73,6 +87,20 @@ export default createConfig({
       abi: FeeVaultAbi,
       address: feeVaultAddress,
       startBlock,
+    },
+    /**
+     * `BotFeeRouter` is operated by the Telegram-bot team. Its deploy
+     * block is well after `BONDING_START_BLOCK`, so we use its own
+     * start block (`BOT_FEE_ROUTER_START_BLOCK`) to avoid pointless
+     * backfill across the gap. The handlers in `src/botFeeRouter.ts`
+     * populate `walletBotPosition`, `referrerStats`, and
+     * `botRouterTrade` from this contract's events.
+     */
+    BotFeeRouter: {
+      chain: "hyperevm",
+      abi: BotFeeRouterAbi,
+      address: botFeeRouterAddress,
+      startBlock: botFeeRouterStartBlock,
     },
     Token: {
       chain: "hyperevm",

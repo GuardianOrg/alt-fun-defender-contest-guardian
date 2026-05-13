@@ -1,5 +1,10 @@
 export { CONTRACT_ADDRESSES, HYPERSWAP_ADDRESSES } from "./addresses.js";
-export { SUPPORTED_CHAINS, HYPER_EVM, BONDING_START_BLOCK } from "./chains.js";
+export {
+  SUPPORTED_CHAINS,
+  HYPER_EVM,
+  BONDING_START_BLOCK,
+  BOT_FEE_ROUTER_START_BLOCK,
+} from "./chains.js";
 export {
   BOUNCE_INDEXING_API,
   BOUNCE_UI_BASE_URL,
