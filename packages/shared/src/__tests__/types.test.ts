@@ -51,6 +51,7 @@ describe("type exports compile correctly", () => {
       amountUsd: 100,
       tokensAmount: "1.0M",
       walletAddress: "0x12…ef",
+      walletAddressFull: "0x1234567890abcdef1234567890abcdef12345678",
       timestamp: "2024-01-01T00:00:00.000Z",
       tokenAddress: "0x1",
       tokenName: "Example",

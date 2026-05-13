@@ -25,11 +25,8 @@ export default function TokenRowSkeleton() {
 
       <div className={rowStyles.underlyingCell}>
         <Skeleton shape="circle" width="1.6rem" />
-        <Skeleton width="3rem" height="12px" />
-      </div>
-
-      <div className={rowStyles.directionCell}>
-        <Skeleton width="9rem" height="13px" />
+        <Skeleton width="3rem" height="13px" />
+        <Skeleton width="4.5rem" height="13px" />
       </div>
 
       <div className={rowStyles.changeCell}>

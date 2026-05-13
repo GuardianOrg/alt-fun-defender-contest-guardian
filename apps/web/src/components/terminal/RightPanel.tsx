@@ -16,6 +16,7 @@ import {
   formatTimeAgo,
   formatUsd,
 } from "../../utils/format";
+import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
 import type { HeldToken } from "../../services/types";
@@ -113,7 +114,11 @@ function PositionSkeleton() {
   return (
     <div className={styles.positionRow} aria-hidden="true">
       <div
-        className={cn(styles.positionLogoWrap, styles.skeletonBlock, styles.skeletonCircle)}
+        className={cn(
+          styles.positionLogoWrap,
+          styles.skeletonBlock,
+          styles.skeletonCircle,
+        )}
       />
       <div className={styles.positionMeta}>
         <div className={cn(styles.skeletonBlock, styles.skeletonLineLg)} />
@@ -169,7 +174,11 @@ export default function RightPanel() {
             <div className={styles.emptyRow}>No positions yet</div>
           ) : (
             positions.map((p) => (
-              <PositionRow key={p.address} position={p} onNavigate={handleNavigate} />
+              <PositionRow
+                key={p.address}
+                position={p}
+                onNavigate={handleNavigate}
+              />
             ))
           )}
         </div>
@@ -247,7 +256,15 @@ export default function RightPanel() {
                         {formatTimeAgo(t.timestamp)}
                       </span>
                     </div>
-                    <div className={styles.tradeWallet}>{t.walletAddress}</div>
+                    <div className={styles.tradeWalletRow}>
+                      <span className={styles.tradeWallet}>
+                        {t.walletAddress}
+                      </span>
+                      <CopyAddressButton
+                        address={t.walletAddress}
+                        className={styles.tradeCopyBtn}
+                      />
+                    </div>
                   </div>
                   <span
                     className={cn(
@@ -255,7 +272,8 @@ export default function RightPanel() {
                       isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
                     )}
                   >
-                    {isBuy ? "+" : "-"}${Math.round(t.amountUsd).toLocaleString()}
+                    {isBuy ? "+" : "-"}$
+                    {Math.round(t.amountUsd).toLocaleString()}
                   </span>
                 </div>
               );
@@ -274,7 +292,8 @@ export default function RightPanel() {
             >
               <span className={styles.infoName}>{t.name}</span>
               <span className={styles.graduatingValue}>
-                {formatCurveFilled(t.curveFilled)} · {t.direction === "long" ? "LONG" : "SHORT"}
+                {formatCurveFilled(t.curveFilled)} ·{" "}
+                {t.direction === "long" ? "LONG" : "SHORT"}
               </span>
             </div>
           ))}

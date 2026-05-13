@@ -52,7 +52,7 @@
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  width: 200px;
+  width: 240px;
   flex-shrink: 0;
 }
 
@@ -121,11 +121,17 @@
   text-overflow: ellipsis;
 }
 
+/* Combined Underlying + Direction/Leverage cell. Reads
+ * `{icon} HYPE 5x Long` left-to-right with everything sharing the
+ * same mono 13px regular weight; only the trailing direction span
+ * picks up the mint/red tint so the long/short bias still surfaces
+ * at a glance. Width is the sum of the two previous columns (91px +
+ * 180px) plus the gap, so the rest of the table grid doesn't shift. */
 .underlyingCell {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  width: 91px;
+  gap: 0.8rem;
+  width: 280px;
   flex-shrink: 0;
 }
 
@@ -143,18 +149,14 @@
   white-space: nowrap;
 }
 
-.directionCell {
-  display: flex;
-  align-items: center;
-  width: 180px;
-  flex-shrink: 0;
-}
-
-.directionBadge {
+/* `Nx Long/Short` descriptor — same font/size/weight as
+ * `.underlyingName` so the row reads as one continuous label, with
+ * only colour distinguishing it. Tabular nums so the leading
+ * digit doesn't shift the gap between underlying and descriptor when
+ * leverage changes (2x → 10x). */
+.underlyingDirection {
   font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -165,44 +167,6 @@
 
 .directionShort {
   color: var(--red);
-}
-
-.leverageBadge {
-  font-size: 12px;
-  font-weight: 700;
-  padding-left: 0.4rem;
-  padding-right: 0.4rem;
-  padding-top: 0.2rem;
-  padding-bottom: 0.2rem;
-  border-radius: 0.25rem;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-
-.leverageLong {
-  color: var(--mint);
-  background: rgba(77, 232, 180, 0.1);
-}
-
-.leverageShort {
-  color: var(--red);
-  background: rgba(240, 80, 80, 0.1);
-}
-
-.ltName {
-  font-size: 12px;
-  font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ltNameLong {
-  color: rgba(77, 232, 180, 0.6);
-}
-
-.ltNameShort {
-  color: rgba(240, 80, 80, 0.6);
 }
 
 .changeCell {

@@ -47,6 +47,7 @@ export function routerTradeToTrade(rt: RouterTradeRow): Trade {
     amountUsd: usdcAmountFloat,
     tokensAmount: formatTokenBalance(rt.tokenAmount),
     walletAddress: `${rt.trader.slice(0, 4)}…${rt.trader.slice(-2)}`,
+    walletAddressFull: rt.trader,
     timestamp: new Date(Number(rt.timestamp) * 1000).toISOString(),
     tokenAddress: rt.tokenAddress,
     tokenName: "",

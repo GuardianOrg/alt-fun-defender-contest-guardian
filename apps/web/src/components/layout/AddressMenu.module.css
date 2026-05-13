@@ -1,0 +1,87 @@
+/* Anchored popover that drops below the wallet-address chip in the
+ * header. Not a `Modal` — it doesn't dim the page or trap focus, it
+ * just offers the two adjacent wallet actions (copy address /
+ * disconnect) without sending the user into the full earnings panel.
+ * Visual chrome mirrors the SettingsPopup family: 1px `--border-2`
+ * outline, `--bg-2` to stand off the header's `--bg-1`, 3px radius,
+ * `--shadow-panel` lift. */
+
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.4rem;
+  min-width: 16rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  box-shadow: var(--shadow-panel);
+  z-index: 50;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  animation: modalin 0.15s ease;
+}
+
+/* Menu rows — full-width transparent buttons that fill the popover
+ * padding box. They share the `Chip` family's monospace + mint-on-hover
+ * vocabulary but are full-width list rows rather than pills, so they
+ * don't go through `Chip` (which is sized for inline data display). */
+.item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--txt-2);
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.item:hover {
+  color: var(--txt);
+  background: var(--bg-3);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: -2px;
+}
+
+/* Sticky post-copy state — matches the `Chip` `success` vocabulary so
+ * the affordance is consistent across the app (mint tint + check
+ * icon) while the 2s confirmation window is on screen. */
+.itemSuccess,
+.itemSuccess:hover {
+  color: var(--mint);
+  background: var(--mint-bg);
+}
+
+.address {
+  flex: 1;
+  letter-spacing: -0.02em;
+}
+
+.icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Destructive-leaning hover for the disconnect row. Resting state
+ * stays neutral (it's not a CTA), but the hover swap to `--red`
+ * signals "this ends the session" without being alarmist at rest. */
+.itemDanger:hover {
+  color: var(--red);
+  background: var(--red-bg);
+}

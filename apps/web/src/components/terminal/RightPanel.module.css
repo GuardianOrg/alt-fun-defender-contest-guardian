@@ -130,13 +130,40 @@
   flex-shrink: 0;
 }
 
+/* Wallet line — short trader address + inline copy `IconButton`. The
+ * `margin-top` that used to live on `.tradeWallet` moves here so the
+ * whole row sits on the same baseline gap below the name/time line,
+ * regardless of which child is the tallest. Flex with a 0.4rem gap
+ * keeps the icon next to the address without crowding the digits. */
+.tradeWalletRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+  min-width: 0;
+}
+
 .tradeWallet {
   color: var(--txt-4);
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: 0.2rem;
+}
+
+/* Header override on the shared `IconButton` — the default 1.6rem
+ * square reads heavy next to the 11px wallet line in this dense feed.
+ * Trim to 1.4rem so the icon still meets the 22px minimum hit target
+ * (1.4rem ≈ 22.4px) without dominating the row. Resting `color` is
+ * pulled down to `--txt-4` to match the adjacent `.tradeWallet`, so
+ * the icon and the address read as a single muted unit; the
+ * primitive's `:hover` selector keeps higher specificity, so hover
+ * + active states still pull the mint affordance unchanged. */
+.tradeCopyBtn {
+  width: 1.4rem;
+  height: 1.4rem;
+  flex-shrink: 0;
+  color: var(--txt-4);
 }
 
 .tradeAmount {
