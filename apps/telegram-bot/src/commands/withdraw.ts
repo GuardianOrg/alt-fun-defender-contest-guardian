@@ -45,6 +45,10 @@ import {
 } from "../lib/withdraw.js";
 import { explorerTxUrl } from "../lib/trade.js";
 import { WalletManager } from "../lib/wallet.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const NO_USER_REPLY =
   "Withdrawals require a personal Telegram account — this message has no user attached.";
@@ -235,14 +239,17 @@ const verifyPinForWithdraw = async (
   userId: number,
   chatId: number,
 ): Promise<boolean> => {
-  await ctx.reply(
+  const askMsg = await ctx.reply(
     withAntiPhishing(
       "Send your 6-digit PIN to authorise the withdraw, or /cancel.",
     ),
   );
+  await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
+    // PIN reply is swept individually for security; not tracked on the
+    // workflow stack (already gone by the time a later sweep would run).
     await conversation.external((outside) =>
       sweepMessage(outside, chatId, msg.message.message_id),
     );
@@ -270,11 +277,12 @@ const verifyPinForWithdraw = async (
       await ctx.reply(withAntiPhishing(NO_PIN_REPLY));
       return false;
     }
-    await ctx.reply(
+    const retry = await ctx.reply(
       withAntiPhishing(
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
       ),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
 };
 
@@ -283,8 +291,10 @@ const promptArg = async (
   ctx: AppContext,
   prompt: string,
 ): Promise<string | null> => {
-  await ctx.reply(withAntiPhishing(prompt));
+  const promptMsg = await ctx.reply(withAntiPhishing(prompt));
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
+  await trackWorkflowMessage(conversation, reply.message.message_id);
   const text = reply.message.text.trim();
   if (isCancel(text)) {
     await ctx.reply(withAntiPhishing("Withdraw cancelled."));
@@ -306,6 +316,7 @@ const withdrawWizardConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
 
   let asset: WithdrawAsset | null = null;
   while (asset === null) {
@@ -314,15 +325,19 @@ const withdrawWizardConversation = async (
       ctx,
       "Which asset? Send HYPE or USDC (or /cancel).",
     );
-    if (raw === null) return;
+    if (raw === null) {
+      await sweepWorkflow(conversation);
+      return;
+    }
     const upper = raw.toUpperCase();
     if (isWithdrawAsset(upper)) {
       asset = upper;
       break;
     }
-    await ctx.reply(
+    const retry = await ctx.reply(
       withAntiPhishing("Unsupported asset. Send HYPE or USDC, or /cancel."),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
 
   // Resolve the active wallet early so the amount prompt can show the
@@ -334,6 +349,7 @@ const withdrawWizardConversation = async (
   );
   if (!active) {
     await ctx.reply(withAntiPhishing(NO_ACTIVE_WALLET_REPLY));
+    await sweepWorkflow(conversation);
     return;
   }
   const balance = await fetchAssetBalanceExternal(
@@ -349,14 +365,18 @@ const withdrawWizardConversation = async (
       ctx,
       `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1), or /cancel.`,
     );
-    if (raw === null) return;
+    if (raw === null) {
+      await sweepWorkflow(conversation);
+      return;
+    }
     const parsed = parseAmount(raw, asset);
     if (parsed === null) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         withAntiPhishing(
           "Invalid amount — must be a positive decimal within the asset's precision. Send again or /cancel.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     amountRaw = parsed;
@@ -369,14 +389,18 @@ const withdrawWizardConversation = async (
       ctx,
       "Destination address? Send a 0x-prefixed EVM address, or /cancel.",
     );
-    if (raw === null) return;
+    if (raw === null) {
+      await sweepWorkflow(conversation);
+      return;
+    }
     const parsed = parseDestination(raw);
     if (parsed === null) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         withAntiPhishing(
           "Invalid address — must be 0x followed by 40 hex characters. Send again or /cancel.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     to = parsed;
@@ -389,6 +413,7 @@ const withdrawWizardConversation = async (
     chatId,
     { asset, amountRaw, to },
   );
+  await sweepWorkflow(conversation);
 };
 
 /**
@@ -472,6 +497,7 @@ const withdrawCommandConversation = async (
   argsRaw: string,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
+  await sweepWorkflow(conversation);
   const parsed = parseInlineArgs(argsRaw);
   if (!parsed.ok) {
     await ctx.reply(withAntiPhishing(parsed.reason));
@@ -484,6 +510,7 @@ const withdrawCommandConversation = async (
     ctx.chat.id,
     parsed.args,
   );
+  await sweepWorkflow(conversation);
 };
 
 export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {

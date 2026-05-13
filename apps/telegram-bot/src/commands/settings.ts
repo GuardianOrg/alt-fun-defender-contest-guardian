@@ -17,6 +17,10 @@ import {
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { parseUserAmount } from "../lib/parse-number.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const NO_USER_REPLY =
   "Settings require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
@@ -125,10 +129,11 @@ const customSlippageConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
+  await sweepWorkflow(conversation);
   const presetList = SLIPPAGE_PRESETS_BPS.map((bps) =>
     formatBpsLabel(bps),
   ).join(" / ");
-  await ctx.reply(
+  const promptMsg = await ctx.reply(
     wrap(
       ctx,
       [
@@ -140,12 +145,15 @@ const customSlippageConversation = async (
       ].join("\n"),
     ),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
     if (isCancel(text)) {
       await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
       return;
     }
     // Use a generous outer bound here so a typo'd "1000%" still flows
@@ -156,25 +164,28 @@ const customSlippageConversation = async (
       max: MAX_SLIPPAGE_BPS,
     });
     if (pct === null) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(ctx, "Send a positive number like `2` or `0.5`, or /cancel."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const bps = Math.round(pct * 100);
     if (bps < 1) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(ctx, "Slippage must be at least 0.01%. Send again or /cancel."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (bps > MAX_SLIPPAGE_BPS) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(
           ctx,
           `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value or /cancel.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     try {
@@ -187,6 +198,7 @@ const customSlippageConversation = async (
       // catch) must never reach a "saved" reply. The session plugin's
       // own flush errors land on `bot.catch` in `bot.ts`.
       await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
       return;
     }
     const state = await conversation.external((outside) => renderState(outside));
@@ -194,6 +206,7 @@ const customSlippageConversation = async (
       wrap(ctx, `Slippage set to ${formatBpsLabel(bps)}.\n\n${state.text}`),
       { reply_markup: state.reply_markup },
     );
+    await sweepWorkflow(conversation);
     return;
   }
 };
@@ -207,7 +220,8 @@ const buyAmountConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
-  await ctx.reply(
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
     wrap(
       ctx,
       [
@@ -217,37 +231,43 @@ const buyAmountConversation = async (
       ].join("\n"),
     ),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
     if (isCancel(text)) {
       await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
       return;
     }
     const value = parseUserAmount(text, { max: MAX_BUY_USDC });
     if (value === null) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(ctx, "Send a positive USDC amount like `50`, or /cancel."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value < MIN_USDC_BUY_AMOUNT) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(
           ctx,
           `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value or /cancel.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value > MAX_BUY_USDC) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(
           ctx,
           `Capped at $${MAX_BUY_USDC} USDC. Send a smaller value or /cancel.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     // Round to whole USDC — the value is shown on buttons and stored
@@ -259,6 +279,7 @@ const buyAmountConversation = async (
       });
     } catch {
       await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
       return;
     }
     const state = await conversation.external((outside) => renderState(outside));
@@ -266,6 +287,7 @@ const buyAmountConversation = async (
       wrap(ctx, `Default buy set to $${rounded} USDC.\n\n${state.text}`),
       { reply_markup: state.reply_markup },
     );
+    await sweepWorkflow(conversation);
     return;
   }
 };

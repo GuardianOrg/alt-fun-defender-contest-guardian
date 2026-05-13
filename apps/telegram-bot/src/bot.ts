@@ -69,6 +69,16 @@ export interface SessionData {
     nonce: string;
     expiresAt: number;
   };
+  /**
+   * Workflow-stack of transient (chatId, messageId) pairs generated
+   * during a multi-step prompt flow (e.g. /buy lookup → user reply →
+   * custom amount → user reply). Per-chat scoped so a sweep in chat A
+   * doesn't touch ids belonging to chat B — the session is keyed per
+   * user, but a single user can run flows in both a private DM and a
+   * group. Cleared on cancel, on interruption by another slash
+   * command, and on successful completion. See `lib/workflow-stack.ts`.
+   */
+  workflowMessages?: { chatId: number; messageId: number }[];
 }
 
 const DEFAULT_SESSION: SessionData = {
