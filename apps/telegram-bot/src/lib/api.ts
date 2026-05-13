@@ -86,6 +86,17 @@ export interface TokenInfo {
    * skipped and the user falls back to the post-tx revert.
    */
   ltPair: string | null;
+  /**
+   * Underlying asset symbol (e.g. "HYPE", "ETH"). Combined with
+   * `leverage` and `ltDirection` to render the LT symbol in token
+   * card headers (issue #820). Optional on the wire so older API
+   * builds that didn't expose these fields still parse — when any
+   * of the three is null the card omits the LT-symbol suffix.
+   */
+  underlying: string | null;
+  leverage: number | null;
+  /** "long" | "short" — case follows the api DB row. */
+  ltDirection: string | null;
 }
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -371,9 +382,15 @@ const isOptionalNumber = (v: unknown): boolean =>
 // to be absent so older API builds that predate those fields still parse.
 // `fetchToken` normalises to canonical `TokenInfo` (always `number | null`
 // / `string | null`).
-type TokenInfoWire = Omit<TokenInfo, "volume24hUsd" | "ltPair"> & {
+type TokenInfoWire = Omit<
+  TokenInfo,
+  "volume24hUsd" | "ltPair" | "underlying" | "leverage" | "ltDirection"
+> & {
   volume24hUsd?: number | null;
   ltPair?: string | null;
+  underlying?: string | null;
+  leverage?: number | null;
+  ltDirection?: string | null;
 };
 
 const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
@@ -392,7 +409,16 @@ const isTokenInfoWire = (v: unknown): v is TokenInfoWire => {
     typeof obj.status === "string" &&
     (obj.ltPair === undefined ||
       obj.ltPair === null ||
-      (typeof obj.ltPair === "string" && ADDRESS_RE.test(obj.ltPair)))
+      (typeof obj.ltPair === "string" && ADDRESS_RE.test(obj.ltPair))) &&
+    (obj.underlying === undefined ||
+      obj.underlying === null ||
+      typeof obj.underlying === "string") &&
+    (obj.leverage === undefined ||
+      obj.leverage === null ||
+      (typeof obj.leverage === "number" && Number.isFinite(obj.leverage))) &&
+    (obj.ltDirection === undefined ||
+      obj.ltDirection === null ||
+      typeof obj.ltDirection === "string")
   );
 };
 
@@ -410,6 +436,9 @@ export const fetchToken = async (
       ...wire,
       volume24hUsd: wire.volume24hUsd ?? null,
       ltPair: wire.ltPair ?? null,
+      underlying: wire.underlying ?? null,
+      leverage: wire.leverage ?? null,
+      ltDirection: wire.ltDirection ?? null,
     },
   };
 };
