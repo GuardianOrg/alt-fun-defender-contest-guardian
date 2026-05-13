@@ -62,8 +62,13 @@ contract BotFeeRouter is ReentrancyGuard {
 
     error ZeroAddress();
     error ZeroAmount();
+    error SlippageExceeded();
 
-    constructor(IZap zap_, IERC20 usdc_, address treasury_) {
+    constructor(
+        IZap zap_,
+        IERC20 usdc_,
+        address treasury_
+    ) {
         if (address(zap_) == address(0) || address(usdc_) == address(0) || treasury_ == address(0)) {
             revert ZeroAddress();
         }
@@ -175,7 +180,7 @@ contract BotFeeRouter is ReentrancyGuard {
         // `usdcOut >= minUsdcOut` for any well-formed `grossUsdc`, but
         // an unexpected gross-side rounding could otherwise leak past the
         // user-visible bound.
-        require(usdcOut >= minUsdcOut, "BotFeeRouter: slippage");
+        if (usdcOut < minUsdcOut) revert SlippageExceeded();
 
         (uint256 referrerCut, uint256 treasuryCut) = _splitAndPay(botFee, referrer, msg.sender, token, Side.Sell);
 
@@ -217,7 +222,10 @@ contract BotFeeRouter is ReentrancyGuard {
 
     /// @dev Low-level USDC transfer that swallows revert and bool-false
     ///      returns. Used only for the referrer leg of `_splitAndPay`.
-    function _trySend(address to, uint256 amount) internal returns (bool) {
+    function _trySend(
+        address to,
+        uint256 amount
+    ) internal returns (bool) {
         (bool success, bytes memory data) =
             address(usdc).call(abi.encodeWithSelector(IERC20.transfer.selector, to, amount));
         if (!success) return false;

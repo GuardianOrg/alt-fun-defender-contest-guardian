@@ -390,6 +390,11 @@ export const BotFeeRouterAbi = [
   },
   {
     "type": "error",
+    "name": "SlippageExceeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ZeroAddress",
     "inputs": []
   },

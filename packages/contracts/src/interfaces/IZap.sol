@@ -21,5 +21,9 @@ interface IZap {
         address referrer
     ) external returns (uint256 tokensOut);
 
-    function sell(address tokenAddress, uint256 tokenAmount, uint256 minUsdcOut) external returns (uint256 usdcOut);
+    function sell(
+        address tokenAddress,
+        uint256 tokenAmount,
+        uint256 minUsdcOut
+    ) external returns (uint256 usdcOut);
 }
