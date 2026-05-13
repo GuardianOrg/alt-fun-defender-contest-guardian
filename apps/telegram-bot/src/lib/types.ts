@@ -45,41 +45,16 @@ export interface Env {
    */
   BOT_FEE_ROUTER_ADDRESS?: string;
   /**
-   * Explicit override for the "Buy USDC via MoonPay" button URL. When
-   * set, used as-is and the MoonPay builder below is skipped. Privy
-   * does not expose a public deeplink to its hosted funding page —
-   * the SDK is the only supported entry point (see
-   * https://docs.privy.io/wallets/funding/overview) — so this is the
-   * escape hatch for any alternative onramp we want to point users
-   * at (Transak, swapped.com, Hyperliquid deposit modal, etc.).
+   * Explicit override for the "Buy USDC via Relay" button URL. When
+   * set, used as-is and the Relay onramp builder below is skipped.
+   * Privy's hosted funding page is SDK-only (see
+   * https://docs.privy.io/wallets/funding/overview) and MoonPay has
+   * no HyperEVM USDC listing, so Relay is the only path that
+   * delivers USDC directly onto HyperEVM today; this override is
+   * the escape hatch for campaign-tracked variants or alternative
+   * onramps.
    */
   BUY_USDC_URL?: string;
-  /**
-   * Publishable MoonPay key for the buy widget. When set together
-   * with `MOONPAY_SECRET_KEY`, the bot builds a signed
-   * `https://buy.moonpay.com/` URL with the user's custodial wallet
-   * pre-filled — the documented direct-link path when Privy itself
-   * has no public deeplink. Per MoonPay's URL signing spec, any URL
-   * carrying `walletAddress` MUST also carry `currencyCode` and a
-   * signature — both keys must be set or the bot falls back.
-   */
-  MOONPAY_API_KEY?: string;
-  /**
-   * Secret half of the MoonPay key pair, used to HMAC-SHA256 the
-   * widget URL's query string. Never sent to the client — only used
-   * server-side in `lib/moonpay.ts` to compute the `signature` param.
-   */
-  MOONPAY_SECRET_KEY?: string;
-  /**
-   * MoonPay currency code passed to the buy widget. Defaults to
-   * `usdc_arbitrum` when unset — the closest supported USDC variant
-   * for a HyperEVM address, bridgeable to HyperEVM via the
-   * Hyperliquid native bridge. Externalised because MoonPay
-   * occasionally renames listings (e.g. chain-suffixed codes for the
-   * same asset); flip to `usdc_hyperliquid` once that listing
-   * exists, without a redeploy.
-   */
-  MOONPAY_CURRENCY_CODE?: string;
   /**
    * Telegram username of the bot (without `@`). Used to build the
    * shareable referral deeplink `t.me/<BOT_USERNAME>?start=ref_<userId>`

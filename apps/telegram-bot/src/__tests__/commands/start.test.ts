@@ -365,10 +365,8 @@ describe("/start command", () => {
     expect(answer!.body.text).toContain("No active wallet");
   });
 
-  it("Buy USDC button points at MoonPay with a signed URL when MoonPay env is set", async () => {
+  it("Buy USDC button points at the Relay HyperEVM onramp with the user's wallet pre-filled", async () => {
     const h = harnessWithRpc();
-    h.env.MOONPAY_API_KEY = "pk_test_abc";
-    h.env.MOONPAY_SECRET_KEY = "sk_test_xyz";
     mockBoth(fetchSpy);
 
     await h.run(startUpdate(7));
@@ -384,36 +382,19 @@ describe("/start command", () => {
     const buyUsdcButton = keyboard[0]?.[0];
     expect(buyUsdcButton?.text).toContain("Buy USDC");
     const url = new URL(buyUsdcButton!.url!);
-    expect(url.host).toBe("buy.moonpay.com");
-    expect(url.searchParams.get("apiKey")).toBe("pk_test_abc");
-    expect(url.searchParams.get("currencyCode")).toBe("usdc_arbitrum");
-    expect(url.searchParams.get("walletAddress")).toMatch(/^0x[0-9a-fA-F]{40}$/);
-    expect(url.searchParams.get("signature")).toBeTruthy();
-  });
-
-  it("Buy USDC button falls back to Hyperliquid when MoonPay env is missing", async () => {
-    const h = harnessWithRpc();
-    mockBoth(fetchSpy);
-
-    await h.run(startUpdate(7));
-
-    const send = capture(fetchSpy).find((c) =>
-      c.url.includes("/sendMessage"),
+    expect(url.host).toBe("relay.link");
+    expect(url.pathname).toBe("/onramp/hyperevm");
+    expect(url.searchParams.get("toCurrency")?.toLowerCase()).toBe(
+      "0xb88339cb7199b77e23db6e890353e22632ba630f",
     );
-    const keyboard = (
-      send!.body.reply_markup as {
-        inline_keyboard: { text: string; url?: string }[][];
-      }
-    ).inline_keyboard;
-    expect(keyboard[0]?.[0]?.url).toBe("https://app.hyperliquid.xyz");
+    expect(url.searchParams.get("toAddress")).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(url.searchParams.get("lockToken")).toBe("true");
+    expect(url.searchParams.get("lockToChain")).toBe("true");
   });
 
   it("Buy USDC button honours an explicit BUY_USDC_URL override", async () => {
     const h = harnessWithRpc();
     h.env.BUY_USDC_URL = "https://override.example/funding";
-    // Even with MoonPay configured, BUY_USDC_URL should win.
-    h.env.MOONPAY_API_KEY = "pk_test_abc";
-    h.env.MOONPAY_SECRET_KEY = "sk_test_xyz";
     mockBoth(fetchSpy);
 
     await h.run(startUpdate(7));

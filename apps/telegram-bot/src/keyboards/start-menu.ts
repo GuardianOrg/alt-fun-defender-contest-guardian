@@ -31,7 +31,7 @@ export const buildStartMenuKeyboard = (
 ): InlineKeyboard => [
   [
     {
-      text: "Buy USDC via MoonPay",
+      text: "Buy USDC via Relay",
       url: buyUsdcUrl,
     },
     { text: "Refresh", callback_data: START_CALLBACK.refresh },
