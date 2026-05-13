@@ -222,28 +222,41 @@ const fetchPositions = async (
       }
     }
 
-    // Refresh `currentValueUsdc` to the live curve / HyperSwap mark.
-    // `walletBotPosition.currentValueUsdc` is written by the indexer from
-    // the wallet's own last router trade and stays frozen between trades,
-    // so a new buy renders as PnL $0 / 0% until the next router trade for
-    // this (wallet, token). The /positions spec
-    // (`apps/telegram-bot/AGENTS.md → /positions`) calls for the current
-    // curve quote pre-grad / HyperSwap quote post-grad — both of which
-    // fall out of the indexer's `(curveSupply, ltReserve)` columns since
-    // `HyperSwapPair:Sync` mirrors HyperSwap reserves onto them. Failures
-    // here (indexer or BounceTech down) leave the snapshot value in place
-    // — better stale than 503.
-    const openTokens = Array.from(new Set(open.map((p) => p.token.toLowerCase())));
-    const liveMark = await fetchCurrentPricesUsdc(ponderUrl, openTokens);
-    for (const p of open) {
-      const priceUsdc = liveMark.get(p.token.toLowerCase());
-      if (priceUsdc === undefined) continue;
-      const balance = BigInt(p.balance);
-      const value = (balance * priceUsdc) / TOKEN_SCALE;
-      const cost = BigInt(p.costBasisUsdc);
-      p.currentValueUsdc = value.toString();
-      p.unrealisedPnlUsdc = signedDiff(p.currentValueUsdc, p.costBasisUsdc);
-      p.unrealisedPnlPct = pctOrNull(value - cost, cost);
+    // Refresh `currentValueUsdc` to the live bonding curve / HyperSwap
+    // mark. `walletBotPosition.currentValueUsdc` is written by the
+    // indexer from the wallet's own last router trade and stays frozen
+    // between trades, so a new buy renders as PnL $0 / 0% until the
+    // next router trade for this (wallet, token). The /positions spec
+    // (`apps/telegram-bot/AGENTS.md → /positions`) calls for the
+    // current bonding curve quote pre-grad / HyperSwap quote post-grad
+    // — both of which fall out of the indexer's `(curveSupply,
+    // ltReserve)` columns since `HyperSwapPair:Sync` mirrors HyperSwap
+    // reserves onto them. The refresh is wrapped in its own try/catch
+    // so a thrown error (e.g. BounceTech socket error pre-internal-
+    // catch, indexer GraphQL malformed response) fails *open*: the
+    // open / realised arrays already built from the indexer are
+    // returned with their snapshot values intact rather than collapsed
+    // to EMPTY by the outer catch.
+    try {
+      const openTokens = Array.from(
+        new Set(open.map((p) => p.token.toLowerCase())),
+      );
+      const liveMark = await fetchCurrentPricesUsdc(ponderUrl, openTokens);
+      for (const p of open) {
+        const priceUsdc = liveMark.get(p.token.toLowerCase());
+        if (priceUsdc === undefined) continue;
+        const balance = BigInt(p.balance);
+        const value = (balance * priceUsdc) / TOKEN_SCALE;
+        const cost = BigInt(p.costBasisUsdc);
+        p.currentValueUsdc = value.toString();
+        p.unrealisedPnlUsdc = signedDiff(p.currentValueUsdc, p.costBasisUsdc);
+        p.unrealisedPnlPct = pctOrNull(value - cost, cost);
+      }
+    } catch (err) {
+      console.warn(
+        "[bot-positions] live mark refresh failed, falling back to indexer snapshot",
+        err,
+      );
     }
 
     // Sort per AGENTS.md: open by |unrealised PnL| desc, realised by

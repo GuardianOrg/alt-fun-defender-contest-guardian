@@ -393,6 +393,64 @@ describe("GET /bot/positions/:wallet", () => {
     expect(body.data.open[0]!.unrealisedPnlPct).toBe(25);
   });
 
+  it("falls back to the indexer-stored mark when the live lookup throws", async () => {
+    // The internal try/catches in `fetchLiveLtRates` /
+    // `fetchTokensOnchainByAddresses` already collapse most failures to a
+    // `null` return — but a thrown error from any layer above them (e.g. a
+    // BigInt parse failure on a malformed indexer payload) used to wipe
+    // both `open` and `realised` to empty arrays via the outer catch. The
+    // handler now wraps the refresh in its own try/catch so the snapshot
+    // values survive.
+    mockPonderQuery.mockResolvedValue({
+      walletBotPositions: {
+        items: [
+          {
+            token: TOKEN_A,
+            ticker: "ONE",
+            tokenBalance: "1000000000000000000",
+            costBasisUsdc: "20000000",
+            currentValueUsdc: "25000000",
+            realisedPnlUsdc: "0",
+            totalCostUsdc: "20000000",
+            totalProceedsUsdc: "0",
+          },
+        ],
+      },
+    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValue([
+      {
+        address: TOKEN_A,
+        ltToken: "0xaaaa000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000",
+        ltReserve: "5000000000000000000",
+        k: "0",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "0",
+      },
+    ]);
+    mockFetchLiveLtRates.mockRejectedValue(new Error("network down"));
+    const res = await createApp().request(
+      `/bot/positions/${VALID_WALLET}`,
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PositionsResponseBody;
+    expect(body.data.open).toHaveLength(1);
+    expect(body.data.open[0]!.currentValueUsdc).toBe("25000000");
+    expect(body.data.open[0]!.unrealisedPnlUsdc).toBe("5000000");
+    expect(body.data.open[0]!.unrealisedPnlPct).toBe(25);
+  });
+
   it("uses live mark per-token; tokens absent from the price map keep the stale snapshot", async () => {
     mockPonderQuery.mockResolvedValue({
       walletBotPositions: {
