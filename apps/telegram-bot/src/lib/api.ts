@@ -42,6 +42,7 @@ export interface TokenInfo {
   mcapUsd: number | null;
   change24h: number | null;
   ltChange24h: number | null;
+  volume24hUsd: number | null;
   curveFilled: number | null;
   status: string;
 }
@@ -209,6 +210,10 @@ const isTokenInfo = (v: unknown): v is TokenInfo => {
     isOptionalNumber(obj.mcapUsd) &&
     isOptionalNumber(obj.change24h) &&
     isOptionalNumber(obj.ltChange24h) &&
+    // Older API builds may omit `volume24hUsd` entirely — accept that
+    // and fall through to `undefined → null` in the consumer rather
+    // than failing the whole type guard on a single missing field.
+    (obj.volume24hUsd === undefined || isOptionalNumber(obj.volume24hUsd)) &&
     isOptionalNumber(obj.curveFilled) &&
     typeof obj.status === "string"
   );
@@ -220,9 +225,15 @@ export const fetchToken = async (
 ): Promise<ApiResult<TokenInfo>> => {
   const res = await getJsonWithNotFound<unknown>(env, `/api/v1/tokens/${address}`);
   if (!res.ok) return res;
-  return isTokenInfo(res.data)
-    ? { ok: true, data: res.data as TokenInfo }
-    : { ok: false, kind: "unknown" };
+  if (!isTokenInfo(res.data)) return { ok: false, kind: "unknown" };
+  // Normalise the optional `volume24hUsd` field so consumers can read
+  // a uniform `number | null` instead of `number | null | undefined`.
+  const raw = res.data as TokenInfo & { volume24hUsd?: number | null };
+  const normalised: TokenInfo = {
+    ...raw,
+    volume24hUsd: raw.volume24hUsd ?? null,
+  };
+  return { ok: true, data: normalised };
 };
 
 /**

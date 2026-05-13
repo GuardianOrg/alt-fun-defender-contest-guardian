@@ -294,4 +294,25 @@ describe("fetchToken", () => {
     const result = await fetchToken(env, VALID_TOKEN.address);
     expect(result).toEqual({ ok: false, kind: "unknown" });
   });
+
+  it("normalises missing volume24hUsd to null", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ data: VALID_TOKEN }), { status: 200 }),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.volume24hUsd).toBeNull();
+  });
+
+  it("passes through volume24hUsd when present in the response", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { ...VALID_TOKEN, volume24hUsd: 12345 } }),
+        { status: 200 },
+      ),
+    );
+    const result = await fetchToken(env, VALID_TOKEN.address);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.volume24hUsd).toBe(12345);
+  });
 });
