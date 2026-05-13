@@ -261,7 +261,10 @@ describe("/start command", () => {
   });
 
   it.each([
-    [START_CALLBACK.help, /\/help/],
+    [START_CALLBACK.track, /\/track/],
+    [START_CALLBACK.withdraw, /\/withdraw/],
+    [START_CALLBACK.settings, /\/settings/],
+    [START_CALLBACK.security, /\/security/],
   ])(
     "%s surfaces a hint toast pointing at the slash command",
     async (cmd, pattern) => {
