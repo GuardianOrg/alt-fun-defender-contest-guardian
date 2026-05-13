@@ -8,6 +8,8 @@ import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
+  normaliseDefaultBuyUsdc,
+  normaliseDefaultSellUsdc,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import type { InlineKeyboard } from "../keyboards/wallet-actions.js";
@@ -334,7 +336,12 @@ const handleTrackBuy = async (
   await ctx.answerCallbackQuery();
   await ctx.reply(renderBuyTokenCardText(tokenResult.data, usdcBalance), {
     parse_mode: "HTML",
-    reply_markup: { inline_keyboard: buildBuyTokenKeyboard(tokenAddress) },
+    reply_markup: {
+      inline_keyboard: buildBuyTokenKeyboard(
+        tokenAddress,
+        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+      ),
+    },
     link_preview_options: { is_disabled: true },
   });
 };
@@ -362,7 +369,12 @@ const handleTrackSell = async (
   await ctx.answerCallbackQuery();
   await ctx.reply(renderSellTokenCardText(tokenResult.data, tokenBalance), {
     parse_mode: "HTML",
-    reply_markup: { inline_keyboard: buildSellTokenKeyboard(tokenAddress) },
+    reply_markup: {
+      inline_keyboard: buildSellTokenKeyboard(
+        tokenAddress,
+        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
+      ),
+    },
     link_preview_options: { is_disabled: true },
   });
 };

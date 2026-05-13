@@ -103,7 +103,7 @@ describe("/settings command", () => {
   });
 
   describe("status view", () => {
-    it("renders defaults (1% / $50 / degen off) on a brand-new account", async () => {
+    it("renders defaults (1% / $20 / degen off) on a brand-new account", async () => {
       const h = makeBotHarness();
       await h.run(settingsCommand(7));
       const send = capture(fetchSpy).find((c) =>
@@ -112,7 +112,7 @@ describe("/settings command", () => {
       expect(send).toBeDefined();
       const text = send!.body.text as string;
       expect(text).toContain("Slippage: 1%");
-      expect(text).toContain("Default buy: $50 USDC");
+      expect(text).toContain("Default buy: $20 USDC");
       expect(text).toContain("Degen mode: off");
       expect(text).not.toContain("Anti-phishing phrase lives in /security");
     });
@@ -132,7 +132,7 @@ describe("/settings command", () => {
       expect(labels).toContain("2%");
       expect(labels).toContain("5%");
       expect(labels).toContain("Custom %");
-      expect(labels).toContain("Default buy: $50");
+      expect(labels).toContain("Default buy: $20");
       expect(labels).toContain("Enable degen mode");
     });
 
@@ -304,7 +304,7 @@ describe("/settings command", () => {
       await h.run(textUpdate("5", 3));
 
       // Default unchanged.
-      expect((await readSession(h)).defaultBuyUsdc).toBe(50);
+      expect((await readSession(h)).defaultBuyUsdc).toBe(20);
       const reply = capture(fetchSpy).find(
         (c) =>
           c.url.includes("/sendMessage") &&
