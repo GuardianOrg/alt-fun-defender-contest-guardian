@@ -102,16 +102,16 @@ const formatSignedUsdc = (raw: string): string => {
 };
 
 /**
- * Floor a percentage to two decimal places without going through
- * `toFixed` (which rounds half-up — the spec calls for floor). Use
- * Unicode minus for negatives to match the signed-number rule in
- * AGENTS.md.
+ * Floor a percentage to two decimal places. `Math.floor` (not
+ * `Math.trunc`) — for a negative loss like `-12.349%` the spec's
+ * floor rounds toward −∞ to `-12.35%`, not toward zero. Use Unicode
+ * minus for negatives to match the signed-number rule in AGENTS.md.
  */
 const formatPct = (pct: number | null): string => {
   if (pct === null) return "—";
-  const truncated = Math.trunc(pct * 100) / 100;
-  if (truncated < 0) return `−${(-truncated).toFixed(2)}%`;
-  if (truncated > 0) return `+${truncated.toFixed(2)}%`;
+  const floored = Math.floor(pct * 100) / 100;
+  if (floored < 0) return `−${(-floored).toFixed(2)}%`;
+  if (floored > 0) return `+${floored.toFixed(2)}%`;
   return "0.00%";
 };
 

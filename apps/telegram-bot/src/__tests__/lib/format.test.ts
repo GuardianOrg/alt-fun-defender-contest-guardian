@@ -152,7 +152,8 @@ describe("formatBotPositionsResponse", () => {
     });
     const joined = out.join("\n");
     expect(joined).toContain("−$1.23");
-    expect(joined).toContain("−12.34%");
+    // Math.floor on negatives rounds toward -∞: -12.349 → -12.35.
+    expect(joined).toContain("−12.35%");
   });
 
   it("renders an em-dash when percent is null (cost basis was zero)", () => {
