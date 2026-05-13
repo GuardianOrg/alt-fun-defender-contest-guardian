@@ -12,6 +12,7 @@ import {
   CONTRACT_ADDRESSES,
   HYPER_EVM,
   BONDING_START_BLOCK,
+  BOT_FEE_ROUTER_START_BLOCK,
 } from "@launchpad/shared";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -39,15 +40,13 @@ const botFeeRouterAddress = (
 ) as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
 /**
- * The bot-team `BotFeeRouter` typically deploys long after the core
- * Alt Fun contracts, so it gets its own start block — backfilling from
- * `BONDING_START_BLOCK` across an empty range would just burn RPC
- * budget for nothing. Override with `BOT_FEE_ROUTER_START_BLOCK` once
- * the router is live. Until the router address is set this value is
- * ignored (the source registers but matches no logs).
+ * The bot-team `BotFeeRouter` deployed later than the core protocol, so
+ * it gets its own start block — backfilling from `BONDING_START_BLOCK`
+ * across an empty range would just burn RPC budget for nothing. Override
+ * via `BOT_FEE_ROUTER_START_BLOCK` env if the router is ever redeployed.
  */
 const botFeeRouterStartBlock = Number(
-  process.env.BOT_FEE_ROUTER_START_BLOCK ?? startBlock,
+  process.env.BOT_FEE_ROUTER_START_BLOCK ?? BOT_FEE_ROUTER_START_BLOCK,
 );
 
 if (bondingAddress === ZERO_ADDRESS) {
@@ -90,16 +89,12 @@ export default createConfig({
       startBlock,
     },
     /**
-     * The `BotFeeRouter` is operated by the Telegram-bot team and not
-     * yet deployed at the time of writing — `botFeeRouterAddress`
-     * resolves to the zero sentinel from `CONTRACT_ADDRESSES`. The
-     * source is registered unconditionally so the
-     * `BotFeeRouter:BotRouterTrade` / `ReferralPaid` handlers can be
-     * imported and type-check, but no logs match a zero address so
-     * Ponder skips it at runtime. Set `BOT_FEE_ROUTER_ADDRESS` (plus
-     * `BOT_FEE_ROUTER_START_BLOCK`) once the router ships and the
-     * handlers below will start populating `walletBotPosition`,
-     * `referrerStats`, and `botRouterTrade`.
+     * `BotFeeRouter` is operated by the Telegram-bot team. Its deploy
+     * block is well after `BONDING_START_BLOCK`, so we use its own
+     * start block (`BOT_FEE_ROUTER_START_BLOCK`) to avoid pointless
+     * backfill across the gap. The handlers in `src/botFeeRouter.ts`
+     * populate `walletBotPosition`, `referrerStats`, and
+     * `botRouterTrade` from this contract's events.
      */
     BotFeeRouter: {
       chain: "hyperevm",

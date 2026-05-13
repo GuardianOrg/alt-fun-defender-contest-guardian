@@ -8,14 +8,11 @@ export const CONTRACT_ADDRESSES = {
   tokenImplementation: "0xe6A0C9D82471219C3520Cc8ec309A4b222c28cA3",
   /**
    * `BotFeeRouter` is operated by the Telegram-bot team and deployed
-   * independently of the Alt Fun protocol. Until that deploy lands the
-   * address is the zero sentinel — the indexer keeps the contract entry
-   * in `ponder.config.ts` but no logs ever match, so the bot entity
-   * tables (`walletBotPosition`, `referrerStats`, `botRouterTrade`)
-   * stay empty and the API's `/api/v1/bot/*` routes return zeroed data
-   * cleanly. Replace with the deployed address once the router ships.
+   * independently of the Alt Fun protocol. Deployed at block
+   * `BOT_FEE_ROUTER_START_BLOCK` (see `./chains.ts`); the indexer's
+   * Ponder source uses that block to scope its backfill.
    */
-  botFeeRouter: "0x0000000000000000000000000000000000000000",
+  botFeeRouter: "0xB2b2d9c0c837a723fC27C27e097B384400796947",
 } as const;
 
 export const HYPERSWAP_ADDRESSES = {
