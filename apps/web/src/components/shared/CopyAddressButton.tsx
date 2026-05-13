@@ -1,7 +1,7 @@
-import { useCopyState } from "../../hooks/useCopyState";
-import IconButton from "./IconButton";
-
 import type { MouseEvent, KeyboardEvent } from "react";
+
+import IconButton from "./IconButton";
+import { useCopyState } from "../../hooks/useCopyState";
 
 interface Props {
   address: string;
