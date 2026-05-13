@@ -11,6 +11,7 @@ import { erc20Abi, ZapAbi } from "../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 import { fetchLeveragedTokens, registerTokenApi, uploadImage } from "../services/api";
 import { getErrorMessage } from "../utils/format";
+import { resolveLaunchSalt } from "../utils/saltCollisionRecovery";
 
 import type { LaunchStep } from "../services/tradeRouter";
 import type { CreateTokenParams } from "../services/types";
@@ -53,7 +54,14 @@ export function useCreateToken() {
       params: CreateTokenParams,
       userSalt: Hex,
       predictedAddress: Address,
-      onSaltCollision?: () => void,
+      /// Invoked when the pre-flight `getBytecode` check finds the
+      /// predicted CREATE2 address is already occupied. The callback
+      /// must drop the stale cache row, re-mine a fresh vanity salt,
+      /// and resolve to the new `(salt, address)` pair so the create
+      /// flow can re-check and proceed without the user noticing.
+      /// Bounded by `MAX_SALT_COLLISION_RETRIES` to avoid unbounded
+      /// loops if the miner pathologically converges on the same salt.
+      mineFreshSalt?: () => Promise<{ salt: Hex; address: Address }>,
     ) => {
       if (!isConnected || !address || !walletClient) {
         setError("Connect wallet first");
@@ -165,34 +173,35 @@ export function useCreateToken() {
           }
         }
 
-        // Pre-flight: reject the launch before any wallet popup if the
-        // predicted CREATE2 clone address already has bytecode at it
-        // (i.e. a token with this exact `(creator, name, ticker,
-        // userSalt)` quartet has already been deployed). The on-chain
-        // path would otherwise revert deep inside
-        // `Clones.cloneDeterministic` with `FailedDeployment()`
-        // (`0xb06ebf3d`), an opaque error to the user.
+        // Pre-flight: bail before any wallet popup if the predicted
+        // CREATE2 clone address already has bytecode at it (i.e. a
+        // token with this exact `(creator, name, ticker, userSalt)`
+        // quartet has already been deployed). The on-chain path would
+        // otherwise revert deep inside `Clones.cloneDeterministic`
+        // with `FailedDeployment()` (`0xb06ebf3d`), an opaque error
+        // to the user.
         //
         // The miner caches the salt in `localStorage` keyed by
-        // `(creator, impl, name, ticker)`, so the obvious cause is the
-        // user previously launched a token with the same name + ticker
-        // (perhaps in an earlier session they've forgotten about). We
-        // hand control back to `useVanityAddress` via
-        // `onSaltCollision` so it can drop the stale cache row and
-        // restart mining — without that callback the next retry would
-        // pull the same colliding salt out of the cache and revert
-        // again.
-        const existingCode = await hyperEvmClient.getBytecode({
-          address: predictedAddress,
+        // `(creator, impl, name, ticker)`, so the obvious cause is
+        // the user previously launched a token with the same name +
+        // ticker (perhaps in an earlier session they've forgotten
+        // about). `resolveLaunchSalt` auto-recovers by asking the
+        // caller to drop the stale cache row and re-mine a fresh
+        // salt via `mineFreshSalt`, then re-running the pre-flight
+        // against the freshly-mined predicted address. The on-chain
+        // `(creator, name, ticker)` are unchanged, but the new
+        // `userSalt` derives a different CREATE2 address — breaking
+        // the collision without the user noticing. The retry budget
+        // is bounded so a pathological miner / caller can't loop
+        // forever — see `saltCollisionRecovery.ts` for the loop and
+        // its unit tests.
+        const { salt: activeSalt } = await resolveLaunchSalt({
+          initialSalt: userSalt,
+          initialPredicted: predictedAddress,
+          getBytecode: (address) =>
+            hyperEvmClient.getBytecode({ address }) as Promise<Hex | undefined>,
+          mineFreshSalt,
         });
-        if (existingCode && existingCode !== "0x") {
-          if (onSaltCollision) onSaltCollision();
-          throw new Error(
-            `A token with this name and ticker already exists for your wallet. ` +
-              `Change the name or ticker, or click Launch again to mine a new ` +
-              `vanity address.`,
-          );
-        }
 
         // Prefer `createTokenWithPermit` (1 tx) when a seed buy is needed and
         // USDC isn't already approved. Falls back to approve+createToken if
@@ -246,8 +255,10 @@ export function useCreateToken() {
         // contract enforces the suffix on-chain (`Bonding.NotVanityAddress`),
         // so we hard-require a mined salt here — the caller (`CreateView`)
         // awaits `vanity.ensureSalt()` before calling us. Passing a random
-        // salt would just revert.
-        const salt: Hex = userSalt;
+        // salt would just revert. `activeSalt` may differ from the
+        // initial `userSalt` if the pre-flight loop above re-mined to
+        // dodge a CREATE2 collision.
+        const salt: Hex = activeSalt;
         const launchParams = {
           name: params.name,
           ticker: params.ticker,

@@ -174,11 +174,25 @@ export default function CreateView() {
       vanityResult.salt,
       vanityResult.address,
       // Bytecode-at-predicted-address means the cached salt collides
-      // with a previously-deployed token. Drop the cache row and
-      // restart the miner so the next click mines a fresh salt
-      // against a different CREATE2 address — otherwise the user is
-      // stranded behind a permanent `FailedDeployment()` revert.
-      () => vanity.invalidateCachedSalt(trimmedName, trimmedTicker),
+      // with a previously-deployed token. Drop the cache row, restart
+      // the miner, and resolve to the freshly-mined `(salt, address)`
+      // so the create flow can re-run the pre-flight against a
+      // different CREATE2 slot. The hook bounds the number of
+      // re-mines to keep us out of an infinite loop if the cache
+      // can't actually be cleared. We also flip `waitingForVanity`
+      // so the button label reverts from "UPLOADING IMAGE…" /
+      // "SIGN IN WALLET…" to "FINDING YOUR ADDRESS…" while the
+      // worker pool is busy.
+      async () => {
+        setWaitingForVanity(true);
+        try {
+          vanity.invalidateCachedSalt(trimmedName, trimmedTicker);
+          const fresh = await vanity.ensureSalt(trimmedName, trimmedTicker);
+          return { salt: fresh.salt, address: fresh.address };
+        } finally {
+          setWaitingForVanity(false);
+        }
+      },
     );
   };
 
