@@ -172,9 +172,18 @@ const customSlippageConversation = async (
       );
       continue;
     }
-    await conversation.external((outside) => {
-      outside.session.slippageBps = bps;
-    });
+    try {
+      await conversation.external((outside) => {
+        outside.session.slippageBps = bps;
+      });
+    } catch {
+      // Defence-in-depth: a synchronous throw from `external` (rare —
+      // most KV failures surface at session-flush time, outside this
+      // catch) must never reach a "saved" reply. The session plugin's
+      // own flush errors land on `bot.catch` in `bot.ts`.
+      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      return;
+    }
     const state = await conversation.external((outside) => renderState(outside));
     await ctx.reply(
       wrap(ctx, `Slippage set to ${formatBpsLabel(bps)}.\n\n${state.text}`),
@@ -239,9 +248,14 @@ const buyAmountConversation = async (
     // Round to whole USDC — the value is shown on buttons and stored
     // for use as a /buy prefill; sub-dollar precision is noise.
     const rounded = Math.round(value);
-    await conversation.external((outside) => {
-      outside.session.defaultBuyUsdc = rounded;
-    });
+    try {
+      await conversation.external((outside) => {
+        outside.session.defaultBuyUsdc = rounded;
+      });
+    } catch {
+      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      return;
+    }
     const state = await conversation.external((outside) => renderState(outside));
     await ctx.reply(
       wrap(ctx, `Default buy set to $${rounded} USDC.\n\n${state.text}`),
