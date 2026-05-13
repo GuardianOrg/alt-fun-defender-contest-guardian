@@ -16,6 +16,7 @@ import {
   formatTimeAgo,
   formatUsd,
 } from "../../utils/format";
+import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
 import type { HeldToken } from "../../services/types";
@@ -231,7 +232,15 @@ export default function RightPanel() {
                           {formatTimeAgo(t.timestamp)}
                         </span>
                       </div>
-                      <div className={styles.tradeWallet}>{t.walletAddress}</div>
+                      <div className={styles.tradeWalletRow}>
+                        <span className={styles.tradeWallet}>
+                          {t.walletAddress}
+                        </span>
+                        <CopyAddressButton
+                          address={t.walletAddressFull}
+                          className={styles.tradeCopyBtn}
+                        />
+                      </div>
                     </div>
                     <span
                       className={cn(

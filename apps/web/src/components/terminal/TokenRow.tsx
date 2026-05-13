@@ -96,7 +96,12 @@ export default function TokenRow({ token }: Props) {
         </div>
       </div>
 
-      {/* Underlying asset */}
+      {/* Underlying asset + direction/leverage. Single combined cell so
+       * the row reads as `{icon} HYPE 5x Long` left-to-right rather
+       * than splitting the underlying identity from its leverage
+       * descriptor across two columns. Same font / weight throughout —
+       * only the trailing `Nx Long/Short` span gets colour-coded so
+       * the long/short bias still surfaces at a glance. */}
       <div className={styles.underlyingCell}>
         <AssetIcon
           asset={token.underlying}
@@ -106,13 +111,9 @@ export default function TokenRow({ token }: Props) {
         <span className={styles.underlyingName}>
           {getAssetDisplayName(token.underlying)}
         </span>
-      </div>
-
-      {/* Direction / leverage */}
-      <div className={styles.directionCell}>
         <span
           className={cn(
-            styles.directionBadge,
+            styles.underlyingDirection,
             isShort ? styles.directionShort : styles.directionLong,
           )}
         >

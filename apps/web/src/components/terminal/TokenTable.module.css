@@ -57,22 +57,31 @@
   flex-shrink: 0;
 }
 
+/* Header cell widths must mirror the per-cell widths in
+ * `TokenRow.module.css` exactly — these `nth-child` selectors are how
+ * the head stays aligned with the body once the merged UNDERLYING +
+ * DIRECTION column collapsed the previous 6-column layout into 5.
+ *
+ *   1. ALTCOIN     — `.tokenCell`        240px
+ *   2. UNDERLYING  — `.underlyingCell`   280px (was 91px before merge)
+ *   3. 24H CHANGE  — `.changeCell`        90px
+ *   4. PROGRESS    — `.progressCell`     170px
+ *   5. MCAP        — `.mcapCell`          90px
+ *
+ * Update both files in lockstep when columns change. */
 .headCell:nth-child(1) {
-  width: 200px;
+  width: 240px;
 }
 .headCell:nth-child(2) {
-  width: 91px;
+  width: 280px;
 }
 .headCell:nth-child(3) {
-  width: 180px;
-}
-.headCell:nth-child(4) {
   width: 90px;
 }
-.headCell:nth-child(5) {
+.headCell:nth-child(4) {
   width: 170px;
 }
-.headCell:nth-child(6) {
+.headCell:nth-child(5) {
   width: 90px;
 }
 

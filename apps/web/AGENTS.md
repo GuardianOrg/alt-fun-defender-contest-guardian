@@ -32,6 +32,8 @@ Every button-shaped element on the page goes through one of five shared primitiv
 | Quick-pick toggle chip in a horizontal row (25/50/75/MAX, seed-buy %, slippage %) | [`PresetChip`](src/components/shared/PresetChip.tsx) | Border `--border` → `--border-2`, color `--txt-3` → `--txt` |
 | Segment of a mutually-exclusive control (BUY/SELL, tab bars, interval / timeframe / unit pickers) | [`SegmentedButton`](src/components/shared/SegmentedButton.tsx) | Color `--txt-3` → `--txt`, faint white-overlay bg; active state uses tone (`mint`/`red`/`neutral`) plus optional 2px bottom indicator |
 
+For the recurring "copy this wallet address" affordance specifically, use the shared [`CopyAddressButton`](src/components/shared/CopyAddressButton.tsx) wrapper rather than re-rolling `IconButton` + `useCopyState` + the copy/check SVG pair. It guarantees every copy-address surface (profile row, recent-trades feed, trades table, …) shares the same look, hit target, post-copy confirmation window, and `aria-label` format.
+
 A few things that look button-shaped but **are not** in this taxonomy and are documented exceptions:
 
 - The **modal "esc" badge** (`shared/Modal`) — close affordance for every modal, intentionally a kbd-styled pill, not an `IconButton`. See [Modals & overlays](#modals--overlays-mandatory).

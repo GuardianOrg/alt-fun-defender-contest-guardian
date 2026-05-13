@@ -1,12 +1,14 @@
+import { useRef, useState } from "react";
+
 import { useDispatch } from "react-redux";
 import { useNavigate, useLocation } from "react-router";
 
+import AddressMenu from "./AddressMenu";
 import styles from "./Header.module.css";
-import ProfileButton from "./ProfileButton";
-import { CREATE_PATH } from "../../app/routes";
+import { CREATE_PATH, PROFILE_PATH } from "../../app/routes";
 import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
 import { useWallet } from "../../hooks/useWallet";
-import { setSearchOpen, setEarningsOpen } from "../../state/uiSlice";
+import { setSearchOpen } from "../../state/uiSlice";
 import { SEARCH_SHORTCUT_LABEL } from "../../utils/platform";
 import Button from "../shared/Button";
 import Chip from "../shared/Chip";
@@ -15,8 +17,11 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const dispatch = useDispatch();
-  const { isConnected, address, shortAddress, connect } = useWallet();
+  const { isConnected, address, shortAddress, connect, disconnect } =
+    useWallet();
   const tinyAddress = address ? `${address.slice(0, 5)}…` : undefined;
+  const [addressMenuOpen, setAddressMenuOpen] = useState(false);
+  const walletChipWrapRef = useRef<HTMLDivElement>(null);
 
   const isCreate = location.pathname === CREATE_PATH;
 
@@ -50,15 +55,29 @@ export default function Header() {
       )}
 
       <div className={styles.rightSide}>
-        {isConnected ? (
-          <Chip
-            className={styles.walletChip}
-            onClick={() => dispatch(setEarningsOpen(true))}
-            aria-label="Open profile and earnings"
-          >
-            <span className={styles.fullText}>{shortAddress}</span>
-            <span className={styles.shortText}>{tinyAddress}</span>
-          </Chip>
+        {isConnected && address ? (
+          <div ref={walletChipWrapRef} className={styles.walletChipWrap}>
+            <Chip
+              className={styles.headerChip}
+              onClick={() => setAddressMenuOpen((prev) => !prev)}
+              aria-label="Wallet address menu"
+              aria-haspopup="menu"
+              aria-expanded={addressMenuOpen}
+            >
+              <span className={styles.fullText}>{shortAddress}</span>
+              <span className={styles.shortText}>{tinyAddress}</span>
+            </Chip>
+            {addressMenuOpen && (
+              <AddressMenu
+                address={address}
+                anchorRef={walletChipWrapRef}
+                onDisconnect={() => {
+                  void disconnect();
+                }}
+                onClose={() => setAddressMenuOpen(false)}
+              />
+            )}
+          </div>
         ) : (
           <Button
             variant="primary"
@@ -69,7 +88,16 @@ export default function Header() {
             Connect Wallet
           </Button>
         )}
-        {isConnected && !isCreate && (
+        {isConnected && (
+          <Chip
+            className={styles.headerChip}
+            onClick={() => navigate(PROFILE_PATH)}
+            aria-label="Open profile"
+          >
+            Profile
+          </Chip>
+        )}
+        {isConnected && (
           <Button
             variant="primary"
             size="sm"
@@ -81,7 +109,6 @@ export default function Header() {
             <span className={styles.shortText}>create</span>
           </Button>
         )}
-        {isConnected && <ProfileButton />}
       </div>
     </header>
   );

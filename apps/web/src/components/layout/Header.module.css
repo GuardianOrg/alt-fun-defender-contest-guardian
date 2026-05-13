@@ -132,15 +132,27 @@
   gap: 0.8rem;
 }
 
-/* Header overrides on the shared `Chip` — we want the wallet pill to
- * align vertically with the search trigger (3rem tall) and read in
- * mint as its resting state because the connected-wallet display is
- * the only positive/identity affordance in the bar. The chip's own
- * border and hover rules are inherited unchanged. */
-.walletChip {
+/* Positioning context for the anchored `AddressMenu` popover. The
+ * menu drops below the wallet chip with `position: absolute`, so the
+ * wrapper has to be `relative` and inline-flex so it lines up with
+ * its sibling buttons in `.rightSide` without stealing extra width. */
+.walletChipWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Shared header overrides on the `Chip` primitive — used by both the
+ * wallet address pill and the Portfolio nav pill so the right side of
+ * the header reads as a coherent strip rather than three unrelated
+ * controls. 3rem height aligns the chips with the search trigger /
+ * launch button, mint-on-transparent gives the chip strip an
+ * identity-affordance feel without filling the bar with mint. The
+ * chip's own border and hover rules are inherited unchanged. */
+.headerChip {
   height: 3rem;
   color: var(--mint);
   background: transparent;
+  text-transform: uppercase;
 }
 
 /* Header override on the shared CTA `Button` — the launch button
@@ -166,6 +178,16 @@
 }
 
 @media (max-width: 1024px) {
+  /* On mobile the logo sits on the left and everything else (search
+   * trigger when shown, plus the buttons cluster) hugs the right
+   * edge. Pushing the first non-logo child with `margin-left: auto`
+   * absorbs all the slack so the right-hand items stay grouped —
+   * regardless of whether the search trigger is rendered on this
+   * route (e.g. it's hidden on `/create`). */
+  .header > :nth-child(2) {
+    margin-left: auto;
+  }
+
   .searchTrigger {
     position: static;
     transform: none;
@@ -175,9 +197,7 @@
     padding: 0;
     gap: 0;
     justify-content: center;
-    margin-left: auto;
     margin-right: 0.8rem;
-    order: 1;
     /* Match the wallet address button on mobile, where the search trigger
      * collapses into an icon-only chip and sits next to it in the header. */
     background: transparent;
@@ -194,8 +214,13 @@
   }
 
   .rightSide {
+    /* Desktop pushes `.rightSide` to the right via its own
+     * `margin-left: auto`; on mobile the `:nth-child(2)` rule above
+     * handles the right-alignment for whichever element is first
+     * after the logo, so we reset this back to 0 to avoid double
+     * auto margins splitting the row in half when both the search
+     * trigger and the buttons cluster are rendered. */
     margin-left: 0;
-    order: 2;
   }
 
   .searchText {

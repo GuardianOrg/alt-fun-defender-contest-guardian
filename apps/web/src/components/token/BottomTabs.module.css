@@ -68,6 +68,16 @@
   white-space: nowrap;
 }
 
+/* Account cell hosts the shortened trader address + an inline copy
+ * `CopyAddressButton`. Inline-flex so the cell width still hugs its
+ * content (the table column is sized to the longest address + icon),
+ * with a 0.4rem gap between the digits and the icon. */
+.walletCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .walletAddress {
   color: var(--txt);
   font-weight: 500;

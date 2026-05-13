@@ -11,14 +11,7 @@ import { selectActiveFilter } from "../../state/uiSlice";
 function TableHead() {
   return (
     <div className={styles.tableHead}>
-      {[
-        "ALTCOIN",
-        "UNDERLYING",
-        "DIRECTION / LEVERAGE",
-        "24H CHANGE",
-        "PROGRESS",
-        "MCAP",
-      ].map((h) => (
+      {["ALTCOIN", "UNDERLYING", "24H CHANGE", "PROGRESS", "MCAP"].map((h) => (
         <div key={h} className={styles.headCell}>
           {h}
         </div>

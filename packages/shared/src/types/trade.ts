@@ -77,7 +77,19 @@ export interface Trade {
   side: "BUY" | "SELL";
   amountUsd: number;
   tokensAmount: string;
+  /**
+   * Pre-formatted short form of the trader address (e.g. `0x12…ab`) for
+   * dense in-row display. Kept separate from `walletAddressFull` so the
+   * trade-feed UIs don't have to call a formatter on every render.
+   */
   walletAddress: string;
+  /**
+   * Canonical full trader address — used by anything that needs the
+   * actual hex string (copy-to-clipboard buttons, explorer links,
+   * `===` checks against the connected wallet). The pre-formatted
+   * short form lives on `walletAddress`.
+   */
+  walletAddressFull: string;
   /** ISO-8601 timestamp (converted client-side from the broadcast's Unix
    *  seconds string). */
   timestamp: string;

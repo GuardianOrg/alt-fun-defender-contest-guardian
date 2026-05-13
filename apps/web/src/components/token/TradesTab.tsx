@@ -1,6 +1,7 @@
 import styles from "./BottomTabs.module.css";
 import { useTokenTrades } from "../../hooks/useTradeFeed";
 import { cn, formatTimeAgo, shortenAddress } from "../../utils/format";
+import CopyAddressButton from "../shared/CopyAddressButton";
 import Skeleton from "../shared/Skeleton";
 
 import type { Token } from "../../services/types";
@@ -65,9 +66,12 @@ export default function TradesTab({ token }: { token: Token }) {
           return (
             <tr key={t.id} className={styles.tradeRow}>
               <td className={styles.tdLeft}>
-                <span className={styles.walletAddress}>
-                  {t.walletAddress}
-                </span>
+                <div className={styles.walletCell}>
+                  <span className={styles.walletAddress}>
+                    {t.walletAddress}
+                  </span>
+                  <CopyAddressButton address={t.walletAddressFull} />
+                </div>
               </td>
               <td
                 className={cn(

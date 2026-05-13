@@ -1,24 +1,38 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * Pool of placeholder ASCII faces used as a stand-in for the user's
- * profile avatar — a mix of Japanese-style kaomoji and shorter Western
- * emoticons.
- *
- * Prototype only — real avatars (gradient by address, ENS pfp, …)
- * will replace this once the profile flow is wired up.
+ * Curated subset of `PROFILE_FACES` that a brand-new user is seeded
+ * with on their first visit (see `readInitial`). Trimmed to a small
+ * "house style" set — straightforward kaomoji, no Western-style
+ * emoticons — so the first-impression avatar reads as a recognisable
+ * identity rather than a random roll across the full novelty pool.
+ * The wider pool only unlocks once the user clicks the change-face
+ * button on the profile page.
  */
-export const PROFILE_FACES = [
+export const CORE_PROFILE_FACES = [
+  "o_O",
+  "^_^",
+  ">_<",
+  "~_~",
+  "(._.)",
+  "(o_o)",
+  "(~_~)",
   "(o_O)",
+];
+
+/**
+ * Extras layered on top of the core seed set. The change-face button
+ * cycles across `[...CORE, ...EXTRAS]`, so anything added here becomes
+ * reachable from the profile page but never appears as a fresh
+ * user's starting avatar.
+ */
+const EXTRA_PROFILE_FACES = [
   "(^_^)",
   "(>_<)",
   "(@_@)",
   "(=_=)",
   "(^o^)",
   "(T_T)",
-  "(._.)",
-  "(o_o)",
-  "(~_~)",
   "(·_·)",
   "(^.^)",
   "(-_-)",
@@ -26,6 +40,16 @@ export const PROFILE_FACES = [
   "(^_~)",
   "(>_>)",
   "(o_<)",
+  "@_@",
+  "=_=",
+  "^o^",
+  "._.",
+  "o_o",
+  "·_·",
+  "^.^",
+  "-_-",
+  "¬_¬",
+  "*_*",
   ":)",
   ":D",
   ":P",
@@ -36,28 +60,23 @@ export const PROFILE_FACES = [
   "B)",
   ":/",
   "<3",
-  "^^",
   "o.O",
-  ">:)",
   "=)",
   ":-)",
   ":'D",
-  ";P",
-  ";_;",
-  "*_*",
-  "^_^",
-  ">_<",
-  "@_@",
-  "=_=",
-  "^o^",
-  "._.",
-  "o_o",
-  "~_~",
-  "·_·",
-  "^.^",
-  "-_-",
-  "¬_¬",
 ];
+
+/**
+ * Full pool of placeholder ASCII faces — core seed faces plus the
+ * wider novelty pool that `cycleProfileFace()` rolls across. Order is
+ * `[...CORE, ...EXTRA]` so the seed set is guaranteed to be a strict
+ * prefix subset; `pickRandomFace` can take either as a `pool` arg
+ * without worrying about overlap.
+ *
+ * Prototype only — real avatars (gradient by address, ENS pfp, …)
+ * will replace this once the profile flow is wired up.
+ */
+export const PROFILE_FACES = [...CORE_PROFILE_FACES, ...EXTRA_PROFILE_FACES];
 
 /* Tiny external store for the active profile face.
  *
@@ -74,22 +93,24 @@ export const PROFILE_FACES = [
 
 const STORAGE_KEY = "altfun:profileFace";
 
-const pickRandomFace = (exclude?: string): string => {
-  const pool = exclude
-    ? PROFILE_FACES.filter((f) => f !== exclude)
-    : PROFILE_FACES;
-  return pool[Math.floor(Math.random() * pool.length)] ?? PROFILE_FACES[0];
+const pickRandomFace = (pool: readonly string[], exclude?: string): string => {
+  const filtered = exclude ? pool.filter((f) => f !== exclude) : pool;
+  return filtered[Math.floor(Math.random() * filtered.length)] ?? pool[0];
 };
 
 const readInitial = (): string => {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
+    // Validate against the full pool, not just the core set: a user
+    // who's already cycled to an extra face on a previous visit must
+    // keep it across reloads. The core-only restriction only applies
+    // to the *first* assignment below.
     if (stored && PROFILE_FACES.includes(stored)) return stored;
   } catch {
     // localStorage unavailable (SSR, sandboxed iframe, disabled storage)
     // — fall through to a fresh random pick without persistence.
   }
-  const initial = pickRandomFace();
+  const initial = pickRandomFace(CORE_PROFILE_FACES);
   try {
     window.localStorage.setItem(STORAGE_KEY, initial);
   } catch {
@@ -121,12 +142,15 @@ export function getProfileFace(): string {
 }
 
 /**
- * Pick a new random face (different from the current one), persist
- * it, and notify subscribers. No-op if the pool collapses to a single
- * entry.
+ * Pick a new random face from the *full* `PROFILE_FACES` pool
+ * (different from the current one), persist it, and notify
+ * subscribers. The first-assignment restriction to `CORE_PROFILE_FACES`
+ * only applies in `readInitial`; once the user explicitly asks for a
+ * new face via the profile page, the entire novelty pool opens up.
+ * No-op if the pool collapses to a single entry.
  */
 export function cycleProfileFace(): void {
-  const next = pickRandomFace(currentFace);
+  const next = pickRandomFace(PROFILE_FACES, currentFace);
   if (next === currentFace) return;
   currentFace = next;
   try {
