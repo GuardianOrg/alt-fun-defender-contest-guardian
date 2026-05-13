@@ -39,7 +39,7 @@ export const decodeSlippagePreset = (data: string): number | null => {
  * Render the `/settings` status panel keyboard:
  *   Row 1: slippage presets (current selection marked) + custom
  *   Row 2: change default buy amount
- *   Row 3: degen mode toggle (label flips between Enable / Disable)
+ *   Row 3: degen mode toggle (label keeps the setting name; 🟢/🔴 prefix shows state)
  */
 export const buildSettingsKeyboard = (
   status: SettingsStatus,
@@ -66,7 +66,7 @@ export const buildSettingsKeyboard = (
     ],
     [
       {
-        text: status.degenMode ? "Disable degen mode" : "Enable degen mode",
+        text: status.degenMode ? "🟢 Degen mode" : "🔴 Degen mode",
         callback_data: SETTINGS_CALLBACK.degenToggle,
       },
     ],
