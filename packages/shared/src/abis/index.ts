@@ -6,6 +6,6 @@ export { TokenAbi } from "./Token.js";
 export { ZapAbi } from "./Zap.js";
 export { LPLockAbi } from "./LPLock.js";
 export { FeeVaultAbi } from "./FeeVault.js";
+export { BotFeeRouterAbi } from "./BotFeeRouter.js";
 export { UniswapV2PairAbi } from "./UniswapV2Pair.js";
 export { LeveragedTokenAbi } from "./LeveragedToken.js";
-export { BotFeeRouterAbi } from "./BotFeeRouter.js";

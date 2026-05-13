@@ -10,6 +10,9 @@ import {Router} from "../src/Router.sol";
 import {Zap} from "../src/Zap.sol";
 import {LPLock} from "../src/LPLock.sol";
 import {FeeVault} from "../src/FeeVault.sol";
+import {BotFeeRouter} from "../src/BotFeeRouter.sol";
+import {IZap} from "../src/interfaces/IZap.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "../src/interfaces/IUniswapV2Router02.sol";
 
 contract Deploy is Script {
@@ -36,6 +39,22 @@ contract Deploy is Script {
     // Revert to `12_000 ether` for the public-launch deploy in a couple
     // of days.
     uint256 constant GRADUATION_THRESHOLD_USD = 300 ether;
+
+    /// @dev Treasury for the external-bot fee skim (`BotFeeRouter`).
+    ///      Cold-wallet-only by design — see
+    ///      [`apps/telegram-bot/AGENTS.md → Bot Fee Model`]. Override via
+    ///      `BOT_FEE_TREASURY` env var if a separate cold wallet has been
+    ///      provisioned; otherwise defaults to the deployer for first-cut
+    ///      deploys.
+    function _botFeeTreasury(
+        address deployer
+    ) internal view returns (address) {
+        try vm.envAddress("BOT_FEE_TREASURY") returns (address t) {
+            return t;
+        } catch {
+            return deployer;
+        }
+    }
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -99,9 +118,20 @@ contract Deploy is Script {
         FeeVault(feeVaultProxy).addDepositor(zapProxy);
         Bonding(bondingProxy).addRouter(zapProxy);
 
+        _deployBotFeeRouter(zapProxy);
+
         console.log("--- Deployment complete ---");
         console.log("USDC:", USDC);
         console.log("Uniswap V2 Router:", UNISWAP_V2_ROUTER);
+    }
+
+    function _deployBotFeeRouter(
+        address zapProxy
+    ) internal {
+        address treasury = _botFeeTreasury(msg.sender);
+        BotFeeRouter botFeeRouter = new BotFeeRouter(IZap(zapProxy), IERC20(USDC), treasury);
+        console.log("BotFeeRouter:", address(botFeeRouter));
+        console.log("BotFeeRouter treasury:", treasury);
     }
 
     function _deployBonding(
