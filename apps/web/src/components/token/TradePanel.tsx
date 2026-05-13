@@ -16,6 +16,7 @@ import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useIsMintPaused } from "../../hooks/useLeveragedTokens";
 import { useReferral } from "../../hooks/useReferral";
+import { useSlippage } from "../../hooks/useSlippage";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import { tradeRouterService } from "../../services/tradeRouter";
@@ -59,7 +60,11 @@ export default function TradePanel({ token }: Props) {
   // manually doesn't trigger a second swap on the next refetch.
   const autoSwitchedToSellRef = useRef(false);
   const [amount, setAmount] = useState("");
-  const [slippage, setSlippage] = useState(0.02);
+  // Slippage is persisted across page loads and shared across tabs — see
+  // `useSlippage` for the storage shape. Defaulting via the hook keeps the
+  // chip-highlight logic in `SettingsPopup` stable on first render (no
+  // post-mount jump from 2% → persisted value).
+  const [slippage, setSlippage] = useSlippage();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [buyQuote, setBuyQuote] = useState<BuyQuote | null>(null);
   const [sellQuote, setSellQuote] = useState<SellQuote | null>(null);

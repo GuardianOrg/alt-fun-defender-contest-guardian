@@ -41,7 +41,7 @@ Two-column: left (hero, chart, curve strip, tabs) | right (trade panel, 300px).
 
 **Tabs:** TRADES (live table with wallet, side, amounts, time), HOLDERS (rank, wallet, balance, % supply).
 
-**Trade panel:** Buy/Sell toggle. Slippage popup (0.5%, 1%, 2%, 5%, custom). Amount input (USDC/token toggle). Quick buttons: Reset, $100, $500, $1K, Max. Estimate line. CTA states: CONNECT WALLET / APPROVING USDC / BUYING / SELLING / CONFIRMED / RETRY.
+**Trade panel:** Buy/Sell toggle. Slippage popup (2%, 5%, 10%, 15%, custom — default 10%, persisted in `altfun:slippage` localStorage). Amount input (USDC/token toggle). Quick buttons: Reset, $100, $500, $1K, Max. Estimate line. CTA states: CONNECT WALLET / APPROVING USDC / BUYING / SELLING / CONFIRMED / RETRY.
 
 Creator badge at bottom (visible when wallet = creator): volume, earned, claimable, claim button.
 
