@@ -36,7 +36,7 @@ test.describe("Sell flow", () => {
     await amountInput.fill("1000000");
 
     // Wait for quote to appear showing USDC output
-    await expect(page.locator("text=≈ you receive")).toBeVisible({
+    await expect(page.locator("text=You receive ≈")).toBeVisible({
       timeout: 5_000,
     });
   });
@@ -57,7 +57,7 @@ test.describe("Sell flow", () => {
     const bufferWarning = page.locator("text=Sell amount exceeds available liquidity");
     const minimumError = page.locator("text=Minimum trade");
     // One of these should potentially show, or the quote should appear
-    const quoteOrWarning = bufferWarning.or(minimumError).or(page.locator("text=≈ you receive"));
+    const quoteOrWarning = bufferWarning.or(minimumError).or(page.locator("text=You receive ≈"));
     await expect(quoteOrWarning.first()).toBeVisible({ timeout: 5_000 });
   });
 

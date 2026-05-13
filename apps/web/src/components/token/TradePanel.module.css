@@ -489,9 +489,9 @@
   border-radius: 0.5rem;
   padding: 0.6rem 0.8rem;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
 }
 
 .confirmedTxLink {

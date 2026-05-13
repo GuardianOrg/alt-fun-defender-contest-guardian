@@ -35,7 +35,7 @@ test.describe("Buy flow", () => {
     await amountInput.fill("100");
 
     // Wait for quote to appear (debounced by 300ms)
-    await expect(page.locator("text=≈ you receive")).toBeVisible({
+    await expect(page.locator("text=You receive ≈")).toBeVisible({
       timeout: 5_000,
     });
   });

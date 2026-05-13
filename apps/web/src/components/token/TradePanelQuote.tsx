@@ -14,7 +14,7 @@ export default function TradePanelQuote({ mode, ticker, buyQuote, sellQuote }: P
     <div className={styles.estimate}>
       {mode === "buy" ? (
         <>
-          ≈ you receive{" "}
+          You receive ≈{" "}
           <span className={styles.estimateValue}>
             {buyQuote?.tokensOut ?? "…"}
           </span>{" "}
@@ -27,7 +27,7 @@ export default function TradePanelQuote({ mode, ticker, buyQuote, sellQuote }: P
         </>
       ) : (
         <>
-          ≈ you receive{" "}
+          You receive ≈{" "}
           <span className={styles.estimateValue}>
             ${sellQuote
               ? sellQuote.youReceive.toLocaleString(undefined, {

@@ -99,7 +99,7 @@ test_1.test.describe("Buy flow", function () {
                 case 1:
                     _c.sent();
                     // Wait for quote to appear (debounced by 300ms)
-                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=≈ you receive")).toBeVisible({
+                    return [4 /*yield*/, (0, test_1.expect)(page.locator("text=You receive ≈")).toBeVisible({
                             timeout: 5000,
                         })];
                 case 2:
