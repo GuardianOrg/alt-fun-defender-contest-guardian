@@ -636,7 +636,7 @@ export const registerSecurityCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     const state = await renderState(ctx, ctx.from.id);
     await ctx.answerCallbackQuery();
-    await ctx.reply(withAntiPhishing(state.text), {
+    await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });
