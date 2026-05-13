@@ -346,6 +346,71 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(send!.body.text)).toContain("Bot fee 0.5%");
     expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
   });
+
+  // Regression: btsr / btsd / btsa handlers used to .catch() unhandled
+  // throws with a log-only sink, leaving the Telegram client spinner
+  // stuck until its 30s timeout. The outer catch must ACK with
+  // show_alert so the user sees the failure instead of a silent
+  // button.
+  it("btsr surfaces an outage toast when the handler throws (KV down)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
+    const getActiveSpy = vi
+      .spyOn(WalletManager.prototype, "getActive")
+      .mockRejectedValue(new Error("kv down"));
+
+    try {
+      await h.run(callbackUpdate(`btsr:${TOKEN_ADDR}`));
+
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(String(answer!.body.text)).toMatch(/unavailable|try again/i);
+    } finally {
+      getActiveSpy.mockRestore();
+    }
+  });
+
+  it("btsd surfaces an outage toast when the handler throws (KV down)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
+    const getActiveSpy = vi
+      .spyOn(WalletManager.prototype, "getActive")
+      .mockRejectedValue(new Error("kv down"));
+
+    try {
+      await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
+
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(String(answer!.body.text)).toMatch(/unavailable|try again/i);
+    } finally {
+      getActiveSpy.mockRestore();
+    }
+  });
+
+  it("btsa surfaces an outage toast when the handler throws (KV down)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
+    const getActiveSpy = vi
+      .spyOn(WalletManager.prototype, "getActive")
+      .mockRejectedValue(new Error("kv down"));
+
+    try {
+      await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(String(answer!.body.text)).toMatch(/unavailable|try again/i);
+    } finally {
+      getActiveSpy.mockRestore();
+    }
+  });
 });
 
 /**

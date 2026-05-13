@@ -878,8 +878,15 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleSellRefresh(ctx, parsed.args[0]).catch((err) => {
+    // Mirror track.ts / positions.ts — an unhandled throw used to
+    // log-and-swallow with no ACK, leaving the client spinner stuck
+    // until Telegram's 30s timeout. Surface the outage via
+    // answerCallbackQuery so the press is visibly resolved.
+    await handleSellRefresh(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("sell refresh failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
@@ -895,8 +902,11 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const amount = normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc);
-    await handleFixedSell(ctx, parsed.args[0], amount).catch((err) => {
+    await handleFixedSell(ctx, parsed.args[0], amount).catch(async (err) => {
       logger.error("sell default handler failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
@@ -907,8 +917,11 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleSellAll(ctx, parsed.args[0]).catch((err) => {
+    await handleSellAll(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("sell all handler failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 

@@ -434,8 +434,16 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleBuyRefresh(ctx, parsed.args[0]).catch((err) => {
+    // An unhandled throw inside the handler used to log-and-swallow,
+    // leaving the Telegram client spinner on the button until its 30s
+    // timeout — visually indistinguishable from a no-op. Surface the
+    // outage via answerCallbackQuery so the user can tell the press
+    // landed and failed, then retry.
+    await handleBuyRefresh(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("buy refresh failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
@@ -451,8 +459,11 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const amount = normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc);
-    await handleFixedBuy(ctx, parsed.args[0], amount).catch((err) => {
+    await handleFixedBuy(ctx, parsed.args[0], amount).catch(async (err) => {
       logger.error("buy default handler failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
@@ -463,8 +474,11 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedBuy(ctx, parsed.args[0], 100).catch((err) => {
+    await handleFixedBuy(ctx, parsed.args[0], 100).catch(async (err) => {
       logger.error("buy 100 handler failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
