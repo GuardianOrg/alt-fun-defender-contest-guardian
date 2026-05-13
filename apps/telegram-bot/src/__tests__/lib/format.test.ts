@@ -8,12 +8,12 @@ import {
   formatFixed,
   formatTokenAmount,
   formatUsdc,
+  POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
+  POSITIONS_SELL_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
-
-const BOT = "CortisolTestBot";
 import type {
   BotOpenPosition,
   BotPositionsResponse,
@@ -109,17 +109,19 @@ describe("chunkPositionsMessage", () => {
 });
 
 describe("formatBotPositionsResponse", () => {
-  it("returns an empty-state message when both sections are empty", () => {
-    const out = formatBotPositionsResponse({ open: [], realised: [] }, BOT);
-    expect(out).toEqual(["No open positions for this wallet."]);
+  it("returns an empty-state page when both sections are empty", () => {
+    const pages = formatBotPositionsResponse({ open: [], realised: [] });
+    expect(pages).toHaveLength(1);
+    expect(pages[0]!.text).toBe("No open positions for this wallet.");
+    expect(pages[0]!.openActions).toEqual([]);
   });
 
   it("renders an Open header, ticker, balance, cost, value, signed PnL, and percent", () => {
-    const out = formatBotPositionsResponse(
-      { open: [openPos()], realised: [] },
-      BOT,
-    );
-    const joined = out.join("\n");
+    const pages = formatBotPositionsResponse({
+      open: [openPos()],
+      realised: [],
+    });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).toContain("Open positions (1)");
     expect(joined).toContain("ONE");
     expect(joined).toContain("1.5");
@@ -129,48 +131,74 @@ describe("formatBotPositionsResponse", () => {
     expect(joined).toContain("+25.00%");
   });
 
-  it("appends inline Buy/Sell HTML anchors to each open position line", () => {
+  it("renders the open-position token address inside <code> so it's tap-to-copy", () => {
+    const pos = openPos({
+      token: "0xbBf3457b56e4B3E8Eb0c66cb9a626219d3000000",
+      ticker: "ALPHA",
+    });
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).toContain(`<code>${pos.token}</code>`);
+  });
+
+  it("renders the realised-position token address inside <code>", () => {
+    const pos = realisedPos({
+      token: "0xbBf3457b56e4B3E8Eb0c66cb9a626219d3000000",
+    });
+    const pages = formatBotPositionsResponse({ open: [], realised: [pos] });
+    const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).toContain(`<code>${pos.token}</code>`);
+  });
+
+  it("emits one openActions entry per open position on the page it lands on", () => {
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ticker: "ALPHA",
     });
-    const out = formatBotPositionsResponse({ open: [pos], realised: [] }, BOT);
-    const joined = out.join("\n");
-    // Anchors land on the same line as PnL — the user's eye lands on
-    // the action right after the numbers without scanning to a
-    // bottom-of-message keyboard.
-    expect(joined).toContain(
-      `<a href="https://t.me/${BOT}?start=buy_${pos.token}">Buy</a>`,
-    );
-    expect(joined).toContain(
-      `<a href="https://t.me/${BOT}?start=sell_${pos.token}">Sell</a>`,
-    );
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    expect(pages).toHaveLength(1);
+    expect(pages[0]!.openActions).toEqual([
+      { token: pos.token, ticker: pos.ticker },
+    ]);
   });
 
-  it("does not append inline action links to realised (closed) positions", () => {
-    const out = formatBotPositionsResponse(
-      { open: [], realised: [realisedPos()] },
-      BOT,
-    );
-    const joined = out.join("\n");
+  it("does not emit `t.me?start=...` HTML anchors in the body any more", () => {
+    // Regression: the legacy Buy/Sell anchors bounced through Telegram's
+    // link-handler UI even inside the same bot's chat. Per-position
+    // callback buttons (see `buildPositionsPageKeyboard`) replace them.
+    const pos = openPos({
+      token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ticker: "ALPHA",
+    });
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).not.toContain("?start=buy_");
     expect(joined).not.toContain("?start=sell_");
+    expect(joined).not.toContain("t.me/");
+  });
+
+  it("does not emit openActions for realised (closed) positions", () => {
+    const pages = formatBotPositionsResponse({
+      open: [],
+      realised: [realisedPos()],
+    });
+    for (const page of pages) expect(page.openActions).toEqual([]);
   });
 
   it("HTML-escapes the ticker so an attacker-controlled symbol can't inject markup", () => {
     const pos = openPos({ ticker: "<img src=x onerror=1>" });
-    const out = formatBotPositionsResponse({ open: [pos], realised: [] }, BOT);
-    const joined = out.join("\n");
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).not.toContain("<img src=x");
     expect(joined).toContain("&lt;img src=x onerror=1&gt;");
   });
 
   it("renders a Realised header with proceeds, cost, signed PnL, percent", () => {
-    const out = formatBotPositionsResponse(
-      { open: [], realised: [realisedPos()] },
-      BOT,
-    );
-    const joined = out.join("\n");
+    const pages = formatBotPositionsResponse({
+      open: [],
+      realised: [realisedPos()],
+    });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).toContain("Realised positions (1)");
     expect(joined).toContain("TWO");
     expect(joined).toContain("cost $10");
@@ -180,38 +208,32 @@ describe("formatBotPositionsResponse", () => {
   });
 
   it("renders a negative PnL with the Unicode minus sign and floored percent", () => {
-    const out = formatBotPositionsResponse(
-      {
-        open: [
-          openPos({
-            unrealisedPnlUsdc: "-1234567",
-            unrealisedPnlPct: -12.349,
-          }),
-        ],
-        realised: [],
-      },
-      BOT,
-    );
-    const joined = out.join("\n");
+    const pages = formatBotPositionsResponse({
+      open: [
+        openPos({
+          unrealisedPnlUsdc: "-1234567",
+          unrealisedPnlPct: -12.349,
+        }),
+      ],
+      realised: [],
+    });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).toContain("−$1.23");
     // Math.floor on negatives rounds toward -∞: -12.349 → -12.35.
     expect(joined).toContain("−12.35%");
   });
 
   it("renders an em-dash when percent is null (cost basis was zero)", () => {
-    const out = formatBotPositionsResponse(
-      {
-        open: [
-          openPos({
-            costBasisUsdc: "0",
-            unrealisedPnlPct: null,
-          }),
-        ],
-        realised: [],
-      },
-      BOT,
-    );
-    expect(out.join("\n")).toContain("(—)");
+    const pages = formatBotPositionsResponse({
+      open: [
+        openPos({
+          costBasisUsdc: "0",
+          unrealisedPnlPct: null,
+        }),
+      ],
+      realised: [],
+    });
+    expect(pages.map((p) => p.text).join("\n")).toContain("(—)");
   });
 
   it("chunks output into <=4096-char Telegram messages for large lists", () => {
@@ -221,18 +243,39 @@ describe("formatBotPositionsResponse", () => {
         ticker: `LT${i}`,
       }),
     );
-    const out = formatBotPositionsResponse({ open: many, realised: [] }, BOT);
-    expect(out.length).toBeGreaterThan(1);
-    for (const chunk of out)
-      expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    const pages = formatBotPositionsResponse({ open: many, realised: [] });
+    expect(pages.length).toBeGreaterThan(1);
+    for (const page of pages)
+      expect(page.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it("scopes openActions to the positions on each page (no drift between pages)", () => {
+    const many: BotOpenPosition[] = Array.from({ length: 250 }, (_, i) =>
+      openPos({
+        token: `0x${i.toString(16).padStart(40, "0")}`,
+        ticker: `LT${i}`,
+      }),
+    );
+    const pages = formatBotPositionsResponse({ open: many, realised: [] });
+    expect(pages.length).toBeGreaterThan(1);
+    // Every page must have at least one openAction (no empty pages),
+    // and the sum across pages must equal the input open count.
+    const total = pages.reduce((acc, p) => acc + p.openActions.length, 0);
+    expect(total).toBe(many.length);
+    for (const page of pages) {
+      // Each openAction's ticker must appear in that page's text.
+      for (const action of page.openActions) {
+        expect(page.text).toContain(action.ticker);
+      }
+    }
   });
 
   it("includes both sections when both have entries", () => {
-    const out = formatBotPositionsResponse(
-      { open: [openPos()], realised: [realisedPos()] },
-      BOT,
-    );
-    const joined = out.join("\n");
+    const pages = formatBotPositionsResponse({
+      open: [openPos()],
+      realised: [realisedPos()],
+    });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).toContain("Open positions (1)");
     expect(joined).toContain("Realised positions (1)");
   });
@@ -241,9 +284,9 @@ describe("formatBotPositionsResponse", () => {
 describe("escapeHtml", () => {
   it("escapes the four HTML metacharacters Telegram cares about and leaves other UTF-8 alone", () => {
     // Telegram's HTML parse mode requires `&`, `<`, `>` to be entity-
-    // encoded inside text and `"` to be entity-encoded inside an
-    // attribute value (we wrap the `t.me?start=...` URLs in `<a
-    // href="...">`). Single quotes are not part of Telegram's grammar
+    // encoded inside text. `"` is escaped too so attacker-controlled
+    // tickers stay safe if a future change reintroduces attribute
+    // interpolation. Single quotes are not part of Telegram's grammar
     // — see https://core.telegram.org/bots/api#html-style — so the
     // escaper deliberately stops at four.
     expect(escapeHtml("a & <b> \"c\" 'd'")).toBe(
@@ -253,57 +296,57 @@ describe("escapeHtml", () => {
   });
 });
 
+const pages = (texts: string[]): { text: string; openActions: [] }[] =>
+  texts.map((text) => ({ text, openActions: [] }));
+
 describe("renderPaginatedPage", () => {
-  it("returns the only chunk verbatim when totalPages = 1 (no footer)", () => {
-    expect(renderPaginatedPage(["body"], 0)).toBe("body");
+  it("returns the only page verbatim when totalPages = 1 (no footer)", () => {
+    expect(renderPaginatedPage(pages(["body"]), 0)).toBe("body");
   });
 
   it("appends a 'Page X of Y' footer when totalPages > 1", () => {
-    const out = renderPaginatedPage(["a", "b", "c"], 1);
+    const out = renderPaginatedPage(pages(["a", "b", "c"]), 1);
     expect(out.startsWith("b")).toBe(true);
     expect(out).toContain("Page 2 of 3");
   });
 
   it("clamps a too-high page index to the last available page", () => {
-    const out = renderPaginatedPage(["a", "b"], 99);
+    const out = renderPaginatedPage(pages(["a", "b"]), 99);
     expect(out.startsWith("b")).toBe(true);
     expect(out).toContain("Page 2 of 2");
   });
 
   it("clamps a negative page index to 0", () => {
-    const out = renderPaginatedPage(["a", "b"], -5);
+    const out = renderPaginatedPage(pages(["a", "b"]), -5);
     expect(out.startsWith("a")).toBe(true);
     expect(out).toContain("Page 1 of 2");
   });
 
-  it("returns an empty string for an empty chunk list", () => {
+  it("returns an empty string for an empty page list", () => {
     expect(renderPaginatedPage([], 0)).toBe("");
   });
 
-  it("paginated body + footer fits within TELEGRAM_MESSAGE_LIMIT for max-sized chunks", () => {
+  it("paginated body + footer fits within TELEGRAM_MESSAGE_LIMIT for max-sized pages", () => {
     const maxBody = "x".repeat(TELEGRAM_MESSAGE_LIMIT - 24);
-    const chunks = [maxBody, maxBody, maxBody];
+    const ps = pages([maxBody, maxBody, maxBody]);
     for (const page of [0, 1, 2]) {
-      const rendered = renderPaginatedPage(chunks, page);
+      const rendered = renderPaginatedPage(ps, page);
       expect(rendered.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
       expect(rendered).toContain(`Page ${page + 1} of 3`);
     }
   });
 
-  it("formatBotPositionsResponse chunks fit within the reserved footer budget", () => {
+  it("formatBotPositionsResponse pages fit within the reserved footer budget", () => {
     const many: BotOpenPosition[] = Array.from({ length: 250 }, (_, i) =>
       openPos({
         token: `0x${i.toString(16).padStart(40, "0")}`,
         ticker: `LT${i}`,
       }),
     );
-    const chunks = formatBotPositionsResponse(
-      { open: many, realised: [] },
-      BOT,
-    );
-    expect(chunks.length).toBeGreaterThan(1);
-    for (let i = 0; i < chunks.length; i++) {
-      const rendered = renderPaginatedPage(chunks, i);
+    const result = formatBotPositionsResponse({ open: many, realised: [] });
+    expect(result.length).toBeGreaterThan(1);
+    for (let i = 0; i < result.length; i++) {
+      const rendered = renderPaginatedPage(result, i);
       expect(rendered.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
     }
   });
@@ -311,40 +354,79 @@ describe("renderPaginatedPage", () => {
 
 describe("buildPositionsPageKeyboard", () => {
   const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
+  const TOKEN_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const TOKEN_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-  it("returns null for single-page output (Buy/Sell rendered inline as text, no keyboard rows needed)", () => {
-    expect(buildPositionsPageKeyboard(0, 1, WALLET)).toBeNull();
+  it("returns null when there are no open actions and only one page", () => {
+    expect(buildPositionsPageKeyboard(0, 1, WALLET, [])).toBeNull();
   });
 
-  it("page 0 of N: emits only [Next →]", () => {
-    const kb = buildPositionsPageKeyboard(0, 3, WALLET);
-    const buttons = kb!.inline_keyboard.flat();
-    expect(buttons.map((b) => b.text)).toEqual(["Next →"]);
-    expect(buttons[0]!.callback_data).toBe(
+  it("emits a [Buy <TICKER>] [Sell <TICKER>] row per open action", () => {
+    const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
+      { token: TOKEN_A, ticker: "ALPHA" },
+      { token: TOKEN_B, ticker: "BETA" },
+    ]);
+    expect(kb).not.toBeNull();
+    const rows = kb!.inline_keyboard;
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    expect(rows[0]![0]!.callback_data).toBe(
+      `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
+    );
+    expect(rows[0]![1]!.callback_data).toBe(
+      `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
+    );
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
+  });
+
+  it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
+    const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
+      { token: TOKEN_A, ticker: "SUPERCALIFRAGILISTIC" },
+    ]);
+    const row = kb!.inline_keyboard[0]!;
+    expect(row[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
+    expect(row[0]!.text.endsWith("…")).toBe(true);
+    // The full token address must still ride in callback_data verbatim
+    // — the truncation is purely cosmetic on the label side.
+    expect(row[0]!.callback_data).toContain(TOKEN_A);
+  });
+
+  it("page 0 of N: emits open action rows + a [Next →] nav row only", () => {
+    const kb = buildPositionsPageKeyboard(0, 3, WALLET, [
+      { token: TOKEN_A, ticker: "ALPHA" },
+    ]);
+    const rows = kb!.inline_keyboard;
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    const nav = rows[1]!;
+    expect(nav.map((b) => b.text)).toEqual(["Next →"]);
+    expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,
     );
   });
 
   it("middle page: emits [← Prev] and [Next →] with correct target indices", () => {
-    const kb = buildPositionsPageKeyboard(1, 3, WALLET);
-    const buttons = kb!.inline_keyboard.flat();
-    expect(buttons.map((b) => b.text)).toEqual(["← Prev", "Next →"]);
-    expect(buttons[0]!.callback_data).toBe(
+    const kb = buildPositionsPageKeyboard(1, 3, WALLET, []);
+    const nav = kb!.inline_keyboard[0]!;
+    expect(nav.map((b) => b.text)).toEqual(["← Prev", "Next →"]);
+    expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:0:${WALLET}`,
     );
-    expect(buttons[1]!.callback_data).toBe(
+    expect(nav[1]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:2:${WALLET}`,
     );
   });
 
   it("last page: emits only [← Prev]", () => {
-    const kb = buildPositionsPageKeyboard(2, 3, WALLET);
-    const buttons = kb!.inline_keyboard.flat();
-    expect(buttons.map((b) => b.text)).toEqual(["← Prev"]);
+    const kb = buildPositionsPageKeyboard(2, 3, WALLET, []);
+    const nav = kb!.inline_keyboard[0]!;
+    expect(nav.map((b) => b.text)).toEqual(["← Prev"]);
   });
 
-  it("stays inside the 64-byte callback_data ceiling", () => {
-    const kb = buildPositionsPageKeyboard(999, 1000, WALLET);
+  it("every callback_data stays inside the 64-byte Telegram ceiling", () => {
+    const kb = buildPositionsPageKeyboard(999, 1000, WALLET, [
+      { token: TOKEN_A, ticker: "ALPHA" },
+      { token: TOKEN_B, ticker: "BETA" },
+    ]);
     for (const b of kb!.inline_keyboard.flat()) {
       expect(b.callback_data.length).toBeLessThanOrEqual(64);
     }

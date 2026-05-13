@@ -148,7 +148,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toBe("No open positions for this wallet.");
   });
 
-  it("renders a single open position with ticker, balance, cost, value, PnL, inline Buy/Sell links, and no per-position keyboard rows", async () => {
+  it("renders a single open position with ticker, balance, cost, value, PnL, and a per-position [Buy] / [Sell] callback row", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions/")) {
@@ -186,14 +186,23 @@ describe("/positions", () => {
     expect(text).toContain("$75");
     expect(text).toContain("+$25");
     expect(text).toContain("+50.00%");
-    // The Buy/Sell actions are inline HTML anchors next to the PnL,
-    // not a bottom-of-message keyboard row — the body must be HTML
-    // parsed and the markup must omit per-position rows entirely.
     expect(sent[0]!.parse_mode).toBe("HTML");
-    expect(text).toContain(`?start=buy_${TOKEN}">Buy</a>`);
-    expect(text).toContain(`?start=sell_${TOKEN}">Sell</a>`);
-    // Single page → no nav row needed, no per-position rows either.
-    expect(sent[0]!.reply_markup).toBeUndefined();
+    // Regression: the legacy `t.me?start=buy_<addr>` anchors bounced
+    // through Telegram's link-handler UI even inside the same bot's
+    // chat. Per-position callback buttons replace them so the action
+    // card lands inline in the same chat.
+    expect(text).not.toContain("?start=buy_");
+    expect(text).not.toContain("?start=sell_");
+    expect(text).not.toContain("t.me/");
+    const markup = sent[0]!.reply_markup as {
+      inline_keyboard: { text: string; callback_data: string }[][];
+    };
+    expect(markup).toBeDefined();
+    expect(markup.inline_keyboard).toHaveLength(1);
+    const row = markup.inline_keyboard[0]!;
+    expect(row.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    expect(row[0]!.callback_data).toBe(`pb:${TOKEN}`);
+    expect(row[1]!.callback_data).toBe(`ps:${TOKEN}`);
   });
 
   it("renders both Open and Realised sections when both have rows", async () => {
@@ -241,7 +250,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toContain("BETA");
   });
 
-  it("attaches a nav-only pagination keyboard when the response paginates", async () => {
+  it("attaches per-position [Buy] / [Sell] rows + a nav row when the response paginates", async () => {
     const open = Array.from({ length: 250 }, (_, i) => ({
       token: `0x${i.toString(16).padStart(40, "0")}`,
       ticker: `LT${i}`,
@@ -267,16 +276,24 @@ describe("/positions", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Open positions (250)");
     expect(sent[0]!.text).toContain("Page 1 of");
-    // Inline action links replace the per-position keyboard rows, so
-    // the only row left in the markup is the pagination nav.
     const markup = sent[0]!.reply_markup as {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    expect(markup.inline_keyboard).toHaveLength(1);
-    const nav = markup.inline_keyboard[0]!;
+    // Multiple per-position rows + a final nav row. Last row is nav.
+    expect(markup.inline_keyboard.length).toBeGreaterThan(1);
+    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
+    // Every non-nav row must be a Buy/Sell pair with `pb:` / `ps:` data.
+    for (let i = 0; i < markup.inline_keyboard.length - 1; i++) {
+      const row = markup.inline_keyboard[i]!;
+      expect(row).toHaveLength(2);
+      expect(row[0]!.text.startsWith("Buy ")).toBe(true);
+      expect(row[1]!.text.startsWith("Sell ")).toBe(true);
+      expect(row[0]!.callback_data.startsWith("pb:0x")).toBe(true);
+      expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
+    }
   });
 
   it("replies with a degraded-data message when the API returns 503", async () => {

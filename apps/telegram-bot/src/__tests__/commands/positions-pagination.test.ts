@@ -120,7 +120,7 @@ describe("pp callback (positions pagination)", () => {
     expect(answer?.body.text).toContain("Data temporarily unavailable");
   });
 
-  it("edits the originating message with the requested page content + nav-only keyboard", async () => {
+  it("edits the originating message with the requested page content + per-position rows scoped to that page + nav row", async () => {
     mockApi(fetchSpy, 250);
     const h = makeBotHarness();
     await h.run(ppCallback(`pp:1:${WALLET}`));
@@ -140,19 +140,34 @@ describe("pp callback (positions pagination)", () => {
     expect(body.chat_id).toBe(42);
     expect(body.message_id).toBe(99);
     expect(body.text).toContain("Page 2 of");
-    // Inline `Buy` / `Sell` HTML anchors replace the per-position
-    // keyboard rows, so the only row in the markup is the pagination
-    // nav. The body must be HTML-parsed for the anchors to render.
+    // Body no longer carries `t.me?start=...` anchors — per-position
+    // callback buttons replace them so the action fires inline.
     expect(body.parse_mode).toBe("HTML");
-    expect(body.text).toContain("?start=buy_0x");
-    expect(body.text).toContain("?start=sell_0x");
-    expect(body.reply_markup.inline_keyboard).toHaveLength(1);
-    const nav = body.reply_markup.inline_keyboard[0]!;
+    expect(body.text).not.toContain("?start=buy_");
+    expect(body.text).not.toContain("?start=sell_");
+    const rows = body.reply_markup.inline_keyboard;
+    expect(rows.length).toBeGreaterThan(1);
+    const nav = rows[rows.length - 1]!;
     const navTexts = nav.map((b) => b.text);
     expect(navTexts).toContain("← Prev");
     if (navTexts.length > 1) expect(navTexts).toContain("Next →");
     for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
+    }
+    // Every non-nav row must be a Buy/Sell pair pointing at a token.
+    // The tickers on this page must also appear in the body text — so
+    // a navigation never desyncs the keyboard from the visible list.
+    for (let i = 0; i < rows.length - 1; i++) {
+      const row = rows[i]!;
+      expect(row).toHaveLength(2);
+      const buyLabel = row[0]!.text;
+      const sellLabel = row[1]!.text;
+      expect(buyLabel.startsWith("Buy ")).toBe(true);
+      expect(sellLabel.startsWith("Sell ")).toBe(true);
+      expect(row[0]!.callback_data.startsWith("pb:0x")).toBe(true);
+      expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
+      const ticker = buyLabel.slice("Buy ".length);
+      expect(body.text).toContain(ticker);
     }
   });
 
@@ -170,13 +185,15 @@ describe("pp callback (positions pagination)", () => {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
     };
-    // Single page → no "Page X of Y" footer, and the keyboard is
-    // dropped entirely since the inline `Buy` / `Sell` anchors carry
-    // the only per-position action.
+    // Single page → no "Page X of Y" footer. Still has one per-position
+    // row of [Buy] / [Sell] buttons.
     expect(body.text).not.toContain("Page ");
-    expect(body.reply_markup).toBeUndefined();
-    expect(body.text).toContain("?start=buy_0x");
-    expect(body.text).toContain("?start=sell_0x");
+    expect(body.text).not.toContain("?start=buy_");
+    expect(body.text).not.toContain("?start=sell_");
+    const rows = body.reply_markup!.inline_keyboard;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
+    expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {
