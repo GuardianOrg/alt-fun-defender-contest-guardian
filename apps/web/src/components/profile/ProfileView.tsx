@@ -75,6 +75,20 @@ export default function ProfileView() {
   const { address, shortAddress, isConnected, disconnect } = useWallet();
   const face = useProfileFace();
   const [activeTab, setActiveTab] = useState<ProfileTab>("balances");
+
+  // Disconnect leaves the user staring at an empty profile (no address,
+  // no balances, no rewards), which reads as a broken state. Bouncing
+  // back to the home route turns the same action into a clean
+  // "log out and go to the marketplace" flow. We navigate first and
+  // fire the (async) disconnect as fire-and-forget so the page swap
+  // is instant — the wallet teardown completes in the background and
+  // the home page's `useWallet` will pick up the new state on its
+  // next render.
+  const handleDisconnect = () => {
+    navigate(HOME_ROUTE);
+    void disconnect();
+  };
+
   const {
     tokens: heldTokens,
     totalValue,
@@ -250,37 +264,37 @@ export default function ProfileView() {
                     <line x1="10" y1="14" x2="21" y2="3" />
                   </svg>
                 </a>
-                <button
-                  type="button"
-                  className={styles.disconnectLink}
-                  onClick={() => {
-                    void disconnect();
-                  }}
-                  aria-label="Disconnect wallet"
-                >
-                  Disconnect
-                  <svg
-                    className={styles.disconnectIcon}
-                    aria-hidden="true"
-                    focusable="false"
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                </button>
               </>
             )}
           </div>
         </div>
+        {isConnected && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className={styles.disconnectBtn}
+            onClick={handleDisconnect}
+            aria-label="Disconnect wallet"
+          >
+            <svg
+              aria-hidden="true"
+              focusable="false"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            <span>Disconnect</span>
+          </Button>
+        )}
       </div>
 
       <div className={styles.tabBar}>
