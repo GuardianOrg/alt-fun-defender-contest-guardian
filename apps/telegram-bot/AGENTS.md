@@ -872,7 +872,7 @@ src/
 - No claim/withdraw/payout button anywhere in the screen
 
 **`commands/settings.test.ts`**
-- Status view renders the default trio (`Slippage: 1%` / `Default buy: $20 USDC` / `Degen mode: on`) on a brand-new account, with the [• 1% •] preset marked and an `Anti-phishing phrase lives in /security` pointer
+- Status view renders the default trio (`Slippage: 10%` / `Default buy: $20 USDC` / `Degen mode: on`) on a brand-new account, with the [• 10% •] preset marked among the `5% / 10% / 15% / 20%` row (Custom % wizard capped at 50% per the `slippageBps ≤ 10_000` guard) and an `Anti-phishing phrase lives in /security` pointer
 - `/settings` in a group chat is rejected with the "private-DM only" copy and never leaks slippage / buy-amount state into the group transcript
 - Tapping a preset slippage button (`set:slip<bps>`) persists the new `slippageBps` on the session and the panel edit reflects the new value
 - A malformed `set:slip…` callback payload (no integer) is a no-op — session unchanged, no crash
