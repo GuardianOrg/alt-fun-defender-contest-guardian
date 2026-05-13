@@ -324,9 +324,9 @@ const truncateTickerForButton = (ticker: string): string => {
  * Build the inline-keyboard markup for one page: a `[Buy <TICKER>]
  * [Sell <TICKER>]` row per open position on the page, optionally
  * followed by a `[← Prev] [Next →]` nav row when the response
- * paginates. Returns `null` only when there is nothing to attach
- * (single-page realised-only or empty-state) — sending an empty
- * keyboard renders an awkward zero-height bar in the Telegram client.
+ * paginates, then a trailing `[Close]` row. Always returns a
+ * keyboard — even an empty-state page surfaces Close so the user can
+ * dismiss the prompt.
  *
  * Per-position buttons replace the legacy `Buy` / `Sell` HTML anchors
  * that pointed at `t.me/<bot>?start=buy_<addr>` deeplinks. The anchors

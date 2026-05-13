@@ -101,4 +101,43 @@ describe("Close callback handler", () => {
     expect(editMarkup).toBeDefined();
     expect(ack).toBeDefined();
   });
+
+  it("does not fall back to editing the keyboard for non-benign deleteMessage errors", async () => {
+    // Simulate a real failure mode — e.g. an authorisation error.
+    // The handler must ACK the callback (so Telegram stops re-spinning
+    // the user's tap) and surface the error via bot.catch rather than
+    // hiding it behind a successful-looking edit-markup call.
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/deleteMessage")) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error_code: 403,
+            description: "Forbidden: bot was blocked by the user",
+          }),
+          { status: 403 },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+      });
+    });
+
+    const h = makeBotHarness();
+    // Rethrow inside the handler surfaces through grammY as a BotError;
+    // catch it so we can still assert what calls happened.
+    await expect(h.run(closeCallbackUpdate())).rejects.toThrow();
+
+    const calls = capture(fetchSpy);
+    const editMarkup = calls.find((c) =>
+      c.url.includes("/editMessageReplyMarkup"),
+    );
+    const ack = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+
+    // ACK fires so Telegram unsticks the spinner, but we do NOT silently
+    // try to mutate the message after a non-benign deleteMessage error.
+    expect(ack).toBeDefined();
+    expect(editMarkup).toBeUndefined();
+  });
 });

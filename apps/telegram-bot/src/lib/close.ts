@@ -47,16 +47,26 @@ export const registerCloseCallback = (bot: Bot<AppContext>): void => {
         (desc.includes("message to delete not found") ||
           desc.includes("message can't be deleted"));
       if (!benignDelete) {
+        // Surface real failures — only the two known benign cases (the
+        // message is already gone) are allowed to fall through to the
+        // edit-markup fallback. Anything else (auth, network, runtime)
+        // must reach `bot.catch` so a regression doesn't hide behind
+        // silent close failures. Mirror the positions-pagination
+        // handler's ACK-then-rethrow pattern so Telegram still gets a
+        // callback ACK and stops re-spinning the user's tap.
         logger.warn("close: deleteMessage failed", {
           queryId: ctx.callbackQuery.id,
           description: e.description,
         });
+        await ctx.answerCallbackQuery();
+        throw err;
       }
       try {
         await ctx.editMessageReplyMarkup({ reply_markup: undefined });
       } catch {
-        // Both delete + edit failing means the message is gone — the
-        // user goal (prompt disappears) is satisfied either way.
+        // Both delete + edit failing on a benign 400 means the
+        // message is already gone — the user goal (prompt
+        // disappears) is satisfied either way.
       }
     }
     await ctx.answerCallbackQuery();
