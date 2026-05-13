@@ -49,7 +49,23 @@ export const DEFAULT_REFERRAL_CODE =
 
 export const TOKEN_SUPPLY = 1_000_000_000;
 
-export const SLIPPAGE_OPTIONS = [0.005, 0.01, 0.02] as const;
+/**
+ * Quick-select chips in the trade-settings popup. Fractional (`0.02 = 2%`)
+ * to match the `slippage` arg every router/quote function expects. Keep in
+ * lock-step with `DEFAULT_SLIPPAGE` below — the default must remain a member
+ * of this list so the active-preset highlight resolves on first paint.
+ */
+export const SLIPPAGE_OPTIONS = [0.02, 0.05, 0.1, 0.15] as const;
+
+/**
+ * Initial slippage for users who have never opened the settings popup
+ * (or whose `altfun:slippage` localStorage entry is missing/corrupt). LT
+ * underlying assets like HYPE/BTC/SOL can move several percent between
+ * quote and confirm even on a fast wallet, so we default high enough that
+ * the average buy succeeds first try. Users can dial it down via the
+ * settings popup if they want tighter execution.
+ */
+export const DEFAULT_SLIPPAGE = 0.1;
 
 export const QUICK_AMOUNTS = [25, 50, 100, 250] as const;
 
