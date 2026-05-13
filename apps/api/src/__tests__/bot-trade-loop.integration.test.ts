@@ -557,13 +557,28 @@ describe("BotRouterTrade + ReferralPaid → /api/v1/bot/referrals (integration)"
     });
 
     // Same trader trades again — referredCount must stay at 1, lifetime earned
-    // must accumulate to 40_000.
+    // must accumulate to 40_000. `buyEvent` only spreads overrides into
+    // `event.args`, so reusing it would land the same `txHash` / `logIndex`
+    // pair as the first trade and `botRouterTrade.id = ${tx}-${log}` would
+    // collide (insert silently no-ops under `onConflictDoNothing`). Construct
+    // the event inline so the second trade carries a distinct identity.
     await tradeHandler({
-      event: buyEvent({
-        referrer: REFERRER,
-        referrerCut: 20_000n,
-        treasuryCut: 80_000n,
-        // unique txHash so the botRouterTrade insert id doesn't collide
+      event: createMockEvent({
+        args: {
+          trader: TRADER,
+          token: TOKEN_ADDR,
+          side: 0,
+          usdcAmount: 20_000_000n,
+          tokenAmount: 1_000_000_000_000_000_000n,
+          botFee: 100_000n,
+          referrer: REFERRER,
+          referrerCut: 20_000n,
+          treasuryCut: 80_000n,
+        },
+        blockNumber: 105n,
+        blockTimestamp: 1700000050n,
+        txHash: "0xbuy2",
+        logIndex: 0,
       }),
       context: { db },
     });
