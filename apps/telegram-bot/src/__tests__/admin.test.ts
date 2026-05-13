@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import app from "../index.js";
+import { BOT_COMMANDS } from "../lib/bot-commands.js";
 import { makeTestEnv } from "./helpers/env.js";
 
 const env = makeTestEnv();
@@ -169,5 +170,74 @@ describe("GET /admin/webhook-info", () => {
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("telegram_invalid_response");
+  });
+});
+
+describe("POST /admin/set-commands", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        }),
+      );
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  const post = (headers: Record<string, string> = {}) =>
+    app.request(
+      "/admin/set-commands",
+      {
+        method: "POST",
+        headers: { "x-admin-key": "test-admin-key", ...headers },
+      },
+      env,
+    );
+
+  it("rejects requests missing the admin key", async () => {
+    const res = await post({ "x-admin-key": "" });
+    expect(res.status).toBe(403);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("forwards BOT_COMMANDS to Telegram setMyCommands", async () => {
+    const res = await post();
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe(
+      "https://api.telegram.org/bottest-bot-token/setMyCommands",
+    );
+    const body = JSON.parse((init as RequestInit).body as string) as {
+      commands: Array<{ command: string; description: string }>;
+    };
+    expect(body.commands).toEqual(
+      BOT_COMMANDS.map((c) => ({
+        command: c.command,
+        description: c.description,
+      })),
+    );
+  });
+
+  it("502s when Telegram is unreachable", async () => {
+    fetchSpy.mockRejectedValueOnce(new Error("ETIMEDOUT"));
+    const res = await post();
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("telegram_unreachable");
+  });
+});
+
+describe("BOT_COMMANDS shape", () => {
+  it("respects Telegram BotCommand limits", () => {
+    expect(BOT_COMMANDS.length).toBeGreaterThan(0);
+    for (const { command, description } of BOT_COMMANDS) {
+      expect(command).toMatch(/^[a-z0-9_]{1,32}$/);
+      expect(description.length).toBeGreaterThan(0);
+      expect(description.length).toBeLessThanOrEqual(256);
+    }
   });
 });
