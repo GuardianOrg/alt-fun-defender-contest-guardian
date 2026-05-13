@@ -24,11 +24,12 @@ import bcrypt from "bcryptjs";
  * while production keeps OWASP's recommended rounds=12. Per AGENTS.md
  * `/security` spec, PINs are 6-digit numeric and bcrypt-hashed in KV.
  *
- * v1 scope: hash, verify, attempt counter, 30-minute lockout. The
- * 24-hour PIN reset flow described in AGENTS.md `/security` is
- * deferred to the /security command implementation — without it, a
- * forgotten PIN locks the user out until /security ships. This is
- * acceptable for v1 because no real funds flow through the bot yet.
+ * Capabilities: hash, verify, attempt counter, 30-minute lockout,
+ * 24-hour forgotten-PIN reset (request / cancel / complete). The
+ * reset gate is enforced at write time in `completeReset` so a stray
+ * UI callback in the last seconds before `readyAt` cannot bypass the
+ * cooldown — see AGENTS.md `/security` for the user-facing flow and
+ * the rationale for keeping the old PIN valid during the window.
  */
 
 const DEFAULT_SALT_ROUNDS = 12;
