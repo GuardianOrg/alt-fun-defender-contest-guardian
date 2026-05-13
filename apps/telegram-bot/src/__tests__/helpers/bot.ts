@@ -42,14 +42,19 @@ export const mockTelegramOk = (
  */
 export const withTelegramOk = (
   fetchSpy: ReturnType<typeof vi.spyOn>,
-  inner: (input: RequestInfo | URL) => Promise<Response>,
+  inner: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Promise<Response>,
 ): void => {
-  fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
-    if (String(input).startsWith(TELEGRAM_API_HOST)) {
-      return okResponse(true);
-    }
-    return inner(input);
-  });
+  fetchSpy.mockImplementation(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(TELEGRAM_API_HOST)) {
+        return okResponse(true);
+      }
+      return inner(input, init);
+    },
+  );
 };
 
 /**

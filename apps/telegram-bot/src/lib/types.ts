@@ -32,6 +32,19 @@ export interface Env {
    */
   HYPEREVM_RPC_URL?: string;
   /**
+   * BotFeeRouter deployed contract address (issue #686). The bot routes
+   * every `/buy` and `/sell` through this contract so the operator fee is
+   * skimmed and the referrer split settles on-chain — see
+   * apps/telegram-bot/AGENTS.md "Bot Fee Model". Optional in v1 because
+   * the router hasn't been deployed yet; when unset, `lib/trade.ts`
+   * skips the on-chain simulation and the sell flow falls back to the
+   * legacy priceUsd × balance estimate. Rotation = deploy a new router
+   * and push the new address; the constructor-set parameters
+   * (`botFeeBps`, `referrerShareBps`, `treasury`) cannot be changed
+   * on a deployed router.
+   */
+  BOT_FEE_ROUTER_ADDRESS?: string;
+  /**
    * Explicit override for the "Buy HYPE via Privy" button URL. When
    * set, used as-is and the MoonPay builder below is skipped. Privy
    * does not expose a public deeplink to its hosted funding page —

@@ -8,3 +8,4 @@ export { LPLockAbi } from "./LPLock.js";
 export { FeeVaultAbi } from "./FeeVault.js";
 export { UniswapV2PairAbi } from "./UniswapV2Pair.js";
 export { LeveragedTokenAbi } from "./LeveragedToken.js";
+export { BotFeeRouterAbi } from "./BotFeeRouter.js";

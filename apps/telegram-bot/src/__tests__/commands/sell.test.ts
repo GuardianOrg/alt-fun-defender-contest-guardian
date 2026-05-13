@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { encodeAbiParameters } from "viem";
 
 import {
   makeBotHarness,
@@ -7,6 +8,12 @@ import {
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
 import { WalletManager } from "../../lib/wallet.js";
+
+const ROUTER_ADDR = "0x4444444444444444444444444444444444444444";
+
+/** Encode a single uint256 as the `result` of an `eth_call` reply. */
+const encodeUsdcOut = (raw: bigint): string =>
+  encodeAbiParameters([{ type: "uint256" }], [raw]);
 
 const ZERO_MASTER_KEY = btoa("\0".repeat(32));
 const RPC_URL = "https://rpc.test.local";
@@ -337,5 +344,266 @@ describe("Sell flow (st:s button → conversation)", () => {
     // Fee summary line is mandatory per AGENTS.md
     expect(String(send!.body.text)).toContain("Bot fee 0.5%");
     expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
+  });
+});
+
+/**
+ * Sell-flow simulation path (issue #686). When `BOT_FEE_ROUTER_ADDRESS`
+ * is configured, the min/target/insufficient checks must consult the
+ * `BotFeeRouter.sellWithBotFee` simulation result instead of the
+ * `priceUsd × balance × (1 − COMBINED_FEE_RATE)` heuristic. These tests
+ * pin that contract with a `priceUsd` deliberately divergent from the
+ * mocked `quotedUsdcOut` so the assertion can't accidentally hold via
+ * the heuristic.
+ */
+describe("Sell flow (BotFeeRouter simulation)", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  const wireMocks = (
+    tokenBalance: bigint,
+    quotedUsdcOut: bigint,
+    priceUsd: number,
+  ): void => {
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR,
+              name: "Test Token",
+              ticker: "TEST",
+              priceUsd,
+              mcapUsd: 5000,
+              change24h: 0,
+              ltChange24h: null,
+              curveFilled: 30,
+              status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      // viem appends a trailing slash to the configured RPC URL when it
+      // POSTs (the original `lib/rpc.ts` callers don't), so match on the
+      // host prefix rather than exact equality.
+      if (url.startsWith(RPC_URL)) {
+        const body = JSON.parse(
+          (init as RequestInit).body as string,
+        ) as { params: [{ to: string; data: string }, string] };
+        const to = body.params[0].to.toLowerCase();
+        if (to === ROUTER_ADDR.toLowerCase()) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: encodeUsdcOut(quotedUsdcOut),
+            }),
+            { status: 200 },
+          );
+        }
+        // Default RPC path = balanceOf(walletAddr) on the token contract.
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${tokenBalance.toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  };
+
+  it("rejects Sell 20 when simulated proceeds < minimum, even if priceUsd × balance suggests otherwise", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    // priceUsd × balance heuristic: 100k × $0.001 = $100 (would PASS the
+    // $12 minimum). Simulation says the user only nets $5 (e.g. curve
+    // is much thinner than the indexer's last reported price). The
+    // simulation must win.
+    wireMocks(100_000n * 10n ** 18n, 5_000_000n /* $5 */, 0.001);
+
+    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(/minimum/i);
+    // Must include the simulated $5, not the $99 heuristic value.
+    expect(String(answer!.body.text)).toContain("5.00");
+  });
+
+  it("accepts Sell All when simulated proceeds clear the minimum", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    // Heuristic would say $0.05 (below $12 min) — sim says $50, so the
+    // sell must be allowed. This catches a regression where the
+    // priceUsd path runs in addition to (rather than instead of) the
+    // simulation.
+    wireMocks(50_000n * 10n ** 18n, 50_000_000n /* $50 */, 0.000001);
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toContain("Ready to sell");
+  });
+
+  it("rejects Sell 20 when simulated proceeds < target, surfacing the simulated value", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    // Min ($12) clears, target ($20) doesn't.
+    wireMocks(100_000n * 10n ** 18n, 15_000_000n /* $15 */, 1);
+
+    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(/Insufficient|< \$20/i);
+    expect(String(answer!.body.text)).toContain("15.00");
+  });
+
+  /**
+   * Fail-closed regression (CodeRabbit feedback on #690). When the
+   * router simulation is unavailable AND the indexer omits `priceUsd`,
+   * neither validation path can confirm proceeds ≥ MIN_USDC_SELL_AMOUNT.
+   * The handler must abort with a clear retry message rather than
+   * silently letting the trade through.
+   */
+  it("aborts Sell 20 when simulation reverts AND priceUsd is null (fail-closed)", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR,
+              name: "Test Token",
+              ticker: "TEST",
+              priceUsd: null,
+              mcapUsd: null,
+              change24h: null,
+              ltChange24h: null,
+              curveFilled: 30,
+              status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(RPC_URL)) {
+        const body = JSON.parse(
+          (init as RequestInit).body as string,
+        ) as { params: [{ to: string }, string] };
+        const to = body.params[0].to.toLowerCase();
+        if (to === ROUTER_ADDR.toLowerCase()) {
+          // Router reverts the simulation — no priceUsd to fall back on.
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              error: { code: 3, message: "execution reverted" },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000n * 10n ** 18n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(
+      /Unable to estimate proceeds|try again/i,
+    );
+    // No "Ready to sell" confirmation must have been emitted.
+    expect(send).toBeUndefined();
+  });
+
+  it("aborts Sell All when simulation reverts AND priceUsd is null (fail-closed)", async () => {
+    const h = await harnessWithWallet();
+    h.env.BOT_FEE_ROUTER_ADDRESS = ROUTER_ADDR;
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR,
+              name: "Test Token",
+              ticker: "TEST",
+              priceUsd: null,
+              mcapUsd: null,
+              change24h: null,
+              ltChange24h: null,
+              curveFilled: 30,
+              status: "curve",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(RPC_URL)) {
+        const body = JSON.parse(
+          (init as RequestInit).body as string,
+        ) as { params: [{ to: string }, string] };
+        const to = body.params[0].to.toLowerCase();
+        if (to === ROUTER_ADDR.toLowerCase()) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              error: { code: 3, message: "execution reverted" },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(50_000n * 10n ** 18n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(
+      /Unable to estimate proceeds|try again/i,
+    );
+    expect(send).toBeUndefined();
   });
 });
