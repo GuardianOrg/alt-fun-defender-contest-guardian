@@ -31,6 +31,7 @@ describe("renderBuyTokenCardText", () => {
     expect(text).toContain("+5.20%");
     expect(text).not.toContain("LT 24h");
     expect(text).toContain("Market Cap");
+    expect(text).toContain("Price:");
     expect(text).toContain("24h Volume");
     expect(text.indexOf("Market Cap")).toBeLessThan(text.indexOf("Price:"));
     expect(text).toContain("$12.3K");
@@ -64,6 +65,8 @@ describe("renderSellTokenCardText", () => {
     expect(text).toContain("Your Balance");
     expect(text).toContain("TEST");
     expect(text).not.toContain("LT 24h");
+    expect(text).toContain("Market Cap");
+    expect(text).toContain("Price:");
     expect(text.indexOf("Market Cap")).toBeLessThan(text.indexOf("Price:"));
   });
 
