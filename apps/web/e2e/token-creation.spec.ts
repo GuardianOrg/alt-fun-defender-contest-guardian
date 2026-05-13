@@ -6,7 +6,7 @@ test.describe("Token creation flow", () => {
   });
 
   test("displays the create page with all form sections", async ({ page }) => {
-    await expect(page.locator("text=Create a levered token")).toBeVisible();
+    await expect(page.locator("text=Create an altcoin")).toBeVisible();
 
     // Pair selector: direction cards
     await expect(page.locator("button", { hasText: "LONG" })).toBeVisible();

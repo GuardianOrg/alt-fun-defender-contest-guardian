@@ -53,7 +53,7 @@ test_1.test.describe("Token creation flow", function () {
         var page = _b.page;
         return __generator(this, function (_c) {
             switch (_c.label) {
-                case 0: return [4 /*yield*/, (0, test_1.expect)(page.locator("text=Create a levered token")).toBeVisible()];
+                case 0: return [4 /*yield*/, (0, test_1.expect)(page.locator("text=Create an altcoin")).toBeVisible()];
                 case 1:
                     _c.sent();
                     // Pair selector: direction cards

@@ -202,7 +202,7 @@ export default function CreateView() {
       <div className={styles.formColumn}>
         <div className={styles.pageHeader}>
           <div className={styles.eyebrow}>new token</div>
-          <div className={styles.heading}>Create a levered token</div>
+          <div className={styles.heading}>Create an altcoin</div>
           <div className={styles.subheading}>
             Choose a direction, pick your underlying, set your leverage, and
             deploy to the bonding curve in one transaction.
