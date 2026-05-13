@@ -2,12 +2,14 @@ import type { Conversation } from "@grammyjs/conversations";
 import type { Context } from "grammy";
 
 /**
- * Whether `text` is a plain `/cancel` (or bare `cancel`) — the lookup
- * conversations bail out with a "Cancelled." reply on this.
+ * Whether `text` is a plain `/cancel`, the bare `cancel`, or Telegram's
+ * addressed form `/cancel@BotUsername` (sent automatically by Telegram
+ * clients in group chats). The lookup conversations bail out with a
+ * "Cancelled." reply on this.
  */
 export const isCancel = (text: string): boolean => {
   const lower = text.toLowerCase();
-  return lower === "/cancel" || lower === "cancel";
+  return lower === "cancel" || /^\/cancel(?:@\w+)?$/.test(lower);
 };
 
 /**
