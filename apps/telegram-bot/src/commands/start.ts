@@ -8,15 +8,9 @@ import {
 import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
 import { formatFixed } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
+import { resolveBuyHypeUrl } from "../lib/moonpay.js";
 import { fetchNativeBalance } from "../lib/rpc.js";
 import { WalletManager } from "../lib/wallet.js";
-
-/**
- * Default landing URL for the "Buy HYPE via Privy" button when
- * `env.BUY_HYPE_URL` is unset. Hyperliquid's app is the practical
- * on-ramp today; swap once the Privy-hosted on-ramp ships.
- */
-const DEFAULT_BUY_HYPE_URL = "https://app.hyperliquid.xyz";
 
 /**
  * Native HYPE shares the EVM 18-decimal convention. Display down to
@@ -80,15 +74,15 @@ interface RenderedStart {
   link_preview_options: { is_disabled: true };
 }
 
-const renderStart = (
+const renderStart = async (
   env: AppContext["env"],
   address: string,
   hypeBalance: bigint | null,
-): RenderedStart => ({
+): Promise<RenderedStart> => ({
   text: renderWelcomeHtml(address, hypeBalance),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
-      env.BUY_HYPE_URL ?? DEFAULT_BUY_HYPE_URL,
+      await resolveBuyHypeUrl(env, address),
     ),
   },
   parse_mode: "HTML",
@@ -179,7 +173,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const balance = await fetchNativeBalance(ctx.env, address);
-    const rendered = renderStart(ctx.env, address, balance);
+    const rendered = await renderStart(ctx.env, address, balance);
     await ctx.reply(rendered.text, {
       parse_mode: rendered.parse_mode,
       reply_markup: rendered.reply_markup,
@@ -213,7 +207,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const balance = await fetchNativeBalance(ctx.env, active.address);
-    const rendered = renderStart(ctx.env, active.address, balance);
+    const rendered = await renderStart(ctx.env, active.address, balance);
     await safeEditMessageText(ctx, rendered.text, {
       parse_mode: rendered.parse_mode,
       reply_markup: rendered.reply_markup,
