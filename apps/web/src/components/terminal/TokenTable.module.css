@@ -63,7 +63,9 @@
  * DIRECTION column collapsed the previous 6-column layout into 5.
  *
  *   1. ALTCOIN     — `.tokenCell`        240px
- *   2. UNDERLYING  — `.underlyingCell`   280px (was 91px before merge)
+ *   2. UNDERLYING  — `.underlyingCell`   200px (icon + `BRENTOIL 10x Short`
+ *                                        worst case ≈ 175px, leaving a small
+ *                                        buffer for the inter-column gap)
  *   3. 24H CHANGE  — `.changeCell`        90px
  *   4. PROGRESS    — `.progressCell`     170px
  *   5. MCAP        — `.mcapCell`          90px
@@ -73,7 +75,7 @@
   width: 240px;
 }
 .headCell:nth-child(2) {
-  width: 280px;
+  width: 200px;
 }
 .headCell:nth-child(3) {
   width: 90px;

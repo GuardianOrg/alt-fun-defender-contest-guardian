@@ -125,13 +125,15 @@
  * `{icon} HYPE 5x Long` left-to-right with everything sharing the
  * same mono 13px regular weight; only the trailing direction span
  * picks up the mint/red tint so the long/short bias still surfaces
- * at a glance. Width is the sum of the two previous columns (91px +
- * 180px) plus the gap, so the rest of the table grid doesn't shift. */
+ * at a glance. Width is sized for the worst-case label —
+ * `{icon} BRENTOIL 10x Short` ≈ 175px — plus a small buffer so the
+ * column doesn't feel cramped on shorter labels. Keep in lockstep
+ * with `TokenTable.module.css`'s second header cell. */
 .underlyingCell {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-  width: 280px;
+  width: 200px;
   flex-shrink: 0;
 }
 

@@ -104,16 +104,6 @@ export default function SearchModal() {
               ))}
             </div>
           )}
-          <div className={styles.shortcuts}>
-            <span className={styles.shortcutItem}>
-              <kbd className={styles.kbd}>&#x21B5;</kbd>
-              select
-            </span>
-            <span className={styles.shortcutItem}>
-              <kbd className={styles.kbd}>esc</kbd>
-              close
-            </span>
-          </div>
         </div>
       ) : (
         <SearchResultsList
