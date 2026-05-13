@@ -75,5 +75,6 @@ export function useCreatorEarnings() {
     error: earningsQuery.error,
     claiming,
     claim,
+    refetch: earningsQuery.refetch,
   };
 }

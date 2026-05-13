@@ -4,6 +4,7 @@ import type { KeyboardEvent } from "react";
 import { useNavigate } from "react-router";
 
 import styles from "./ProfileView.module.css";
+import TransferOwnershipTab from "./TransferOwnershipTab";
 import { CREATE_PATH, HOME_ROUTE, tokenPath } from "../../app/routes";
 import { useBalances } from "../../hooks/useBalances";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
@@ -22,11 +23,12 @@ import Skeleton from "../shared/Skeleton";
 
 import type { CreatedToken, HeldToken } from "../../services/types";
 
-type ProfileTab = "balances" | "rewards";
+type ProfileTab = "balances" | "rewards" | "transfer";
 
 const TABS: { label: string; tab: ProfileTab }[] = [
   { label: "BALANCES", tab: "balances" },
   { label: "CREATOR REWARDS", tab: "rewards" },
+  { label: "TRANSFER OWNERSHIP", tab: "transfer" },
 ];
 
 /**
@@ -42,7 +44,7 @@ interface EmptyStateContent {
   ctaHref: string;
 }
 
-const EMPTY_STATES: Record<ProfileTab, EmptyStateContent> = {
+const EMPTY_STATES: Record<"balances" | "rewards", EmptyStateContent> = {
   balances: {
     title: "No tokens yet",
     body: "Tokens you hold from the bonding curve or post-graduation pools will appear here.",
@@ -83,8 +85,14 @@ export default function ProfileView() {
     isLoading: earningsLoading,
     claiming,
     claim,
+    refetch: refetchEarnings,
   } = useCreatorEarnings();
-  const hasRewards =
+  // Same predicate drives both the rewards table and the transfer-ownership
+  // table because both surfaces iterate the same `earnings.tokens` list —
+  // every token a creator can transfer is also one whose pooled fees they
+  // can claim. Kept as a single boolean so the two consumers can never
+  // drift out of sync.
+  const hasCreatedTokens =
     !!earnings && earnings.tokens.length > 0;
 
   const renderEmpty = (content: EmptyStateContent) => (
@@ -268,11 +276,21 @@ export default function ProfileView() {
         className={cn(
           styles.content,
           ((activeTab === "balances" && heldTokens.length > 0) ||
-            (activeTab === "rewards" && hasRewards)) &&
+            (activeTab === "rewards" && hasCreatedTokens) ||
+            (activeTab === "transfer" && hasCreatedTokens)) &&
             styles.contentFlush,
         )}
       >
-        {activeTab === "balances" ? renderBalances() : renderRewards()}
+        {activeTab === "balances" && renderBalances()}
+        {activeTab === "rewards" && renderRewards()}
+        {activeTab === "transfer" && (
+          <TransferOwnershipTab
+            tokens={earnings?.tokens}
+            isLoading={earningsLoading}
+            walletConnected={isConnected}
+            onTransferred={refetchEarnings}
+          />
+        )}
       </div>
     </div>
   );

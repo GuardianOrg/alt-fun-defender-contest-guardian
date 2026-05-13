@@ -1,0 +1,156 @@
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.introTitle {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt);
+  font-weight: 700;
+}
+
+.introBody {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--txt-2);
+}
+
+.introWarning {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--txt-3);
+  padding: 0.8rem 1.2rem;
+  border-left: 2px solid var(--mint);
+  background: var(--bg-2);
+}
+
+.introWarningLabel {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mint);
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  padding: 1.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.tokenMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.tokenAddress {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.inputBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.inputLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+}
+
+/* Address input — sized like the create-flow inputs (`TokenForm.input`) so
+ * the two form surfaces feel like one family. Focus tints to `--bg-2`
+ * rather than the brighter `--mint-bg` we use on icon-style affordances:
+ * a primary text input is held by the cursor for the entire interaction
+ * and the brighter mint tint reads as too loud at that duration.
+ * Placeholder colour is inherited from the global `::placeholder` rule
+ * in `index.css` — we don't redeclare it here. */
+.input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--txt);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1.2rem;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.input:hover:not(:disabled) {
+  border-color: var(--border-2);
+}
+
+.input:focus-visible {
+  border-color: var(--border-2);
+  background: var(--bg-2);
+}
+
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.inputError {
+  border-color: var(--red);
+}
+
+.inputError:focus-visible {
+  border-color: var(--red);
+  background: var(--bg-2);
+}
+
+.inputErrorText {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--red);
+}
+
+@media (max-width: 768px) {
+  .row {
+    padding: 1.2rem;
+  }
+
+  .tokenAddress {
+    margin-left: 0;
+  }
+}
