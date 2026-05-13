@@ -22,6 +22,11 @@ import {IZap, IBondingMinimal} from "./interfaces/IZap.sol";
 contract BotFeeRouter is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    /// @notice Identifies the deployed parameter set. Bumped on every
+    ///         redeploy so off-chain bots / indexers can pin to a known
+    ///         fee + skim configuration without ABI introspection.
+    string public constant VERSION = "1.0.0";
+
     uint256 public constant BPS_DENOM = 10_000;
     /// @notice Flat bot fee on USDC notional (buy gross + sell gross).
     uint256 public constant BOT_FEE_BPS = 50;
