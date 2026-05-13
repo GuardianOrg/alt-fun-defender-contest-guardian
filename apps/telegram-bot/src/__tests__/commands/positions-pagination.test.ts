@@ -139,12 +139,22 @@ describe("pp callback (positions pagination)", () => {
     expect(body.chat_id).toBe(42);
     expect(body.message_id).toBe(99);
     expect(body.text).toContain("Page 2 of");
-    const buttons = body.reply_markup.inline_keyboard.flat();
-    const texts = buttons.map((b) => b.text);
-    expect(texts).toContain("← Prev");
-    if (texts.length > 1) expect(texts).toContain("Next →");
-    for (const b of buttons) {
+    // Last row is the pagination nav row; rows above are per-position
+    // [Buy] [Sell] callbacks for the open positions on the page.
+    const nav =
+      body.reply_markup.inline_keyboard[
+        body.reply_markup.inline_keyboard.length - 1
+      ]!;
+    const navTexts = nav.map((b) => b.text);
+    expect(navTexts).toContain("← Prev");
+    if (navTexts.length > 1) expect(navTexts).toContain("Next →");
+    for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
+    }
+    for (const row of body.reply_markup.inline_keyboard.slice(0, -1)) {
+      expect(row).toHaveLength(2);
+      expect(row[0]!.callback_data).toMatch(/^pob:0x[0-9a-f]{40}$/i);
+      expect(row[1]!.callback_data).toMatch(/^pos:0x[0-9a-f]{40}$/i);
     }
   });
 
@@ -158,11 +168,20 @@ describe("pp callback (positions pagination)", () => {
     expect(editCalls).toHaveLength(1);
     const body = editCalls[0]!.body as {
       text: string;
-      reply_markup?: unknown;
+      reply_markup?: {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      };
     };
-    // Single page → no "Page X of Y" footer, no keyboard.
+    // Single page → no "Page X of Y" footer. Per-position rows still
+    // ship (one [Buy] [Sell] for the single open position); the nav
+    // row is omitted since there is only one page.
     expect(body.text).not.toContain("Page ");
-    expect(body.reply_markup).toBeUndefined();
+    expect(body.reply_markup).toBeDefined();
+    expect(body.reply_markup!.inline_keyboard).toHaveLength(1);
+    const row = body.reply_markup!.inline_keyboard[0]!;
+    expect(row).toHaveLength(2);
+    expect(row[0]!.text).toMatch(/^Buy /);
+    expect(row[1]!.text).toMatch(/^Sell /);
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {

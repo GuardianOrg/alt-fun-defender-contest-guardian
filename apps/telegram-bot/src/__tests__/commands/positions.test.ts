@@ -130,7 +130,19 @@ describe("/positions", () => {
     expect(text).toContain("$75");
     expect(text).toContain("+$25");
     expect(text).toContain("+50.00%");
-    expect(sent[0]!.reply_markup).toBeUndefined();
+    // A single open position with no pagination still attaches a
+    // [Buy ALPHA] [Sell ALPHA] row.
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup).toBeDefined();
+    expect(markup!.inline_keyboard).toHaveLength(1);
+    expect(markup!.inline_keyboard[0]!.map((b) => b.text)).toEqual([
+      "Buy ALPHA",
+      "Sell ALPHA",
+    ]);
+    expect(markup!.inline_keyboard[0]![0]!.callback_data).toBe(`pob:${TOKEN}`);
+    expect(markup!.inline_keyboard[0]![1]!.callback_data).toBe(`pos:${TOKEN}`);
   });
 
   it("renders both Open and Realised sections when both have rows", async () => {
@@ -208,9 +220,18 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    const buttons = markup.inline_keyboard.flat();
-    expect(buttons.map((b) => b.text)).toEqual(["Next →"]);
-    expect(buttons[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
+    // Each open position on the page contributes a [Buy] [Sell] row;
+    // the pagination nav row is the last entry in the keyboard.
+    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
+    expect(nav.map((b) => b.text)).toEqual(["Next →"]);
+    expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
+    // Sanity check: the per-position rows above the nav follow the
+    // `pob:<addr>` / `pos:<addr>` shape.
+    for (const row of markup.inline_keyboard.slice(0, -1)) {
+      expect(row).toHaveLength(2);
+      expect(row[0]!.callback_data).toMatch(/^pob:0x[0-9a-f]{40}$/i);
+      expect(row[1]!.callback_data).toMatch(/^pos:0x[0-9a-f]{40}$/i);
+    }
   });
 
   it("replies with a degraded-data message when the API returns 503", async () => {
@@ -251,5 +272,137 @@ describe("/positions", () => {
     const headers = new Headers((apiCalls[0]![1] as RequestInit).headers);
     expect(headers.get("x-api-key")).toBe("test-api-key");
     expect(String(apiCalls[0]![0])).toContain("/api/v1/bot/positions/");
+  });
+});
+
+const positionBuyCallback = (token: string) => ({
+  update_id: 20,
+  callback_query: {
+    id: "cbq-buy",
+    from: { id: 7, is_bot: false, first_name: "Ada" },
+    chat_instance: "instance-1",
+    data: `pob:${token}`,
+    message: {
+      message_id: 99,
+      date: 0,
+      chat: { id: 42, type: "private" as const },
+    },
+  },
+});
+
+const positionSellCallback = (token: string) => ({
+  update_id: 21,
+  callback_query: {
+    id: "cbq-sell",
+    from: { id: 7, is_bot: false, first_name: "Ada" },
+    chat_instance: "instance-1",
+    data: `pos:${token}`,
+    message: {
+      message_id: 99,
+      date: 0,
+      chat: { id: 42, type: "private" as const },
+    },
+  },
+});
+
+const mockTokenApi = (
+  fetchSpy: ReturnType<typeof vi.spyOn>,
+  token: string,
+): void => {
+  fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes(`/api/v1/tokens/${token}`)) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            address: token,
+            name: "Test Token",
+            ticker: "ALPHA",
+            priceUsd: 0.05,
+            mcapUsd: 50_000,
+            change24h: 12.5,
+            ltChange24h: null,
+            volume24hUsd: 1000,
+            curveFilled: 0.42,
+            status: "curve",
+            ltPair: null,
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    return okFallback();
+  });
+};
+
+describe("/positions per-position buy/sell callbacks", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("pob:<token> replies with a buy card pre-loaded for the selected token", async () => {
+    mockTokenApi(fetchSpy, TOKEN);
+    const h = makeBotHarness();
+    await h.run(positionBuyCallback(TOKEN));
+    const sent = sentMessages(fetchSpy);
+    expect(sent).toHaveLength(1);
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup).toBeDefined();
+    const allButtons = markup!.inline_keyboard.flat();
+    // Buy card keyboard exposes the standard quick-buy amounts.
+    expect(allButtons.some((b) => b.text.includes("Buy 20"))).toBe(true);
+    // Token address survives the round-trip in every action's callback.
+    for (const b of allButtons) {
+      if (b.callback_data.startsWith("bt"))
+        expect(b.callback_data.endsWith(TOKEN)).toBe(true);
+    }
+  });
+
+  it("pos:<token> replies with a sell card pre-loaded for the selected token", async () => {
+    mockTokenApi(fetchSpy, TOKEN);
+    const h = makeBotHarness();
+    await h.run(positionSellCallback(TOKEN));
+    const sent = sentMessages(fetchSpy);
+    expect(sent).toHaveLength(1);
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup).toBeDefined();
+    const allButtons = markup!.inline_keyboard.flat();
+    expect(allButtons.some((b) => b.text.includes("Sell All"))).toBe(true);
+    for (const b of allButtons) {
+      if (b.callback_data.startsWith("bts"))
+        expect(b.callback_data.endsWith(TOKEN)).toBe(true);
+    }
+  });
+
+  it("toasts the outage copy when the token API is down", async () => {
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      if (String(input).startsWith("https://api.test.local")) {
+        return new Response("{}", { status: 503 });
+      }
+      return okFallback();
+    });
+    const h = makeBotHarness();
+    await h.run(positionBuyCallback(TOKEN));
+    const calls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .filter((c) => typeof (c[1] as RequestInit)?.body === "string")
+      .map((c) => ({
+        url: String(c[0]),
+        body: JSON.parse((c[1] as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(String(answer?.body.text)).toContain("Data temporarily unavailable");
   });
 });
