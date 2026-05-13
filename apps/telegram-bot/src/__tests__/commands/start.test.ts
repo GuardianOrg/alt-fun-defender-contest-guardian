@@ -160,7 +160,7 @@ describe("/start command", () => {
     expect(send!.body.text).toContain("Balance: — USDC");
   });
 
-  it("renders the full main-menu keyboard with a Buy-HYPE URL button and Refresh", async () => {
+  it("renders the full main-menu keyboard with a Buy-USDC URL button and Refresh", async () => {
     const h = harnessWithRpc();
     mockBoth(fetchSpy);
 
@@ -176,7 +176,7 @@ describe("/start command", () => {
     ).inline_keyboard;
     // First row: URL button + Refresh
     expect(keyboard[0]?.[0]?.url).toBeDefined();
-    expect(keyboard[0]?.[0]?.text).toContain("Buy HYPE");
+    expect(keyboard[0]?.[0]?.text).toContain("Buy USDC");
     expect(keyboard[0]?.[1]?.callback_data).toBe(START_CALLBACK.refresh);
     // Remaining rows cover every supported command.
     const allCallbacks = keyboard
@@ -365,7 +365,7 @@ describe("/start command", () => {
     expect(answer!.body.text).toContain("No active wallet");
   });
 
-  it("Buy HYPE button points at MoonPay with a signed URL when MoonPay env is set", async () => {
+  it("Buy USDC button points at MoonPay with a signed URL when MoonPay env is set", async () => {
     const h = harnessWithRpc();
     h.env.MOONPAY_API_KEY = "pk_test_abc";
     h.env.MOONPAY_SECRET_KEY = "sk_test_xyz";
@@ -381,17 +381,17 @@ describe("/start command", () => {
         inline_keyboard: { text: string; url?: string }[][];
       }
     ).inline_keyboard;
-    const buyHypeButton = keyboard[0]?.[0];
-    expect(buyHypeButton?.text).toContain("Buy HYPE");
-    const url = new URL(buyHypeButton!.url!);
+    const buyUsdcButton = keyboard[0]?.[0];
+    expect(buyUsdcButton?.text).toContain("Buy USDC");
+    const url = new URL(buyUsdcButton!.url!);
     expect(url.host).toBe("buy.moonpay.com");
     expect(url.searchParams.get("apiKey")).toBe("pk_test_abc");
-    expect(url.searchParams.get("currencyCode")).toBe("hype");
+    expect(url.searchParams.get("currencyCode")).toBe("usdc_arbitrum");
     expect(url.searchParams.get("walletAddress")).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(url.searchParams.get("signature")).toBeTruthy();
   });
 
-  it("Buy HYPE button falls back to Hyperliquid when MoonPay env is missing", async () => {
+  it("Buy USDC button falls back to Hyperliquid when MoonPay env is missing", async () => {
     const h = harnessWithRpc();
     mockBoth(fetchSpy);
 
@@ -408,10 +408,10 @@ describe("/start command", () => {
     expect(keyboard[0]?.[0]?.url).toBe("https://app.hyperliquid.xyz");
   });
 
-  it("Buy HYPE button honours an explicit BUY_HYPE_URL override", async () => {
+  it("Buy USDC button honours an explicit BUY_USDC_URL override", async () => {
     const h = harnessWithRpc();
-    h.env.BUY_HYPE_URL = "https://override.example/funding";
-    // Even with MoonPay configured, BUY_HYPE_URL should win.
+    h.env.BUY_USDC_URL = "https://override.example/funding";
+    // Even with MoonPay configured, BUY_USDC_URL should win.
     h.env.MOONPAY_API_KEY = "pk_test_abc";
     h.env.MOONPAY_SECRET_KEY = "sk_test_xyz";
     mockBoth(fetchSpy);

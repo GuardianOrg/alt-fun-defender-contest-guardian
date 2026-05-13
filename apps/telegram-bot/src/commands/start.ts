@@ -7,7 +7,7 @@ import {
 } from "../keyboards/start-menu.js";
 import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
 import { logger } from "../lib/logger.js";
-import { resolveBuyHypeUrl } from "../lib/moonpay.js";
+import { resolveBuyUsdcUrl } from "../lib/moonpay.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
@@ -69,7 +69,7 @@ const renderStart = async (
   text: renderWelcomeHtml(address, usdcBalance),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
-      await resolveBuyHypeUrl(env, address),
+      await resolveBuyUsdcUrl(env, address),
     ),
   },
   parse_mode: "HTML",

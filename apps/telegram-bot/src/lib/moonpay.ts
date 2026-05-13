@@ -1,10 +1,15 @@
 /**
  * Builders for the MoonPay buy-widget URL used by the `/start`
- * "Buy HYPE via Privy" button. Privy's hosted funding page is
+ * "Buy USDC via MoonPay" button. Privy's hosted funding page is
  * SDK-only (no public deeplink — see
  * https://docs.privy.io/wallets/funding/overview), so the bot
  * deeplinks straight to MoonPay, which is the underlying onramp
- * Privy itself wraps for fiat. The end-to-end customer journey
+ * Privy itself wraps for fiat. MoonPay does not yet list a
+ * HyperEVM-native USDC code, so the default `usdc_arbitrum`
+ * delivers to the user's EVM address on Arbitrum, which is then
+ * bridgeable to HyperEVM via the canonical Hyperliquid bridge.
+ * Operators can override with `MOONPAY_CURRENCY_CODE` once a
+ * HyperEVM USDC listing exists. The end-to-end customer journey
  * (`apiKey + currencyCode + walletAddress + signature`) follows
  * https://dev.moonpay.com/docs/ramps-sdk-buy-params — every URL we
  * emit carries a signature because the `walletAddress` parameter is
@@ -79,8 +84,8 @@ export const buildMoonPayBuyUrl = async (
   return `${MOONPAY_BUY_BASE}/${query}&signature=${encodeURIComponent(signature)}`;
 };
 
-export interface ResolveBuyHypeUrlEnv {
-  BUY_HYPE_URL?: string;
+export interface ResolveBuyUsdcUrlEnv {
+  BUY_USDC_URL?: string;
   MOONPAY_API_KEY?: string;
   MOONPAY_SECRET_KEY?: string;
   MOONPAY_CURRENCY_CODE?: string;
@@ -94,23 +99,33 @@ export interface ResolveBuyHypeUrlEnv {
  */
 const HYPERLIQUID_APP_URL = "https://app.hyperliquid.xyz";
 
-const DEFAULT_MOONPAY_CURRENCY_CODE = "hype";
+/**
+ * USDC on Arbitrum. MoonPay's `/v3/currencies` listing has no
+ * HyperEVM USDC entry as of 2026-05, so this is the closest
+ * supported USDC code that delivers to a HyperEVM-compatible EVM
+ * address. The user bridges Arbitrum USDC → HyperEVM via the
+ * canonical Hyperliquid bridge. Swap to `usdc_hyperliquid` (or
+ * whatever code MoonPay eventually publishes) via the
+ * `MOONPAY_CURRENCY_CODE` env override the moment a native listing
+ * exists — no redeploy needed.
+ */
+const DEFAULT_MOONPAY_CURRENCY_CODE = "usdc_arbitrum";
 
 /**
- * Resolve the URL the "Buy HYPE via Privy" button should point at.
+ * Resolve the URL the "Buy USDC via MoonPay" button should point at.
  * Resolution order is explicit so a bad MoonPay config can be hot-
- * patched with `BUY_HYPE_URL` without redeploying:
+ * patched with `BUY_USDC_URL` without redeploying:
  *
- * 1. `BUY_HYPE_URL` set → return as-is.
+ * 1. `BUY_USDC_URL` set → return as-is.
  * 2. MoonPay api+secret set → signed MoonPay URL with the user's
  *    custodial wallet pre-filled.
  * 3. Otherwise → Hyperliquid app (swapped.com fiat onramp).
  */
-export const resolveBuyHypeUrl = async (
-  env: ResolveBuyHypeUrlEnv,
+export const resolveBuyUsdcUrl = async (
+  env: ResolveBuyUsdcUrlEnv,
   walletAddress: string,
 ): Promise<string> => {
-  if (env.BUY_HYPE_URL) return env.BUY_HYPE_URL;
+  if (env.BUY_USDC_URL) return env.BUY_USDC_URL;
   if (env.MOONPAY_API_KEY && env.MOONPAY_SECRET_KEY) {
     return buildMoonPayBuyUrl({
       apiKey: env.MOONPAY_API_KEY,

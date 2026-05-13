@@ -45,7 +45,7 @@ export interface Env {
    */
   BOT_FEE_ROUTER_ADDRESS?: string;
   /**
-   * Explicit override for the "Buy HYPE via Privy" button URL. When
+   * Explicit override for the "Buy USDC via MoonPay" button URL. When
    * set, used as-is and the MoonPay builder below is skipped. Privy
    * does not expose a public deeplink to its hosted funding page —
    * the SDK is the only supported entry point (see
@@ -53,7 +53,7 @@ export interface Env {
    * escape hatch for any alternative onramp we want to point users
    * at (Transak, swapped.com, Hyperliquid deposit modal, etc.).
    */
-  BUY_HYPE_URL?: string;
+  BUY_USDC_URL?: string;
   /**
    * Publishable MoonPay key for the buy widget. When set together
    * with `MOONPAY_SECRET_KEY`, the bot builds a signed
@@ -72,9 +72,12 @@ export interface Env {
   MOONPAY_SECRET_KEY?: string;
   /**
    * MoonPay currency code passed to the buy widget. Defaults to
-   * `hype` when unset. Externalised because MoonPay occasionally
-   * renames listings (e.g. chain-suffixed codes for the same asset)
-   * and we want to rotate without a redeploy.
+   * `usdc_arbitrum` when unset — the closest supported USDC variant
+   * for a HyperEVM address, bridgeable to HyperEVM via the
+   * Hyperliquid native bridge. Externalised because MoonPay
+   * occasionally renames listings (e.g. chain-suffixed codes for the
+   * same asset); flip to `usdc_hyperliquid` once that listing
+   * exists, without a redeploy.
    */
   MOONPAY_CURRENCY_CODE?: string;
   /**
