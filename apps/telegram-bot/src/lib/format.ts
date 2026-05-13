@@ -145,43 +145,106 @@ const formatRealisedLine = (
 };
 
 /**
- * Render the bot-positions response as a list of message chunks. Open
+ * One rendered page of the positions reply: the text body plus the
+ * subset of open positions whose lines are visible on that page. The
+ * `openPositions` list drives the per-position [Buy] [Sell] rows the
+ * page keyboard emits — only positions visible on the current page
+ * get buttons so the keyboard stays aligned with the body.
+ */
+export interface PositionsChunk {
+  text: string;
+  openPositions: BotOpenPosition[];
+}
+
+interface TaggedLine {
+  text: string;
+  openPos?: BotOpenPosition;
+}
+
+/**
+ * Chunker variant of `chunkPositionsMessage` that propagates per-line
+ * `openPos` tags so each emitted chunk also exposes which open
+ * positions landed in it. Same packing rules and footer reservation
+ * as the untagged chunker — kept separate to avoid churning the
+ * existing string-array helper used by the test suite.
+ */
+const chunkTaggedLines = (
+  header: string,
+  lines: TaggedLine[],
+  limit: number,
+): PositionsChunk[] => {
+  if (lines.length === 0) return [{ text: header, openPositions: [] }];
+  const chunks: PositionsChunk[] = [];
+  let currentText = header;
+  let currentOpen: BotOpenPosition[] = [];
+  for (const line of lines) {
+    const joiner = currentText === "" ? "" : "\n\n";
+    if (currentText.length + joiner.length + line.text.length > limit) {
+      if (currentText !== "")
+        chunks.push({ text: currentText, openPositions: currentOpen });
+      currentText = line.text;
+      currentOpen = line.openPos ? [line.openPos] : [];
+      continue;
+    }
+    currentText =
+      currentText === "" ? line.text : `${currentText}${joiner}${line.text}`;
+    if (line.openPos) currentOpen.push(line.openPos);
+  }
+  if (currentText !== "")
+    chunks.push({ text: currentText, openPositions: currentOpen });
+  return chunks;
+};
+
+/**
+ * Render the bot-positions response as a list of paginated chunks. Open
  * and Realised sections share one paginated stream: Open header +
  * lines first, then Realised header + lines if any closed-out chunks
  * exist. The 4096-char-per-chunk limit and the pagination-footer
  * reservation match `formatPositionsResponse`.
  *
- * Returning a single stream (rather than two parallel paginators)
- * keeps `commands/positions.ts` callback-flow identical — pagination
- * carries `pp:<page>:<wallet>` and the renderer doesn't need a section
- * dimension to recover state on a cold start.
+ * Each chunk also exposes the open positions whose lines are visible
+ * on it (`openPositions`). The `/positions` command uses that list to
+ * build per-position [Buy] [Sell] callback rows aligned with the
+ * lines actually rendered on the page.
  */
 export const formatBotPositionsResponse = (
   data: BotPositionsResponse,
-): string[] => {
+): PositionsChunk[] => {
   if (data.open.length === 0 && data.realised.length === 0) {
-    return ["No open positions for this wallet."];
+    return [
+      { text: "No open positions for this wallet.", openPositions: [] },
+    ];
   }
   const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
-  const lines: string[] = [];
+  const lines: TaggedLine[] = [];
   if (data.open.length > 0) {
-    lines.push(`Open positions (${data.open.length})`);
-    for (const p of data.open) lines.push(formatOpenLine(p, limit));
+    lines.push({ text: `Open positions (${data.open.length})` });
+    for (const p of data.open)
+      lines.push({ text: formatOpenLine(p, limit), openPos: p });
   }
   if (data.realised.length > 0) {
-    lines.push(`Realised positions (${data.realised.length})`);
-    for (const p of data.realised) lines.push(formatRealisedLine(p, limit));
+    lines.push({ text: `Realised positions (${data.realised.length})` });
+    for (const p of data.realised)
+      lines.push({ text: formatRealisedLine(p, limit) });
   }
-  // `chunkPositionsMessage` puts the first entry in `lines` (the
-  // "Open positions" header) into the first chunk's "header" slot and
-  // splits the rest. Passing the headers inside `lines` instead of as
-  // a single combined string keeps section headers attached to their
-  // own group when chunking spills.
+  // First line becomes the chunk header so a section header always
+  // sticks with the lines below it when chunking spills.
   const [header, ...body] = lines;
-  return chunkPositionsMessage(header ?? "", body, limit);
+  return chunkTaggedLines(header?.text ?? "", body, limit);
 };
 
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
+
+/**
+ * Per-open-position callback codes emitted by `/positions`. Each pairs
+ * with a token address (3+1+42 = 46 bytes, safely under the 64-byte
+ * `callback_data` budget). Handlers in `commands/positions.ts` open a
+ * fresh buy/sell card for the selected token — mirrors `/track`'s
+ * `trkb` / `trks` pattern but keeps the wiring local so the positions
+ * UI doesn't reach across commands.
+ */
+export const POSITION_BUY_CALLBACK_CMD = "pob";
+export const POSITION_SELL_CALLBACK_CMD = "pos";
 
 export interface InlineKeyboardButton {
   text: string;
@@ -224,28 +287,44 @@ export const buildPositionsPageKeyboard = (
   page: number,
   totalPages: number,
   wallet: string,
+  openPositions: readonly BotOpenPosition[] = [],
 ): InlineKeyboardMarkup | null => {
-  if (totalPages <= 1) return null;
-  const row: InlineKeyboardButton[] = [];
-  if (page > 0) {
-    row.push({
-      text: "← Prev",
-      callback_data: encodeCallback(
-        POSITIONS_PAGE_CALLBACK_CMD,
-        String(page - 1),
-        wallet,
-      ),
-    });
+  const rows: InlineKeyboardButton[][] = [];
+  for (const pos of openPositions) {
+    rows.push([
+      {
+        text: `Buy ${pos.ticker}`,
+        callback_data: encodeCallback(POSITION_BUY_CALLBACK_CMD, pos.token),
+      },
+      {
+        text: `Sell ${pos.ticker}`,
+        callback_data: encodeCallback(POSITION_SELL_CALLBACK_CMD, pos.token),
+      },
+    ]);
   }
-  if (page < totalPages - 1) {
-    row.push({
-      text: "Next →",
-      callback_data: encodeCallback(
-        POSITIONS_PAGE_CALLBACK_CMD,
-        String(page + 1),
-        wallet,
-      ),
-    });
+  const nav: InlineKeyboardButton[] = [];
+  if (totalPages > 1) {
+    if (page > 0) {
+      nav.push({
+        text: "← Prev",
+        callback_data: encodeCallback(
+          POSITIONS_PAGE_CALLBACK_CMD,
+          String(page - 1),
+          wallet,
+        ),
+      });
+    }
+    if (page < totalPages - 1) {
+      nav.push({
+        text: "Next →",
+        callback_data: encodeCallback(
+          POSITIONS_PAGE_CALLBACK_CMD,
+          String(page + 1),
+          wallet,
+        ),
+      });
+    }
   }
-  return { inline_keyboard: [row] };
+  if (nav.length > 0) rows.push(nav);
+  return rows.length > 0 ? { inline_keyboard: rows } : null;
 };
