@@ -487,7 +487,7 @@ describe("Change rewards wallet wizard", () => {
     await wm.createWallet(7, "main");
     mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
-    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", 40));
+    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 40 }));
     await h.run(
       textUpdate("0x0000000000000000000000000000000000000000", 41),
     );
@@ -514,7 +514,7 @@ describe("Change rewards wallet wizard", () => {
     await wm.createWallet(7, "main");
     mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
-    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", 50));
+    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 50 }));
     await h.run(
       textUpdate("0x000000000000000000000000000000000000dEaD", 51),
     );

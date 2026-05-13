@@ -521,7 +521,7 @@ const changeRewardsWalletConversation = async (
       `Rewards wallet updated to ${result.data.rewardsWallet}.`,
     ),
   );
-  await sendReferral(ctx, userId);
+  await sendReferral(ctx, userId, ctx.from?.username);
 };
 
 export const registerReferralCommand = (bot: Bot<AppContext>): void => {
