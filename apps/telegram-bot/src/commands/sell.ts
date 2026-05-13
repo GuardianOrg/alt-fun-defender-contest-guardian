@@ -45,9 +45,6 @@ import { WalletManager } from "../lib/wallet.js";
  */
 const COMBINED_FEE_RATE = 0.01;
 
-/** Required fee-summary line per AGENTS.md key constraints. */
-const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
-
 /**
  * Headroom kept between the user's post-fee proceeds and the LT's idle
  * USDC buffer. The LT's `redeem()` is consumed at the executed
@@ -520,8 +517,7 @@ const runPercentSell = async (
   // a buffer-capped sell still requires an explicit confirm tap.
   if (degenMode && buffer.kind !== "capped") {
     await msgCtx.reply(
-      `⚡ <b>Degen mode — submitting ${percent}% sell of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})…</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>`,
+      `⚡ <b>Degen mode — submitting ${percent}% sell of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})…</b>`,
       { parse_mode: "HTML" },
     );
     const outcome = await conversation.external((outerCtx) =>
@@ -553,10 +549,8 @@ const runPercentSell = async (
       ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
         `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
         `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
       : `✅ <b>Ready to sell ${percent}% of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`;
   await msgCtx.reply(header, {
     parse_mode: "HTML",
@@ -731,10 +725,8 @@ const handlePercentSell = async (
         `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
         `Selling ${formatToken18(effectiveTokenRaw)} of ${formatToken18(tokenBalance)} ${token.ticker}. ` +
         `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
       : `✅ <b>Ready to sell ${percent}%${allOf} of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`;
   await ctx.reply(header, {
     parse_mode: "HTML",

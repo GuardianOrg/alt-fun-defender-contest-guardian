@@ -351,7 +351,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/balance|unavailable|verify/i);
   });
 
-  it("Sell 100% confirmation includes fee summary line", async () => {
+  it("Sell 100% confirmation does not show fee summary in the menu", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, {
       tokenBalance: 100_000n * 10n ** 18n,
@@ -364,9 +364,9 @@ describe("Sell flow (st:s button → conversation)", () => {
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to sell");
-    // Fee summary line is mandatory per AGENTS.md
-    expect(String(send!.body.text)).toContain("Bot fee 0.5%");
-    expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
+    // Fee summary moved to the tx-receipt endpoint per issue #801.
+    expect(String(send!.body.text)).not.toContain("Bot fee 0.5%");
+    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.5%");
   });
 
   // Regression: btsr / btsp handlers used to .catch() unhandled throws

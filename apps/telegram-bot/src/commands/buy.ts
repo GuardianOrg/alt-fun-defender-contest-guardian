@@ -30,9 +30,6 @@ import { WalletManager } from "../lib/wallet.js";
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
 
-/** Required fee-summary line per AGENTS.md key constraints. */
-const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
-
 const PROMPT_HTML =
   "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
   "Examples:\n" +
@@ -244,8 +241,7 @@ const buyCustomConversation = async (
     );
     if (degenMode) {
       await msgCtx.reply(
-        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC buy of ${token.ticker}…</b>\n\n` +
-          `<i>${FEE_SUMMARY}</i>`,
+        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC buy of ${token.ticker}…</b>`,
         { parse_mode: "HTML" },
       );
       const outcome = await conversation.external((outerCtx) =>
@@ -273,7 +269,6 @@ const buyCustomConversation = async (
     );
     await msgCtx.reply(
       `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`,
       {
         parse_mode: "HTML",
@@ -394,7 +389,6 @@ const handleFixedBuy = async (
   });
   await ctx.reply(
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
-      `<i>${FEE_SUMMARY}</i>\n\n` +
       `Tap <b>Confirm</b> within 60s to submit.`,
     {
       parse_mode: "HTML",

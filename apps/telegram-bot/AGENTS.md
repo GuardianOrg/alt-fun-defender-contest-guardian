@@ -274,9 +274,9 @@ Output:
   - Static chart image (24h candles, rendered via lib/chart.ts from GET /api/v1/chart/:address, sent as Telegram photo)
   - Token card caption (name, ticker, mcap, curve fill %, 24h change, leverage boost indicator)
   - Risk summary (leverage level, vol decay warning if 5x LT)
-  - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered for the user, append "(0.1% goes to your referrer)".
   - Quick-amount buttons: `$<defaultBuyUsdc>` | `$100` | Custom (first button reads `session.defaultBuyUsdc`, default `$20`)
   - Confirm button (if confirmations enabled in /settings)
+  - **No fee summary in the buy menu.** The line "Bot fee 0.5% + Alt Fun fee 0.5%" is rendered on the post-tx receipt instead (issue #801) — see `renderConfirmReply` in `lib/execute.ts`. `/help fees` carries the full referrer-aware breakdown for users who want it before trading.
 
 Effects (after confirmation):
   - Check user USDC balance ≥ (buy amount + gas estimate); surface "Insufficient USDC" if not
@@ -325,9 +325,9 @@ Input:
 Output:
   - Position summary (token amount, cost basis from /api/v1/bot/positions)
   - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
-  - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered, append "(0.1% goes to your referrer)".
   - Quick-sell buttons: 10% | 25% | 50% | 100% | Sell X% (custom-percent prompt, integer 1–100)
   - Confirm button (if confirmations enabled)
+  - **No fee summary in the sell menu.** Same placement as `/buy` — "Bot fee 0.5% + Alt Fun fee 0.5%" lands on the post-tx receipt per issue #801, not on the staging confirm card.
 
 Effects:
   - Check baseAssetBalance() ≥ sell value; cap and warn if buffer low (buffer check still applies — the router calls Zap.sell, which is what hits the buffer)

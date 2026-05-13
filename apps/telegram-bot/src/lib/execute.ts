@@ -29,6 +29,9 @@ import { WalletManager } from "./wallet.js";
 /** How long a staged trade intent stays valid before the Confirm becomes a no-op. */
 export const CONFIRM_WINDOW_MS = 60_000;
 
+/** Required fee-summary line shown on the tx-result receipt per AGENTS.md `/buy` and `/sell`. */
+export const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
+
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
 /** KV key holding the lifetime referrer wallet for a Telegram user. */
@@ -238,7 +241,8 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     return (
       `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
       `${receivedLine}` +
-      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
+      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>\n\n` +
+      `<i>${FEE_SUMMARY}</i>`
     );
   }
   // `pending` is not a failure — the tx is in the mempool and may still
