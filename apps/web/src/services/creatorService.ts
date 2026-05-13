@@ -67,6 +67,7 @@ const liveCreatorService: ICreatorService = {
       const tokenEarnings = createdTokens.map((token) => ({
         address: token.address,
         name: token.name,
+        ticker: token.ticker,
         imageUrl: token.imageUrl
           ? new URL(token.imageUrl, API_BASE).toString()
           : undefined,

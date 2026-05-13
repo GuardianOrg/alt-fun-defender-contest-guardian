@@ -138,6 +138,7 @@ export interface HeldToken {
 export interface CreatedToken {
   address: string;
   name: string;
+  ticker: string;
   imageUrl?: string;
   ltName: string;
   ltAddress: string;

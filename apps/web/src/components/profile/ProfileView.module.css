@@ -260,18 +260,42 @@
   letter-spacing: -0.02em;
 }
 
+/* Horizontal scroll wrapper around the table (header + rows). The
+ * panel itself only scrolls vertically; when the viewport is too
+ * narrow to fit all five columns at their per-column minimums we
+ * defer to a horizontal scroll on just the table so the hero,
+ * summary strip, and tab bar stay locked to the viewport edge.
+ * No custom `scrollbar-width` here — we want this scrollbar to look
+ * identical to the panel's vertical scrollbar, which is governed by
+ * the global `::-webkit-scrollbar` styles in `index.css`. */
+.tableScroll {
+  overflow-x: auto;
+}
+
 /* Column header strip for the balances table. Tracks below mirror the
- * same grid template so the digit columns line up perfectly. Five
- * equal `minmax(0, 1fr)` tracks so the panel's horizontal real
- * estate is split evenly across the columns rather than letting
- * Altcoin swallow everything and bunching the numeric columns at
- * the right edge. `minmax(0, …)` lets long inner text ellipsise
- * instead of forcing the track wider. */
+ * same grid template so the digit columns line up perfectly. Each
+ * track uses `minmax(<floor>, 1fr)` with a non-zero floor so the
+ * grid demands a real horizontal width — combined with the
+ * `.tableScroll` wrapper above, columns retain their content
+ * affordances and the table scrolls horizontally instead of
+ * collapsing cells when the panel is too narrow. The Altcoin
+ * column gets extra breathing room because it carries the logo
+ * plus ticker + name. */
 .balanceHeader {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(12rem, 1.4fr)
+    minmax(10rem, 1fr)
+    minmax(9rem, 1fr)
+    minmax(8rem, 0.8fr)
+    minmax(9rem, 1fr);
   gap: 1.6rem;
   align-items: center;
+  /* `min-width: min-content` makes the header's box grow with its
+   * grid tracks when the viewport is narrower than the column
+   * minimums, so the bg-2 strip paints across the full horizontally
+   * scrollable area — not just the visible viewport slice. */
+  min-width: min-content;
   padding: 0.8rem 1.6rem;
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono);
@@ -296,6 +320,11 @@
 .balanceList {
   display: flex;
   flex-direction: column;
+  /* Match the header's `min-width: min-content` so the list shares
+   * the same horizontal scroll width as the row above it — without
+   * this, rows would overflow the list and the row hover background
+   * would only paint within the narrower list box. */
+  min-width: min-content;
 }
 
 /* Token rows — full-width row-shaped affordances styled per-row
@@ -304,10 +333,19 @@
  * template matches `.balanceHeader` exactly so digits line up. */
 .balanceRow {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(12rem, 1.4fr)
+    minmax(10rem, 1fr)
+    minmax(9rem, 1fr)
+    minmax(8rem, 0.8fr)
+    minmax(9rem, 1fr);
   gap: 1.6rem;
   align-items: center;
   width: 100%;
+  /* See `.balanceHeader` — `min-width: min-content` ensures the row's
+   * box (and thus its hover background) spans the full scroll width
+   * even when the grid columns overflow the viewport. */
+  min-width: min-content;
   padding: 0.8rem 1.6rem;
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -557,14 +595,20 @@
 }
 
 /* Rewards table — mirrors `.balanceHeader` / `.balanceRow` exactly
- * so both tabs in this panel read as the same component family. We
- * still use distinct classes here because the responsive collapse
- * rules differ (rewards drops Status first, balances drops 24H). */
+ * so both tabs in this panel read as the same component family.
+ * Same per-column `minmax(<floor>, …)` tracks ensure all five
+ * columns stay visible at every viewport width; the surrounding
+ * `.tableScroll` wrapper handles overflow by scrolling horizontally. */
 .rewardsHeader {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(12rem, 1.4fr)
+    minmax(10rem, 1fr)
+    minmax(9rem, 1fr)
+    minmax(9rem, 1fr);
   gap: 1.6rem;
   align-items: center;
+  min-width: min-content;
   padding: 0.8rem 1.6rem;
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono);
@@ -577,10 +621,15 @@
 
 .rewardsRow {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns:
+    minmax(12rem, 1.4fr)
+    minmax(10rem, 1fr)
+    minmax(9rem, 1fr)
+    minmax(9rem, 1fr);
   gap: 1.6rem;
   align-items: center;
   width: 100%;
+  min-width: min-content;
   padding: 0.8rem 1.6rem;
   border: 0;
   border-bottom: 1px solid var(--border);
@@ -600,87 +649,12 @@
   outline-offset: -2px;
 }
 
-/* Status cell — wraps the badge so the grid track stays aligned
- * with the column header above. The badge itself never grows to
- * fill the cell, hence the left-aligned flex. */
-.statusCell {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.statusBadge {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 1px 0.4rem;
-  border-radius: 2px;
-  border: 1px solid;
-}
-
-.statusGraduating {
-  color: var(--amber);
-  border-color: rgba(240, 180, 41, 0.3);
-}
-
-.statusGraduated {
-  color: var(--mint);
-  border-color: rgba(77, 232, 180, 0.3);
-}
-
-.statusActive {
-  color: var(--txt-3);
-  border-color: var(--border);
-}
-
-@media (max-width: 1024px) {
-  /* Balances — drop the 24H column first on tablet widths; it's the
-   * lowest-priority numeric signal here. Altcoin, Address, Amount,
-   * and Value all carry more weight per pixel. */
-  .balanceHeader,
-  .balanceRow {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1.2rem;
-  }
-
-  .balanceHeadChange,
-  .balanceChange {
-    display: none;
-  }
-
-  /* Rewards — drop the Status badge first on tablet widths. The
-   * lifecycle pill is decorative compared to the dollar figures
-   * (Volume, Earned) and the Address column, all of which carry
-   * more weight per pixel. */
-  .rewardsHeader,
-  .rewardsRow {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1.2rem;
-  }
-
-  .rewardsHeadStatus,
-  .statusCell {
-    display: none;
-  }
-}
-
+/* Narrower viewports keep every column visible — the `.tableScroll`
+ * wrapper handles overflow by scrolling the table horizontally.
+ * The phone tweaks below only adjust cosmetics (logo size, ticker
+ * font-size) so the row chrome stays comfortable on small screens
+ * without dropping data. */
 @media (max-width: 768px) {
-  /* Phone widths drop both Address and 24H so the must-haves
-   * (Altcoin, Amount, Value) keep their digit alignment. Tap-target
-   * for the copy icon falls back to the contract page itself. */
-  .balanceHeader,
-  .balanceRow {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.8rem;
-    padding: 0.8rem 1.2rem;
-  }
-
-  .balanceHeadAddress,
-  .balanceAddress {
-    display: none;
-  }
-
   .balanceLogoWrap {
     --logo-size: 3.2rem;
   }
@@ -691,16 +665,6 @@
 
   .balanceTokenTicker {
     font-size: 14px;
-  }
-
-  /* Rewards on phones keep Altcoin + Volume + Earned. The Address
-   * column is hidden by the `.balanceAddress` rule above (rewards
-   * rows reuse that class for their address cell). */
-  .rewardsHeader,
-  .rewardsRow {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.8rem;
-    padding: 0.8rem 1.2rem;
   }
 }
 
