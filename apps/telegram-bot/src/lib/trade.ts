@@ -528,29 +528,30 @@ export interface ExecuteSellArgs {
 
 export type ExecutionResult =
   | { ok: true; txHash: Hash; quotedOut: bigint; minOut: bigint }
+  /**
+   * Tx was accepted into the mempool but `waitForTransactionReceipt`
+   * didn't mine within `RECEIPT_TIMEOUT_MS`. Distinct from `unavailable`
+   * (RPC error, no on-chain action) and `reverted` (mined-and-failed) —
+   * the chain may still settle this hash as success or revert later, so
+   * the UI must render a neutral "pending, check explorer" message
+   * rather than ❌. `txHash` is required: receipt-timeout is only
+   * reachable after `sendTransaction` returned, so the invariant is
+   * encoded in the type.
+   */
+  | { ok: false; kind: "pending"; reason?: string; txHash: Hash }
   | {
       ok: false;
       kind:
         | "not_configured"
         | "reverted"
         | "unavailable"
-        | "insufficient_funds"
-        /**
-         * Tx was accepted into the mempool but `waitForTransactionReceipt`
-         * didn't mine within `RECEIPT_TIMEOUT_MS`. Distinct from
-         * `unavailable` (RPC error, no on-chain action) and `reverted`
-         * (mined-and-failed) — the chain may still settle this hash as
-         * success or revert later, so the UI must render a neutral
-         * "pending, check explorer" message rather than ❌.
-         */
-        | "pending";
+        | "insufficient_funds";
       reason?: string;
       /**
        * Set when the tx was actually submitted on-chain — i.e. failure
-       * happened post-`sendTransaction` (reverted receipt, or receipt
-       * wait timed out). Lets the UI surface an explorer link so the
-       * user can audit the on-chain outcome themselves. Always set on
-       * `pending`.
+       * happened post-`sendTransaction` (reverted receipt). Lets the UI
+       * surface an explorer link so the user can audit the on-chain
+       * outcome themselves.
        */
       txHash?: Hash;
     };
@@ -799,9 +800,21 @@ const fromIntentResult = (
       return null;
     }
   }
+  // `pending` is its own discriminated arm in `ExecutionResult` and
+  // requires a non-optional txHash. A commit-log record with `pending`
+  // and a missing hash is malformed (we never persist pending — the
+  // record stays at `submitted` instead, see `recordReceiptOutcome`),
+  // so degrade to `unavailable` rather than fabricating a Hash.
+  const kind = result.kind ?? "unavailable";
+  if (kind === "pending") {
+    if (!result.txHash) {
+      return { ok: false, kind: "unavailable", reason: result.reason };
+    }
+    return { ok: false, kind: "pending", reason: result.reason, txHash: result.txHash };
+  }
   return {
     ok: false,
-    kind: result.kind ?? "unavailable",
+    kind,
     reason: result.reason,
     txHash: result.txHash,
   };
@@ -1172,13 +1185,9 @@ export const renderExecutionError = (
     return "Insufficient HYPE for gas — top up the wallet and retry.";
   }
   if (result.kind === "pending") {
-    // `pending` always carries a txHash (set by awaitReceipt on timeout).
-    // The `?? "the explorer"` is a defensive fallback so a malformed
-    // record from the commit-log can't crash the renderer.
     return (
       `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
-      `Check the explorer: ` +
-      (result.txHash ? explorerTxUrl(result.txHash) : "the explorer")
+      `Check the explorer: ${explorerTxUrl(result.txHash)}`
     );
   }
   if (result.kind === "unavailable") {
