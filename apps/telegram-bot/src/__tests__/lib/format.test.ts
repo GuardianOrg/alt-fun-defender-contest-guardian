@@ -239,8 +239,16 @@ describe("formatBotPositionsResponse", () => {
 });
 
 describe("escapeHtml", () => {
-  it("escapes the five HTML metacharacters and leaves other UTF-8 alone", () => {
-    expect(escapeHtml("a & <b> \"c\"")).toBe("a &amp; &lt;b&gt; &quot;c&quot;");
+  it("escapes the four HTML metacharacters Telegram cares about and leaves other UTF-8 alone", () => {
+    // Telegram's HTML parse mode requires `&`, `<`, `>` to be entity-
+    // encoded inside text and `"` to be entity-encoded inside an
+    // attribute value (we wrap the `t.me?start=...` URLs in `<a
+    // href="...">`). Single quotes are not part of Telegram's grammar
+    // — see https://core.telegram.org/bots/api#html-style — so the
+    // escaper deliberately stops at four.
+    expect(escapeHtml("a & <b> \"c\" 'd'")).toBe(
+      "a &amp; &lt;b&gt; &quot;c&quot; 'd'",
+    );
     expect(escapeHtml("ALPHA · 25.00%")).toBe("ALPHA · 25.00%");
   });
 });
