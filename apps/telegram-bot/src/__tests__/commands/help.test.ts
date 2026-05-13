@@ -104,6 +104,14 @@ describe("renderHelp (pure)", () => {
     expect(html).not.toContain(ANTI_PHISHING_HEADER);
   });
 
+  it("HTML-escapes the user phrase so /help can't render an attacker-controlled tag", () => {
+    const html = renderHelp(undefined, '<a&b"c>');
+    // Raw chars must be replaced; escaped sequences must appear.
+    expect(html).not.toMatch(/<a&b"c>/);
+    expect(html).toContain("&lt;a&amp;b&quot;c&gt;");
+    expect(html).not.toContain(ANTI_PHISHING_HEADER);
+  });
+
   it("falls back to the static header when no phrase is set", () => {
     expect(renderHelp(undefined, null)).toContain(ANTI_PHISHING_HEADER);
     expect(renderHelp("fees", undefined)).toContain(ANTI_PHISHING_HEADER);

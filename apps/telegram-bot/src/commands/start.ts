@@ -5,7 +5,10 @@ import {
   START_CALLBACK,
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
-import { resolveAntiPhishingHeader } from "../lib/anti-phishing.js";
+import {
+  ctxAntiPhishingPhrase,
+  resolveAntiPhishingHeader,
+} from "../lib/anti-phishing.js";
 import { logger } from "../lib/logger.js";
 import { resolveBuyUsdcUrl } from "../lib/relay.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
@@ -163,7 +166,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       ctx.env,
       address,
       balance,
-      ctx.session.antiPhishingPhrase,
+      ctxAntiPhishingPhrase(ctx),
     );
     await ctx.reply(rendered.text, {
       parse_mode: rendered.parse_mode,
@@ -202,7 +205,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       ctx.env,
       active.address,
       balance,
-      ctx.session.antiPhishingPhrase,
+      ctxAntiPhishingPhrase(ctx),
     );
     await safeEditMessageText(ctx, rendered.text, {
       parse_mode: rendered.parse_mode,

@@ -2,7 +2,10 @@ import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { resolveAntiPhishingHeader } from "../lib/anti-phishing.js";
+import {
+  ctxAntiPhishingPhrase,
+  resolveAntiPhishingHeader,
+} from "../lib/anti-phishing.js";
 
 const escapeHtml = (s: string): string =>
   s
@@ -250,7 +253,7 @@ const sendHelp = async (
   ctx: AppContext,
   arg: string | undefined,
 ): Promise<void> => {
-  await ctx.reply(renderHelp(arg, ctx.session.antiPhishingPhrase), {
+  await ctx.reply(renderHelp(arg, ctxAntiPhishingPhrase(ctx)), {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
