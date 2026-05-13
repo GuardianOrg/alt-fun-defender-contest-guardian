@@ -1,0 +1,296 @@
+/*
+ * Manage Wallet tab — sits inside the same `.contentFlush` profile-panel
+ * shell as Balances / Rewards. The section header + asset rows + footer
+ * each handle their own horizontal padding so the dividers can bleed
+ * edge-to-edge while the content lines up with the rest of the panel
+ * (1.6rem gutter, matching `ProfileView.module.css`).
+ */
+
+/* ---------- Network strip ---------- */
+
+/*
+ * Two-column "you are on chain X" banner. Mint pulse on the left echoes
+ * the live-data dot vocabulary used elsewhere (`livep` keyframe in
+ * index.css); chain-id on the right is the trust signal — every wallet
+ * users encounter shows the chain numerically, so we mirror that here.
+ */
+.networkStrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.6rem;
+  padding: 1.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+.networkLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.networkMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.networkLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+}
+
+.networkName {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--txt);
+  letter-spacing: 0.02em;
+}
+
+.networkRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+}
+
+.networkChainId {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--txt);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Section header ---------- */
+
+/*
+ * Single-line section title above the asset list. Uses the same uppercase
+ * mono treatment as the column headers in the Balances tab so the two
+ * profile surfaces feel like siblings — but without the grid template
+ * since this is a heading, not a column-headed table.
+ */
+.sectionHeader {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  padding: 1.6rem 1.6rem 0.8rem;
+}
+
+/* ---------- Asset list ---------- */
+
+.assetList {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+/*
+ * Per-asset row. 4-column grid:
+ *   1. icon       (40px)
+ *   2. meta       (ticker + name, 1fr to absorb spare width)
+ *   3. balance    (auto, right-aligned)
+ *   4. action     (auto, right edge)
+ *
+ * Mirrors the desktop-wallet (MetaMask Portfolio / Coinbase) row pattern
+ * users already know, so we don't have to teach a new affordance shape.
+ * Border-bottom on every row except the last paints a clean table look
+ * without a separate divider element.
+ */
+.assetRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 1.6rem;
+  align-items: center;
+  padding: 1.4rem 1.6rem;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.15s ease;
+}
+
+.assetRow:last-child {
+  border-bottom: 0;
+}
+
+.assetRow:hover {
+  background: var(--bg-3);
+}
+
+.assetIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background: var(--bg-3);
+  object-fit: cover;
+}
+
+.assetMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.assetTickerRow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.assetTicker {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--txt);
+  letter-spacing: 0.04em;
+}
+
+/*
+ * Inline tag next to the ticker (e.g. "Gas token"). Lower-weight than
+ * the ticker so the eye lands on the symbol first, and a subtle mint
+ * tint to keep it tied to the brand without reading as an interactive
+ * pill (it isn't — it's a label).
+ */
+.assetTag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mint);
+  font-weight: 600;
+}
+
+/*
+ * Tiny "NATIVE" / "ERC-20" pill. Same vocabulary every block explorer
+ * uses to distinguish the chain's gas token from its smart-contract
+ * tokens — surfacing it here saves the user from having to know that
+ * HYPE doesn't have a contract address (and that a USDC bridge can't
+ * arrive as native HYPE, etc.).
+ */
+.assetTypePill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 0.2rem 0.4rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.assetName {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--txt-3);
+}
+
+/*
+ * Right-aligned balance column. Single line: big amount + faint suffix
+ * (e.g. `123.45 USDC`). USD-equivalent values are intentionally omitted —
+ * the user is here to manage funds for trading, not to track portfolio
+ * value (the Balances tab already covers that for held tokens).
+ */
+.assetBalance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.assetBalanceAmount {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--txt);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.assetBalanceSuffix {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--txt-3);
+  letter-spacing: 0.04em;
+}
+
+.assetAction {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* ---------- Footer hint ---------- */
+
+/*
+ * Small explanatory line at the bottom of the panel. Positions Relay as
+ * the bridge provider (so the link out doesn't read as a third-party
+ * surprise) and reassures the user that funds arrive in *their*
+ * wallet, not a custodial intermediate. No card chrome — just the
+ * 1.6rem gutter so it reads as part of the panel's natural flow.
+ */
+.footerHint {
+  padding: 1.6rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--txt-3);
+  border-top: 1px solid var(--border);
+}
+
+.footerHintLink {
+  color: var(--mint);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: opacity 0.15s ease;
+}
+
+.footerHintLink:hover {
+  opacity: 0.85;
+}
+
+/* ---------- Mobile ---------- */
+
+/*
+ * On phones the 4-column row collapses to a stack: icon + meta on row 1,
+ * balance + action on row 2. Keeps every cell on screen without
+ * sacrificing the action affordance to overflow.
+ */
+@media (max-width: 600px) {
+  .assetRow {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "icon meta"
+      "balance action";
+    row-gap: 1.2rem;
+  }
+
+  .assetIcon {
+    grid-area: icon;
+  }
+
+  .assetMeta {
+    grid-area: meta;
+  }
+
+  .assetBalance {
+    grid-area: balance;
+    align-items: flex-start;
+  }
+
+  .assetAction {
+    grid-area: action;
+    justify-content: flex-end;
+  }
+}
