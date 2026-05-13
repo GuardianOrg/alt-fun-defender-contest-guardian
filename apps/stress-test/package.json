@@ -1,0 +1,26 @@
+{
+  "name": "@launchpad/stress-test",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Offline stress-testing harness for Alt Fun — load-tests token creation, trading, image pipeline, and indexer/API surfaces against any environment (local, staging, prod).",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@launchpad/shared": "*",
+    "viem": "^2.47.12"
+  },
+  "devDependencies": {
+    "@launchpad/config": "*",
+    "@types/node": "^22",
+    "tsx": "^4",
+    "typescript": "~6.0.3",
+    "vitest": "^4"
+  }
+}

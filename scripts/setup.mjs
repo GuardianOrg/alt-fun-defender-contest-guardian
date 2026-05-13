@@ -23,6 +23,11 @@ const ENV_PAIRS = [
   { example: "apps/api/.dev.vars.example", target: "apps/api/.dev.vars" },
   { example: "apps/indexer/.env.example", target: "apps/indexer/.env.local" },
   {
+    example: "apps/stress-test/.env.example",
+    target: "apps/stress-test/.env.local",
+    optional: true,
+  },
+  {
     example: "packages/contracts/.env.example",
     target: "packages/contracts/.env",
     optional: true,
