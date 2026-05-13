@@ -150,6 +150,51 @@
   opacity: 1;
 }
 
+/* Inline disconnect affordance — sibling of `.explorerLink`, same flat
+ * text + small icon vocabulary so the wallet-related actions in the
+ * address row read as one cluster (copy → view on explorer →
+ * disconnect). Resting state stays neutral (it's not a CTA), but the
+ * hover swap to `--red` signals "this ends the session" and mirrors
+ * the `itemDanger` treatment from the previous header `AddressMenu`.
+ * `min-height: 2.4rem` + a touch of horizontal padding gives the
+ * control a 24px tap/click hit-target that satisfies the project's
+ * 22px minimum without inflating the visual footprint past its
+ * `explorerLink` sibling. */
+.disconnectLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.4rem;
+  min-height: 2.4rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--txt-3);
+  letter-spacing: 0.04em;
+  background: transparent;
+  border: 0;
+  padding: 0 0.4rem;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.disconnectLink:hover {
+  color: var(--red);
+}
+
+.disconnectLink:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.disconnectIcon {
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.disconnectLink:hover .disconnectIcon {
+  opacity: 1;
+}
+
 .address {
   font-family: var(--font-mono);
   font-size: 18px;

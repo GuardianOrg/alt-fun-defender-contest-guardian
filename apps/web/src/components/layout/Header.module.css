@@ -115,22 +115,6 @@
   gap: 0.8rem;
 }
 
-/* Positioning context for the anchored `AddressMenu` popover. The
- * menu drops below the wallet chip with `position: absolute`, so the
- * wrapper has to be `relative` and inline-flex so it lines up with
- * its sibling buttons in `.rightSide` without stealing extra width. */
-.walletChipWrap {
-  position: relative;
-  display: inline-flex;
-}
-
-/* Shared header overrides on the `Chip` primitive — used by both the
- * wallet address pill and the Portfolio nav pill so the right side of
- * the header reads as a coherent strip rather than three unrelated
- * controls. 3rem height aligns the chips with the search trigger /
- * launch button, mint-on-transparent gives the chip strip an
- * identity-affordance feel without filling the bar with mint. The
- * chip's own border and hover rules are inherited unchanged. */
 .headerChip {
   height: 3rem;
   color: var(--mint);

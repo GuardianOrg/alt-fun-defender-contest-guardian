@@ -72,7 +72,7 @@ const REWARDS_SKELETON_COUNT = 2;
 
 export default function ProfileView() {
   const navigate = useNavigate();
-  const { address, shortAddress, isConnected } = useWallet();
+  const { address, shortAddress, isConnected, disconnect } = useWallet();
   const face = useProfileFace();
   const [activeTab, setActiveTab] = useState<ProfileTab>("balances");
   const {
@@ -250,6 +250,33 @@ export default function ProfileView() {
                     <line x1="10" y1="14" x2="21" y2="3" />
                   </svg>
                 </a>
+                <button
+                  type="button"
+                  className={styles.disconnectLink}
+                  onClick={() => {
+                    void disconnect();
+                  }}
+                  aria-label="Disconnect wallet"
+                >
+                  Disconnect
+                  <svg
+                    className={styles.disconnectIcon}
+                    aria-hidden="true"
+                    focusable="false"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                </button>
               </>
             )}
           </div>
