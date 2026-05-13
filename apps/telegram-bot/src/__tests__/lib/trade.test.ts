@@ -13,6 +13,7 @@ import {
   buildPublicClient,
   computeMinTokensOut,
   computeMinUsdcOut,
+  executeBuy,
   explorerTxUrl,
   renderExecutionError,
   signPermitForRouter,
@@ -21,6 +22,13 @@ import {
   tryPermit,
   usdcRawToNumber,
 } from "../../lib/trade.js";
+import {
+  INTENT_TTL_SECONDS,
+  intentKey,
+  markFinal,
+  markSubmitted,
+  type IdempotencyKv,
+} from "../../lib/idempotency.js";
 import { HYPER_EVM, USDC_ADDRESS } from "@launchpad/shared";
 
 const RPC_URL = "https://rpc.test.local";
@@ -536,6 +544,320 @@ describe("renderExecutionError with on-chain revert", () => {
     });
     expect(reply).toMatch(/receipt not seen/i);
     expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+  });
+});
+
+describe("executeBuy idempotency", () => {
+  // Deterministic dev key — same one used elsewhere in this file.
+  const PRIVATE_KEY =
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
+  const TRADER_FOR_KEY = privateKeyToAccount(PRIVATE_KEY).address;
+  const TX_HASH_SUCCESS =
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
+
+  /**
+   * Tiny in-memory KV usable as both a sink (assert the writes happen) and
+   * a source (pre-populate to simulate a retry hitting an existing entry).
+   * Records every put so the test can verify TTL plumbing without coupling
+   * to the Cloudflare KV type.
+   */
+  class InMemoryKv implements IdempotencyKv {
+    readonly puts: Array<{
+      key: string;
+      value: string;
+      options?: { expirationTtl?: number };
+    }> = [];
+    private readonly store = new Map<string, string>();
+    constructor(seed: Record<string, string> = {}) {
+      for (const [k, v] of Object.entries(seed)) this.store.set(k, v);
+    }
+    async get(key: string): Promise<string | null> {
+      return this.store.get(key) ?? null;
+    }
+    async put(
+      key: string,
+      value: string,
+      options?: { expirationTtl?: number },
+    ): Promise<void> {
+      this.puts.push({ key, value, options });
+      this.store.set(key, value);
+    }
+  }
+
+  /**
+   * Default RPC router for the executeBuy happy path: allowance is
+   * `MAX_UINT256` (so the permit/approve branch is skipped), the simulate
+   * call returns a non-zero quote, `eth_estimateGas` returns a sane value,
+   * and a successful receipt is delivered for any submitted tx. Tests can
+   * decorate this to assert what was sent or to reject calls that mustn't
+   * happen on a dedupe path.
+   */
+  const makeFetch = (opts: {
+    onSendRaw?: (raw: string) => Response | Promise<Response>;
+  } = {}) =>
+    async (_input: unknown, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(init?.body as string) as {
+        method: string;
+        params: unknown;
+      };
+      switch (body.method) {
+        case "eth_chainId":
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: `0x${HYPER_EVM.id.toString(16)}` }),
+            { status: 200 },
+          );
+        case "eth_call":
+          // Both `allowance` and `simulateContract` reach here. Returning
+          // a very large uint256 satisfies both: it caps `allowance >=
+          // usdcAmount` (skip approve) and stands in as the simulate
+          // result (`quotedTokensOut`). The buy path doesn't care about
+          // distinguishing them in this test.
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: encodeUint256((1n << 200n) - 1n),
+            }),
+            { status: 200 },
+          );
+        case "eth_estimateGas":
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x5208" }),
+            { status: 200 },
+          );
+        case "eth_gasPrice":
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x1" }),
+            { status: 200 },
+          );
+        case "eth_getTransactionCount":
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+            { status: 200 },
+          );
+        case "eth_maxPriorityFeePerGas":
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+            { status: 200 },
+          );
+        case "eth_getBlockByNumber":
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: { baseFeePerGas: "0x1", number: "0x1" },
+            }),
+            { status: 200 },
+          );
+        case "eth_sendRawTransaction": {
+          const raw = (body.params as [string])[0];
+          if (opts.onSendRaw) return opts.onSendRaw(raw);
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: TX_HASH_SUCCESS }),
+            { status: 200 },
+          );
+        }
+        case "eth_blockNumber":
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x2" }),
+            { status: 200 },
+          );
+        case "eth_getTransactionReceipt":
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: {
+                transactionHash: TX_HASH_SUCCESS,
+                blockNumber: "0x1",
+                blockHash:
+                  "0x0000000000000000000000000000000000000000000000000000000000000001",
+                transactionIndex: "0x0",
+                from: TRADER_FOR_KEY,
+                to: ROUTER,
+                cumulativeGasUsed: "0x1",
+                gasUsed: "0x1",
+                contractAddress: null,
+                logs: [],
+                logsBloom: `0x${"0".repeat(512)}`,
+                status: "0x1",
+                type: "0x0",
+                effectiveGasPrice: "0x1",
+              },
+            }),
+            { status: 200 },
+          );
+        default:
+          throw new Error(`unexpected RPC method ${body.method}`);
+      }
+    };
+
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("does NOT submit a second tx when the commit-log records a completed result on retry", async () => {
+    // Pre-populate KV with a completed record — same shape `markFinal`
+    // would have written on the original attempt. The retry must read
+    // this and return it verbatim, without ever calling
+    // `eth_sendRawTransaction` again. This is the core double-spend fix:
+    // even if grammY's session write was lost and `pendingTrade` is
+    // still set on the second DO turn, KV remembers the result.
+    const key = intentKey(7, "n-retry");
+    const kv = new InMemoryKv();
+    await markFinal(kv, key, {
+      ok: true,
+      txHash: TX_HASH_SUCCESS,
+      quotedOut: "1000",
+      minOut: "990",
+    });
+
+    // Reject sendRaw at the RPC level too — defense-in-depth so a
+    // regression that bypasses the KV check still fails the test.
+    fetchSpy.mockImplementation(
+      makeFetch({
+        onSendRaw: () => {
+          throw new Error("must not submit a duplicate tx on retry");
+        },
+      }) as never,
+    );
+
+    const result = await executeBuy(
+      { HYPEREVM_RPC_URL: RPC_URL, BOT_FEE_ROUTER_ADDRESS: ROUTER },
+      {
+        token: TOKEN as `0x${string}`,
+        usdcAmount: 20_000_000n,
+        trader: TRADER_FOR_KEY,
+        privateKey: PRIVATE_KEY,
+        slippageBps: 100,
+        idempotency: { kv, key },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.txHash).toBe(TX_HASH_SUCCESS);
+      expect(result.quotedOut).toBe(1000n);
+      expect(result.minOut).toBe(990n);
+    }
+    // Hard guarantee: zero `eth_sendRawTransaction` calls in the RPC log.
+    const sendCalls = fetchSpy.mock.calls.filter((c: unknown[]) => {
+      const init = c[1] as RequestInit | undefined;
+      if (!init?.body) return false;
+      const body = JSON.parse(init.body as string) as { method: string };
+      return body.method === "eth_sendRawTransaction";
+    });
+    expect(sendCalls).toHaveLength(0);
+  });
+
+  it("re-awaits the receipt without re-submitting when the prior attempt recorded a hash but no final result", async () => {
+    // Simulates the worst-case race the fix is built for: original turn
+    // landed `sendTransaction` (we have a hash on disk) but never wrote
+    // the final result (Worker killed during the receipt-wait). The
+    // retry must NOT submit a new tx; it should re-await the existing
+    // hash's receipt and surface the on-chain outcome.
+    const key = intentKey(7, "n-submitted");
+    const kv = new InMemoryKv();
+    await markSubmitted(kv, key, TX_HASH_SUCCESS);
+
+    fetchSpy.mockImplementation(
+      makeFetch({
+        onSendRaw: () => {
+          throw new Error("must not resubmit when a prior hash exists");
+        },
+      }) as never,
+    );
+
+    const result = await executeBuy(
+      { HYPEREVM_RPC_URL: RPC_URL, BOT_FEE_ROUTER_ADDRESS: ROUTER },
+      {
+        token: TOKEN as `0x${string}`,
+        usdcAmount: 20_000_000n,
+        trader: TRADER_FOR_KEY,
+        privateKey: PRIVATE_KEY,
+        slippageBps: 100,
+        idempotency: { kv, key },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.txHash).toBe(TX_HASH_SUCCESS);
+  });
+
+  it("refuses to resubmit when the prior attempt claimed the slot but never recorded a hash", async () => {
+    // Original turn died after claiming but before `sendTransaction`
+    // returned — we have no hash to re-await. Returning `unavailable`
+    // is the safe choice; the only alternative is to fire a second tx,
+    // which is the bug. The TTL on the commit-log gives the slot a
+    // bounded lifetime so a permanently-stuck claim cannot lock the
+    // user out forever.
+    const key = intentKey(7, "n-stuck");
+    const kv = new InMemoryKv();
+    await kv.put(
+      key,
+      JSON.stringify({ status: "submitting", claimedAt: Date.now() }),
+      { expirationTtl: INTENT_TTL_SECONDS },
+    );
+
+    fetchSpy.mockImplementation(
+      makeFetch({
+        onSendRaw: () => {
+          throw new Error("must not submit while a prior claim is in flight");
+        },
+      }) as never,
+    );
+
+    const result = await executeBuy(
+      { HYPEREVM_RPC_URL: RPC_URL, BOT_FEE_ROUTER_ADDRESS: ROUTER },
+      {
+        token: TOKEN as `0x${string}`,
+        usdcAmount: 20_000_000n,
+        trader: TRADER_FOR_KEY,
+        privateKey: PRIVATE_KEY,
+        slippageBps: 100,
+        idempotency: { kv, key },
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("unavailable");
+      expect(result.reason ?? "").toMatch(/already in flight/i);
+    }
+  });
+
+  it("happy path: claims the slot, submits, records the hash, then records the final result", async () => {
+    const key = intentKey(7, "n-happy");
+    const kv = new InMemoryKv();
+    fetchSpy.mockImplementation(makeFetch() as never);
+
+    const result = await executeBuy(
+      { HYPEREVM_RPC_URL: RPC_URL, BOT_FEE_ROUTER_ADDRESS: ROUTER },
+      {
+        token: TOKEN as `0x${string}`,
+        usdcAmount: 20_000_000n,
+        trader: TRADER_FOR_KEY,
+        privateKey: PRIVATE_KEY,
+        slippageBps: 100,
+        idempotency: { kv, key },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    // Three writes: claim → submitted → final.
+    const writesForKey = kv.puts.filter((p) => p.key === key);
+    expect(writesForKey).toHaveLength(3);
+    expect(JSON.parse(writesForKey[0].value).status).toBe("submitting");
+    expect(JSON.parse(writesForKey[1].value).status).toBe("submitted");
+    expect(JSON.parse(writesForKey[2].value).status).toBe("completed");
+    // Every write must carry the TTL so the slot doesn't leak forever.
+    for (const w of writesForKey) {
+      expect(w.options?.expirationTtl).toBe(INTENT_TTL_SECONDS);
+    }
   });
 });
 

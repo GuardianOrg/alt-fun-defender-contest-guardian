@@ -13,6 +13,7 @@
  */
 
 import type { AppContext } from "../bot.js";
+import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import {
   executeBuy,
   executeSell,
@@ -20,6 +21,7 @@ import {
   renderExecutionError,
   type ExecutionResult,
   type Hex,
+  type IdempotencyBinding,
 } from "./trade.js";
 import { WalletManager } from "./wallet.js";
 
@@ -168,6 +170,18 @@ export const confirmTrade = async (
   const amount = BigInt(intent.amountRaw);
   const referrer = await loadReferrer(ctx.env, ctx.from.id);
 
+  // Persistent commit-log keyed on (userId, nonce). The in-memory clear
+  // of `pendingTrade` above protects against a duplicate Confirm tap
+  // within a single DO turn; this protects against the harder case of
+  // Telegram retrying the webhook before grammY's session write commits
+  // to KV (slow `sendTransaction`, Worker CPU-killed mid-flight). On the
+  // retry, executeBuy/executeSell see the existing record and return
+  // the prior outcome instead of submitting a second on-chain tx.
+  const idempotency: IdempotencyBinding = {
+    kv: ctx.env.WALLET_KV as unknown as IdempotencyKv,
+    key: intentKey(ctx.from.id, intent.nonce),
+  };
+
   const result =
     intent.side === "buy"
       ? await executeBuy(ctx.env, {
@@ -177,6 +191,7 @@ export const confirmTrade = async (
           privateKey,
           slippageBps,
           referrer,
+          idempotency,
         })
       : await executeSell(ctx.env, {
           token,
@@ -185,6 +200,7 @@ export const confirmTrade = async (
           privateKey,
           slippageBps,
           referrer,
+          idempotency,
         });
 
   return { kind: "executed", result, ticker: intent.ticker, side: intent.side };
