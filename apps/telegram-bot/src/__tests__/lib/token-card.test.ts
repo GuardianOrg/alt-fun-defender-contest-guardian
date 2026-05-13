@@ -29,9 +29,10 @@ describe("renderBuyTokenCardText", () => {
     expect(text).toContain("TEST");
     expect(text).toContain("24h Change");
     expect(text).toContain("+5.20%");
-    expect(text).toContain("LT 24h");
+    expect(text).not.toContain("LT 24h");
     expect(text).toContain("Market Cap");
     expect(text).toContain("24h Volume");
+    expect(text.indexOf("Market Cap")).toBeLessThan(text.indexOf("Price:"));
     expect(text).toContain("$12.3K");
     expect(text).toContain("Your USDC Balance");
     expect(text).toContain("$50.00");
@@ -62,6 +63,8 @@ describe("renderSellTokenCardText", () => {
     expect(text).toContain("$12.3K");
     expect(text).toContain("Your Balance");
     expect(text).toContain("TEST");
+    expect(text).not.toContain("LT 24h");
+    expect(text.indexOf("Market Cap")).toBeLessThan(text.indexOf("Price:"));
   });
 
   it("shows zero balance when user holds none", () => {
