@@ -7,12 +7,8 @@ import StepHeader from "./StepHeader";
 import hyperliquidLogo from "../../assets/Logos/hyperliquid.svg";
 import { COLORS, rgba } from "../../config/colors";
 import { UNDERLYING_ASSETS, LEVERAGE_OPTIONS } from "../../config/constants";
-import {
-  useAssetChanges,
-  useAssetPriceChanges,
-  useLiveUnderlyings,
-} from "../../hooks/useAssets";
-import { cn, formatPriceChange, getLtDisplayName } from "../../utils/format";
+import { useAssetChanges, useLiveUnderlyings } from "../../hooks/useAssets";
+import { cn, formatPercent, getLtDisplayName } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
@@ -36,7 +32,6 @@ export default function PairSelector({
   onLeverageChange,
 }: Props) {
   const assetChanges = useAssetChanges();
-  const assetPriceChanges = useAssetPriceChanges();
   // Hide underlying-asset buttons whose backing LTs aren't live on
   // BounceTech's UI yet (issue #621). `useLiveUnderlyings` returns
   // `undefined` while loading or after a failed fetch, in which case we
@@ -166,9 +161,9 @@ export default function PairSelector({
       <label className={styles.label}>Underlying asset</label>
       <div className={styles.assetGrid}>
         {visibleAssets.map((a) => {
-          const priceChange = assetPriceChanges[a];
-          const hasData = priceChange != null;
-          const up = hasData && priceChange >= 0;
+          const change = assetChanges[a];
+          const hasData = change != null;
+          const up = hasData && change >= 0;
           const selected = a === asset;
           return (
             <button
@@ -202,7 +197,7 @@ export default function PairSelector({
                       : styles.textMuted,
                   )}
                 >
-                  {hasData ? formatPriceChange(priceChange) : "—"}
+                  {hasData ? formatPercent(change) : "—"}
                 </div>
               </div>
             </button>
