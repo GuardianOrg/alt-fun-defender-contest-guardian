@@ -154,6 +154,25 @@ The table grows monotonically (one row per upload, no abuse vector — the abuse
 
 Each daily run logs per-decision delete counts, post-cleanup row count, and `pg_total_relation_size('moderation_logs')` for capacity planning.
 
+### Orphaned R2 image cleanup
+
+Every accepted upload writes to R2 under the `tokens/` prefix *before* the user signs the on-chain launch tx (the moderation gateway has to see the bytes to score them). Most of those objects then attach to a token via `LaunchParams.image` and surface in the `tokens.imageUrl` column after registration — but two paths leave them stranded:
+
+1. **Abandoned create flow.** User clicks Launch, image uploads, then they reject the wallet popup / lose network / close the tab. R2 keeps the object forever, no token ever references it.
+2. **Front-end-bypass spam.** A leaked API key or direct-call abuse hits `POST /api/v1/images` in a loop. The Cloudflare WAF rate-limit caps it at 5 req/min/IP, but a determined attacker rotating IPs can still slowly accumulate orphans.
+
+`src/lib/orphaned-images-cleanup.ts` runs from the `scheduled()` handler, self-gates to **one tick per day at 04:17 UTC** (one hour after the moderation-logs sweep so the two storage-hygiene jobs don't compete for connections / subrequest budget on a single tick), and deletes every R2 object that satisfies *all three*:
+
+| Filter | Why |
+|---|---|
+| Older than **24h** (`GRACE_PERIOD_HOURS`) | Comfortably wider than the upload-to-launch window. The frontend uploads inside `useCreateToken.create()` after vanity mining completes, so the typical window is permit-sign + tx-confirm ≈ seconds. 24h is ~3 orders of magnitude over and covers the worst-case slow-wallet retry path with room to spare. |
+| Not referenced by any `tokens.imageUrl` | A launched token's image must never be collected. `extractR2Key` tolerates both root-relative (`/images/tokens/<key>`) and absolute (`https://api.alt.fun/images/tokens/<key>`) values so legacy / drifted rows still protect. |
+| Not flagged `pending_review` in `moderation_logs` | Auto-deleting would silently erase the admin queue. Pending images wait until an admin resolves them via `/admin/moderation/:id/{approve,reject}`. |
+
+The sweep is bounded per run by `MAX_PAGES_PER_RUN` (50 list pages × 1,000 keys each) and `MAX_DELETES_PER_RUN` (1,000 keys), well above realistic daily churn. If a daily run ever truncates against either cap, the next day picks up where it left off — the sweep is idempotent.
+
+Issue #554.
+
 ## Graduation keepers (two distinct cron jobs)
 
 Two keepers run from the API Worker's `scheduled()` handler, each with its own hot wallet. They MUST be different wallets — they target different Hyperliquid block sizes and the small/big-block toggle is sticky per wallet.

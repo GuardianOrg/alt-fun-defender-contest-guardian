@@ -11,6 +11,7 @@ import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import { refreshLiveLtAvailability } from "./lib/lt-availability.js";
 import { runRegistrationBackfill } from "./lib/registration-backfill.js";
 import { runModerationLogsCleanup } from "./lib/moderation-logs-cleanup.js";
+import { runOrphanedImagesCleanup } from "./lib/orphaned-images-cleanup.js";
 import tokens from "./routes/tokens/index.js";
 import trades from "./routes/trades.js";
 import creators from "./routes/creators.js";
@@ -297,7 +298,7 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch,
   /**
-   * Cron trigger (1 min cadence per wrangler.json). Six jobs run in
+   * Cron trigger (1 min cadence per wrangler.json). Seven jobs run in
    * parallel each tick:
    *   1. Kickstart the LtTicker DO if it's dormant. `/ensure` is idempotent.
    *      Ensures the price ticker self-heals within ~60s of any deploy, DO
@@ -332,6 +333,14 @@ export default {
    *      reads from the warm per-isolate cache instead of HEAD-checking
    *      ~20 logos per page load. See `lib/lt-availability.ts` and
    *      issue #621.
+   *   7. Daily orphaned-image sweep on R2 (issue #554). Self-gates to
+   *      one tick per day (04:17 UTC, one hour after the
+   *      moderation-logs sweep so the two storage-hygiene jobs don't
+   *      race for connections / subrequest budget). Deletes images
+   *      that were uploaded to R2 but never made it onto a launched
+   *      token (closed-tab create flow, or front-end-bypass spam).
+   *      Skips a 24h grace window so in-flight create flows are safe.
+   *      See `lib/orphaned-images-cleanup.ts`.
    */
   async scheduled(
     _controller: ScheduledController,
@@ -411,6 +420,19 @@ export default {
           JSON.stringify({
             level: "error",
             event: "lt_availability_refresh_uncaught",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    ctx.waitUntil(
+      runOrphanedImagesCleanup(env).catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "orphaned_images_cleanup_uncaught",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

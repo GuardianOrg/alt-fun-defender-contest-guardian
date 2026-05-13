@@ -279,6 +279,8 @@ These thresholds intentionally reject *more* than OpenAI's own `flagged: true` b
 
 Borderline images (review threshold tripped, reject threshold not tripped) are still uploaded to R2 and recorded in `moderation_logs` with `decision = "pending_review"`. Admins resolve them via `GET /admin/moderation/pending` + `POST /admin/moderation/:id/{approve,reject}`. Rejection deletes the image from R2.
 
+A daily cron also sweeps R2 for **orphaned images** — objects uploaded but never attached to a launched token (closed-tab create flows, front-end-bypass spam). The sweep skips a 24h grace window so in-flight create flows are safe, and never touches `pending_review` entries (those wait on admin action). See `apps/api/AGENTS.md` → *Orphaned R2 image cleanup* and `apps/api/src/lib/orphaned-images-cleanup.ts` (issue #554).
+
 Failure mode is **fail-closed**: missing `OPENAI_API_KEY`, OpenAI 4xx/5xx, network timeout, or malformed response all surface as a 503 ("moderation temporarily unavailable") and **no upload happens**. Letting unmoderated content into R2 is the failure mode this layer exists to prevent.
 
 A Cloudflare WAF rate-limit rule sits in front of `POST /api/v1/images` and `POST /images` at the edge (5 req/min/IP, rejected with 429 before the Worker is invoked). It's the primary defence against upload abuse — the in-Worker per-IP write quota is a fallback for when the rule is missing or under `wrangler dev`. Full spec (filter expression, action, verification) in [`apps/api/AGENTS.md`](apps/api/AGENTS.md) → *Edge rate-limit rule*.
