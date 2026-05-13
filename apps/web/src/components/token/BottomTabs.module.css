@@ -7,10 +7,19 @@
   border-collapse: collapse;
 }
 
+/* Sticky inside the scroll container `.tabContent`. The `z-index: 1` is
+ * the minimum needed to keep the header painted above scrolling body
+ * rows — Safari has documented stacking bugs where a sticky `<thead>`
+ * gets visually overlapped by `<tbody>` rows without an explicit
+ * z-index, even though the header row's `--bg-1` background is fully
+ * opaque. Nothing else inside `.tabContent` is positioned, so `1` is
+ * sufficient (the original `10` was defensive padding, not a real
+ * conflict). The sibling `.holdersHeader` doesn't need this trick
+ * because it's a `<div>`, not a `<thead>`. */
 .tradesHead {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 1;
 }
 
 .tradesHeaderRow {

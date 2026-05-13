@@ -113,3 +113,133 @@
 .btn:active {
   background: rgba(77, 232, 180, 0.15);
 }
+
+/* "Active" pill for the segmented status picker — re-uses the same
+ * mint-tinted accent as the existing `:active` styling so the active
+ * state visually matches a pressed-and-held button (no new colours
+ * introduced). Override both `color` and `border-color` so the pill
+ * still stands out when the user's pointer is elsewhere. */
+.btnActive {
+  color: var(--mint);
+  background: rgba(77, 232, 180, 0.15);
+  border-color: var(--mint);
+}
+
+.btnActive:hover {
+  color: var(--mint);
+  background: rgba(77, 232, 180, 0.2);
+  border-color: var(--mint);
+}
+
+/* Group header row — same `groupLabel` typography on the left, a small
+ * "reset" link on the right. Only rendered when an override is active
+ * for this token (see `DevSimulator.tsx`), so the row collapses to the
+ * label alone in steady state. */
+.groupHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.resetBtn {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--txt-3);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.resetBtn:hover {
+  color: var(--mint);
+}
+
+.sliderGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+
+.sliderRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.sliderLabel {
+  color: var(--txt-3);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sliderValue {
+  color: var(--txt-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom range styling — the native track / thumb look out of place in
+ * the dim-mint terminal aesthetic. Mint thumb on a thin neutral track
+ * matches the rest of the panel; vendor-prefixed selectors are kept
+ * separate (Chromium and Firefox don't share a combined selector). */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--mint);
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(77, 232, 180, 0.5);
+  transition: transform 0.1s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--mint);
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 0 6px rgba(77, 232, 180, 0.5);
+  transition: transform 0.1s ease;
+}
+
+.slider::-moz-range-thumb:hover {
+  transform: scale(1.15);
+}
+
+.slider:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px var(--mint-bg),
+    0 0 6px rgba(77, 232, 180, 0.6);
+}
+
+.slider:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 2px var(--mint-bg),
+    0 0 6px rgba(77, 232, 180, 0.6);
+}
