@@ -11,7 +11,10 @@ import {
   type SecurityStatus,
 } from "../keyboards/security-actions.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import {
+  withAntiPhishing,
+  wrapWithCtxPhrase as wrap,
+} from "../lib/anti-phishing.js";
 import {
   PIN_RESET_DELAY_MS,
   PinManager,
@@ -456,8 +459,13 @@ const setPhraseConversation = async (
     const state = await conversation.external((outside) =>
       renderState(outside, userId),
     );
+    // The conversation's inner ctx.session is a snapshot captured at
+    // enter, so `wrap(ctx, …)` would still render the pre-change phrase
+    // (or the static fallback) on this final reply. Pass the freshly
+    // saved phrase explicitly so the message that lands the user back
+    // on the security panel already shows the new header.
     await ctx.reply(
-      wrap(ctx, `Phrase saved.\n\n${state.text}`),
+      withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
       { reply_markup: state.reply_markup },
     );
     return;

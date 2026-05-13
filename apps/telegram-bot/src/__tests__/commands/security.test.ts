@@ -217,6 +217,33 @@ describe("/security command", () => {
       );
     });
 
+    it("uses the new phrase as the header on the message that lands the user back on the security panel", async () => {
+      // Regression: conversation's inner ctx.session is a snapshot
+      // captured at enter, so the "Phrase saved" reply used to render
+      // the pre-change (static fallback) header even though the panel
+      // body below it already reflected the new phrase. Only the next
+      // user-initiated turn would pick up the saved value. The final
+      // reply must use the freshly-set phrase.
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SECURITY_CALLBACK.setPhrase));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("blue heron", 3));
+
+      const phraseSaved = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Phrase saved/.test(c.body.text as string),
+      );
+      expect(phraseSaved).toBeDefined();
+      const text = phraseSaved!.body.text as string;
+      expect(text.startsWith("blue heron\n\n")).toBe(true);
+      expect(text).not.toContain(
+        "This bot will never ask for your seed phrase",
+      );
+    });
+
     it("rejects a phrase that exceeds 64 chars and stays in the wizard", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SECURITY_CALLBACK.setPhrase));
