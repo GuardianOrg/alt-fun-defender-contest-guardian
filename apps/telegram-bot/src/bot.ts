@@ -8,8 +8,10 @@ import {
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
 import { logger } from "./lib/logger.js";
-import { registerStartCommand } from "./commands/start.js";
+import { registerBuyCommand } from "./commands/buy.js";
 import { registerPositionsCommand } from "./commands/positions.js";
+import { registerSellCommand } from "./commands/sell.js";
+import { registerStartCommand } from "./commands/start.js";
 import { registerWalletCommand } from "./commands/wallet.js";
 import type { Env } from "./lib/types.js";
 
@@ -152,6 +154,8 @@ export const createBot = (
   );
 
   registerStartCommand(bot);
+  registerBuyCommand(bot);
+  registerSellCommand(bot);
   registerPositionsCommand(bot);
   registerWalletCommand(bot);
 
