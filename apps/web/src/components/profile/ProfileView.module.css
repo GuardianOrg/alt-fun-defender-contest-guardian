@@ -41,7 +41,7 @@
    * has a 39/544 ≈ 7.2% inset frame) wrapping a transparent center
    * with white letterforms. See issue #737. */
   --avatar-size: 6.4rem;
-  --face-ratio: 0.26;
+  --face-ratio: 0.3;
   --border-ratio: 0.058;
   display: inline-flex;
   align-items: center;
@@ -69,9 +69,10 @@
 }
 
 .avatarFace {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: calc(var(--avatar-size) * var(--face-ratio));
   font-weight: 700;
+  transform: scale(1.2);
   letter-spacing: -0.04em;
   line-height: 1;
   user-select: none;
