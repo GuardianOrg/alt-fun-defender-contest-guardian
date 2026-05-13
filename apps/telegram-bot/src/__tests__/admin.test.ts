@@ -25,12 +25,17 @@ describe("POST /admin/set-webhook", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    // Use mockImplementation so every call gets a fresh Response — a
+    // single Response's body can only be read once, and set-webhook now
+    // makes two upstream calls (setWebhook + setMyCommands).
     fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(JSON.stringify({ ok: true, result: true }), {
-          status: 200,
-        }),
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true, result: true }), {
+            status: 200,
+          }),
+        ),
       );
   });
 
@@ -98,13 +103,79 @@ describe("POST /admin/set-webhook", () => {
   it("forwards valid https url to Telegram with secret_token", async () => {
     const res = await post({ url: "https://example.com/webhook" });
     expect(res.status).toBe(200);
+    // Two upstream calls — setWebhook + setMyCommands (slash menu).
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [webhookUrl, webhookInit] = fetchSpy.mock.calls[0]!;
+    expect(webhookUrl).toBe(
+      "https://api.telegram.org/bottest-bot-token/setWebhook",
+    );
+    const webhookBody = JSON.parse(
+      (webhookInit as RequestInit).body as string,
+    );
+    expect(webhookBody.url).toBe("https://example.com/webhook");
+    expect(webhookBody.secret_token).toBe("test-secret");
+    expect(webhookBody.allowed_updates).toEqual([
+      "message",
+      "callback_query",
+    ]);
+  });
+
+  it("also publishes BOT_COMMANDS so a fresh bot token gets its slash menu", async () => {
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const [commandsUrl, commandsInit] = fetchSpy.mock.calls[1]!;
+    expect(commandsUrl).toBe(
+      "https://api.telegram.org/bottest-bot-token/setMyCommands",
+    );
+    const commandsBody = JSON.parse(
+      (commandsInit as RequestInit).body as string,
+    ) as { commands: Array<{ command: string; description: string }> };
+    expect(commandsBody.commands).toEqual(
+      BOT_COMMANDS.map((c) => ({
+        command: c.command,
+        description: c.description,
+      })),
+    );
+  });
+
+  it("surfaces setMyCommands failure without claiming success", async () => {
+    fetchSpy
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error_code: 400,
+            description: "Bad Request",
+          }),
+          { status: 400 },
+        ),
+      );
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("set_commands_failed");
+  });
+
+  it("does not call setMyCommands when setWebhook fails", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error_code: 401,
+          description: "Unauthorized",
+        }),
+        { status: 401 },
+      ),
+    );
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(401);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(url).toBe("https://api.telegram.org/bottest-bot-token/setWebhook");
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.url).toBe("https://example.com/webhook");
-    expect(body.secret_token).toBe("test-secret");
-    expect(body.allowed_updates).toEqual(["message", "callback_query"]);
   });
 });
 
