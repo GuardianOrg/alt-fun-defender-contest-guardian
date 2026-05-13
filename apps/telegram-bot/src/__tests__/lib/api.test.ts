@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   fetchBalances,
   fetchPortfolio,
+  fetchReferralStats,
   fetchToken,
   extractTokenAddress,
   isAddress,
@@ -186,6 +187,50 @@ describe("fetchPortfolio / fetchBalances", () => {
     expect(fetchSpy.mock.calls[0]![0]).toBe(
       "https://api.test.local/api/v1/balances/0xabc",
     );
+  });
+
+  it("targets the referrals route and parses stats", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            referredWallets: 4,
+            referredVolume: "2500000000",
+            referrals: [],
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const res = await fetchReferralStats(env, "0xabc");
+    expect(fetchSpy.mock.calls[0]![0]).toBe(
+      "https://api.test.local/api/v1/referrals/0xabc",
+    );
+    expect(res).toEqual({
+      ok: true,
+      data: { referredWallets: 4, referredVolume: "2500000000" },
+    });
+  });
+
+  it("returns invalid_address on 400 for referrals", async () => {
+    fetchSpy.mockResolvedValueOnce(new Response("{}", { status: 400 }));
+    expect(await fetchReferralStats(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "invalid_address",
+    });
+  });
+
+  it("returns unknown when referrals payload is malformed (missing referredVolume)", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { referredWallets: 1 } }),
+        { status: 200 },
+      ),
+    );
+    expect(await fetchReferralStats(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unknown",
+    });
   });
 });
 
