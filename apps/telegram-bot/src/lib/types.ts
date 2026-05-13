@@ -79,7 +79,8 @@ export interface Env {
   MOONPAY_CURRENCY_CODE?: string;
   /**
    * Telegram username of the bot (without `@`). Used to build the
-   * shareable referral deeplink `t.me/<BOT_USERNAME>?start=ref_<userId>`
+   * shareable referral deeplink `t.me/<BOT_USERNAME>?start=ref_<username>`
+   * (or `ref_<userId>` if the sharer has no Telegram username set)
    * surfaced by `/referral`. Optional — falls back to a placeholder
    * when unset so smoke deploys keep rendering a link. Set the real
    * BotFather handle in production.

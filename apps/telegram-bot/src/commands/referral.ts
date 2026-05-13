@@ -41,9 +41,31 @@ interface ReferralView {
   link_preview_options: { is_disabled: true };
 }
 
-const buildLink = (env: AppContext["env"], userId: number): string => {
-  const username = env.BOT_USERNAME?.trim() || DEFAULT_BOT_USERNAME;
-  return `https://t.me/${username}?start=ref_${userId}`;
+/**
+ * Telegram usernames are 5-32 chars from `[A-Za-z0-9_]` per BotFather
+ * rules, so they're always URL-safe. Defensive validation here guards
+ * against the (unlikely) case where Telegram returns something
+ * unexpected — falling back to the numeric userId is safer than
+ * minting a malformed deeplink that 404s on every tap.
+ */
+const TELEGRAM_USERNAME_RE = /^[A-Za-z0-9_]{5,32}$/;
+
+const referralCodeFor = (
+  userId: number,
+  rawUsername: string | undefined,
+): string => {
+  const username = rawUsername?.trim();
+  if (username && TELEGRAM_USERNAME_RE.test(username)) return username;
+  return String(userId);
+};
+
+const buildLink = (
+  env: AppContext["env"],
+  userId: number,
+  rawUsername: string | undefined,
+): string => {
+  const botUsername = env.BOT_USERNAME?.trim() || DEFAULT_BOT_USERNAME;
+  return `https://t.me/${botUsername}?start=ref_${referralCodeFor(userId, rawUsername)}`;
 };
 
 const renderReferralHtml = (
@@ -80,6 +102,7 @@ const renderReferralHtml = (
 const buildView = async (
   env: AppContext["env"],
   userId: number,
+  username: string | undefined,
 ): Promise<
   | { ok: true; view: ReferralView }
   | { ok: false; kind: "no_wallet" | "outage" }
@@ -101,7 +124,7 @@ const buildView = async (
     return { ok: false, kind: "outage" };
   }
 
-  const link = buildLink(env, userId);
+  const link = buildLink(env, userId, username);
   return {
     ok: true,
     view: {
@@ -120,8 +143,9 @@ const buildView = async (
 const sendReferral = async (
   ctx: AppContext,
   userId: number,
+  username: string | undefined,
 ): Promise<void> => {
-  const result = await buildView(ctx.env, userId);
+  const result = await buildView(ctx.env, userId, username);
   if (!result.ok) {
     await ctx.reply(
       result.kind === "no_wallet" ? NO_WALLET_REPLY : OUTAGE_REPLY,
@@ -144,7 +168,7 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
-    await sendReferral(ctx, ctx.from.id);
+    await sendReferral(ctx, ctx.from.id, ctx.from.username);
   });
 
   bot.callbackQuery(START_CALLBACK.referral, async (ctx) => {
@@ -160,6 +184,6 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     await ctx.answerCallbackQuery();
-    await sendReferral(ctx, ctx.from.id);
+    await sendReferral(ctx, ctx.from.id, ctx.from.username);
   });
 };

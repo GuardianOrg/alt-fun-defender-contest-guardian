@@ -205,9 +205,9 @@ Effects: create user profile in KV if missing; record referrer if deeplink prese
          write default rewardsWallet (= active custodial wallet address) into KV
 ```
 
-Referral deeplink: `t.me/<botname>?start=ref_<referrerUserId>`. Record referrer on first `/start` only — subsequent `/start` calls for existing users must not overwrite the referrer.
+Referral deeplink: `t.me/<botname>?start=ref_<referrerUsername>` is what `/referral` now issues for any sharer with a Telegram username set, and `t.me/<botname>?start=ref_<referrerUserId>` is the fallback the sharer's `/referral` view falls back to when no Telegram username is available (username is optional in Telegram). Record referrer on first `/start` only — subsequent `/start` calls for existing users must not overwrite the referrer.
 
-**Referrer resolution.** When the deeplink param is `ref_<referrerUserId>`, `OnboardingDO` resolves it to the referrer's `rewardsWallet` (read from `GET /api/v1/bot/referrals/:referrerWallet` or KV directly via the DO) and stores **the resolved wallet address** as the new user's `referrer` in KV — never the userId. That stored wallet is the address passed to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user, making attribution lifetime by construction. See /referral → Referrer attribution for edge cases (referrer not yet onboarded, self-referral, no retro-link).
+**Referrer resolution.** The deeplink param may be either a Telegram username or a numeric userId. `OnboardingDO` resolves either to the referrer's `rewardsWallet` (the username-keyed lookup requires a `username → userId` mapping written by every `/start`; the numeric form maps userId → wallet directly) and stores **the resolved wallet address** as the new user's `referrer` in KV — never the userId or username. That stored wallet is the address passed to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user, making attribution lifetime by construction. See /referral → Referrer attribution for edge cases (referrer not yet onboarded, self-referral, no retro-link).
 
 **Default rewards wallet.** On first /start, the bot writes `rewardsWallet = activeCustodialWalletAddress` into KV unconditionally (whether or not the user came in via a deeplink). This guarantees /referral always has a rewards wallet to display, and that referrals from this user start paying out from their first referred trade.
 
@@ -470,7 +470,9 @@ The 24-hour delay mirrors the withdrawal lock cooldown. Do not allow instant res
 
 ```
 Output:
-  - Your referral link: t.me/<botname>?start=ref_<userId>
+  - Your referral link: t.me/<botname>?start=ref_<username>
+    (falls back to t.me/<botname>?start=ref_<userId> if the sharer has
+    no Telegram username — usernames are optional in Telegram)
   - Your rewards wallet: 0xABCD...1234   [Change rewards wallet]
   - Referred users: N
   - Lifetime earned: $X USDC
@@ -492,7 +494,7 @@ There is **no** claim, withdraw, or payout button. Referrer cuts settle on-chain
 
 #### Referrer attribution (lifetime, immutable after first trade)
 
-- Recorded on first /start when the deeplink param is `ref_<referrerUserId>`. The bot resolves `ref_<referrerUserId>` → that referrer's `rewardsWallet` via the indexer / api at /start time, and stores that resolved wallet address as the new user's `referrer` in KV.
+- Recorded on first /start when the deeplink param is `ref_<referrerUsername>` (preferred) or `ref_<referrerUserId>` (fallback when the sharer has no Telegram username). The bot resolves the handle → that referrer's `rewardsWallet` via the indexer / api at /start time, and stores that resolved wallet address as the new user's `referrer` in KV.
 - The stored `referrer` is what the bot passes to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user. This makes it lifetime by construction: every trade pays out, forever, to the address resolved at /start.
 - Subsequent /start calls do not overwrite an existing `referrer`. Same OnboardingDO serialisation as profile creation (see /start).
 - If the referrer's rewards wallet is unset at the moment the new user runs /start (the referrer hasn't onboarded their own bot account yet), the deeplink is dropped silently and the new user has `referrer = address(0)` permanently. **No retro-linking.** Surface in the deeplink referrer's /referral the next time they open it: "Some users hit your link before you finished setup; their attribution was not assigned. Check that your rewards wallet is set so this doesn't happen again."
