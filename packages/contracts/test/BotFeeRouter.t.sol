@@ -112,6 +112,7 @@ contract BotFeeRouterTest is DeployHelper {
     }
 
     function test_constants_match_spec() public view {
+        assertEq(router.VERSION(), "1.0.0", "deployed parameter set");
         assertEq(router.BOT_FEE_BPS(), 50, "0.5% bot fee");
         assertEq(router.REFERRER_SHARE_BPS(), 2000, "20% referrer share");
         assertEq(router.BPS_DENOM(), 10_000);
