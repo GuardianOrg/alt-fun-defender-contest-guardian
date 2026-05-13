@@ -350,7 +350,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/insufficient|balance/i);
   });
 
-  it("Buy 20 callback shows confirmation with fee summary when balance is sufficient", async () => {
+  it("Buy 20 callback shows confirmation without fee summary in the menu", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
 
@@ -361,9 +361,9 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to buy");
     expect(String(send!.body.text)).toContain("20");
-    // Fee summary line is mandatory per AGENTS.md
-    expect(String(send!.body.text)).toContain("Bot fee 0.5%");
-    expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
+    // Fee summary moved to the tx-receipt endpoint per issue #801.
+    expect(String(send!.body.text)).not.toContain("Bot fee 0.5%");
+    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.5%");
   });
 
   it("Degen mode: Buy default skips the Confirm keyboard and submits immediately", async () => {
@@ -401,11 +401,15 @@ describe("Buy flow (st:b button → conversation)", () => {
       );
       expect(confirmCard).toBeUndefined();
 
-      // The reply chain renders the tx receipt instead.
+      // The reply chain renders the tx receipt instead. Fee summary
+      // lives only in /help fees per issue #801 — never on the buy
+      // menu and never on the receipt.
       const receipt = sends.find((s) =>
         String(s.body.text).includes("Buy confirmed"),
       );
       expect(receipt).toBeDefined();
+      expect(String(receipt!.body.text)).not.toContain("Bot fee 0.5%");
+      expect(String(receipt!.body.text)).not.toContain("Alt Fun fee 0.5%");
 
       // No sendMessage carries a `cnf:` callback button.
       const hasConfirmButton = sends.some((s) => {
