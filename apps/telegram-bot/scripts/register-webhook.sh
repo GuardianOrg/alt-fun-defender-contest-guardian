@@ -9,11 +9,11 @@
 # with what `routes/admin.ts → setWebhook` actually wants today.
 #
 # Required env:
-#   WORKER_URL         e.g. https://launchpad-telegram-bot.chase-7a6.workers.dev
+#   WORKER_URL         e.g. https://launchpad-telegram-bot.<subdomain>.workers.dev
 #   ADMIN_API_KEY      matches the Worker's ADMIN_API_KEY secret
 set -euo pipefail
 
-: "${WORKER_URL:?WORKER_URL must be set (e.g. https://launchpad-telegram-bot.chase-7a6.workers.dev)}"
+: "${WORKER_URL:?WORKER_URL must be set (e.g. https://launchpad-telegram-bot.<subdomain>.workers.dev)}"
 : "${ADMIN_API_KEY:?ADMIN_API_KEY must be set}"
 
 response=$(curl -fsS -X POST "${WORKER_URL}/admin/set-webhook" \
