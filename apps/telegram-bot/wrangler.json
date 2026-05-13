@@ -5,7 +5,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "upload_source_maps": true,
   "vars": {
-    "API_BASE_URL": "https://launchpad-api.chase-7a6.workers.dev"
+    "API_BASE_URL": "https://launchpad-api.chase-7a6.workers.dev",
+    "BOT_USERNAME": "trade_cortisol_bot"
   },
   "kv_namespaces": [
     {
