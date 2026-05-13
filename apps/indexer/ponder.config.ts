@@ -7,6 +7,7 @@ import {
   TokenAbi,
   FactoryAbi,
   ZapAbi,
+  BotFeeRouterAbi,
   UniswapV2PairAbi,
   CONTRACT_ADDRESSES,
   HYPER_EVM,
@@ -33,7 +34,21 @@ const bondingAddress = CONTRACT_ADDRESSES.bonding as `0x${string}`;
 const factoryAddress = CONTRACT_ADDRESSES.factory as `0x${string}`;
 const zapAddress = CONTRACT_ADDRESSES.zap as `0x${string}`;
 const feeVaultAddress = CONTRACT_ADDRESSES.feeVault as `0x${string}`;
+const botFeeRouterAddress = (
+  process.env.BOT_FEE_ROUTER_ADDRESS ?? CONTRACT_ADDRESSES.botFeeRouter
+) as `0x${string}`;
 const startBlock = Number(process.env.BONDING_START_BLOCK ?? BONDING_START_BLOCK);
+/**
+ * The bot-team `BotFeeRouter` typically deploys long after the core
+ * Alt Fun contracts, so it gets its own start block — backfilling from
+ * `BONDING_START_BLOCK` across an empty range would just burn RPC
+ * budget for nothing. Override with `BOT_FEE_ROUTER_START_BLOCK` once
+ * the router is live. Until the router address is set this value is
+ * ignored (the source registers but matches no logs).
+ */
+const botFeeRouterStartBlock = Number(
+  process.env.BOT_FEE_ROUTER_START_BLOCK ?? startBlock,
+);
 
 if (bondingAddress === ZERO_ADDRESS) {
   throw new Error(
@@ -73,6 +88,24 @@ export default createConfig({
       abi: FeeVaultAbi,
       address: feeVaultAddress,
       startBlock,
+    },
+    /**
+     * The `BotFeeRouter` is operated by the Telegram-bot team and not
+     * yet deployed at the time of writing — `botFeeRouterAddress`
+     * resolves to the zero sentinel from `CONTRACT_ADDRESSES`. The
+     * source is registered unconditionally so the
+     * `BotFeeRouter:BotRouterTrade` / `ReferralPaid` handlers can be
+     * imported and type-check, but no logs match a zero address so
+     * Ponder skips it at runtime. Set `BOT_FEE_ROUTER_ADDRESS` (plus
+     * `BOT_FEE_ROUTER_START_BLOCK`) once the router ships and the
+     * handlers below will start populating `walletBotPosition`,
+     * `referrerStats`, and `botRouterTrade`.
+     */
+    BotFeeRouter: {
+      chain: "hyperevm",
+      abi: BotFeeRouterAbi,
+      address: botFeeRouterAddress,
+      startBlock: botFeeRouterStartBlock,
     },
     Token: {
       chain: "hyperevm",

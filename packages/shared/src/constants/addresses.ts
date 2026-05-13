@@ -6,6 +6,16 @@ export const CONTRACT_ADDRESSES = {
   lpLock: "0x580C97D07d313b404d615b61D0f195b0Ca2c6598",
   feeVault: "0x3B86E3A9cDE902DCa3316c5788686aa8567477b1",
   tokenImplementation: "0xe6A0C9D82471219C3520Cc8ec309A4b222c28cA3",
+  /**
+   * `BotFeeRouter` is operated by the Telegram-bot team and deployed
+   * independently of the Alt Fun protocol. Until that deploy lands the
+   * address is the zero sentinel — the indexer keeps the contract entry
+   * in `ponder.config.ts` but no logs ever match, so the bot entity
+   * tables (`walletBotPosition`, `referrerStats`, `botRouterTrade`)
+   * stay empty and the API's `/api/v1/bot/*` routes return zeroed data
+   * cleanly. Replace with the deployed address once the router ships.
+   */
+  botFeeRouter: "0x0000000000000000000000000000000000000000",
 } as const;
 
 export const HYPERSWAP_ADDRESSES = {

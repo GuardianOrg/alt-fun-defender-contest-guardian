@@ -295,3 +295,152 @@ export const walletPosition = onchainTable("wallet_position", (t) => ({
   walletIdx: index().on(table.wallet),
 }));
 
+/**
+ * Raw `BotFeeRouter.BotRouterTrade` events. The Telegram-bot fee model
+ * routes every trade through `BotFeeRouter` (which skims a 50 bps bot
+ * fee, splits the skim 20/80 between an opt-in referrer and the
+ * treasury, then forwards the rest to `Zap`). This table captures one
+ * row per router trade and is the source-of-truth feeding
+ * `walletBotPosition` and `referrerStats`.
+ *
+ * Mirrors `routerTrade` (Zap-mediated trades) but kept distinct because
+ * the user-visible USDC amounts here are the **gross** the user paid
+ * (buy) or received (sell, before bot-fee skim) — including the bot fee
+ * — which is the right basis for the bot's PnL display. Zap's
+ * `routerTrade` records the post-bot-fee net forwarded into Zap.
+ */
+export const botRouterTrade = onchainTable("bot_router_trade", (t) => ({
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  trader: t.hex().notNull(),
+  /** True for `Side.Buy` (0), false for `Side.Sell` (1). */
+  isBuy: t.boolean().notNull(),
+  /**
+   * Gross USDC user paid on buy / gross USDC `Zap` returned on sell
+   * (before the bot fee skim). 6dp.
+   */
+  usdcAmount: t.bigint().notNull(),
+  /** Tokens received on buy / tokens consumed on sell. 18dp. */
+  tokenAmount: t.bigint().notNull(),
+  /** Bot fee paid in USDC (50 bps of `usdcAmount`). 6dp. */
+  botFee: t.bigint().notNull(),
+  /** Referrer wallet, or zero address if the trade had no referrer. */
+  referrer: t.hex().notNull(),
+  /**
+   * USDC actually transferred to the referrer. Zero if no referrer,
+   * the referrer's wallet rejected the USDC transfer (bad-rewards-wallet
+   * fallback), or the candidate cut rounded to zero.
+   */
+  referrerCut: t.bigint().notNull(),
+  /** USDC actually transferred to treasury. */
+  treasuryCut: t.bigint().notNull(),
+  blockNumber: t.bigint().notNull(),
+  timestamp: t.bigint().notNull(),
+}), (table) => ({
+  traderIdx: index().on(table.trader),
+  referrerIdx: index().on(table.referrer),
+  tokenIdx: index().on(table.tokenAddress),
+  timestampIdx: index().on(table.timestamp),
+}));
+
+/**
+ * Per-(wallet, token) Bot-router-derived position state. Powers the
+ * Telegram bot's `/positions` view: one DB row per (wallet, token) so
+ * the bot makes a single API call regardless of how many tokens the
+ * user holds — no per-token RPC fan-out.
+ *
+ * Independent from `walletPosition`: that one is Zap-only and tracks
+ * cost basis for the web app's `/portfolio`; this one is router-only
+ * and includes the bot fee + realised PnL columns the bot needs.
+ *
+ * Cost basis is the **gross USDC the user spent** (already includes
+ * Alt Fun's 0.5% fee, the bot's 0.5% fee, and any slippage), so PnL
+ * surfaces correctly without per-fee subtraction at read time.
+ * Realised PnL uses average-cost accounting on partial sells: when the
+ * wallet sells `n` of `N` held tokens, the realised cost for the chunk
+ * is `costBasisUsdc × (n / N)`. Matches the historical /portfolio math.
+ */
+export const walletBotPosition = onchainTable("wallet_bot_position", (t) => ({
+  id: t.text().primaryKey(),
+  wallet: t.hex().notNull(),
+  token: t.hex().notNull(),
+  /**
+   * Denormalised from the `token` row so `GET /api/v1/bot/positions/:wallet`
+   * answers with a single GraphQL query. Updated on every router trade for
+   * this token to absorb late-arriving `Bonding:TokenLaunched` symbol
+   * fills (matches the `tokenSymbol` enrichment pattern in `bonding.ts`).
+   */
+  ticker: t.text().notNull().default(""),
+  /** Currently-held tokens routed through `BotFeeRouter` (18dp). Floors at 0. */
+  tokenBalance: t.bigint().notNull().default(0n),
+  /**
+   * Cumulative USDC (6dp) the wallet has spent on currently-held tokens,
+   * reduced proportionally on each sell. Goes to 0 when `tokenBalance` hits 0.
+   */
+  costBasisUsdc: t.bigint().notNull().default(0n),
+  /**
+   * `tokenBalance × lastTradeImpliedPriceUsdcPerToken`, refreshed on
+   * every router trade for this (wallet, token). 6dp. Stale between
+   * trades on this position — the bot positions view is documented as
+   * a snapshot, not a live mark. Zero when the wallet has no balance.
+   */
+  currentValueUsdc: t.bigint().notNull().default(0n),
+  /** Running sum of `(proceeds − cost)` for closed-out chunks. Signed. 6dp. */
+  realisedPnlUsdc: t.bigint().notNull().default(0n),
+  /** Lifetime sum of buy notional (gross USDC). 6dp. Never decreases. */
+  totalCostUsdc: t.bigint().notNull().default(0n),
+  /** Lifetime sum of sell notional (gross USDC). 6dp. Never decreases. */
+  totalProceedsUsdc: t.bigint().notNull().default(0n),
+}), (table) => ({
+  walletIdx: index().on(table.wallet),
+  tokenIdx: index().on(table.token),
+}));
+
+/**
+ * Per-referrer aggregate stats. One row per referrer wallet (the
+ * address that received `ReferralPaid` payouts via `BotFeeRouter`).
+ * Powers `GET /api/v1/bot/referrals/:wallet`.
+ *
+ * - `referredCount`: distinct trader wallets attributed to this
+ *   referrer over the router's lifetime. Tracked via the helper
+ *   `botReferrerTrader` table so re-trades don't double-count.
+ * - `lifetimeEarnedUsdc`: sum of every `ReferralPaid.amount` to this
+ *   referrer. The router emits `ReferralPaid` only when the USDC
+ *   transfer to the rewards wallet succeeds, so this is a
+ *   transfer-confirmed total and never inflates with bad-payout trades.
+ * - `badPaymentCount`: count of `BotRouterTrade` events where the
+ *   trade had a referrer but the referrer cut was zero (the
+ *   bad-rewards-wallet fallback fired). Surfaced as a /referral banner
+ *   so the referrer knows to fix their rewards wallet.
+ * - `attributionLossCount`: count of attribution-loss events. The
+ *   indexer cannot observe attribution drops directly (they happen
+ *   bot-side at /start when a deeplink can't be resolved), so this
+ *   stays at 0 from the indexer; the bot is free to surface its own
+ *   tracking on top of the indexer-sourced fields.
+ */
+export const referrerStats = onchainTable("referrer_stats", (t) => ({
+  /** Referrer wallet, lowercased. */
+  id: t.text().primaryKey(),
+  referrer: t.hex().notNull(),
+  referredCount: t.integer().notNull().default(0),
+  lifetimeEarnedUsdc: t.bigint().notNull().default(0n),
+  badPaymentCount: t.integer().notNull().default(0),
+  attributionLossCount: t.integer().notNull().default(0),
+}));
+
+/**
+ * Helper table: tracks which trader wallets have already been counted
+ * toward a referrer's `referredCount`. Without this, multiple trades
+ * by the same trader under the same referrer would over-count distinct
+ * referees. One row per `(referrer, trader)` pair, inserted the first
+ * time we see that pair on a `BotRouterTrade`.
+ */
+export const botReferrerTrader = onchainTable("bot_referrer_trader", (t) => ({
+  /** `${referrer}-${trader}`, both lowercased. */
+  id: t.text().primaryKey(),
+  referrer: t.hex().notNull(),
+  trader: t.hex().notNull(),
+}), (table) => ({
+  referrerIdx: index().on(table.referrer),
+}));
+
