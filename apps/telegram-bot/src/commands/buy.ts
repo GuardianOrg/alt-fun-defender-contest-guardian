@@ -84,6 +84,8 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
  * Sweep tracked transient prompts/replies for the current chat. Inside
  * a conversation, all session/api access must hop through
  * `conversation.external` — the replay-time ctx has no live env binding.
+ * The chatId filter on `clearWorkflowMessages` keeps a parallel flow in
+ * another chat from getting swept (the session is per-user, not per-chat).
  */
 const sweepWorkflow = async (
   conversation: Conversation<AppContext, AppContext>,
@@ -93,13 +95,14 @@ const sweepWorkflow = async (
     await clearWorkflowMessages(outer.session, outer.api, outer.chat.id);
   });
 
-/** Append a transient id to the per-user workflow stack. */
+/** Append a transient (chatId, messageId) pair to the workflow stack. */
 const trackWorkflowMessage = async (
   conversation: Conversation<AppContext, AppContext>,
   messageId: number,
 ): Promise<void> =>
   conversation.external((outer) => {
-    pushWorkflowMessage(outer.session, messageId);
+    if (!outer.chat) return;
+    pushWorkflowMessage(outer.session, outer.chat.id, messageId);
   });
 
 /**
