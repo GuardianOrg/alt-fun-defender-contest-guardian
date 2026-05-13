@@ -32,9 +32,35 @@ interface TelegramDeleter {
   deleteMessage: (chatId: number, messageId: number) => Promise<unknown>;
 }
 
+/**
+ * Type-guard for a fully-formed entry. Rejects anything that's not the
+ * `{chatId, messageId}` shape — including legacy bare `number` entries
+ * left in KV by a prior session schema (the workflow stack initially
+ * shipped as `number[]` before per-chat scoping was added). Legacy
+ * entries are dropped on read rather than mis-associated with an
+ * arbitrary chat; the lost ids age out via Telegram's 48h delete
+ * window and are harmless.
+ */
+const isWorkflowMessageRef = (value: unknown): value is WorkflowMessageRef => {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.chatId === "number" && typeof v.messageId === "number";
+};
+
 const ensureArray = (session: WorkflowStackSession): WorkflowMessageRef[] => {
   if (!Array.isArray(session.workflowMessages)) {
     session.workflowMessages = [];
+    return session.workflowMessages;
+  }
+  // Normalise on read so a session blob persisted under an older
+  // schema (or any other corrupt entry) is dropped instead of poisoning
+  // every later operation. Cast at the boundary — the in-memory type
+  // is the new shape after this filter runs.
+  const filtered = (session.workflowMessages as unknown[]).filter(
+    isWorkflowMessageRef,
+  );
+  if (filtered.length !== session.workflowMessages.length) {
+    session.workflowMessages = filtered;
   }
   return session.workflowMessages;
 };
@@ -60,11 +86,12 @@ export const pushWorkflowMessage = (
 };
 
 /** Read the current stack (defensive copy). Exposed for tests + callers
- * that want to inspect the queue without mutating it. */
+ * that want to inspect the queue without mutating it. Runs the legacy-
+ * entry normaliser on read so a corrupt session blob can't surface a
+ * non-`WorkflowMessageRef` shape to inspecting callers. */
 export const getWorkflowMessages = (
   session: WorkflowStackSession,
-): WorkflowMessageRef[] =>
-  (session.workflowMessages ?? []).map((ref) => ({ ...ref }));
+): WorkflowMessageRef[] => ensureArray(session).map((ref) => ({ ...ref }));
 
 /**
  * Delete every tracked transient message *for the given chat* and drop
@@ -84,11 +111,10 @@ export const clearWorkflowMessages = async (
   api: TelegramDeleter,
   chatId: number,
 ): Promise<void> => {
-  const all = session.workflowMessages ?? [];
-  if (all.length === 0) {
-    session.workflowMessages = [];
-    return;
-  }
+  // Read through ensureArray so legacy `number[]` entries (or any
+  // other corrupt shape) are normalised away before partitioning.
+  const all = ensureArray(session);
+  if (all.length === 0) return;
   const toDelete = all.filter((ref) => ref.chatId === chatId);
   session.workflowMessages = all.filter((ref) => ref.chatId !== chatId);
   if (toDelete.length === 0) return;

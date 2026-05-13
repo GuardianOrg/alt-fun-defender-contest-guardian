@@ -74,6 +74,59 @@ describe("getWorkflowMessages", () => {
   });
 });
 
+describe("legacy session shape normalisation", () => {
+  // The workflow stack originally shipped as `number[]`; the schema
+  // moved to `{chatId, messageId}[]` once per-chat scoping landed.
+  // Sessions persisted under the old shape must not poison the new
+  // reads — entries without a chatId are dropped (their chat is
+  // unknowable) and the rest is normalised through the same code path.
+  it("drops legacy bare-number entries on push", () => {
+    const session = {
+      workflowMessages: [1, 2, 3] as unknown,
+    } as WorkflowStackSession;
+    pushWorkflowMessage(session, 5, 100);
+    expect(session.workflowMessages).toEqual([{ chatId: 5, messageId: 100 }]);
+  });
+
+  it("drops legacy entries when clearing", async () => {
+    const session = {
+      workflowMessages: [
+        1,
+        { chatId: 5, messageId: 10 },
+        2,
+        { chatId: 9, messageId: 11 },
+        3,
+      ] as unknown,
+    } as WorkflowStackSession;
+    const api = makeApi();
+    await clearWorkflowMessages(session, api, 5);
+    // Only the chat=5 entry is deleted; legacy numbers are silently
+    // dropped; the chat=9 entry survives.
+    expect(api.deleteMessage).toHaveBeenCalledTimes(1);
+    expect(api.deleteMessage).toHaveBeenCalledWith(5, 10);
+    expect(session.workflowMessages).toEqual([{ chatId: 9, messageId: 11 }]);
+  });
+
+  it("drops legacy entries via getWorkflowMessages without mutating session further", () => {
+    const session = {
+      workflowMessages: [
+        1,
+        { chatId: 5, messageId: 10 },
+        null,
+        { chatId: 5, messageId: 11 },
+      ] as unknown,
+    } as WorkflowStackSession;
+    expect(getWorkflowMessages(session)).toEqual([
+      { chatId: 5, messageId: 10 },
+      { chatId: 5, messageId: 11 },
+    ]);
+    expect(session.workflowMessages).toEqual([
+      { chatId: 5, messageId: 10 },
+      { chatId: 5, messageId: 11 },
+    ]);
+  });
+});
+
 describe("clearWorkflowMessages", () => {
   it("calls deleteMessage for every tracked id in the target chat and drops them from the stack", async () => {
     const session: WorkflowStackSession = {
