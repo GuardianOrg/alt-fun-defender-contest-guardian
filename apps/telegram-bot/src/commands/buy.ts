@@ -16,6 +16,7 @@ import {
   confirmTrade,
   renderConfirmReply,
   stageBuy,
+  submitBuy,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
@@ -227,6 +228,29 @@ const buyCustomConversation = async (
 
     const token = tokenResult.data;
     const usdcRaw = BigInt(Math.round(amount * 1_000_000));
+    const degenMode = await conversation.external(
+      (outerCtx): boolean => outerCtx.session.degenMode,
+    );
+    if (degenMode) {
+      await msgCtx.reply(
+        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC buy of ${token.ticker}…</b>\n\n` +
+          `<i>${FEE_SUMMARY}</i>`,
+        { parse_mode: "HTML" },
+      );
+      const outcome = await conversation.external((outerCtx) =>
+        submitBuy({
+          ctx: outerCtx,
+          token: token.address,
+          ticker: token.ticker,
+          usdcRaw,
+        }),
+      );
+      await msgCtx.reply(renderConfirmReply(outcome), {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+      return;
+    }
     const { nonce } = await conversation.external(
       (outerCtx): { nonce: string } =>
         stageBuy({
@@ -330,8 +354,22 @@ const handleFixedBuy = async (
     return;
   }
 
-  await ctx.answerCallbackQuery();
   const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
+  if (ctx.session.degenMode) {
+    await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    const outcome = await submitBuy({
+      ctx,
+      token: tokenResult.data.address,
+      ticker: tokenResult.data.ticker,
+      usdcRaw,
+    });
+    await ctx.reply(renderConfirmReply(outcome), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    return;
+  }
+  await ctx.answerCallbackQuery();
   const { nonce } = stageBuy({
     ctx,
     token: tokenResult.data.address,

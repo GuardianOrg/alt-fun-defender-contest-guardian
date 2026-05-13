@@ -12,7 +12,9 @@ import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
 import {
   confirmKeyboard,
+  renderConfirmReply,
   stageSell,
+  submitSell,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
 import { fetchErc20Balance, fetchLtBaseAssetBalance } from "../lib/rpc.js";
@@ -474,6 +476,34 @@ const sellCustomConversation = async (
     const effectiveProceedsUsd =
       buffer.kind === "capped" ? buffer.reducedProceedsUsd : amount;
 
+    const degenMode = await conversation.external(
+      (outerCtx): boolean => outerCtx.session.degenMode,
+    );
+    // AGENTS.md "Buffer-limited sells must be user-visible. Never silently
+    // cap — show max available and require confirmation of the reduced
+    // amount." Degen mode skips the confirm step on the happy path only;
+    // a buffer-capped sell still requires an explicit confirm tap.
+    if (degenMode && buffer.kind !== "capped") {
+      await msgCtx.reply(
+        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC sell of ${token.ticker}…</b>\n\n` +
+          `<i>${FEE_SUMMARY}</i>`,
+        { parse_mode: "HTML" },
+      );
+      const outcome = await conversation.external((outerCtx) =>
+        submitSell({
+          ctx: outerCtx,
+          token: token.address,
+          ticker: token.ticker,
+          tokenRaw: effectiveTokenRaw,
+        }),
+      );
+      await msgCtx.reply(renderConfirmReply(outcome), {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+      return;
+    }
+
     const { nonce } = await conversation.external(
       (outerCtx): { nonce: string } =>
         stageSell({
@@ -627,11 +657,28 @@ const handleFixedSell = async (
     });
     return;
   }
-  await ctx.answerCallbackQuery();
   const effectiveTokenRaw =
     buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenRaw;
   const effectiveProceedsUsd =
     buffer.kind === "capped" ? buffer.reducedProceedsUsd : targetUsdc;
+
+  // Buffer-capped sells always require explicit confirm per AGENTS.md;
+  // degen only skips the confirm step on the happy path.
+  if (ctx.session.degenMode && buffer.kind !== "capped") {
+    await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    const outcome = await submitSell({
+      ctx,
+      token: token.address,
+      ticker: token.ticker,
+      tokenRaw: effectiveTokenRaw,
+    });
+    await ctx.reply(renderConfirmReply(outcome), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    return;
+  }
+  await ctx.answerCallbackQuery();
   const { nonce } = stageSell({
     ctx,
     token: token.address,
@@ -741,9 +788,26 @@ const handleSellAll = async (
     return;
   }
 
-  await ctx.answerCallbackQuery();
   const effectiveTokenRaw =
     buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenBalance;
+
+  // Buffer-capped sells always require explicit confirm per AGENTS.md;
+  // degen only skips the confirm step on the happy path.
+  if (ctx.session.degenMode && buffer.kind !== "capped") {
+    await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    const outcome = await submitSell({
+      ctx,
+      token: token.address,
+      ticker: token.ticker,
+      tokenRaw: effectiveTokenRaw,
+    });
+    await ctx.reply(renderConfirmReply(outcome), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    return;
+  }
+  await ctx.answerCallbackQuery();
   const { nonce } = stageSell({
     ctx,
     token: token.address,
