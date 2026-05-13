@@ -674,6 +674,122 @@ contract BondingTest is DeployHelper {
         assertTrue(bonding.isGraduating(tokenAddr));
     }
 
+    // ─── previewLtUntilGraduation Tests ──────────────────────────────────
+    // Single source of truth for `Zap._executeBuy`'s pre-sizing. Returns
+    // `min(supply-leg, USD-leg)` of `canGraduate`, or `0` when the
+    // token is already graduatable / not in `Lifecycle.Curve`.
+
+    function test_previewLtUntilGraduation_unknown_returnsZero() public view {
+        assertEq(bonding.previewLtUntilGraduation(address(0xdead)), 0);
+    }
+
+    function test_previewLtUntilGraduation_graduated_returnsZero() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        // `_buyTokens` finalises inline once `canGraduate` flips true,
+        // so no separate `finalizeGraduation` is needed.
+        _buyTokens(tokenAddr, trader2, _ltGraduationTrigger());
+        assertTrue(bonding.isGraduated(tokenAddr));
+        assertEq(bonding.previewLtUntilGraduation(tokenAddr), 0);
+    }
+
+    function test_previewLtUntilGraduation_graduating_returnsZero() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        bonding.triggerGraduation(tokenAddr);
+        assertTrue(bonding.isGraduating(tokenAddr));
+        assertEq(bonding.previewLtUntilGraduation(tokenAddr), 0);
+    }
+
+    function test_previewLtUntilGraduation_alreadyGraduatable_returnsZero() public {
+        (address tokenAddr,) = _launchToken();
+        _buyTokens(tokenAddr, trader, _ltStageBeforeGraduation());
+        lt.setExchangeRate(_ratePumpForStagedGraduation());
+        // LT appreciation flipped `canGraduate` true without a buy in
+        // the loop — the only state the keeper picks up.
+        assertTrue(bonding.canGraduate(tokenAddr));
+        assertEq(bonding.previewLtUntilGraduation(tokenAddr), 0);
+    }
+
+    function test_previewLtUntilGraduation_freshCurve_returnsThresholdLeg() public {
+        (address tokenAddr,) = _launchToken();
+        // At launch with rate = 1, USD-leg ≡ supply-leg (test-suite
+        // threshold = `3× virtual`). Verify the cap equals the
+        // threshold-needed real-LT raised.
+        uint256 cap = bonding.previewLtUntilGraduation(tokenAddr);
+        uint256 expectedThresholdRealLt = (bonding.graduationThresholdUsd() * 1e18) / lt.exchangeRate();
+        // Account for the seed buy that already raised some real LT.
+        address pair = bonding.getTokenInfo(tokenAddr).pair;
+        (, uint256 reserveAsset) = IPair(pair).getReserves();
+        uint256 virtualLt = IPair(pair).k() / Token(tokenAddr).TOTAL_SUPPLY();
+        uint256 alreadyRaised = reserveAsset - virtualLt;
+        assertApproxEqAbs(cap, expectedThresholdRealLt - alreadyRaised, 2, "Cap aligns with threshold-needed delta");
+    }
+
+    function test_previewLtUntilGraduation_thresholdLegBindsAtElevatedRate() public {
+        (address tokenAddr,) = _launchToken();
+        // 2× rate halves threshold in LT-units. USD-leg (1.5× virtual)
+        // is now well below supply-leg (3× virtual). Verify the cap
+        // tracks the USD-leg.
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
+
+        uint256 cap = bonding.previewLtUntilGraduation(tokenAddr);
+
+        // USD-leg: ceil(threshold × 1e18 / rate) - alreadyRaised
+        uint256 expectedThresholdRealLt =
+            (bonding.graduationThresholdUsd() * 1e18 + lt.exchangeRate() - 1) / lt.exchangeRate();
+        address pair = bonding.getTokenInfo(tokenAddr).pair;
+        (, uint256 reserveAsset) = IPair(pair).getReserves();
+        uint256 virtualLt = IPair(pair).k() / Token(tokenAddr).TOTAL_SUPPLY();
+        uint256 alreadyRaised = reserveAsset - virtualLt;
+        uint256 expectedUsdLeg = expectedThresholdRealLt - alreadyRaised;
+
+        assertEq(cap, expectedUsdLeg, "USD-leg binds at elevated rate");
+    }
+
+    function test_previewLtUntilGraduation_consumesIntoSupplyLegAfterRateDrop() public {
+        (address tokenAddr,) = _launchToken();
+        // Lower the rate so the USD-leg requires more real LT than the
+        // supply-leg — flips the binding leg to supply.
+        lt.setExchangeRate(LT_EXCHANGE_RATE / 2);
+
+        uint256 cap = bonding.previewLtUntilGraduation(tokenAddr);
+
+        // Supply-leg = LT to drain `realBalance`. Mirrors
+        // `Router._computeBuy`'s cap math.
+        address pair = bonding.getTokenInfo(tokenAddr).pair;
+        IPair p = IPair(pair);
+        (uint256 reserveToken, uint256 reserveAsset) = p.getReserves();
+        uint256 realBalance = p.tokenBalance();
+        uint256 cappedReserveToken = reserveToken - realBalance;
+        uint256 cappedReserveAsset = (p.k() + cappedReserveToken - 1) / cappedReserveToken;
+        uint256 expectedSupplyLeg = cappedReserveAsset - reserveAsset;
+
+        assertEq(cap, expectedSupplyLeg, "Supply-leg binds at half rate");
+    }
+
+    function test_previewLtUntilGraduation_capBindingBuy_graduatesInline() public {
+        (address tokenAddr,) = _launchToken();
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
+
+        uint256 cap = bonding.previewLtUntilGraduation(tokenAddr);
+        assertGt(cap, 0, "Pre-condition: cap is non-zero");
+
+        // Pre-mint exactly `cap` LT and buy through the curve. The
+        // contract's post-buy inline trigger should fire `_enterGraduating`.
+        address bumper = makeAddr("capBuy");
+        lt.mintDirect(bumper, cap);
+        if (!bonding.isRouter(bumper)) bonding.addRouter(bumper);
+        vm.startPrank(bumper);
+        lt.approve(address(curveRouter), cap);
+        bonding.buy(cap, tokenAddr, 0, bumper);
+        vm.stopPrank();
+
+        assertTrue(bonding.isGraduating(tokenAddr), "Cap-binding buy flips lifecycle to Graduating");
+    }
+
     // ─── Post-Graduation Tests ───────────────────────────────────────────
 
     function test_postGraduation_buyReverts() public {

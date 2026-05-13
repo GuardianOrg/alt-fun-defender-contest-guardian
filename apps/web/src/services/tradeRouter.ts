@@ -262,8 +262,14 @@ const liveTradeRouter: ITradeRouterService = {
       // `Router._computeBuy`'s xy=k math entirely in JS (see below). On the
       // graduated/HyperSwap path the swap formula is the standard V2 one
       // and we don't have a `k()` getter to read, so we just fetch
-      // reserves + exchangeRate.
-      const [reserves, exchangeRate, kRaw, tokenBalanceRaw] = await Promise.all([
+      // reserves + exchangeRate. Curve path additionally pulls
+      // `Bonding.previewLtUntilGraduation` for the graduation cap so the
+      // quote stays in lock-step with `Zap._executeBuy`'s pre-sizing
+      // (which now bounds buys at the smallest LT amount that flips
+      // `canGraduate(token)` to true — supply or USD trigger, whichever
+      // fires first). Without this the FE would over-quote tokens on a
+      // buy that crosses the threshold.
+      const [reserves, exchangeRate, kRaw, tokenBalanceRaw, ltUntilGraduationRaw] = await Promise.all([
         graduated
           ? (publicClient.readContract({
               address: pairAddress,
@@ -293,6 +299,14 @@ const liveTradeRouter: ITradeRouterService = {
               address: pairAddress,
               abi: CurvePairAbi,
               functionName: "tokenBalance",
+            }) as Promise<bigint>),
+        graduated
+          ? Promise.resolve(0n)
+          : (publicClient.readContract({
+              address: ADDRESSES.bonding,
+              abi: BondingAbi,
+              functionName: "previewLtUntilGraduation",
+              args: [tokenAddr],
             }) as Promise<bigint>),
       ]);
 
@@ -359,10 +373,30 @@ const liveTradeRouter: ITradeRouterService = {
           );
         }
 
+        // Apply the graduation cap first: trim the LT input down to
+        // `ltUntilGraduation` if the buy would otherwise cross either
+        // trigger of `canGraduate`. `Zap._executeBuy` does the same
+        // pre-sizing on-chain via `Bonding.previewLtUntilGraduation`,
+        // so quoting the un-capped K math here would over-state
+        // tokens-out on every graduating buy. A zero cap means the
+        // token is already graduatable (LT appreciation pushed it past
+        // the USD trigger between buys) — the on-chain floor-bump
+        // still lands a `MIN_USDC_AMOUNT` mint and graduates the token,
+        // but the quote is honest about how little of that the buyer
+        // captures.
         const ltInWei = parseUnits(ltIn.toFixed(18), 18);
-        const newAssetReserveWei = ltReserve + ltInWei;
-        let tokensOutWei = tokenReserve - kRaw / newAssetReserveWei;
-        let amountInUsedWei = ltInWei;
+        const cappedLtInWei =
+          ltUntilGraduationRaw > 0n && ltInWei > ltUntilGraduationRaw
+            ? ltUntilGraduationRaw
+            : ltUntilGraduationRaw === 0n
+              ? 0n
+              : ltInWei;
+        const newAssetReserveWei = ltReserve + cappedLtInWei;
+        let tokensOutWei =
+          newAssetReserveWei === 0n
+            ? 0n
+            : tokenReserve - kRaw / newAssetReserveWei;
+        let amountInUsedWei = cappedLtInWei;
 
         if (tokensOutWei > tokenBalanceRaw) {
           tokensOutWei = tokenBalanceRaw;

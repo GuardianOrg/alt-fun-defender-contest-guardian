@@ -638,6 +638,45 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
         return valueUsd >= $.graduationThresholdUsd;
     }
 
+    /// @notice LT amount that must be added to the curve's `assetReserve` for
+    ///         `canGraduate(token_)` to become true. `0` when already
+    ///         graduatable or not in `Lifecycle.Curve`.
+    /// @dev    Composes the two `canGraduate` legs (supply trigger from
+    ///         `IPair.tokenBalance() == 0`, USD trigger from
+    ///         `realLtRaised × exchangeRate / 1e18 ≥ graduationThresholdUsd`)
+    ///         and returns the cap-binding `min`. Ceil-div on the USD leg
+    ///         so the resulting buy strictly crosses the threshold.
+    function previewLtUntilGraduation(
+        address token_
+    ) external view returns (uint256) {
+        BondingStorage storage $ = _s();
+        TokenInfo storage info = $.tokenInfo[token_];
+        if (info.creator == address(0)) return 0;
+        if (info.lifecycle != Lifecycle.Curve) return 0;
+
+        address pair = info.pair;
+        uint256 realBalance = IPair(pair).tokenBalance();
+        if (realBalance == 0) return 0;
+
+        (uint256 reserveToken, uint256 reserveAsset) = IPair(pair).getReserves();
+
+        uint256 ltUntilThreshold = type(uint256).max;
+        uint256 exchangeRate = IBounceLeveragedToken(info.ltAddress).exchangeRate();
+        if (exchangeRate > 0) {
+            uint256 realLtRaised = reserveAsset - _launchTimeVirtualLtReserve(token_, pair);
+            uint256 thresholdRealLt = ($.graduationThresholdUsd * 1e18 + exchangeRate - 1) / exchangeRate;
+            if (realLtRaised >= thresholdRealLt) return 0;
+            ltUntilThreshold = thresholdRealLt - realLtRaised;
+        }
+
+        uint256 cappedReserveToken = reserveToken - realBalance;
+        if (cappedReserveToken == 0) return 0;
+        uint256 cappedReserveAsset = (IPair(pair).k() + cappedReserveToken - 1) / cappedReserveToken;
+        uint256 ltUntilSupply = cappedReserveAsset - reserveAsset;
+
+        return ltUntilSupply < ltUntilThreshold ? ltUntilSupply : ltUntilThreshold;
+    }
+
     function transferCreator(
         address tokenAddress,
         address newCreator

@@ -712,6 +712,173 @@ contract ZapTest is DeployHelper {
         assertApproxEqAbs(lt.balanceOf(trader) - traderLtBefore, ltExcessExpected, 1, "LT excess refund");
     }
 
+    // ─── Graduation cap: threshold-leg binds ─────────────────────────────
+    // The graduation cap (`Bonding.previewLtUntilGraduation`) returns
+    // `min(supply-leg, USD-leg)`. With the test-suite threshold pegged
+    // to `3× VIRTUAL_LIQUIDITY_USD`, the two legs coincide at the
+    // base launch rate. A 2× rate pump halves the threshold in LT-units,
+    // moving the USD leg ahead of the supply leg, so the threshold
+    // cap binds cleanly without touching the supply leg.
+
+    /// @dev Stages real LT raised to `targetRealLt` via direct
+    ///      `bonding.buy` calls. Same primitive as
+    ///      `_drainCurveDirectly` but expressed in target-state terms.
+    function _stageRealLtRaisedTo(
+        address tokenAddr,
+        uint256 targetRealLt
+    ) internal {
+        address pairAddr = bonding.getTokenInfo(tokenAddr).pair;
+        IPair pair = IPair(pairAddr);
+        (, uint256 reserveAssetBefore) = pair.getReserves();
+        uint256 virtualLt = pair.k() / Token(tokenAddr).TOTAL_SUPPLY();
+        uint256 currentRealLt = reserveAssetBefore - virtualLt;
+        if (currentRealLt >= targetRealLt) return;
+        _drainCurveDirectly(tokenAddr, targetRealLt - currentRealLt);
+    }
+
+    function test_buy_thresholdCap_binds_graduatesWithoutDrainingSupply() public {
+        address tokenAddr = _createToken(0);
+
+        // 2× rate halves threshold in LT-units, separates the two
+        // graduation legs (USD leg at 1.5× virtual, supply leg at
+        // 3× virtual).
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
+
+        // Buy big enough that without the threshold cap it would
+        // consume far more than `ltUntilThreshold` of LT.
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderLtBefore = lt.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        uint256 tokensOut = zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertTrue(bonding.isGraduating(tokenAddr) || bonding.isGraduated(tokenAddr), "Threshold-capped buy graduates");
+
+        // Supply NOT drained — threshold leg bound the cap first.
+        // Post-graduation the pair has been emptied by
+        // `_prepareGraduationLiquidity`, so we read the cached
+        // `tokensForLP` off `pendingGraduation` instead. `tokensForLP`
+        // is exactly the un-sold curve supply at the graduation
+        // snapshot — supply leg binding would have driven this to 0.
+        (uint256 tokensForLP,,,) = bonding.pendingGraduation(tokenAddr);
+        assertGt(tokensForLP, 0, "Threshold cap must leave un-sold curve supply at the graduation snapshot");
+
+        assertGt(tokensOut, 0, "Trader receives tokens at the threshold-cap slice");
+        assertGt(usdc.balanceOf(trader), 0, "Trader receives USDC refund for the over-sized buy");
+
+        // No LT refund on the threshold-bound non-floor-bump branch.
+        assertEq(lt.balanceOf(trader) - traderLtBefore, 0, "No LT refund on clean threshold-cap");
+    }
+
+    function test_buy_thresholdCap_refundsAboveCappedAmount() public {
+        address tokenAddr = _createToken(0);
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
+
+        uint256 buyAmount = bonding.graduationThresholdUsd() * 2;
+        usdc.mint(trader, buyAmount);
+        uint256 traderUsdcBefore = usdc.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        uint256 usdcSpent = traderUsdcBefore - usdc.balanceOf(trader);
+        assertLt(usdcSpent, buyAmount, "Threshold cap must refund the over-sized portion");
+        // Spent slice lands within a fee-band of the threshold-in-USDC
+        // (at rate `2`, threshold-crossing real LT raised = `threshold / 2`,
+        // so threshold-crossing USDC ≈ `threshold` minus the seed-buy slice
+        // already on the curve).
+        uint256 thresholdUsdc = bonding.graduationThresholdUsd();
+        assertLt(usdcSpent, thresholdUsdc + thresholdUsdc / 10, "Spend close to threshold-crossing USDC");
+    }
+
+    // ─── Graduation cap: floor-bump with supply room (auditor regime) ─────
+    // When the threshold-leg binds AND the LT-side cap-implied mint
+    // falls below `MIN_USDC_AMOUNT`, the floor-bump bumps `baseToConvert`
+    // to the floor. With supply leg slack, `Router._computeBuy`
+    // consumes the full floor mint cleanly — no LT refund, threshold
+    // overshoots by at most the floor's worth of LT.
+
+    function test_buy_thresholdCap_floorBump_supplyRoom_noLtRefund() public {
+        address tokenAddr = _createToken(0);
+
+        // Use 2× rate so the USD leg (1.5× virtual) is well below
+        // the supply leg (3× virtual). Stage real-LT-raised so the
+        // gap to threshold is below `MIN_USDC_AMOUNT` in *USDC*
+        // (after the rate conversion: gap-in-LT × rate < floor-USDC).
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
+        uint256 thresholdLtAtRate2 = (bonding.graduationThresholdUsd() * 1e18) / lt.exchangeRate();
+        // gap × rate < MIN_USDC_AMOUNT → gap < MIN_USDC_AMOUNT / rate.
+        // With rate = 2e18 and floor = 10e6, that's < 5e6 wei of LT.
+        uint256 dustGapLt = 4e6;
+        _stageRealLtRaisedTo(tokenAddr, thresholdLtAtRate2 - dustGapLt);
+
+        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+
+        assertFalse(bonding.canGraduate(tokenAddr), "Pre-buy: cap shy of threshold");
+
+        uint256 buyAmount = bonding.graduationThresholdUsd();
+        usdc.mint(trader, buyAmount);
+        uint256 traderLtBefore = lt.balanceOf(trader);
+
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertTrue(bonding.isGraduating(tokenAddr) || bonding.isGraduated(tokenAddr), "Floor-bump arms graduation");
+
+        // KEY ASSERTION: no LT refund — supply absorbed the full
+        // floor-bumped mint cleanly, just as the auditor described
+        // for the threshold-binds-with-supply-room regime.
+        assertEq(
+            lt.balanceOf(trader) - traderLtBefore,
+            0,
+            "Threshold-cap floor-bump with supply room must not leave LT excess"
+        );
+    }
+
+    function test_buy_thresholdCap_floorBump_overshotByAtMostFloor() public {
+        address tokenAddr = _createToken(0);
+
+        // Same elevated-rate setup as the supply-room test so the
+        // overshoot lands purely against the USD leg (rather than
+        // co-binding with the supply leg).
+        lt.setExchangeRate(LT_EXCHANGE_RATE * 2);
+        uint256 thresholdLtAtRate2 = (bonding.graduationThresholdUsd() * 1e18) / lt.exchangeRate();
+        uint256 dustGapLt = 4e6;
+        _stageRealLtRaisedTo(tokenAddr, thresholdLtAtRate2 - dustGapLt);
+        lt.setMinTransactionSize(zap.MIN_USDC_AMOUNT());
+
+        uint256 buyAmount = bonding.graduationThresholdUsd();
+        usdc.mint(trader, buyAmount);
+        vm.startPrank(trader);
+        usdc.approve(address(zap), buyAmount);
+        zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        // Read the cached `ltFromPair` off `pendingGraduation`.
+        // Post-graduation, the pair has been drained by
+        // `_prepareGraduationLiquidity`, but `ltFromPair` is exactly
+        // the real-LT amount that crossed the threshold trigger.
+        (, uint256 ltFromPair,,) = bonding.pendingGraduation(tokenAddr);
+
+        // Threshold in LT-units at the current (elevated) rate.
+        uint256 thresholdRealLt = (bonding.graduationThresholdUsd() * 1e18) / lt.exchangeRate();
+
+        assertGe(ltFromPair, thresholdRealLt, "Graduation only fires once threshold met");
+        uint256 overshootLt = ltFromPair - thresholdRealLt;
+
+        // Overshoot is bounded by `MIN_USDC_AMOUNT` worth of LT at
+        // the current rate.
+        uint256 floorWorthOfLt = (zap.MIN_USDC_AMOUNT() * 1e18) / lt.exchangeRate();
+        assertLe(overshootLt, floorWorthOfLt, "Overshoot bounded by MIN_USDC_AMOUNT worth of LT");
+    }
+
     function test_buy_capPath_floorBump_proratesFee() public {
         address tokenAddr = _createToken(0);
 

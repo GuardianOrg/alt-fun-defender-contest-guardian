@@ -263,13 +263,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         }
     }
 
-    /// @dev On the curve path, pre-sizes the LT mint against the overflow cap
-    ///      via `Router.previewBuy`. The closing buy of a graduation refunds
-    ///      unused USDC directly instead of round-tripping leftover LT
-    ///      through `redeem` and paying BounceTech's redemption fee
-    ///      (`baseAmount × redemptionFee × targetLeverage`) on the overshoot.
-    ///      `mint(b)` is defined as `baseToLtAmount(b)` on the LT, so the
-    ///      preview is exact.
+    /// @dev On the curve path, pre-sizes the LT mint against the graduation
+    ///      cap via `Bonding.previewLtUntilGraduation`. The closing buy of
+    ///      a graduation refunds unused USDC directly instead of round-
+    ///      tripping leftover LT through `redeem` and paying BounceTech's
+    ///      redemption fee (`baseAmount × redemptionFee × targetLeverage`)
+    ///      on the overshoot. `mint(b)` is defined as `baseToLtAmount(b)`
+    ///      on the LT, so the preview is exact.
     function _executeBuy(
         address tokenAddress,
         uint256 usdcAmount
@@ -316,18 +316,20 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
             amountInUsed = ltMinted;
         } else {
             uint256 ltIfFull = IBounceLeveragedToken(lt).baseToLtAmount(netUsdc);
-            (uint256 ltNeeded,) = $.bonding.router().previewBuy(tokenAddress, ltIfFull);
+            uint256 ltUntilGraduation = $.bonding.previewLtUntilGraduation(tokenAddress);
 
-            if (ltNeeded >= ltIfFull) {
+            if (ltUntilGraduation >= ltIfFull) {
                 baseToConvert = netUsdc;
             } else {
                 // `ltToBaseAmount` floors. Bump up so `mint(baseToConvert)`
-                // yields ≥ `ltNeeded` and the cap-binding buy actually
-                // drains the curve — otherwise the closing buy can miss
-                // graduation by 1-2 wei worth of LT / threshold.
-                baseToConvert = IBounceLeveragedToken(lt).ltToBaseAmount(ltNeeded);
-                if (IBounceLeveragedToken(lt).baseToLtAmount(baseToConvert) < ltNeeded) {
-                    baseToConvert += 1;
+                // yields ≥ `ltUntilGraduation` and the cap-binding buy
+                // actually flips `canGraduate` true — otherwise the
+                // closing buy can miss graduation by 1-2 wei of LT.
+                if (ltUntilGraduation > 0) {
+                    baseToConvert = IBounceLeveragedToken(lt).ltToBaseAmount(ltUntilGraduation);
+                    if (IBounceLeveragedToken(lt).baseToLtAmount(baseToConvert) < ltUntilGraduation) {
+                        baseToConvert += 1;
+                    }
                 }
                 if (baseToConvert > netUsdc) baseToConvert = netUsdc;
 
@@ -355,13 +357,13 @@ contract Zap is UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuard {
         IERC20(tokenAddress).safeTransfer(msg.sender, tokensOut);
 
         // Refund LT we minted but the curve didn't consume. In the
-        // floor-bump branch this is the meaningful overshoot; on the
-        // dust-cap branch it's at most sub-wei from `_computeBuy`'s
-        // round-up; on the non-cap and post-graduation branches it's
-        // identically zero (`amountInUsed == ltMinted` by construction).
-        // Sent to `msg.sender` — `_buyInternal` is `nonReentrant`,
-        // mirroring the safe-transfer-at-end-of-flow pattern used for
-        // the USDC refund below.
+        // floor-bump branch with supply-tight this is the meaningful
+        // overshoot; on the dust-cap branch it's at most sub-wei from
+        // `_computeBuy`'s round-up; on the non-cap and post-graduation
+        // branches it's identically zero (`amountInUsed == ltMinted` by
+        // construction). Sent to `msg.sender` — `_buyInternal` is
+        // `nonReentrant`, mirroring the safe-transfer-at-end-of-flow
+        // pattern used for the USDC refund below.
         uint256 ltExcess = ltMinted - amountInUsed;
         if (ltExcess > 0) {
             IERC20(lt).safeTransfer(msg.sender, ltExcess);
