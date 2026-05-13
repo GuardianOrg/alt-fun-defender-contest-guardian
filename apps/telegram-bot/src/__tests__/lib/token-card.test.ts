@@ -19,6 +19,9 @@ const baseToken = (overrides: Partial<TokenInfo> = {}): TokenInfo => ({
   curveFilled: 30,
   status: "curve",
   ltPair: null,
+  underlying: "HYPE",
+  leverage: 5,
+  ltDirection: "long",
   ...overrides,
 });
 
@@ -99,5 +102,67 @@ describe("renderTrackTokenCardText", () => {
     expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
       text.indexOf("View on Explorer"),
     );
+  });
+});
+
+describe("header LT symbol (issue #820)", () => {
+  const expectHeader = (text: string, expected: string) => {
+    expect(text.split("\n")[0]).toBe(expected);
+  };
+
+  it("renders ticker + LT symbol on the buy card", () => {
+    const text = renderBuyTokenCardText(baseToken(), 0n);
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>HYPE5L</code>)",
+    );
+  });
+
+  it("renders ticker + LT symbol on the sell card", () => {
+    const text = renderSellTokenCardText(baseToken(), 0n);
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>HYPE5L</code>)",
+    );
+  });
+
+  it("renders ticker + LT symbol on the track card", () => {
+    const text = renderTrackTokenCardText(baseToken());
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>HYPE5L</code>)",
+    );
+  });
+
+  it("uses S suffix for short LT", () => {
+    const text = renderTrackTokenCardText(
+      baseToken({ underlying: "ETH", leverage: 3, ltDirection: "short" }),
+    );
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>ETH3S</code>)",
+    );
+  });
+
+  it("falls back to bare ticker when underlying is missing (older api)", () => {
+    const text = renderTrackTokenCardText(baseToken({ underlying: null }));
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
+  });
+
+  it("falls back to bare ticker when leverage is missing", () => {
+    const text = renderTrackTokenCardText(baseToken({ leverage: null }));
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
+  });
+
+  it("falls back to bare ticker when ltDirection is missing", () => {
+    const text = renderTrackTokenCardText(baseToken({ ltDirection: null }));
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
+  });
+
+  it("falls back to bare ticker on an unrecognised direction", () => {
+    const text = renderTrackTokenCardText(
+      baseToken({ ltDirection: "neutral" }),
+    );
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
   });
 });

@@ -80,6 +80,39 @@ const formatVolume = (v: number | null): string => {
   return `$${v.toFixed(2)}`;
 };
 
+/**
+ * Build the LT symbol from the underlying / leverage / direction fields
+ * (e.g. `HYPE` + `5` + `long` → `HYPE5L`). Returns `null` when any
+ * component is missing so the card falls back to the bare ticker —
+ * older API builds that don't yet expose these fields keep working.
+ *
+ * Direction comes from the api DB row as `"long"` | `"short"` (lower
+ * case); the LT symbol convention uses `L` / `S` so we collapse with
+ * a first-letter uppercase. Any unrecognised direction is dropped
+ * rather than guessed.
+ */
+const buildLtSymbol = (token: TokenInfo): string | null => {
+  if (!token.underlying || token.leverage === null || !token.ltDirection) {
+    return null;
+  }
+  const direction = token.ltDirection.toLowerCase();
+  if (direction !== "long" && direction !== "short") return null;
+  const suffix = direction === "long" ? "L" : "S";
+  return `${token.underlying}${token.leverage}${suffix}`;
+};
+
+/**
+ * Token card header — "<b>Name</b> (<code>TICKER</code> / <code>HYPE5L</code>)".
+ * Falls back to just `(TICKER)` when the LT symbol can't be assembled
+ * (older API build missing underlying/leverage/ltDirection). Issue #820.
+ */
+const renderHeader = (token: TokenInfo): string => {
+  const ltSymbol = buildLtSymbol(token);
+  const ticker = `<code>${escapeHtml(token.ticker)}</code>`;
+  const suffix = ltSymbol ? ` / <code>${escapeHtml(ltSymbol)}</code>` : "";
+  return `<b>${escapeHtml(token.name)}</b> (${ticker}${suffix})`;
+};
+
 const statusLabel = (status: string): string => {
   if (status === "graduated") return "Graduated ✅";
   if (status === "graduating") return "Graduating 🔄";
@@ -99,7 +132,7 @@ export const renderBuyTokenCardText = (
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
-    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
     `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
@@ -147,7 +180,7 @@ export const renderSellTokenCardText = (
   }
 
   const lines: string[] = [
-    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
     `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
@@ -176,7 +209,7 @@ export const renderTrackTokenCardText = (token: TokenInfo): string => {
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
-    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
     `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
