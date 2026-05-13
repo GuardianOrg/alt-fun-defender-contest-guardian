@@ -11,19 +11,33 @@ import { WalletManager } from "../../lib/wallet.js";
 const ZERO_MASTER_KEY = btoa("\0".repeat(32));
 const RPC_URL = "https://rpc.test.local";
 
-const startUpdate = (fromId: number | null, chatType = "private") => ({
-  update_id: 1,
-  message: {
-    message_id: 1,
-    date: 0,
-    chat: { id: 42, type: chatType as "private" | "group" },
-    ...(fromId !== null
-      ? { from: { id: fromId, is_bot: false, first_name: "Ada" } }
-      : {}),
-    text: "/start",
-    entities: [{ type: "bot_command", offset: 0, length: 6 }],
-  },
-});
+const startUpdate = (
+  fromId: number | null,
+  chatType = "private",
+  options: { param?: string; username?: string } = {},
+) => {
+  const text = options.param ? `/start ${options.param}` : "/start";
+  return {
+    update_id: 1,
+    message: {
+      message_id: 1,
+      date: 0,
+      chat: { id: 42, type: chatType as "private" | "group" },
+      ...(fromId !== null
+        ? {
+            from: {
+              id: fromId,
+              is_bot: false,
+              first_name: "Ada",
+              ...(options.username ? { username: options.username } : {}),
+            },
+          }
+        : {}),
+      text,
+      entities: [{ type: "bot_command", offset: 0, length: 6 }],
+    },
+  };
+};
 
 const callbackUpdate = (data: string, chatType = "private") => ({
   update_id: 2,
@@ -446,5 +460,324 @@ describe("/start command", () => {
     // answerCallbackQuery must not be a show_alert hint toast.
     expect(answer!.body.show_alert).toBeFalsy();
     expect(answer!.body.text ?? "").not.toMatch(/\/wallet/);
+  });
+});
+
+/**
+ * Referral-onboarding behaviour for /start. Covers the spec in
+ * apps/telegram-bot/AGENTS.md → /start → "Referrer attribution" and
+ * "Default rewards wallet".
+ */
+describe("/start referral onboarding", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  interface ApiMockOptions {
+    referralStatsByWallet?: Record<string, { rewardsWallet: string }>;
+  }
+
+  const mockAll = (
+    opts: ApiMockOptions = {},
+    rpcBalance: bigint = 0n,
+  ): void => {
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${rpcBalance.toString(16)}`,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://api.test.local")) {
+        // POST .../rewards-wallet — echo back the supplied wallet so
+        // the bot's caller sees ok:true. Body must parse to JSON.
+        if (url.endsWith("/rewards-wallet") && (init?.method ?? "GET") === "POST") {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            rewardsWallet?: string;
+          };
+          return new Response(
+            JSON.stringify({
+              data: {
+                rewardsWallet: (body.rewardsWallet ?? "").toLowerCase(),
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        // GET /api/v1/bot/referrals/:wallet — return stats keyed by
+        // the trailing wallet segment, or 404 if the test did not
+        // pre-register one. 404 collapses to `not_found` in api.ts
+        // which `resolveReferrer` treats as "drop deeplink silently".
+        const match = /\/api\/v1\/bot\/referrals\/(0x[0-9a-fA-F]{40})$/.exec(
+          url,
+        );
+        if (match) {
+          const wallet = match[1]!.toLowerCase();
+          const lookup = opts.referralStatsByWallet ?? {};
+          const hit = lookup[wallet];
+          if (!hit) {
+            return new Response(
+              JSON.stringify({ error: "not found" }),
+              { status: 404 },
+            );
+          }
+          return new Response(
+            JSON.stringify({
+              data: {
+                rewardsWallet: hit.rewardsWallet.toLowerCase(),
+                referredCount: 0,
+                lifetimeEarnedUsdc: "0",
+                badPaymentCount: 0,
+                attributionLossCount: 0,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  };
+
+  const harness = (): BotTestHarness => {
+    const h = makeBotHarness();
+    h.env.HYPEREVM_RPC_URL = RPC_URL;
+    return h;
+  };
+
+  const profileFor = async (
+    h: BotTestHarness,
+    userId: number,
+  ): Promise<{ createdAt: number; referrer: string | null } | null> => {
+    const raw = (await h.kv.get(`profile:${userId}`)) as string | null;
+    return raw === null
+      ? null
+      : (JSON.parse(raw) as { createdAt: number; referrer: string | null });
+  };
+
+  const usernameMappingFor = async (
+    h: BotTestHarness,
+    username: string,
+  ): Promise<string | null> => {
+    return (await h.kv.get(
+      `tg-username:${username.toLowerCase()}`,
+    )) as string | null;
+  };
+
+  it("first /start writes a profile and defaults rewards wallet to the new active wallet", async () => {
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7));
+
+    const wallet = (await walletManager(h).getActive(7))!;
+    const profile = await profileFor(h, 7);
+    expect(profile).not.toBeNull();
+    expect(profile!.referrer).toBeNull();
+    expect(profile!.createdAt).toBeGreaterThan(0);
+
+    const apiCalls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .map((c) => String(c[0]).toLowerCase())
+      .filter((u) => u.startsWith("https://api.test.local"));
+    const rewardsPost = apiCalls.find((u) =>
+      u.includes(
+        `/api/v1/bot/referrals/${wallet.address.toLowerCase()}/rewards-wallet`,
+      ),
+    );
+    expect(rewardsPost).toBeDefined();
+  });
+
+  it("records username → userId mapping on every /start when the user has a Telegram username", async () => {
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7, "private", { username: "AdaSharer" }));
+
+    // Lowercased key — case-insensitive lookup for the deeplink parser.
+    expect(await usernameMappingFor(h, "adasharer")).toBe("7");
+  });
+
+  it("ignores bare /start (no deeplink) — profile.referrer stays null", async () => {
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer).toBeNull();
+  });
+
+  it("resolves ref_<userId> when the referrer is already onboarded", async () => {
+    const h = harness();
+    // Pre-seed referrer (userId 42): they have an active wallet and
+    // the api reports a known rewardsWallet for it.
+    const wm = walletManager(h);
+    const referrerWallet = await wm.createWallet(42, "ref");
+    const expectedRewards = referrerWallet.address.toLowerCase();
+    mockAll({
+      referralStatsByWallet: {
+        [referrerWallet.address.toLowerCase()]: {
+          rewardsWallet: expectedRewards,
+        },
+      },
+    });
+
+    await h.run(startUpdate(7, "private", { param: "ref_42" }));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer?.toLowerCase()).toBe(expectedRewards);
+  });
+
+  it("drops ref_<userId> silently when the referrer has not yet onboarded", async () => {
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7, "private", { param: "ref_42" }));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer).toBeNull();
+  });
+
+  it("resolves ref_<username> via the username mapping written by an earlier /start", async () => {
+    const h = harness();
+    const wm = walletManager(h);
+    const referrerWallet = await wm.createWallet(42, "ref");
+    // Seed the username mapping the way a real prior /start would.
+    await h.kv.put("tg-username:adasharer", "42");
+    mockAll({
+      referralStatsByWallet: {
+        [referrerWallet.address.toLowerCase()]: {
+          rewardsWallet: referrerWallet.address.toLowerCase(),
+        },
+      },
+    });
+
+    await h.run(startUpdate(7, "private", { param: "ref_AdaSharer" }));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer?.toLowerCase()).toBe(
+      referrerWallet.address.toLowerCase(),
+    );
+  });
+
+  it("does not overwrite referrer on a repeat /start (lifetime attribution)", async () => {
+    const h = harness();
+    const wm = walletManager(h);
+    const refA = await wm.createWallet(42, "refA");
+    const refB = await wm.createWallet(99, "refB");
+    mockAll({
+      referralStatsByWallet: {
+        [refA.address.toLowerCase()]: {
+          rewardsWallet: refA.address.toLowerCase(),
+        },
+        [refB.address.toLowerCase()]: {
+          rewardsWallet: refB.address.toLowerCase(),
+        },
+      },
+    });
+
+    // First /start binds the referrer to userId 42.
+    await h.run(startUpdate(7, "private", { param: "ref_42" }));
+    const firstProfile = await profileFor(h, 7);
+    expect(firstProfile!.referrer?.toLowerCase()).toBe(
+      refA.address.toLowerCase(),
+    );
+
+    // Second /start with a different deeplink must NOT overwrite.
+    await h.run(startUpdate(7, "private", { param: "ref_99" }));
+    const secondProfile = await profileFor(h, 7);
+    expect(secondProfile!.referrer?.toLowerCase()).toBe(
+      refA.address.toLowerCase(),
+    );
+  });
+
+  it("ignores malformed deeplink params", async () => {
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7, "private", { param: "not_a_ref" }));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer).toBeNull();
+  });
+
+  it("self-referral via ref_<own userId> binds the user's own wallet as the referrer", async () => {
+    const h = harness();
+    // No pre-existing wallet for user 7; the bot auto-creates during
+    // /start. After creation, the api reports the user's own wallet
+    // as their default rewardsWallet — so self-referral resolves to
+    // that same address (spec: self-referral allowed, lowers effective
+    // bot fee from 0.5% → 0.4%).
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        return new Response(
+          JSON.stringify({ ok: true, result: true }),
+          { status: 200 },
+        );
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://api.test.local")) {
+        if (
+          url.endsWith("/rewards-wallet") &&
+          (init?.method ?? "GET") === "POST"
+        ) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            rewardsWallet?: string;
+          };
+          return new Response(
+            JSON.stringify({
+              data: { rewardsWallet: (body.rewardsWallet ?? "").toLowerCase() },
+            }),
+            { status: 200 },
+          );
+        }
+        const match = /\/api\/v1\/bot\/referrals\/(0x[0-9a-fA-F]{40})$/.exec(
+          url,
+        );
+        if (match) {
+          // Echo: api defaults rewardsWallet to the wallet address
+          // when no record is present, which is exactly what the
+          // self-referral path relies on.
+          return new Response(
+            JSON.stringify({
+              data: {
+                rewardsWallet: match[1]!.toLowerCase(),
+                referredCount: 0,
+                lifetimeEarnedUsdc: "0",
+                badPaymentCount: 0,
+                attributionLossCount: 0,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(startUpdate(7, "private", { param: "ref_7" }));
+
+    const wallet = (await walletManager(h).getActive(7))!;
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer?.toLowerCase()).toBe(
+      wallet.address.toLowerCase(),
+    );
   });
 });

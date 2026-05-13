@@ -7,10 +7,19 @@ import {
 } from "../keyboards/start-menu.js";
 import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
 import { logger } from "../lib/logger.js";
+import {
+  parseStartParam,
+  readProfile,
+  recordUsername,
+  resolveReferrer,
+  writeDefaultRewardsWallet,
+  writeProfile,
+} from "../lib/onboarding.js";
 import { resolveBuyUsdcUrl } from "../lib/relay.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import type { Address } from "viem";
 
 const NON_PRIVATE_CHAT_REPLY =
   "Wallet flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /start.";
@@ -151,11 +160,47 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
-    const address = await ensureActiveAddress(ctx.env, ctx.from.id);
+    const userId = ctx.from.id;
+    // Username → userId mapping refreshes on every /start so a sharer
+    // who changes their Telegram handle later still resolves cleanly
+    // through `ref_<username>` deeplinks. No-op when the user has no
+    // username (optional in Telegram).
+    await recordUsername(ctx.env.WALLET_KV, ctx.from.username, userId);
+
+    const existingProfile = await readProfile(ctx.env.WALLET_KV, userId);
+    const isFirstStart = existingProfile === null;
+
+    const address = await ensureActiveAddress(ctx.env, userId);
     if (!address) {
       await ctx.reply(WALLET_CREATE_FAILED);
       return;
     }
+
+    if (isFirstStart) {
+      // Resolve referrer AFTER the wallet exists so a self-referral
+      // (`ref_<own userId>`) maps to the new user's own active wallet
+      // — the spec allows self-referral and on day one their rewards
+      // wallet equals the custodial wallet just minted above.
+      const param = parseStartParam(
+        typeof ctx.match === "string" ? ctx.match : undefined,
+      );
+      let referrer: Address | null = null;
+      if (param !== null) {
+        referrer = await resolveReferrer(ctx.env, buildManager(ctx.env), param);
+      }
+      // Default rewards wallet is set unconditionally on first /start
+      // — whether or not a deeplink came in. Guarantees /referral
+      // always renders against a concrete address and that any user
+      // this person later refers starts paying out from their first
+      // trade. Failure here is non-fatal (api falls back to wallet
+      // address) — see `writeDefaultRewardsWallet`.
+      await writeDefaultRewardsWallet(ctx.env, address as Address);
+      await writeProfile(ctx.env.WALLET_KV, userId, {
+        createdAt: Date.now(),
+        referrer,
+      });
+    }
+
     const balance = await fetchUsdcBalance(ctx.env, address);
     const rendered = await renderStart(ctx.env, address, balance);
     await ctx.reply(rendered.text, {
