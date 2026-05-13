@@ -113,7 +113,8 @@ describe("/start command", () => {
 
   it("auto-creates a wallet on first interaction and renders address + balance", async () => {
     const h = harnessWithRpc();
-    mockBoth(fetchSpy, { rpcBalance: 2_500_000_000_000_000_000n });
+    // 2.50 USDC (6 decimals).
+    mockBoth(fetchSpy, { rpcBalance: 2_500_000n });
 
     await h.run(startUpdate(7));
 
@@ -127,7 +128,7 @@ describe("/start command", () => {
     expect(send!.body.text).toContain("Welcome to AltFunBot");
     // Wallet address rendered inside <code> for tap-to-copy.
     expect(send!.body.text).toContain(`<code>${wallets[0]!.address}</code>`);
-    expect(send!.body.text).toContain("Balance: 2.5 HYPE");
+    expect(send!.body.text).toContain("Balance: $2.50 USDC");
   });
 
   it("does not create a second wallet on a repeat /start", async () => {
@@ -156,7 +157,7 @@ describe("/start command", () => {
     const send = capture(fetchSpy).find((c) =>
       c.url.includes("/sendMessage"),
     );
-    expect(send!.body.text).toContain("Balance: — HYPE");
+    expect(send!.body.text).toContain("Balance: — USDC");
   });
 
   it("renders the full main-menu keyboard with a Buy-HYPE URL button and Refresh", async () => {
@@ -230,7 +231,8 @@ describe("/start command", () => {
     const h = harnessWithRpc();
     const wm = walletManager(h);
     await wm.createWallet(7, "main");
-    mockBoth(fetchSpy, { rpcBalance: 1_000_000_000_000_000_000n });
+    // 1.00 USDC (6 decimals).
+    mockBoth(fetchSpy, { rpcBalance: 1_000_000n });
 
     await h.run(callbackUpdate(START_CALLBACK.refresh));
 
@@ -240,7 +242,7 @@ describe("/start command", () => {
       c.url.includes("/answerCallbackQuery"),
     );
     expect(edit).toBeDefined();
-    expect(edit!.body.text).toContain("Balance: 1 HYPE");
+    expect(edit!.body.text).toContain("Balance: $1.00 USDC");
     expect(answer!.body.text).toBe("Balance refreshed");
   });
 

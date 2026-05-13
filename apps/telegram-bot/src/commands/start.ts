@@ -6,19 +6,11 @@ import {
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
 import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
-import { formatFixed } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { resolveBuyHypeUrl } from "../lib/moonpay.js";
-import { fetchNativeBalance } from "../lib/rpc.js";
+import { fetchUsdcBalance } from "../lib/rpc.js";
+import { formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
-
-/**
- * Native HYPE shares the EVM 18-decimal convention. Display down to
- * 4 dp to match `formatTokenAmount` in `lib/format.ts` — enough
- * precision for any realistic balance the bot will ever surface.
- */
-const HYPE_DECIMALS = 18;
-const HYPE_DISPLAY_DECIMALS = 4;
 
 const NON_PRIVATE_CHAT_REPLY =
   "Wallet flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /start.";
@@ -35,11 +27,6 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
 const escapeHtml = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const renderBalance = (raw: bigint | null): string => {
-  if (raw === null) return "—";
-  return formatFixed(raw.toString(), HYPE_DECIMALS, HYPE_DISPLAY_DECIMALS);
-};
-
 /**
  * Render the welcome message body as HTML so the wallet address can
  * be wrapped in `<code>` — Telegram makes that span tap-to-copy in
@@ -49,9 +36,9 @@ const renderBalance = (raw: bigint | null): string => {
  */
 const renderWelcomeHtml = (
   address: string,
-  hypeBalance: bigint | null,
+  usdcBalance: bigint | null,
 ): string => {
-  const balance = renderBalance(hypeBalance);
+  const balance = formatUsdc6(usdcBalance);
   return [
     escapeHtml(ANTI_PHISHING_HEADER),
     "",
@@ -61,7 +48,7 @@ const renderWelcomeHtml = (
     `<code>${escapeHtml(address)}</code>`,
     "(Tap to copy)",
     "",
-    `Balance: ${escapeHtml(balance)} HYPE`,
+    `Balance: ${escapeHtml(balance)} USDC`,
     "",
     "Once funded, tap Refresh and your balance will appear here.",
   ].join("\n");
@@ -77,9 +64,9 @@ interface RenderedStart {
 const renderStart = async (
   env: AppContext["env"],
   address: string,
-  hypeBalance: bigint | null,
+  usdcBalance: bigint | null,
 ): Promise<RenderedStart> => ({
-  text: renderWelcomeHtml(address, hypeBalance),
+  text: renderWelcomeHtml(address, usdcBalance),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
       await resolveBuyHypeUrl(env, address),
@@ -170,7 +157,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(WALLET_CREATE_FAILED);
       return;
     }
-    const balance = await fetchNativeBalance(ctx.env, address);
+    const balance = await fetchUsdcBalance(ctx.env, address);
     const rendered = await renderStart(ctx.env, address, balance);
     await ctx.reply(rendered.text, {
       parse_mode: rendered.parse_mode,
@@ -204,7 +191,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
-    const balance = await fetchNativeBalance(ctx.env, active.address);
+    const balance = await fetchUsdcBalance(ctx.env, active.address);
     const rendered = await renderStart(ctx.env, active.address, balance);
     await safeEditMessageText(ctx, rendered.text, {
       parse_mode: rendered.parse_mode,
