@@ -46,13 +46,8 @@ const PAGE_SKELETON_ROW_COUNT = 3;
 
 export default function TokenTable() {
   const activeFilter = useSelector(selectActiveFilter);
-  const {
-    tokens,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-  } = useInfiniteTokens(activeFilter);
+  const { tokens, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
+    useInfiniteTokens(activeFilter);
   // Keep the row-level mcap / 24h change / progress bar live as trades
   // land on-chain — throttled invalidation of the catalogue +
   // market-data queries off the global `trade` WS channel. See issue
@@ -122,10 +117,9 @@ export default function TokenTable() {
           >
             <TableHead />
             {showInitialSkeletons
-              ? Array.from(
-                  { length: INITIAL_SKELETON_ROW_COUNT },
-                  (_, i) => <TokenRowSkeleton key={i} />,
-                )
+              ? Array.from({ length: INITIAL_SKELETON_ROW_COUNT }, (_, i) => (
+                  <TokenRowSkeleton key={i} />
+                ))
               : tokens.map((t) => (
                   <TokenRow
                     key={t.address}
@@ -138,12 +132,9 @@ export default function TokenTable() {
             )}
             {isFetchingNextPage && (
               <div role="status" aria-live="polite" aria-label="Loading more">
-                {Array.from(
-                  { length: PAGE_SKELETON_ROW_COUNT },
-                  (_, i) => (
-                    <TokenRowSkeleton key={`page-skel-${i}`} />
-                  ),
-                )}
+                {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
+                  <TokenRowSkeleton key={`page-skel-${i}`} />
+                ))}
               </div>
             )}
           </div>

@@ -100,7 +100,7 @@ export default function PairSelector({
             </svg>
           </div>
           <div className={styles.cardDesc}>
-            token moves up when underlying pumps
+            Token moves up when underlying pumps.
           </div>
           <div
             className={cn(
@@ -145,7 +145,7 @@ export default function PairSelector({
             </svg>
           </div>
           <div className={styles.cardDesc}>
-            token moves up when underlying dumps
+            Token moves up when underlying dumps.
           </div>
           <div
             className={cn(

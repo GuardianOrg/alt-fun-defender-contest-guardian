@@ -6,6 +6,7 @@ import {
 } from "@launchpad/shared";
 
 import { API_BASE, fetchToken, fetchTokens } from "./api";
+import { DEFAULT_TOKEN_IMAGE } from "../config/constants";
 
 import type { ApiToken, FetchTokensOptions } from "./api";
 import type { Direction, Token, TokenFilter } from "./types";
@@ -50,7 +51,14 @@ export function fromApiToken(api: ApiToken): Token {
     name: api.name,
     ticker: api.ticker,
     emoji: "",
-    image: api.imageUrl ? new URL(api.imageUrl, API_BASE).toString() : undefined,
+    // When the creator skipped image upload the API returns an empty
+    // `imageUrl`; substitute the public default art so every row /
+    // hero / balance entry renders the same fallback image instead of
+    // falling through to the mint-`?` placeholder. See
+    // `DEFAULT_TOKEN_IMAGE` for the why.
+    image: api.imageUrl
+      ? new URL(api.imageUrl, API_BASE).toString()
+      : DEFAULT_TOKEN_IMAGE,
     description: api.description,
     direction: deriveDirection(api),
     underlying: deriveUnderlying(api),

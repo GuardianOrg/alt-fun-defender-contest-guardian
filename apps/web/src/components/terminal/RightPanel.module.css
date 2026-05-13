@@ -43,6 +43,7 @@
 }
 
 .sectionHeader {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;

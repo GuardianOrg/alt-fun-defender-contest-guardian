@@ -87,7 +87,7 @@
 }
 
 .label {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -202,7 +202,7 @@
   cursor: pointer;
   border: 0;
   background: transparent;
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   transition: all 0.15s ease;
   line-height: normal;
 }
@@ -259,7 +259,7 @@
 }
 
 .balanceSummaryLabel {
-  font-family: var(--font-mono);
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
