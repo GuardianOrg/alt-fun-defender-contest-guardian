@@ -264,6 +264,39 @@ describe("/security command", () => {
       expect((await buildSec(h).getWithdrawLock(7)).enabled).toBe(false);
     });
 
+    it("replaying disableLock inside the cooldown is idempotent — pending state and readyAt unchanged", async () => {
+      // `/security` callbacks are intentionally state-mutating actions
+      // rather than one-shot confirm buttons, so they do not carry a
+      // session-nonce. The replay-safety guarantee instead comes from
+      // the underlying SecurityState being idempotent: a second
+      // disable tap inside the cooldown returns the original readyAt
+      // and does not extend the window. This test pins that contract
+      // so a future refactor that switches to a non-idempotent backend
+      // would surface here rather than as a silent funds-availability
+      // bug.
+      const h = makeBotHarness();
+      await buildSec(h).enableWithdrawLock(7);
+      await h.run(callbackUpdate(SECURITY_CALLBACK.disableLock));
+      const firstLock = await buildSec(h).getWithdrawLock(7);
+      const firstReadyAt = firstLock.disableRequestedAt;
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(SECURITY_CALLBACK.disableLock, 3));
+      const secondLock = await buildSec(h).getWithdrawLock(7);
+      expect(secondLock.enabled).toBe(true);
+      expect(secondLock.disableRequestedAt).toBe(firstReadyAt);
+    });
+
+    it("replaying enableLock when already enabled is a no-op (lock stays enabled, no pending request introduced)", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SECURITY_CALLBACK.enableLock));
+      const before = await buildSec(h).getWithdrawLock(7);
+      await h.run(callbackUpdate(SECURITY_CALLBACK.enableLock, 3));
+      const after = await buildSec(h).getWithdrawLock(7);
+      expect(after).toEqual(before);
+    });
+
     it("cancelDisable wipes the pending request and keeps the lock on", async () => {
       const h = makeBotHarness();
       await buildSec(h).enableWithdrawLock(7);
@@ -287,6 +320,24 @@ describe("/security command", () => {
         c.url.includes("/editMessageText"),
       );
       expect(edit!.body.text).toMatch(/PIN: reset requested/);
+    });
+
+    it("replaying Reset PIN tap inside the cooldown is idempotent — requestedAt unchanged", async () => {
+      // Same rationale as the withdraw-lock replay test above:
+      // `/security` callbacks aren't nonce-gated, and the safety
+      // property is that the underlying PinManager keeps the original
+      // requestedAt across replays so a second tap doesn't extend the
+      // cooldown.
+      const h = makeBotHarness();
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+      await h.run(callbackUpdate(SECURITY_CALLBACK.resetPin));
+      const first = await pm.getResetStatus(7);
+      if (first.kind === "none") throw new Error("expected pending");
+      await h.run(callbackUpdate(SECURITY_CALLBACK.resetPin, 3));
+      const second = await pm.getResetStatus(7);
+      if (second.kind === "none") throw new Error("expected pending");
+      expect(second.requestedAt).toBe(first.requestedAt);
     });
 
     it("the old PIN still verifies during the cooldown window", async () => {

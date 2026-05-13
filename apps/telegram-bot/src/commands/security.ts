@@ -91,7 +91,11 @@ const sweepPinMessage = async (
   try {
     await ctx.api.deleteMessage(chatId, messageId);
   } catch {
-    // Already deleted or out of 48h window — hygiene goal satisfied.
+    // PINs are swept seconds after the user sends them, so the 48h
+    // deleteMessage window is not the failure mode here — the realistic
+    // sources are "user already deleted the message" or a transient
+    // API blip. Either way, the hygiene goal (no PIN in chat) is met
+    // (or unattainable). Swallow rather than surface as an error.
   }
 };
 
