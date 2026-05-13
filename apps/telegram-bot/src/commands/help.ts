@@ -2,7 +2,10 @@ import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
+import {
+  ctxAntiPhishingPhrase,
+  resolveAntiPhishingHeader,
+} from "../lib/anti-phishing.js";
 
 const escapeHtml = (s: string): string =>
   s
@@ -47,10 +50,17 @@ const TOPIC_LIST = [
   "withdraw",
 ];
 
-const HEADER_HTML = escapeHtml(ANTI_PHISHING_HEADER);
+/**
+ * Sentinel inserted as the first line of each topic constant — swapped
+ * for the per-user anti-phishing phrase (with static fallback) at
+ * render time. Module-level constants keep us from rebuilding the
+ * full HTML body for every /help call; the substitution is one
+ * `String.prototype.replace` regardless of topic size.
+ */
+const HEADER_PLACEHOLDER = "__ANTI_PHISHING_HEADER__";
 
 const OVERVIEW_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>AltFunBot Help</b>",
   "",
@@ -83,7 +93,7 @@ const OVERVIEW_HTML = [
 ].join("\n");
 
 const WALLET_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Wallets</b>",
   "",
@@ -103,7 +113,7 @@ const WALLET_HTML = [
 ].join("\n");
 
 const TRADING_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Buying and selling</b>",
   "",
@@ -123,7 +133,7 @@ const TRADING_HTML = [
 ].join("\n");
 
 const FEES_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Fees</b>",
   "",
@@ -138,7 +148,7 @@ const FEES_HTML = [
 ].join("\n");
 
 const PNL_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Why is my Net Profit lower than expected?</b>",
   "",
@@ -154,7 +164,7 @@ const PNL_HTML = [
 ].join("\n");
 
 const SECURITY_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Security</b>",
   "",
@@ -173,7 +183,7 @@ const SECURITY_HTML = [
 ].join("\n");
 
 const REFERRAL_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Referrals</b>",
   "",
@@ -187,7 +197,7 @@ const REFERRAL_HTML = [
 ].join("\n");
 
 const WITHDRAW_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   "<b>Withdrawals</b>",
   "",
@@ -213,7 +223,7 @@ const TOPIC_HTML: Record<string, string> = {
 };
 
 const UNKNOWN_TOPIC_HTML = [
-  HEADER_HTML,
+  HEADER_PLACEHOLDER,
   "",
   `Unknown help topic. Send <code>/help</code> for the overview, or pick one of: ${TOPIC_LIST.map((t) => `<code>${t}</code>`).join(", ")}.`,
 ].join("\n");
@@ -225,19 +235,25 @@ const UNKNOWN_TOPIC_HTML = [
  * otherwise. Keeping resolution pure makes the handler trivial to
  * exercise from tests without spinning up grammY.
  */
-export const renderHelp = (arg: string | undefined): string => {
+export const renderHelp = (
+  arg: string | undefined,
+  phrase: string | null | undefined,
+): string => {
   const raw = arg?.trim().toLowerCase();
-  if (!raw) return OVERVIEW_HTML;
-  const canonical = TOPIC_ALIASES[raw];
-  if (!canonical) return UNKNOWN_TOPIC_HTML;
-  return TOPIC_HTML[canonical] ?? UNKNOWN_TOPIC_HTML;
+  const template = !raw
+    ? OVERVIEW_HTML
+    : TOPIC_HTML[TOPIC_ALIASES[raw] ?? ""] ?? UNKNOWN_TOPIC_HTML;
+  return template.replace(
+    HEADER_PLACEHOLDER,
+    escapeHtml(resolveAntiPhishingHeader(phrase)),
+  );
 };
 
 const sendHelp = async (
   ctx: AppContext,
   arg: string | undefined,
 ): Promise<void> => {
-  await ctx.reply(renderHelp(arg), {
+  await ctx.reply(renderHelp(arg, ctxAntiPhishingPhrase(ctx)), {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });

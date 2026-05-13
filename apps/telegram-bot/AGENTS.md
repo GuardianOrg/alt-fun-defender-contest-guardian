@@ -453,9 +453,9 @@ Actions via inline keyboard:
     lockout) before prompting for the new one.
   - Reset PIN (24h delay) — see "PIN reset flow" below
   - Set / Change / Clear anti-phishing phrase (≤ 64 chars; stored on the
-    grammY session). Wiring the phrase into the prepend in
-    `lib/anti-phishing.ts` is tracked separately — see *Anti-phishing
-    prepend* below.
+    grammY session). The phrase replaces the static anti-phishing
+    header on every outbound chat message — see *Anti-phishing prepend*
+    below.
   - Enable / Disable withdrawal lock. Enable is instant; disable is a
     two-phase request → 24h cooldown → second tap that actually clears
     the lock. A pending disable surfaces a [Cancel disable] button so
@@ -466,7 +466,7 @@ Actions via inline keyboard:
   - Manage withdrawal address whitelist — DEFERRED until `/withdraw` ships.
 ```
 
-**Anti-phishing prepend.** The phrase is stored today (`ctx.session.antiPhishingPhrase`) and surfaced in the `/security` status panel, but `lib/anti-phishing.ts :: withAntiPhishing` is still the static header. Wiring the user phrase into every outbound message (the "prepended to every bot message" half of the spec) requires either threading `ctx` through every callsite or adding a middleware that intercepts `ctx.reply` / `ctx.editMessageText` — out of scope for the `/security` UX PR. Track as follow-up.
+**Anti-phishing prepend.** The user phrase (`ctx.session.antiPhishingPhrase`, set via /security) is prepended to every outbound chat message via `lib/anti-phishing.ts :: wrapWithCtxPhrase` (aliased to `wrap` in each command file) — `withAntiPhishing(body, phrase)` resolves the per-user phrase or, when none is set, falls back to the static `ANTI_PHISHING_HEADER`. Two ctx flavors deliberately fall back to the static header even when the user has a phrase set: grammY conversations replay (no `session` property on the replay-time ctx) and channel-post / anonymous-admin updates (session-key resolver returns undefined). In both cases the static fallback is correct — replays render system-style prompts where impersonation isn't the threat, and there is no per-user session to consult for the non-user contexts. Toast / `answerCallbackQuery` text is exempt (200-char budget, not an impersonation surface).
 
 PIN brute-force protection: 5 wrong attempts → 30-minute lockout. Lockout state stored in KV with TTL.
 

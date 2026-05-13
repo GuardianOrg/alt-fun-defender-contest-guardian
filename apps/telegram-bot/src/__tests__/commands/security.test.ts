@@ -194,6 +194,29 @@ describe("/security command", () => {
       expect(send!.body.text).toContain('Anti-phishing phrase: "blue heron"');
     });
 
+    it("prepends the saved phrase to every subsequent bot message", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SECURITY_CALLBACK.setPhrase));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("blue heron", 3));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(securityCommand(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(send).toBeDefined();
+      // Header sits at the top of the body — no static fallback below it.
+      const text = send!.body.text as string;
+      expect(text.startsWith("blue heron\n\n")).toBe(true);
+      expect(text).not.toContain(
+        "This bot will never ask for your seed phrase",
+      );
+    });
+
     it("rejects a phrase that exceeds 64 chars and stays in the wizard", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SECURITY_CALLBACK.setPhrase));

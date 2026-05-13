@@ -5,7 +5,10 @@ import {
   START_CALLBACK,
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
-import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
+import {
+  ctxAntiPhishingPhrase,
+  resolveAntiPhishingHeader,
+} from "../lib/anti-phishing.js";
 import { logger } from "../lib/logger.js";
 import {
   parseStartParam,
@@ -46,10 +49,11 @@ const escapeHtml = (s: string): string =>
 const renderWelcomeHtml = (
   address: string,
   usdcBalance: bigint | null,
+  phrase: string | null | undefined,
 ): string => {
   const balance = formatUsdc6(usdcBalance);
   return [
-    escapeHtml(ANTI_PHISHING_HEADER),
+    escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
     "Welcome to AltFunBot — the bot for trading alt fun tokens on HyperEVM.",
     "",
@@ -74,8 +78,9 @@ const renderStart = async (
   env: AppContext["env"],
   address: string,
   usdcBalance: bigint | null,
+  phrase: string | null | undefined,
 ): Promise<RenderedStart> => ({
-  text: renderWelcomeHtml(address, usdcBalance),
+  text: renderWelcomeHtml(address, usdcBalance, phrase),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
       resolveBuyUsdcUrl(env, address),
@@ -202,7 +207,12 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     }
 
     const balance = await fetchUsdcBalance(ctx.env, address);
-    const rendered = await renderStart(ctx.env, address, balance);
+    const rendered = await renderStart(
+      ctx.env,
+      address,
+      balance,
+      ctxAntiPhishingPhrase(ctx),
+    );
     await ctx.reply(rendered.text, {
       parse_mode: rendered.parse_mode,
       reply_markup: rendered.reply_markup,
@@ -236,7 +246,12 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const balance = await fetchUsdcBalance(ctx.env, active.address);
-    const rendered = await renderStart(ctx.env, active.address, balance);
+    const rendered = await renderStart(
+      ctx.env,
+      active.address,
+      balance,
+      ctxAntiPhishingPhrase(ctx),
+    );
     await safeEditMessageText(ctx, rendered.text, {
       parse_mode: rendered.parse_mode,
       reply_markup: rendered.reply_markup,

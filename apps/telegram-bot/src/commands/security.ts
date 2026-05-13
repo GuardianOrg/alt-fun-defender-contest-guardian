@@ -11,7 +11,7 @@ import {
   type SecurityStatus,
 } from "../keyboards/security-actions.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { withAntiPhishing } from "../lib/anti-phishing.js";
+import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import {
   PIN_RESET_DELAY_MS,
   PinManager,
@@ -182,7 +182,7 @@ const renderState = async (
 const editToMain = async (ctx: AppContext): Promise<void> => {
   if (!ctx.from) return;
   const state = await renderState(ctx, ctx.from.id);
-  await safeEditMessageText(ctx, withAntiPhishing(state.text), {
+  await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
 };
@@ -198,7 +198,7 @@ const askNewPin = async (
   chatId: number,
   prompt: string,
 ): Promise<string | null> => {
-  await ctx.reply(withAntiPhishing(prompt));
+  await ctx.reply(wrap(ctx, prompt));
   let candidate: string | null = null;
   while (candidate === null) {
     const msg = await conversation.waitFor("message:text");
@@ -207,19 +207,19 @@ const askNewPin = async (
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Cancelled."));
+      await ctx.reply(wrap(ctx, "Cancelled."));
       return null;
     }
     if (!PinManager.isValidPinFormat(text)) {
       await ctx.reply(
-        withAntiPhishing("PIN must be exactly 6 digits. Send again or /cancel."),
+        wrap(ctx, "PIN must be exactly 6 digits. Send again or /cancel."),
       );
       continue;
     }
     candidate = text;
   }
 
-  await ctx.reply(withAntiPhishing("Confirm — send the same 6 digits again."));
+  await ctx.reply(wrap(ctx, "Confirm — send the same 6 digits again."));
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
@@ -227,12 +227,12 @@ const askNewPin = async (
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Cancelled."));
+      await ctx.reply(wrap(ctx, "Cancelled."));
       return null;
     }
     if (text !== candidate) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "PINs do not match. Send the confirmation PIN again or /cancel.",
         ),
       );
@@ -250,7 +250,7 @@ const verifyExistingPin = async (
   actionLabel: string,
 ): Promise<boolean> => {
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       `Send your current 6-digit PIN to authorise ${actionLabel}, or /cancel.`,
     ),
   );
@@ -261,7 +261,7 @@ const verifyExistingPin = async (
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
     if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing(`${actionLabel} cancelled.`));
+      await ctx.reply(wrap(ctx, `${actionLabel} cancelled.`));
       return false;
     }
     const result = await conversation.external((outside) =>
@@ -274,7 +274,7 @@ const verifyExistingPin = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           `Too many wrong PIN attempts — locked for ~${mins} min. ${actionLabel} cancelled.`,
         ),
       );
@@ -282,12 +282,12 @@ const verifyExistingPin = async (
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        withAntiPhishing("No PIN on file — re-run /security to set one."),
+        wrap(ctx, "No PIN on file — re-run /security to set one."),
       );
       return false;
     }
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
       ),
     );
@@ -315,7 +315,7 @@ const setPinConversation = async (
     renderState(outside, userId),
   );
   await ctx.reply(
-    withAntiPhishing(`PIN set.\n\n${state.text}`),
+    wrap(ctx, `PIN set.\n\n${state.text}`),
     { reply_markup: state.reply_markup },
   );
 };
@@ -349,7 +349,7 @@ const changePinConversation = async (
     renderState(outside, userId),
   );
   await ctx.reply(
-    withAntiPhishing(`PIN changed.\n\n${state.text}`),
+    wrap(ctx, `PIN changed.\n\n${state.text}`),
     { reply_markup: state.reply_markup },
   );
 };
@@ -365,7 +365,7 @@ const completeResetConversation = async (
     buildPinManager(outside.env).getResetStatus(userId),
   );
   if (reset.kind === "none") {
-    await ctx.reply(withAntiPhishing("No PIN reset in progress."));
+    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
     return;
   }
   if (reset.kind === "pending") {
@@ -374,7 +374,7 @@ const completeResetConversation = async (
       Date.now(),
     );
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `PIN reset not yet available — ~${hours} remaining. Tap [Cancel PIN reset] if you didn't request this.`,
       ),
     );
@@ -396,19 +396,19 @@ const completeResetConversation = async (
     // bypass the gate.
     const hours = formatHoursRemaining(result.readyAt, Date.now());
     await ctx.reply(
-      withAntiPhishing(`Reset not yet available — ~${hours} remaining.`),
+      wrap(ctx, `Reset not yet available — ~${hours} remaining.`),
     );
     return;
   }
   if (result.kind === "not-requested") {
-    await ctx.reply(withAntiPhishing("No PIN reset in progress."));
+    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
     return;
   }
   const state = await conversation.external((outside) =>
     renderState(outside, userId),
   );
   await ctx.reply(
-    withAntiPhishing(`PIN reset complete.\n\n${state.text}`),
+    wrap(ctx, `PIN reset complete.\n\n${state.text}`),
     { reply_markup: state.reply_markup },
   );
 };
@@ -420,7 +420,7 @@ const setPhraseConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       [
         "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
         "",
@@ -432,19 +432,19 @@ const setPhraseConversation = async (
     const reply = await conversation.waitFor("message:text");
     const text = reply.message.text;
     if (isCancel(text.trim())) {
-      await ctx.reply(withAntiPhishing("Cancelled."));
+      await ctx.reply(wrap(ctx, "Cancelled."));
       return;
     }
     const trimmed = text.trim();
     if (trimmed.length === 0) {
       await ctx.reply(
-        withAntiPhishing("Phrase cannot be empty. Send again or /cancel."),
+        wrap(ctx, "Phrase cannot be empty. Send again or /cancel."),
       );
       continue;
     }
     if (trimmed.length > MAX_PHRASE_LEN) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one or /cancel.`,
         ),
       );
@@ -457,7 +457,7 @@ const setPhraseConversation = async (
       renderState(outside, userId),
     );
     await ctx.reply(
-      withAntiPhishing(`Phrase saved.\n\n${state.text}`),
+      wrap(ctx, `Phrase saved.\n\n${state.text}`),
       { reply_markup: state.reply_markup },
     );
     return;
@@ -474,15 +474,15 @@ export const registerSecurityCommand = (bot: Bot<AppContext>): void => {
 
   bot.command("security", async (ctx) => {
     if (!ctx.from) {
-      await ctx.reply(withAntiPhishing(NO_USER_REPLY));
+      await ctx.reply(wrap(ctx, NO_USER_REPLY));
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(withAntiPhishing(NON_PRIVATE_CHAT_REPLY));
+      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
       return;
     }
     const state = await renderState(ctx, ctx.from.id);
-    await ctx.reply(withAntiPhishing(state.text), {
+    await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });
@@ -636,7 +636,7 @@ export const registerSecurityCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     const state = await renderState(ctx, ctx.from.id);
     await ctx.answerCallbackQuery();
-    await ctx.reply(withAntiPhishing(state.text), {
+    await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });

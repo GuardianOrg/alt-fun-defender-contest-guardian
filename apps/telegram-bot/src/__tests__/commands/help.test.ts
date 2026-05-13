@@ -58,7 +58,7 @@ const callbackUpdate = (data: string, updateId = 2) => ({
 
 describe("renderHelp (pure)", () => {
   it("returns the overview when no topic is supplied", () => {
-    const html = renderHelp(undefined);
+    const html = renderHelp(undefined, undefined);
     expect(html).toContain(ANTI_PHISHING_HEADER);
     expect(html).toContain("AltFunBot Help");
     expect(html).toContain("/wallet");
@@ -67,7 +67,7 @@ describe("renderHelp (pure)", () => {
   });
 
   it("includes the anti-phishing reminder per AGENTS.md /help spec", () => {
-    expect(renderHelp(undefined)).toContain(
+    expect(renderHelp(undefined, undefined)).toContain(
       "will <b>never</b> ask for your seed phrase",
     );
   });
@@ -87,17 +87,38 @@ describe("renderHelp (pure)", () => {
     ["withdraw", "60-second timeout"],
     ["withdrawal", "60-second timeout"],
   ])("topic %s renders a dedicated body containing %s", (topic, needle) => {
-    const html = renderHelp(topic);
+    const html = renderHelp(topic, undefined);
     expect(html).toContain(needle);
     expect(html).toContain(ANTI_PHISHING_HEADER);
   });
 
   it("is case-insensitive and ignores surrounding whitespace", () => {
-    expect(renderHelp("  WALLET  ")).toBe(renderHelp("wallet"));
+    expect(renderHelp("  WALLET  ", undefined)).toBe(
+      renderHelp("wallet", undefined),
+    );
+  });
+
+  it("uses the user's anti-phishing phrase in place of the static header", () => {
+    const html = renderHelp(undefined, "purple-otter-42");
+    expect(html).toContain("purple-otter-42");
+    expect(html).not.toContain(ANTI_PHISHING_HEADER);
+  });
+
+  it("HTML-escapes the user phrase so /help can't render an attacker-controlled tag", () => {
+    const html = renderHelp(undefined, '<a&b"c>');
+    // Raw chars must be replaced; escaped sequences must appear.
+    expect(html).not.toMatch(/<a&b"c>/);
+    expect(html).toContain("&lt;a&amp;b&quot;c&gt;");
+    expect(html).not.toContain(ANTI_PHISHING_HEADER);
+  });
+
+  it("falls back to the static header when no phrase is set", () => {
+    expect(renderHelp(undefined, null)).toContain(ANTI_PHISHING_HEADER);
+    expect(renderHelp("fees", undefined)).toContain(ANTI_PHISHING_HEADER);
   });
 
   it("returns an unknown-topic hint when the arg is not a known topic", () => {
-    const html = renderHelp("nonsense");
+    const html = renderHelp("nonsense", undefined);
     expect(html).toContain("Unknown help topic");
     expect(html).toContain("<code>wallet</code>");
   });

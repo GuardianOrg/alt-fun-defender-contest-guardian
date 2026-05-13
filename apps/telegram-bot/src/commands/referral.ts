@@ -7,7 +7,10 @@ import { isAddress } from "viem";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { ANTI_PHISHING_HEADER, withAntiPhishing } from "../lib/anti-phishing.js";
+import {
+  resolveAntiPhishingHeader,
+  wrapWithCtxPhrase as wrap,
+} from "../lib/anti-phishing.js";
 import {
   fetchBotReferralStats,
   setBotRewardsWallet,
@@ -128,10 +131,11 @@ const renderBanners = (stats: BotReferralStats): string[] => {
 const renderReferralHtml = (
   link: string,
   stats: BotReferralStats,
+  phrase: string | null | undefined,
 ): string => {
   const earned = formatUsdc(stats.lifetimeEarnedUsdc);
   const sections = [
-    escapeHtml(ANTI_PHISHING_HEADER),
+    escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
     "<b>Your referral</b>",
     "",
@@ -174,6 +178,7 @@ const buildView = async (
   env: AppContext["env"],
   userId: number,
   username: string | undefined,
+  phrase: string | null | undefined,
 ): Promise<
   | { ok: true; view: ReferralView }
   | { ok: false; kind: "no_wallet" | "outage" }
@@ -199,7 +204,7 @@ const buildView = async (
   return {
     ok: true,
     view: {
-      text: renderReferralHtml(link, stats.data),
+      text: renderReferralHtml(link, stats.data, phrase),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
       reply_markup: buildKeyboard(),
@@ -212,7 +217,12 @@ const sendReferral = async (
   userId: number,
   username: string | undefined,
 ): Promise<void> => {
-  const result = await buildView(ctx.env, userId, username);
+  const result = await buildView(
+    ctx.env,
+    userId,
+    username,
+    ctx.session.antiPhishingPhrase,
+  );
   if (!result.ok) {
     await ctx.reply(
       result.kind === "no_wallet" ? NO_WALLET_REPLY : OUTAGE_REPLY,
@@ -293,7 +303,7 @@ const runPinGate = async (
 
   if (!pinAlreadySet) {
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes, or /cancel.",
       ),
     );
@@ -306,13 +316,13 @@ const runPinGate = async (
       );
       if (isCancel(text)) {
         await ctx.reply(
-          withAntiPhishing("Rewards-wallet change cancelled."),
+          wrap(ctx, "Rewards-wallet change cancelled."),
         );
         return false;
       }
       if (!PinManager.isValidPinFormat(text)) {
         await ctx.reply(
-          withAntiPhishing(
+          wrap(ctx, 
             "PIN must be exactly 6 digits. Send again or /cancel.",
           ),
         );
@@ -321,7 +331,7 @@ const runPinGate = async (
       candidate = text;
     }
     await ctx.reply(
-      withAntiPhishing("Confirm — send the same 6 digits again."),
+      wrap(ctx, "Confirm — send the same 6 digits again."),
     );
     while (true) {
       const msg = await conversation.waitFor("message:text");
@@ -331,13 +341,13 @@ const runPinGate = async (
       );
       if (isCancel(text)) {
         await ctx.reply(
-          withAntiPhishing("Rewards-wallet change cancelled."),
+          wrap(ctx, "Rewards-wallet change cancelled."),
         );
         return false;
       }
       if (text !== candidate) {
         await ctx.reply(
-          withAntiPhishing(
+          wrap(ctx, 
             "PINs do not match. Send the confirmation PIN again or /cancel.",
           ),
         );
@@ -353,7 +363,7 @@ const runPinGate = async (
   }
 
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       "Send your 6-digit PIN to authorise the rewards-wallet change, or /cancel.",
     ),
   );
@@ -365,7 +375,7 @@ const runPinGate = async (
     );
     if (isCancel(text)) {
       await ctx.reply(
-        withAntiPhishing("Rewards-wallet change cancelled."),
+        wrap(ctx, "Rewards-wallet change cancelled."),
       );
       return false;
     }
@@ -379,7 +389,7 @@ const runPinGate = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           `Too many wrong PIN attempts — locked for ~${mins} min. Rewards-wallet change cancelled.`,
         ),
       );
@@ -387,14 +397,14 @@ const runPinGate = async (
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "PIN state lost — re-run /referral → Change rewards wallet.",
         ),
       );
       return false;
     }
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
       ),
     );
@@ -434,13 +444,13 @@ const changeRewardsWalletConversation = async (
     const text = msg.message.text.trim();
     if (isCancel(text)) {
       await ctx.reply(
-        withAntiPhishing("Rewards-wallet change cancelled."),
+        wrap(ctx, "Rewards-wallet change cancelled."),
       );
       return;
     }
     if (!isAddress(text, { strict: false })) {
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address, or /cancel.",
         ),
       );
@@ -453,7 +463,7 @@ const changeRewardsWalletConversation = async (
       // address." Gate the persist behind an explicit `confirm` so a
       // mis-paste can't permanently route earnings into a null sink.
       await ctx.reply(
-        withAntiPhishing(
+        wrap(ctx, 
           [
             "⚠️ That address is a known burn / null address.",
             "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
@@ -466,7 +476,7 @@ const changeRewardsWalletConversation = async (
       const confirmText = confirmMsg.message.text.trim();
       if (isCancel(confirmText)) {
         await ctx.reply(
-          withAntiPhishing("Rewards-wallet change cancelled."),
+          wrap(ctx, "Rewards-wallet change cancelled."),
         );
         return;
       }
@@ -476,7 +486,7 @@ const changeRewardsWalletConversation = async (
         // warning without restarting the wizard.
         if (!isAddress(confirmText, { strict: false })) {
           await ctx.reply(
-            withAntiPhishing(
+            wrap(ctx, 
               "Aborted. Send 'confirm', /cancel, or a new 0x-prefixed address.",
             ),
           );
@@ -485,7 +495,7 @@ const changeRewardsWalletConversation = async (
         const next = confirmText.toLowerCase();
         if (isKnownBurnAddress(next)) {
           await ctx.reply(
-            withAntiPhishing(
+            wrap(ctx, 
               "That's still a known burn address. Send 'confirm' to proceed, /cancel to abort, or a different address.",
             ),
           );
@@ -507,7 +517,7 @@ const changeRewardsWalletConversation = async (
   );
   if (!result.ok) {
     await ctx.reply(
-      withAntiPhishing(
+      wrap(ctx, 
         result.kind === "unavailable"
           ? "API temporarily unavailable — try again in a moment."
           : "Could not update rewards wallet. Try again later.",
@@ -517,7 +527,7 @@ const changeRewardsWalletConversation = async (
   }
 
   await ctx.reply(
-    withAntiPhishing(
+    wrap(ctx, 
       `Rewards wallet updated to ${result.data.rewardsWallet}.`,
     ),
   );
