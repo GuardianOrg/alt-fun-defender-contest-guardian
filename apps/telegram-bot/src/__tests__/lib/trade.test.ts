@@ -18,6 +18,7 @@ import {
   signPermitForRouter,
   simulateBuyWithBotFee,
   simulateSellWithBotFee,
+  tryPermit,
   usdcRawToNumber,
 } from "../../lib/trade.js";
 import { HYPER_EVM, USDC_ADDRESS } from "@launchpad/shared";
@@ -772,5 +773,169 @@ describe("signPermitForRouter", () => {
         deadline: 1n,
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe("tryPermit", () => {
+  // Regression for `0x4b800e46 ERC2612InvalidSigner` reverts on
+  // `sellWithBotFeePermit` / `buyWithBotFeePermit`. The on-chain router
+  // calls `permit(owner, spender, tradeAmount, deadline, v, r, s)` —
+  // passing the trade amount as the permit `value` directly, not a
+  // separately-signed field as `Zap.{buy,sell}WithPermit` does. Signing
+  // anything other than the trade amount (the prior code hard-coded
+  // `maxUint256`) makes the EIP-712 digest diverge from what the contract
+  // reconstructs, `ecrecover` returns the wrong signer, and the call
+  // reverts. This test pins the invariant: `tryPermit` MUST forward the
+  // caller's `value` verbatim into the signed digest.
+  const PRIVATE_KEY =
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
+  const OWNER = privateKeyToAccount(PRIVATE_KEY).address;
+  const SPENDER = "0xB2b2d9c0c837a723fC27C27e097B384400796947" as const;
+  const TOKEN = "0x1111111111111111111111111111111111111111" as const;
+  const TOKEN_NAME = "Test Permit Token";
+  const NONCE = 3n;
+
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  const stubRpc = () => {
+    const domainSep = domainSeparator({
+      domain: {
+        name: TOKEN_NAME,
+        version: "1",
+        chainId: HYPER_EVM.id,
+        verifyingContract: TOKEN,
+      },
+    });
+    fetchSpy.mockImplementation((async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) ?? "{}") as {
+        method: string;
+        params: [{ data: string }, string];
+      };
+      const selector = body.params[0].data.slice(0, 10).toLowerCase();
+      if (selector === "0x06fdde03") {
+        return rpcOk(encodeAbiParameters([{ type: "string" }], [TOKEN_NAME]));
+      }
+      if (selector === "0x7ecebe00") {
+        return rpcOk(encodeUint256(NONCE));
+      }
+      if (selector === "0x3644e515") {
+        return rpcOk(domainSep);
+      }
+      throw new Error(`unhandled selector ${selector}`);
+    }) as never);
+  };
+
+  it("signs over the caller-supplied trade amount, never `maxUint256`", async () => {
+    stubRpc();
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+    // Pick a value that is small and distinct so a regression hard-coding
+    // `maxUint256` (or any other constant) breaks the equality.
+    const tradeAmount = 12345n;
+    const deadline = 9_999_999_999n;
+    const sig = await tryPermit(client, PRIVATE_KEY, {
+      token: TOKEN,
+      owner: OWNER,
+      spender: SPENDER,
+      value: tradeAmount,
+      deadline,
+    });
+    expect(sig).not.toBeNull();
+    // The returned signature must report the same value it was asked to
+    // sign — proves tryPermit forwarded `value` verbatim into the digest.
+    expect(sig!.value).toBe(tradeAmount);
+
+    // Independent cross-check: rebuild the typed data with `value =
+    // tradeAmount` (mirroring what the BotFeeRouter reconstructs on
+    // chain) and verify the signature recovers to the owner.
+    const yParity = sig!.v === 27 ? 0 : 1;
+    const signatureHex =
+      `${sig!.r}${sig!.s.slice(2)}${yParity === 0 ? "1b" : "1c"}` as `0x${string}`;
+    const recovered = await recoverTypedDataAddress({
+      domain: {
+        name: TOKEN_NAME,
+        version: "1",
+        chainId: HYPER_EVM.id,
+        verifyingContract: TOKEN,
+      },
+      types: {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      primaryType: "Permit",
+      message: {
+        owner: OWNER,
+        spender: SPENDER,
+        value: tradeAmount,
+        nonce: NONCE,
+        deadline,
+      },
+      signature: signatureHex,
+    });
+    expect(recovered.toLowerCase()).toBe(OWNER.toLowerCase());
+  });
+
+  it("signing the wrong value would NOT recover to the owner under the trade-amount digest", async () => {
+    // Pin the EIP-712 invariant the router relies on: if `tryPermit` ever
+    // regresses to signing a different `value` (e.g. `maxUint256`),
+    // recovery against the trade-amount digest the contract uses will
+    // fail. The on-chain symptom of that mismatch is `ERC2612InvalidSigner
+    // (0x4b800e46)`.
+    stubRpc();
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+    const tradeAmount = 12345n;
+    const wrongValue = 2n ** 256n - 1n;
+    const deadline = 9_999_999_999n;
+    const sig = await tryPermit(client, PRIVATE_KEY, {
+      token: TOKEN,
+      owner: OWNER,
+      spender: SPENDER,
+      value: wrongValue,
+      deadline,
+    });
+    expect(sig).not.toBeNull();
+
+    const yParity = sig!.v === 27 ? 0 : 1;
+    const signatureHex =
+      `${sig!.r}${sig!.s.slice(2)}${yParity === 0 ? "1b" : "1c"}` as `0x${string}`;
+    const recovered = await recoverTypedDataAddress({
+      domain: {
+        name: TOKEN_NAME,
+        version: "1",
+        chainId: HYPER_EVM.id,
+        verifyingContract: TOKEN,
+      },
+      types: {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      primaryType: "Permit",
+      message: {
+        owner: OWNER,
+        spender: SPENDER,
+        // Reconstruct with the trade amount the router will pass in —
+        // signed value differs, so recovery must NOT match owner.
+        value: tradeAmount,
+        nonce: NONCE,
+        deadline,
+      },
+      signature: signatureHex,
+    });
+    expect(recovered.toLowerCase()).not.toBe(OWNER.toLowerCase());
   });
 });

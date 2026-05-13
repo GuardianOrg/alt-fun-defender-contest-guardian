@@ -27,7 +27,6 @@ import {
   domainSeparator,
   encodeFunctionData,
   http,
-  maxUint256,
   parseAbi,
   parseSignature,
   type Address,
@@ -645,25 +644,31 @@ const mapExecutionError = (err: unknown): ExecutionResult => {
  * domain-separator drift), so the caller can fall back to the legacy
  * `approve` path without crashing the trade. The permit-first / approve-
  * fallback ladder is the spec from apps/telegram-bot/AGENTS.md.
+ *
+ * `value` MUST equal the amount the router forwards into `permit()` on
+ * chain — i.e. the trade's `usdcAmount` (buy) / `tokenAmount` (sell),
+ * never `maxUint256`. `BotFeeRouter.{buy,sell}WithBotFeePermit` passes
+ * the trade amount as the permit `value`, so signing any other amount
+ * makes the EIP-712 digest diverge from the one the contract
+ * reconstructs, `ecrecover` returns the wrong signer, and the call
+ * reverts with `ERC2612InvalidSigner` (selector `0x4b800e46`). Web
+ * gets away with `maxUint256` only because `Zap.{buy,sell}WithPermit`
+ * takes a `PermitData` struct whose `value` field is signed
+ * independently — a different on-chain shape, not the same router.
  */
-const tryPermit = async (
+export const tryPermit = async (
   publicClient: PublicClient,
   privateKey: Hex,
   args: {
     token: Hex;
     owner: Hex;
     spender: Hex;
+    value: bigint;
     deadline: bigint;
   },
 ): Promise<PermitSignature | null> => {
   try {
-    return await signPermitForRouter(publicClient, privateKey, {
-      ...args,
-      // maxUint256 mirrors apps/web — the router holds a permanent
-      // allowance after one permit, so subsequent trades skip both
-      // permit and approve entirely.
-      value: maxUint256,
-    });
+    return await signPermitForRouter(publicClient, privateKey, args);
   } catch {
     return null;
   }
@@ -712,6 +717,7 @@ export const executeBuy = async (
         token: USDC_ADDRESS as Hex,
         owner: args.trader,
         spender: router as Hex,
+        value: args.usdcAmount,
         deadline: permitDeadline(),
       });
       if (!permit) {
@@ -835,6 +841,7 @@ export const executeSell = async (
         token: args.token,
         owner: args.trader,
         spender: router as Hex,
+        value: args.tokenAmount,
         deadline: permitDeadline(),
       });
       if (!permit) {
