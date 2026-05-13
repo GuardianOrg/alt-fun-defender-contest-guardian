@@ -15,18 +15,17 @@ import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
 import { useIsMintPaused } from "../../hooks/useLeveragedTokens";
+import { useLiveTradeQuote } from "../../hooks/useLiveTradeQuote";
 import { useReferral } from "../../hooks/useReferral";
 import { useSlippage } from "../../hooks/useSlippage";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
-import { tradeRouterService } from "../../services/tradeRouter";
 import { formatTokenAmount, formatUsd, shortenAddress } from "../../utils/format";
 import Button from "../shared/Button";
 import IconButton from "../shared/IconButton";
 import SegmentedButton from "../shared/SegmentedButton";
 import { buildTxAction, useToast } from "../shared/toast-context";
 
-import type { BuyQuote, SellQuote } from "../../services/tradeRouter";
 import type { Token } from "../../services/types";
 
 const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
@@ -79,8 +78,6 @@ export default function TradePanel({ token }: Props) {
   // post-mount jump from 2% → persisted value).
   const [slippage, setSlippage] = useSlippage();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [buyQuote, setBuyQuote] = useState<BuyQuote | null>(null);
-  const [sellQuote, setSellQuote] = useState<SellQuote | null>(null);
   const [maxBalance, setMaxBalance] = useState<string | null>(null);
   const [maxBalanceWei, setMaxBalanceWei] = useState<bigint | null>(null);
   // USDC balance is tracked independently of `maxBalance` because the latter
@@ -111,6 +108,17 @@ export default function TradePanel({ token }: Props) {
 
   const amtNum = parseFloat(amount) || 0;
 
+  // Live-refreshing quote: debounced on user input, throttled re-quote on
+  // `trade` / `price` WS ticks so the "You receive ≈ …" estimate stays in
+  // sync with the chart / mcap / price as other users trade and the LT
+  // exchange rate drifts. See `useLiveTradeQuote` for the cadence model.
+  const { buyQuote, sellQuote } = useLiveTradeQuote({
+    token,
+    mode,
+    amount,
+    slippage,
+  });
+
   const usdcAmount = mode === "buy"
     ? amtNum
     : (sellQuote ? sellQuote.usdcOut : 0);
@@ -128,34 +136,6 @@ export default function TradePanel({ token }: Props) {
     amtNum > 0 &&
     usdcBalanceNum !== null &&
     amtNum > usdcBalanceNum;
-
-  useEffect(() => {
-    if (!amtNum || amtNum <= 0) {
-      setBuyQuote(null);
-      setSellQuote(null);
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(async () => {
-      try {
-        if (mode === "buy") {
-          const quote = await tradeRouterService.getQuoteBuy(token.address, amtNum);
-          if (!controller.signal.aborted) setBuyQuote(quote);
-        } else {
-          const quote = await tradeRouterService.getQuoteSell(token.address, amtNum, slippage, token.leverage);
-          if (!controller.signal.aborted) setSellQuote(quote);
-        }
-      } catch {
-        // Quote failed, will show no estimate
-      }
-    }, 300);
-
-    return () => {
-      controller.abort();
-      clearTimeout(timeout);
-    };
-  }, [amtNum, mode, token.address, token.leverage, slippage]);
 
   const loadBalance = useCallback(async () => {
     if (!address) {
