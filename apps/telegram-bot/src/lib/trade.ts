@@ -24,9 +24,12 @@ import {
   ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
+  domainSeparator,
   encodeFunctionData,
   http,
+  maxUint256,
   parseAbi,
+  parseSignature,
   type Address,
   type Hash,
   type PublicClient,
@@ -279,14 +282,155 @@ export const computeMinTokensOut = (
 };
 
 /**
- * Minimal ERC-20 surface — `allowance` (read) + `approve` (write) for the
- * pre-trade approval step. Full ABI lives in `lib/rpc.ts` for balance
- * reads; the parsing here is cheap enough to keep local.
+ * Minimal ERC-20 + EIP-2612 surface. `allowance` / `approve` drive the
+ * legacy fallback; `name` / `nonces` / `DOMAIN_SEPARATOR` are read when
+ * we attempt the permit-first path.
  */
 const ERC20_ABI = parseAbi([
   "function allowance(address owner, address spender) view returns (uint256)",
   "function approve(address spender, uint256 amount) returns (bool)",
+  "function name() view returns (string)",
+  "function nonces(address owner) view returns (uint256)",
+  "function DOMAIN_SEPARATOR() view returns (bytes32)",
 ]);
+
+/**
+ * EIP-2612 permit deadline window. 30 min mirrors `useTradeRouter` in
+ * apps/web — long enough that sim + approve + submit always fit; short
+ * enough that a leaked signature is not a long-term liability.
+ */
+const PERMIT_DEADLINE_SECONDS = 30n * 60n;
+
+/**
+ * USDC on HyperEVM is FiatTokenV2_2, whose EIP-712 domain pins
+ * `version: "2"`. Every Token clone launched by this protocol inherits
+ * OpenZeppelin's `ERC20Permit`, which hardcodes `version: "1"`. Picking
+ * the wrong string drifts the computed `DOMAIN_SEPARATOR` and the
+ * eventual `ecrecover` inside `permit()` reverts. We cross-check against
+ * the on-chain separator below so a third token vintage surfaces as a
+ * clean fallback to the approve path instead of a confusing revert.
+ */
+const permitVersionFor = (token: Hex): string =>
+  token.toLowerCase() === USDC_ADDRESS.toLowerCase() ? "2" : "1";
+
+interface PermitTypedDataArgs {
+  name: string;
+  version: string;
+  verifyingContract: Hex;
+  owner: Hex;
+  spender: Hex;
+  value: bigint;
+  nonce: bigint;
+  deadline: bigint;
+}
+
+const buildPermitTypedData = (args: PermitTypedDataArgs) =>
+  ({
+    domain: {
+      name: args.name,
+      version: args.version,
+      chainId: HYPER_EVM.id,
+      verifyingContract: args.verifyingContract,
+    },
+    types: {
+      Permit: [
+        { name: "owner", type: "address" },
+        { name: "spender", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+        { name: "deadline", type: "uint256" },
+      ],
+    },
+    primaryType: "Permit" as const,
+    message: {
+      owner: args.owner,
+      spender: args.spender,
+      value: args.value,
+      nonce: args.nonce,
+      deadline: args.deadline,
+    },
+  }) as const;
+
+export interface PermitSignature {
+  value: bigint;
+  deadline: bigint;
+  v: number;
+  r: Hex;
+  s: Hex;
+}
+
+/**
+ * Sign an EIP-2612 permit for an arbitrary ERC-20. Reads `name`,
+ * `nonces(owner)`, and `DOMAIN_SEPARATOR` on-chain (one RPC round-trip
+ * via `Promise.all`), builds the typed data with the per-token version
+ * string, verifies the computed domain separator matches the on-chain
+ * one, then signs with the custodial private key.
+ *
+ * Throws if the token does not implement EIP-2612 (revert on `nonces` /
+ * `DOMAIN_SEPARATOR`), or if the computed domain separator drifts from
+ * the on-chain value. Callers (`executeBuy` / `executeSell`) catch the
+ * throw and fall back to the legacy approve path — that "permit-first,
+ * approve as fallback" ladder is the spec from apps/telegram-bot/AGENTS.md.
+ */
+export const signPermitForRouter = async (
+  publicClient: PublicClient,
+  privateKey: Hex,
+  args: {
+    token: Hex;
+    owner: Hex;
+    spender: Hex;
+    value: bigint;
+    deadline: bigint;
+  },
+): Promise<PermitSignature> => {
+  const { token, owner, spender, value, deadline } = args;
+
+  const [name, nonce, onChainDomainSep] = (await Promise.all([
+    publicClient.readContract({
+      address: token as Address,
+      abi: ERC20_ABI,
+      functionName: "name",
+    }),
+    publicClient.readContract({
+      address: token as Address,
+      abi: ERC20_ABI,
+      functionName: "nonces",
+      args: [owner as Address],
+    }),
+    publicClient.readContract({
+      address: token as Address,
+      abi: ERC20_ABI,
+      functionName: "DOMAIN_SEPARATOR",
+    }),
+  ])) as [string, bigint, Hex];
+
+  const typedData = buildPermitTypedData({
+    name,
+    version: permitVersionFor(token),
+    verifyingContract: token,
+    owner,
+    spender,
+    value,
+    nonce,
+    deadline,
+  });
+
+  const computedDomainSep = domainSeparator({ domain: typedData.domain });
+  if (computedDomainSep.toLowerCase() !== onChainDomainSep.toLowerCase()) {
+    throw new Error(
+      `EIP-712 domain mismatch for ${token}: on-chain ${onChainDomainSep} vs computed ${computedDomainSep}`,
+    );
+  }
+
+  const account = privateKeyToAccount(privateKey);
+  const signature = await account.signTypedData(typedData);
+  const { r, s, v, yParity } = parseSignature(signature);
+  const recovery = v !== undefined ? Number(v) : yParity !== undefined ? yParity + 27 : undefined;
+  if (recovery === undefined) {
+    throw new Error("Permit signature missing recovery parameter");
+  }
+  return { value, deadline, v: recovery, r, s };
+};
 
 const MAX_UINT256 = (1n << 256n) - 1n;
 
@@ -495,19 +639,51 @@ const mapExecutionError = (err: unknown): ExecutionResult => {
 };
 
 /**
- * Execute a buy through `BotFeeRouter.buyWithBotFee`.
+ * Try to sign an EIP-2612 permit for `token` against the router. Returns
+ * `null` when the token does not implement permit, when the signing call
+ * itself fails (pre-permit vintage, RPC blip on the metadata reads, or a
+ * domain-separator drift), so the caller can fall back to the legacy
+ * `approve` path without crashing the trade. The permit-first / approve-
+ * fallback ladder is the spec from apps/telegram-bot/AGENTS.md.
+ */
+const tryPermit = async (
+  publicClient: PublicClient,
+  privateKey: Hex,
+  args: {
+    token: Hex;
+    owner: Hex;
+    spender: Hex;
+    deadline: bigint;
+  },
+): Promise<PermitSignature | null> => {
+  try {
+    return await signPermitForRouter(publicClient, privateKey, {
+      ...args,
+      // maxUint256 mirrors apps/web — the router holds a permanent
+      // allowance after one permit, so subsequent trades skip both
+      // permit and approve entirely.
+      value: maxUint256,
+    });
+  } catch {
+    return null;
+  }
+};
+
+const permitDeadline = (): bigint =>
+  BigInt(Math.floor(Date.now() / 1000)) + PERMIT_DEADLINE_SECONDS;
+
+/**
+ * Execute a buy through `BotFeeRouter.buyWithBotFee[Permit]`.
  *
- * Flow:
- *   1. Simulate with `minTokensOut = 0` to get `quotedTokensOut`.
- *   2. Derive `minTokensOut` from `slippageBps`.
- *   3. Ensure USDC allowance ≥ `usdcAmount` for the router; approve
- *      MAX_UINT256 if not.
- *   4. Submit the real `buyWithBotFee` tx with the slippage bound.
- *
- * No permit branch in v1 — USDC on HyperEVM is the only token approved
- * on the buy side, and `approve` is a one-time per-wallet cost. The
- * permit ladder lands when the bot fee router publishes its permit
- * domain.
+ * Permit-first ladder per apps/telegram-bot/AGENTS.md → *Permit-first,
+ * approve as fallback*:
+ *   1. If router already has sufficient allowance, skip straight to the
+ *      plain `buyWithBotFee` path.
+ *   2. Otherwise try `signPermitForRouter` on USDC. On success, simulate
+ *      + submit `buyWithBotFeePermit` — one tx, no approve roundtrip.
+ *   3. If permit signing throws (pre-permit USDC, domain drift, RPC
+ *      blip), submit `approve(maxUint256)` and follow with plain
+ *      `buyWithBotFee`. Same slippage discipline either way.
  */
 export const executeBuy = async (
   env: Pick<Env, "HYPEREVM_RPC_URL" | "BOT_FEE_ROUTER_ADDRESS">,
@@ -519,46 +695,89 @@ export const executeBuy = async (
   const publicClient = buildPublicClient(env);
   const walletClient = buildWalletClient(env, args.privateKey);
   const router = asHex(routerAddr) as Address;
+  const referrer = args.referrer ?? ZERO_ADDRESS;
+  const usdc = USDC_ADDRESS as Address;
 
   try {
-    // Approve BEFORE simulating so a first-buy user (zero USDC allowance)
-    // doesn't get a confusing `ERC20InsufficientAllowance` revert mapped
-    // to a generic error. Mirrors the order in `executeSell`. Flagged
-    // by CodeRabbit on PR #707.
-    await ensureAllowance(
-      publicClient,
-      walletClient,
-      USDC_ADDRESS as Address,
-      args.trader,
-      router,
-      args.usdcAmount,
-    );
+    const existingAllowance = (await publicClient.readContract({
+      address: usdc,
+      abi: ERC20_ABI,
+      functionName: "allowance",
+      args: [args.trader as Address, router],
+    })) as bigint;
 
-    const sim = await publicClient.simulateContract({
-      address: router,
-      abi: BotFeeRouterAbi,
-      functionName: "buyWithBotFee",
-      args: [
-        args.token,
-        args.usdcAmount,
-        0n,
-        args.referrer ?? ZERO_ADDRESS,
-      ],
-      account: args.trader,
-    });
+    let permit: PermitSignature | null = null;
+    if (existingAllowance < args.usdcAmount) {
+      permit = await tryPermit(publicClient, args.privateKey, {
+        token: USDC_ADDRESS as Hex,
+        owner: args.trader,
+        spender: router as Hex,
+        deadline: permitDeadline(),
+      });
+      if (!permit) {
+        // Fallback: legacy `approve` then plain `buyWithBotFee`.
+        await ensureAllowance(
+          publicClient,
+          walletClient,
+          usdc,
+          args.trader,
+          router,
+          args.usdcAmount,
+        );
+      }
+    }
+
+    // Simulation is `eth_call`-based and does not consume the permit
+    // nonce, so the permit branch can quote against the post-permit
+    // state safely. We always quote against the function we will
+    // actually submit.
+    const sim = permit
+      ? await publicClient.simulateContract({
+          address: router,
+          abi: BotFeeRouterAbi,
+          functionName: "buyWithBotFeePermit",
+          args: [
+            args.token,
+            args.usdcAmount,
+            0n,
+            referrer,
+            permit.deadline,
+            permit.v,
+            permit.r,
+            permit.s,
+          ],
+          account: args.trader,
+        })
+      : await publicClient.simulateContract({
+          address: router,
+          abi: BotFeeRouterAbi,
+          functionName: "buyWithBotFee",
+          args: [args.token, args.usdcAmount, 0n, referrer],
+          account: args.trader,
+        });
     const quotedTokensOut = sim.result;
     const minTokensOut = computeMinTokensOut(quotedTokensOut, args.slippageBps);
 
-    const data = encodeFunctionData({
-      abi: BotFeeRouterAbi,
-      functionName: "buyWithBotFee",
-      args: [
-        args.token,
-        args.usdcAmount,
-        minTokensOut,
-        args.referrer ?? ZERO_ADDRESS,
-      ],
-    });
+    const data = permit
+      ? encodeFunctionData({
+          abi: BotFeeRouterAbi,
+          functionName: "buyWithBotFeePermit",
+          args: [
+            args.token,
+            args.usdcAmount,
+            minTokensOut,
+            referrer,
+            permit.deadline,
+            permit.v,
+            permit.r,
+            permit.s,
+          ],
+        })
+      : encodeFunctionData({
+          abi: BotFeeRouterAbi,
+          functionName: "buyWithBotFee",
+          args: [args.token, args.usdcAmount, minTokensOut, referrer],
+        });
     const estimated = await publicClient.estimateGas({
       account: args.trader,
       to: router,
@@ -581,13 +800,13 @@ export const executeBuy = async (
 };
 
 /**
- * Execute a sell through `BotFeeRouter.sellWithBotFee`.
+ * Execute a sell through `BotFeeRouter.sellWithBotFee[Permit]`.
  *
- * Symmetric to `executeBuy`: simulate → minUsdcOut → ensure token
- * allowance ≥ `tokenAmount` → submit. The simulation already accounts
- * for the bot fee skim, so `minUsdcOut` is the floor on the user's
- * net receipt — the spec's "never submit with minUsdcOut=0" invariant
- * is the reason this path exists.
+ * Permit-first ladder symmetric to `executeBuy`. Token clones inherit
+ * OZ `ERC20Permit` so the permit branch is the default; pre-permit
+ * vintages (or a domain-separator drift) fall back to the legacy
+ * `approve` path. `minUsdcOut` is the floor on the user's net receipt
+ * either way — never submit with `minUsdcOut = 0`.
  */
 export const executeSell = async (
   env: Pick<Env, "HYPEREVM_RPC_URL" | "BOT_FEE_ROUTER_ADDRESS">,
@@ -599,42 +818,84 @@ export const executeSell = async (
   const publicClient = buildPublicClient(env);
   const walletClient = buildWalletClient(env, args.privateKey);
   const router = asHex(routerAddr) as Address;
+  const referrer = args.referrer ?? ZERO_ADDRESS;
+  const tokenAddr = args.token as Address;
 
   try {
-    await ensureAllowance(
-      publicClient,
-      walletClient,
-      args.token as Address,
-      args.trader,
-      router,
-      args.tokenAmount,
-    );
+    const existingAllowance = (await publicClient.readContract({
+      address: tokenAddr,
+      abi: ERC20_ABI,
+      functionName: "allowance",
+      args: [args.trader as Address, router],
+    })) as bigint;
 
-    const sim = await publicClient.simulateContract({
-      address: router,
-      abi: BotFeeRouterAbi,
-      functionName: "sellWithBotFee",
-      args: [
-        args.token,
-        args.tokenAmount,
-        0n,
-        args.referrer ?? ZERO_ADDRESS,
-      ],
-      account: args.trader,
-    });
+    let permit: PermitSignature | null = null;
+    if (existingAllowance < args.tokenAmount) {
+      permit = await tryPermit(publicClient, args.privateKey, {
+        token: args.token,
+        owner: args.trader,
+        spender: router as Hex,
+        deadline: permitDeadline(),
+      });
+      if (!permit) {
+        await ensureAllowance(
+          publicClient,
+          walletClient,
+          tokenAddr,
+          args.trader,
+          router,
+          args.tokenAmount,
+        );
+      }
+    }
+
+    const sim = permit
+      ? await publicClient.simulateContract({
+          address: router,
+          abi: BotFeeRouterAbi,
+          functionName: "sellWithBotFeePermit",
+          args: [
+            args.token,
+            args.tokenAmount,
+            0n,
+            referrer,
+            permit.deadline,
+            permit.v,
+            permit.r,
+            permit.s,
+          ],
+          account: args.trader,
+        })
+      : await publicClient.simulateContract({
+          address: router,
+          abi: BotFeeRouterAbi,
+          functionName: "sellWithBotFee",
+          args: [args.token, args.tokenAmount, 0n, referrer],
+          account: args.trader,
+        });
     const quotedUsdcOut = sim.result;
     const minUsdcOut = computeMinUsdcOut(quotedUsdcOut, args.slippageBps);
 
-    const data = encodeFunctionData({
-      abi: BotFeeRouterAbi,
-      functionName: "sellWithBotFee",
-      args: [
-        args.token,
-        args.tokenAmount,
-        minUsdcOut,
-        args.referrer ?? ZERO_ADDRESS,
-      ],
-    });
+    const data = permit
+      ? encodeFunctionData({
+          abi: BotFeeRouterAbi,
+          functionName: "sellWithBotFeePermit",
+          args: [
+            args.token,
+            args.tokenAmount,
+            minUsdcOut,
+            referrer,
+            permit.deadline,
+            permit.v,
+            permit.r,
+            permit.s,
+          ],
+        })
+      : encodeFunctionData({
+          abi: BotFeeRouterAbi,
+          functionName: "sellWithBotFee",
+          args: [args.token, args.tokenAmount, minUsdcOut, referrer],
+        });
     const estimated = await publicClient.estimateGas({
       account: args.trader,
       to: router,

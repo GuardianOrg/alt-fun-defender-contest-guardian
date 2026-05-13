@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encodeAbiParameters, encodeErrorResult, parseAbi } from "viem";
+import {
+  domainSeparator,
+  encodeAbiParameters,
+  encodeErrorResult,
+  parseAbi,
+  recoverTypedDataAddress,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 import {
   awaitReceipt,
@@ -8,10 +15,12 @@ import {
   computeMinUsdcOut,
   explorerTxUrl,
   renderExecutionError,
+  signPermitForRouter,
   simulateBuyWithBotFee,
   simulateSellWithBotFee,
   usdcRawToNumber,
 } from "../../lib/trade.js";
+import { HYPER_EVM, USDC_ADDRESS } from "@launchpad/shared";
 
 const RPC_URL = "https://rpc.test.local";
 const ROUTER = "0x4444444444444444444444444444444444444444";
@@ -538,5 +547,230 @@ describe("explorerTxUrl", () => {
     ).toBe(
       "https://hyperevmscan.io/tx/0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
     );
+  });
+});
+
+describe("signPermitForRouter", () => {
+  // Deterministic dev key — never used outside tests. The matching EOA
+  // address is what we assert against `recoverTypedDataAddress`.
+  const PRIVATE_KEY =
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
+  const OWNER = privateKeyToAccount(PRIVATE_KEY).address;
+  const SPENDER = "0xB2b2d9c0c837a723fC27C27e097B384400796947" as const;
+  const TOKEN_NAME = "Test USDC";
+  const NONCE = 7n;
+
+  /** Selector-aware router for the three reads `signPermitForRouter` makes. */
+  const makeFetchRouter = (opts: {
+    name?: string;
+    nonce?: bigint;
+    domainSep?: `0x${string}`;
+    revertOnNonces?: boolean;
+  }) =>
+    async (_input: unknown, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(init?.body as string) as {
+        method: string;
+        params: [{ data: string }, string];
+      };
+      if (body.method !== "eth_call") {
+        throw new Error(`unexpected RPC method ${body.method}`);
+      }
+      const selector = body.params[0].data.slice(0, 10).toLowerCase();
+      // name()
+      if (selector === "0x06fdde03") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: encodeAbiParameters(
+              [{ type: "string" }],
+              [opts.name ?? TOKEN_NAME],
+            ),
+          }),
+          { status: 200 },
+        );
+      }
+      // nonces(address)
+      if (selector === "0x7ecebe00") {
+        if (opts.revertOnNonces) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              error: {
+                code: 3,
+                message: "execution reverted",
+                data: "0x",
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: encodeAbiParameters(
+              [{ type: "uint256" }],
+              [opts.nonce ?? NONCE],
+            ),
+          }),
+          { status: 200 },
+        );
+      }
+      // DOMAIN_SEPARATOR()
+      if (selector === "0x3644e515") {
+        const sep =
+          opts.domainSep ??
+          ("0x0000000000000000000000000000000000000000000000000000000000000000" as `0x${string}`);
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: sep,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`unhandled selector ${selector}`);
+    };
+
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("signs a permit whose signature recovers to the owner EOA", async () => {
+    // Token uses OZ's `ERC20Permit` (version "1"); compute the matching
+    // on-chain DOMAIN_SEPARATOR so the in-sign cross-check passes.
+    const TOKEN = "0x1111111111111111111111111111111111111111" as const;
+    const expectedDomain = domainSeparator({
+      domain: {
+        name: TOKEN_NAME,
+        version: "1",
+        chainId: HYPER_EVM.id,
+        verifyingContract: TOKEN,
+      },
+    });
+    fetchSpy.mockImplementation(
+      makeFetchRouter({ domainSep: expectedDomain }) as never,
+    );
+
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: "https://rpc.test" });
+    const deadline = 9_999_999_999n;
+    const value = 100n * 10n ** 6n;
+    const sig = await signPermitForRouter(client, PRIVATE_KEY, {
+      token: TOKEN,
+      owner: OWNER,
+      spender: SPENDER,
+      value,
+      deadline,
+    });
+
+    expect(sig.value).toBe(value);
+    expect(sig.deadline).toBe(deadline);
+    expect(sig.v === 27 || sig.v === 28).toBe(true);
+    expect(sig.r.startsWith("0x")).toBe(true);
+    expect(sig.s.startsWith("0x")).toBe(true);
+
+    // Reassemble the signature and recover the signer — must be the
+    // owner EOA, otherwise `permit()` would fail `ecrecover` on-chain.
+    const yParity = sig.v === 27 ? 0 : 1;
+    const signatureHex =
+      `${sig.r}${sig.s.slice(2)}${yParity === 0 ? "1b" : "1c"}` as `0x${string}`;
+    const recovered = await recoverTypedDataAddress({
+      domain: {
+        name: TOKEN_NAME,
+        version: "1",
+        chainId: HYPER_EVM.id,
+        verifyingContract: TOKEN,
+      },
+      types: {
+        Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+        ],
+      },
+      primaryType: "Permit",
+      message: {
+        owner: OWNER,
+        spender: SPENDER,
+        value,
+        nonce: NONCE,
+        deadline,
+      },
+      signature: signatureHex,
+    });
+    expect(recovered.toLowerCase()).toBe(OWNER.toLowerCase());
+  });
+
+  it("uses version \"2\" for USDC (FiatTokenV2_2)", async () => {
+    // On-chain separator must match the version-2 domain for USDC,
+    // otherwise the cross-check throws — which is what this test
+    // verifies a healthy USDC path does NOT do.
+    const expectedDomain = domainSeparator({
+      domain: {
+        name: TOKEN_NAME,
+        version: "2",
+        chainId: HYPER_EVM.id,
+        verifyingContract: USDC_ADDRESS as `0x${string}`,
+      },
+    });
+    fetchSpy.mockImplementation(
+      makeFetchRouter({ domainSep: expectedDomain }) as never,
+    );
+
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: "https://rpc.test" });
+    const sig = await signPermitForRouter(client, PRIVATE_KEY, {
+      token: USDC_ADDRESS as `0x${string}`,
+      owner: OWNER,
+      spender: SPENDER,
+      value: 1n,
+      deadline: 1n,
+    });
+    expect(sig.v === 27 || sig.v === 28).toBe(true);
+  });
+
+  it("throws when the on-chain DOMAIN_SEPARATOR does not match the computed one", async () => {
+    // Wrong sep (zero hash) → cross-check throws — the callers in
+    // `executeBuy` / `executeSell` catch this and fall back to approve.
+    fetchSpy.mockImplementation(
+      makeFetchRouter({
+        domainSep:
+          "0xdeadbeef00000000000000000000000000000000000000000000000000000000" as `0x${string}`,
+      }) as never,
+    );
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: "https://rpc.test" });
+    await expect(
+      signPermitForRouter(client, PRIVATE_KEY, {
+        token: "0x1111111111111111111111111111111111111111",
+        owner: OWNER,
+        spender: SPENDER,
+        value: 1n,
+        deadline: 1n,
+      }),
+    ).rejects.toThrow(/domain mismatch/i);
+  });
+
+  it("throws when `nonces` reverts (pre-permit token vintage)", async () => {
+    fetchSpy.mockImplementation(
+      makeFetchRouter({ revertOnNonces: true }) as never,
+    );
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: "https://rpc.test" });
+    await expect(
+      signPermitForRouter(client, PRIVATE_KEY, {
+        token: "0x2222222222222222222222222222222222222222",
+        owner: OWNER,
+        spender: SPENDER,
+        value: 1n,
+        deadline: 1n,
+      }),
+    ).rejects.toThrow();
   });
 });
