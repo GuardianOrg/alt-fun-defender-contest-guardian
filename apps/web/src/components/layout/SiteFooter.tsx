@@ -1,20 +1,15 @@
+import { useRef, useState } from "react";
+
+import DocsMenu from "./DocsMenu";
 import styles from "./SiteFooter.module.css";
 import DevSimulator from "../dev/DevSimulator";
 
 const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
-const WHITEPAPER_URL = "/whitepaper.pdf";
-const AUDIT_URL = "/audit.pdf";
-// Legal docs are rendered from `apps/web/legal-source/*.md` by
-// `scripts/build-legal-docs.mjs` and copied through Vite's `public/`
-// pipeline. Keep these constants in sync with the output filenames if
-// the source files are ever renamed.
-const TERMS_URL = "/altfun-terms-of-use.html";
-const PRIVACY_URL = "/altfun-privacy-notice.html";
-const DMCA_URL = "/altfun-dmca-policy.html";
 
-const DocIcon = () => (
+const ChevronDownIcon = () => (
   <svg
+    className={styles.chevron}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -23,25 +18,7 @@ const DocIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="8" y1="13" x2="16" y2="13" />
-    <line x1="8" y1="17" x2="16" y2="17" />
-  </svg>
-);
-
-const ShieldCheckIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M9 12l2 2 4-4" />
-    <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
+    <polyline points="6 9 12 15 18 9" />
   </svg>
 );
 
@@ -59,74 +36,43 @@ const TelegramIcon = () => (
 
 /**
  * Thin global footer rendered as the last flex child of the app layout.
- * Three groups keep the row scannable in a tight space:
- *   - Left: Whitepaper + Audit Report (icon + label, distinct artifacts)
- *   - Center: Terms / Privacy / DMCA (text-only legal links)
+ * Two groups keep the row scannable in a tight space:
+ *   - Left: a single "Documents" dropdown trigger that consolidates
+ *     Whitepaper / Audit Report / Terms / Privacy / DMCA into one popover
+ *     to reduce footer noise. See `DocsMenu` for the menu contents.
  *   - Right: X + Telegram (icon-only socials)
  * Sticky at the bottom of the viewport on every route — see
  * `SiteFooter.module.css` for the layout/positioning rationale.
  */
 export default function SiteFooter() {
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
+  const docsTriggerWrapRef = useRef<HTMLDivElement>(null);
+
   return (
     <footer className={styles.footer}>
       <div className={styles.docs}>
-        <a
-          className={styles.docLink}
-          href={WHITEPAPER_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <DocIcon />
-          Whitepaper
-        </a>
-        <span className={styles.divider} aria-hidden="true">
-          ·
-        </span>
-        <a
-          className={styles.docLink}
-          href={AUDIT_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <ShieldCheckIcon />
-          Audit Report
-        </a>
+        <div ref={docsTriggerWrapRef} className={styles.docsTriggerWrap}>
+          <button
+            type="button"
+            className={styles.docsTrigger}
+            onClick={() => setDocsMenuOpen((prev) => !prev)}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+            aria-label="Documents menu"
+          >
+            <span>Documents</span>
+            <ChevronDownIcon />
+          </button>
+          {docsMenuOpen && (
+            <DocsMenu
+              anchorRef={docsTriggerWrapRef}
+              onClose={() => setDocsMenuOpen(false)}
+            />
+          )}
+        </div>
         {/* Dev-only simulator trigger — returns `null` outside
          * `import.meta.env.DEV` so production renders nothing here. */}
         <DevSimulator />
-      </div>
-
-      <div className={styles.legal}>
-        <a
-          className={styles.legalLink}
-          href={TERMS_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Terms
-        </a>
-        <span className={styles.divider} aria-hidden="true">
-          ·
-        </span>
-        <a
-          className={styles.legalLink}
-          href={PRIVACY_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Privacy
-        </a>
-        <span className={styles.divider} aria-hidden="true">
-          ·
-        </span>
-        <a
-          className={styles.legalLink}
-          href={DMCA_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          DMCA
-        </a>
       </div>
 
       <div className={styles.socials}>
