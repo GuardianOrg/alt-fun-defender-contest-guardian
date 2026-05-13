@@ -21,6 +21,7 @@ const API_BASE = "https://api.test.local";
 
 const TOKEN_ADDR = "0x1111111111111111111111111111111111111111";
 const WALLET_ADDR = "0x2222222222222222222222222222222222222222";
+const LT_ADDR = "0x3333333333333333333333333333333333333333";
 
 const callbackUpdate = (data: string) => ({
   update_id: 1,
@@ -605,5 +606,148 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       /Unable to estimate proceeds|try again/i,
     );
     expect(send).toBeUndefined();
+  });
+});
+
+/**
+ * LT buffer preflight (AGENTS.md `/sell` → "Buffer-limited sells").
+ * Before tx construction the handler reads `baseAssetBalance()` on the
+ * backing LT. When the buffer cannot cover the expected proceeds, the
+ * sell must surface the cap and require an explicit confirm on the
+ * reduced amount — never silently truncate, never let the user submit
+ * a sell that will revert with `InsufficientBalance` on-chain.
+ */
+describe("Sell flow (LT buffer preflight)", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  /**
+   * Wire the api + RPC mocks with three call shapes:
+   *  - `/api/v1/tokens/:addr` → token row including `ltPair`
+   *  - `eth_call` to `LT_ADDR` → `baseAssetBalance()` returning `bufferRaw`
+   *  - any other `eth_call` → `tokenBalance` (covers `balanceOf` reads)
+   */
+  const wireMocks = (
+    tokenBalance: bigint,
+    bufferRaw: bigint,
+    priceUsd: number,
+  ): void => {
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              address: TOKEN_ADDR,
+              name: "Test Token",
+              ticker: "TEST",
+              priceUsd,
+              mcapUsd: 5000,
+              change24h: 0,
+              ltChange24h: null,
+              curveFilled: 30,
+              status: "curve",
+              ltPair: LT_ADDR,
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(RPC_URL)) {
+        const body = JSON.parse(
+          (init as RequestInit).body as string,
+        ) as { params: [{ to: string; data: string }, string] };
+        const to = body.params[0].to.toLowerCase();
+        const data = body.params[0].data.toLowerCase();
+        if (to === LT_ADDR.toLowerCase() && data.startsWith("0x1bc865d6")) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: `0x${bufferRaw.toString(16).padStart(64, "0")}`,
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${tokenBalance.toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  };
+
+  it("Sell All caps the trade and requires explicit confirm when buffer < proceeds", async () => {
+    const h = await harnessWithWallet();
+    // 100k tokens × $0.001 = $100 expected proceeds. LT buffer holds
+    // only $40 in USDC (raw 6dp) — well above the $12 minimum, so the
+    // handler must reduce the sell and surface a confirm rather than
+    // reject or silently truncate.
+    wireMocks(100_000n * 10n ** 18n, 40_000_000n, 0.001);
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    const text = String(send!.body.text);
+    expect(text).toMatch(/Buffer low/i);
+    // The cap is the buffer ($40) × BUFFER_CAP_SAFETY (0.99) = $39.60.
+    expect(text).toContain("39.60");
+    // Original proceeds preserved in the "reduced from" copy
+    // ($100 holding × 0.99 combined-fee heuristic = $99 net).
+    expect(text).toContain("99.00");
+    // Still presents a Confirm button — the user must approve the
+    // reduced amount explicitly.
+    const keyboard = (
+      send!.body.reply_markup as { inline_keyboard?: unknown[][] }
+    )?.inline_keyboard ?? [];
+    const btns = keyboard.flat() as Array<{ text: string }>;
+    expect(btns.some((b) => b.text.includes("Confirm"))).toBe(true);
+  });
+
+  it("Sell 20 rejects with retry copy when buffer can't even support the minimum", async () => {
+    const h = await harnessWithWallet();
+    // Plenty of holding ($100) — but buffer is only $5, below the $12
+    // minimum sell after the safety factor. Must reject outright with
+    // the transient-replenish copy rather than stage a sub-minimum sell.
+    wireMocks(100_000n * 10n ** 18n, 5_000_000n, 0.001);
+
+    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    expect(answer!.body.show_alert).toBe(true);
+    expect(String(answer!.body.text)).toMatch(/buffer too low|replenish|retry/i);
+    // No tx confirmation was staged.
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeUndefined();
+  });
+
+  it("Sell All proceeds normally when buffer comfortably exceeds proceeds", async () => {
+    const h = await harnessWithWallet();
+    // $100 proceeds, $10k buffer — preflight is a no-op. Confirm message
+    // must NOT mention buffer cap.
+    wireMocks(100_000n * 10n ** 18n, 10_000_000_000n, 0.001);
+
+    await h.run(callbackUpdate(`btsa:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    const text = String(send!.body.text);
+    expect(text).toContain("Ready to sell");
+    expect(text).not.toMatch(/Buffer low/i);
   });
 });

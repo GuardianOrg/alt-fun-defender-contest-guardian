@@ -17,6 +17,7 @@ const baseToken = (overrides: Partial<TokenInfo> = {}): TokenInfo => ({
   volume24hUsd: 12_345,
   curveFilled: 30,
   status: "curve",
+  ltPair: null,
   ...overrides,
 });
 
