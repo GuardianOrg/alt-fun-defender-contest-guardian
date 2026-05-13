@@ -208,7 +208,8 @@ const isTokenInfo = (v: unknown): v is TokenInfo => {
     isOptionalNumber(obj.mcapUsd) &&
     isOptionalNumber(obj.change24h) &&
     isOptionalNumber(obj.ltChange24h) &&
-    isOptionalNumber(obj.curveFilled)
+    isOptionalNumber(obj.curveFilled) &&
+    typeof obj.status === "string"
   );
 };
 
