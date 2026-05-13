@@ -2,12 +2,11 @@ import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { fetchBalances, fetchPortfolio, isAddress } from "../lib/api.js";
+import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_PAGE_CALLBACK_CMD,
   buildPositionsPageKeyboard,
-  formatPositionsResponse,
-  joinPositions,
+  formatBotPositionsResponse,
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
@@ -31,25 +30,13 @@ const renderPage = async (
   wallet: string,
   page: number,
 ): Promise<RenderedPage | { outage: true } | { invalid: true }> => {
-  const [portfolioRes, balancesRes] = await Promise.all([
-    fetchPortfolio(env, wallet),
-    fetchBalances(env, wallet),
-  ]);
-  if (
-    (portfolioRes.ok === false && portfolioRes.kind === "invalid_address") ||
-    (balancesRes.ok === false && balancesRes.kind === "invalid_address")
-  ) {
+  const res = await fetchBotPositions(env, wallet);
+  if (res.ok === false && res.kind === "invalid_address") {
     return { invalid: true };
   }
-  if (!portfolioRes.ok || !balancesRes.ok) return { outage: true };
+  if (!res.ok) return { outage: true };
 
-  const joined = joinPositions(
-    portfolioRes.data.positions,
-    balancesRes.data,
-  );
-  const chunks = formatPositionsResponse(joined, {
-    approximate: portfolioRes.data.approximate,
-  });
+  const chunks = formatBotPositionsResponse(res.data);
   // Clamp the requested page — positions may have shrunk since the
   // button was rendered, in which case `page` could exceed the new
   // chunk count.

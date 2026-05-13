@@ -3,27 +3,42 @@ import { describe, it, expect } from "vitest";
 import {
   buildPositionsPageKeyboard,
   chunkPositionsMessage,
+  formatBotPositionsResponse,
   formatFixed,
-  formatPositionLine,
-  formatPositionsResponse,
   formatTokenAmount,
   formatUsdc,
-  joinPositions,
   POSITIONS_PAGE_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
-import type { BalanceEntry, PortfolioPosition } from "../../lib/api.js";
+import type {
+  BotOpenPosition,
+  BotPositionsResponse,
+  BotRealisedPosition,
+} from "../../lib/api.js";
 
-const balance = (overrides: Partial<BalanceEntry> = {}): BalanceEntry => ({
-  address: "0x1111111111111111111111111111111111111111",
-  name: "Token One",
+const openPos = (
+  overrides: Partial<BotOpenPosition> = {},
+): BotOpenPosition => ({
+  token: "0x1111111111111111111111111111111111111111",
   ticker: "ONE",
-  ltPair: "0xaaaa",
-  leverage: 2,
-  underlying: "HYPE",
-  ltDirection: "long",
-  balance: "1000000000000000000",
+  balance: "1500000000000000000",
+  costBasisUsdc: "20000000",
+  currentValueUsdc: "25000000",
+  unrealisedPnlUsdc: "5000000",
+  unrealisedPnlPct: 25,
+  ...overrides,
+});
+
+const realisedPos = (
+  overrides: Partial<BotRealisedPosition> = {},
+): BotRealisedPosition => ({
+  token: "0x2222222222222222222222222222222222222222",
+  ticker: "TWO",
+  totalCostUsdc: "10000000",
+  totalProceedsUsdc: "15000000",
+  realisedPnlUsdc: "5000000",
+  realisedPnlPct: 50,
   ...overrides,
 });
 
@@ -71,92 +86,6 @@ describe("formatUsdc / formatTokenAmount", () => {
   });
 });
 
-describe("joinPositions", () => {
-  it("attaches cost basis by lowercased address", () => {
-    const portfolio: PortfolioPosition[] = [
-      {
-        tokenAddress: "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        tokenAmount: "0",
-        costBasisUsdc: "50000000",
-      },
-    ];
-    const balances = [
-      balance({
-        address: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        balance: "2000000000000000000",
-      }),
-    ];
-    const joined = joinPositions(portfolio, balances);
-    expect(joined).toHaveLength(1);
-    expect(joined[0]).toMatchObject({
-      label: "Token One (ONE)",
-      amount: "2000000000000000000",
-      costBasisUsdc: "50000000",
-    });
-  });
-
-  it("falls back to 0 cost basis for direct-transfer-only positions", () => {
-    const balances = [balance()];
-    const joined = joinPositions([], balances);
-    expect(joined[0]!.costBasisUsdc).toBe("0");
-  });
-
-  it("ignores portfolio entries with no matching balance (filtered Alt-Fun-only)", () => {
-    const portfolio: PortfolioPosition[] = [
-      {
-        tokenAddress: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        tokenAmount: "0",
-        costBasisUsdc: "999",
-      },
-    ];
-    expect(joinPositions(portfolio, [])).toEqual([]);
-  });
-});
-
-describe("formatPositionLine", () => {
-  it("renders name, ticker, formatted amount, and formatted cost basis", () => {
-    const line = formatPositionLine({
-      address: "0xaaa",
-      label: "Token One (ONE)",
-      amount: "1500000000000000000",
-      costBasisUsdc: "20000000",
-    });
-    expect(line).toBe("• Token One (ONE)\n  1.5 · cost basis $20");
-  });
-
-  it("truncates pathologically long labels so the line still fits Telegram's limit", () => {
-    const giantLabel = "A".repeat(TELEGRAM_MESSAGE_LIMIT + 200);
-    const line = formatPositionLine({
-      address: "0xaaa",
-      label: giantLabel,
-      amount: "1000000000000000000",
-      costBasisUsdc: "1000000",
-    });
-    expect(line.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-    expect(line.endsWith("· cost basis $1")).toBe(true);
-    expect(line).toContain("…");
-  });
-
-  it("respects a tighter explicit limit (paginated path reserves footer budget)", () => {
-    // formatPositionsResponse passes TELEGRAM_MESSAGE_LIMIT - 24 so the
-    // line + footer stays under 4096. Lines pre-truncated to the chunker's
-    // actual ceiling don't slip past into single-line oversized chunks.
-    const TIGHT = 200;
-    const longLabel = "A".repeat(500);
-    const line = formatPositionLine(
-      {
-        address: "0xaaa",
-        label: longLabel,
-        amount: "1000000000000000000",
-        costBasisUsdc: "1000000",
-      },
-      TIGHT,
-    );
-    expect(line.length).toBeLessThanOrEqual(TIGHT);
-    expect(line).toContain("…");
-  });
-});
-
 describe("chunkPositionsMessage", () => {
   it("packs lines under the limit into a single chunk", () => {
     const chunks = chunkPositionsMessage("HEAD", ["a", "b", "c"], 100);
@@ -176,39 +105,90 @@ describe("chunkPositionsMessage", () => {
   });
 });
 
-describe("formatPositionsResponse", () => {
-  it("returns an empty-state message when no positions", () => {
-    expect(formatPositionsResponse([], { approximate: false })).toEqual([
-      "No open positions for this wallet.",
-    ]);
+describe("formatBotPositionsResponse", () => {
+  it("returns an empty-state message when both sections are empty", () => {
+    const out = formatBotPositionsResponse({ open: [], realised: [] });
+    expect(out).toEqual(["No open positions for this wallet."]);
   });
 
-  it("includes header with count when positions present", () => {
-    const joined = joinPositions([], [balance()]);
-    const out = formatPositionsResponse(joined, { approximate: false });
-    expect(out[0]).toContain("Open positions (1)");
-    expect(out[0]).toContain("Token One (ONE)");
+  it("renders an Open header, ticker, balance, cost, value, signed PnL, and percent", () => {
+    const out = formatBotPositionsResponse({
+      open: [openPos()],
+      realised: [],
+    });
+    const joined = out.join("\n");
+    expect(joined).toContain("Open positions (1)");
+    expect(joined).toContain("ONE");
+    expect(joined).toContain("1.5");
+    expect(joined).toContain("cost $20");
+    expect(joined).toContain("value $25");
+    expect(joined).toContain("+$5");
+    expect(joined).toContain("+25.00%");
   });
 
-  it("appends a truncation note when approximate=true", () => {
-    const joined = joinPositions([], [balance()]);
-    const out = formatPositionsResponse(joined, { approximate: true });
-    expect(out.join("\n")).toContain("List truncated at 1000 positions");
+  it("renders a Realised header with proceeds, cost, signed PnL, percent", () => {
+    const out = formatBotPositionsResponse({
+      open: [],
+      realised: [realisedPos()],
+    });
+    const joined = out.join("\n");
+    expect(joined).toContain("Realised positions (1)");
+    expect(joined).toContain("TWO");
+    expect(joined).toContain("cost $10");
+    expect(joined).toContain("proceeds $15");
+    expect(joined).toContain("realised +$5");
+    expect(joined).toContain("+50.00%");
+  });
+
+  it("renders a negative PnL with the Unicode minus sign and floored percent", () => {
+    const out = formatBotPositionsResponse({
+      open: [
+        openPos({
+          unrealisedPnlUsdc: "-1234567",
+          unrealisedPnlPct: -12.349,
+        }),
+      ],
+      realised: [],
+    });
+    const joined = out.join("\n");
+    expect(joined).toContain("−$1.23");
+    expect(joined).toContain("−12.34%");
+  });
+
+  it("renders an em-dash when percent is null (cost basis was zero)", () => {
+    const out = formatBotPositionsResponse({
+      open: [
+        openPos({
+          costBasisUsdc: "0",
+          unrealisedPnlPct: null,
+        }),
+      ],
+      realised: [],
+    });
+    expect(out.join("\n")).toContain("(—)");
   });
 
   it("chunks output into <=4096-char Telegram messages for large lists", () => {
-    const many: BalanceEntry[] = Array.from({ length: 250 }, (_, i) =>
-      balance({
-        address: `0x${i.toString(16).padStart(40, "0")}`,
-        name: `Long Token Name Number ${i}`,
+    const many: BotOpenPosition[] = Array.from({ length: 250 }, (_, i) =>
+      openPos({
+        token: `0x${i.toString(16).padStart(40, "0")}`,
         ticker: `LT${i}`,
       }),
     );
-    const joined = joinPositions([], many);
-    const out = formatPositionsResponse(joined, { approximate: false });
+    const out = formatBotPositionsResponse({ open: many, realised: [] });
     expect(out.length).toBeGreaterThan(1);
     for (const chunk of out)
       expect(chunk.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it("includes both sections when both have entries", () => {
+    const out = formatBotPositionsResponse({
+      open: [openPos()],
+      realised: [realisedPos()],
+    });
+    const joined = out.join("\n");
+    expect(joined).toContain("Open positions (1)");
+    expect(joined).toContain("Realised positions (1)");
   });
 });
 
@@ -240,11 +220,6 @@ describe("renderPaginatedPage", () => {
   });
 
   it("paginated body + footer fits within TELEGRAM_MESSAGE_LIMIT for max-sized chunks", () => {
-    // chunkPositionsMessage now caps chunks below TELEGRAM_MESSAGE_LIMIT to
-    // reserve PAGINATION_FOOTER_BUDGET bytes for the trailing `Page X of Y`
-    // footer. Simulate a multi-page output where each chunk is at the
-    // tightest valid pre-footer size and confirm renderPaginatedPage still
-    // emits a string that fits inside Telegram's hard 4096-char ceiling.
     const maxBody = "x".repeat(TELEGRAM_MESSAGE_LIMIT - 24);
     const chunks = [maxBody, maxBody, maxBody];
     for (const page of [0, 1, 2]) {
@@ -254,18 +229,14 @@ describe("renderPaginatedPage", () => {
     }
   });
 
-  it("formatPositionsResponse chunks fit within the reserved budget so footer never overflows", () => {
-    // End-to-end check: feed enough positions to force multi-page output,
-    // then confirm every chunk + worst-case footer stays under the ceiling.
-    const many: BalanceEntry[] = Array.from({ length: 250 }, (_, i) =>
-      balance({
-        address: `0x${i.toString(16).padStart(40, "0")}`,
-        name: `Long Token Name Number ${i}`,
+  it("formatBotPositionsResponse chunks fit within the reserved footer budget", () => {
+    const many: BotOpenPosition[] = Array.from({ length: 250 }, (_, i) =>
+      openPos({
+        token: `0x${i.toString(16).padStart(40, "0")}`,
         ticker: `LT${i}`,
       }),
     );
-    const joined = joinPositions([], many);
-    const chunks = formatPositionsResponse(joined, { approximate: false });
+    const chunks = formatBotPositionsResponse({ open: many, realised: [] });
     expect(chunks.length).toBeGreaterThan(1);
     for (let i = 0; i < chunks.length; i++) {
       const rendered = renderPaginatedPage(chunks, i);
@@ -315,3 +286,6 @@ describe("buildPositionsPageKeyboard", () => {
     }
   });
 });
+
+const _typeShape: BotPositionsResponse = { open: [], realised: [] };
+void _typeShape;
