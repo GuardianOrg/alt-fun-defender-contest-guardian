@@ -11,4 +11,9 @@ describe("wrangler.json", () => {
     expect((botUsername as string).trim().length).toBeGreaterThan(0);
     expect(botUsername).toMatch(/^[A-Za-z0-9_]{5,32}$/);
   });
+
+  it("points API_BASE_URL at the public api.alt.fun host so prod traffic hits the canonical apex", () => {
+    const config = wrangler as { vars?: Record<string, unknown> };
+    expect(config.vars?.API_BASE_URL).toBe("https://api.alt.fun");
+  });
 });
