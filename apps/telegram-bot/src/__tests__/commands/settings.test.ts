@@ -133,7 +133,7 @@ describe("/settings command", () => {
       expect(labels).toContain("5%");
       expect(labels).toContain("Custom %");
       expect(labels).toContain("Default buy: $20");
-      expect(labels).toContain("Disable degen mode");
+      expect(labels).toContain("🟢 Degen mode");
     });
 
     it("rejects /settings in a group chat without leaking state", async () => {
@@ -192,19 +192,33 @@ describe("/settings command", () => {
       mockTelegramOk(fetchSpy);
       await h.run(callbackUpdate(SETTINGS_CALLBACK.degenToggle));
       expect((await readSession(h)).degenMode).toBe(false);
-      const offAck = capture(fetchSpy).find((c) =>
+      const offCalls = capture(fetchSpy);
+      const offAck = offCalls.find((c) =>
         c.url.includes("/answerCallbackQuery"),
       );
       expect(offAck!.body.text).toMatch(/disabled/i);
+      const offEdit = offCalls.find((c) => c.url.includes("/editMessageText"));
+      const offLabels = (
+        offEdit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard.flat().map((b) => b.text);
+      expect(offLabels).toContain("🔴 Degen mode");
+      expect(offLabels).not.toContain("🟢 Degen mode");
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(callbackUpdate(SETTINGS_CALLBACK.degenToggle, 3));
       expect((await readSession(h)).degenMode).toBe(true);
-      const onAck = capture(fetchSpy).find((c) =>
+      const onCalls = capture(fetchSpy);
+      const onAck = onCalls.find((c) =>
         c.url.includes("/answerCallbackQuery"),
       );
       expect(onAck!.body.text).toMatch(/enabled/i);
+      const onEdit = onCalls.find((c) => c.url.includes("/editMessageText"));
+      const onLabels = (
+        onEdit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard.flat().map((b) => b.text);
+      expect(onLabels).toContain("🟢 Degen mode");
+      expect(onLabels).not.toContain("🔴 Degen mode");
     });
   });
 
