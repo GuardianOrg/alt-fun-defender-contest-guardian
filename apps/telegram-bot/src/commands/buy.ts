@@ -6,7 +6,10 @@ import type { Bot } from "grammy";
 import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 
 import type { AppContext } from "../bot.js";
-import { buildBuyTokenKeyboard } from "../keyboards/buy-sell-token.js";
+import {
+  buildBuyTokenKeyboard,
+  normaliseDefaultBuyUsdc,
+} from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
@@ -137,9 +140,16 @@ const buyLookupConversation = async (
         : null;
 
     const cardText = renderBuyTokenCardText(token, usdcBalance);
+    const defaultBuyUsdc = normaliseDefaultBuyUsdc(
+      await conversation.external(
+        (outerCtx) => outerCtx.session.defaultBuyUsdc,
+      ),
+    );
     await msgCtx.reply(cardText, {
       parse_mode: "HTML",
-      reply_markup: { inline_keyboard: buildBuyTokenKeyboard(token.address) },
+      reply_markup: {
+        inline_keyboard: buildBuyTokenKeyboard(token.address, defaultBuyUsdc),
+      },
       link_preview_options: { is_disabled: true },
     });
     return;
@@ -296,7 +306,12 @@ const handleBuyRefresh = async (
   const cardText = renderBuyTokenCardText(tokenResult.data, usdcBalance);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
-    reply_markup: { inline_keyboard: buildBuyTokenKeyboard(tokenAddress) },
+    reply_markup: {
+      inline_keyboard: buildBuyTokenKeyboard(
+        tokenAddress,
+        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+      ),
+    },
     link_preview_options: { is_disabled: true },
   });
   await ctx.answerCallbackQuery({ text: "Refreshed" });
@@ -423,18 +438,21 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Buy 20 USDC
-  bot.callbackQuery(/^bt20:/, async (ctx) => {
+  // Buy <defaultBuyUsdc> USDC — resolves the amount from the live
+  // session value at click time so /settings changes apply even on a
+  // stale card. Same `normaliseDefaultBuyUsdc` used by the keyboard
+  // label, so the rendered button and the executed amount are
+  // guaranteed equal.
+  bot.callbackQuery(/^btd:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedBuy(ctx, parsed.args[0], MIN_USDC_BUY_AMOUNT).catch(
-      (err) => {
-        logger.error("buy 20 handler failed", { err });
-      },
-    );
+    const amount = normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc);
+    await handleFixedBuy(ctx, parsed.args[0], amount).catch((err) => {
+      logger.error("buy default handler failed", { err });
+    });
   });
 
   // Buy 100 USDC

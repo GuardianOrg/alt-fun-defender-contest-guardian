@@ -72,7 +72,7 @@ export interface SessionData {
 
 const DEFAULT_SESSION: SessionData = {
   slippageBps: 100,
-  defaultBuyUsdc: 50,
+  defaultBuyUsdc: 20,
   degenMode: false,
 };
 

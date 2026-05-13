@@ -6,7 +6,10 @@ import type { Bot } from "grammy";
 import { MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
 
 import type { AppContext } from "../bot.js";
-import { buildSellTokenKeyboard } from "../keyboards/buy-sell-token.js";
+import {
+  buildSellTokenKeyboard,
+  normaliseDefaultSellUsdc,
+} from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
@@ -351,9 +354,16 @@ const sellLookupConversation = async (
         : null;
 
     const cardText = renderSellTokenCardText(token, tokenBalance);
+    const defaultSellUsdc = normaliseDefaultSellUsdc(
+      await conversation.external(
+        (outerCtx) => outerCtx.session.defaultBuyUsdc,
+      ),
+    );
     await msgCtx.reply(cardText, {
       parse_mode: "HTML",
-      reply_markup: { inline_keyboard: buildSellTokenKeyboard(token.address) },
+      reply_markup: {
+        inline_keyboard: buildSellTokenKeyboard(token.address, defaultSellUsdc),
+      },
       link_preview_options: { is_disabled: true },
     });
     return;
@@ -556,7 +566,12 @@ const handleSellRefresh = async (
   const cardText = renderSellTokenCardText(tokenResult.data, tokenBalance);
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
-    reply_markup: { inline_keyboard: buildSellTokenKeyboard(tokenAddress) },
+    reply_markup: {
+      inline_keyboard: buildSellTokenKeyboard(
+        tokenAddress,
+        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
+      ),
+    },
     link_preview_options: { is_disabled: true },
   });
   await ctx.answerCallbackQuery({ text: "Refreshed" });
@@ -867,18 +882,21 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Sell 20 USDC
-  bot.callbackQuery(/^bts20:/, async (ctx) => {
+  // Sell <defaultBuyUsdc> USDC — resolves the target USDC amount from
+  // the live session value at click time, mirroring the buy-side
+  // /^btd:/ handler. Same `normaliseDefaultSellUsdc` used by the
+  // keyboard label so the rendered button and the executed target are
+  // provably equal.
+  bot.callbackQuery(/^btsd:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedSell(ctx, parsed.args[0], 20).catch(
-      (err) => {
-        logger.error("sell 20 handler failed", { err });
-      },
-    );
+    const amount = normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc);
+    await handleFixedSell(ctx, parsed.args[0], amount).catch((err) => {
+      logger.error("sell default handler failed", { err });
+    });
   });
 
   // Sell All

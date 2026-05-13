@@ -258,7 +258,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`bt20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -270,8 +270,8 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 100_000_000n }); // $100
 
-    // bt20:<addr>
-    const callbackData = `bt20:${TOKEN_ADDR}`;
+    // btd:<addr>
+    const callbackData = `btd:${TOKEN_ADDR}`;
     await h.run(callbackUpdate(callbackData));
 
     const calls = capture(fetchSpy);
@@ -297,7 +297,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
 
-    await h.run(callbackUpdate(`bt20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -309,7 +309,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
   });
 
-  it("Degen mode: Buy 20 skips the Confirm keyboard and submits immediately", async () => {
+  it("Degen mode: Buy default skips the Confirm keyboard and submits immediately", async () => {
     const h = await harnessWithWallet();
     // Seed degen-mode = true on the user's session. The session adapter
     // hydrates this JSON on the next update.
@@ -317,7 +317,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       "session:7",
       JSON.stringify({
         slippageBps: 100,
-        defaultBuyUsdc: 50,
+        defaultBuyUsdc: 20,
         degenMode: true,
       }),
     );
@@ -333,7 +333,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     });
 
     try {
-      await h.run(callbackUpdate(`bt20:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
 
       const calls = capture(fetchSpy);
       const sends = calls.filter((c) => c.url.includes("/sendMessage"));
@@ -368,6 +368,30 @@ describe("Buy flow (st:b button → conversation)", () => {
     } finally {
       execSpy.mockRestore();
     }
+  });
+
+  it("btd callback uses the user's defaultBuyUsdc (e.g. $75) from the live session", async () => {
+    const h = await harnessWithWallet();
+    // Pre-seed the session with a non-default buy amount.
+    await h.kv.put(
+      "session:7",
+      JSON.stringify({
+        slippageBps: 100,
+        defaultBuyUsdc: 75,
+        degenMode: false,
+      }),
+    );
+    mockTokenAndRpc(fetchSpy, { usdcBalance: 500_000_000n }); // $500
+
+    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    const text = String(send!.body.text);
+    expect(text).toContain("Ready to buy");
+    expect(text).toContain("75");
+    expect(text).not.toContain("$20");
   });
 
   it("Refresh callback re-fetches data and edits the card in-place", async () => {

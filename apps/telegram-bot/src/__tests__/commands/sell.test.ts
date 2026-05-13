@@ -202,7 +202,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 0n });
 
-    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -218,7 +218,7 @@ describe("Sell flow (st:s button → conversation)", () => {
       priceUsd: 0.001,
     });
 
-    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -433,7 +433,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     // simulation must win.
     wireMocks(100_000n * 10n ** 18n, 5_000_000n /* $5 */, 0.001);
 
-    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -466,7 +466,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     // Min ($12) clears, target ($20) doesn't.
     wireMocks(100_000n * 10n ** 18n, 15_000_000n /* $15 */, 1);
 
-    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -533,7 +533,7 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -724,7 +724,7 @@ describe("Sell flow (LT buffer preflight)", () => {
     // the transient-replenish copy rather than stage a sub-minimum sell.
     wireMocks(100_000n * 10n ** 18n, 5_000_000n, 0.001);
 
-    await h.run(callbackUpdate(`bts20:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btsd:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
