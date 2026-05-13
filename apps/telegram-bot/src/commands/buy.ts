@@ -19,6 +19,7 @@ import {
   submitBuy,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
+import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
@@ -168,8 +169,8 @@ const buyCustomConversation = async (
       return;
     }
 
-    const amount = parseFloat(text.replace(/[$,]/g, ""));
-    if (isNaN(amount) || amount <= 0) {
+    const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
+    if (amount === null) {
       await msgCtx.reply(
         `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
       );

@@ -16,6 +16,7 @@ import {
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import { parseUserAmount } from "../lib/parse-number.js";
 
 const NO_USER_REPLY =
   "Settings require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
@@ -147,8 +148,14 @@ const customSlippageConversation = async (
       await ctx.reply(wrap(ctx, "Cancelled."));
       return;
     }
-    const pct = Number(text.replace(/%/g, "").trim());
-    if (!Number.isFinite(pct) || pct <= 0) {
+    // Use a generous outer bound here so a typo'd "1000%" still flows
+    // to the explicit `bps > MAX_SLIPPAGE_BPS` cap message below
+    // instead of the generic invalid-input reply. `parseUserAmount`
+    // already rejects `Infinity` / NaN / `> Number.MAX_SAFE_INTEGER`.
+    const pct = parseUserAmount(text.replace(/%/g, ""), {
+      max: MAX_SLIPPAGE_BPS,
+    });
+    if (pct === null) {
       await ctx.reply(
         wrap(ctx, "Send a positive number like `2` or `0.5`, or /cancel."),
       );
@@ -218,8 +225,8 @@ const buyAmountConversation = async (
       await ctx.reply(wrap(ctx, "Cancelled."));
       return;
     }
-    const value = Number(text.replace(/[$,]/g, "").trim());
-    if (!Number.isFinite(value) || value <= 0) {
+    const value = parseUserAmount(text, { max: MAX_BUY_USDC });
+    if (value === null) {
       await ctx.reply(
         wrap(ctx, "Send a positive USDC amount like `50`, or /cancel."),
       );
