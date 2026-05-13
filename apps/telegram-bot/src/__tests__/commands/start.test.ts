@@ -363,6 +363,70 @@ describe("/start command", () => {
     expect(answer!.body.text).toContain("No active wallet");
   });
 
+  it("Buy HYPE button points at MoonPay with a signed URL when MoonPay env is set", async () => {
+    const h = harnessWithRpc();
+    h.env.MOONPAY_API_KEY = "pk_test_abc";
+    h.env.MOONPAY_SECRET_KEY = "sk_test_xyz";
+    mockBoth(fetchSpy);
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const keyboard = (
+      send!.body.reply_markup as {
+        inline_keyboard: { text: string; url?: string }[][];
+      }
+    ).inline_keyboard;
+    const buyHypeButton = keyboard[0]?.[0];
+    expect(buyHypeButton?.text).toContain("Buy HYPE");
+    const url = new URL(buyHypeButton!.url!);
+    expect(url.host).toBe("buy.moonpay.com");
+    expect(url.searchParams.get("apiKey")).toBe("pk_test_abc");
+    expect(url.searchParams.get("currencyCode")).toBe("hype");
+    expect(url.searchParams.get("walletAddress")).toMatch(/^0x[0-9a-fA-F]{40}$/);
+    expect(url.searchParams.get("signature")).toBeTruthy();
+  });
+
+  it("Buy HYPE button falls back to Hyperliquid when MoonPay env is missing", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const keyboard = (
+      send!.body.reply_markup as {
+        inline_keyboard: { text: string; url?: string }[][];
+      }
+    ).inline_keyboard;
+    expect(keyboard[0]?.[0]?.url).toBe("https://app.hyperliquid.xyz");
+  });
+
+  it("Buy HYPE button honours an explicit BUY_HYPE_URL override", async () => {
+    const h = harnessWithRpc();
+    h.env.BUY_HYPE_URL = "https://override.example/funding";
+    // Even with MoonPay configured, BUY_HYPE_URL should win.
+    h.env.MOONPAY_API_KEY = "pk_test_abc";
+    h.env.MOONPAY_SECRET_KEY = "sk_test_xyz";
+    mockBoth(fetchSpy);
+
+    await h.run(startUpdate(7));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const keyboard = (
+      send!.body.reply_markup as {
+        inline_keyboard: { text: string; url?: string }[][];
+      }
+    ).inline_keyboard;
+    expect(keyboard[0]?.[0]?.url).toBe("https://override.example/funding");
+  });
+
   it("Wallet button sends wallet UI directly without prompting the user to type /wallet", async () => {
     const h = harnessWithRpc();
     mockBoth(fetchSpy);

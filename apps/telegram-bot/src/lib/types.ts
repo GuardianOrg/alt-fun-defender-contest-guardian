@@ -32,12 +32,38 @@ export interface Env {
    */
   HYPEREVM_RPC_URL?: string;
   /**
-   * Link surfaced on the `/start` welcome message as "Buy HYPE via
-   * Privy here". Optional — defaults to the Hyperliquid app where
-   * users can on-ramp HYPE today. Wire to the eventual Privy on-ramp
-   * URL when the bridge UX lands.
+   * Explicit override for the "Buy HYPE via Privy" button URL. When
+   * set, used as-is and the MoonPay builder below is skipped. Privy
+   * does not expose a public deeplink to its hosted funding page —
+   * the SDK is the only supported entry point (see
+   * https://docs.privy.io/wallets/funding/overview) — so this is the
+   * escape hatch for any alternative onramp we want to point users
+   * at (Transak, swapped.com, Hyperliquid deposit modal, etc.).
    */
   BUY_HYPE_URL?: string;
+  /**
+   * Publishable MoonPay key for the buy widget. When set together
+   * with `MOONPAY_SECRET_KEY`, the bot builds a signed
+   * `https://buy.moonpay.com/` URL with the user's custodial wallet
+   * pre-filled — the documented direct-link path when Privy itself
+   * has no public deeplink. Per MoonPay's URL signing spec, any URL
+   * carrying `walletAddress` MUST also carry `currencyCode` and a
+   * signature — both keys must be set or the bot falls back.
+   */
+  MOONPAY_API_KEY?: string;
+  /**
+   * Secret half of the MoonPay key pair, used to HMAC-SHA256 the
+   * widget URL's query string. Never sent to the client — only used
+   * server-side in `lib/moonpay.ts` to compute the `signature` param.
+   */
+  MOONPAY_SECRET_KEY?: string;
+  /**
+   * MoonPay currency code passed to the buy widget. Defaults to
+   * `hype` when unset. Externalised because MoonPay occasionally
+   * renames listings (e.g. chain-suffixed codes for the same asset)
+   * and we want to rotate without a redeploy.
+   */
+  MOONPAY_CURRENCY_CODE?: string;
   /**
    * Optional override for the bcrypt cost factor used by
    * `lib/pin.ts`. Production leaves this unset and falls back to the
