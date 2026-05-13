@@ -31,6 +31,7 @@ import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import { pushWorkflowMessage } from "../lib/workflow-stack.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -167,7 +168,7 @@ const buyLookupConversation = async (
         (outerCtx) => outerCtx.session.defaultBuyUsdc,
       ),
     );
-    await msgCtx.reply(cardText, {
+    const cardMsg = await msgCtx.reply(cardText, {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: buildBuyTokenKeyboard(token.address, defaultBuyUsdc),
@@ -177,6 +178,10 @@ const buyLookupConversation = async (
     // Token card is the lookup's terminal result — sweep the chain of
     // prompts + retries above it so the user sees only the card.
     await sweepWorkflow(conversation);
+    // Push the card onto the now-empty stack so the post-trade sweep
+    // in `confirmTrade` deletes it once the user's buy lands; the card's
+    // mcap/balance are stale the moment the trade commits.
+    await trackWorkflowMessage(conversation, cardMsg.message_id);
     return;
   }
 };
@@ -310,7 +315,7 @@ const buyCustomConversation = async (
           usdcRaw,
         }),
     );
-    await msgCtx.reply(
+    const stagingMsg = await msgCtx.reply(
       `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`,
       {
@@ -319,6 +324,9 @@ const buyCustomConversation = async (
       },
     );
     await sweepWorkflow(conversation);
+    // Staging prompt is stale once the trade lands — push so the
+    // post-trade sweep clears it alongside the originating card.
+    await trackWorkflowMessage(conversation, stagingMsg.message_id);
     return;
   }
 };
@@ -355,6 +363,18 @@ const handleBuyRefresh = async (
     link_preview_options: { is_disabled: true },
   });
   await ctx.answerCallbackQuery({ text: "Refreshed" });
+};
+
+/**
+ * Push a transient message onto the chat-scoped workflow stack so a
+ * later `clearWorkflowMessages` sweep (run after a trade lands) deletes
+ * it. Used for the token-detail card and the "Ready to buy…" staging
+ * prompt — both are stale the moment the trade confirms. No-op when the
+ * context has no resolvable chat id (rare, only for inline-mode).
+ */
+const trackForPostTradeSweep = (ctx: AppContext, messageId: number): void => {
+  if (!ctx.chat) return;
+  pushWorkflowMessage(ctx.session, ctx.chat.id, messageId);
 };
 
 /** Validate balance then show confirmation for a fixed buy amount. */
@@ -410,6 +430,11 @@ const handleFixedBuy = async (
   }
 
   const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
+  // Track the token-detail card the user just tapped on so the
+  // post-trade sweep clears it once the buy commits.
+  if (ctx.callbackQuery?.message) {
+    trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
+  }
   if (ctx.session.degenMode) {
     await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
     const outcome = await submitBuy({
@@ -431,7 +456,7 @@ const handleFixedBuy = async (
     ticker: tokenResult.data.ticker,
     usdcRaw,
   });
-  await ctx.reply(
+  const stagingMsg = await ctx.reply(
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
       `Tap <b>Confirm</b> within 60s to submit.`,
     {
@@ -439,6 +464,7 @@ const handleFixedBuy = async (
       reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
     },
   );
+  trackForPostTradeSweep(ctx, stagingMsg.message_id);
 };
 
 export const registerBuyCommand = (bot: Bot<AppContext>): void => {
@@ -526,6 +552,12 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
+    }
+    // Push the originating token-detail card onto the workflow stack
+    // before entering the wizard, so the post-trade sweep deletes it
+    // once the user's eventual buy lands.
+    if (ctx.callbackQuery.message) {
+      trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
     }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("buy-custom", parsed.args[0]);

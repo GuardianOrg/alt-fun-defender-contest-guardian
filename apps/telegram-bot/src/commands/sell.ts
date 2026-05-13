@@ -39,6 +39,7 @@ import {
   type Hex,
 } from "../lib/trade.js";
 import { WalletManager } from "../lib/wallet.js";
+import { pushWorkflowMessage } from "../lib/workflow-stack.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -139,6 +140,18 @@ const safeEditMessageText = async (
 
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
+
+/**
+ * Push a transient message onto the chat-scoped workflow stack so a
+ * later `clearWorkflowMessages` sweep (run after a trade lands) deletes
+ * it. Used for the token-detail card and the "Ready to sell…" staging
+ * prompt — both are stale the moment the trade confirms. No-op when the
+ * context has no resolvable chat id (rare, only for inline-mode).
+ */
+const trackForPostTradeSweep = (ctx: AppContext, messageId: number): void => {
+  if (!ctx.chat) return;
+  pushWorkflowMessage(ctx.session, ctx.chat.id, messageId);
+};
 
 /**
  * Compute the raw token amount for `percent` of the user's `balance`.
@@ -367,7 +380,7 @@ const sellLookupConversation = async (
         : null;
 
     const cardText = renderSellTokenCardText(token, tokenBalance);
-    await msgCtx.reply(cardText, {
+    const cardMsg = await msgCtx.reply(cardText, {
       parse_mode: "HTML",
       reply_markup: {
         inline_keyboard: buildSellTokenKeyboard(token.address),
@@ -375,6 +388,10 @@ const sellLookupConversation = async (
       link_preview_options: { is_disabled: true },
     });
     await sweepWorkflow(conversation);
+    // Push the card onto the now-empty stack so the post-trade sweep
+    // in `confirmTrade` deletes it once the user's sell lands; the
+    // card's mcap/balance are stale the moment the trade commits.
+    await trackWorkflowMessage(conversation, cardMsg.message_id);
     return;
   }
 };
@@ -585,10 +602,13 @@ const runPercentSell = async (
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
       : `✅ <b>Ready to sell ${percent}% of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`;
-  await msgCtx.reply(header, {
+  const stagingMsg = await msgCtx.reply(header, {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
   });
+  // Staging prompt is stale once the trade lands — push so the
+  // post-trade sweep clears it alongside the originating card.
+  await trackWorkflowMessage(conversation, stagingMsg.message_id);
 };
 
 /** Re-fetch token + token balance and edit the existing sell card in-place. */
@@ -728,6 +748,12 @@ const handlePercentSell = async (
   const effectiveProceedsUsd =
     buffer.kind === "capped" ? buffer.reducedProceedsUsd : quote.proceedsUsd;
 
+  // Track the token-detail card the user just tapped on so the
+  // post-trade sweep clears it once the sell commits.
+  if (ctx.callbackQuery?.message) {
+    trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
+  }
+
   // Buffer-capped sells always require explicit confirm per AGENTS.md;
   // degen only skips the confirm step on the happy path.
   if (ctx.session.degenMode && buffer.kind !== "capped") {
@@ -761,10 +787,11 @@ const handlePercentSell = async (
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
       : `✅ <b>Ready to sell ${percent}%${allOf} of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`;
-  await ctx.reply(header, {
+  const stagingMsg = await ctx.reply(header, {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
   });
+  trackForPostTradeSweep(ctx, stagingMsg.message_id);
 };
 
 export const registerSellCommand = (bot: Bot<AppContext>): void => {
@@ -842,6 +869,12 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
+    }
+    // Push the originating token-detail card onto the workflow stack
+    // before entering the wizard, so the post-trade sweep deletes it
+    // once the user's eventual sell lands.
+    if (ctx.callbackQuery.message) {
+      trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
     }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("sell-custom", parsed.args[0]);
