@@ -32,6 +32,7 @@ import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { WALLET_CALLBACK } from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
 import { PinManager } from "../lib/pin.js";
+import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
 import {
   executeWithdraw,
@@ -142,16 +143,64 @@ const parseInlineArgs = (raw: string): ParseResult => {
   return { ok: true, args: { asset: assetUpper, amountRaw: amount, to } };
 };
 
-const renderSummary = (args: ParsedArgs): string =>
-  [
+/**
+ * Read the active wallet's balance for the chosen asset. Returns `null`
+ * on any RPC failure so the caller can render a clean "unavailable"
+ * fallback — matches the rest of the bot's RPC error handling policy.
+ */
+const fetchAssetBalance = async (
+  env: AppContext["env"],
+  asset: WithdrawAsset,
+  address: string,
+): Promise<bigint | null> =>
+  asset === "HYPE"
+    ? fetchNativeBalance(env, address)
+    : fetchUsdcBalance(env, address);
+
+/**
+ * `conversation.external` requires a JSON-serialisable return value —
+ * `bigint` is not. Stringify inside the external call and parse back so
+ * the conversations plugin can replay the result on later turns.
+ */
+const fetchAssetBalanceExternal = async (
+  conversation: Conversation<AppContext, AppContext>,
+  asset: WithdrawAsset,
+  address: string,
+): Promise<bigint | null> => {
+  const stringified = await conversation.external((outside) =>
+    fetchAssetBalance(outside.env, asset, address).then((v) =>
+      v === null ? null : v.toString(),
+    ),
+  );
+  return stringified === null ? null : BigInt(stringified);
+};
+
+const formatBalance = (
+  balance: bigint | null,
+  asset: WithdrawAsset,
+): string =>
+  balance === null
+    ? "unavailable"
+    : `${formatAmount(balance, asset)} ${asset}`;
+
+const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
+  const lines = [
     "Withdraw summary",
     "",
     `• Asset: ${args.asset}`,
     `• Amount: ${formatAmount(args.amountRaw, args.asset)} ${args.asset}`,
+    `• Available balance: ${formatBalance(balance, args.asset)}`,
     `• Destination: ${args.to}`,
-    "",
-    "Tap Confirm Withdraw within 60s to submit.",
-  ].join("\n");
+  ];
+  if (balance !== null && args.amountRaw > balance) {
+    lines.push(
+      "",
+      "⚠️ Amount exceeds available balance — withdraw will fail.",
+    );
+  }
+  lines.push("", "Tap Confirm Withdraw within 60s to submit.");
+  return lines.join("\n");
+};
 
 const confirmKeyboard = (
   nonce: string,
@@ -276,12 +325,29 @@ const withdrawWizardConversation = async (
     );
   }
 
+  // Resolve the active wallet early so the amount prompt can show the
+  // user how much of the chosen asset they actually hold. If there is no
+  // active wallet the rest of the wizard cannot proceed — bail now rather
+  // than asking for amount + destination only to reject at PIN time.
+  const active = await conversation.external((outside) =>
+    buildWalletManager(outside.env).getActive(userId),
+  );
+  if (!active) {
+    await ctx.reply(withAntiPhishing(NO_ACTIVE_WALLET_REPLY));
+    return;
+  }
+  const balance = await fetchAssetBalanceExternal(
+    conversation,
+    asset,
+    active.address,
+  );
+
   let amountRaw: bigint | null = null;
   while (amountRaw === null) {
     const raw = await promptArg(
       conversation,
       ctx,
-      `How much ${asset}? Send a positive amount (e.g. 0.1), or /cancel.`,
+      `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1), or /cancel.`,
     );
     if (raw === null) return;
     const parsed = parseAmount(raw, asset);
@@ -371,6 +437,12 @@ const runPreFlightAndStage = async (
   const ok = await verifyPinForWithdraw(conversation, ctx, userId, chatId);
   if (!ok) return;
 
+  const balance = await fetchAssetBalanceExternal(
+    conversation,
+    args.asset,
+    active.address,
+  );
+
   const nonce = newNonce();
   const expiresAt = Date.now() + CONFIRM_WINDOW_MS;
   await conversation.external((outside) => {
@@ -383,7 +455,7 @@ const runPreFlightAndStage = async (
     };
   });
 
-  await ctx.reply(withAntiPhishing(renderSummary(args)), {
+  await ctx.reply(withAntiPhishing(renderSummary(args, balance)), {
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
   });
 };
