@@ -72,7 +72,7 @@ const OVERVIEW_HTML = [
   "/start — main menu, balance, wallet address",
   "/wallet — create, import, switch, export, or delete wallets",
   "/buy &lt;contract&gt; [amount] — buy a token with USDC",
-  "/sell &lt;contract&gt; [%|amount] — sell a position",
+  "/sell &lt;contract&gt; — sell a position by % of balance",
   "/positions — open positions, cost basis, PnL",
   "/track &lt;contract&gt; — token card + recent trades",
   "/withdraw &lt;asset&gt; &lt;amount&gt; &lt;address&gt; — send funds out",
