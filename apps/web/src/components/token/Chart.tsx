@@ -8,7 +8,11 @@ import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
 } from "../../services/api";
-import { cn, formatPercent, formatUsdOrDash } from "../../utils/format";
+import {
+  cn,
+  formatMcapUsdOrDash,
+  formatPercent,
+} from "../../utils/format";
 import SegmentedButton from "../shared/SegmentedButton";
 
 import type {
@@ -199,7 +203,7 @@ export default function Chart({ address, token }: Props) {
         </span>
         <div className={styles.mcapOverlay} aria-label="Market cap">
           <span className={styles.mcapLabel}>Market cap</span>
-          <span className={styles.mcapValue}>{formatUsdOrDash(mcapUsd)}</span>
+          <span className={styles.mcapValue}>{formatMcapUsdOrDash(mcapUsd)}</span>
           {change24h !== null && (
             <span
               className={cn(

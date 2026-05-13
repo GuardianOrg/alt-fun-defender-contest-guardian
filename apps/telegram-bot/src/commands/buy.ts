@@ -10,6 +10,13 @@ import { buildBuyTokenKeyboard } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
+import {
+  cancelTrade,
+  confirmKeyboard,
+  confirmTrade,
+  renderConfirmReply,
+  stageBuy,
+} from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
@@ -218,12 +225,25 @@ const buyCustomConversation = async (
       return;
     }
 
-    const ticker = tokenResult.data.ticker;
+    const token = tokenResult.data;
+    const usdcRaw = BigInt(Math.round(amount * 1_000_000));
+    const { nonce } = await conversation.external(
+      (outerCtx): { nonce: string } =>
+        stageBuy({
+          ctx: outerCtx,
+          token: token.address,
+          ticker: token.ticker,
+          usdcRaw,
+        }),
+    );
     await msgCtx.reply(
-      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${ticker}</b>\n\n` +
+      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
         `<i>${FEE_SUMMARY}</i>\n\n` +
-        `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
-      { parse_mode: "HTML" },
+        `Tap <b>Confirm</b> within 60s to submit.`,
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+      },
     );
     return;
   }
@@ -311,11 +331,21 @@ const handleFixedBuy = async (
   }
 
   await ctx.answerCallbackQuery();
+  const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
+  const { nonce } = stageBuy({
+    ctx,
+    token: tokenResult.data.address,
+    ticker: tokenResult.data.ticker,
+    usdcRaw,
+  });
   await ctx.reply(
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
       `<i>${FEE_SUMMARY}</i>\n\n` +
-      `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
-    { parse_mode: "HTML" },
+      `Tap <b>Confirm</b> within 60s to submit.`,
+    {
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+    },
   );
 };
 
@@ -390,5 +420,43 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("buy-custom", parsed.args[0]);
+  });
+
+  // Confirm / Cancel are shared with /sell (same staging slot in
+  // `ctx.session.pendingTrade`). Registered here so the wiring stays
+  // in one place.
+  bot.callbackQuery(/^cnf:/, async (ctx) => {
+    const parsed = parseCallback(ctx.callbackQuery.data);
+    const nonce = parsed?.args[0];
+    if (!nonce) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await ctx.answerCallbackQuery({ text: "Submitting…" });
+    try {
+      const outcome = await confirmTrade(ctx, nonce);
+      await ctx.reply(renderConfirmReply(outcome), {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
+    } catch (err) {
+      logger.error("trade confirm failed", { err });
+      await ctx.reply(
+        "Transaction failed — please try again in a moment.",
+      );
+    }
+  });
+
+  bot.callbackQuery(/^ccl:/, async (ctx) => {
+    const parsed = parseCallback(ctx.callbackQuery.data);
+    const nonce = parsed?.args[0];
+    if (!nonce) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const cleared = cancelTrade(ctx, nonce);
+    await ctx.answerCallbackQuery({
+      text: cleared ? "Cancelled" : "Already expired",
+    });
   });
 };

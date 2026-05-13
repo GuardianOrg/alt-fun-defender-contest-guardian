@@ -15,6 +15,31 @@ export function formatUsd(value: number): string {
 }
 
 /**
+ * Market-cap USD formatter. Mirrors `formatUsd` for the K/M ranges, but
+ * rounds sub-$1K values to whole dollars — sub-dollar precision on a
+ * market cap is noise (a `$123.45` mcap is for all practical purposes a
+ * `$123` mcap, and the trailing cents distract from the column rather
+ * than informing it). Use this for any UI that surfaces a token's
+ * market cap; keep `formatUsd` for balances / trade amounts / position
+ * values where cent-level precision still matters to the user.
+ *
+ * Non-finite inputs (`NaN`, ±`Infinity`) collapse to `$0` rather than
+ * leaking `$NaN` / `$InfinityM` into the rows on a degraded feed —
+ * components that want an explicit "no data" indicator should pass
+ * `null` / `undefined` to {@link formatMcapUsdOrDash} so the dash
+ * sentinel is preserved. Negative inputs are similarly clamped to `0`
+ * so an off-by-one upstream can never surface a `-$0` rendering.
+ */
+export function formatMcapUsd(value: number): string {
+  if (!Number.isFinite(value)) return "$0";
+  const safe = Math.max(0, value);
+  if (safe >= 1_000_000) return `$${(safe / 1_000_000).toFixed(2)}M`;
+  if (safe >= 1_000)
+    return `$${(safe / 1_000).toFixed(safe >= 10_000 ? 0 : 1)}K`;
+  return `$${Math.round(safe).toLocaleString()}`;
+}
+
+/**
  * Per-token USD price formatter. Used by the chart's price scale when the
  * unit toggle is set to `price`. Pump.fun-class launches sit at sub-cent
  * prices for their entire curve life (a $4K-mcap launch with 1B supply is
@@ -77,6 +102,13 @@ export function formatUsdOrDash(value: number | null | undefined): string {
   return formatUsd(value);
 }
 
+/** Nullable variant of {@link formatMcapUsd}; renders `—` when null/undefined
+ *  so a row whose market cap hasn't loaded yet doesn't collapse to `$0`. */
+export function formatMcapUsdOrDash(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return formatMcapUsd(value);
+}
+
 /** Format a nullable percent, rendering `—` when null/undefined. */
 export function formatPercentOrDash(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
@@ -123,7 +155,10 @@ export function getLtDisplayName(
 export function getErrorMessage(e: unknown): string {
   const raw = e instanceof Error ? e.message : String(e);
   const lower = raw.toLowerCase();
-  if (raw.includes("InsufficientBalance") || (lower.includes("insufficient") && lower.includes("balance"))) {
+  if (
+    raw.includes("InsufficientBalance") ||
+    (lower.includes("insufficient") && lower.includes("balance"))
+  ) {
     return "Sell exceeds available liquidity. Try a smaller amount — buffer replenishes in ~10s.";
   }
   if (raw.includes("0x05eb05ac")) {
@@ -152,7 +187,11 @@ export function getErrorMessage(e: unknown): string {
   if (lower.includes("wallet timeout") || lower.includes("request timeout")) {
     return "Wallet timed out — please try again. If using a mobile wallet, make sure the app is open.";
   }
-  if (lower.includes("user rejected") || lower.includes("user denied") || lower.includes("rejected the request")) {
+  if (
+    lower.includes("user rejected") ||
+    lower.includes("user denied") ||
+    lower.includes("rejected the request")
+  ) {
     return "Transaction was rejected in your wallet.";
   }
   if (lower.includes("slippageexceeded") || raw.includes("SlippageExceeded")) {
@@ -176,4 +215,39 @@ export function formatTimeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/**
+ * Default "recently deployed" window. Aligns with the 24h change semantic:
+ * a token younger than this can't have a meaningful 24h price comparison
+ * (it didn't exist 24h ago), and the indexer's `/market-data` snapshot may
+ * not have populated its row yet either. Inside the window we treat null
+ * mcap/24h-change as `0` rather than "unknown" so the home page doesn't
+ * flash a wall of `—` for every fresh launch (issue #709).
+ */
+export const RECENTLY_DEPLOYED_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
+/**
+ * `true` when `createdAt` is within the trailing `windowMs` window ending
+ * at `now`. Used by the home page token list to coerce unknown mcap /
+ * 24h-change to `0` for fresh launches whose data isn't in the indexer
+ * snapshot yet. An invalid / unparseable / future `createdAt` returns
+ * `false` (treat as "old") so we never accidentally hide real
+ * degradation — or corrupted timestamps — behind a "—" that's silently
+ * replaced by "0".
+ */
+export function isRecentlyDeployed(
+  createdAt: string | null | undefined,
+  windowMs: number = RECENTLY_DEPLOYED_WINDOW_MS,
+): boolean {
+  if (createdAt === null || createdAt === undefined) return false;
+  const created = new Date(createdAt).getTime();
+  if (!Number.isFinite(created)) return false;
+  const age = Date.now() - created;
+  // Future timestamps (negative `age`) likely indicate corrupted data
+  // or significant client-clock skew, not a fresh launch. Bail rather
+  // than mask the bad data with a "0" placeholder that would persist
+  // until wall-clock advances past the future timestamp.
+  if (age < 0) return false;
+  return age < windowMs;
 }

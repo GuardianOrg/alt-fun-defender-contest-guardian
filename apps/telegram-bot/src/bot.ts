@@ -9,8 +9,10 @@ import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
 import { logger } from "./lib/logger.js";
 import { registerBuyCommand } from "./commands/buy.js";
+import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
 import { registerReferralCommand } from "./commands/referral.js";
+import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerStartCommand } from "./commands/start.js";
 import { registerWalletCommand } from "./commands/wallet.js";
@@ -30,6 +32,23 @@ export interface SessionData {
   defaultBuyUsdc: number;
   antiPhishingPhrase?: string;
   degenMode: boolean;
+  /**
+   * One-shot trade intent staged by a quick-amount button and committed
+   * by the matching Confirm callback. Per-user single slot — the next
+   * Buy/Sell button click overwrites it, which is the right UX (latest
+   * intent wins, the previous Confirm becomes a stale-nonce no-op).
+   * Stored as raw strings to round-trip through grammY's JSON session
+   * storage (bigint is not JSON-serialisable).
+   */
+  pendingTrade?: {
+    side: "buy" | "sell";
+    token: string;
+    /** USDC raw (6dp) for buy notional, token raw (18dp) for sell amount. */
+    amountRaw: string;
+    ticker: string;
+    nonce: string;
+    expiresAt: number;
+  };
 }
 
 const DEFAULT_SESSION: SessionData = {
@@ -154,11 +173,13 @@ export const createBot = (
     }),
   );
 
+  registerHelpCommand(bot);
   registerStartCommand(bot);
   registerBuyCommand(bot);
   registerSellCommand(bot);
   registerPositionsCommand(bot);
   registerReferralCommand(bot);
+  registerSecurityCommand(bot);
   registerWalletCommand(bot);
 
   bot.catch((err) => {

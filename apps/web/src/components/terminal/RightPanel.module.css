@@ -4,12 +4,42 @@
   display: flex;
   flex-direction: column;
   gap: 1.2rem;
-  overflow-y: auto;
+  /* `min-height: 0` + `overflow: hidden` let the inner section bodies
+   * (not the whole column) own scroll. Same pattern as `Sidebar.module.css`. */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .section {
   border: 1px solid var(--border);
   background: var(--bg-1);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Positions caps at 50% of the right column so a user with many holdings
+ * can't push RECENT TRADES off-screen. When positions has only a few
+ * rows it stays at its intrinsic height and the trades section absorbs
+ * the slack — the request was: "if both have lots of content, share
+ * 50/50; otherwise make Recent Trades bigger." */
+.sectionPositions {
+  max-height: 50%;
+  flex-shrink: 1;
+}
+
+.sectionTrades {
+  flex: 1;
+}
+
+.sectionGraduating {
+  flex-shrink: 0;
+}
+
+.sectionBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .sectionHeader {
@@ -24,6 +54,7 @@
   background: var(--mint-bg);
   border-bottom: 1px solid var(--border);
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .sectionHeaderLive {

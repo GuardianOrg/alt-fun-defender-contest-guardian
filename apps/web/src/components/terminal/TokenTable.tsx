@@ -5,6 +5,7 @@ import { useSelector } from "react-redux";
 import TokenRow from "./TokenRow";
 import TokenRowSkeleton from "./TokenRowSkeleton";
 import styles from "./TokenTable.module.css";
+import { useTokenListLiveFeed } from "../../hooks/useTokenListLiveFeed";
 import { useInfiniteTokens } from "../../hooks/useTokens";
 import { selectActiveFilter } from "../../state/uiSlice";
 
@@ -40,6 +41,11 @@ export default function TokenTable() {
     isFetchingNextPage,
     isLoading,
   } = useInfiniteTokens(activeFilter);
+  // Keep the row-level mcap / 24h change / progress bar live as trades
+  // land on-chain — throttled invalidation of the catalogue +
+  // market-data queries off the global `trade` WS channel. See issue
+  // #710 and the JSDoc on `useTokenListLiveFeed`.
+  useTokenListLiveFeed();
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 

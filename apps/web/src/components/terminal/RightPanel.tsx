@@ -22,9 +22,15 @@ import Skeleton from "../shared/Skeleton";
 import type { HeldToken } from "../../services/types";
 
 // How many placeholder rows to render while the trade WS hasn't sent
-// anything yet. Matches the typical density of the live feed so the panel
-// reads as a populated stream rather than an empty card on first paint.
-const TRADE_SKELETON_COUNT = 7;
+// anything yet. The trades section now fills the rest of the right
+// column (positions is capped at 50% of the available height), so we
+// surface more skeleton rows than fit on a typical viewport — extras get
+// hidden behind the section's internal scroll until real trades arrive.
+const TRADE_SKELETON_COUNT = 12;
+// Total trades retained by `useTradeFeed`. The section scrolls
+// internally, so this is the upper bound on what the user can scroll
+// through — not what's visible at once.
+const TRADE_FEED_MAX = 50;
 const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
 
@@ -108,7 +114,11 @@ function PositionSkeleton() {
   return (
     <div className={styles.positionRow} aria-hidden="true">
       <div
-        className={cn(styles.positionLogoWrap, styles.skeletonBlock, styles.skeletonCircle)}
+        className={cn(
+          styles.positionLogoWrap,
+          styles.skeletonBlock,
+          styles.skeletonCircle,
+        )}
       />
       <div className={styles.positionMeta}>
         <div className={cn(styles.skeletonBlock, styles.skeletonLineLg)} />
@@ -120,7 +130,7 @@ function PositionSkeleton() {
 }
 
 export default function RightPanel() {
-  const { trades, isLoading: tradesLoading } = useTradeFeed();
+  const { trades, isLoading: tradesLoading } = useTradeFeed(TRADE_FEED_MAX);
   const { data: tokens } = useTokens();
   const { isConnected } = useWallet();
   const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
@@ -139,29 +149,42 @@ export default function RightPanel() {
 
   return (
     <div className={styles.panel}>
-      {/* My positions — moved above recent trades so the user's own holdings
-       * are the first thing they see in the right column (issue #584). */}
-      <div className={styles.section}>
+      {/* MY POSITIONS and RECENT TRADES jointly fill the column's height:
+       * positions is capped at 50% of the available space (scrolling
+       * internally when the user has many positions), and trades takes
+       * the remaining space (`flex: 1`) with its own internal scroll.
+       * Net effect: when both lists are dense the split lands at 50/50;
+       * when positions is short, trades expands to absorb the slack
+       * instead of leaving an empty band below it.
+       *
+       * Positions also moved above recent trades so the user's own
+       * holdings are the first thing they see in the right column. */}
+      <div className={cn(styles.section, styles.sectionPositions)}>
         <div className={styles.sectionHeader}>MY POSITIONS</div>
-        {!isConnected ? (
-          <div className={styles.emptyRow}>Connect wallet to view</div>
-        ) : balancesLoading && positions.length === 0 ? (
-          <div aria-busy="true" aria-label="Loading positions">
-            {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
-              <PositionSkeleton key={i} />
-            ))}
-          </div>
-        ) : positions.length === 0 ? (
-          <div className={styles.emptyRow}>No positions yet</div>
-        ) : (
-          positions.map((p) => (
-            <PositionRow key={p.address} position={p} onNavigate={handleNavigate} />
-          ))
-        )}
+        <div className={styles.sectionBody}>
+          {!isConnected ? (
+            <div className={styles.emptyRow}>Connect wallet to view</div>
+          ) : balancesLoading && positions.length === 0 ? (
+            <div aria-busy="true" aria-label="Loading positions">
+              {Array.from({ length: SKELETON_ROW_COUNT }).map((_, i) => (
+                <PositionSkeleton key={i} />
+              ))}
+            </div>
+          ) : positions.length === 0 ? (
+            <div className={styles.emptyRow}>No positions yet</div>
+          ) : (
+            positions.map((p) => (
+              <PositionRow
+                key={p.address}
+                position={p}
+                onNavigate={handleNavigate}
+              />
+            ))
+          )}
+        </div>
       </div>
 
-      {/* Recent trades */}
-      <div className={styles.section}>
+      <div className={cn(styles.section, styles.sectionTrades)}>
         <div className={cn(styles.sectionHeader, styles.sectionHeaderLive)}>
           RECENT TRADES
           <span className={styles.liveIndicator}>
@@ -177,6 +200,7 @@ export default function RightPanel() {
          * (e.g. the user's own trade confirming) are announced through
          * the toast system instead. */}
         <div
+          className={styles.sectionBody}
           aria-label="Recent trades"
           aria-busy={showTradeSkeletons ? true : undefined}
         >
@@ -208,58 +232,58 @@ export default function RightPanel() {
           ) : trades.length === 0 ? (
             <div className={styles.emptyRow}>No recent trades yet</div>
           ) : (
-            trades.slice(0, TRADE_SKELETON_COUNT).map((t) => {
-                const isBuy = t.side === "BUY";
-                return (
-                  <div
-                    key={t.id}
-                    className={styles.tradeRow}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
-                    onClick={() => navigate(tokenPath(t.tokenAddress))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        navigate(tokenPath(t.tokenAddress));
-                      }
-                    }}
-                  >
-                    <div className={styles.tradeInfo}>
-                      <div className={styles.tradeNameRow}>
-                        <span className={styles.tradeName}>{t.tokenName}</span>
-                        <span className={styles.tradeTime}>
-                          {formatTimeAgo(t.timestamp)}
-                        </span>
-                      </div>
-                      <div className={styles.tradeWalletRow}>
-                        <span className={styles.tradeWallet}>
-                          {t.walletAddress}
-                        </span>
-                        <CopyAddressButton
-                          address={t.walletAddressFull}
-                          className={styles.tradeCopyBtn}
-                        />
-                      </div>
+            trades.map((t) => {
+              const isBuy = t.side === "BUY";
+              return (
+                <div
+                  key={t.id}
+                  className={styles.tradeRow}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
+                  onClick={() => navigate(tokenPath(t.tokenAddress))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(tokenPath(t.tokenAddress));
+                    }
+                  }}
+                >
+                  <div className={styles.tradeInfo}>
+                    <div className={styles.tradeNameRow}>
+                      <span className={styles.tradeName}>{t.tokenName}</span>
+                      <span className={styles.tradeTime}>
+                        {formatTimeAgo(t.timestamp)}
+                      </span>
                     </div>
-                    <span
-                      className={cn(
-                        styles.tradeAmount,
-                        isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
-                      )}
-                    >
-                      {isBuy ? "+" : "-"}${Math.round(t.amountUsd).toLocaleString()}
-                    </span>
+                    <div className={styles.tradeWalletRow}>
+                      <span className={styles.tradeWallet}>
+                        {t.walletAddress}
+                      </span>
+                      <CopyAddressButton
+                        address={t.walletAddress}
+                        className={styles.tradeCopyBtn}
+                      />
+                    </div>
                   </div>
-                );
-              })
+                  <span
+                    className={cn(
+                      styles.tradeAmount,
+                      isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
+                    )}
+                  >
+                    {isBuy ? "+" : "-"}$
+                    {Math.round(t.amountUsd).toLocaleString()}
+                  </span>
+                </div>
+              );
+            })
           )}
         </div>
       </div>
 
-      {/* Graduating soon */}
       {graduating.length > 0 && (
-        <div className={styles.section}>
+        <div className={cn(styles.section, styles.sectionGraduating)}>
           <div className={styles.sectionHeader}>GRADUATING SOON</div>
           {graduating.map((t) => (
             <div
@@ -268,7 +292,8 @@ export default function RightPanel() {
             >
               <span className={styles.infoName}>{t.name}</span>
               <span className={styles.graduatingValue}>
-                {formatCurveFilled(t.curveFilled)} · {t.direction === "long" ? "LONG" : "SHORT"}
+                {formatCurveFilled(t.curveFilled)} ·{" "}
+                {t.direction === "long" ? "LONG" : "SHORT"}
               </span>
             </div>
           ))}

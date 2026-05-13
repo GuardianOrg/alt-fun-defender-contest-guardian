@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
+import { BOT_COMMANDS } from "../lib/bot-commands.js";
 import { callTelegram } from "../lib/telegram.js";
 
 const admin = new Hono<AppBindings>();
@@ -51,6 +52,17 @@ admin.post("/set-webhook", async (c) => {
 
 admin.get("/webhook-info", async (c) =>
   proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "getWebhookInfo", {}),
+);
+
+/**
+ * Publish the slash-menu (BOT_COMMANDS) to Telegram. Telegram caches the
+ * list per bot, so run once after deploy and whenever BOT_COMMANDS
+ * changes — handlers do not need to re-push on every webhook.
+ */
+admin.post("/set-commands", async (c) =>
+  proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "setMyCommands", {
+    commands: BOT_COMMANDS.map((c) => ({ ...c })),
+  }),
 );
 
 // Centralise Telegram-side failures so the admin routes return a deterministic

@@ -4,6 +4,7 @@ import {
   InvalidPinFormatError,
   PIN_LOCKOUT_MS,
   PIN_MAX_ATTEMPTS,
+  PIN_RESET_DELAY_MS,
   PinManager,
 } from "../../lib/pin.js";
 
@@ -189,6 +190,114 @@ describe("PinManager", () => {
       await pm.setPin(7, "654321");
       const result = await pm.verifyPin(7, "654321");
       expect(result.ok).toBe(true);
+    });
+  });
+
+  describe("reset flow (24h delay)", () => {
+    it("requestReset records a pending status with readyAt 24h ahead", async () => {
+      const fixed = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => fixed);
+      await pm.setPin(7, "123456");
+      const status = await pm.requestReset(7);
+      expect(status).toEqual({
+        kind: "pending",
+        readyAt: fixed + PIN_RESET_DELAY_MS,
+        requestedAt: fixed,
+      });
+    });
+
+    it("requestReset twice preserves the original requestedAt (no extension)", async () => {
+      let nowMs = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => nowMs);
+      await pm.setPin(7, "123456");
+      const first = await pm.requestReset(7);
+      nowMs += 60 * 60 * 1000;
+      const second = await pm.requestReset(7);
+      expect(second.kind).toBe("pending");
+      if (first.kind !== "pending" || second.kind !== "pending") {
+        throw new Error("expected pending status");
+      }
+      expect(second.requestedAt).toBe(first.requestedAt);
+    });
+
+    it("old PIN still verifies during the cooldown window", async () => {
+      const fixed = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => fixed);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      const ok = await pm.verifyPin(7, "123456");
+      expect(ok.ok).toBe(true);
+    });
+
+    it("completeReset before 24h rejects with pending and leaves the old hash", async () => {
+      let nowMs = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => nowMs);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      nowMs += PIN_RESET_DELAY_MS - 1;
+      const result = await pm.completeReset(7, "999999");
+      expect(result).toEqual({
+        kind: "pending",
+        readyAt: 1_700_000_000_000 + PIN_RESET_DELAY_MS,
+      });
+      // Old PIN still works because completeReset bailed.
+      const stillOld = await pm.verifyPin(7, "123456");
+      expect(stillOld.ok).toBe(true);
+    });
+
+    it("completeReset after 24h replaces the hash and clears the reset state", async () => {
+      let nowMs = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => nowMs);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      nowMs += PIN_RESET_DELAY_MS + 1;
+      const result = await pm.completeReset(7, "999999");
+      expect(result).toEqual({ kind: "ok" });
+      const status = await pm.getResetStatus(7);
+      expect(status).toEqual({ kind: "none" });
+      const newOk = await pm.verifyPin(7, "999999");
+      expect(newOk.ok).toBe(true);
+      const oldRejected = await pm.verifyPin(7, "123456");
+      expect(oldRejected.ok).toBe(false);
+    });
+
+    it("completeReset without a prior request returns 'not-requested'", async () => {
+      const pm = makePm(makeKv());
+      await pm.setPin(7, "123456");
+      const result = await pm.completeReset(7, "999999");
+      expect(result).toEqual({ kind: "not-requested" });
+    });
+
+    it("cancelReset wipes a pending request and keeps the old PIN intact", async () => {
+      const fixed = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => fixed);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      await pm.cancelReset(7);
+      expect(await pm.getResetStatus(7)).toEqual({ kind: "none" });
+      const ok = await pm.verifyPin(7, "123456");
+      expect(ok.ok).toBe(true);
+    });
+
+    it("getResetStatus flips pending → ready at the 24h mark", async () => {
+      let nowMs = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => nowMs);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      expect((await pm.getResetStatus(7)).kind).toBe("pending");
+      nowMs += PIN_RESET_DELAY_MS;
+      expect((await pm.getResetStatus(7)).kind).toBe("ready");
+    });
+
+    it("completeReset throws InvalidPinFormatError on a malformed new PIN", async () => {
+      let nowMs = 1_700_000_000_000;
+      const pm = makePm(makeKv(), () => nowMs);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      nowMs += PIN_RESET_DELAY_MS + 1;
+      await expect(pm.completeReset(7, "12345")).rejects.toThrow(
+        InvalidPinFormatError,
+      );
     });
   });
 });

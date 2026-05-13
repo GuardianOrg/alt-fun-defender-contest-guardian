@@ -22,7 +22,7 @@ apps/telegram-bot/       — grammY bot, Cloudflare Workers runtime (webhook mod
       chart.ts           — Chart image renderer (SVG via lightweight builder → PNG via resvg-wasm)
     api.ts               — Typed wrapper around apps/api REST endpoints
     rpc.ts               — RpcClient class (HyperEVM RPC, tx submission)
-    onboarding.ts        — OnboardingDO (Durable Object for strongly-consistent /start profile creation)
+    chat-do.ts           — ChatDO (Durable Object that serialises grammY updates per chat; gives per-user serialisation for /start because /start is private-DM only, so chatId == userId)
 ```
 
 Data flow: Telegram webhook → Cloudflare Worker → command handler → `api.ts` (reads Alt Fun API + Ponder) or `rpc.ts` (on-chain reads/writes) → formatted reply.
@@ -207,11 +207,11 @@ Effects: create user profile in KV if missing; record referrer if deeplink prese
 
 Referral deeplink: `t.me/<botname>?start=ref_<referrerUsername>` is what `/referral` now issues for any sharer with a Telegram username set, and `t.me/<botname>?start=ref_<referrerUserId>` is the fallback the sharer's `/referral` view falls back to when no Telegram username is available (username is optional in Telegram). Record referrer on first `/start` only — subsequent `/start` calls for existing users must not overwrite the referrer.
 
-**Referrer resolution.** The deeplink param may be either a Telegram username or a numeric userId. `OnboardingDO` resolves either to the referrer's `rewardsWallet` (the username-keyed lookup requires a `username → userId` mapping written by every `/start`; the numeric form maps userId → wallet directly) and stores **the resolved wallet address** as the new user's `referrer` in KV — never the userId or username. That stored wallet is the address passed to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user, making attribution lifetime by construction. See /referral → Referrer attribution for edge cases (referrer not yet onboarded, self-referral, no retro-link).
+**Referrer resolution.** The deeplink param may be either a Telegram username or a numeric userId. The `/start` handler resolves either to the referrer's `rewardsWallet` (the username-keyed lookup requires a `username → userId` mapping written by every `/start`; the numeric form maps userId → wallet directly) and stores **the resolved wallet address** as the new user's `referrer` in KV — never the userId or username. That stored wallet is the address passed to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user, making attribution lifetime by construction. See /referral → Referrer attribution for edge cases (referrer not yet onboarded, self-referral, no retro-link).
 
 **Default rewards wallet.** On first /start, the bot writes `rewardsWallet = activeCustodialWalletAddress` into KV unconditionally (whether or not the user came in via a deeplink). This guarantees /referral always has a rewards wallet to display, and that referrals from this user start paying out from their first referred trade.
 
-**Strong consistency via Durable Object.** Profile creation, referrer recording, and rewards-wallet defaulting go through `OnboardingDO` (one DO instance per `userId`, named `idFromName(userId)`), not raw KV. Cloudflare KV is eventually consistent — under concurrent `/start` spam, a raw KV `get-then-put` can double-create profiles or double-record referrers. The DO's single-threaded alarm model serialises all writes for a given user. This is the same pattern as `WsIpLimiter` in `apps/api`.
+**Strong consistency via `ChatDO`.** Profile creation, referrer recording, and rewards-wallet defaulting all happen inside the `/start` handler, which runs on `ChatDO` (one DO instance per `chat:${chatId}`, named via `idFromName`) — not on the raw Worker isolate. Cloudflare KV is eventually consistent: under concurrent `/start` spam, a raw KV `get-then-put` can double-create profiles or double-record referrers. `ChatDO`'s single-threaded event loop serialises every update for a given chat, so the read-modify-write becomes atomic from the handler's perspective. `/start` is private-DM only (the handler rejects non-private chats), and in private DMs Telegram's `chat.id` equals the user's `from.id`, so per-chat serialisation is per-user serialisation for this command. This is the same single-threaded-DO pattern as `WsIpLimiter` in `apps/api`; an explicit per-user `OnboardingDO` was considered and rejected as redundant given the private-DM invariant.
 
 ### /help
 
@@ -259,7 +259,7 @@ Chosen over `KV.list({prefix})` because list is unordered, paginated, and one op
 - `Delete` reassigns `active` to `wallets[0]` post-removal, or `null` if the deleted wallet was the last.
 - `Rename` mutates only the record's `label`; never touches the index.
 
-**Concurrency.** Not handled in v1. KV gives strong per-key consistency on the index, but cross-key writes (record + index on Create) are not transactional. A user running two `/wallet` mutations in parallel from two clients could partially update. Promote to an `OnboardingDO`-style Durable Object if this becomes a problem.
+**Concurrency.** Not handled directly here. KV gives strong per-key consistency on the index, but cross-key writes (record + index on Create) are not transactional. In practice the WAR window is closed by `ChatDO` — `/wallet` is private-DM only, every update for the chat lands on the same DO event loop, and chatId == userId in private DMs — so a single user running two parallel mutations from two clients still flows through one serialised handler. The cross-client race only re-opens if `/wallet` is ever allowed outside private DMs, in which case the handler needs an explicit per-user DO.
 
 **Crypto.** Private keys are encrypted with AES-256-GCM under a per-user key derived from `MASTER_KEY` + userId via HKDF-SHA256 — see `lib/wallet.ts`. The master key never touches KV, and one user's ciphertext leak cannot be decrypted under another user's derivation. Rotating `MASTER_KEY` invalidates every stored wallet; there is no re-encryption migration in v1.
 
@@ -448,23 +448,38 @@ Output:
   - Anti-phishing phrase (set / not set)
 
 Actions via inline keyboard:
-  - Set PIN / Change PIN (6-digit numeric; bcrypt-hashed in KV)
-  - Enable/Disable withdrawal lock (24h cooldown to disable)
-  - Set anti-phishing phrase (prepended to every bot message)
-  - Revoke all sessions (invalidates all active session tokens)
-  - Manage withdrawal address whitelist
+  - Set PIN / Change PIN (6-digit numeric; bcrypt-hashed in KV).
+    Change-PIN verifies the existing PIN first (subject to the 5-attempt
+    lockout) before prompting for the new one.
+  - Reset PIN (24h delay) — see "PIN reset flow" below
+  - Set / Change / Clear anti-phishing phrase (≤ 64 chars; stored on the
+    grammY session). The phrase replaces the static anti-phishing
+    header on every outbound chat message — see *Anti-phishing prepend*
+    below.
+  - Enable / Disable withdrawal lock. Enable is instant; disable is a
+    two-phase request → 24h cooldown → second tap that actually clears
+    the lock. A pending disable surfaces a [Cancel disable] button so
+    the user can revoke it.
+  - Revoke all sessions — DEFERRED (no session-token system shipped;
+    grammY's KV-backed session is implicit per Telegram user, not a
+    bearer token the user can revoke).
+  - Manage withdrawal address whitelist — DEFERRED until `/withdraw` ships.
 ```
+
+**Anti-phishing prepend.** The user phrase (`ctx.session.antiPhishingPhrase`, set via /security) is prepended to every outbound chat message via `lib/anti-phishing.ts :: wrapWithCtxPhrase` (aliased to `wrap` in each command file) — `withAntiPhishing(body, phrase)` resolves the per-user phrase or, when none is set, falls back to the static `ANTI_PHISHING_HEADER`. Two ctx flavors deliberately fall back to the static header even when the user has a phrase set: grammY conversations replay (no `session` property on the replay-time ctx) and channel-post / anonymous-admin updates (session-key resolver returns undefined). In both cases the static fallback is correct — replays render system-style prompts where impersonation isn't the threat, and there is no per-user session to consult for the non-user contexts. Toast / `answerCallbackQuery` text is exempt (200-char budget, not an impersonation surface).
 
 PIN brute-force protection: 5 wrong attempts → 30-minute lockout. Lockout state stored in KV with TTL.
 
 **PIN reset flow (forgotten PIN).** Without a reset path, a forgotten PIN permanently locks a user out of their funds. Reset is available via [Reset PIN] in `/security` and works as follows:
 
-1. User requests reset → bot records a `pin_reset_requested_at` timestamp in KV and sends confirmation message: "PIN reset requested. For security, your reset will be available in 24 hours."
-2. During the 24-hour window, all PIN-gated actions remain locked. The delay gives the user time to revoke the reset if their Telegram account was compromised.
-3. After 24 hours, user returns to `/security` → [Complete PIN Reset] → sets a new PIN. Old PIN hash is deleted.
-4. Bot sends notification at the start of the window and again when the window opens.
+1. User requests reset → bot records a `pin_reset_requested_at` timestamp in KV and surfaces a toast: "PIN reset requested. Complete in ~24h. The old PIN still works during the cooldown."
+2. During the 24-hour window, the existing PIN remains valid. The legitimate user keeps full bot access; the delay window is for *spotting* a hostile reset request from a compromised Telegram session and revoking it via [Cancel PIN reset]. Locking out the user entirely (the earlier draft of this spec) gave no extra security — an attacker with stolen Telegram session does not gain access during the cooldown either way — and stranded legitimate users from their funds for a day.
+3. After 24 hours, the [Complete PIN reset] button in `/security` opens a new-PIN wizard; on confirmation the new bcrypt hash replaces the old one and the reset state clears. The cooldown is re-checked at write time, so a stray callback in the last seconds before `readyAt` cannot bypass the gate.
+4. [Cancel PIN reset] in `/security` wipes the request without touching the hash. Surfaced as the only action on the status row while a reset is pending, so the path to revoke is one tap from the panel.
 
 The 24-hour delay mirrors the withdrawal lock cooldown. Do not allow instant reset — a stolen Telegram session + instant reset = full funds drain.
+
+**Notification on reset request:** v1 does not push a separate Telegram notification at the start of the cooldown; the toast surfaces on the resetting client, and the next `/security` open shows the panel state. A dedicated push notification (so a victim on a different client sees the reset request even if they never open `/security`) lands when the bot adds outbound notification infrastructure for price / graduation alerts (see *Deferred features*).
 
 ### /referral
 
@@ -496,7 +511,7 @@ There is **no** claim, withdraw, or payout button. Referrer cuts settle on-chain
 
 - Recorded on first /start when the deeplink param is `ref_<referrerUsername>` (preferred) or `ref_<referrerUserId>` (fallback when the sharer has no Telegram username). The bot resolves the handle → that referrer's `rewardsWallet` via the indexer / api at /start time, and stores that resolved wallet address as the new user's `referrer` in KV.
 - The stored `referrer` is what the bot passes to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user. This makes it lifetime by construction: every trade pays out, forever, to the address resolved at /start.
-- Subsequent /start calls do not overwrite an existing `referrer`. Same OnboardingDO serialisation as profile creation (see /start).
+- Subsequent /start calls do not overwrite an existing `referrer`. Same `ChatDO` serialisation as profile creation (see /start).
 - If the referrer's rewards wallet is unset at the moment the new user runs /start (the referrer hasn't onboarded their own bot account yet), the deeplink is dropped silently and the new user has `referrer = address(0)` permanently. **No retro-linking.** Surface in the deeplink referrer's /referral the next time they open it: "Some users hit your link before you finished setup; their attribution was not assigned. Check that your rewards wallet is set so this doesn't happen again."
 - Self-referral allowed (router has no guard). Bot does not warn or block — users self-referring just lower their effective bot fee from 0.5% to 0.4%.
 
@@ -540,13 +555,13 @@ Do not retroactively re-pay the lost cuts. They are gone (correct: the on-chain 
 |---|---|---|
 | Bot runtime | Cloudflare Workers | Webhook mode; same account as `apps/api` |
 | Session + wallet storage | Cloudflare KV | Namespace: `launchpad-telegram` |
-| Onboarding consistency | Cloudflare Durable Objects | `OnboardingDO` — one DO per userId; serialises profile creation and referrer recording |
+| Update serialisation | Cloudflare Durable Objects | `ChatDO` — one DO per chat (`idFromName("chat:${chatId}")`); serialises every grammY update for the chat on its single-threaded event loop. Closes the WAR hazard for `session` + `conversations` KV writes and, because `/start` and `/wallet` are private-DM only (where `chat.id == from.id`), also serialises onboarding writes (profile, referrer, rewards-wallet default) per user. |
 | Chart renderer | Worker (WASM) | `lib/chart.ts` — SVG built from the `/api/v1/chart/:address` candle snapshot, converted to PNG via `@resvg/resvg-wasm`; no external service |
 | Alt Fun API | `apps/api` (Cloudflare Workers) | Internal service binding (zero egress latency) |
 | Blockchain RPC | Alchemy (HyperEVM) | Same `HYPEREVM_RPC_URL` secret as `apps/api` |
 | Telegram webhook | Telegram Bot API | Registered via `POST /setWebhook` on deploy |
 
-No keeper or broadcast Durable Objects in v1. Snipe / copy / alert features that would require them are deferred until `apps/api` exposes the matching order / alert endpoints — see *Deferred features*. `OnboardingDO` is the only DO the bot owns.
+No keeper or broadcast Durable Objects in v1. Snipe / copy / alert features that would require them are deferred until `apps/api` exposes the matching order / alert endpoints — see *Deferred features*. `ChatDO` is the only DO the bot owns.
 
 ---
 
@@ -603,7 +618,7 @@ ADMIN_API_KEY=... \
 npm run deploy:webhook --workspace apps/telegram-bot
 ```
 
-No persistent process — stateless webhook handler. `OnboardingDO` is the only Durable Object and is instantiated lazily on first `/start` per user; no deploy-time kick required.
+No persistent process — stateless webhook handler. `ChatDO` is the only Durable Object and is instantiated lazily on the first update for each chat; no deploy-time kick required.
 
 ### Secrets (set via `wrangler secret put`)
 
@@ -693,7 +708,7 @@ src/
     format.ts             — Formatters, MarkdownV2 escaper, and `md` template tag (see Key Constraints)
     chart.ts              — ChartRenderer: fetches candle snapshot from `GET /api/v1/chart/:address` via api.ts (pass `timeframe=1d` for the 24h /track image), builds SVG, converts to PNG via @resvg/resvg-wasm
     logger.ts             — Structured logger (no console.log outside this module)
-  onboarding.ts           — OnboardingDO: strongly-consistent profile creation and referrer recording
+  chat-do.ts              — ChatDO: per-chat update serialisation (single DO event loop in front of grammY's session/conversations KV writes; for private-DM-only commands like /start and /wallet this also serialises per-user, since chatId == userId in DMs)
   api.ts                  — ApiClient class (typed wrapper around apps/api)
   rpc.ts                  — RpcClient class (HyperEVM RPC, tx submission)
   middleware/
@@ -822,7 +837,7 @@ src/
 
 **`commands/start.test.ts`**
 - First `/start` → user profile created in KV
-- Referral deeplink `ref_<refUserId>` where the referrer has a registered `rewardsWallet` → bot resolves to that wallet via `OnboardingDO`/api and stores it as the new user's `referrer` in KV (NOT the userId)
+- Referral deeplink `ref_<refUserId>` where the referrer has a registered `rewardsWallet` → bot resolves to that wallet via api and stores it as the new user's `referrer` in KV (NOT the userId)
 - Referral deeplink where the referrer has not yet onboarded (no `rewardsWallet`) → deeplink dropped silently, new user has `referrer = address(0)`, no retro-link when the referrer later onboards
 - Second `/start` → does not overwrite `referrer` or existing profile (lifetime, immutable after first set)
 - Self-referral (`ref_<own userId>`) → allowed; the resolved address is the new user's own rewards wallet (which equals their custodial wallet on day one)

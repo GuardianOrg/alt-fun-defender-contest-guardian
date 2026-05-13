@@ -35,9 +35,11 @@ const DEFAULT_SALT_ROUNDS = 12;
 const PIN_REGEX = /^\d{6}$/;
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 30 * 60 * 1000;
+const RESET_DELAY_MS = 24 * 60 * 60 * 1000;
 
 const hashKey = (userId: number): string => `pin:${userId}:hash`;
 const attemptsKey = (userId: number): string => `pin:${userId}:attempts`;
+const resetKey = (userId: number): string => `pin:${userId}:reset`;
 
 interface StoredHash {
   /** bcrypt encoded string (algorithm + cost + salt + digest). */
@@ -49,7 +51,22 @@ interface StoredAttempts {
   lockedUntil: number;
 }
 
+interface StoredReset {
+  /** ms epoch when [Reset PIN] was tapped. */
+  requestedAt: number;
+}
+
 const EMPTY_ATTEMPTS: StoredAttempts = { count: 0, lockedUntil: 0 };
+
+export type ResetStatus =
+  | { kind: "none" }
+  | { kind: "pending"; readyAt: number; requestedAt: number }
+  | { kind: "ready"; requestedAt: number };
+
+export type CompleteResetResult =
+  | { kind: "ok" }
+  | { kind: "not-requested" }
+  | { kind: "pending"; readyAt: number };
 
 export class InvalidPinFormatError extends Error {
   constructor() {
@@ -127,6 +144,75 @@ export class PinManager {
     await this.kv.delete(attemptsKey(userId));
   }
 
+  /**
+   * Phase 1 of the 24-hour PIN reset flow (AGENTS.md `/security`).
+   * Records the request timestamp. PIN-gated actions stay locked until
+   * the user either cancels or completes the reset — the existing PIN
+   * hash is intentionally NOT cleared here, so anyone with the old PIN
+   * can still authorise during the window. Calling twice keeps the
+   * earlier `requestedAt` so a second tap doesn't extend the cooldown.
+   */
+  async requestReset(userId: number): Promise<ResetStatus> {
+    const existing = await this.readReset(userId);
+    if (existing) {
+      const readyAt = existing.requestedAt + RESET_DELAY_MS;
+      if (this.now() >= readyAt) {
+        return { kind: "ready", requestedAt: existing.requestedAt };
+      }
+      return { kind: "pending", readyAt, requestedAt: existing.requestedAt };
+    }
+    const requestedAt = this.now();
+    const record: StoredReset = { requestedAt };
+    await this.kv.put(resetKey(userId), JSON.stringify(record));
+    return { kind: "pending", readyAt: requestedAt + RESET_DELAY_MS, requestedAt };
+  }
+
+  /**
+   * Cancel a pending reset without touching the PIN hash. Surfaced to
+   * the user as "I didn't request this" — the whole point of the 24h
+   * delay is that a user who notices the reset request from a
+   * compromised session can revoke it before it takes effect.
+   */
+  async cancelReset(userId: number): Promise<void> {
+    await this.kv.delete(resetKey(userId));
+  }
+
+  async getResetStatus(userId: number): Promise<ResetStatus> {
+    const existing = await this.readReset(userId);
+    if (!existing) return { kind: "none" };
+    const readyAt = existing.requestedAt + RESET_DELAY_MS;
+    if (this.now() >= readyAt) {
+      return { kind: "ready", requestedAt: existing.requestedAt };
+    }
+    return { kind: "pending", readyAt, requestedAt: existing.requestedAt };
+  }
+
+  /**
+   * Phase 2: replace the PIN hash and clear both the reset request and
+   * any lingering attempt counter. Fails closed if the cooldown window
+   * has not elapsed — the gate is enforced here rather than only in the
+   * UI so a stray callback can't bypass the delay.
+   */
+  async completeReset(userId: number, newPin: string): Promise<CompleteResetResult> {
+    if (!PinManager.isValidPinFormat(newPin)) throw new InvalidPinFormatError();
+    const existing = await this.readReset(userId);
+    if (!existing) return { kind: "not-requested" };
+    const readyAt = existing.requestedAt + RESET_DELAY_MS;
+    if (this.now() < readyAt) return { kind: "pending", readyAt };
+    const hash = await bcrypt.hash(newPin, this.saltRounds);
+    const record: StoredHash = { hash };
+    await this.kv.put(hashKey(userId), JSON.stringify(record));
+    await this.kv.delete(attemptsKey(userId));
+    await this.kv.delete(resetKey(userId));
+    return { kind: "ok" };
+  }
+
+  private async readReset(userId: number): Promise<StoredReset | null> {
+    const raw = await this.kv.get(resetKey(userId));
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredReset;
+  }
+
   private async recordWrong(userId: number): Promise<VerifyResult> {
     const attempts = await this.readAttempts(userId);
     const nextCount = attempts.count + 1;
@@ -172,3 +258,4 @@ export class PinManager {
 
 export const PIN_LOCKOUT_MS = LOCKOUT_MS;
 export const PIN_MAX_ATTEMPTS = MAX_ATTEMPTS;
+export const PIN_RESET_DELAY_MS = RESET_DELAY_MS;

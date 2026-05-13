@@ -5,12 +5,24 @@ import {
   START_CALLBACK,
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
-import { ANTI_PHISHING_HEADER } from "../lib/anti-phishing.js";
+import {
+  ctxAntiPhishingPhrase,
+  resolveAntiPhishingHeader,
+} from "../lib/anti-phishing.js";
 import { logger } from "../lib/logger.js";
-import { resolveBuyHypeUrl } from "../lib/moonpay.js";
+import {
+  parseStartParam,
+  readProfile,
+  recordUsername,
+  resolveReferrer,
+  writeDefaultRewardsWallet,
+  writeProfile,
+} from "../lib/onboarding.js";
+import { resolveBuyUsdcUrl } from "../lib/relay.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import type { Address } from "viem";
 
 const NON_PRIVATE_CHAT_REPLY =
   "Wallet flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /start.";
@@ -37,10 +49,11 @@ const escapeHtml = (s: string): string =>
 const renderWelcomeHtml = (
   address: string,
   usdcBalance: bigint | null,
+  phrase: string | null | undefined,
 ): string => {
   const balance = formatUsdc6(usdcBalance);
   return [
-    escapeHtml(ANTI_PHISHING_HEADER),
+    escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
     "Welcome to AltFunBot — the bot for trading alt fun tokens on HyperEVM.",
     "",
@@ -65,11 +78,12 @@ const renderStart = async (
   env: AppContext["env"],
   address: string,
   usdcBalance: bigint | null,
+  phrase: string | null | undefined,
 ): Promise<RenderedStart> => ({
-  text: renderWelcomeHtml(address, usdcBalance),
+  text: renderWelcomeHtml(address, usdcBalance, phrase),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
-      await resolveBuyHypeUrl(env, address),
+      resolveBuyUsdcUrl(env, address),
     ),
   },
   parse_mode: "HTML",
@@ -130,16 +144,15 @@ const safeEditMessageText = async (
   }
 };
 
-// buy (st:b) and sell (st:s) are handled by registerBuyCommand /
-// registerSellCommand in commands/buy.ts and commands/sell.ts respectively —
-// they enter conversations directly instead of showing a hint toast.
+// buy (st:b), sell (st:s), help (st:h), wallet (st:w), positions (st:p)
+// and security (st:sec) are handled by their dedicated register*
+// functions in commands/{buy,sell,help,wallet,positions,security}.ts —
+// they reply with full views instead of a hint toast.
 const CALLBACK_HINTS: Record<string, string> = {
   [START_CALLBACK.track]: "Type /track <contract> to view a token card.",
   [START_CALLBACK.withdraw]:
     "Type /withdraw <asset> <amount> <address> to send funds out.",
   [START_CALLBACK.settings]: "Type /settings to adjust slippage and defaults.",
-  [START_CALLBACK.security]: "Type /security to set a PIN and lock options.",
-  [START_CALLBACK.help]: "Type /help for command list and security tips.",
 };
 
 export const registerStartCommand = (bot: Bot<AppContext>): void => {
@@ -152,13 +165,54 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
-    const address = await ensureActiveAddress(ctx.env, ctx.from.id);
+    const userId = ctx.from.id;
+    // Username → userId mapping refreshes on every /start so a sharer
+    // who changes their Telegram handle later still resolves cleanly
+    // through `ref_<username>` deeplinks. No-op when the user has no
+    // username (optional in Telegram).
+    await recordUsername(ctx.env.WALLET_KV, ctx.from.username, userId);
+
+    const existingProfile = await readProfile(ctx.env.WALLET_KV, userId);
+    const isFirstStart = existingProfile === null;
+
+    const address = await ensureActiveAddress(ctx.env, userId);
     if (!address) {
       await ctx.reply(WALLET_CREATE_FAILED);
       return;
     }
+
+    if (isFirstStart) {
+      // Resolve referrer AFTER the wallet exists so a self-referral
+      // (`ref_<own userId>`) maps to the new user's own active wallet
+      // — the spec allows self-referral and on day one their rewards
+      // wallet equals the custodial wallet just minted above.
+      const param = parseStartParam(
+        typeof ctx.match === "string" ? ctx.match : undefined,
+      );
+      let referrer: Address | null = null;
+      if (param !== null) {
+        referrer = await resolveReferrer(ctx.env, buildManager(ctx.env), param);
+      }
+      // Default rewards wallet is set unconditionally on first /start
+      // — whether or not a deeplink came in. Guarantees /referral
+      // always renders against a concrete address and that any user
+      // this person later refers starts paying out from their first
+      // trade. Failure here is non-fatal (api falls back to wallet
+      // address) — see `writeDefaultRewardsWallet`.
+      await writeDefaultRewardsWallet(ctx.env, address as Address);
+      await writeProfile(ctx.env.WALLET_KV, userId, {
+        createdAt: Date.now(),
+        referrer,
+      });
+    }
+
     const balance = await fetchUsdcBalance(ctx.env, address);
-    const rendered = await renderStart(ctx.env, address, balance);
+    const rendered = await renderStart(
+      ctx.env,
+      address,
+      balance,
+      ctxAntiPhishingPhrase(ctx),
+    );
     await ctx.reply(rendered.text, {
       parse_mode: rendered.parse_mode,
       reply_markup: rendered.reply_markup,
@@ -192,7 +246,12 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const balance = await fetchUsdcBalance(ctx.env, active.address);
-    const rendered = await renderStart(ctx.env, active.address, balance);
+    const rendered = await renderStart(
+      ctx.env,
+      active.address,
+      balance,
+      ctxAntiPhishingPhrase(ctx),
+    );
     await safeEditMessageText(ctx, rendered.text, {
       parse_mode: rendered.parse_mode,
       reply_markup: rendered.reply_markup,

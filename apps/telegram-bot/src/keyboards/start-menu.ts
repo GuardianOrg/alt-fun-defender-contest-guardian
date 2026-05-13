@@ -22,17 +22,17 @@ export const START_CALLBACK = {
 
 /**
  * Main menu rendered under the `/start` welcome message. One row per
- * pair of related commands, mirroring BONKBot's layout. The `buyHypeUrl`
+ * pair of related commands, mirroring BONKBot's layout. The `buyUsdcUrl`
  * URL button sits above the action rows so the funding path is the
  * most prominent CTA for first-time users.
  */
 export const buildStartMenuKeyboard = (
-  buyHypeUrl: string,
+  buyUsdcUrl: string,
 ): InlineKeyboard => [
   [
     {
-      text: "Buy HYPE via Privy",
-      url: buyHypeUrl,
+      text: "Buy USDC via Relay",
+      url: buyUsdcUrl,
     },
     { text: "Refresh", callback_data: START_CALLBACK.refresh },
   ],

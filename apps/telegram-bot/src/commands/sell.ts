@@ -10,6 +10,10 @@ import { buildSellTokenKeyboard } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
+import {
+  confirmKeyboard,
+  stageSell,
+} from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
 import { fetchErc20Balance } from "../lib/rpc.js";
 import {
@@ -92,6 +96,25 @@ const safeEditMessageText = async (
 
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
+
+/**
+ * Compute how many raw tokens to submit for a "sell $X worth" intent.
+ * Returns `balance` directly when the target meets or exceeds the user's
+ * total estimated proceeds — the BotFeeRouter caps at remaining-balance
+ * inside `transferFrom` anyway, and the fraction math would overshoot
+ * for tiny dust quantities.
+ */
+const sellTokenAmount = (
+  balance: bigint,
+  targetUsdc: number,
+  proceedsUsdc: number,
+): bigint => {
+  if (proceedsUsdc <= 0 || targetUsdc >= proceedsUsdc) return balance;
+  // Scale by 1e6 to keep enough precision; balance × (target / proceeds).
+  const ratio = BigInt(Math.floor((targetUsdc / proceedsUsdc) * 1_000_000));
+  const amount = (balance * ratio) / 1_000_000n;
+  return amount === 0n ? balance : amount;
+};
 
 /**
  * Result of resolving the user's max sell proceeds for pre-tx validation.
@@ -322,11 +345,24 @@ const sellCustomConversation = async (
       continue;
     }
 
+    const tokenRaw = sellTokenAmount(tokenBalance, amount, quote.proceedsUsd);
+    const { nonce } = await conversation.external(
+      (outerCtx): { nonce: string } =>
+        stageSell({
+          ctx: outerCtx,
+          token: token.address,
+          ticker: token.ticker,
+          tokenRaw,
+        }),
+    );
     await msgCtx.reply(
       `✅ <b>Ready to sell $${amount.toFixed(2)} USDC worth of ${token.ticker}</b>\n\n` +
         `<i>${FEE_SUMMARY}</i>\n\n` +
-        `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
-      { parse_mode: "HTML" },
+        `Tap <b>Confirm</b> within 60s to submit.`,
+      {
+        parse_mode: "HTML",
+        reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+      },
     );
     return;
   }
@@ -445,11 +481,21 @@ const handleFixedSell = async (
   }
 
   await ctx.answerCallbackQuery();
+  const tokenRaw = sellTokenAmount(tokenBalance, targetUsdc, quote.proceedsUsd);
+  const { nonce } = stageSell({
+    ctx,
+    token: token.address,
+    ticker: token.ticker,
+    tokenRaw,
+  });
   await ctx.reply(
     `✅ <b>Ready to sell $${targetUsdc} USDC worth of ${token.ticker}</b>\n\n` +
       `<i>${FEE_SUMMARY}</i>\n\n` +
-      `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
-    { parse_mode: "HTML" },
+      `Tap <b>Confirm</b> within 60s to submit.`,
+    {
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+    },
   );
 };
 
@@ -527,11 +573,20 @@ const handleSellAll = async (
   }
 
   await ctx.answerCallbackQuery();
+  const { nonce } = stageSell({
+    ctx,
+    token: token.address,
+    ticker: token.ticker,
+    tokenRaw: tokenBalance,
+  });
   await ctx.reply(
     `✅ <b>Ready to sell all ${formatToken18(tokenBalance)} ${token.ticker}</b>\n\n` +
       `<i>${FEE_SUMMARY}</i>\n\n` +
-      `<i>Trade execution will be wired to BotFeeRouter in a future update.</i>`,
-    { parse_mode: "HTML" },
+      `Tap <b>Confirm</b> within 60s to submit.`,
+    {
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+    },
   );
 };
 
