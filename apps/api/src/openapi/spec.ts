@@ -276,6 +276,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
           { name: "direction", in: "query", schema: { type: "string", enum: ["long", "short"] }, description: "Filter by LT direction" },
           { name: "leverage", in: "query", schema: { type: "integer", enum: [2, 3, 5] }, description: "Filter by leverage multiplier" },
           { name: "creator", in: "query", schema: { type: "string", pattern: "^0x[a-fA-F0-9]{40}$" }, description: "Filter by creator address" },
+          { name: "createdAfter", in: "query", schema: { type: "string", format: "date-time" }, description: "Return only tokens created strictly after this ISO-8601 timestamp. Cursor-style backfill: a client tracking the most recent `createdAt` it's processed can pass that value here to receive everything newer without re-receiving the boundary row." },
           { name: "sort", in: "query", schema: { type: "string", enum: ["createdAt", "leverage", "name", "trending"], default: "createdAt" }, description: "Sort field. `trending` scores tokens by 24h change, volume, mcap, freshness, and trade recency. The trending sort ignores `dir`, always returns highest-score first, and is capped at the 500 most-recent tokens matching the filters." },
           { name: "dir", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "Sort direction" },
           apiKeyHeader,
@@ -285,7 +286,7 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
             description: "List of tokens with on-chain enrichment (curve state, USD raised, USD-denominated graduation progress, organic-vs-leverage split). Same shape as `GET /api/v1/tokens/{address}`.",
             content: { "application/json": { schema: successResponse({ type: "array", items: { $ref: "#/components/schemas/TokenDetail" } }) } },
           },
-          "400": { description: "Invalid pagination parameters", content: { "application/json": { schema: errorResponse } } },
+          "400": { description: "Invalid pagination or `createdAfter` parameter", content: { "application/json": { schema: errorResponse } } },
         },
       },
       post: {

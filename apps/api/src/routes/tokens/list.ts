@@ -1,4 +1,4 @@
-import { eq, desc, asc, ilike, or, and, inArray, notInArray, type SQL } from "drizzle-orm";
+import { eq, gt, desc, asc, ilike, or, and, inArray, notInArray, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 
@@ -57,6 +57,28 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
+}
+
+/**
+ * Parse a `createdAfter` query parameter as an ISO-8601 timestamp.
+ *
+ * Returns:
+ *   - `undefined` when the param is absent (no filter applied).
+ *   - `null` when the param is present but malformed (handler emits 400).
+ *   - a `Date` when the param is a well-formed ISO-8601 string.
+ *
+ * The leading `YYYY-MM-DD` shape guard rejects English-style inputs like
+ * `"tomorrow"`, bare years (`"2024"`), and the empty string — all of which
+ * `new Date(...)` would either accept or silently coerce. Anything that
+ * passes the shape check still has its `getTime()` checked so the Date
+ * constructor's lenient fallback to `Invalid Date` doesn't slip through.
+ */
+function parseCreatedAfter(value: string | undefined): Date | undefined | null {
+  if (value === undefined) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }
 
 function enrich(
@@ -213,6 +235,16 @@ listRoute.get("/", async (c) => {
   const limit = Math.min(limitParam ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   const offset = offsetParam ?? 0;
 
+  // Strictly-greater-than filter on `createdAt`. Cursor-style backfill
+  // pattern: a consumer tracking the latest `createdAt` it's processed
+  // can ask for "everything newer than that" without re-receiving the
+  // boundary row. Naming mirrors the public contract — `createdAfter`
+  // reads as exclusive, and that's what we implement.
+  const createdAfter = parseCreatedAfter(c.req.query("createdAfter"));
+  if (createdAfter === null) {
+    return c.json(formatError("Invalid createdAfter parameter"), 400);
+  }
+
   const underlying = c.req.query("underlying");
   const directionRaw = c.req.query("direction");
   const direction =
@@ -338,6 +370,11 @@ listRoute.get("/", async (c) => {
 
     // Preserve Ponder's ordering (graduatedAt desc / curveSupply asc) and
     // drop anything hidden in the DB or not matching the user's filters.
+    // `createdAfter` is enforced here (rather than in the SQL `where`)
+    // because the Ponder-first path's row selection is driven by the
+    // indexer page, not by a `tokens.createdAt` predicate — keeping the
+    // filter in one place keeps semantics identical across branches.
+    const createdAfterMs = createdAfter?.getTime();
     const orderedDbRows: DbToken[] = [];
     const orderedOnchain: PonderTokenOnchain[] = [];
     for (const onchain of onchainPage) {
@@ -345,6 +382,9 @@ listRoute.get("/", async (c) => {
       const row = dbByAddress.get(addr);
       if (!row) continue;
       if (!matchesFilters(row, filters)) continue;
+      if (createdAfterMs !== undefined && row.createdAt.getTime() <= createdAfterMs) {
+        continue;
+      }
       orderedDbRows.push(row);
       orderedOnchain.push(onchain);
     }
@@ -426,6 +466,7 @@ listRoute.get("/", async (c) => {
   if (direction) conditions.push(eq(tokens.ltDirection, direction));
   if (leverage !== undefined) conditions.push(eq(tokens.leverage, leverage));
   if (creator) conditions.push(eq(tokens.creator, creator));
+  if (createdAfter) conditions.push(gt(tokens.createdAt, createdAfter));
   if (availability && availability.fresh && availability.liveAddresses.size > 0) {
     // `tokens.ltPair` is stored checksummed (see `lib/token-registration.ts`,
     // which runs every insert through `getAddress`). The live snapshot is
