@@ -34,6 +34,16 @@ import { WalletManager } from "../lib/wallet.js";
 /** Number of trades shown under the token card per AGENTS.md /track spec. */
 const TRADES_PER_CARD = 20;
 
+/**
+ * Upper bound on how long we'll wait for the chart image before sending
+ * the /track text reply without it. The renderer fans out to an HTTP
+ * fetch + a wasm-backed PNG conversion, either of which can blow past
+ * the user's perception threshold on a cold-isolate Worker. Capping the
+ * wait keeps the text card responsive — a missing chart is recoverable
+ * (user can refresh), a multi-second silent /track is not.
+ */
+const CHART_TIMEOUT_MS = 5_000;
+
 const ALT_FUN_TOKEN_BASE = "https://alt.fun";
 
 /**
@@ -179,12 +189,19 @@ const buildTrack = async (
     return { ok: false, kind: "unavailable" };
   }
   // Trades + chart failures degrade gracefully — the token card is
-  // still useful on its own. Both run in parallel since neither depends
-  // on the other. Chart errors are swallowed inside `buildTrackChartPng`
-  // so the /track text reply never fails on a renderer outage.
+  // still useful on its own. Trades run in parallel with a *bounded*
+  // chart render: the chart promise races a `CHART_TIMEOUT_MS` timeout
+  // so a slow wasm-init or upstream `/chart` fetch can't gate the
+  // text reply (CodeRabbit #731). Chart errors are swallowed inside
+  // `buildTrackChartPng` for the same reason — the user always gets
+  // the text card.
+  const chartPromise: Promise<Uint8Array | null> = Promise.race([
+    buildTrackChartPng(env, address, tokenResult.data.name),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), CHART_TIMEOUT_MS)),
+  ]);
   const [tradesResult, chartPng] = await Promise.all([
     fetchTrades(env, address, TRADES_PER_CARD),
-    buildTrackChartPng(env, address, tokenResult.data.name),
+    chartPromise,
   ]);
   const trades = tradesResult.ok ? tradesResult.data : [];
   return {
