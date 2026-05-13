@@ -15,8 +15,15 @@ admin.use("*", async (c, next) => {
 });
 
 /**
- * Point Telegram at this Worker's /webhook route. Run once after deploy
- * and any time TELEGRAM_WEBHOOK_SECRET rotates.
+ * Point Telegram at this Worker's /webhook route AND publish the slash-menu
+ * to Telegram. Run once after deploy and any time TELEGRAM_BOT_TOKEN or
+ * TELEGRAM_WEBHOOK_SECRET rotates.
+ *
+ * Both `setWebhook` and `setMyCommands` are scoped to the bot token, so
+ * porting the bot to a fresh BotFather token wipes both registrations.
+ * Bundling them here means a single deploy/rotation call rehydrates the
+ * full bot surface — `/admin/set-commands` stays separate for the rare
+ * case of pushing a BOT_COMMANDS edit without touching the webhook.
  */
 admin.post("/set-webhook", async (c) => {
   let payload: unknown;
@@ -43,11 +50,45 @@ admin.post("/set-webhook", async (c) => {
     return c.json({ error: "url must use https" }, 400);
   }
 
-  return proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "setWebhook", {
-    url: webhookUrl.toString(),
-    secret_token: c.env.TELEGRAM_WEBHOOK_SECRET,
-    allowed_updates: ["message", "callback_query"],
-  });
+  const webhookResult = await callTelegramJson(
+    c.env.TELEGRAM_BOT_TOKEN,
+    "setWebhook",
+    {
+      url: webhookUrl.toString(),
+      secret_token: c.env.TELEGRAM_WEBHOOK_SECRET,
+      allowed_updates: ["message", "callback_query"],
+    },
+  );
+  if (!webhookResult.ok) {
+    // Telegram API errors arrive as HTTP 200 with `{ ok: false }`, so when
+    // callTelegramJson flips ok via the body check we have to manufacture
+    // a non-2xx status — bubbling the 200 would tell the deploy script
+    // the call succeeded.
+    return Response.json(webhookResult.body, {
+      status: webhookResult.status >= 400 ? webhookResult.status : 502,
+    });
+  }
+
+  const commandsResult = await callTelegramJson(
+    c.env.TELEGRAM_BOT_TOKEN,
+    "setMyCommands",
+    { commands: BOT_COMMANDS.map((cmd) => ({ ...cmd })) },
+  );
+  if (!commandsResult.ok) {
+    return Response.json(
+      {
+        error: "set_commands_failed",
+        webhook: webhookResult.body,
+        commands: commandsResult.body,
+      },
+      { status: commandsResult.status >= 400 ? commandsResult.status : 502 },
+    );
+  }
+
+  return Response.json(
+    { webhook: webhookResult.body, commands: commandsResult.body },
+    { status: 200 },
+  );
 });
 
 admin.get("/webhook-info", async (c) =>
@@ -72,25 +113,60 @@ async function proxyTelegram(
   method: string,
   payload: Record<string, unknown>,
 ): Promise<Response> {
+  const result = await callTelegramJson(token, method, payload);
+  return Response.json(result.body, { status: result.status });
+}
+
+interface TelegramCallResult {
+  ok: boolean;
+  status: number;
+  body: unknown;
+}
+
+// Internal variant of proxyTelegram that returns parsed body + status so the
+// caller can chain multiple Telegram calls (e.g. setWebhook + setMyCommands)
+// and decide whether to short-circuit on partial failure.
+//
+// Telegram signals success via the JSON body's `ok` field, not the HTTP
+// status — `setWebhook` against a stale URL or `setMyCommands` with a bad
+// description still come back as HTTP 200 with `{ ok: false, error_code,
+// description }`. Inspect the body and only return ok=true when both layers
+// agree, so callers don't silently chain past an API-level failure.
+async function callTelegramJson(
+  token: string,
+  method: string,
+  payload: Record<string, unknown>,
+): Promise<TelegramCallResult> {
   let upstream: Response;
   try {
     upstream = await callTelegram(token, method, payload);
   } catch (err) {
-    return Response.json(
-      { error: "telegram_unreachable", message: String(err) },
-      { status: 502 },
-    );
+    return {
+      ok: false,
+      status: 502,
+      body: { error: "telegram_unreachable", message: String(err) },
+    };
   }
   let body: unknown;
   try {
     body = await upstream.json();
   } catch {
-    return Response.json(
-      { error: "telegram_invalid_response", status: upstream.status },
-      { status: 502 },
-    );
+    return {
+      ok: false,
+      status: 502,
+      body: { error: "telegram_invalid_response", status: upstream.status },
+    };
   }
-  return Response.json(body, { status: upstream.status });
+  const apiOk =
+    typeof body === "object" &&
+    body !== null &&
+    "ok" in body &&
+    (body as { ok: unknown }).ok === true;
+  return {
+    ok: upstream.ok && apiOk,
+    status: upstream.status,
+    body,
+  };
 }
 
 export default admin;
