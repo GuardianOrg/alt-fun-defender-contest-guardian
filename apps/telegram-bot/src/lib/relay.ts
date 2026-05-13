@@ -47,20 +47,25 @@ export interface ResolveBuyUsdcUrlEnv {
 }
 
 /**
- * Validate that a raw env string is a well-formed http(s) URL. Ops
- * can paste a typo, a half-edited secret, or an internal hostname
- * here — handing that straight to Telegram as an inline-keyboard
- * `url` field would either reject the entire reply (Telegram's URL
- * validator is strict) or silently land users on a phishing-shaped
- * deeplink. Falling back to the Relay default keeps the button
- * usable instead of breaking `/start` outright.
+ * Parse a raw env string as an HTTPS URL and return its normalized
+ * form, or `null` if it's missing, malformed, or non-HTTPS. Ops
+ * can paste a typo, a half-edited secret, an `http://` value, or
+ * an internal hostname here — handing that straight to Telegram as
+ * an inline-keyboard `url` field would either reject the entire
+ * reply (Telegram's URL validator is strict) or downgrade users to
+ * a plaintext onramp for a financial CTA. HTTPS-only is the right
+ * floor for a button that hands the user's wallet address to a
+ * third party. Falling back to the built Relay deeplink keeps the
+ * button usable instead of breaking `/start` outright.
  */
-const isValidHttpUrl = (raw: string): boolean => {
+const parseHttpsOverride = (raw: string | undefined): string | null => {
+  if (!raw) return null;
   try {
     const parsed = new URL(raw);
-    return parsed.protocol === "https:" || parsed.protocol === "http:";
+    if (parsed.protocol !== "https:") return null;
+    return parsed.toString();
   } catch {
-    return false;
+    return null;
   }
 };
 
@@ -68,17 +73,16 @@ const isValidHttpUrl = (raw: string): boolean => {
  * Resolve the URL the "Buy USDC via Relay" button should point at.
  * The optional `BUY_USDC_URL` env var lets ops hot-patch the link
  * (e.g. to a campaign-tracking variant or an alternative onramp)
- * without redeploying — but only if it parses as an http(s) URL.
- * An empty or malformed value silently falls back to the built
- * Relay deeplink with the user's custodial wallet pre-filled, so
- * the funding CTA never disappears on a config typo.
+ * without redeploying — but only if it parses as an HTTPS URL. An
+ * empty, non-HTTPS, or malformed value silently falls back to the
+ * built Relay deeplink with the user's custodial wallet pre-filled,
+ * so the funding CTA never disappears on a config typo.
  */
 export const resolveBuyUsdcUrl = (
   env: ResolveBuyUsdcUrlEnv,
   walletAddress: string,
 ): string => {
-  if (env.BUY_USDC_URL && isValidHttpUrl(env.BUY_USDC_URL)) {
-    return env.BUY_USDC_URL;
-  }
+  const override = parseHttpsOverride(env.BUY_USDC_URL);
+  if (override) return override;
   return buildRelayOnrampUrl({ walletAddress });
 };
