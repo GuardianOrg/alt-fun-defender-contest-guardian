@@ -114,7 +114,7 @@ describe("/settings command", () => {
       expect(text).toContain("Slippage: 1%");
       expect(text).toContain("Default buy: $50 USDC");
       expect(text).toContain("Degen mode: off");
-      expect(text).toContain("Anti-phishing phrase lives in /security");
+      expect(text).not.toContain("Anti-phishing phrase lives in /security");
     });
 
     it("marks the current slippage preset with bullets and shows the buy amount on its button", async () => {
