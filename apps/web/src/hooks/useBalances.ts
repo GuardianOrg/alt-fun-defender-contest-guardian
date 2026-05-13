@@ -41,6 +41,13 @@ interface RawBalance {
   balance: bigint;
   /** Token logo URL (R2-served). Empty string when the creator never uploaded one. */
   imageUrl: string;
+  /**
+   * `true` when the token is currently admin-hidden from the public
+   * listings. Holders still see the position in their "My Positions"
+   * panel (issue #712) so they can sell it; the row is marked so the
+   * UI can render the policy-violation hint and disable buys.
+   */
+  isHidden: boolean;
 }
 
 async function fetchRawBalancesFromApi(
@@ -55,6 +62,7 @@ async function fetchRawBalancesFromApi(
     leverage: b.leverage,
     balance: BigInt(b.balance),
     imageUrl: b.imageUrl,
+    isHidden: b.isHidden,
   }));
 }
 
@@ -113,10 +121,50 @@ async function fetchRawBalancesFromChain(
         leverage: token.leverage,
         balance,
         imageUrl: token.imageUrl,
+        // `fetchAllTokens` is filtered to the public lens, so every entry
+        // we just multicalled is non-hidden by construction. Hidden
+        // positions are merged in separately from the API balances call
+        // below — see `useBalances.queryFn`.
+        isHidden: false,
       });
     }
   }
   return balances;
+}
+
+/**
+ * Fold any hidden-token positions the API surfaces into the chain-derived
+ * balance set (issue #712). The chain multicall walks `fetchAllTokens`,
+ * which is filtered to the public lens — so a hidden token a wallet
+ * still holds never gets a `balanceOf` probe. The API balances endpoint
+ * is wallet-scoped (via Ponder's `tokenBalances`) and now exposes hidden
+ * rows, so any position the chain path missed shows up here marked
+ * `isHidden: true`.
+ *
+ * If the API call fails (or Ponder's index is cold), hidden positions
+ * silently fall off the panel rather than corrupting the chain-derived
+ * visible positions. Trust order: chain wins on overlap, API only fills
+ * the hidden-token gap.
+ */
+async function mergeHiddenFromApi(args: {
+  walletAddress: string;
+  chainBalances: RawBalance[];
+}): Promise<RawBalance[]> {
+  let apiBalances: RawBalance[];
+  try {
+    apiBalances = await fetchRawBalancesFromApi(args.walletAddress);
+  } catch {
+    return args.chainBalances;
+  }
+  if (apiBalances.length === 0) return args.chainBalances;
+  const knownAddresses = new Set(
+    args.chainBalances.map((b) => b.address.toLowerCase()),
+  );
+  const hiddenExtras = apiBalances.filter(
+    (b) => b.isHidden && !knownAddresses.has(b.address.toLowerCase()),
+  );
+  if (hiddenExtras.length === 0) return args.chainBalances;
+  return [...args.chainBalances, ...hiddenExtras];
 }
 
 export function useBalances() {
@@ -137,8 +185,21 @@ export function useBalances() {
       // the source of truth here; the API call is kept as a fallback for
       // RPC outages. Token catalogue is ~100 entries today, so the multicall
       // fits in a single RPC round-trip.
+      //
+      // Hidden tokens are NOT in `fetchAllTokens` (the public catalogue is
+      // filtered to `isHidden = false`), so the chain path can never surface
+      // a hidden position. The API path, however, is wallet-scoped via
+      // Ponder and now returns hidden rows for holders (issue #712); we
+      // fold those in on top of the chain result so a holder can still see
+      // (and sell) their hidden position. If the API path fails entirely
+      // we fall back to it as the only source, mirroring the previous
+      // behaviour for RPC outages.
       try {
-        return await fetchRawBalancesFromChain(address);
+        const chainBalances = await fetchRawBalancesFromChain(address);
+        return await mergeHiddenFromApi({
+          walletAddress: address,
+          chainBalances,
+        });
       } catch {
         return fetchRawBalancesFromApi(address);
       }
@@ -164,6 +225,7 @@ export function useBalances() {
         amount,
         valueUsd: amount * pricePerToken,
         change24h: marketEntry?.change24h ?? null,
+        isHidden: b.isHidden,
       };
     })
     .filter((t) => pricesLoading || t.valueUsd >= MIN_DISPLAY_VALUE_USD);

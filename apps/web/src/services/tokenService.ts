@@ -81,6 +81,7 @@ export function fromApiToken(api: ApiToken): Token {
     status: deriveStatus(api),
     creatorAddress: api.creator,
     createdAt: api.createdAt,
+    isHidden: api.isHidden,
     socialLinks: buildSocialLinks(api),
   };
 }
@@ -129,7 +130,16 @@ export interface ITokenService {
     offset: number,
     limit: number,
   ): Promise<Token[]>;
-  getToken(address: string): Promise<Token | undefined>;
+  /**
+   * Look up a single token by address.
+   *
+   * `wallet` (optional) opts into the holder-aware bypass for
+   * admin-hidden tokens: passing the connected wallet lets a holder of
+   * a hidden token load its detail page so they can sell out. Non-holders
+   * (no wallet, wrong wallet, zero balance) continue to get `undefined`
+   * for hidden tokens — server-side enforced via on-chain `balanceOf`.
+   */
+  getToken(address: string, wallet?: string): Promise<Token | undefined>;
   getTokensByDirection(
     direction: Direction,
     filter?: TokenFilter,
@@ -189,8 +199,11 @@ async function liveGetTokensPage(
   return apiTokens.map(fromApiToken);
 }
 
-async function liveGetToken(address: string): Promise<Token | undefined> {
-  const apiToken = await fetchToken(address).catch(() => null);
+async function liveGetToken(
+  address: string,
+  wallet?: string,
+): Promise<Token | undefined> {
+  const apiToken = await fetchToken(address, wallet).catch(() => null);
   if (!apiToken) return undefined;
   return fromApiToken(apiToken);
 }

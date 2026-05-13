@@ -88,6 +88,28 @@ export default function TokenDetailView() {
   return (
     <div className={styles.wrapper} aria-busy={token ? undefined : true}>
       <div className={styles.leftPanel}>
+        {/* Hidden-token disclaimer (issue #712). The detail endpoint
+            already gates on a server-side `balanceOf`, so reaching this
+            view with `isHidden: true` means the connected wallet holds
+            the token — frame the message as a sell-out notice. The
+            `TradePanel` further down disables the buy path to match. */}
+        {token?.isHidden && (
+          <div
+            className={styles.hiddenBanner}
+            role="status"
+            data-testid="hidden-token-banner"
+          >
+            <div className={styles.hiddenBannerTitle}>
+              Token removed for policy violation
+            </div>
+            <div className={styles.hiddenBannerBody}>
+              An admin has removed {token.ticker} from the public listings.
+              Buying is disabled; you can still sell your remaining{" "}
+              {token.ticker} balance from the trade panel.
+            </div>
+          </div>
+        )}
+
         {token ? <HeroSection token={token} /> : <HeroSectionSkeleton />}
 
         {token && (

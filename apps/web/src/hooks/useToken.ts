@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 
+import { useWallet } from "./useWallet";
 import { tokenService } from "../services/tokenService";
 
 import type { Token } from "../services/types";
@@ -50,11 +51,17 @@ export function tokenRefetchInterval(
 }
 
 export function useToken(address: string | undefined) {
+  // Connected wallet enables the holder-aware bypass for admin-hidden
+  // tokens (issue #712): a wallet that already holds a hidden token
+  // can still load its detail page so it can sell out. The wallet is
+  // baked into the query key so a connect / disconnect / wallet switch
+  // re-fetches under the right lens (public 404 vs holder-only 200).
+  const { address: wallet } = useWallet();
   return useQuery({
-    queryKey: ["token", address],
+    queryKey: ["token", address, wallet ?? null],
     queryFn: () => {
       if (!address) throw new Error("Address required");
-      return tokenService.getToken(address);
+      return tokenService.getToken(address, wallet);
     },
     enabled: !!address,
     refetchInterval: (query) => tokenRefetchInterval(query.state.data),

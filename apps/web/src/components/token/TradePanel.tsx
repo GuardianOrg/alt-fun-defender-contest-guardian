@@ -47,13 +47,26 @@ export default function TradePanel({ token }: Props) {
   // preferable to freezing both sides — see AGENTS.md → "Mint-pause is
   // asymmetric (accepted)" for the contract-side rationale.
   const isMintPaused = useIsMintPaused(token.ltAddress);
+  // Admin-hidden token (issue #712). Same buy-disabled / sell-open shape
+  // as `isMintPaused`: the token has been pulled from the public
+  // listings, but holders still need a way to exit their position. The
+  // detail endpoint only serves a hidden row to a wallet that's already
+  // proven (on-chain `balanceOf`) it holds the token, so the only way
+  // to reach this branch is as a holder selling out.
+  const isPolicyHidden = token.isHidden;
   // CDN-derived geo gate. Mirrors `isMintPaused` semantics — buys are
   // blocked, sells stay open so users in restricted regions can always
   // exit. Fail-open while the trace fetch is in flight (the hook returns
   // `false` until it resolves), so the form is never blocked on a slow
   // edge response.
   const { isGeoBlocked } = useIsGeoBlocked();
-  const [mode, setMode] = useState<"buy" | "sell">("buy");
+  // Admin-hidden tokens are sell-only by policy — start the form in sell
+  // mode rather than blanking out a buy-mode panel with an explainer
+  // and a disabled CTA. Mirrors the auto-switch effect for `isMintPaused`
+  // below.
+  const [mode, setMode] = useState<"buy" | "sell">(
+    isPolicyHidden ? "sell" : "buy",
+  );
   // Auto-swap to sell mode the first time we learn the LT is paused — and
   // only when the user hasn't typed anything yet, so we never clobber an
   // in-progress buy attempt. Tracked in a ref so toggling back to "buy"
@@ -197,8 +210,15 @@ export default function TradePanel({ token }: Props) {
   }, [isConnected, loadBalance]);
 
   useEffect(() => {
+    // Auto-swap to sell mode the first time we learn either:
+    //   1. The backing LT has been mint-paused by BounceTech, OR
+    //   2. The token has been admin-hidden (policy violation).
+    // Both render the panel as sell-only — the user can still toggle BUY
+    // back to read the disabled state, but landing in sell mode skips
+    // the click. Auto-switch is one-shot (the ref) and only fires while
+    // the input is empty, so we never clobber an in-progress buy attempt.
     if (
-      isMintPaused &&
+      (isMintPaused || isPolicyHidden) &&
       !autoSwitchedToSellRef.current &&
       mode === "buy" &&
       amount === ""
@@ -206,7 +226,7 @@ export default function TradePanel({ token }: Props) {
       setMode("sell");
       autoSwitchedToSellRef.current = true;
     }
-  }, [isMintPaused, mode, amount]);
+  }, [isMintPaused, isPolicyHidden, mode, amount]);
 
   const doTrade = () => {
     if (!isConnected) {
@@ -223,6 +243,9 @@ export default function TradePanel({ token }: Props) {
     // a stale render between a country flip and the click shouldn't be
     // able to slip a tx through.
     if (isGeoBlocked && mode === "buy") return;
+    // And again for the admin-hidden gate — buys are policy-blocked, so
+    // refuse to broadcast even if a stale render leaks through.
+    if (isPolicyHidden && mode === "buy") return;
 
     if (mode === "buy") {
       pendingTradeRef.current = {
@@ -271,6 +294,7 @@ export default function TradePanel({ token }: Props) {
 
   const buyDisabledByPause = isMintPaused && mode === "buy";
   const buyDisabledByGeo = isGeoBlocked && mode === "buy";
+  const buyDisabledByPolicy = isPolicyHidden && mode === "buy";
   const geoBlockShown = buyDisabledByGeo && amtNum > 0;
 
   // Only one error/warning is rendered at a time so the form never stacks
@@ -372,16 +396,18 @@ export default function TradePanel({ token }: Props) {
             fluid
             tone="mint"
             active={mode === "buy"}
-            disabled={isMintPaused}
+            disabled={isMintPaused || isPolicyHidden}
             onClick={() => {
               setMode("buy");
               setAmount("");
               reset();
             }}
             title={
-              isMintPaused
-                ? "Buys are paused while BounceTech has minting disabled on this leveraged token"
-                : undefined
+              isPolicyHidden
+                ? "Buys are disabled — this token has been removed from public listings"
+                : isMintPaused
+                  ? "Buys are paused while BounceTech has minting disabled on this leveraged token"
+                  : undefined
             }
           >
             BUY
@@ -434,7 +460,25 @@ export default function TradePanel({ token }: Props) {
       </div>
 
       <div className={styles.formBody}>
-        {isMintPaused && (
+        {isPolicyHidden && (
+          <div
+            className={styles.pausedBanner}
+            role="status"
+            data-testid="trade-panel-hidden-banner"
+          >
+            <div className={styles.pausedBannerTitle}>Buys disabled</div>
+            <div className={styles.pausedBannerBody}>
+              {token.ticker} has been removed from public listings for
+              violating our policies. You can still sell your remaining
+              balance — buys are permanently disabled.
+            </div>
+          </div>
+        )}
+        {/* `isPolicyHidden` takes precedence over `isMintPaused` because
+         *  the policy ban is the more severe state — the token won't
+         *  come back even if BounceTech unfreezes minting. Sells stay
+         *  open in both cases. */}
+        {!isPolicyHidden && isMintPaused && (
           <div className={styles.pausedBanner} role="status">
             <div className={styles.pausedBannerTitle}>Buys paused</div>
             <div className={styles.pausedBannerBody}>
@@ -579,6 +623,7 @@ export default function TradePanel({ token }: Props) {
             step === "confirmed" ||
             buyDisabledByPause ||
             buyDisabledByGeo ||
+            buyDisabledByPolicy ||
             belowMinimum ||
             sellBelowMinimum ||
             sellExceedsBuffer ||

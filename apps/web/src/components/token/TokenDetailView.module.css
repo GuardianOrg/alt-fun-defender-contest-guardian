@@ -135,6 +135,39 @@
   padding: 2.4rem;
 }
 
+/*
+ * Policy-violation banner shown above the hero when an admin has hidden
+ * the token. Only holders of the token can see this page (the API gates
+ * the response on a server-side `balanceOf` check), so the banner is
+ * effectively a sell-out notice — see issue #712 / #586. Styled with the
+ * shared `--red` / `--red-bg` design tokens so it tracks the rest of the
+ * red admin surfaces (error boxes, danger CTAs) and stands apart from
+ * the mint-paused / graduation banners further down the page.
+ */
+.hiddenBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem 1.2rem;
+  background: var(--red-bg);
+  border-bottom: 1px solid var(--red);
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.hiddenBannerTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+
+.hiddenBannerBody {
+  color: var(--txt-2);
+  font-size: 13px;
+}
+
 @media (max-width: 768px) {
   .wrapper {
     flex-direction: column;

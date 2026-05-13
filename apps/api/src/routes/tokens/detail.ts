@@ -1,6 +1,7 @@
+import { HYPER_EVM } from "@launchpad/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
-import { getAddress, isAddress } from "viem";
+import { createPublicClient, erc20Abi, getAddress, http, isAddress } from "viem";
 import { z } from "zod";
 
 import { createDb } from "../../db/client.js";
@@ -124,6 +125,43 @@ detailRoute.post("/batch", zodValidator("json", batchTokensSchema), async (c) =>
   return c.json(formatSuccess(results));
 });
 
+/**
+ * Server-side `balanceOf(wallet)` probe used by the holder-aware detail
+ * bypass. Hidden tokens are 404 for the public lens; once a wallet has
+ * proven (via a single on-chain read) that it holds the token, we serve
+ * the row so that wallet can sell the position (issue #712).
+ *
+ * Returns `true` only on a confirmed non-zero balance — RPC errors and a
+ * zero balance both fall through to the 404 path, never to a leak.
+ */
+async function walletHoldsToken(args: {
+  env: AppBindings;
+  tokenAddress: `0x${string}`;
+  wallet: `0x${string}`;
+}): Promise<boolean> {
+  try {
+    const transport = http(args.env.HYPEREVM_RPC_URL || HYPER_EVM.rpcUrl);
+    const client = createPublicClient({
+      chain: {
+        id: HYPER_EVM.id,
+        name: HYPER_EVM.name,
+        nativeCurrency: { name: "HYPE", symbol: "HYPE", decimals: 18 },
+        rpcUrls: { default: { http: [HYPER_EVM.rpcUrl] } },
+      } as const,
+      transport,
+    });
+    const balance = (await client.readContract({
+      address: args.tokenAddress,
+      abi: erc20Abi,
+      functionName: "balanceOf",
+      args: [args.wallet],
+    })) as bigint;
+    return balance > 0n;
+  } catch {
+    return false;
+  }
+}
+
 detailRoute.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
   if (!isAddress(rawAddress)) {
@@ -131,25 +169,61 @@ detailRoute.get("/:address", async (c) => {
   }
   const address = getAddress(rawAddress);
 
+  // Optional `?wallet=0x…` query param. When supplied AND the wallet
+  // currently holds a non-zero balance of the (otherwise-hidden) token,
+  // we serve the row so the holder can sell their position. Absent /
+  // invalid / zero-balance callers continue to see a public-lens 404,
+  // exactly as before — see issue #712 / #586.
+  const rawWallet = c.req.query("wallet");
+  const wallet =
+    rawWallet && isAddress(rawWallet) ? getAddress(rawWallet) : null;
+
   const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
   const cache = cachesObj?.default;
-  const cacheKey = new Request(new URL(c.req.url).toString(), { method: "GET" });
-  if (cache) {
+  // Wallet-aware responses can't share a cache slot with public ones
+  // (one would leak the other). Skip the edge cache entirely when a
+  // wallet param is present; public lookups continue to be cached as
+  // before. The single RPC `balanceOf` is sub-100ms and only fires on
+  // wallet-bearing requests, so this is a fair trade.
+  const cacheKey =
+    wallet === null
+      ? new Request(new URL(c.req.url).toString(), { method: "GET" })
+      : null;
+  if (cache && cacheKey) {
     const cached = await cache.match(cacheKey);
     if (cached) return cached;
   }
 
   const db = createDb(c.env.DATABASE_URL);
-  const [dbToken] = await db
+  // Two-step lookup. We always start with the public lens
+  // (`isHidden = false`); only when that misses AND a wallet is present
+  // do we fall back to a wallet-gated lookup of the hidden row + a
+  // server-side `balanceOf` proof. This preserves the issue #586
+  // contract (hidden tokens look like 404 to everyone with no proof of
+  // ownership) while unblocking the issue #712 holder-only sell path.
+  let [dbToken] = await db
     .select()
     .from(tokens)
-    // `and(... isHidden = false)` matches the public-listing semantics
-    // (issue #586): once a token is hidden by an admin, asking for it
-    // by address from the public detail endpoint should look identical
-    // to a token that doesn't exist. Without this, hidden tokens
-    // remained reachable via direct link.
     .where(and(eq(tokens.address, address), eq(tokens.isHidden, false)))
     .limit(1);
+
+  if (!dbToken && wallet) {
+    const [hiddenRow] = await db
+      .select()
+      .from(tokens)
+      .where(and(eq(tokens.address, address), eq(tokens.isHidden, true)))
+      .limit(1);
+    if (hiddenRow) {
+      const holds = await walletHoldsToken({
+        env: c.env,
+        tokenAddress: address as `0x${string}`,
+        wallet: wallet as `0x${string}`,
+      });
+      if (holds) {
+        dbToken = hiddenRow;
+      }
+    }
+  }
 
   if (!dbToken) {
     return c.json(formatError("Token not found"), 404);
@@ -173,10 +247,26 @@ detailRoute.get("/:address", async (c) => {
     ),
   );
 
-  const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
-  if (cache) {
-    await cache.put(cacheKey, response.clone());
+  // Wallet-aware responses (hidden-token bypass for holders) MUST NOT
+  // be cached anywhere: they're per-wallet by definition and any
+  // intermediary that re-served one to a different caller would leak
+  // a hidden token to a non-holder. We skip `cache.put` *and* set
+  // private/no-store directives so neither Cloudflare's edge cache
+  // (which honours `s-maxage`) nor any shared HTTP cache between
+  // origin and client retains the body. Public responses keep the
+  // short `s-maxage` (issue #586) so a hot token absorbs bursts at
+  // the edge.
+  if (cacheKey) {
+    const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+    response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+    if (cache) {
+      await cache.put(cacheKey, response.clone());
+    }
+  } else {
+    response.headers.set(
+      "Cache-Control",
+      "private, no-store, max-age=0, s-maxage=0",
+    );
   }
 
   return response;

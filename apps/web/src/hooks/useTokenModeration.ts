@@ -12,11 +12,12 @@ import { hideTokenApi, unhideTokenApi } from "../services/api";
  *
  * Cache invalidation: after a successful action we invalidate the
  * `token` and `tokens` query namespaces so the home-page list and
- * detail page reflect the new state without a manual refresh. The
- * detail-page query for the just-hidden token will surface as a
- * "not found" 404 (that's the public lens — see the `/tokens/:address`
- * route filter), which is the correct UX: the page disappears for
- * everyone except admins, who must re-navigate to refresh state.
+ * detail page reflect the new state without a manual refresh. For
+ * non-holders the detail-page query will surface as "not found" 404
+ * after a hide — that's the public lens (see `/tokens/:address` route).
+ * Connected holders of the just-hidden token still load the page via
+ * the wallet-gated bypass (issue #712); the page re-renders with the
+ * policy-violation banner + sell-only trade panel.
  */
 export function useTokenModeration(tokenAddress: string | undefined) {
   const { address, isConnected } = useWallet();

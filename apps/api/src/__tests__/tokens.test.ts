@@ -1260,6 +1260,162 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
   });
 });
 
+describe("GET /tokens/:address — hidden-token holder bypass (issue #712)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+  });
+
+  function stubVisibleLensMiss(hiddenRow: Record<string, unknown> | null) {
+    // First select (public lens) misses; second select (hidden lens)
+    // optionally returns the hidden row. The single select chain mock
+    // is shared, so we queue two `.where().limit()` results.
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([]),
+    });
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue(hiddenRow ? [hiddenRow] : []),
+    });
+  }
+
+  it("returns 404 when no wallet is supplied even if the row is hidden", async () => {
+    // Sanity-check: hidden tokens must still 404 to the public lens. The
+    // bypass is wallet-gated; absent the param, callers get the same
+    // not-found response as a token that never existed.
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([]),
+    });
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(404);
+    expect(mockReadContract).not.toHaveBeenCalled();
+  });
+
+  it("returns the hidden row when the supplied wallet holds a non-zero balance", async () => {
+    stubVisibleLensMiss(makeDbToken({ isHidden: true }));
+    // `balanceOf` returns non-zero → wallet proves ownership → serve row.
+    mockReadContract.mockResolvedValueOnce(1_000_000_000_000_000_000n);
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      data: { isHidden: boolean };
+    };
+    expect(body.status).toBe("success");
+    expect(body.data.isHidden).toBe(true);
+    expect(mockReadContract).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 404 when the supplied wallet does not hold the hidden token", async () => {
+    stubVisibleLensMiss(makeDbToken({ isHidden: true }));
+    // `balanceOf` returns 0 → ownership not proven → 404 (no leak).
+    mockReadContract.mockResolvedValueOnce(0n);
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(mockReadContract).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 404 when the on-chain probe throws (fail-closed)", async () => {
+    stubVisibleLensMiss(makeDbToken({ isHidden: true }));
+    // RPC error → can't prove ownership → 404. We never serve the row on
+    // a probe failure: it would leak the hidden token to any caller who
+    // simply picked an RPC-unreachable moment.
+    mockReadContract.mockRejectedValueOnce(new Error("rpc down"));
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(404);
+  });
+
+  it("falls back to the public-lens 404 when the wallet param is malformed", async () => {
+    // Invalid wallet → treat as if no wallet was supplied (public lens).
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([]),
+    });
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=not-an-address`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(404);
+    // Malformed wallet param means the hidden-lens fallback never runs,
+    // so the on-chain probe is never called.
+    expect(mockReadContract).not.toHaveBeenCalled();
+  });
+
+  it("does not probe the chain for a visible token even when a wallet is supplied", async () => {
+    // Visible token: public lens hits on the first query, the hidden
+    // bypass never runs. Confirms the wallet param is a no-op for the
+    // common case and the extra RPC call is gated behind a real miss.
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockReadContract).not.toHaveBeenCalled();
+  });
+
+  it("marks wallet-aware responses non-cacheable so the edge can't leak them", async () => {
+    // Without this directive, Cloudflare's edge cache (which honours
+    // `s-maxage`) could keep a holder-only response and re-serve it to
+    // a non-holder hitting `/tokens/0x…?wallet=0x…` with any wallet
+    // string. The `cache.put` is already skipped, but cached-by-other
+    // intermediaries is the real concern — `private, no-store`
+    // forbids anyone in the chain from holding the body. Public
+    // (no-wallet) responses continue to set a positive `s-maxage`
+    // (asserted by the surrounding "happy path" test).
+    stubVisibleLensMiss(makeDbToken({ isHidden: true }));
+    mockReadContract.mockResolvedValueOnce(1n);
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    const cacheControl = res.headers.get("Cache-Control") ?? "";
+    expect(cacheControl).toMatch(/no-store/i);
+    expect(cacheControl).toMatch(/private/i);
+    expect(cacheControl).not.toMatch(/s-maxage=[1-9]/);
+  });
+});
+
 describe("GET /tokens — list tokens", () => {
   beforeEach(() => {
     vi.clearAllMocks();

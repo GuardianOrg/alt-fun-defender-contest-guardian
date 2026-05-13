@@ -99,20 +99,46 @@ describe("GET /balances/:wallet", () => {
     expect(body.data).toEqual([]);
   });
 
-  it("filters out hidden tokens", async () => {
+  it("surfaces hidden-token positions so holders can sell out (issue #712)", async () => {
+    // Pre-#712 the route filtered `isHidden = false`, which made it
+    // impossible for a wallet still holding an admin-hidden token to see
+    // (let alone sell) that position. The endpoint is wallet-scoped via
+    // Ponder's `tokenBalances`, so leaving hidden rows in the response
+    // can only ever surface tokens the caller already holds on-chain —
+    // no information leak. The row is tagged `isHidden: true` so the UI
+    // can render the policy-violation disclaimer and disable buys.
     mockPonderPaginatedQuery.mockResolvedValue({
       items: [{ tokenAddress: TOKEN_ADDR, balance: "5000000000000000000000000" }],
       truncated: false,
     });
-    // DB returns nothing because the WHERE clause includes isHidden=false
-    mockDbWhere.mockResolvedValue([]);
+    mockDbWhere.mockResolvedValue([
+      {
+        address: TOKEN_ADDR,
+        name: "BANNED",
+        ticker: "BAN",
+        imageUrl: "",
+        ltPair: "0xabc",
+        leverage: 2,
+        underlying: "HYPE",
+        ltDirection: "long",
+        isHidden: true,
+      },
+    ]);
 
     const app = createApp();
     const res = await app.request(`/balances/${VALID_WALLET}`, {}, makeEnv());
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; data: unknown[] };
-    expect(body.data).toEqual([]);
+    const body = (await res.json()) as {
+      status: string;
+      data: Record<string, unknown>[];
+    };
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]).toMatchObject({
+      ticker: "BAN",
+      isHidden: true,
+      balance: "5000000000000000000000000",
+    });
   });
 
   it("returns enriched balances on happy path", async () => {
@@ -147,6 +173,7 @@ describe("GET /balances/:wallet", () => {
       leverage: 2,
       underlying: "HYPE",
       ltDirection: "long",
+      isHidden: false,
       balance: "5000000000000000000000000",
     });
   });

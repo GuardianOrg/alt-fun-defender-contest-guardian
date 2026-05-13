@@ -29,6 +29,7 @@ const baseToken: Token = {
   status: "active",
   creatorAddress: "0xfeed",
   createdAt: "2025-01-01T00:00:00Z",
+  isHidden: false,
 };
 
 describe("tokenRefetchInterval", () => {

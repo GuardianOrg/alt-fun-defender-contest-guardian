@@ -230,8 +230,24 @@ export async function fetchAllTokens(
   );
 }
 
-export function fetchToken(address: string): Promise<ApiToken> {
-  return apiFetch(`/api/v1/tokens/${address}`);
+/**
+ * Fetch a single token by address.
+ *
+ * Optional `wallet` argument enables the holder-aware bypass for
+ * admin-hidden tokens (issue #712): a wallet that already holds a hidden
+ * token can still load its detail page (with `isHidden: true`) so it can
+ * sell its position. Non-holders / wallets that don't hold the token /
+ * disconnected sessions continue to see a 404 — exactly the public-lens
+ * behaviour from issue #586. The server verifies ownership via a single
+ * on-chain `balanceOf`; the wallet param is a hint only and is safe to
+ * always supply when a wallet is connected.
+ */
+export function fetchToken(
+  address: string,
+  wallet?: string,
+): Promise<ApiToken> {
+  const qs = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
+  return apiFetch(`/api/v1/tokens/${address}${qs}`);
 }
 
 export function searchTokens(query: string): Promise<ApiToken[]> {
@@ -526,6 +542,14 @@ export interface ApiBalance {
   leverage: number;
   underlying: string;
   ltDirection: string;
+  /**
+   * Whether the token is currently hidden from the public listings by an
+   * admin. Hidden positions still appear in the wallet's balances feed
+   * (issue #712) so the holder can sell out; the UI uses this flag to
+   * render the policy-violation disclaimer and disable the buy CTA on
+   * the corresponding token's detail page.
+   */
+  isHidden: boolean;
   balance: string;
 }
 

@@ -376,8 +376,20 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
       get: {
         tags: ["Tokens"],
         summary: "Get token details",
-        description: "Returns full token details including on-chain data from the indexer (curve supply, LT reserve, graduation progress).",
-        parameters: [addressParam("address", "Token contract address"), apiKeyHeader],
+        description:
+          "Returns full token details including on-chain data from the indexer (curve supply, LT reserve, graduation progress).\n\nHidden tokens (admin-moderated via `/moderation/tokens/{address}/hide`) return 404 to the public lens. A connected wallet that already holds the token can supply `?wallet=<address>` to receive the row with `isHidden: true` so it can sell its position from the UI — the server verifies ownership with a single on-chain `balanceOf` read and refuses to disclose the row when the balance is zero (issue #712).",
+        parameters: [
+          addressParam("address", "Token contract address"),
+          {
+            name: "wallet",
+            in: "query" as const,
+            required: false,
+            schema: { type: "string" as const, pattern: "^0x[a-fA-F0-9]{40}$" },
+            description:
+              "Optional connected-wallet address. When set AND the wallet currently holds a non-zero balance of an admin-hidden token, the endpoint returns the row with `isHidden: true` so the holder can sell. Ignored for non-hidden tokens (their normal 200 response is returned). Wallet-aware responses are NEVER cached at the edge — pass the param explicitly per request.",
+          },
+          apiKeyHeader,
+        ],
         responses: {
           "200": {
             description: "Token details with on-chain data",

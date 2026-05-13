@@ -63,6 +63,16 @@ export interface Token {
   status: TokenStatus;
   creatorAddress: string;
   createdAt: string;
+  /**
+   * `true` when the token has been hidden from the public listings by an
+   * admin (issue #586). When `isHidden` is true the page is only
+   * reachable by a connected wallet that holds the token — the API's
+   * `/tokens/:address?wallet=…` endpoint refuses to disclose hidden rows
+   * to non-holders (issue #712). Drives the policy-violation disclaimer
+   * banner and disables every buy path; sells stay open so holders can
+   * exit their position cleanly.
+   */
+  isHidden: boolean;
   socialLinks?: {
     twitter?: string;
     telegram?: string;
@@ -133,6 +143,13 @@ export interface HeldToken {
   amount: number;
   valueUsd: number;
   change24h: number | null;
+  /**
+   * `true` when the held token has been admin-hidden. The position keeps
+   * surfacing in the holder's "My Positions" panel (issue #712), but
+   * the row is rendered with a policy-violation marker so the user
+   * knows their only path forward is to sell.
+   */
+  isHidden: boolean;
 }
 
 export interface CreatedToken {

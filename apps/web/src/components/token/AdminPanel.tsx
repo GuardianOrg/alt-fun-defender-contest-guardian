@@ -24,10 +24,12 @@ interface Props {
  * gating happens server-side; this component is just the UI surface.
  *
  * v1 scope (per issue #586): hide-only. The detail endpoint enforces
- * `isHidden = false` for non-admin requests (matching listing / search /
+ * `isHidden = false` for the public lens (matching listing / search /
  * batch / creator endpoints), so a hidden token's detail page returns
- * 404 to everyone — admins included. To restore a hidden token in v1,
- * use the `X-Admin-Key`-gated `POST /api/v1/admin/tokens/:address/unhide`
+ * 404 to non-holders. Wallets that already hold the token bypass this
+ * gate via `?wallet=<address>` (issue #712), but admins who are not
+ * also holders still see the 404 — to restore a hidden token, use the
+ * `X-Admin-Key`-gated `POST /api/v1/admin/tokens/:address/unhide`
  * endpoint via ops tooling. A self-serve unhide UI (admin-only token
  * fetch + state-aware toggle) is tracked separately as a follow-up.
  */
