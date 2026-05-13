@@ -16,6 +16,23 @@ export interface ReferralStats {
   referredVolume: string;
 }
 
+/**
+ * Bot-namespaced referral stats sourced from `BotFeeRouter`'s
+ * `referrerStats` Ponder entity, plus the rewards-wallet KV record.
+ * Surfaced on `/referral` — see `commands/referral.ts`. Bad-payment
+ * and attribution-loss counts drive the two safety banners spec'd in
+ * `apps/telegram-bot/AGENTS.md`. Until the BotFeeRouter contract is
+ * deployed and indexed all four counters default to zero on the api
+ * side, which collapses the banners to a no-op cleanly.
+ */
+export interface BotReferralStats {
+  rewardsWallet: string;
+  referredCount: number;
+  lifetimeEarnedUsdc: string;
+  badPaymentCount: number;
+  attributionLossCount: number;
+}
+
 export interface BalanceEntry {
   address: string;
   name: string;
@@ -216,6 +233,86 @@ export const fetchReferralStats = async (
         },
       }
     : { ok: false, kind: "unknown" };
+};
+
+const isBotReferralStats = (v: unknown): v is BotReferralStats => {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as Record<string, unknown>;
+  return (
+    typeof obj.rewardsWallet === "string" &&
+    /^0x[0-9a-fA-F]{40}$/.test(obj.rewardsWallet) &&
+    typeof obj.referredCount === "number" &&
+    Number.isInteger(obj.referredCount) &&
+    obj.referredCount >= 0 &&
+    typeof obj.lifetimeEarnedUsdc === "string" &&
+    /^[0-9]+$/.test(obj.lifetimeEarnedUsdc) &&
+    typeof obj.badPaymentCount === "number" &&
+    Number.isInteger(obj.badPaymentCount) &&
+    obj.badPaymentCount >= 0 &&
+    typeof obj.attributionLossCount === "number" &&
+    Number.isInteger(obj.attributionLossCount) &&
+    obj.attributionLossCount >= 0
+  );
+};
+
+export const fetchBotReferralStats = async (
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  wallet: string,
+): Promise<ApiResult<BotReferralStats>> => {
+  const res = await getJson<unknown>(env, `/api/v1/bot/referrals/${wallet}`);
+  if (!res.ok) return res;
+  return isBotReferralStats(res.data)
+    ? { ok: true, data: res.data }
+    : { ok: false, kind: "unknown" };
+};
+
+/**
+ * Persist the user's rewards wallet via the api. The api owns the KV
+ * row (`rewards-wallet:<wallet>`) and the bot reads it back through
+ * `fetchBotReferralStats`. Returns the wallet string that the api
+ * confirmed it stored so callers can render confirmation copy
+ * without round-tripping a separate read.
+ */
+export const setBotRewardsWallet = async (
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  wallet: string,
+  rewardsWallet: string,
+): Promise<ApiResult<{ rewardsWallet: string }>> => {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${env.API_BASE_URL}/api/v1/bot/referrals/${wallet}/rewards-wallet`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...buildHeaders(env.API_KEY),
+        },
+        body: JSON.stringify({ rewardsWallet }),
+      },
+    );
+  } catch {
+    return { ok: false, kind: "unavailable" };
+  }
+  if (res.status === 400) return { ok: false, kind: "invalid_address" };
+  if (res.status === 503 || res.status >= 500)
+    return { ok: false, kind: "unavailable" };
+  if (!res.ok) return { ok: false, kind: "unknown" };
+  let body: ApiEnvelope<{ rewardsWallet?: unknown }>;
+  try {
+    body = (await res.json()) as ApiEnvelope<{ rewardsWallet?: unknown }>;
+  } catch {
+    return { ok: false, kind: "unknown" };
+  }
+  if (
+    !body ||
+    !body.data ||
+    typeof body.data.rewardsWallet !== "string" ||
+    !/^0x[0-9a-fA-F]{40}$/.test(body.data.rewardsWallet)
+  ) {
+    return { ok: false, kind: "unknown" };
+  }
+  return { ok: true, data: { rewardsWallet: body.data.rewardsWallet } };
 };
 
 export const fetchBalances = async (
