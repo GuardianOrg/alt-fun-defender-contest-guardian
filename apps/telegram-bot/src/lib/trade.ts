@@ -53,6 +53,18 @@ const chain = {
  */
 const SIMULATION_TIMEOUT_MS = 5000;
 
+/**
+ * Cap on waiting for a buy/sell tx to mine before we report status. The
+ * CF Worker invocation has ~30s of wall time; 20s leaves headroom for
+ * sim + approve + submit + reply rendering. If the receipt isn't seen in
+ * this window the result is `unavailable` (with the txHash echoed back
+ * so the user can inspect the explorer manually) — we must never claim
+ * success without an actual on-chain confirmation, since a reverted tx
+ * still returns a hash from `sendTransaction` and an early "✅ submitted"
+ * misleads users into thinking their trade landed.
+ */
+const RECEIPT_TIMEOUT_MS = 20_000;
+
 export type Hex = `0x${string}`;
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
@@ -352,6 +364,13 @@ export type ExecutionResult =
       ok: false;
       kind: "not_configured" | "reverted" | "unavailable" | "insufficient_funds";
       reason?: string;
+      /**
+       * Set when the tx was actually submitted on-chain — i.e. failure
+       * happened post-`sendTransaction` (reverted receipt, or receipt
+       * wait timed out). Lets the UI surface an explorer link so the
+       * user can audit the on-chain outcome themselves.
+       */
+      txHash?: Hash;
     };
 
 /**
@@ -398,6 +417,52 @@ const ensureAllowance = async (
   // allowance from `latest` state and would race otherwise.
   await publicClient.waitForTransactionReceipt({ hash });
   return hash;
+};
+
+/**
+ * Wait for a submitted tx's receipt and translate the outcome into the
+ * `ExecutionResult` taxonomy.
+ *
+ * `sendTransaction` returns a hash as soon as the RPC accepts the tx
+ * into the mempool — it tells us nothing about whether the tx reverted
+ * on-chain. Without this check the bot would happily render
+ * "✅ submitted" for a tx that failed mid-execution (real-world repro:
+ * the CHAOS buy that prompted this fix — tx 0x8edc611c…). We block
+ * until the receipt is mined and inspect `receipt.status` so the
+ * user-facing copy reflects the real chain state.
+ *
+ * Bounded by `RECEIPT_TIMEOUT_MS`: a stuck node or a pending tx that
+ * never mines within the window surfaces as `unavailable` with the
+ * txHash attached so the user can check the explorer themselves. Never
+ * claim success without an on-chain confirmation.
+ */
+export const awaitReceipt = async (
+  publicClient: PublicClient,
+  txHash: Hash,
+  successOut: { quotedOut: bigint; minOut: bigint },
+): Promise<ExecutionResult> => {
+  try {
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: RECEIPT_TIMEOUT_MS,
+    });
+    if (receipt.status !== "success") {
+      return {
+        ok: false,
+        kind: "reverted",
+        reason: "execution reverted",
+        txHash,
+      };
+    }
+    return { ok: true, txHash, quotedOut: successOut.quotedOut, minOut: successOut.minOut };
+  } catch (err) {
+    return {
+      ok: false,
+      kind: "unavailable",
+      reason: err instanceof Error ? err.message : String(err),
+      txHash,
+    };
+  }
 };
 
 /**
@@ -506,7 +571,10 @@ export const executeBuy = async (
       data,
       gas: bufferGas(estimated),
     });
-    return { ok: true, txHash, quotedOut: quotedTokensOut, minOut: minTokensOut };
+    return awaitReceipt(publicClient, txHash, {
+      quotedOut: quotedTokensOut,
+      minOut: minTokensOut,
+    });
   } catch (err) {
     return mapExecutionError(err);
   }
@@ -579,7 +647,10 @@ export const executeSell = async (
       data,
       gas: bufferGas(estimated),
     });
-    return { ok: true, txHash, quotedOut: quotedUsdcOut, minOut: minUsdcOut };
+    return awaitReceipt(publicClient, txHash, {
+      quotedOut: quotedUsdcOut,
+      minOut: minUsdcOut,
+    });
   } catch (err) {
     return mapExecutionError(err);
   }
@@ -608,20 +679,32 @@ export const renderExecutionError = (
     return "Insufficient HYPE for gas — top up the wallet and retry.";
   }
   if (result.kind === "unavailable") {
+    if (result.txHash) {
+      return (
+        `Tx submitted but receipt not seen yet — check the explorer: ` +
+        `${explorerTxUrl(result.txHash)}`
+      );
+    }
     return "RPC unavailable — please try again in a moment.";
   }
   const reason = result.reason ?? "";
+  const suffix = result.txHash
+    ? ` See ${explorerTxUrl(result.txHash)}.`
+    : "";
   if (/TradingNotOpen/i.test(reason)) {
-    return "Trading not yet open for this token — wait for the launch delay to clear.";
+    return `Trading not yet open for this token — wait for the launch delay to clear.${suffix}`;
   }
   if (/InsufficientBalance/i.test(reason)) {
-    return "BounceTech LT buffer low — try a smaller amount or retry in ~10s.";
+    return `BounceTech LT buffer low — try a smaller amount or retry in ~10s.${suffix}`;
   }
   if (/Slippage|SlippageExceeded|too little|tooLittle/i.test(reason)) {
-    return "Price moved past slippage — try again or raise slippage in /settings.";
+    return `Price moved past slippage — try again or raise slippage in /settings.${suffix}`;
   }
   if (/mint paused|MintPaused/i.test(reason)) {
-    return "Buys paused for this token — BounceTech LT is temporarily mint-paused. Sells still work.";
+    return `Buys paused for this token — BounceTech LT is temporarily mint-paused. Sells still work.${suffix}`;
+  }
+  if (result.txHash) {
+    return `Transaction reverted on-chain${reason ? `: ${reason}` : ""}. See ${explorerTxUrl(result.txHash)}.`;
   }
   return `Transaction failed${reason ? `: ${reason}` : ""}.`;
 };

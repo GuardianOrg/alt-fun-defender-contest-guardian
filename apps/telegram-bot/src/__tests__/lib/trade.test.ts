@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeAbiParameters, encodeErrorResult, parseAbi } from "viem";
 
 import {
+  awaitReceipt,
+  buildPublicClient,
   computeMinTokensOut,
   computeMinUsdcOut,
   explorerTxUrl,
@@ -371,6 +373,159 @@ describe("renderExecutionError", () => {
         reason: "MysteryError",
       }),
     ).toMatch(/Transaction failed/i);
+  });
+});
+
+describe("awaitReceipt", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+  const TX_HASH =
+    "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473" as const;
+
+  // viem's `eth_getTransactionReceipt` response shape — only the fields
+  // `waitForTransactionReceipt` reads (status + blockHash + blockNumber).
+  const receiptResponse = (status: "0x0" | "0x1"): Response =>
+    new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          transactionHash: TX_HASH,
+          blockNumber: "0x1",
+          blockHash:
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+          transactionIndex: "0x0",
+          from: TRADER,
+          to: ROUTER,
+          cumulativeGasUsed: "0x1",
+          gasUsed: "0x1",
+          contractAddress: null,
+          logs: [],
+          logsBloom: `0x${"0".repeat(512)}`,
+          status,
+          type: "0x0",
+          effectiveGasPrice: "0x1",
+        },
+      }),
+      { status: 200 },
+    );
+
+  // Minimum viable `eth_blockNumber` response — viem polls this to know
+  // when to re-fetch the receipt.
+  const blockNumberResponse = (): Response =>
+    new Response(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x2" }),
+      { status: 200 },
+    );
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  /** Route RPC calls by `method`. Receipt-or-block routing only — enough
+   *  for `waitForTransactionReceipt` to settle. */
+  const routeRpc = (txStatus: "0x0" | "0x1" | "not_found") => async (
+    _input: unknown,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const body = JSON.parse(init?.body as string) as { method: string };
+    if (body.method === "eth_getTransactionReceipt") {
+      if (txStatus === "not_found") {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: null }),
+          { status: 200 },
+        );
+      }
+      return receiptResponse(txStatus);
+    }
+    if (body.method === "eth_blockNumber") {
+      return blockNumberResponse();
+    }
+    return new Response(
+      JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x" }),
+      { status: 200 },
+    );
+  };
+
+  it("returns ok:true when the receipt status is success", async () => {
+    fetchSpy.mockImplementation(routeRpc("0x1") as never);
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 42n,
+      minOut: 41n,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.txHash).toBe(TX_HASH);
+      expect(result.quotedOut).toBe(42n);
+      expect(result.minOut).toBe(41n);
+    }
+  });
+
+  it("returns ok:false kind:reverted with txHash when the receipt is reverted", async () => {
+    // This is the bug the fix targets: sendTransaction returns a hash for
+    // a tx that reverts on-chain (e.g. CHAOS buy 0x8edc611c…), and the
+    // bot previously rendered "✅ submitted" because it never checked
+    // the receipt. After the fix, a reverted receipt MUST surface as a
+    // failure with the txHash echoed so the user-facing error can link
+    // to the explorer.
+    fetchSpy.mockImplementation(routeRpc("0x0") as never);
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("reverted");
+      expect(result.txHash).toBe(TX_HASH);
+    }
+  });
+});
+
+describe("renderExecutionError with on-chain revert", () => {
+  it("renders explorer link when a reverted result carries a txHash", () => {
+    const reply = renderExecutionError({
+      ok: false,
+      kind: "reverted",
+      reason: "MysteryError",
+      txHash:
+        "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+    });
+    expect(reply).toMatch(/Transaction reverted on-chain/i);
+    expect(reply).toContain(
+      "hyperevmscan.io/tx/0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+    );
+  });
+
+  it("appends the explorer link to mapped revert copy when a txHash is present", () => {
+    const reply = renderExecutionError({
+      ok: false,
+      kind: "reverted",
+      reason: "SlippageExceeded",
+      txHash:
+        "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+    });
+    expect(reply).toMatch(/Price moved/);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+  });
+
+  it("renders an explorer link for an unavailable result that carries a txHash", () => {
+    const reply = renderExecutionError({
+      ok: false,
+      kind: "unavailable",
+      reason: "WaitForTransactionReceiptTimeoutError",
+      txHash:
+        "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+    });
+    expect(reply).toMatch(/receipt not seen/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
   });
 });
 
