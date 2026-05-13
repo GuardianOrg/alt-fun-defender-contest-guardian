@@ -275,7 +275,7 @@ Output:
   - Token card caption (name, ticker, mcap, curve fill %, 24h change, leverage boost indicator)
   - Risk summary (leverage level, vol decay warning if 5x LT)
   - Fee summary line: "Bot fee 0.5% + Alt Fun fee 0.5%". If a referrer is registered for the user, append "(0.1% goes to your referrer)".
-  - Quick-amount buttons: $<defaultBuyUsdc> | $100 | Custom (first button reads `session.defaultBuyUsdc`, default $20)
+  - Quick-amount buttons: `$<defaultBuyUsdc>` | `$100` | Custom (first button reads `session.defaultBuyUsdc`, default `$20`)
   - Confirm button (if confirmations enabled in /settings)
 
 Effects (after confirmation):
@@ -312,7 +312,7 @@ Token card format mirrors the web UI: name · ticker · mcap · curve-fill bar �
 
 Slippage default: from `/settings` (default 1%). Priority fee default: from `/settings`.
 
-**Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. The first quick-amount button reads `session.defaultBuyUsdc` (default $20, floored at `MIN_USDC_BUY_AMOUNT` defensively at click time). Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
+**Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. The first quick-amount button reads `session.defaultBuyUsdc` (default `$20`, floored at `MIN_USDC_BUY_AMOUNT` defensively at click time). Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
 
 ### /sell
 
