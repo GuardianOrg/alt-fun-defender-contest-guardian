@@ -109,13 +109,18 @@ async function getJsonWithNotFound<T>(
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   path: string,
 ): Promise<ApiResult<T>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
   let res: Response;
   try {
     res = await fetch(`${env.API_BASE_URL}${path}`, {
       headers: buildHeaders(env.API_KEY),
+      signal: controller.signal,
     });
   } catch {
     return { ok: false, kind: "unavailable" };
+  } finally {
+    clearTimeout(timer);
   }
   if (res.status === 400) return { ok: false, kind: "invalid_address" };
   if (res.status === 404) return { ok: false, kind: "not_found" };
