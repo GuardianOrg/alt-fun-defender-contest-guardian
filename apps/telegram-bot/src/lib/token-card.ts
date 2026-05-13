@@ -12,6 +12,24 @@ export const formatUsdc6 = (raw: bigint | null): string => {
   return `$${(Number(whole) + frac).toFixed(2)}`;
 };
 
+/**
+ * 18-decimal native HYPE raw → human-readable balance string.
+ * Returns "—" on null (RPC failure) so callers can render a degraded
+ * state without crashing. Native HYPE is the gas asset on HyperEVM —
+ * every tx the bot signs spends a small amount, so the /start panel
+ * surfaces this alongside USDC.
+ */
+export const formatHype18 = (raw: bigint | null): string => {
+  if (raw === null) return "—";
+  if (raw === 0n) return "0";
+  const whole = raw / 10n ** 18n;
+  const fracRaw = raw % 10n ** 18n;
+  const frac = Number(fracRaw) / 1e18;
+  const total = Number(whole) + frac;
+  if (total >= 1) return total.toFixed(4).replace(/\.?0+$/, "");
+  return total.toFixed(6).replace(/\.?0+$/, "") || "0";
+};
+
 /** 18-decimal token raw → human-readable string (no "$"). */
 export const formatToken18 = (raw: bigint | null): string => {
   if (raw === null) return "—";
