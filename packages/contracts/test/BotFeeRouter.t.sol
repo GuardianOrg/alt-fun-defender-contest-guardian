@@ -363,6 +363,50 @@ contract BotFeeRouterTest is DeployHelper {
 
     // ─── Reentrancy / sanity ─────────────────────────────────────────────
 
+    /// @notice Regression: when `Zap._executeBuy` hits its floor-bump dust-cap
+    ///         branch (a near-graduation buy where the curve can only absorb
+    ///         `MIN_USDC_AMOUNT` worth of LT), it refunds the unused USDC and
+    ///         LT excess to `msg.sender` — which is THIS router. Without the
+    ///         post-buy sweep in `_buy`, those user-owed funds would sit in
+    ///         the router forever. Asserts the sweep reaches the user and the
+    ///         router ends at a zero balance on both assets.
+    function test_buyWithBotFee_floorBump_refundsReachUser() public {
+        address tokenAddr = _launchTokenSeeded();
+        address user = makeAddr("floor-bump-user");
+
+        // Stage the curve so the next buy is the cap-binding (graduation-
+        // triggering) one. `_usdcStageBeforeGraduation` pre-fills ~80% of
+        // threshold; the follow-up large buy then overshoots and trips the
+        // dust-cap path.
+        uint256 stage = _usdcStageBeforeGraduation();
+        usdc.mint(user, stage);
+        vm.startPrank(user);
+        usdc.approve(address(router), stage);
+        router.buyWithBotFee(tokenAddr, stage, 0, address(0));
+        vm.stopPrank();
+
+        // The overshoot buy — large enough to push past graduation, so the
+        // curve consumes only a tiny chunk and Zap refunds the rest.
+        uint256 overshoot = bonding.graduationThresholdUsd();
+        usdc.mint(user, overshoot);
+        uint256 userUsdcBefore = usdc.balanceOf(user);
+        vm.startPrank(user);
+        usdc.approve(address(router), overshoot);
+        router.buyWithBotFee(tokenAddr, overshoot, 0, address(0));
+        vm.stopPrank();
+
+        assertEq(usdc.balanceOf(address(router)), 0, "router holds no usdc dust");
+        assertEq(IERC20(address(lt)).balanceOf(address(router)), 0, "router holds no lt dust");
+        // User should have received SOME refund back — strict equality is
+        // hard to assert without re-deriving the curve math, but a positive
+        // delta proves the sweep ran end-to-end.
+        assertGt(usdc.balanceOf(user) + IERC20(address(lt)).balanceOf(user), 0, "user got refund");
+        // Sanity: pre-buy balance was 0 (we minted exactly `overshoot`), so
+        // the buy CANNOT have left more than `overshoot` worth in the user's
+        // pocket via accidental double-refund.
+        assertLt(usdc.balanceOf(user), userUsdcBefore, "user spent some usdc on the buy");
+    }
+
     function test_buyWithBotFee_zeroAmount_reverts() public {
         address tokenAddr = _launchTokenSeeded();
         address user = makeAddr("zero-buyer");

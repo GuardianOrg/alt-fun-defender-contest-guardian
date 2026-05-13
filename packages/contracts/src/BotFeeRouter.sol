@@ -5,7 +5,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IZap} from "./interfaces/IZap.sol";
+import {IZap, IBondingMinimal} from "./interfaces/IZap.sol";
 
 /// @title BotFeeRouter
 /// @notice External-bot fee-skimming router that wraps `Zap`. Pulls user
@@ -128,6 +128,25 @@ contract BotFeeRouter is ReentrancyGuard {
         // referrer attribution.
         tokensOut = zap.buy(token, net, minTokensOut, address(0));
         IERC20(token).safeTransfer(msg.sender, tokensOut);
+
+        // Sweep user-owed refunds back to the caller. `Zap._executeBuy`'s
+        // floor-bump dust-cap branch (a near-graduation buy where the curve
+        // can only absorb `MIN_USDC_AMOUNT` worth of LT) refunds the unused
+        // USDC + LT chunk to `msg.sender` — which is THIS router. Without
+        // this sweep those funds would sit in the router forever. The
+        // router never holds USDC / LT between trades by design, so any
+        // balance here belongs to the user.
+        uint256 usdcDust = usdc.balanceOf(address(this));
+        if (usdcDust > 0) {
+            usdc.safeTransfer(msg.sender, usdcDust);
+        }
+        address lt = IBondingMinimal(zap.bonding()).ltOf(token);
+        if (lt != address(0)) {
+            uint256 ltDust = IERC20(lt).balanceOf(address(this));
+            if (ltDust > 0) {
+                IERC20(lt).safeTransfer(msg.sender, ltDust);
+            }
+        }
 
         emit BotRouterTrade(
             msg.sender, token, uint8(Side.Buy), usdcAmount, tokensOut, botFee, referrer, referrerCut, treasuryCut

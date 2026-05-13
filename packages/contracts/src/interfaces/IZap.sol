@@ -26,4 +26,16 @@ interface IZap {
         uint256 tokenAmount,
         uint256 minUsdcOut
     ) external returns (uint256 usdcOut);
+
+    function bonding() external view returns (address);
+}
+
+/// @notice Minimal Bonding surface — used by `BotFeeRouter` to look up the
+///         LT address for a given launched token so it can sweep any LT
+///         refund `Zap` may have returned to the router on the floor-bump
+///         dust-cap path.
+interface IBondingMinimal {
+    function ltOf(
+        address token
+    ) external view returns (address);
 }
