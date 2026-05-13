@@ -93,4 +93,15 @@ export interface AppBindings {
    * warn on every cron tick.
    */
   AUTO_GRADUATION_BUYER_PRIVATE_KEY?: string;
+  /**
+   * Shared KV namespace with `apps/telegram-bot` (binding `WALLET_KV`,
+   * namespace `launchpad-telegram`). The api only touches the
+   * `rewards-wallet:<addr>` keyspace owned by the bot's `/referral`
+   * surface — see `routes/bot/referrals.ts`. All wallet records and
+   * session state live under disjoint key prefixes managed by the bot
+   * worker. Optional in the type so existing route handlers / test
+   * envs don't need to thread a stub; the bot-referrals route checks
+   * for presence and surfaces a clean 503 when the binding is missing.
+   */
+  WALLET_KV?: KVNamespace;
 }
