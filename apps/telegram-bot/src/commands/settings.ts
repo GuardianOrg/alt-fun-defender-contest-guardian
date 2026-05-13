@@ -259,11 +259,16 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
 
   bot.command("settings", async (ctx) => {
     if (!ctx.from) {
-      await ctx.reply(wrap(ctx, NO_USER_REPLY));
+      // Channel-post / anonymous-admin updates have no `from`; reply without
+      // the anti-phishing wrap because there is no per-user phrase to attach.
+      await ctx.reply(NO_USER_REPLY);
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
+      // Plain reply — wrapping would leak the user's anti-phishing phrase
+      // into the group transcript, which is exactly what /security keeps
+      // out of non-DM surfaces.
+      await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
     const state = renderState(ctx);

@@ -427,7 +427,7 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 | Setting | Default | Description |
 |---|---|---|
 | Slippage | 1% (100 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `0.5% / 1% / 2% / 5%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). |
-| Default buy amount | $50 USDC | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at $10,000. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. |
+| Default buy amount | `$50 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. |
 | Degen mode | Off | One-tap toggle. Stored as `session.degenMode`. Persisted now; consumed once `/buy` and `/sell` learn to skip confirm steps when it's on. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
 
 State lives entirely on the grammY session (KV-backed under `session:<userId>`) — same store every other setting on this bot uses. No new KV namespace, no new endpoints.
