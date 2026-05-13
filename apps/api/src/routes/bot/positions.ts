@@ -108,7 +108,7 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
 };
 
 /**
- * Live USDC 6dp price per whole token (1e18 raw units) for each address.
+ * Live USDC-per-whole-token price for each address, scaled to 18dp.
  * Sourced from the indexer's current `(curveSupply, ltReserve)` (which mirrors
  * HyperSwap reserves post-grad — see `apps/indexer/AGENTS.md → Post-graduation
  * reserve mirror`) and the live LT exchange rate. Replaces the
@@ -117,8 +117,15 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
  * again — see the AGENTS.md spec for /positions, which calls for the current
  * curve / pool quote here. Tokens absent from either source are omitted from
  * the map; the caller falls back to the indexer-stored value for those.
+ *
+ * Scaled to 18dp (not 6dp) so prices below $1e-6 per whole token survive the
+ * bigint conversion. Bonding curves with billions-of-tokens supply routinely
+ * price a single token at sub-microcent levels (e.g. a 35M-token position with
+ * $20 cost basis ⇒ ~$5.6e-7/token); flooring those to 6dp collapses the price
+ * to 0 raw and silently zeroes the position's value, rendering -100% PnL on
+ * what is actually a healthy position.
  */
-const fetchCurrentPricesUsdc = async (
+const fetchCurrentPricesUsdc18dp = async (
   ponderUrl: string,
   addresses: string[],
 ): Promise<Map<string, bigint>> => {
@@ -138,15 +145,15 @@ const fetchCurrentPricesUsdc = async (
       ltRate,
     );
     if (price <= 0 || !Number.isFinite(price)) continue;
-    // Scale USD-per-token to USDC 6dp. `currentValue (6dp) = balance (18dp)
-    // × priceUsdc6dp / 1e18` keeps the bigint math drop-in compatible with
-    // the previous indexer-side `impliedValueUsdc` formula.
-    out.set(t.address.toLowerCase(), BigInt(Math.floor(price * 1_000_000)));
+    const priceUsdc18dp = BigInt(Math.floor(price * 1e18));
+    if (priceUsdc18dp <= 0n) continue;
+    out.set(t.address.toLowerCase(), priceUsdc18dp);
   }
   return out;
 };
 
-const TOKEN_SCALE = 10n ** 18n;
+// `value (USDC 6dp) = balance (token 18dp) × priceUsdc18dp / 1e30`.
+const PRICE_VALUE_SCALE = 10n ** 30n;
 
 const fetchPositions = async (
   ponderUrl: string,
@@ -241,12 +248,12 @@ const fetchPositions = async (
       const openTokens = Array.from(
         new Set(open.map((p) => p.token.toLowerCase())),
       );
-      const liveMark = await fetchCurrentPricesUsdc(ponderUrl, openTokens);
+      const liveMark = await fetchCurrentPricesUsdc18dp(ponderUrl, openTokens);
       for (const p of open) {
-        const priceUsdc = liveMark.get(p.token.toLowerCase());
-        if (priceUsdc === undefined) continue;
+        const priceUsdc18dp = liveMark.get(p.token.toLowerCase());
+        if (priceUsdc18dp === undefined) continue;
         const balance = BigInt(p.balance);
-        const value = (balance * priceUsdc) / TOKEN_SCALE;
+        const value = (balance * priceUsdc18dp) / PRICE_VALUE_SCALE;
         const cost = BigInt(p.costBasisUsdc);
         p.currentValueUsdc = value.toString();
         p.unrealisedPnlUsdc = signedDiff(p.currentValueUsdc, p.costBasisUsdc);

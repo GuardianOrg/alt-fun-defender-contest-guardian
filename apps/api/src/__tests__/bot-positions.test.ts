@@ -342,6 +342,75 @@ describe("GET /bot/positions/:wallet", () => {
     expect(body.data.open[0]!.unrealisedPnlPct).toBe(150);
   });
 
+  it("preserves sub-microcent-per-token prices without collapsing value to 0", async () => {
+    // Regression: bonding curves with billions of token supply routinely price
+    // a single token below $1e-6. The previous mark-to-6dp conversion floored
+    // those prices to 0 raw USDC, zeroing the position's value and rendering
+    // -100% PnL on a healthy $20 position. Live mark must use enough
+    // precision (>=18dp) to survive sub-microcent prices.
+    mockPonderQuery.mockResolvedValue({
+      walletBotPositions: {
+        items: [
+          {
+            token: TOKEN_A,
+            ticker: "CHAOS",
+            // 35,890,703 whole tokens (matches a real prod regression case).
+            tokenBalance: "35890703000000000000000000",
+            costBasisUsdc: "20000000", // $20
+            currentValueUsdc: "20000000",
+            realisedPnlUsdc: "0",
+            totalCostUsdc: "20000000",
+            totalProceedsUsdc: "0",
+          },
+        ],
+      },
+    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValue([
+      {
+        address: TOKEN_A,
+        ltToken: "0xaaaa000000000000000000000000000000000000",
+        // ratio = ltReserve / curveSupply = 5.6e-7 → priceUsd = $5.6e-7
+        // (at ltRate = 1). Math.floor(5.6e-7 * 1e6) == 0 under the old
+        // 6dp scaling — the assertions below would all fail without the fix.
+        curveSupply: "1000000000000000000000000000",
+        ltReserve: "560000000000000000000",
+        k: "0",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "0",
+      },
+    ]);
+    mockFetchLiveLtRates.mockResolvedValue(
+      new Map<string, number>([
+        ["0xaaaa000000000000000000000000000000000000", 1],
+      ]),
+    );
+    const res = await createApp().request(
+      `/bot/positions/${VALID_WALLET}`,
+      {},
+      makeEnv(),
+    );
+    const body = (await res.json()) as PositionsResponseBody;
+    // Expected: 35_890_703 tokens × $5.6e-7 ≈ $20.099 = 20_098_793 raw.
+    expect(BigInt(body.data.open[0]!.currentValueUsdc)).toBeGreaterThan(
+      19_000_000n,
+    );
+    expect(BigInt(body.data.open[0]!.currentValueUsdc)).toBeLessThan(
+      21_000_000n,
+    );
+    // Within ±5% of cost → pct close to 0, definitely not -100.
+    expect(body.data.open[0]!.unrealisedPnlPct).toBeGreaterThan(-5);
+    expect(body.data.open[0]!.unrealisedPnlPct).toBeLessThan(5);
+  });
+
   it("falls back to the indexer-stored mark when the live lookup is unavailable", async () => {
     // BounceTech rates API down → live mark is unknown for every token.
     // Better to show a stale snapshot than 503 the whole /positions view.
