@@ -5,6 +5,7 @@ import { useMarketData } from "./useMarketData";
 import { useTokenPrices } from "./useTokenPrices";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
+import { DEFAULT_TOKEN_IMAGE } from "../config/constants";
 import { erc20Abi } from "../contracts/abis";
 import { API_BASE, fetchAllTokens, fetchBalances } from "../services/api";
 
@@ -18,11 +19,13 @@ import type { HeldToken } from "../services/types";
  * balances hook bypasses that path (it builds `HeldToken` directly
  * from the chain multicall + balances API), so we have to do the
  * same resolution here or every "My Positions" logo loads from the
- * webapp's own origin and 404s. Empty strings stay `undefined` so
- * the row falls back to the emoji/coin glyph.
+ * webapp's own origin and 404s. Tokens whose creator skipped image
+ * upload fall through to the public `DEFAULT_TOKEN_IMAGE` so the
+ * row matches what the home-page list renders for the same token —
+ * see the constant's docstring in `config/constants.ts`.
  */
-function resolveImageUrl(raw: string | undefined): string | undefined {
-  if (!raw) return undefined;
+function resolveImageUrl(raw: string | undefined): string {
+  if (!raw) return DEFAULT_TOKEN_IMAGE;
   return new URL(raw, API_BASE).toString();
 }
 

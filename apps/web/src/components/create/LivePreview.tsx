@@ -4,7 +4,11 @@ import { getAssetDisplayName } from "@launchpad/shared";
 
 import styles from "./LivePreview.module.css";
 import { COLORS, rgba } from "../../config/colors";
-import { type UnderlyingAsset, type Leverage } from "../../config/constants";
+import {
+  DEFAULT_TOKEN_IMAGE,
+  type UnderlyingAsset,
+  type Leverage,
+} from "../../config/constants";
 import { useAssetCandles, useAssetChange } from "../../hooks/useAssets";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { type VanityStatus } from "../../hooks/useVanityAddress";
@@ -117,10 +121,7 @@ export default function LivePreview({
   return (
     <div className={styles.wrapper}>
       <div className={styles.content}>
-        <div className={styles.previewLabel}>
-          <div className={styles.liveDot} />
-          live preview
-        </div>
+        <div className={styles.previewLabel}>live preview</div>
 
         <VanityEffect tier={vanityTier} size="card" as="block">
           <div
@@ -131,15 +132,16 @@ export default function LivePreview({
           >
             <div className={styles.tokenCardHeader}>
               <div className={styles.tokenImage}>
-                {imagePreview ? (
-                  <img
-                    src={imagePreview}
-                    className={styles.tokenImageImg}
-                    alt=""
-                  />
-                ) : (
-                  <span className={styles.tokenImagePlaceholder}>?</span>
-                )}
+                {/* Mirror the post-launch render: when no image is
+                 * uploaded the home-page row falls back to the public
+                 * `DEFAULT_TOKEN_IMAGE`, so previewing the same asset
+                 * here tells the user exactly what their token will
+                 * look like at launch. */}
+                <img
+                  src={imagePreview ?? DEFAULT_TOKEN_IMAGE}
+                  className={styles.tokenImageImg}
+                  alt=""
+                />
               </div>
               <div className={styles.tokenInfo}>
                 <div className={styles.tokenName}>{displayName}</div>

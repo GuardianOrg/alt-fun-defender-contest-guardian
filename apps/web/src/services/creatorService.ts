@@ -3,6 +3,7 @@ import { createPublicClient, formatUnits, http } from "viem";
 
 import { API_BASE, fetchAllTokens } from "./api";
 import { hyperEVM } from "../config/chains";
+import { DEFAULT_TOKEN_IMAGE } from "../config/constants";
 import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 
 import type { CreatorEarnings } from "./types";
@@ -68,9 +69,13 @@ const liveCreatorService: ICreatorService = {
         address: token.address,
         name: token.name,
         ticker: token.ticker,
+        // Empty `imageUrl` means the creator skipped image upload at
+        // launch — substitute the public default art so the rewards /
+        // transfer-ownership rows match the home-page list rendering
+        // for the same token. See `DEFAULT_TOKEN_IMAGE`.
         imageUrl: token.imageUrl
           ? new URL(token.imageUrl, API_BASE).toString()
-          : undefined,
+          : DEFAULT_TOKEN_IMAGE,
         ltName: `${token.ltPair} ${token.leverage}×`,
         ltAddress: token.ltPair,
         status: "active" as const,

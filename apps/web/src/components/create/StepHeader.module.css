@@ -64,6 +64,7 @@
 }
 
 .subtitle {
+  font-family: var(--font-display);
   font-size: 13px;
   color: var(--txt-3);
   margin-top: 0.4rem;

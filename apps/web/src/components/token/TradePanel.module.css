@@ -241,6 +241,10 @@
   flex: 1;
 }
 
+.toggleGrid button {
+  font-family: var(--font-display);
+}
+
 /* BUY/SELL toggle uses `SegmentedButton fluid` from shared/. The
  * grid-cell siblings (gear wrap, etc.) need 2.4rem height alignment. */
 
