@@ -79,10 +79,13 @@ const walletManager = (h: BotTestHarness): WalletManager =>
  *  - `eth_call` → USDC `balanceOf` (6-decimal)
  *  - `eth_getBalance` → native HYPE gas balance (18-decimal)
  *
- * `rpcBalance` controls USDC; `rpcHypeBalance` controls HYPE. When
- * omitted, HYPE defaults to the same response shape as USDC so legacy
- * tests stay green while we expand coverage. Either side can be set
- * to `"error"` (JSON-RPC error body) or `"fail"` (transport throw).
+ * `rpcBalance` controls USDC; `rpcHypeBalance` controls HYPE. Each
+ * side is independent — when omitted, that side defaults to `0n`
+ * (the mock returns a zero hex result), not to whatever the other
+ * side was set to. This keeps 6-dec USDC fixtures from bleeding into
+ * the 18-dec HYPE path in legacy tests. Either side can be set to
+ * `"error"` (JSON-RPC error body) or `"fail"` (transport throw) to
+ * exercise the degraded-balance fallback in isolation.
  */
 type RpcMockSetting = bigint | "error" | "fail";
 
