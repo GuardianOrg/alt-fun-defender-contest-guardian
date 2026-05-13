@@ -9,6 +9,7 @@ import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
+import { BOT_NAME } from "../lib/branding.js";
 import { logger } from "../lib/logger.js";
 import {
   parseStartParam,
@@ -55,7 +56,7 @@ const renderWelcomeHtml = (
   return [
     escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
-    "Welcome to CortisolBot — the bot for trading alt fun tokens on HyperEVM.",
+    `Welcome to ${BOT_NAME} — the bot for trading alt fun tokens on HyperEVM.`,
     "",
     "Your wallet address:",
     `<code>${escapeHtml(address)}</code>`,

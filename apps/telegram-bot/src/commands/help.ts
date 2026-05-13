@@ -6,6 +6,7 @@ import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
+import { BOT_NAME } from "../lib/branding.js";
 
 const escapeHtml = (s: string): string =>
   s
@@ -62,7 +63,7 @@ const HEADER_PLACEHOLDER = "__ANTI_PHISHING_HEADER__";
 const OVERVIEW_HTML = [
   HEADER_PLACEHOLDER,
   "",
-  "<b>CortisolBot Help</b>",
+  `<b>${BOT_NAME} Help</b>`,
   "",
   "<b>Which tokens can I trade?</b>",
   "Any token launched on alt.fun. Each token's bonding curve is backed by a BounceTech Leveraged Token (LT), so prices move with buy pressure <i>and</i> the leveraged underlying (HYPE, ETH, BTC, SOL). After graduation, trading continues against the TOKEN/LT pair on HyperSwap — leveraged exposure persists.",
@@ -84,8 +85,8 @@ const OVERVIEW_HTML = [
   TOPIC_LIST.map((t) => `• <code>/help ${t}</code>`).join("\n"),
   "",
   "<b>Security tips</b>",
-  "• CortisolBot will <b>never</b> ask for your seed phrase or private key via DM.",
-  "• Never search for CortisolBot in Telegram. Use only the link from <a href=\"https://alt.fun\">alt.fun</a>.",
+  `• ${BOT_NAME} will <b>never</b> ask for your seed phrase or private key via DM.`,
+  `• Never search for ${BOT_NAME} in Telegram. Use only the link from <a href="https://alt.fun">alt.fun</a>.`,
   "• Admins and mods never DM first or send links — stay safe.",
   "• Set a PIN in /security so withdrawals, key exports, and rewards-wallet changes require a 6-digit code.",
   "",
@@ -97,7 +98,7 @@ const WALLET_HTML = [
   "",
   "<b>Wallets</b>",
   "",
-  "Each Telegram account can hold up to 10 wallets on CortisolBot. One is always <i>active</i> — buys, sells, and withdrawals use it as the signer.",
+  `Each Telegram account can hold up to 10 wallets on ${BOT_NAME}. One is always <i>active</i> — buys, sells, and withdrawals use it as the signer.`,
   "",
   "Tap the Wallet button on /start, or send /wallet to:",
   "• Create a new wallet (auto-encrypted, stored in our KV)",
@@ -139,10 +140,10 @@ const FEES_HTML = [
   "",
   "Every buy and sell — on the bonding curve <i>and</i> post-graduation — pays two fees in USDC:",
   "",
-  "• <b>Bot fee 0.5%</b> — charged by CortisolBot. If you came in via a referral link, 0.1% of your trade is paid to your referrer's rewards wallet; the rest goes to the bot treasury.",
+  `• <b>Bot fee 0.5%</b> — charged by ${BOT_NAME}. If you came in via a referral link, 0.1% of your trade is paid to your referrer's rewards wallet; the rest goes to the bot treasury.`,
   "• <b>Alt Fun fee 0.5%</b> — charged by the alt.fun protocol. Split 0.4% protocol / 0.1% to the token creator.",
   "",
-  "Post-graduation trades also pay HyperSwap's 0.3% LP fee on top, paid to HyperSwap liquidity providers (CortisolBot takes 0% of this).",
+  `Post-graduation trades also pay HyperSwap's 0.3% LP fee on top, paid to HyperSwap liquidity providers (${BOT_NAME} takes 0% of this).`,
   "",
   "There is no subscription fee and no paywall. No fee is charged on deposits or on idle balances.",
 ].join("\n");
@@ -156,7 +157,7 @@ const PNL_HTML = [
   "",
   "• Price impact on the bonding curve or HyperSwap pair",
   "• Alt Fun protocol + creator fee (0.5%)",
-  "• CortisolBot fee (0.5%, of which 0.1% is paid to your referrer if you have one)",
+  `• ${BOT_NAME} fee (0.5%, of which 0.1% is paid to your referrer if you have one)`,
   "• BounceTech LT mint / redeem fees",
   "• Gas paid in HYPE",
   "",
@@ -168,10 +169,10 @@ const SECURITY_HTML = [
   "",
   "<b>Security</b>",
   "",
-  "CortisolBot will <b>never</b> ask for your seed phrase or private key via DM, and will never ask you to log in with a phone number or QR code.",
+  `${BOT_NAME} will <b>never</b> ask for your seed phrase or private key via DM, and will never ask you to log in with a phone number or QR code.`,
   "",
   "<b>Protect your account</b>",
-  "• Only use the CortisolBot link from <a href=\"https://alt.fun\">alt.fun</a>. Never search for the bot inside Telegram — copycats are everywhere.",
+  `• Only use the ${BOT_NAME} link from <a href="https://alt.fun">alt.fun</a>. Never search for the bot inside Telegram — copycats are everywhere.`,
   "• Admins and mods never DM first or send links. Treat any unsolicited DM as a phishing attempt.",
   "• Set an <i>anti-phishing phrase</i> in /security. The bot prepends it to every message, so a phisher impersonating the bot won't know your phrase.",
   "",
