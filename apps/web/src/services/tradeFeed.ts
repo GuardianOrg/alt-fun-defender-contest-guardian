@@ -2,7 +2,11 @@ import {
   fetchRouterTradesByToken,
   fetchRouterTradesGlobal,
 } from "./api";
-import { prefetchTokenName, resolveTokenName } from "./tokenNames";
+import {
+  ingestResolvedTokenName,
+  prefetchTokenName,
+  resolveTokenName,
+} from "./tokenNames";
 import { routerTradeToTrade } from "./tradeFormatter";
 import { getWebSocketClient } from "./websocket";
 
@@ -40,7 +44,20 @@ function formatWsTrade(raw: TradeBroadcast): Trade | null {
     tokenAmount: raw.tokenAmount,
     timestamp: raw.timestamp,
   });
-  trade.tokenName = resolveTokenName(raw.tokenAddress);
+  // Prefer the indexer-resolved label on the broadcast — it closes the
+  // race window where the first buy for a brand-new token lands in the
+  // feed before the Ponder GraphQL endpoint has caught up to the
+  // indexer's write (issue #703). Fall back through `tokenSymbol` →
+  // `tokenName` → the existing cache lookup (which itself falls back
+  // to a truncated address). Seed the cache while we're here so
+  // subsequent trades for the same token, other components, and the
+  // `subscribeTokenName` healer all see the resolved label without a
+  // separate fetch.
+  ingestResolvedTokenName(raw.tokenAddress, raw.tokenSymbol);
+  ingestResolvedTokenName(raw.tokenAddress, raw.tokenName);
+  const broadcastLabel =
+    raw.tokenSymbol?.trim() || raw.tokenName?.trim() || "";
+  trade.tokenName = broadcastLabel || resolveTokenName(raw.tokenAddress);
   return trade;
 }
 
@@ -83,9 +100,21 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
       const trades = await fetchRouterTradesGlobal(50);
       if (cancelled) return;
 
-      // Warm the name cache for every unique token in this batch in
-      // parallel before mapping, so the initial render shows real
-      // symbols rather than truncated addresses on first paint.
+      // The API now returns `tokenSymbol` / `tokenName` enriched from
+      // the indexer's `token` row (issue #703), so the row's display
+      // label lands on first paint without a second Ponder round-trip.
+      // Seed `tokenNameMap` from the response so the WS path's
+      // `subscribeTokenName` heal flow (and any other consumer) picks
+      // up the same labels without redoing the work.
+      //
+      // For older API builds that don't return the labels, fall back
+      // through `prefetchTokenName` (Ponder GraphQL) — same code path
+      // as before this PR. Both paths are idempotent, so calling them
+      // together for the same address is cheap.
+      for (const t of trades) {
+        ingestResolvedTokenName(t.tokenAddress, t.tokenSymbol);
+        ingestResolvedTokenName(t.tokenAddress, t.tokenName);
+      }
       const uniqueTokens = new Set(trades.map((t) => t.tokenAddress));
       await Promise.all([...uniqueTokens].map(prefetchTokenName));
       if (cancelled) return;
@@ -96,7 +125,13 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
         const mapped = routerTradeToTrade(t);
-        mapped.tokenName = resolveTokenName(t.tokenAddress);
+        // Mirror the WS path: prefer the API-enriched label, then fall
+        // back to the cache (which we already seeded above for the
+        // enriched case anyway — kept as a defence-in-depth fallback
+        // when the API hasn't been redeployed with #703 yet).
+        const apiLabel =
+          t.tokenSymbol?.trim() || t.tokenName?.trim() || "";
+        mapped.tokenName = apiLabel || resolveTokenName(t.tokenAddress);
         cb(mapped);
       }
       seenIds.clear();
@@ -167,13 +202,24 @@ export function subscribeTokenTrades(
       // both phases.
       const trades = await fetchRouterTradesByToken(address, 30);
       if (cancelled) return;
+      // Seed the name cache from the API-enriched labels (issue #703).
+      // Strictly an optimisation for the per-token tab today
+      // (`TradesTab` renders the parent token's ticker rather than
+      // each trade's `tokenName`), but keeps the cache hydrated for
+      // any other surface watching this address's name.
+      for (const t of trades) {
+        ingestResolvedTokenName(t.tokenAddress, t.tokenSymbol);
+        ingestResolvedTokenName(t.tokenAddress, t.tokenName);
+      }
       const batchIds = new Set<string>();
       for (const t of trades) batchIds.add(t.id);
       for (let i = trades.length - 1; i >= 0; i--) {
         const t = trades[i];
         if (seenIds.has(t.id)) continue;
         const mapped = routerTradeToTrade(t);
-        mapped.tokenName = resolveTokenName(t.tokenAddress);
+        const apiLabel =
+          t.tokenSymbol?.trim() || t.tokenName?.trim() || "";
+        mapped.tokenName = apiLabel || resolveTokenName(t.tokenAddress);
         cb(mapped);
       }
       seenIds.clear();

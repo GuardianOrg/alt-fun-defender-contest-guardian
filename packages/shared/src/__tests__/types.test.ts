@@ -71,6 +71,26 @@ describe("type exports compile correctly", () => {
     expect(broadcast).toBeDefined();
   });
 
+  it("TradeBroadcast trade-list variant carries optional tokenSymbol/tokenName", () => {
+    // Newer indexer builds enrich the broadcast with the resolved token
+    // display labels so the trade feed can render the symbol on the very
+    // first buy (issue #703). The fields are optional so the type stays
+    // backward-compatible with older indexer builds that haven't been
+    // redeployed yet.
+    const broadcast: TradeBroadcast = {
+      id: "0xabc-0",
+      tokenAddress: "0x1",
+      timestamp: "1700000000",
+      trader: "0x2",
+      isBuy: true,
+      usdcAmount: "300000000",
+      tokenAmount: "1000000000000000000000000",
+      tokenSymbol: "TST",
+      tokenName: "Test Token",
+    };
+    expect(broadcast).toBeDefined();
+  });
+
   it("TradeBroadcast chart-state variant is assignable (Bonding:Trade / HyperSwapPair:Sync shape)", () => {
     const broadcast: TradeBroadcast = {
       id: "0xabc-0",

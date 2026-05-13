@@ -73,6 +73,40 @@ export function hasResolvedTokenName(tokenAddress: string): boolean {
 }
 
 /**
+ * Synchronously seed `tokenNameMap` with a name resolved by some other
+ * source (currently the indexer-enriched `tokenSymbol` / `tokenName`
+ * fields on the `Zap:Buy` / `Zap:Sell` trade broadcasts — see
+ * `services/tradeFeed.ts`).
+ *
+ * Why this exists: the truncated-address fallback is only fine as a
+ * transient placeholder; if the indexer already knows the symbol at
+ * broadcast time, the client should display it on the very first row
+ * instead of round-tripping through `prefetchTokenName` + the Ponder
+ * GraphQL endpoint (which races the indexer's checkpoint and was the
+ * root cause of issue #703). This helper short-circuits that path.
+ *
+ * Semantics mirror `prefetchTokenName`:
+ *   - Idempotent: a no-op once the cache is already populated.
+ *   - Trims and rejects blank labels so a placeholder row from the
+ *     `Factory:PairCreated` write doesn't poison the cache before
+ *     `Bonding:TokenLaunched` lands.
+ *   - Notifies `subscribeTokenName` listeners exactly once per address
+ *     so already-rendered fallback rows heal in place.
+ */
+export function ingestResolvedTokenName(
+  tokenAddress: string,
+  name: string | undefined | null,
+): void {
+  if (!name) return;
+  const trimmed = name.trim();
+  if (trimmed === "") return;
+  const key = tokenAddress.toLowerCase();
+  if (tokenNameMap.has(key)) return;
+  tokenNameMap.set(key, trimmed);
+  notifyTokenNameResolved(key, trimmed);
+}
+
+/**
  * Best-effort fetch of a token's display name into `tokenNameMap`.
  * Idempotent and dedupes inflight requests, so callers can fire it for
  * every observed trade without hammering the API.
@@ -109,6 +143,14 @@ export async function prefetchTokenName(tokenAddress: string): Promise<void> {
       const name =
         token.symbol?.trim() || token.name?.trim() || "";
       if (!name) return;
+      // Re-check the cache before writing so a concurrent
+      // `ingestResolvedTokenName` (e.g. a WS broadcast arriving while
+      // a REST-poll prefetch is in flight) wins-first and the listener
+      // fires exactly once per address. Without this guard the inflight
+      // `.then` would overwrite the ingest entry and double-notify
+      // subscribers — a subtle source of redundant React renders and,
+      // worse, a UI flicker if the two sources ever disagree.
+      if (tokenNameMap.has(key)) return;
       tokenNameMap.set(key, name);
       notifyTokenNameResolved(key, name);
     })

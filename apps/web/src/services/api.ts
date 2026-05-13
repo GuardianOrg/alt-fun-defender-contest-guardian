@@ -587,6 +587,27 @@ export interface ApiRouterTrade {
   blockNumber: string;
   /** Unix seconds (decimal string, NOT 1e18-scaled). */
   timestamp: string;
+  /**
+   * Resolved token display symbol (e.g. `"TST"`), populated by the API
+   * by batching a single Ponder `tokens(address_in: …)` query alongside
+   * the trade fetch. Lets the client render the right label on first
+   * paint without a second per-trade Ponder round-trip from
+   * `prefetchTokenName` — which was the race the truncated-address
+   * fallback exposed in issue #703.
+   *
+   * Optional because (a) older API builds don't return it, and (b) the
+   * indexer briefly holds a blank-label placeholder row between
+   * `Factory:PairCreated` and `Bonding:TokenLaunched` that we strip
+   * server-side (a blank label would let the client cache an empty
+   * string as "resolved").
+   */
+  tokenSymbol?: string;
+  /**
+   * Full token name (e.g. `"Test Token"`). Display fallback when
+   * `tokenSymbol` is missing. Same optional/forward-compat semantics
+   * as `tokenSymbol`.
+   */
+  tokenName?: string;
 }
 
 /**

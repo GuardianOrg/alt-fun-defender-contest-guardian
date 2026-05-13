@@ -166,6 +166,124 @@ describe("tokenNames", () => {
     });
   });
 
+  describe("ingestResolvedTokenName", () => {
+    it("seeds the cache so the next resolveTokenName returns the symbol", async () => {
+      const { ingestResolvedTokenName, resolveTokenName, hasResolvedTokenName } =
+        await loadTokenNames();
+
+      ingestResolvedTokenName(TOKEN_ADDR, "TST");
+
+      expect(hasResolvedTokenName(TOKEN_ADDR)).toBe(true);
+      expect(resolveTokenName(TOKEN_ADDR)).toBe("TST");
+    });
+
+    it("notifies subscribeTokenName listeners exactly once for the first ingest", async () => {
+      const { ingestResolvedTokenName, subscribeTokenName } = await loadTokenNames();
+      const listener = vi.fn();
+      subscribeTokenName(listener);
+
+      ingestResolvedTokenName(TOKEN_ADDR, "TST");
+      // Idempotent — second ingest is a no-op because the cache is full.
+      ingestResolvedTokenName(TOKEN_ADDR, "TST");
+      ingestResolvedTokenName(TOKEN_ADDR, "DIFFERENT");
+
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(TOKEN_ADDR.toLowerCase(), "TST");
+    });
+
+    it("ignores blank / whitespace-only / nullish labels", async () => {
+      // Mirrors the `Factory:PairCreated` placeholder row: the indexer
+      // sends back an empty `symbol` / `name` until `TokenLaunched`
+      // overwrites them. Caching a blank as "resolved" would freeze
+      // the row on a blank label — strictly worse than the truncated-
+      // address fallback. Tests cover every shape the ingest can receive
+      // (broadcast field is optional, REST poll field is optional).
+      const { ingestResolvedTokenName, hasResolvedTokenName, resolveTokenName } =
+        await loadTokenNames();
+
+      ingestResolvedTokenName(TOKEN_ADDR, "");
+      ingestResolvedTokenName(TOKEN_ADDR, "   ");
+      ingestResolvedTokenName(TOKEN_ADDR, "\t\n");
+      ingestResolvedTokenName(TOKEN_ADDR, undefined);
+      ingestResolvedTokenName(TOKEN_ADDR, null);
+
+      expect(hasResolvedTokenName(TOKEN_ADDR)).toBe(false);
+      expect(resolveTokenName(TOKEN_ADDR)).toBe("0x4DFB…ecC0");
+    });
+
+    it("does not overwrite an existing resolved entry (first-write wins)", async () => {
+      // The cache is permanent for the page lifetime (names don't
+      // change after launch), so we lock to first-write semantics —
+      // matches `prefetchTokenName`. A later ingest with a different
+      // value indicates a producer bug, not a real rename.
+      const { ingestResolvedTokenName, resolveTokenName, subscribeTokenName } =
+        await loadTokenNames();
+      const listener = vi.fn();
+      subscribeTokenName(listener);
+
+      ingestResolvedTokenName(TOKEN_ADDR, "TST");
+      ingestResolvedTokenName(TOKEN_ADDR, "DIFFERENT");
+
+      expect(resolveTokenName(TOKEN_ADDR)).toBe("TST");
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it("trims surrounding whitespace before caching", async () => {
+      const { ingestResolvedTokenName, resolveTokenName } = await loadTokenNames();
+      ingestResolvedTokenName(TOKEN_ADDR, "  TST  ");
+      expect(resolveTokenName(TOKEN_ADDR)).toBe("TST");
+    });
+
+    it("lowercases the address key so a checksummed lookup still hits", async () => {
+      // Symmetric with resolveTokenName, which lowercases on read. The
+      // WS broadcast / API response could deliver a mixed-case address
+      // depending on serialiser configuration — the cache must hit
+      // regardless.
+      const { ingestResolvedTokenName, resolveTokenName } = await loadTokenNames();
+      ingestResolvedTokenName(TOKEN_ADDR.toUpperCase(), "TST");
+      expect(resolveTokenName(TOKEN_ADDR.toLowerCase())).toBe("TST");
+    });
+
+    it("does not get overwritten by a later in-flight prefetch resolving with a different label", async () => {
+      // Regression for the ingest/prefetch race CodeRabbit caught on
+      // PR #721: if `prefetchTokenName` is already in flight when
+      // `ingestResolvedTokenName` lands, the inflight `.then` must not
+      // overwrite the ingest entry or double-fire listeners. Models
+      // the production timeline:
+      //   1. REST poll kicks off `prefetchTokenName(X)`.
+      //   2. WS broadcast for X arrives mid-fetch with `tokenSymbol`
+      //      set — `ingestResolvedTokenName(X, "BROADCAST")` runs.
+      //   3. The Ponder fetch resolves (potentially with a slightly
+      //      different value during a checkpoint race).
+      // Expected: cache stays on "BROADCAST", listener fires once.
+      const { ingestResolvedTokenName, prefetchTokenName, resolveTokenName, subscribeTokenName } =
+        await loadTokenNames();
+      const listener = vi.fn();
+      subscribeTokenName(listener);
+
+      let resolveFetch: ((value: PonderToken) => void) | undefined;
+      fetchPonderTokenMock.mockReturnValueOnce(
+        new Promise<PonderToken>((resolve) => {
+          resolveFetch = resolve;
+        }),
+      );
+
+      // Step 1: prefetch starts, fetch is held open.
+      const prefetchPromise = prefetchTokenName(TOKEN_ADDR);
+
+      // Step 2: broadcast lands and ingests its label first.
+      ingestResolvedTokenName(TOKEN_ADDR, "BROADCAST");
+
+      // Step 3: held fetch resolves with a *different* label.
+      resolveFetch!(makePonderToken({ symbol: "PONDER" }));
+      await prefetchPromise;
+
+      expect(resolveTokenName(TOKEN_ADDR)).toBe("BROADCAST");
+      expect(listener).toHaveBeenCalledTimes(1);
+      expect(listener).toHaveBeenCalledWith(TOKEN_ADDR.toLowerCase(), "BROADCAST");
+    });
+  });
+
   describe("subscribeTokenName", () => {
     it("notifies subscribers when a name is resolved for the first time", async () => {
       const { prefetchTokenName, subscribeTokenName } = await loadTokenNames();

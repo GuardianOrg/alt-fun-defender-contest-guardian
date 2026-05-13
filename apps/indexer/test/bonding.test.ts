@@ -400,6 +400,8 @@ describe("Zap:Buy / Sell WS broadcaster (trade-list rows)", () => {
   it("broadcasts a Buy with usdcAmount and the routerTrade id", async () => {
     db._setFindResult(token, { address: "0xtoken1" }, {
       address: "0xtoken1",
+      name: "Test Token",
+      symbol: "TST",
       organicUsdcRaised: 0n,
       volumeUsd: 0n,
     });
@@ -434,6 +436,11 @@ describe("Zap:Buy / Sell WS broadcaster (trade-list rows)", () => {
       isBuy: true,
       usdcAmount: "300000000",
       tokenAmount: "583000000000000000000000000",
+      // Indexer-resolved labels — close the race window where the
+      // first buy for a freshly-deployed token lands in the feed
+      // before the Ponder GraphQL endpoint has caught up (issue #703).
+      tokenSymbol: "TST",
+      tokenName: "Test Token",
     });
     // No chart state on this variant — useChartData consumes the
     // Bonding:Trade broadcast for that.
@@ -444,6 +451,8 @@ describe("Zap:Buy / Sell WS broadcaster (trade-list rows)", () => {
   it("broadcasts a Sell with isBuy=false and usdcAmount = usdcOut", async () => {
     db._setFindResult(token, { address: "0xtoken1" }, {
       address: "0xtoken1",
+      name: "Test Token",
+      symbol: "TST",
       organicUsdcRaised: 100_000_000n,
       volumeUsd: 100_000_000n,
     });
@@ -472,12 +481,78 @@ describe("Zap:Buy / Sell WS broadcaster (trade-list rows)", () => {
       trader: "0xseller",
       isBuy: false,
       usdcAmount: "50000000",
+      tokenSymbol: "TST",
+      tokenName: "Test Token",
     });
+  });
+
+  it("omits blank token labels so the client doesn't cache the placeholder row", async () => {
+    // Mirrors the Factory:PairCreated → Bonding:TokenLaunched race:
+    // if the metadata fields haven't been overwritten yet, the row's
+    // `name` and `symbol` are empty strings. Caching those as
+    // "resolved" on the client would freeze the row on a blank label —
+    // strictly worse than the truncated-address fallback.
+    db._setFindResult(token, { address: "0xtoken1" }, {
+      address: "0xtoken1",
+      name: "",
+      symbol: "   ", // whitespace-only also counts as blank
+      organicUsdcRaised: 0n,
+      volumeUsd: 0n,
+    });
+
+    const handler = getHandler("Zap:Buy");
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        buyer: "0xbuyer",
+        usdcIn: 1n,
+        tokensOut: 1n,
+      },
+      blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.data.tokenSymbol).toBeUndefined();
+    expect(body.data.tokenName).toBeUndefined();
+  });
+
+  it("omits token labels when the token row is missing entirely", async () => {
+    // Defensive case: `Zap:Buy` shouldn't fire before `TokenLaunched`
+    // in normal operation, but if the indexer is in a partially-
+    // bootstrapped state we still want the broadcast to go out — the
+    // client falls back through `prefetchTokenName` + the truncated
+    // address. The shape must still validate as a `TradeListBroadcast`.
+    const handler = getHandler("Zap:Buy");
+    const nowSec = BigInt(Math.floor(Date.now() / 1000));
+    const event = createMockEvent({
+      args: {
+        token: "0xtoken1",
+        buyer: "0xbuyer",
+        usdcIn: 1n,
+        tokensOut: 1n,
+      },
+      blockTimestamp: nowSec,
+    });
+
+    await handler({ event, context: { db } });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [, init] = fetchSpy.mock.calls[0];
+    const body = JSON.parse(init.body as string);
+    expect(body.data.tokenSymbol).toBeUndefined();
+    expect(body.data.tokenName).toBeUndefined();
   });
 
   it("skips the broadcast on historical backfill", async () => {
     db._setFindResult(token, { address: "0xtoken1" }, {
       address: "0xtoken1",
+      name: "Test Token",
+      symbol: "TST",
       organicUsdcRaised: 0n,
       volumeUsd: 0n,
     });

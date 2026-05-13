@@ -20,6 +20,26 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const GLOBAL_STATS_ID = "global" as const;
 const SECONDS_PER_HOUR = 3600n;
 
+/**
+ * Trim a token-row label and collapse blank-after-trim to `undefined`.
+ *
+ * The `Factory:PairCreated` handler inserts a placeholder `token` row
+ * with empty `name` / `symbol` strings before `Bonding:TokenLaunched`
+ * runs and overwrites them, so the trade broadcast must be defensive:
+ * shipping a literal empty string would let the client cache that
+ * blank label and freeze the row on it.
+ *
+ * Trimming is also defensive against indexer payloads with whitespace-
+ * only labels — same failure mode (the client's `subscribeTokenName`
+ * fast-path would treat a whitespace string as "resolved" and never
+ * retry, see `tokenNames.ts`).
+ */
+function tokenLabelOrUndefined(label: string | undefined): string | undefined {
+  if (!label) return undefined;
+  const trimmed = label.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 ponder.on("Bonding:TokenLaunched", async ({ event, context }) => {
   const { db } = context;
   await db
@@ -385,6 +405,15 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
   //      producing a phantom second row in the feed (see PR notes).
   //   2. Its `id` matches `routerTrade.id` so the live-broadcast row
   //      dedupes against the REST `/api/v1/trades` poll fallback.
+  //
+  // We also carry the resolved `tokenSymbol` / `tokenName` from the
+  // token row we already loaded above. Without this the web client has
+  // to do a second Ponder GraphQL lookup to render the symbol on the
+  // very first buy — which races the indexer's checkpoint and lands a
+  // truncated-address fallback on screen indefinitely (issue #703).
+  // `Bonding:TokenLaunched` is at a lower log index in the deploy tx,
+  // so by the time `Zap:Buy` runs the metadata fields have already been
+  // written and `current` is the source of truth.
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",
@@ -397,6 +426,8 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
         tokenAmount: event.args.tokensOut.toString(),
         usdcAmount: event.args.usdcIn.toString(),
         timestamp: event.block.timestamp.toString(),
+        tokenSymbol: tokenLabelOrUndefined(current?.symbol),
+        tokenName: tokenLabelOrUndefined(current?.name),
       },
     });
   }
@@ -495,7 +526,10 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
     });
   }
 
-  // Trade-list broadcast — see Buy handler for rationale.
+  // Trade-list broadcast — see Buy handler for rationale, including the
+  // `tokenSymbol` / `tokenName` enrichment that lets the web feed render
+  // the symbol on the first trade for a freshly-deployed token without
+  // racing the indexer's GraphQL checkpoint (issue #703).
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",
@@ -508,6 +542,8 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
         tokenAmount: event.args.tokensIn.toString(),
         usdcAmount: event.args.usdcOut.toString(),
         timestamp: event.block.timestamp.toString(),
+        tokenSymbol: tokenLabelOrUndefined(current?.symbol),
+        tokenName: tokenLabelOrUndefined(current?.name),
       },
     });
   }

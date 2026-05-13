@@ -28,6 +28,26 @@ export interface TradeListBroadcast extends TradeBroadcastBase {
   tokenAmount: string;
   trader: string;
   isBuy: boolean;
+  /**
+   * Display symbol for the token (e.g. `"TST"`), looked up from the
+   * indexer's `token` row at broadcast time. Optional because:
+   *   - older indexer builds don't emit it (forward-compat),
+   *   - the broadcast still goes out if the token row hasn't been indexed
+   *     yet (placeholder row from `Factory:PairCreated` before
+   *     `Bonding:TokenLaunched` has overwritten the metadata fields).
+   * When present, the client uses it directly instead of doing a
+   * separate Ponder GraphQL lookup — which closes the race window where
+   * a brand-new token's first buy lands in the feed before the
+   * GraphQL endpoint has caught up to the indexer's write
+   * (issue #703).
+   */
+  tokenSymbol?: string;
+  /**
+   * Full token name (e.g. `"Test Token"`), used as a display fallback
+   * when `tokenSymbol` is blank. Same optional/forward-compat semantics
+   * as `tokenSymbol`.
+   */
+  tokenName?: string;
   /** Forbidden on this variant — see `ChartStateBroadcast`. */
   curveSupply?: never;
   ltReserve?: never;
@@ -49,6 +69,13 @@ export interface ChartStateBroadcast extends TradeBroadcastBase {
   tokenAmount?: never;
   trader?: never;
   isBuy?: never;
+  // Chart-state broadcasts don't carry the token's display label —
+  // `useChartData` already knows which token its chart is on. Marking
+  // these as forbidden keeps the discriminated union clean and stops
+  // the indexer from accidentally double-paying for the lookup on the
+  // chart-state path.
+  tokenSymbol?: never;
+  tokenName?: never;
 }
 
 /**
