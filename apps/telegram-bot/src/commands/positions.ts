@@ -48,23 +48,34 @@ const renderPage = async (
 
 export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
   /**
-   * v1: wallet address is required (no active-wallet selector yet — see
-   * apps/telegram-bot/AGENTS.md "/wallet"). Balance + cost basis only;
-   * live PnL is a deferred feature pending the enriched portfolio
-   * endpoint.
-   *
    * Long lists paginate in-place via the `pp` callback below — the
    * AGENTS.md Telegram-platform-constraints rule "never send one giant
    * message" is enforced by sending only page 0 and attaching a
    * `[Next →]` button when the response spills.
+   *
+   * With no argument we resolve the user's active custodial wallet so
+   * `/positions` matches the start-menu Positions button and the
+   * AGENTS.md spec (`/positions [wallet]` → "default: active wallet").
+   * The fallback is private-DM only — leaking a user's custodial
+   * address in a group transcript is the exact thing we avoid. An
+   * explicit wallet argument still works in any chat.
    */
   bot.command("positions", async (ctx) => {
-    const wallet = ctx.match.trim().split(/\s+/)[0] ?? "";
+    const arg = ctx.match.trim().split(/\s+/)[0] ?? "";
+    let wallet = arg;
     if (wallet === "") {
-      await ctx.reply(USAGE);
-      return;
-    }
-    if (!isAddress(wallet)) {
+      if (ctx.chat?.type !== "private" || !ctx.from) {
+        await ctx.reply(USAGE);
+        return;
+      }
+      const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
+      const active = await wm.getActive(ctx.from.id);
+      if (!active) {
+        await ctx.reply(NO_ACTIVE_WALLET);
+        return;
+      }
+      wallet = active.address;
+    } else if (!isAddress(wallet)) {
       await ctx.reply(INVALID_ADDRESS);
       return;
     }

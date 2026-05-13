@@ -1,23 +1,38 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { makeBotHarness } from "../helpers/bot.js";
+import { makeBotHarness, type BotTestHarness } from "../helpers/bot.js";
+import { WalletManager } from "../../lib/wallet.js";
+
+const ZERO_MASTER_KEY = btoa("\0".repeat(32));
 
 const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 const TOKEN = "0xaaaa000000000000000000000000000000000000";
 
-const positionsUpdate = (args: string) => {
+const positionsUpdate = (
+  args: string,
+  chatType: "private" | "group" = "private",
+) => {
   const text = `/positions${args ? ` ${args}` : ""}`;
   return {
     update_id: 1,
     message: {
       message_id: 1,
       date: 0,
-      chat: { id: 42, type: "private" },
+      chat: { id: 42, type: chatType },
       from: { id: 7, is_bot: false, first_name: "Ada" },
       text,
       entities: [{ type: "bot_command", offset: 0, length: 10 }],
     },
   };
+};
+
+const seedActiveWallet = async (h: BotTestHarness): Promise<string> => {
+  const wm = new WalletManager(
+    h.kv as unknown as KVNamespace,
+    ZERO_MASTER_KEY,
+  );
+  const w = await wm.createWallet(7);
+  return w.address;
 };
 
 interface SentMessage {
@@ -55,13 +70,53 @@ describe("/positions", () => {
     fetchSpy.mockRestore();
   });
 
-  it("replies with usage when no wallet argument is provided", async () => {
+  it("replies with usage when no wallet argument is provided in a group chat", async () => {
+    // Active-wallet fallback is private-DM only — outside a DM we
+    // refuse to resolve the user's custodial address even if they have
+    // one, since leaking it into a group transcript is the exact thing
+    // the gate exists to prevent.
+    fetchSpy.mockResolvedValue(okFallback());
+    const h = makeBotHarness();
+    await seedActiveWallet(h);
+    await h.run(positionsUpdate("", "group"));
+    const sent = sentMessages(fetchSpy);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.text).toContain("Usage: /positions");
+    expect(upstreamCalls(fetchSpy)).toHaveLength(0);
+  });
+
+  it("falls back to the active wallet in a private chat when no argument is given", async () => {
+    const h = makeBotHarness();
+    const activeAddress = await seedActiveWallet(h);
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({ data: { open: [], realised: [] } }),
+          { status: 200 },
+        );
+      }
+      return okFallback();
+    });
+    await h.run(positionsUpdate(""));
+    const sent = sentMessages(fetchSpy);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.text).toBe("No open positions for this wallet.");
+    const apiCalls = upstreamCalls(fetchSpy);
+    expect(apiCalls).toHaveLength(1);
+    expect(String(apiCalls[0]![0]).toLowerCase()).toContain(
+      activeAddress.toLowerCase(),
+    );
+  });
+
+  it("replies with no-active-wallet copy when the user has no wallet yet", async () => {
     fetchSpy.mockResolvedValue(okFallback());
     const h = makeBotHarness();
     await h.run(positionsUpdate(""));
     const sent = sentMessages(fetchSpy);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.text).toContain("Usage: /positions");
+    expect(sent[0]!.text).toContain("No active wallet");
+    expect(sent[0]!.text).toContain("/wallet");
     expect(upstreamCalls(fetchSpy)).toHaveLength(0);
   });
 
