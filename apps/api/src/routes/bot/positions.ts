@@ -155,13 +155,18 @@ const fetchCurrentPricesUsdc18dp = async (
 // `value (USDC 6dp) = balance (token 18dp) × priceUsdc18dp / 1e30`.
 const PRICE_VALUE_SCALE = 10n ** 30n;
 
+interface PonderTokenBalance {
+  tokenAddress: string;
+  balance: string;
+}
+
 const fetchPositions = async (
   ponderUrl: string,
   wallet: string,
 ): Promise<PositionsResponse> => {
   try {
     const queryPonder = createPonderQuery(ponderUrl);
-    const result = await queryPonder<{
+    const positionsResult = await queryPonder<{
       walletBotPositions: { items: unknown[] } | null;
     }>(
       `query ($wallet: String!, $limit: Int!) {
@@ -181,35 +186,109 @@ const fetchPositions = async (
       { wallet, limit: PAGE_SIZE },
     );
 
-    if (!result || !result.walletBotPositions) return EMPTY;
-    const items = result.walletBotPositions.items;
+    if (!positionsResult || !positionsResult.walletBotPositions) return EMPTY;
+    const items = positionsResult.walletBotPositions.items;
     if (!Array.isArray(items)) return EMPTY;
+
+    // True on-chain balance per token, indexed off every ERC-20 Transfer
+    // (`tokenBalance` index in the indexer schema). `walletBotPosition.tokenBalance`
+    // only tracks BotFeeRouter activity — a user who buys via the bot and
+    // later disposes tokens any other way (direct ERC-20 Transfer, web-app
+    // Zap sell, HyperSwap swap) leaves the router counter stale at the last
+    // bot-trade state. We drop phantom rows (router balance > 0, chain
+    // balance = 0) and clamp displayed balance to `min(routerBalance,
+    // chainBalance)` for partial-disposal cases so PnL never quotes against
+    // tokens the wallet doesn't actually hold.
+    //
+    // The lookup is scoped to the token addresses we actually have positions
+    // for — a wallet that holds many non-bot tokens would otherwise crowd the
+    // bot-relevant rows out of a global limit and surface them as phantom 0n
+    // entries.
+    const openTokenAddresses = Array.from(
+      new Set(
+        items
+          .filter(isWalletBotPositionRow)
+          .filter((row) => BigInt(row.tokenBalance) > 0n)
+          .map((row) => row.token.toLowerCase()),
+      ),
+    );
+    const chainBalanceByToken = new Map<string, bigint>();
+    if (openTokenAddresses.length > 0) {
+      const balancesResult = await queryPonder<{
+        tokenBalances: { items: PonderTokenBalance[] } | null;
+      }>(
+        `query ($wallet: String!, $tokens: [String!]!, $limit: Int!) {
+          tokenBalances(
+            where: { wallet: $wallet, tokenAddress_in: $tokens, balance_gt: "0" }
+            limit: $limit
+          ) {
+            items {
+              tokenAddress
+              balance
+            }
+          }
+        }`,
+        { wallet, tokens: openTokenAddresses, limit: PAGE_SIZE },
+      );
+      for (const tb of balancesResult?.tokenBalances?.items ?? []) {
+        // Validate the row before BigInt-converting — a single malformed
+        // balance (non-digit characters, missing field) would otherwise throw
+        // and the outer catch would wipe both `open` and `realised` to empty
+        // arrays.
+        if (
+          !tb ||
+          typeof tb.tokenAddress !== "string" ||
+          typeof tb.balance !== "string" ||
+          !/^[0-9]+$/.test(tb.balance)
+        ) {
+          continue;
+        }
+        chainBalanceByToken.set(
+          tb.tokenAddress.toLowerCase(),
+          BigInt(tb.balance),
+        );
+      }
+    }
 
     const open: OpenPosition[] = [];
     const realised: RealisedPosition[] = [];
 
     for (const item of items) {
       if (!isWalletBotPositionRow(item)) continue;
-      const balance = BigInt(item.tokenBalance);
-      if (balance > 0n) {
-        open.push({
-          token: item.token,
-          ticker: item.ticker,
-          balance: item.tokenBalance,
-          costBasisUsdc: item.costBasisUsdc,
-          // Placeholders — overridden below with a live mark when the
-          // current price is known. Falls back to the indexer-stored
-          // (stale) value when the price lookup fails.
-          currentValueUsdc: item.currentValueUsdc,
-          unrealisedPnlUsdc: signedDiff(
-            item.currentValueUsdc,
-            item.costBasisUsdc,
-          ),
-          unrealisedPnlPct: pctOrNull(
-            BigInt(item.currentValueUsdc) - BigInt(item.costBasisUsdc),
-            BigInt(item.costBasisUsdc),
-          ),
-        });
+      const routerBalance = BigInt(item.tokenBalance);
+      if (routerBalance > 0n) {
+        const chainBalance =
+          chainBalanceByToken.get(item.token.toLowerCase()) ?? 0n;
+        if (chainBalance > 0n) {
+          const balance =
+            chainBalance < routerBalance ? chainBalance : routerBalance;
+          // Rescale the indexer's stored snapshot value to the clamped
+          // balance so the value/PnL stays consistent with the displayed
+          // amount even when the live-mark refresh below fails.
+          const snapshotValue = BigInt(item.currentValueUsdc);
+          const rescaledValue =
+            balance === routerBalance
+              ? snapshotValue
+              : (snapshotValue * balance) / routerBalance;
+          open.push({
+            token: item.token,
+            ticker: item.ticker,
+            balance: balance.toString(),
+            costBasisUsdc: item.costBasisUsdc,
+            // Placeholders — overridden below with a live mark when the
+            // current price is known. Falls back to the rescaled
+            // indexer-stored value when the price lookup fails.
+            currentValueUsdc: rescaledValue.toString(),
+            unrealisedPnlUsdc: signedDiff(
+              rescaledValue.toString(),
+              item.costBasisUsdc,
+            ),
+            unrealisedPnlPct: pctOrNull(
+              rescaledValue - BigInt(item.costBasisUsdc),
+              BigInt(item.costBasisUsdc),
+            ),
+          });
+        }
       }
       const totalCost = BigInt(item.totalCostUsdc);
       const totalProceeds = BigInt(item.totalProceedsUsdc);
@@ -305,10 +384,7 @@ positions.get("/:wallet", async (c) => {
   // Same edge-cache window as `/portfolio` — positions are stable
   // until the next router trade fires, and a 15s cap lines up with
   // the indexer's typical lag.
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=15, stale-while-revalidate=30",
-  );
+  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
   return c.json(formatSuccess(data));
 });
 
