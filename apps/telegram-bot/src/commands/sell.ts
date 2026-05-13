@@ -16,6 +16,11 @@ import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
 import {
+  haltAndForward,
+  isCancel,
+  isOtherSlashCommand,
+} from "../lib/conversation-commands.js";
+import {
   confirmKeyboard,
   renderConfirmReply,
   stageSell,
@@ -299,9 +304,12 @@ const sellLookupConversation = async (
     const msgCtx = await conversation.waitFor("message:text");
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
       return;
+    }
+    if (isOtherSlashCommand(text)) {
+      await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);
@@ -391,9 +399,12 @@ const sellCustomConversation = async (
     const msgCtx = await conversation.waitFor("message:text");
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
       return;
+    }
+    if (isOtherSlashCommand(text)) {
+      await haltAndForward(conversation);
     }
 
     const percent = parsePercentInput(text);

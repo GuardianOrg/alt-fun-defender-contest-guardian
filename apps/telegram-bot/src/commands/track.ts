@@ -20,6 +20,11 @@ import {
   type TokenInfo,
 } from "../lib/api.js";
 import { encodeCallback, parseCallback } from "../lib/callbacks.js";
+import {
+  haltAndForward,
+  isCancel,
+  isOtherSlashCommand,
+} from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
@@ -234,9 +239,12 @@ const trackLookupConversation = async (
     const msgCtx = await conversation.waitFor("message:text");
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
       return;
+    }
+    if (isOtherSlashCommand(text)) {
+      await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);

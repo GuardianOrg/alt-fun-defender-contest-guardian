@@ -224,6 +224,57 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(text).toContain("Test Token");
   });
 
+  // Regression for issue #805: a slash command typed mid-lookup used to
+  // get parsed as a token address and surface "Token not found.". The
+  // conversation must halt and let the outer middleware run the command
+  // (here, /positions) so the user sees the actual /positions output.
+  it("halts and forwards to the outer dispatcher when a slash command (e.g. /positions) is typed mid-lookup", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({ data: { open: [], realised: [] } }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run({
+      update_id: 10,
+      message: {
+        message_id: 10,
+        date: 0,
+        chat: { id: 42, type: "private" as const },
+        from: { id: 7, is_bot: false, first_name: "Ada" },
+        text: "/positions",
+        entities: [{ type: "bot_command", offset: 0, length: 10 }],
+      },
+    });
+
+    const calls = capture(fetchSpy);
+    const sends = calls.filter((c) => c.url.includes("/sendMessage"));
+    // The /positions handler runs and renders its empty-state copy
+    // (issue #805 user-facing requirement). The "Token not found." path
+    // from the buy-lookup conversation must not fire.
+    expect(sends).toHaveLength(1);
+    expect(String(sends[0]!.body.text)).toBe(
+      "No open positions for this wallet.",
+    );
+    expect(String(sends[0]!.body.text)).not.toMatch(/Token not found/i);
+    // The positions endpoint was hit — confirms the command actually ran
+    // rather than the conversation silently swallowing the update.
+    const positionsCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .map((c) => String(c[0]))
+      .find((url) => url.includes("/api/v1/bot/positions/"));
+    expect(positionsCall).toBeDefined();
+  });
+
   it("conversation aborts (not loops) when token API is unavailable", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
