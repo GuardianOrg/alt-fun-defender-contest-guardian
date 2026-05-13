@@ -59,4 +59,32 @@ describe("resolveBuyUsdcUrl", () => {
     expect(parsed.searchParams.get("toCurrency")).toBe(USDC_ADDRESS);
     expect(parsed.searchParams.get("toAddress")).toBe(WALLET);
   });
+
+  it("falls back to the Relay onramp when BUY_USDC_URL is malformed", () => {
+    // Garbage / partially-edited config values must never reach
+    // Telegram's URL validator — that would reject the entire
+    // /start reply and brick the funding CTA.
+    const cases = ["", "  ", "not a url", "ftp://example.com/funding"];
+    for (const raw of cases) {
+      const url = resolveBuyUsdcUrl({ BUY_USDC_URL: raw }, WALLET);
+      const parsed = new URL(url);
+      expect(parsed.host).toBe("relay.link");
+      expect(parsed.searchParams.get("toAddress")).toBe(WALLET);
+    }
+  });
+
+  it("accepts an http(s) BUY_USDC_URL override verbatim", () => {
+    expect(
+      resolveBuyUsdcUrl(
+        { BUY_USDC_URL: "https://override.example/funding?utm=tg" },
+        WALLET,
+      ),
+    ).toBe("https://override.example/funding?utm=tg");
+    expect(
+      resolveBuyUsdcUrl(
+        { BUY_USDC_URL: "http://override.example/funding" },
+        WALLET,
+      ),
+    ).toBe("http://override.example/funding");
+  });
 });

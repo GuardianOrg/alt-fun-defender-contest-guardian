@@ -47,16 +47,38 @@ export interface ResolveBuyUsdcUrlEnv {
 }
 
 /**
+ * Validate that a raw env string is a well-formed http(s) URL. Ops
+ * can paste a typo, a half-edited secret, or an internal hostname
+ * here — handing that straight to Telegram as an inline-keyboard
+ * `url` field would either reject the entire reply (Telegram's URL
+ * validator is strict) or silently land users on a phishing-shaped
+ * deeplink. Falling back to the Relay default keeps the button
+ * usable instead of breaking `/start` outright.
+ */
+const isValidHttpUrl = (raw: string): boolean => {
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" || parsed.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Resolve the URL the "Buy USDC via Relay" button should point at.
  * The optional `BUY_USDC_URL` env var lets ops hot-patch the link
  * (e.g. to a campaign-tracking variant or an alternative onramp)
- * without redeploying. Otherwise we build the Relay deeplink with
- * the user's custodial wallet pre-filled.
+ * without redeploying — but only if it parses as an http(s) URL.
+ * An empty or malformed value silently falls back to the built
+ * Relay deeplink with the user's custodial wallet pre-filled, so
+ * the funding CTA never disappears on a config typo.
  */
 export const resolveBuyUsdcUrl = (
   env: ResolveBuyUsdcUrlEnv,
   walletAddress: string,
 ): string => {
-  if (env.BUY_USDC_URL) return env.BUY_USDC_URL;
+  if (env.BUY_USDC_URL && isValidHttpUrl(env.BUY_USDC_URL)) {
+    return env.BUY_USDC_URL;
+  }
   return buildRelayOnrampUrl({ walletAddress });
 };
