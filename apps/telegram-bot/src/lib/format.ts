@@ -1,4 +1,8 @@
-import type { BalanceEntry, PortfolioPosition } from "./api.js";
+import type {
+  BotOpenPosition,
+  BotPositionsResponse,
+  BotRealisedPosition,
+} from "./api.js";
 import { encodeCallback } from "./callbacks.js";
 
 const TOKEN_DECIMALS = 18;
@@ -45,61 +49,7 @@ export const formatTokenAmount = (raw: string): string =>
 export const formatUsdc = (raw: string): string =>
   formatFixed(raw, USDC_DECIMALS, 2);
 
-export interface JoinedPosition {
-  address: string;
-  label: string;
-  amount: string;
-  costBasisUsdc: string;
-}
-
-/**
- * Join portfolio (cost basis) with balances (name/ticker). Both endpoints
- * are scoped to Alt Fun tokens, so the join is the source of truth for
- * which positions to surface — direct-transfer-only tokens (no Zap activity)
- * still show with cost basis 0, matching the indexer semantics in
- * `apps/api/src/routes/portfolio.ts`.
- */
-export const joinPositions = (
-  portfolio: PortfolioPosition[],
-  balances: BalanceEntry[],
-): JoinedPosition[] => {
-  const costBasisByAddr = new Map<string, string>();
-  for (const p of portfolio) {
-    costBasisByAddr.set(p.tokenAddress.toLowerCase(), p.costBasisUsdc);
-  }
-  return balances.map((b) => {
-    const lower = b.address.toLowerCase();
-    return {
-      address: b.address,
-      label: `${b.name} (${b.ticker})`,
-      amount: b.balance,
-      costBasisUsdc: costBasisByAddr.get(lower) ?? "0",
-    };
-  });
-};
-
 const LINE_PREFIX = "• ";
-
-/**
- * Truncate the label so the rendered line always fits below the
- * chunker's effective limit. Callers that paginate must pass the
- * reduced limit (`TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET`)
- * — otherwise a line in `(limit, TELEGRAM_MESSAGE_LIMIT]` slips past
- * line truncation and ends up as a single oversized chunk, which the
- * paginator's footer can then push over Telegram's 4096-char ceiling.
- */
-export const formatPositionLine = (
-  pos: JoinedPosition,
-  limit: number = TELEGRAM_MESSAGE_LIMIT,
-): string => {
-  const suffix = `\n  ${formatTokenAmount(pos.amount)} · cost basis $${formatUsdc(pos.costBasisUsdc)}`;
-  const budget = limit - LINE_PREFIX.length - suffix.length;
-  const label =
-    pos.label.length > budget
-      ? `${pos.label.slice(0, Math.max(1, budget - 1))}…`
-      : pos.label;
-  return `${LINE_PREFIX}${label}${suffix}`;
-};
 
 /**
  * Chunk position lines into one or more messages that each fit inside
@@ -139,34 +89,96 @@ export const chunkPositionsMessage = (
  */
 export const PAGINATION_FOOTER_BUDGET = 24;
 
-export const formatPositionsResponse = (
-  positions: JoinedPosition[],
-  options: { approximate: boolean },
+/**
+ * Render a signed USDC raw value with a leading `+` for positives and
+ * a Unicode minus (`−`) for negatives. The signed-number rule in
+ * AGENTS.md applies to unrealised / realised PnL, where the leading
+ * sign is the headline of the line.
+ */
+const formatSignedUsdc = (raw: string): string => {
+  if (raw === "0") return "$0";
+  if (raw.startsWith("-")) return `−$${formatUsdc(raw.slice(1))}`;
+  return `+$${formatUsdc(raw)}`;
+};
+
+/**
+ * Floor a percentage to two decimal places. `Math.floor` (not
+ * `Math.trunc`) — for a negative loss like `-12.349%` the spec's
+ * floor rounds toward −∞ to `-12.35%`, not toward zero. Use Unicode
+ * minus for negatives to match the signed-number rule in AGENTS.md.
+ */
+const formatPct = (pct: number | null): string => {
+  if (pct === null) return "—";
+  const floored = Math.floor(pct * 100) / 100;
+  if (floored < 0) return `−${(-floored).toFixed(2)}%`;
+  if (floored > 0) return `+${floored.toFixed(2)}%`;
+  return "0.00%";
+};
+
+const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
+  const labelRaw = `${pos.ticker}`;
+  const suffix =
+    `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
+    `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
+  const budget = limit - LINE_PREFIX.length - suffix.length;
+  const label =
+    labelRaw.length > budget
+      ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
+      : labelRaw;
+  return `${LINE_PREFIX}${label}${suffix}`;
+};
+
+const formatRealisedLine = (
+  pos: BotRealisedPosition,
+  limit: number,
+): string => {
+  const labelRaw = `${pos.ticker}`;
+  const suffix =
+    `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
+    `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
+  const budget = limit - LINE_PREFIX.length - suffix.length;
+  const label =
+    labelRaw.length > budget
+      ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
+      : labelRaw;
+  return `${LINE_PREFIX}${label}${suffix}`;
+};
+
+/**
+ * Render the bot-positions response as a list of message chunks. Open
+ * and Realised sections share one paginated stream: Open header +
+ * lines first, then Realised header + lines if any closed-out chunks
+ * exist. The 4096-char-per-chunk limit and the pagination-footer
+ * reservation match `formatPositionsResponse`.
+ *
+ * Returning a single stream (rather than two parallel paginators)
+ * keeps `commands/positions.ts` callback-flow identical — pagination
+ * carries `pp:<page>:<wallet>` and the renderer doesn't need a section
+ * dimension to recover state on a cold start.
+ */
+export const formatBotPositionsResponse = (
+  data: BotPositionsResponse,
 ): string[] => {
-  if (positions.length === 0) {
+  if (data.open.length === 0 && data.realised.length === 0) {
     return ["No open positions for this wallet."];
   }
-  const header = `Open positions (${positions.length})`;
-  // Tighter limit reserves room for the multi-page footer. Single-page
-  // outputs effectively waste those bytes, but the cost is dwarfed by
-  // the silent-400 risk if a maxed chunk + footer overflows. Same
-  // budget feeds back into formatPositionLine so pathological labels
-  // are pre-truncated against the chunker's actual ceiling, not the
-  // raw 4096-char Telegram limit.
   const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
-  const lines = positions.map((p) => formatPositionLine(p, limit));
-  const chunks = chunkPositionsMessage(header, lines, limit);
-  if (options.approximate) {
-    const note =
-      "\n\nList truncated at 1000 positions — query indexer directly for the full set.";
-    const last = chunks[chunks.length - 1]!;
-    if (last.length + note.length <= limit) {
-      chunks[chunks.length - 1] = `${last}${note}`;
-    } else {
-      chunks.push(note.trimStart());
-    }
+  const lines: string[] = [];
+  if (data.open.length > 0) {
+    lines.push(`Open positions (${data.open.length})`);
+    for (const p of data.open) lines.push(formatOpenLine(p, limit));
   }
-  return chunks;
+  if (data.realised.length > 0) {
+    lines.push(`Realised positions (${data.realised.length})`);
+    for (const p of data.realised) lines.push(formatRealisedLine(p, limit));
+  }
+  // `chunkPositionsMessage` puts the first entry in `lines` (the
+  // "Open positions" header) into the first chunk's "header" slot and
+  // splits the rest. Passing the headers inside `lines` instead of as
+  // a single combined string keeps section headers attached to their
+  // own group when chunking spills.
+  const [header, ...body] = lines;
+  return chunkPositionsMessage(header ?? "", body, limit);
 };
 
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";

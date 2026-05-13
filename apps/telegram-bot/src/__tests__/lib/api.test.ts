@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
-  fetchBalances,
-  fetchPortfolio,
+  fetchBotPositions,
   fetchReferralStats,
   fetchToken,
   extractTokenAddress,
@@ -32,7 +31,7 @@ describe("isAddress", () => {
   });
 });
 
-describe("fetchPortfolio / fetchBalances", () => {
+describe("fetchBotPositions", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -43,33 +42,52 @@ describe("fetchPortfolio / fetchBalances", () => {
     fetchSpy.mockRestore();
   });
 
+  const TOKEN_A = "0x1111111111111111111111111111111111111111";
+  const TOKEN_B = "0x2222222222222222222222222222222222222222";
+
+  const openRow = {
+    token: TOKEN_A,
+    ticker: "ONE",
+    balance: "1500000000000000000",
+    costBasisUsdc: "20000000",
+    currentValueUsdc: "25000000",
+    unrealisedPnlUsdc: "5000000",
+    unrealisedPnlPct: 25,
+  };
+
+  const realisedRow = {
+    token: TOKEN_B,
+    ticker: "TWO",
+    totalCostUsdc: "10000000",
+    totalProceedsUsdc: "15000000",
+    realisedPnlUsdc: "5000000",
+    realisedPnlPct: 50,
+  };
+
   it("omits X-API-Key when env.API_KEY is undefined (falls into apps/api anonymous bucket, see #640)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { positions: [], approximate: false } }),
+        JSON.stringify({ data: { open: [], realised: [] } }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
-    await fetchPortfolio(
+    await fetchBotPositions(
       { API_BASE_URL: env.API_BASE_URL, API_KEY: undefined },
       "0xabc",
     );
     const init = fetchSpy.mock.calls[0]![1] as RequestInit;
     const headers = new Headers(init.headers);
-    // Header absent — NOT `"undefined"` string. Sending the literal
-    // string would trip apps/api's 401 path; omitting it routes the
-    // request into the anonymous 240/min per-IP bucket.
     expect(headers.has("x-api-key")).toBe(false);
   });
 
   it("omits X-API-Key when env.API_KEY is the empty string", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: { positions: [], approximate: false } }),
+        JSON.stringify({ data: { open: [], realised: [] } }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
-    await fetchPortfolio(
+    await fetchBotPositions(
       { API_BASE_URL: env.API_BASE_URL, API_KEY: "" },
       "0xabc",
     );
@@ -78,115 +96,125 @@ describe("fetchPortfolio / fetchBalances", () => {
     expect(headers.has("x-api-key")).toBe(false);
   });
 
-  it("sends X-API-Key header and returns parsed data on 200", async () => {
+  it("sends X-API-Key header and targets the bot positions route", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
-          data: { positions: [], approximate: false },
+          data: { open: [openRow], realised: [realisedRow] },
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       ),
     );
-    const res = await fetchPortfolio(env, "0xabc");
+    const res = await fetchBotPositions(env, "0xabc");
     expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data.open).toHaveLength(1);
+      expect(res.data.realised).toHaveLength(1);
+      expect(res.data.open[0]!.ticker).toBe("ONE");
+    }
     const init = fetchSpy.mock.calls[0]![1] as RequestInit;
     const headers = new Headers(init.headers);
     expect(headers.get("x-api-key")).toBe("test-api-key");
     expect(fetchSpy.mock.calls[0]![0]).toBe(
-      "https://api.test.local/api/v1/portfolio/0xabc",
+      "https://api.test.local/api/v1/bot/positions/0xabc",
     );
   });
 
   it("returns invalid_address on 400 (matches apps/api validation response)", async () => {
     fetchSpy.mockResolvedValueOnce(new Response("{}", { status: 400 }));
-    const res = await fetchPortfolio(env, "0xabc");
-    expect(res).toEqual({ ok: false, kind: "invalid_address" });
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "invalid_address",
+    });
   });
 
   it("returns unavailable on 503 (indexer down)", async () => {
     fetchSpy.mockResolvedValueOnce(new Response("{}", { status: 503 }));
-    const res = await fetchPortfolio(env, "0xabc");
-    expect(res).toEqual({ ok: false, kind: "unavailable" });
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unavailable",
+    });
   });
 
   it("returns unavailable when fetch itself throws (network error)", async () => {
     fetchSpy.mockRejectedValueOnce(new Error("network down"));
-    const res = await fetchBalances(env, "0xabc");
-    expect(res).toEqual({ ok: false, kind: "unavailable" });
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unavailable",
+    });
   });
 
   it("returns unknown on missing envelope.data", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({}), { status: 200 }),
     );
-    const res = await fetchPortfolio(env, "0xabc");
-    expect(res).toEqual({ ok: false, kind: "unknown" });
-  });
-
-  it("returns unknown when fetchPortfolio payload has malformed shape (string instead of array)", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ data: { positions: "nope", approximate: false } }),
-        { status: 200 },
-      ),
-    );
-    expect(await fetchPortfolio(env, "0xabc")).toEqual({
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
       ok: false,
       kind: "unknown",
     });
   });
 
-  it("returns unknown when a portfolio position is missing required string fields", async () => {
+  it("returns unknown when open is not an array", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: { open: "nope", realised: [] } }),
+        { status: 200 },
+      ),
+    );
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
+      ok: false,
+      kind: "unknown",
+    });
+  });
+
+  it("returns unknown when an open entry has a non-numeric USDC string", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
           data: {
-            positions: [{ tokenAddress: "0xaaa" }], // missing tokenAmount, costBasisUsdc
-            approximate: false,
+            open: [{ ...openRow, costBasisUsdc: "abc" }],
+            realised: [],
           },
         }),
         { status: 200 },
       ),
     );
-    expect(await fetchPortfolio(env, "0xabc")).toEqual({
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
       ok: false,
       kind: "unknown",
     });
   });
 
-  it("returns unknown when fetchBalances payload is an object instead of an array", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: { not: "an array" } }), {
-        status: 200,
-      }),
-    );
-    expect(await fetchBalances(env, "0xabc")).toEqual({
-      ok: false,
-      kind: "unknown",
-    });
-  });
-
-  it("returns unknown when a balance entry is missing required string fields", async () => {
+  it("accepts a null PnL percent (cost basis was zero)", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(
-        JSON.stringify({ data: [{ address: "0xaaa" }] }), // missing name/ticker/balance
+        JSON.stringify({
+          data: {
+            open: [{ ...openRow, costBasisUsdc: "0", unrealisedPnlPct: null }],
+            realised: [],
+          },
+        }),
         { status: 200 },
       ),
     );
-    expect(await fetchBalances(env, "0xabc")).toEqual({
+    const res = await fetchBotPositions(env, "0xabc");
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.data.open[0]!.unrealisedPnlPct).toBeNull();
+  });
+
+  it("returns unknown when a realised entry is missing required fields", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: { open: [], realised: [{ token: TOKEN_B }] },
+        }),
+        { status: 200 },
+      ),
+    );
+    expect(await fetchBotPositions(env, "0xabc")).toEqual({
       ok: false,
       kind: "unknown",
     });
-  });
-
-  it("targets the balances route for fetchBalances", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response(JSON.stringify({ data: [] }), { status: 200 }),
-    );
-    await fetchBalances(env, "0xabc");
-    expect(fetchSpy.mock.calls[0]![0]).toBe(
-      "https://api.test.local/api/v1/balances/0xabc",
-    );
   });
 
   it("targets the referrals route and parses stats", async () => {

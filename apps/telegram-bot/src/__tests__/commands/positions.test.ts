@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { makeBotHarness } from "../helpers/bot.js";
 
 const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
+const TOKEN = "0xaaaa000000000000000000000000000000000000";
 
 const positionsUpdate = (args: string) => {
   const text = `/positions${args ? ` ${args}` : ""}`;
@@ -40,6 +41,9 @@ const upstreamCalls = (fetchSpy: ReturnType<typeof vi.spyOn>) =>
     String(call[0]).startsWith("https://api.test.local"),
   );
 
+const okFallback = () =>
+  new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+
 describe("/positions", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -52,9 +56,7 @@ describe("/positions", () => {
   });
 
   it("replies with usage when no wallet argument is provided", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
-    );
+    fetchSpy.mockResolvedValue(okFallback());
     const h = makeBotHarness();
     await h.run(positionsUpdate(""));
     const sent = sentMessages(fetchSpy);
@@ -64,9 +66,7 @@ describe("/positions", () => {
   });
 
   it("replies with an error when the wallet is not a 0x-address", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
-    );
+    fetchSpy.mockResolvedValue(okFallback());
     const h = makeBotHarness();
     await h.run(positionsUpdate("not-a-wallet"));
     const sent = sentMessages(fetchSpy);
@@ -77,23 +77,13 @@ describe("/positions", () => {
   it("renders an empty-state message when the wallet holds no positions", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/portfolio/")) {
+      if (url.includes("/api/v1/bot/positions/")) {
         return new Response(
-          JSON.stringify({ data: { positions: [], approximate: false } }),
+          JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
-      }
-      // Fallback (includes Telegram API calls in the bot pathway):
-      // grammY expects `{ ok: true, result: ... }` and treats a bare
-      // `{}` as a failed call. Returning the ok-envelope keeps grammY
-      // happy while tests assert on the request side.
-      return new Response(
-        JSON.stringify({ ok: true, result: true }),
-        { status: 200 },
-      );
+      return okFallback();
     });
     const h = makeBotHarness();
     await h.run(positionsUpdate(WALLET));
@@ -102,53 +92,31 @@ describe("/positions", () => {
     expect(sent[0]!.text).toBe("No open positions for this wallet.");
   });
 
-  it("renders joined positions when both endpoints return data", async () => {
+  it("renders a single open position with ticker, balance, cost, value, PnL", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/portfolio/")) {
+      if (url.includes("/api/v1/bot/positions/")) {
         return new Response(
           JSON.stringify({
             data: {
-              positions: [
+              open: [
                 {
-                  tokenAddress: "0xaaaa000000000000000000000000000000000000",
-                  tokenAmount: "0",
+                  token: TOKEN,
+                  ticker: "ALPHA",
+                  balance: "2500000000000000000",
                   costBasisUsdc: "50000000",
+                  currentValueUsdc: "75000000",
+                  unrealisedPnlUsdc: "25000000",
+                  unrealisedPnlPct: 50,
                 },
               ],
-              approximate: false,
+              realised: [],
             },
           }),
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                address: "0xAAAA000000000000000000000000000000000000",
-                name: "Alpha Token",
-                ticker: "ALPHA",
-                ltPair: "0xbbbb",
-                leverage: 2,
-                underlying: "HYPE",
-                ltDirection: "long",
-                balance: "2500000000000000000",
-              },
-            ],
-          }),
-          { status: 200 },
-        );
-      }
-      // Fallback (includes Telegram API calls in the bot pathway):
-      // grammY expects `{ ok: true, result: ... }` and treats a bare
-      // `{}` as a failed call. Returning the ok-envelope keeps grammY
-      // happy while tests assert on the request side.
-      return new Response(
-        JSON.stringify({ ok: true, result: true }),
-        { status: 200 },
-      );
+      return okFallback();
     });
     const h = makeBotHarness();
     await h.run(positionsUpdate(WALLET));
@@ -156,49 +124,79 @@ describe("/positions", () => {
     expect(sent).toHaveLength(1);
     const text = sent[0]!.text;
     expect(text).toContain("Open positions (1)");
-    expect(text).toContain("Alpha Token (ALPHA)");
+    expect(text).toContain("ALPHA");
     expect(text).toContain("2.5");
     expect(text).toContain("$50");
+    expect(text).toContain("$75");
+    expect(text).toContain("+$25");
+    expect(text).toContain("+50.00%");
     expect(sent[0]!.reply_markup).toBeUndefined();
   });
 
-  it("attaches a Next button when the response paginates", async () => {
-    const positions = Array.from({ length: 250 }, (_, i) => ({
-      tokenAddress: `0x${i.toString(16).padStart(40, "0")}`,
-      tokenAmount: "0",
-      costBasisUsdc: "1000000",
-    }));
-    const balances = Array.from({ length: 250 }, (_, i) => ({
-      address: `0x${i.toString(16).padStart(40, "0")}`,
-      name: `Long Token Name Number ${i}`,
-      ticker: `LT${i}`,
-      ltPair: "0xbbbb",
-      leverage: 2,
-      underlying: "HYPE",
-      ltDirection: "long",
-      balance: "1000000000000000000",
-    }));
+  it("renders both Open and Realised sections when both have rows", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/portfolio/")) {
+      if (url.includes("/api/v1/bot/positions/")) {
         return new Response(
-          JSON.stringify({ data: { positions, approximate: false } }),
+          JSON.stringify({
+            data: {
+              open: [
+                {
+                  token: TOKEN,
+                  ticker: "ALPHA",
+                  balance: "1000000000000000000",
+                  costBasisUsdc: "20000000",
+                  currentValueUsdc: "25000000",
+                  unrealisedPnlUsdc: "5000000",
+                  unrealisedPnlPct: 25,
+                },
+              ],
+              realised: [
+                {
+                  token: "0xbbbb000000000000000000000000000000000000",
+                  ticker: "BETA",
+                  totalCostUsdc: "10000000",
+                  totalProceedsUsdc: "15000000",
+                  realisedPnlUsdc: "5000000",
+                  realisedPnlPct: 50,
+                },
+              ],
+            },
+          }),
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(JSON.stringify({ data: balances }), {
-          status: 200,
-        });
+      return okFallback();
+    });
+    const h = makeBotHarness();
+    await h.run(positionsUpdate(WALLET));
+    const sent = sentMessages(fetchSpy);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.text).toContain("Open positions (1)");
+    expect(sent[0]!.text).toContain("Realised positions (1)");
+    expect(sent[0]!.text).toContain("ALPHA");
+    expect(sent[0]!.text).toContain("BETA");
+  });
+
+  it("attaches a Next button when the response paginates", async () => {
+    const open = Array.from({ length: 250 }, (_, i) => ({
+      token: `0x${i.toString(16).padStart(40, "0")}`,
+      ticker: `LT${i}`,
+      balance: "1000000000000000000",
+      costBasisUsdc: "1000000",
+      currentValueUsdc: "1500000",
+      unrealisedPnlUsdc: "500000",
+      unrealisedPnlPct: 50,
+    }));
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({ data: { open, realised: [] } }),
+          { status: 200 },
+        );
       }
-      // Fallback (includes Telegram API calls in the bot pathway):
-      // grammY expects `{ ok: true, result: ... }` and treats a bare
-      // `{}` as a failed call. Returning the ok-envelope keeps grammY
-      // happy while tests assert on the request side.
-      return new Response(
-        JSON.stringify({ ok: true, result: true }),
-        { status: 200 },
-      );
+      return okFallback();
     });
     const h = makeBotHarness();
     await h.run(positionsUpdate(WALLET));
@@ -221,14 +219,7 @@ describe("/positions", () => {
       if (url.startsWith("https://api.test.local")) {
         return new Response("{}", { status: 503 });
       }
-      // Fallback (includes Telegram API calls in the bot pathway):
-      // grammY expects `{ ok: true, result: ... }` and treats a bare
-      // `{}` as a failed call. Returning the ok-envelope keeps grammY
-      // happy while tests assert on the request side.
-      return new Response(
-        JSON.stringify({ ok: true, result: true }),
-        { status: 200 },
-      );
+      return okFallback();
     });
     const h = makeBotHarness();
     await h.run(positionsUpdate(WALLET));
@@ -239,34 +230,26 @@ describe("/positions", () => {
     );
   });
 
-  it("sends the bot's X-API-Key on every upstream read", async () => {
+  it("makes exactly one upstream request and forwards the bot X-API-Key", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/portfolio/")) {
+      if (url.includes("/api/v1/bot/positions/")) {
         return new Response(
-          JSON.stringify({ data: { positions: [], approximate: false } }),
+          JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
-      }
-      // Fallback (includes Telegram API calls in the bot pathway):
-      // grammY expects `{ ok: true, result: ... }` and treats a bare
-      // `{}` as a failed call. Returning the ok-envelope keeps grammY
-      // happy while tests assert on the request side.
-      return new Response(
-        JSON.stringify({ ok: true, result: true }),
-        { status: 200 },
-      );
+      return okFallback();
     });
     const h = makeBotHarness();
     await h.run(positionsUpdate(WALLET));
     const apiCalls = upstreamCalls(fetchSpy);
-    expect(apiCalls).toHaveLength(2);
-    for (const call of apiCalls) {
-      const headers = new Headers((call[1] as RequestInit).headers);
-      expect(headers.get("x-api-key")).toBe("test-api-key");
-    }
+    // Single API call replaces the legacy /portfolio + /balances pair —
+    // critical to keep per-/positions latency low under the bot fleet's
+    // shared X-API-Key quota (see telegram-bot AGENTS.md "/positions").
+    expect(apiCalls).toHaveLength(1);
+    const headers = new Headers((apiCalls[0]![1] as RequestInit).headers);
+    expect(headers.get("x-api-key")).toBe("test-api-key");
+    expect(String(apiCalls[0]![0])).toContain("/api/v1/bot/positions/");
   });
 });

@@ -1,16 +1,5 @@
 import type { Env } from "./types.js";
 
-export interface PortfolioPosition {
-  tokenAddress: string;
-  tokenAmount: string;
-  costBasisUsdc: string;
-}
-
-export interface PortfolioResponse {
-  positions: PortfolioPosition[];
-  approximate: boolean;
-}
-
 export interface ReferralStats {
   referredWallets: number;
   referredVolume: string;
@@ -33,15 +22,36 @@ export interface BotReferralStats {
   attributionLossCount: number;
 }
 
-export interface BalanceEntry {
-  address: string;
-  name: string;
+/**
+ * Bot-namespaced open + realised positions sourced from
+ * `walletBotPosition` on the shared indexer. Drives the /positions
+ * surface — see `commands/positions.ts`. Until the BotFeeRouter
+ * contract is deployed and the entity exists, the api returns empty
+ * `open` / `realised` arrays which renders "no open positions"
+ * cleanly with no banner spam.
+ */
+export interface BotOpenPosition {
+  token: string;
   ticker: string;
-  ltPair: string;
-  leverage: number;
-  underlying: string;
-  ltDirection: string;
   balance: string;
+  costBasisUsdc: string;
+  currentValueUsdc: string;
+  unrealisedPnlUsdc: string;
+  unrealisedPnlPct: number | null;
+}
+
+export interface BotRealisedPosition {
+  token: string;
+  ticker: string;
+  totalCostUsdc: string;
+  totalProceedsUsdc: string;
+  realisedPnlUsdc: string;
+  realisedPnlPct: number | null;
+}
+
+export interface BotPositionsResponse {
+  open: BotOpenPosition[];
+  realised: BotRealisedPosition[];
 }
 
 /**
@@ -161,47 +171,66 @@ async function getJsonWithNotFound<T>(
   return { ok: true, data: body.data };
 }
 
-/**
- * Validate that an unknown JSON value matches `PortfolioResponse`.
- * The downstream join/format paths assume `positions` is iterable and
- * each entry has string fields; a malformed envelope (api regression,
- * upstream MITM, partial response) would otherwise crash at the
- * format layer with a less-actionable error than `kind: "unknown"`.
- */
-const isPortfolioResponse = (v: unknown): v is PortfolioResponse => {
+const USDC_RAW_RE = /^-?[0-9]+$/;
+const ADDRESS_LOWER_RE = /^0x[0-9a-fA-F]{40}$/;
+
+const isOptionalPct = (v: unknown): boolean =>
+  v === null || typeof v === "number";
+
+const isBotOpenPosition = (v: unknown): v is BotOpenPosition => {
   if (!v || typeof v !== "object") return false;
-  const obj = v as { positions?: unknown; approximate?: unknown };
-  if (!Array.isArray(obj.positions)) return false;
-  if (typeof obj.approximate !== "boolean") return false;
-  return obj.positions.every(
-    (p) =>
-      p &&
-      typeof p === "object" &&
-      typeof (p as { tokenAddress?: unknown }).tokenAddress === "string" &&
-      typeof (p as { tokenAmount?: unknown }).tokenAmount === "string" &&
-      typeof (p as { costBasisUsdc?: unknown }).costBasisUsdc === "string",
+  const obj = v as Record<string, unknown>;
+  return (
+    typeof obj.token === "string" &&
+    ADDRESS_LOWER_RE.test(obj.token) &&
+    typeof obj.ticker === "string" &&
+    typeof obj.balance === "string" &&
+    USDC_RAW_RE.test(obj.balance) &&
+    typeof obj.costBasisUsdc === "string" &&
+    USDC_RAW_RE.test(obj.costBasisUsdc) &&
+    typeof obj.currentValueUsdc === "string" &&
+    USDC_RAW_RE.test(obj.currentValueUsdc) &&
+    typeof obj.unrealisedPnlUsdc === "string" &&
+    USDC_RAW_RE.test(obj.unrealisedPnlUsdc) &&
+    isOptionalPct(obj.unrealisedPnlPct)
   );
 };
 
-const isBalanceEntryArray = (v: unknown): v is BalanceEntry[] =>
-  Array.isArray(v) &&
-  v.every(
-    (b) =>
-      b &&
-      typeof b === "object" &&
-      typeof (b as { address?: unknown }).address === "string" &&
-      typeof (b as { name?: unknown }).name === "string" &&
-      typeof (b as { ticker?: unknown }).ticker === "string" &&
-      typeof (b as { balance?: unknown }).balance === "string",
+const isBotRealisedPosition = (v: unknown): v is BotRealisedPosition => {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as Record<string, unknown>;
+  return (
+    typeof obj.token === "string" &&
+    ADDRESS_LOWER_RE.test(obj.token) &&
+    typeof obj.ticker === "string" &&
+    typeof obj.totalCostUsdc === "string" &&
+    USDC_RAW_RE.test(obj.totalCostUsdc) &&
+    typeof obj.totalProceedsUsdc === "string" &&
+    USDC_RAW_RE.test(obj.totalProceedsUsdc) &&
+    typeof obj.realisedPnlUsdc === "string" &&
+    USDC_RAW_RE.test(obj.realisedPnlUsdc) &&
+    isOptionalPct(obj.realisedPnlPct)
   );
+};
 
-export const fetchPortfolio = async (
+const isBotPositionsResponse = (v: unknown): v is BotPositionsResponse => {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as { open?: unknown; realised?: unknown };
+  return (
+    Array.isArray(obj.open) &&
+    obj.open.every(isBotOpenPosition) &&
+    Array.isArray(obj.realised) &&
+    obj.realised.every(isBotRealisedPosition)
+  );
+};
+
+export const fetchBotPositions = async (
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   wallet: string,
-): Promise<ApiResult<PortfolioResponse>> => {
-  const res = await getJson<unknown>(env, `/api/v1/portfolio/${wallet}`);
+): Promise<ApiResult<BotPositionsResponse>> => {
+  const res = await getJson<unknown>(env, `/api/v1/bot/positions/${wallet}`);
   if (!res.ok) return res;
-  return isPortfolioResponse(res.data)
+  return isBotPositionsResponse(res.data)
     ? { ok: true, data: res.data }
     : { ok: false, kind: "unknown" };
 };
@@ -323,17 +352,6 @@ export const setBotRewardsWallet = async (
     return { ok: false, kind: "unknown" };
   }
   return { ok: true, data: { rewardsWallet: body.data.rewardsWallet } };
-};
-
-export const fetchBalances = async (
-  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
-  wallet: string,
-): Promise<ApiResult<BalanceEntry[]>> => {
-  const res = await getJson<unknown>(env, `/api/v1/balances/${wallet}`);
-  if (!res.ok) return res;
-  return isBalanceEntryArray(res.data)
-    ? { ok: true, data: res.data }
-    : { ok: false, kind: "unknown" };
 };
 
 // JSON payloads never carry `undefined`; accept only `null` or a number.

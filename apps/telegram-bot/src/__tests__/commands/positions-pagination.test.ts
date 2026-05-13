@@ -6,34 +6,24 @@ const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 
 const mockApi = (
   fetchSpy: ReturnType<typeof vi.spyOn>,
-  positions: number,
-  balances: number,
+  open: number,
 ): void => {
-  const port = Array.from({ length: positions }, (_, i) => ({
-    tokenAddress: `0x${i.toString(16).padStart(40, "0")}`,
-    tokenAmount: "0",
-    costBasisUsdc: "1000000",
-  }));
-  const bal = Array.from({ length: balances }, (_, i) => ({
-    address: `0x${i.toString(16).padStart(40, "0")}`,
-    name: `Long Token Name Number ${i}`,
+  const items = Array.from({ length: open }, (_, i) => ({
+    token: `0x${i.toString(16).padStart(40, "0")}`,
     ticker: `LT${i}`,
-    ltPair: "0xbbbb",
-    leverage: 2,
-    underlying: "HYPE",
-    ltDirection: "long",
     balance: "1000000000000000000",
+    costBasisUsdc: "1000000",
+    currentValueUsdc: "1500000",
+    unrealisedPnlUsdc: "500000",
+    unrealisedPnlPct: 50,
   }));
   fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes("/api/v1/portfolio/")) {
+    if (url.includes("/api/v1/bot/positions/")) {
       return new Response(
-        JSON.stringify({ data: { positions: port, approximate: false } }),
+        JSON.stringify({ data: { open: items, realised: [] } }),
         { status: 200 },
       );
-    }
-    if (url.includes("/api/v1/balances/")) {
-      return new Response(JSON.stringify({ data: bal }), { status: 200 });
     }
     return new Response(
       JSON.stringify({ ok: true, result: true }),
@@ -131,10 +121,7 @@ describe("pp callback (positions pagination)", () => {
   });
 
   it("edits the originating message with the requested page content + keyboard", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
-    );
-    mockApi(fetchSpy, 250, 250);
+    mockApi(fetchSpy, 250);
     const h = makeBotHarness();
     await h.run(ppCallback(`pp:1:${WALLET}`));
     const editCalls = collectCalls(fetchSpy).filter((c) =>
@@ -162,7 +149,7 @@ describe("pp callback (positions pagination)", () => {
   });
 
   it("clamps to the last available page when positions have shrunk since the button was rendered", async () => {
-    mockApi(fetchSpy, 1, 1);
+    mockApi(fetchSpy, 1);
     const h = makeBotHarness();
     await h.run(ppCallback(`pp:99:${WALLET}`));
     const editCalls = collectCalls(fetchSpy).filter((c) =>
@@ -181,34 +168,21 @@ describe("pp callback (positions pagination)", () => {
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/portfolio/")) {
+      if (url.includes("/api/v1/bot/positions/")) {
         return new Response(
           JSON.stringify({
             data: {
-              positions: Array.from({ length: 250 }, (_, i) => ({
-                tokenAddress: `0x${i.toString(16).padStart(40, "0")}`,
-                tokenAmount: "0",
+              open: Array.from({ length: 250 }, (_, i) => ({
+                token: `0x${i.toString(16).padStart(40, "0")}`,
+                ticker: `LT${i}`,
+                balance: "1000000000000000000",
                 costBasisUsdc: "1000000",
+                currentValueUsdc: "1500000",
+                unrealisedPnlUsdc: "500000",
+                unrealisedPnlPct: 50,
               })),
-              approximate: false,
+              realised: [],
             },
-          }),
-          { status: 200 },
-        );
-      }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(
-          JSON.stringify({
-            data: Array.from({ length: 250 }, (_, i) => ({
-              address: `0x${i.toString(16).padStart(40, "0")}`,
-              name: `LT ${i}`,
-              ticker: `LT${i}`,
-              ltPair: "0xbbbb",
-              leverage: 2,
-              underlying: "HYPE",
-              ltDirection: "long",
-              balance: "1000000000000000000",
-            })),
           }),
           { status: 200 },
         );

@@ -322,14 +322,11 @@ describe("/start command", () => {
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/portfolio/")) {
+      if (url.includes("/api/v1/bot/positions/")) {
         return new Response(
-          JSON.stringify({ data: { positions: [], approximate: false } }),
+          JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
         );
-      }
-      if (url.includes("/api/v1/balances/")) {
-        return new Response(JSON.stringify({ data: [] }), { status: 200 });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
