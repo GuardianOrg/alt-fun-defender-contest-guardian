@@ -380,9 +380,15 @@ export const walletBotPosition = onchainTable("wallet_bot_position", (t) => ({
   costBasisUsdc: t.bigint().notNull().default(0n),
   /**
    * `tokenBalance × lastTradeImpliedPriceUsdcPerToken`, refreshed on
-   * every router trade for this (wallet, token). 6dp. Stale between
-   * trades on this position — the bot positions view is documented as
-   * a snapshot, not a live mark. Zero when the wallet has no balance.
+   * every router trade for this (wallet, token). 6dp. Zero when the
+   * wallet has no balance.
+   *
+   * Stale between trades on this position. `GET /api/v1/bot/positions`
+   * overrides this with a live curve / HyperSwap mark at read time and
+   * only falls back to this snapshot when the live lookup fails — see
+   * the `fetchCurrentPricesUsdc` helper there. Don't trust this column
+   * as the user-visible mark, but do keep writing it: it's the
+   * degraded-mode fallback when BounceTech or the indexer is down.
    */
   currentValueUsdc: t.bigint().notNull().default(0n),
   /** Running sum of `(proceeds − cost)` for closed-out chunks. Signed. 6dp. */

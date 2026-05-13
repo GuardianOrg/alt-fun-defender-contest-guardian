@@ -1,9 +1,14 @@
 import { Hono } from "hono";
 import { isAddress } from "viem";
+import { computeTokenPrice } from "@launchpad/shared";
 
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 import { createPonderQuery } from "../../lib/ponder-client.js";
+import {
+  fetchLiveLtRates,
+  fetchTokensOnchainByAddresses,
+} from "../../lib/market-data.js";
 
 import type { AppBindings } from "../../lib/types.js";
 
@@ -102,6 +107,47 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
   return Math.round(ratio * 100 * 100) / 100;
 };
 
+/**
+ * Live USDC 6dp price per whole token (1e18 raw units) for each address.
+ * Sourced from the indexer's current `(curveSupply, ltReserve)` (which mirrors
+ * HyperSwap reserves post-grad — see `apps/indexer/AGENTS.md → Post-graduation
+ * reserve mirror`) and the live LT exchange rate. Replaces the
+ * `walletBotPosition.currentValueUsdc` snapshot, which freezes at the user's
+ * own last trade and renders new positions as PnL = 0 / 0% until they trade
+ * again — see the AGENTS.md spec for /positions, which calls for the current
+ * curve / pool quote here. Tokens absent from either source are omitted from
+ * the map; the caller falls back to the indexer-stored value for those.
+ */
+const fetchCurrentPricesUsdc = async (
+  ponderUrl: string,
+  addresses: string[],
+): Promise<Map<string, bigint>> => {
+  if (addresses.length === 0) return new Map();
+  const [tokens, ltRates] = await Promise.all([
+    fetchTokensOnchainByAddresses(ponderUrl, addresses),
+    fetchLiveLtRates(),
+  ]);
+  const out = new Map<string, bigint>();
+  if (!tokens || !ltRates) return out;
+  for (const t of tokens) {
+    const ltRate = ltRates.get(t.ltToken.toLowerCase()) ?? 0;
+    if (ltRate <= 0) continue;
+    const price = computeTokenPrice(
+      BigInt(t.curveSupply),
+      BigInt(t.ltReserve),
+      ltRate,
+    );
+    if (price <= 0 || !Number.isFinite(price)) continue;
+    // Scale USD-per-token to USDC 6dp. `currentValue (6dp) = balance (18dp)
+    // × priceUsdc6dp / 1e18` keeps the bigint math drop-in compatible with
+    // the previous indexer-side `impliedValueUsdc` formula.
+    out.set(t.address.toLowerCase(), BigInt(Math.floor(price * 1_000_000)));
+  }
+  return out;
+};
+
+const TOKEN_SCALE = 10n ** 18n;
+
 const fetchPositions = async (
   ponderUrl: string,
   wallet: string,
@@ -139,19 +185,23 @@ const fetchPositions = async (
       if (!isWalletBotPositionRow(item)) continue;
       const balance = BigInt(item.tokenBalance);
       if (balance > 0n) {
-        const cost = BigInt(item.costBasisUsdc);
-        const value = BigInt(item.currentValueUsdc);
         open.push({
           token: item.token,
           ticker: item.ticker,
           balance: item.tokenBalance,
           costBasisUsdc: item.costBasisUsdc,
+          // Placeholders — overridden below with a live mark when the
+          // current price is known. Falls back to the indexer-stored
+          // (stale) value when the price lookup fails.
           currentValueUsdc: item.currentValueUsdc,
           unrealisedPnlUsdc: signedDiff(
             item.currentValueUsdc,
             item.costBasisUsdc,
           ),
-          unrealisedPnlPct: pctOrNull(value - cost, cost),
+          unrealisedPnlPct: pctOrNull(
+            BigInt(item.currentValueUsdc) - BigInt(item.costBasisUsdc),
+            BigInt(item.costBasisUsdc),
+          ),
         });
       }
       const totalCost = BigInt(item.totalCostUsdc);
@@ -170,6 +220,30 @@ const fetchPositions = async (
           realisedPnlPct: pctOrNull(BigInt(item.realisedPnlUsdc), totalCost),
         });
       }
+    }
+
+    // Refresh `currentValueUsdc` to the live curve / HyperSwap mark.
+    // `walletBotPosition.currentValueUsdc` is written by the indexer from
+    // the wallet's own last router trade and stays frozen between trades,
+    // so a new buy renders as PnL $0 / 0% until the next router trade for
+    // this (wallet, token). The /positions spec
+    // (`apps/telegram-bot/AGENTS.md → /positions`) calls for the current
+    // curve quote pre-grad / HyperSwap quote post-grad — both of which
+    // fall out of the indexer's `(curveSupply, ltReserve)` columns since
+    // `HyperSwapPair:Sync` mirrors HyperSwap reserves onto them. Failures
+    // here (indexer or BounceTech down) leave the snapshot value in place
+    // — better stale than 503.
+    const openTokens = Array.from(new Set(open.map((p) => p.token.toLowerCase())));
+    const liveMark = await fetchCurrentPricesUsdc(ponderUrl, openTokens);
+    for (const p of open) {
+      const priceUsdc = liveMark.get(p.token.toLowerCase());
+      if (priceUsdc === undefined) continue;
+      const balance = BigInt(p.balance);
+      const value = (balance * priceUsdc) / TOKEN_SCALE;
+      const cost = BigInt(p.costBasisUsdc);
+      p.currentValueUsdc = value.toString();
+      p.unrealisedPnlUsdc = signedDiff(p.currentValueUsdc, p.costBasisUsdc);
+      p.unrealisedPnlPct = pctOrNull(value - cost, cost);
     }
 
     // Sort per AGENTS.md: open by |unrealised PnL| desc, realised by
