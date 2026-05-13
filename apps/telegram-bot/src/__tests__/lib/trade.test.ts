@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  WaitForTransactionReceiptTimeoutError,
   domainSeparator,
   encodeAbiParameters,
   encodeErrorResult,
@@ -484,6 +485,61 @@ describe("awaitReceipt", () => {
     }
   });
 
+  it("returns ok:false kind:pending with txHash when the receipt poll times out", async () => {
+    // The reviewer comment that prompted this fix: a 20s RECEIPT_TIMEOUT_MS
+    // expiry must surface as a neutral "tx pending" outcome carrying the
+    // hash, not as an `unavailable` failure. The hash is the user's only
+    // affordance for checking the explorer themselves while the tx is
+    // still mining, so it MUST be set on the result.
+    //
+    // We mock `waitForTransactionReceipt` directly instead of letting viem
+    // poll a never-mining receipt for 20s — the timeout window is fixed
+    // module-level, so simulating real elapsed time would make this test
+    // a wall-clock dependency.
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+    const timeoutErr = new WaitForTransactionReceiptTimeoutError({
+      hash: TX_HASH,
+    });
+    const waitSpy = vi
+      .spyOn(client, "waitForTransactionReceipt")
+      .mockRejectedValue(timeoutErr);
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 0n,
+      minOut: 0n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("pending");
+      expect(result.txHash).toBe(TX_HASH);
+    }
+    waitSpy.mockRestore();
+  });
+
+  it("returns ok:false kind:unavailable with txHash for non-timeout RPC errors", async () => {
+    // Non-timeout errors (network drop, RPC 5xx, malformed response)
+    // must keep the `unavailable` kind — only `WaitForTransactionReceiptTimeoutError`
+    // collapses to `pending`. This guards against future refactors that
+    // accidentally widen the pending path to swallow real failures.
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+    const waitSpy = vi
+      .spyOn(client, "waitForTransactionReceipt")
+      .mockRejectedValue(new Error("HTTP 503: upstream connect timeout"));
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 0n,
+      minOut: 0n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("unavailable");
+      expect(result.txHash).toBe(TX_HASH);
+    }
+    waitSpy.mockRestore();
+  });
+
   it("returns ok:false kind:reverted with txHash when the receipt is reverted", async () => {
     // This is the bug the fix targets: sendTransaction returns a hash for
     // a tx that reverts on-chain (e.g. CHAOS buy 0x8edc611c…), and the
@@ -543,6 +599,26 @@ describe("renderExecutionError with on-chain revert", () => {
         "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
     });
     expect(reply).toMatch(/receipt not seen/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+  });
+
+  it("renders a neutral pending message with explorer link when receipt times out", () => {
+    // `pending` is the receipt-timeout case: tx is in mempool, may still
+    // mine. Copy must read as "pending — check explorer", not as a
+    // failure. The caller in execute.ts is responsible for the ⏳ prefix
+    // (see `renderConfirmReply`) — renderExecutionError just owns the
+    // body copy.
+    const reply = renderExecutionError({
+      ok: false,
+      kind: "pending",
+      reason: "WaitForTransactionReceiptTimeoutError",
+      txHash:
+        "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+    });
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toMatch(/check the explorer/i);
+    // Must not read as a failure — no "failed" / "reverted" / "❌" copy.
+    expect(reply).not.toMatch(/failed|reverted|❌/i);
     expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
   });
 });

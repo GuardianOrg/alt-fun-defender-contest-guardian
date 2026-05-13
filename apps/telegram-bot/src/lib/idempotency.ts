@@ -62,7 +62,12 @@ export type IntentStatus =
 export interface IntentResult {
   ok: boolean;
   /** Failure taxonomy from `ExecutionResult`. Only present on `ok: false`. */
-  kind?: "not_configured" | "reverted" | "unavailable" | "insufficient_funds";
+  kind?:
+    | "not_configured"
+    | "reverted"
+    | "unavailable"
+    | "insufficient_funds"
+    | "pending";
   reason?: string;
   txHash?: Hash;
   /** Quoted-out amount in raw units, decimal string. Present on `ok: true`. */
