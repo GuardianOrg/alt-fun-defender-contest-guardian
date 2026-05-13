@@ -130,15 +130,15 @@ const safeEditMessageText = async (
   }
 };
 
-// buy (st:b), sell (st:s) and help (st:h) are handled by their
-// dedicated register* functions in commands/{buy,sell,help}.ts —
+// buy (st:b), sell (st:s), help (st:h), wallet (st:w), positions (st:p)
+// and security (st:sec) are handled by their dedicated register*
+// functions in commands/{buy,sell,help,wallet,positions,security}.ts —
 // they reply with full views instead of a hint toast.
 const CALLBACK_HINTS: Record<string, string> = {
   [START_CALLBACK.track]: "Type /track <contract> to view a token card.",
   [START_CALLBACK.withdraw]:
     "Type /withdraw <asset> <amount> <address> to send funds out.",
   [START_CALLBACK.settings]: "Type /settings to adjust slippage and defaults.",
-  [START_CALLBACK.security]: "Type /security to set a PIN and lock options.",
 };
 
 export const registerStartCommand = (bot: Bot<AppContext>): void => {

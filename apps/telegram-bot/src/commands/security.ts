@@ -10,6 +10,7 @@ import {
   buildSecurityKeyboard,
   type SecurityStatus,
 } from "../keyboards/security-actions.js";
+import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
 import {
   PIN_RESET_DELAY_MS,
@@ -625,6 +626,19 @@ export const registerSecurityCommand = (bot: Bot<AppContext>): void => {
     await buildSecurityState(ctx.env).cancelDisableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
     await ctx.answerCallbackQuery({ text: "Disable cancelled." });
+  });
+
+  bot.callbackQuery(START_CALLBACK.security, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Missing user." });
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const state = await renderState(ctx, ctx.from.id);
+    await ctx.answerCallbackQuery();
+    await ctx.reply(withAntiPhishing(state.text), {
+      reply_markup: state.reply_markup,
+    });
   });
 };
 

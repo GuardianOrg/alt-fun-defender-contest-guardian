@@ -264,7 +264,6 @@ describe("/start command", () => {
     [START_CALLBACK.track, /\/track/],
     [START_CALLBACK.withdraw, /\/withdraw/],
     [START_CALLBACK.settings, /\/settings/],
-    [START_CALLBACK.security, /\/security/],
   ])(
     "%s surfaces a hint toast pointing at the slash command",
     async (cmd, pattern) => {
@@ -411,6 +410,23 @@ describe("/start command", () => {
       }
     ).inline_keyboard;
     expect(keyboard[0]?.[0]?.url).toBe("https://override.example/funding");
+  });
+
+  it("Security button sends the security panel directly without prompting the user to type /security", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.security));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    // Must send the security UI as a new message, not a toast hint.
+    expect(send).toBeDefined();
+    expect(send!.body.text).toContain("Security");
+    // answerCallbackQuery must not be a show_alert hint toast.
+    expect(answer!.body.show_alert).toBeFalsy();
+    expect(answer!.body.text ?? "").not.toMatch(/\/security/);
   });
 
   it("Wallet button sends wallet UI directly without prompting the user to type /wallet", async () => {
