@@ -5,8 +5,8 @@ import styles from "./SearchModal.module.css";
 import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import {
   cn,
+  formatMcapUsdOrDash,
   formatPercentOrDash,
-  formatUsdOrDash,
 } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
@@ -77,7 +77,7 @@ export default function SearchResultsList({
                   {formatPercentOrDash(stats.change24h)}
                 </div>
                 <div className={styles.resultMcap}>
-                  {formatUsdOrDash(stats.mcapUsd)}
+                  {formatMcapUsdOrDash(stats.mcapUsd)}
                 </div>
               </div>
             </div>

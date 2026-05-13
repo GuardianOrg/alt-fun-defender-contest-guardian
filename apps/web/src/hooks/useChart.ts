@@ -5,7 +5,7 @@ import { createChart, CandlestickSeries, ColorType } from "lightweight-charts";
 
 import { COLORS, rgba } from "../config/colors";
 import { getChartModeConfig } from "../services/api";
-import { formatPriceUsd, formatUsd } from "../utils/format";
+import { formatMcapUsd, formatPriceUsd } from "../utils/format";
 
 import type { ChartMode, ChartUnit } from "../services/api";
 import type {
@@ -189,11 +189,13 @@ export function useChart({
     seriesRef.current.applyOptions({
       priceFormat: {
         type: "custom",
-        // `mcap` mode is dollars-and-cents; `price` mode is sub-cent USD/token
-        // (1B-supply tokens) so we drop the minMove floor and switch to a
-        // significant-digit formatter that doesn't collapse to `$0.00`.
-        formatter: unit === "price" ? formatPriceUsd : formatUsd,
-        minMove: unit === "price" ? 1e-12 : 0.01,
+        // `mcap` mode renders in whole dollars (sub-dollar precision is
+        // noise on a market cap — see `formatMcapUsd`); `price` mode is
+        // sub-cent USD/token (1B-supply tokens) so we drop the minMove
+        // floor and switch to a significant-digit formatter that doesn't
+        // collapse to `$0.00`.
+        formatter: unit === "price" ? formatPriceUsd : formatMcapUsd,
+        minMove: unit === "price" ? 1e-12 : 1,
       },
     });
 

@@ -9,8 +9,8 @@ import { tokenPath } from "../../app/routes";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   cn,
+  formatMcapUsdOrDash,
   formatPercentOrDash,
-  formatUsdOrDash,
   isRecentlyDeployed,
 } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
@@ -84,7 +84,7 @@ export default function TokenRow({ token }: Props) {
       tabIndex={0}
       onClick={handleNavigate}
       onKeyDown={handleKeyDown}
-      aria-label={`${token.name} — ${formatPercentOrDash(changeDisplay)} — market cap ${formatUsdOrDash(mcapDisplay)}`}
+      aria-label={`${token.name} — ${formatPercentOrDash(changeDisplay)} — market cap ${formatMcapUsdOrDash(mcapDisplay)}`}
     >
       <div className={styles.tokenCell}>
         <div className={styles.iconWrap}>
@@ -159,7 +159,9 @@ export default function TokenRow({ token }: Props) {
 
       {/* MCAP */}
       <div className={styles.mcapCell}>
-        <span className={styles.mcapValue}>{formatUsdOrDash(mcapDisplay)}</span>
+        <span className={styles.mcapValue}>
+          {formatMcapUsdOrDash(mcapDisplay)}
+        </span>
       </div>
     </div>
   );

@@ -5,8 +5,8 @@ import styles from "./SearchModal.module.css";
 import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   cn,
+  formatMcapUsdOrDash,
   formatPercentOrDash,
-  formatUsdOrDash,
 } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
@@ -79,7 +79,7 @@ export default function SearchTrendingCard({
       </div>
       <div className={styles.trendingCardStats}>
         <div className={styles.trendingCardMcap}>
-          {formatUsdOrDash(stats.mcapUsd)}
+          {formatMcapUsdOrDash(stats.mcapUsd)}
         </div>
         <div
           className={cn(

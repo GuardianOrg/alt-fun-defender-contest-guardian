@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   RECENTLY_DEPLOYED_WINDOW_MS,
+  formatMcapUsd,
+  formatMcapUsdOrDash,
+  formatUsd,
   getErrorMessage,
   isRecentlyDeployed,
 } from "./format";
@@ -133,5 +136,65 @@ describe("isRecentlyDeployed", () => {
     ).toISOString();
     expect(isRecentlyDeployed(oneMinuteAhead)).toBe(false);
     expect(isRecentlyDeployed(wayInTheFuture)).toBe(false);
+  });
+});
+
+describe("formatMcapUsd", () => {
+  // Issue #711: a sub-$1K market cap was rendering as `$123.45` on the
+  // home-page rows. Sub-dollar precision on a market cap is noise — the
+  // trailing cents distract from the column rather than informing it —
+  // so the mcap-specific formatter rounds the sub-$1K regime to whole
+  // dollars while leaving the K/M ranges identical to `formatUsd`.
+  it("rounds sub-$1K values to whole dollars (no decimals)", () => {
+    expect(formatMcapUsd(123.45)).toBe("$123");
+    expect(formatMcapUsd(0.99)).toBe("$1");
+    expect(formatMcapUsd(0)).toBe("$0");
+    expect(formatMcapUsd(999.99)).toBe("$1,000");
+  });
+
+  // The K/M ranges deliberately mirror `formatUsd` — only the sub-$1K
+  // regime changes. Pin both halves so a future refactor of either
+  // formatter can't silently drift them apart.
+  it("matches formatUsd for the K and M ranges", () => {
+    const samples = [1_000, 1_234, 9_999, 10_000, 12_345, 999_999, 1_000_000, 12_345_678];
+    for (const value of samples) {
+      expect(formatMcapUsd(value)).toBe(formatUsd(value));
+    }
+  });
+
+  it("uses locale separators for sub-$1K values that round to ≥ 1000", () => {
+    expect(formatMcapUsd(999.5)).toBe("$1,000");
+  });
+
+  // A degraded indexer / off-by-one rounding upstream could surface a
+  // tiny negative mcap; clamp to `$0` instead of leaking a `-$0` (which
+  // `Math.round(-0.4).toLocaleString()` would otherwise produce).
+  it("clamps negative inputs to $0", () => {
+    expect(formatMcapUsd(-0.4)).toBe("$0");
+    expect(formatMcapUsd(-50)).toBe("$0");
+    expect(formatMcapUsd(-1_500_000)).toBe("$0");
+  });
+
+  // Without the `Number.isFinite` guard, `formatMcapUsd(NaN)` collapses
+  // to `$NaN` and `Infinity` falls through to the M branch as
+  // `$InfinityM`. Both surface in production whenever an upstream
+  // division by a degraded `priceUsd === 0` field returns a non-finite
+  // value — so `$0` is the safe rendering until real data arrives.
+  it("collapses non-finite inputs to $0 rather than leaking $NaN / $InfinityM", () => {
+    expect(formatMcapUsd(Number.NaN)).toBe("$0");
+    expect(formatMcapUsd(Number.POSITIVE_INFINITY)).toBe("$0");
+    expect(formatMcapUsd(Number.NEGATIVE_INFINITY)).toBe("$0");
+  });
+});
+
+describe("formatMcapUsdOrDash", () => {
+  it("renders an em-dash for null and undefined", () => {
+    expect(formatMcapUsdOrDash(null)).toBe("—");
+    expect(formatMcapUsdOrDash(undefined)).toBe("—");
+  });
+
+  it("delegates to formatMcapUsd for finite numbers", () => {
+    expect(formatMcapUsdOrDash(123.45)).toBe("$123");
+    expect(formatMcapUsdOrDash(12_345)).toBe("$12K");
   });
 });

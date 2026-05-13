@@ -15,6 +15,31 @@ export function formatUsd(value: number): string {
 }
 
 /**
+ * Market-cap USD formatter. Mirrors `formatUsd` for the K/M ranges, but
+ * rounds sub-$1K values to whole dollars — sub-dollar precision on a
+ * market cap is noise (a `$123.45` mcap is for all practical purposes a
+ * `$123` mcap, and the trailing cents distract from the column rather
+ * than informing it). Use this for any UI that surfaces a token's
+ * market cap; keep `formatUsd` for balances / trade amounts / position
+ * values where cent-level precision still matters to the user.
+ *
+ * Non-finite inputs (`NaN`, ±`Infinity`) collapse to `$0` rather than
+ * leaking `$NaN` / `$InfinityM` into the rows on a degraded feed —
+ * components that want an explicit "no data" indicator should pass
+ * `null` / `undefined` to {@link formatMcapUsdOrDash} so the dash
+ * sentinel is preserved. Negative inputs are similarly clamped to `0`
+ * so an off-by-one upstream can never surface a `-$0` rendering.
+ */
+export function formatMcapUsd(value: number): string {
+  if (!Number.isFinite(value)) return "$0";
+  const safe = Math.max(0, value);
+  if (safe >= 1_000_000) return `$${(safe / 1_000_000).toFixed(2)}M`;
+  if (safe >= 1_000)
+    return `$${(safe / 1_000).toFixed(safe >= 10_000 ? 0 : 1)}K`;
+  return `$${Math.round(safe).toLocaleString()}`;
+}
+
+/**
  * Per-token USD price formatter. Used by the chart's price scale when the
  * unit toggle is set to `price`. Pump.fun-class launches sit at sub-cent
  * prices for their entire curve life (a $4K-mcap launch with 1B supply is
@@ -75,6 +100,13 @@ export function formatPriceChange(value: number): string {
 export function formatUsdOrDash(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return formatUsd(value);
+}
+
+/** Nullable variant of {@link formatMcapUsd}; renders `—` when null/undefined
+ *  so a row whose market cap hasn't loaded yet doesn't collapse to `$0`. */
+export function formatMcapUsdOrDash(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return formatMcapUsd(value);
 }
 
 /** Format a nullable percent, rendering `—` when null/undefined. */
