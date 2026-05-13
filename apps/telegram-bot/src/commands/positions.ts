@@ -26,7 +26,7 @@ const NO_ACTIVE_WALLET = "No active wallet. Run /wallet to create one.";
 
 interface RenderedPage {
   text: string;
-  reply_markup?: ReturnType<typeof buildPositionsPageKeyboard>;
+  reply_markup: ReturnType<typeof buildPositionsPageKeyboard>;
 }
 
 const renderPage = async (
@@ -52,7 +52,7 @@ const renderPage = async (
     wallet,
     pages[clamped]!.openActions,
   );
-  return keyboard ? { text, reply_markup: keyboard } : { text };
+  return { text, reply_markup: keyboard };
 };
 
 /**
@@ -111,7 +111,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     }
     await ctx.reply(page.text, {
       ...HTML_REPLY,
-      ...(page.reply_markup ? { reply_markup: page.reply_markup } : {}),
+      reply_markup: page.reply_markup,
     });
   });
 
@@ -155,7 +155,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       try {
         await ctx.editMessageText(page.text, {
           ...HTML_REPLY,
-          ...(page.reply_markup ? { reply_markup: page.reply_markup } : {}),
+          reply_markup: page.reply_markup,
         });
       } catch (err) {
         // Only swallow the two known-benign Telegram 400 cases —
@@ -283,7 +283,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     }
     await ctx.reply(page.text, {
       ...HTML_REPLY,
-      ...(page.reply_markup ? { reply_markup: page.reply_markup } : {}),
+      reply_markup: page.reply_markup,
     });
   });
 };

@@ -357,8 +357,11 @@ describe("buildPositionsPageKeyboard", () => {
   const TOKEN_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const TOKEN_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-  it("returns null when there are no open actions and only one page", () => {
-    expect(buildPositionsPageKeyboard(0, 1, WALLET, [])).toBeNull();
+  it("returns a Close-only keyboard when there are no open actions and only one page", () => {
+    const kb = buildPositionsPageKeyboard(0, 1, WALLET, []);
+    expect(kb.inline_keyboard).toEqual([
+      [{ text: "Close", callback_data: "cls" }],
+    ]);
   });
 
   it("emits a [Buy <TICKER>] [Sell <TICKER>] row per open action", () => {
@@ -366,9 +369,9 @@ describe("buildPositionsPageKeyboard", () => {
       { token: TOKEN_A, ticker: "ALPHA" },
       { token: TOKEN_B, ticker: "BETA" },
     ]);
-    expect(kb).not.toBeNull();
-    const rows = kb!.inline_keyboard;
-    expect(rows).toHaveLength(2);
+    const rows = kb.inline_keyboard;
+    // Two action rows + the trailing Close row.
+    expect(rows).toHaveLength(3);
     expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     expect(rows[0]![0]!.callback_data).toBe(
       `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
@@ -377,13 +380,14 @@ describe("buildPositionsPageKeyboard", () => {
       `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
     );
     expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["Close"]);
   });
 
   it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "SUPERCALIFRAGILISTIC" },
     ]);
-    const row = kb!.inline_keyboard[0]!;
+    const row = kb.inline_keyboard[0]!;
     expect(row[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
     expect(row[0]!.text.endsWith("…")).toBe(true);
     // The full token address must still ride in callback_data verbatim
@@ -395,18 +399,19 @@ describe("buildPositionsPageKeyboard", () => {
     const kb = buildPositionsPageKeyboard(0, 3, WALLET, [
       { token: TOKEN_A, ticker: "ALPHA" },
     ]);
-    const rows = kb!.inline_keyboard;
+    const rows = kb.inline_keyboard;
     expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     const nav = rows[1]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,
     );
+    expect(rows.at(-1)!.map((b) => b.text)).toEqual(["Close"]);
   });
 
   it("middle page: emits [← Prev] and [Next →] with correct target indices", () => {
     const kb = buildPositionsPageKeyboard(1, 3, WALLET, []);
-    const nav = kb!.inline_keyboard[0]!;
+    const nav = kb.inline_keyboard[0]!;
     expect(nav.map((b) => b.text)).toEqual(["← Prev", "Next →"]);
     expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:0:${WALLET}`,
@@ -414,12 +419,14 @@ describe("buildPositionsPageKeyboard", () => {
     expect(nav[1]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:2:${WALLET}`,
     );
+    expect(kb.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual(["Close"]);
   });
 
   it("last page: emits only [← Prev]", () => {
     const kb = buildPositionsPageKeyboard(2, 3, WALLET, []);
-    const nav = kb!.inline_keyboard[0]!;
+    const nav = kb.inline_keyboard[0]!;
     expect(nav.map((b) => b.text)).toEqual(["← Prev"]);
+    expect(kb.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual(["Close"]);
   });
 
   it("every callback_data stays inside the 64-byte Telegram ceiling", () => {
@@ -427,7 +434,7 @@ describe("buildPositionsPageKeyboard", () => {
       { token: TOKEN_A, ticker: "ALPHA" },
       { token: TOKEN_B, ticker: "BETA" },
     ]);
-    for (const b of kb!.inline_keyboard.flat()) {
+    for (const b of kb.inline_keyboard.flat()) {
       expect(b.callback_data.length).toBeLessThanOrEqual(64);
     }
   });

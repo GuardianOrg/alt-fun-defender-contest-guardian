@@ -146,18 +146,21 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     const rows = body.reply_markup.inline_keyboard;
-    expect(rows.length).toBeGreaterThan(1);
-    const nav = rows[rows.length - 1]!;
+    expect(rows.length).toBeGreaterThan(2);
+    // Last row is Close, second-to-last is the nav row.
+    expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual(["Close"]);
+    const nav = rows[rows.length - 2]!;
     const navTexts = nav.map((b) => b.text);
     expect(navTexts).toContain("← Prev");
     if (navTexts.length > 1) expect(navTexts).toContain("Next →");
     for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
     }
-    // Every non-nav row must be a Buy/Sell pair pointing at a token.
-    // The tickers on this page must also appear in the body text — so
-    // a navigation never desyncs the keyboard from the visible list.
-    for (let i = 0; i < rows.length - 1; i++) {
+    // Every non-nav, non-Close row must be a Buy/Sell pair pointing at
+    // a token. The tickers on this page must also appear in the body
+    // text — so a navigation never desyncs the keyboard from the
+    // visible list.
+    for (let i = 0; i < rows.length - 2; i++) {
       const row = rows[i]!;
       expect(row).toHaveLength(2);
       const buyLabel = row[0]!.text;
@@ -191,9 +194,11 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     const rows = body.reply_markup!.inline_keyboard;
-    expect(rows).toHaveLength(1);
+    // One action row + trailing Close row.
+    expect(rows).toHaveLength(2);
     expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
     expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Close"]);
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {

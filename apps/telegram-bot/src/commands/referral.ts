@@ -17,6 +17,7 @@ import {
   type BotReferralStats,
 } from "../lib/api.js";
 import { BOT_NAME } from "../lib/branding.js";
+import { closeButtonRow } from "../lib/close.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { PinManager } from "../lib/pin.js";
@@ -167,6 +168,7 @@ const buildKeyboard = (): ReferralView["reply_markup"] => ({
         callback_data: REFERRAL_CALLBACK.changeRewardsWallet,
       },
     ],
+    closeButtonRow(),
   ],
 });
 

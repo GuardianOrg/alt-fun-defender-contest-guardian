@@ -4,6 +4,7 @@ import {
 } from "@launchpad/shared";
 
 import { encodeCallback } from "../lib/callbacks.js";
+import { closeButtonRow } from "../lib/close.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
@@ -78,6 +79,7 @@ export const buildBuyTokenKeyboard = (
       callback_data: encodeCallback(BUY_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
+  closeButtonRow(),
 ];
 
 export const buildSellTokenKeyboard = (
@@ -104,4 +106,5 @@ export const buildSellTokenKeyboard = (
       callback_data: encodeCallback(SELL_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
+  closeButtonRow(),
 ];

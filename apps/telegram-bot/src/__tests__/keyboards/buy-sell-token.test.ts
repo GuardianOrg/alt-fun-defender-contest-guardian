@@ -45,6 +45,22 @@ describe("buildBuyTokenKeyboard", () => {
   });
 });
 
+describe("Close row", () => {
+  it("buy keyboard ends with a Close row", () => {
+    const rows = buildBuyTokenKeyboard(TOKEN, 20);
+    const last = rows[rows.length - 1]!;
+    expect(last.map((b) => b.text)).toEqual(["Close"]);
+    expect((last[0] as { callback_data: string }).callback_data).toBe("cls");
+  });
+
+  it("sell keyboard ends with a Close row", () => {
+    const rows = buildSellTokenKeyboard(TOKEN, 20);
+    const last = rows[rows.length - 1]!;
+    expect(last.map((b) => b.text)).toEqual(["Close"]);
+    expect((last[0] as { callback_data: string }).callback_data).toBe("cls");
+  });
+});
+
 describe("buildSellTokenKeyboard", () => {
   it("labels the first button with the session defaultBuyUsdc", () => {
     expect(flatLabels(buildSellTokenKeyboard(TOKEN, 20))).toContain(

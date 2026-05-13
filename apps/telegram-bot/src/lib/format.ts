@@ -4,6 +4,7 @@ import type {
   BotRealisedPosition,
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
+import { closeButtonRow } from "./close.js";
 
 const TOKEN_DECIMALS = 18;
 const USDC_DECIMALS = 6;
@@ -343,7 +344,7 @@ export const buildPositionsPageKeyboard = (
   totalPages: number,
   wallet: string,
   openActions: PositionActionTarget[],
-): InlineKeyboardMarkup | null => {
+): InlineKeyboardMarkup => {
   const rows: InlineKeyboardButton[][] = [];
   for (const action of openActions) {
     const label = truncateTickerForButton(action.ticker);
@@ -388,5 +389,6 @@ export const buildPositionsPageKeyboard = (
     }
   }
   if (nav.length > 0) rows.push(nav);
-  return rows.length > 0 ? { inline_keyboard: rows } : null;
+  rows.push(closeButtonRow());
+  return { inline_keyboard: rows };
 };
