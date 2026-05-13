@@ -21,7 +21,7 @@ import { logger } from "../lib/logger.js";
 import { PinManager } from "../lib/pin.js";
 import { WalletManager } from "../lib/wallet.js";
 
-const DEFAULT_BOT_USERNAME = "AltFunBot";
+const DEFAULT_BOT_USERNAME = "CortisolBot";
 
 const NON_PRIVATE_CHAT_REPLY =
   "Referral flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /referral.";

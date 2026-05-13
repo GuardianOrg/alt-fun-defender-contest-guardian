@@ -55,7 +55,7 @@ const renderWelcomeHtml = (
   return [
     escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
-    "Welcome to AltFunBot — the bot for trading alt fun tokens on HyperEVM.",
+    "Welcome to CortisolBot — the bot for trading alt fun tokens on HyperEVM.",
     "",
     "Your wallet address:",
     `<code>${escapeHtml(address)}</code>`,

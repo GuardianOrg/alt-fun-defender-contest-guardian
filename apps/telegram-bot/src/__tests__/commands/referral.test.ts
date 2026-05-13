@@ -167,7 +167,7 @@ describe("/referral command", () => {
 
   it("renders link, rewards wallet and stats for the active wallet", async () => {
     const h = makeBotHarness();
-    h.env.BOT_USERNAME = "AltFunTestBot";
+    h.env.BOT_USERNAME = "CortisolTestBot";
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
     mockApi(fetchSpy, wallet.address, {
@@ -188,7 +188,7 @@ describe("/referral command", () => {
     expect(send!.body.text).toContain("Your referral");
     // No username on this update — link falls back to the numeric userId.
     expect(send!.body.text).toContain(
-      "https://t.me/AltFunTestBot?start=ref_7",
+      "https://t.me/CortisolTestBot?start=ref_7",
     );
     expect(send!.body.text).toContain(`<code>${wallet.address}</code>`);
     expect(send!.body.text).toContain("Referred users: 3");
@@ -205,7 +205,7 @@ describe("/referral command", () => {
 
   it("uses the Telegram username in the referral link when set", async () => {
     const h = makeBotHarness();
-    h.env.BOT_USERNAME = "AltFunTestBot";
+    h.env.BOT_USERNAME = "CortisolTestBot";
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
     mockApi(fetchSpy, wallet.address);
@@ -216,7 +216,7 @@ describe("/referral command", () => {
       c.url.includes("/sendMessage"),
     );
     expect(send!.body.text).toContain(
-      "https://t.me/AltFunTestBot?start=ref_abc_user",
+      "https://t.me/CortisolTestBot?start=ref_abc_user",
     );
     // The numeric-userId form must not leak through once a username is set —
     // otherwise referral attribution would have two competing handles.
@@ -225,7 +225,7 @@ describe("/referral command", () => {
 
   it("falls back to userId when the Telegram username fails validation", async () => {
     const h = makeBotHarness();
-    h.env.BOT_USERNAME = "AltFunTestBot";
+    h.env.BOT_USERNAME = "CortisolTestBot";
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
     mockApi(fetchSpy, wallet.address);
@@ -237,7 +237,7 @@ describe("/referral command", () => {
       c.url.includes("/sendMessage"),
     );
     expect(send!.body.text).toContain(
-      "https://t.me/AltFunTestBot?start=ref_7",
+      "https://t.me/CortisolTestBot?start=ref_7",
     );
   });
 
