@@ -156,7 +156,8 @@ function serialiseRow(
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(row)) {
-    out[k] = bigintFields.includes(k) && typeof v === "bigint" ? v.toString() : v;
+    out[k] =
+      bigintFields.includes(k) && typeof v === "bigint" ? v.toString() : v;
   }
   return out;
 }
@@ -172,9 +173,9 @@ const POSITION_BIGINTS = [
 
 const REFERRER_BIGINTS = ["lifetimeEarnedUsdc"] as const;
 
-function buyEvent(overrides: Record<string, unknown> = {}): ReturnType<
-  typeof createMockEvent
-> {
+function buyEvent(
+  overrides: Record<string, unknown> = {},
+): ReturnType<typeof createMockEvent> {
   return createMockEvent({
     args: {
       trader: TRADER,
@@ -195,9 +196,9 @@ function buyEvent(overrides: Record<string, unknown> = {}): ReturnType<
   });
 }
 
-function sellEvent(overrides: Record<string, unknown> = {}): ReturnType<
-  typeof createMockEvent
-> {
+function sellEvent(
+  overrides: Record<string, unknown> = {},
+): ReturnType<typeof createMockEvent> {
   return createMockEvent({
     args: {
       trader: TRADER,
@@ -305,6 +306,14 @@ describe("BotRouterTrade → /api/v1/bot/positions (integration)", () => {
       walletBotPositions: {
         items: [serialiseRow(row!, POSITION_BIGINTS)],
       },
+      tokenBalances: {
+        items: [
+          {
+            tokenAddress: TOKEN_ADDR,
+            balance: (row!.tokenBalance as bigint).toString(),
+          },
+        ],
+      },
     });
 
     const res = await positionsApp().request(
@@ -355,6 +364,14 @@ describe("BotRouterTrade → /api/v1/bot/positions (integration)", () => {
     mockPonderQuery.mockResolvedValue({
       walletBotPositions: {
         items: [serialiseRow(row!, POSITION_BIGINTS)],
+      },
+      tokenBalances: {
+        items: [
+          {
+            tokenAddress: TOKEN_ADDR,
+            balance: (row!.tokenBalance as bigint).toString(),
+          },
+        ],
       },
     });
 
@@ -423,6 +440,14 @@ describe("BotRouterTrade → /api/v1/bot/positions (integration)", () => {
     mockPonderQuery.mockResolvedValue({
       walletBotPositions: {
         items: [serialiseRow(row!, POSITION_BIGINTS)],
+      },
+      tokenBalances: {
+        items: [
+          {
+            tokenAddress: TOKEN_ADDR,
+            balance: (row!.tokenBalance as bigint).toString(),
+          },
+        ],
       },
     });
 
