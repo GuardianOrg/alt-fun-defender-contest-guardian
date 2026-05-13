@@ -16,6 +16,7 @@ import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerStartCommand } from "./commands/start.js";
 import { registerWalletCommand } from "./commands/wallet.js";
+import { registerWithdrawCommand } from "./commands/withdraw.js";
 import type { Env } from "./lib/types.js";
 
 /**
@@ -46,6 +47,22 @@ export interface SessionData {
     /** USDC raw (6dp) for buy notional, token raw (18dp) for sell amount. */
     amountRaw: string;
     ticker: string;
+    nonce: string;
+    expiresAt: number;
+  };
+  /**
+   * One-shot withdraw intent staged after PIN verification and committed
+   * by the matching [Confirm Withdraw] callback. Same per-user single
+   * slot semantics as `pendingTrade` — re-running `/withdraw` overwrites
+   * the previous slot and the prior Confirm becomes a stale-nonce no-op.
+   * The 60-second `expiresAt` is the AGENTS.md `/withdraw` "confirm
+   * timeout 60s" guarantee.
+   */
+  pendingWithdraw?: {
+    asset: "HYPE" | "USDC";
+    to: string;
+    /** Raw amount in the asset's decimals (18dp HYPE, 6dp USDC). */
+    amountRaw: string;
     nonce: string;
     expiresAt: number;
   };
@@ -181,6 +198,7 @@ export const createBot = (
   registerReferralCommand(bot);
   registerSecurityCommand(bot);
   registerWalletCommand(bot);
+  registerWithdrawCommand(bot);
 
   bot.catch((err) => {
     // Logged + swallowed so a bug in any handler can't propagate

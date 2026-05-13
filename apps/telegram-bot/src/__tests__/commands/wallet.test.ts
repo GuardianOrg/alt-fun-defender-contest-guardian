@@ -245,19 +245,6 @@ describe("/wallet command", () => {
   });
 
   describe("Stub buttons", () => {
-    it.each([[WALLET_CALLBACK.withdraw, /PIN/]])(
-      "%s surfaces a 'coming soon' alert rather than silently no-op'ing",
-      async (cmd, pattern) => {
-        const h = makeBotHarness();
-        await h.run(callbackUpdate(cmd));
-        const answer = capture(fetchSpy).find((c) =>
-          c.url.includes("/answerCallbackQuery"),
-        );
-        expect(answer?.body.show_alert).toBe(true);
-        expect(answer?.body.text).toMatch(pattern);
-      },
-    );
-
     it("Rename without an active wallet toasts 'no active wallet' (not entering conversation)", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(WALLET_CALLBACK.rename));

@@ -276,7 +276,6 @@ describe("/start command", () => {
 
   it.each([
     [START_CALLBACK.track, /\/track/],
-    [START_CALLBACK.withdraw, /\/withdraw/],
     [START_CALLBACK.settings, /\/settings/],
   ])(
     "%s surfaces a hint toast pointing at the slash command",
