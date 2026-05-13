@@ -17,9 +17,21 @@ import {
   formatToken18,
   renderSellTokenCardText,
 } from "../lib/token-card.js";
+import {
+  simulateSellWithBotFee,
+  usdcRawToNumber,
+  type Hex,
+} from "../lib/trade.js";
 import { WalletManager } from "../lib/wallet.js";
 
-/** Rough combined fee rate applied to estimated proceeds (1%). */
+/**
+ * Heuristic combined fee rate applied to `priceUsd × balance` when the
+ * `BotFeeRouter` simulation is unavailable (router not deployed yet, or
+ * RPC failure). Tracks the *expected* total fee surface — Alt Fun 0.5%
+ * + bot 0.5% — so the pre-tx min-check still rejects obviously-too-small
+ * sells. Real validation happens against `quotedUsdcOut` from
+ * `simulateSellWithBotFee` once the router secret is provisioned.
+ */
 const COMBINED_FEE_RATE = 0.01;
 
 /** Required fee-summary line per AGENTS.md key constraints. */
@@ -69,6 +81,59 @@ const safeEditMessageText = async (
 
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
+
+/**
+ * Result of resolving the user's max sell proceeds for pre-tx validation.
+ * `source: "simulation"` is the authoritative path (issue #686); the
+ * `"heuristic"` fallback preserves the pre-router behaviour for envs
+ * where `BOT_FEE_ROUTER_ADDRESS` is unset (router not deployed yet) and
+ * for transient sim failures. Returns `null` only when neither path can
+ * yield an estimate — RPC down AND no `priceUsd` from the API.
+ */
+type SellQuote = { source: "simulation" | "heuristic"; proceedsUsd: number };
+
+/**
+ * Resolve the post-fee USDC proceeds for selling `tokenAmount`. Prefers
+ * the `BotFeeRouter.sellWithBotFee` simulation per AGENTS.md `/sell`;
+ * falls back to `priceUsd × balance × (1 − COMBINED_FEE_RATE)` when the
+ * router is not configured or the sim reverts (e.g. user hasn't yet
+ * approved the router for `transferFrom`; the eventual sell-tx path
+ * handles approve/permit before submission).
+ */
+const quoteSellProceeds = async (
+  env: AppContext["env"],
+  tokenAddress: string,
+  tokenAmount: bigint,
+  traderAddress: string,
+  priceUsd: number | null,
+): Promise<SellQuote | null> => {
+  if (tokenAmount > 0n) {
+    const sim = await simulateSellWithBotFee(env, {
+      token: tokenAddress as Hex,
+      tokenAmount,
+      trader: traderAddress as Hex,
+    });
+    if (sim.ok) {
+      return {
+        source: "simulation",
+        proceedsUsd: usdcRawToNumber(sim.quotedUsdcOut),
+      };
+    }
+    if (sim.kind !== "not_configured") {
+      logger.warn("sellWithBotFee simulation failed", {
+        kind: sim.kind,
+        reason: sim.reason,
+        tokenAddress,
+      });
+    }
+  }
+  if (priceUsd === null) return null;
+  const holdingUsd = estimateHoldingUsdc(tokenAmount, priceUsd);
+  return {
+    source: "heuristic",
+    proceedsUsd: holdingUsd * (1 - COMBINED_FEE_RATE),
+  };
+};
 
 /**
  * Conversation: collect token address → show sell card with user's balance.
@@ -226,15 +291,20 @@ const sellCustomConversation = async (
       return;
     }
 
-    if (token.priceUsd !== null) {
-      const holdingUsdc = estimateHoldingUsdc(tokenBalance, token.priceUsd);
-      const estimatedProceeds = holdingUsdc * (1 - COMBINED_FEE_RATE);
-      if (estimatedProceeds < amount) {
-        await msgCtx.reply(
-          `Insufficient balance. Your ${formatToken18(tokenBalance)} ${token.ticker} is worth ≈$${holdingUsdc.toFixed(2)} (est. proceeds ≈$${estimatedProceeds.toFixed(2)} after fees).\n\nEnter a smaller amount or send /cancel.`,
-        );
-        continue;
-      }
+    const quote = await conversation.external((outerCtx) =>
+      quoteSellProceeds(
+        outerCtx.env,
+        tokenAddress,
+        tokenBalance,
+        active.address,
+        token.priceUsd,
+      ),
+    );
+    if (quote && quote.proceedsUsd < amount) {
+      await msgCtx.reply(
+        `Insufficient balance. Your ${formatToken18(tokenBalance)} ${token.ticker} would yield ≈$${quote.proceedsUsd.toFixed(2)} after fees.\n\nEnter a smaller amount or send /cancel.`,
+      );
+      continue;
     }
 
     await msgCtx.reply(
@@ -330,19 +400,24 @@ const handleFixedSell = async (
     return;
   }
 
-  if (token.priceUsd !== null) {
-    const holdingUsdc = estimateHoldingUsdc(tokenBalance, token.priceUsd);
-    const estimatedProceeds = holdingUsdc * (1 - COMBINED_FEE_RATE);
-    if (estimatedProceeds < MIN_USDC_SELL_AMOUNT) {
+  const quote = await quoteSellProceeds(
+    ctx.env,
+    tokenAddress,
+    tokenBalance,
+    active.address,
+    token.priceUsd,
+  );
+  if (quote) {
+    if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
       await ctx.answerCallbackQuery({
-        text: `Estimated proceeds ≈$${estimatedProceeds.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
+        text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
         show_alert: true,
       });
       return;
     }
-    if (estimatedProceeds < targetUsdc) {
+    if (quote.proceedsUsd < targetUsdc) {
       await ctx.answerCallbackQuery({
-        text: `Insufficient holding: estimated proceeds ≈$${estimatedProceeds.toFixed(2)} < $${targetUsdc} target.`,
+        text: `Insufficient holding: estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} < $${targetUsdc} target.`,
         show_alert: true,
       });
       return;
@@ -409,16 +484,19 @@ const handleSellAll = async (
     return;
   }
 
-  if (token.priceUsd !== null) {
-    const holdingUsdc = estimateHoldingUsdc(tokenBalance, token.priceUsd);
-    const estimatedProceeds = holdingUsdc * (1 - COMBINED_FEE_RATE);
-    if (estimatedProceeds < MIN_USDC_SELL_AMOUNT) {
-      await ctx.answerCallbackQuery({
-        text: `Estimated proceeds ≈$${estimatedProceeds.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
-        show_alert: true,
-      });
-      return;
-    }
+  const quote = await quoteSellProceeds(
+    ctx.env,
+    tokenAddress,
+    tokenBalance,
+    active.address,
+    token.priceUsd,
+  );
+  if (quote && quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
+    await ctx.answerCallbackQuery({
+      text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
+      show_alert: true,
+    });
+    return;
   }
 
   await ctx.answerCallbackQuery();
