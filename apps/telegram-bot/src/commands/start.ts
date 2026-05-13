@@ -152,8 +152,6 @@ const CALLBACK_HINTS: Record<string, string> = {
     "Type /withdraw <asset> <amount> <address> to send funds out.",
   [START_CALLBACK.settings]: "Type /settings to adjust slippage and defaults.",
   [START_CALLBACK.security]: "Type /security to set a PIN and lock options.",
-  [START_CALLBACK.referral]:
-    "Type /referral to view your referral link and earnings.",
   [START_CALLBACK.help]: "Type /help for command list and security tips.",
 };
 

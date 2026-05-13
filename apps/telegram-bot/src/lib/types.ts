@@ -78,6 +78,14 @@ export interface Env {
    */
   MOONPAY_CURRENCY_CODE?: string;
   /**
+   * Telegram username of the bot (without `@`). Used to build the
+   * shareable referral deeplink `t.me/<BOT_USERNAME>?start=ref_<userId>`
+   * surfaced by `/referral`. Optional — falls back to a placeholder
+   * when unset so smoke deploys keep rendering a link. Set the real
+   * BotFather handle in production.
+   */
+  BOT_USERNAME?: string;
+  /**
    * Optional override for the bcrypt cost factor used by
    * `lib/pin.ts`. Production leaves this unset and falls back to the
    * OWASP-recommended default (rounds=12, ~250ms per hash on

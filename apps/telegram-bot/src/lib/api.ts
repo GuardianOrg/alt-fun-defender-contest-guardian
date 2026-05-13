@@ -11,6 +11,11 @@ export interface PortfolioResponse {
   approximate: boolean;
 }
 
+export interface ReferralStats {
+  referredWallets: number;
+  referredVolume: string;
+}
+
 export interface BalanceEntry {
   address: string;
   name: string;
@@ -180,6 +185,33 @@ export const fetchPortfolio = async (
   if (!res.ok) return res;
   return isPortfolioResponse(res.data)
     ? { ok: true, data: res.data }
+    : { ok: false, kind: "unknown" };
+};
+
+const isReferralStats = (v: unknown): v is ReferralStats => {
+  if (!v || typeof v !== "object") return false;
+  const obj = v as { referredWallets?: unknown; referredVolume?: unknown };
+  return (
+    typeof obj.referredWallets === "number" &&
+    Number.isFinite(obj.referredWallets) &&
+    typeof obj.referredVolume === "string"
+  );
+};
+
+export const fetchReferralStats = async (
+  env: Pick<Env, "API_BASE_URL" | "API_KEY">,
+  wallet: string,
+): Promise<ApiResult<ReferralStats>> => {
+  const res = await getJson<unknown>(env, `/api/v1/referrals/${wallet}`);
+  if (!res.ok) return res;
+  return isReferralStats(res.data)
+    ? {
+        ok: true,
+        data: {
+          referredWallets: res.data.referredWallets,
+          referredVolume: res.data.referredVolume,
+        },
+      }
     : { ok: false, kind: "unknown" };
 };
 
