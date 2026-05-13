@@ -642,6 +642,91 @@ contract ZapTest is DeployHelper {
         return capCeiling - reserveAsset - headroomWei;
     }
 
+    // ─── Donation attack regression ──────────────────────────────────────
+    // A TOKEN donation that drives `realBalance > reserveToken` previously
+    // underflowed `Bonding.previewLtUntilGraduation`'s supply leg,
+    // cascading into a `Zap.buy` DoS. Guard added; tests pin the fix.
+
+    function _stageDonationAttack(
+        address tokenAddr
+    ) internal returns (uint256 drainLtSpent, uint256 donatedTokens) {
+        address pairAddr = bonding.getTokenInfo(tokenAddr).pair;
+        address drainer = makeAddr("donationDrainer");
+        drainLtSpent = 50 ether;
+        lt.mintDirect(drainer, drainLtSpent);
+        if (!bonding.isRouter(drainer)) bonding.addRouter(drainer);
+        vm.startPrank(drainer);
+        lt.approve(address(curveRouter), drainLtSpent);
+        bonding.buy(drainLtSpent, tokenAddr, 0, drainer);
+        vm.stopPrank();
+        donatedTokens = Token(tokenAddr).balanceOf(drainer);
+        vm.prank(drainer);
+        Token(tokenAddr).transfer(pairAddr, donatedTokens);
+    }
+
+    function test_donation_realBalanceExceedsReserveToken() public {
+        address tokenAddr = _createToken(0);
+        address pairAddr = bonding.getTokenInfo(tokenAddr).pair;
+
+        (, uint256 donated) = _stageDonationAttack(tokenAddr);
+        assertGt(donated, 250_000_000 ether, "Drain must yield > 250M tokens to break the gap");
+
+        uint256 realBalance = IPair(pairAddr).tokenBalance();
+        (uint256 reserveToken,) = IPair(pairAddr).getReserves();
+        assertGt(realBalance, reserveToken);
+    }
+
+    function test_donation_previewLtUntilGraduation_returnsThresholdLeg() public {
+        address tokenAddr = _createToken(0);
+
+        uint256 capBefore = bonding.previewLtUntilGraduation(tokenAddr);
+        _stageDonationAttack(tokenAddr);
+
+        uint256 capAfter = bonding.previewLtUntilGraduation(tokenAddr);
+        // Non-zero so `Zap._executeBuy` doesn't degrade to floor-bumping every buy.
+        assertGt(capAfter, 0);
+        assertLt(capAfter, capBefore);
+    }
+
+    function test_donation_zapBuyStillSucceeds() public {
+        address tokenAddr = _createToken(0);
+        _stageDonationAttack(tokenAddr);
+
+        address victim = makeAddr("donationVictim");
+        uint256 buyAmount = _smallBuyUsdc();
+        usdc.mint(victim, buyAmount);
+        uint256 traderUsdcBefore = usdc.balanceOf(victim);
+
+        vm.startPrank(victim);
+        usdc.approve(address(zap), buyAmount);
+        uint256 tokensOut = zap.buy(tokenAddr, buyAmount, 0, address(0));
+        vm.stopPrank();
+
+        assertGt(tokensOut, 0);
+        assertEq(traderUsdcBefore - usdc.balanceOf(victim), buyAmount);
+    }
+
+    function test_donation_sellsStillWork() public {
+        address tokenAddr = _createToken(0);
+
+        address holder = makeAddr("donationHolder");
+        uint256 holderBuyUsdc = _smallBuyUsdc();
+        usdc.mint(holder, holderBuyUsdc);
+        vm.startPrank(holder);
+        usdc.approve(address(zap), holderBuyUsdc);
+        zap.buy(tokenAddr, holderBuyUsdc, 0, address(0));
+        vm.stopPrank();
+        uint256 holderTokens = Token(tokenAddr).balanceOf(holder);
+
+        _stageDonationAttack(tokenAddr);
+
+        vm.startPrank(holder);
+        Token(tokenAddr).approve(address(zap), holderTokens);
+        uint256 usdcOut = zap.sell(tokenAddr, holderTokens, 0);
+        vm.stopPrank();
+        assertGt(usdcOut, 0);
+    }
+
     function test_buy_capPath_floorBump_succeeds() public {
         address tokenAddr = _createToken(0);
 

@@ -669,8 +669,10 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
             ltUntilThreshold = thresholdRealLt - realLtRaised;
         }
 
+        // Donation-inflated `realBalance`: supply trigger unreachable, defer to USD leg.
+        if (realBalance >= reserveToken) return ltUntilThreshold;
+
         uint256 cappedReserveToken = reserveToken - realBalance;
-        if (cappedReserveToken == 0) return 0;
         uint256 cappedReserveAsset = (IPair(pair).k() + cappedReserveToken - 1) / cappedReserveToken;
         uint256 ltUntilSupply = cappedReserveAsset - reserveAsset;
 
