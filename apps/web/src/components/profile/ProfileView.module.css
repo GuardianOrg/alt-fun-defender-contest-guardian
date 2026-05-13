@@ -31,11 +31,18 @@
 
 .avatar {
   /* Diameter is the single source of truth: width / height come off
-   * `--avatar-size`, and the inner face's font-size is derived from
-   * the same variable so resizing the circle keeps the face visually
-   * proportional. Tweaking either variable cascades automatically. */
+   * `--avatar-size`, and the inner face's font-size + ring thickness
+   * are derived from the same variable so resizing the circle keeps
+   * every glyph visually proportional. Tweaking either variable
+   * cascades automatically.
+   *
+   * Ratios are tuned to mirror the `AltFunLogo` SVG so the profile
+   * chip reads as a sibling of the corner logo: ~7% border (logo
+   * has a 39/544 ≈ 7.2% inset frame) wrapping a transparent center
+   * with white letterforms. See issue #737. */
   --avatar-size: 6.4rem;
-  --face-ratio: 0.32;
+  --face-ratio: 0.26;
+  --border-ratio: 0.058;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -43,20 +50,16 @@
   height: var(--avatar-size);
   flex-shrink: 0;
   padding: 0;
-  border: 2px solid var(--mint);
+  border: calc(var(--avatar-size) * var(--border-ratio)) solid var(--mint);
   border-radius: 9999px;
-  background: var(--mint-bg);
-  color: var(--mint);
+  background: transparent;
+  color: var(--txt);
   overflow: hidden;
   cursor: pointer;
-  transition:
-    color 0.15s ease,
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+  transition: border-color 0.15s ease;
 }
 
 .avatar:hover {
-  color: var(--mint-hover);
   border-color: var(--mint-hover);
 }
 
