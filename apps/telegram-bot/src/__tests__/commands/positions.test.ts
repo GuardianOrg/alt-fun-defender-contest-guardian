@@ -38,6 +38,7 @@ const seedActiveWallet = async (h: BotTestHarness): Promise<string> => {
 interface SentMessage {
   chat_id: number;
   text: string;
+  parse_mode?: string;
   reply_markup?: unknown;
 }
 
@@ -147,7 +148,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toBe("No open positions for this wallet.");
   });
 
-  it("renders a single open position with ticker, balance, cost, value, PnL", async () => {
+  it("renders a single open position with ticker, balance, cost, value, PnL, inline Buy/Sell links, and no per-position keyboard rows", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions/")) {
@@ -185,19 +186,14 @@ describe("/positions", () => {
     expect(text).toContain("$75");
     expect(text).toContain("+$25");
     expect(text).toContain("+50.00%");
-    // A single open position with no pagination still attaches a
-    // [Buy ALPHA] [Sell ALPHA] row.
-    const markup = sent[0]!.reply_markup as
-      | { inline_keyboard: { text: string; callback_data: string }[][] }
-      | undefined;
-    expect(markup).toBeDefined();
-    expect(markup!.inline_keyboard).toHaveLength(1);
-    expect(markup!.inline_keyboard[0]!.map((b) => b.text)).toEqual([
-      "Buy ALPHA",
-      "Sell ALPHA",
-    ]);
-    expect(markup!.inline_keyboard[0]![0]!.callback_data).toBe(`pob:${TOKEN}`);
-    expect(markup!.inline_keyboard[0]![1]!.callback_data).toBe(`pos:${TOKEN}`);
+    // The Buy/Sell actions are inline HTML anchors next to the PnL,
+    // not a bottom-of-message keyboard row — the body must be HTML
+    // parsed and the markup must omit per-position rows entirely.
+    expect(sent[0]!.parse_mode).toBe("HTML");
+    expect(text).toContain(`?start=buy_${TOKEN}">Buy</a>`);
+    expect(text).toContain(`?start=sell_${TOKEN}">Sell</a>`);
+    // Single page → no nav row needed, no per-position rows either.
+    expect(sent[0]!.reply_markup).toBeUndefined();
   });
 
   it("renders both Open and Realised sections when both have rows", async () => {
@@ -245,7 +241,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toContain("BETA");
   });
 
-  it("attaches a Next button when the response paginates", async () => {
+  it("attaches a nav-only pagination keyboard when the response paginates", async () => {
     const open = Array.from({ length: 250 }, (_, i) => ({
       token: `0x${i.toString(16).padStart(40, "0")}`,
       ticker: `LT${i}`,
@@ -271,22 +267,16 @@ describe("/positions", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Open positions (250)");
     expect(sent[0]!.text).toContain("Page 1 of");
+    // Inline action links replace the per-position keyboard rows, so
+    // the only row left in the markup is the pagination nav.
     const markup = sent[0]!.reply_markup as {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // Each open position on the page contributes a [Buy] [Sell] row;
-    // the pagination nav row is the last entry in the keyboard.
-    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
+    expect(markup.inline_keyboard).toHaveLength(1);
+    const nav = markup.inline_keyboard[0]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
-    // Sanity check: the per-position rows above the nav follow the
-    // `pob:<addr>` / `pos:<addr>` shape.
-    for (const row of markup.inline_keyboard.slice(0, -1)) {
-      expect(row).toHaveLength(2);
-      expect(row[0]!.callback_data).toMatch(/^pob:0x[0-9a-f]{40}$/i);
-      expect(row[1]!.callback_data).toMatch(/^pos:0x[0-9a-f]{40}$/i);
-    }
   });
 
   it("replies with a degraded-data message when the API returns 503", async () => {
@@ -330,134 +320,3 @@ describe("/positions", () => {
   });
 });
 
-const positionBuyCallback = (token: string) => ({
-  update_id: 20,
-  callback_query: {
-    id: "cbq-buy",
-    from: { id: 7, is_bot: false, first_name: "Ada" },
-    chat_instance: "instance-1",
-    data: `pob:${token}`,
-    message: {
-      message_id: 99,
-      date: 0,
-      chat: { id: 42, type: "private" as const },
-    },
-  },
-});
-
-const positionSellCallback = (token: string) => ({
-  update_id: 21,
-  callback_query: {
-    id: "cbq-sell",
-    from: { id: 7, is_bot: false, first_name: "Ada" },
-    chat_instance: "instance-1",
-    data: `pos:${token}`,
-    message: {
-      message_id: 99,
-      date: 0,
-      chat: { id: 42, type: "private" as const },
-    },
-  },
-});
-
-const mockTokenApi = (
-  fetchSpy: ReturnType<typeof vi.spyOn>,
-  token: string,
-): void => {
-  fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.includes(`/api/v1/tokens/${token}`)) {
-      return new Response(
-        JSON.stringify({
-          data: {
-            address: token,
-            name: "Test Token",
-            ticker: "ALPHA",
-            priceUsd: 0.05,
-            mcapUsd: 50_000,
-            change24h: 12.5,
-            ltChange24h: null,
-            volume24hUsd: 1000,
-            curveFilled: 0.42,
-            status: "curve",
-            ltPair: null,
-          },
-        }),
-        { status: 200 },
-      );
-    }
-    return okFallback();
-  });
-};
-
-describe("/positions per-position buy/sell callbacks", () => {
-  let fetchSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    fetchSpy = vi.spyOn(globalThis, "fetch");
-  });
-
-  afterEach(() => {
-    fetchSpy.mockRestore();
-  });
-
-  it("pob:<token> replies with a buy card pre-loaded for the selected token", async () => {
-    mockTokenApi(fetchSpy, TOKEN);
-    const h = makeBotHarness();
-    await h.run(positionBuyCallback(TOKEN));
-    const sent = sentMessages(fetchSpy);
-    expect(sent).toHaveLength(1);
-    const markup = sent[0]!.reply_markup as
-      | { inline_keyboard: { text: string; callback_data: string }[][] }
-      | undefined;
-    expect(markup).toBeDefined();
-    const allButtons = markup!.inline_keyboard.flat();
-    // Buy card keyboard exposes the standard quick-buy amounts.
-    expect(allButtons.some((b) => b.text.includes("Buy 20"))).toBe(true);
-    // Token address survives the round-trip in every action's callback.
-    for (const b of allButtons) {
-      if (b.callback_data.startsWith("bt"))
-        expect(b.callback_data.endsWith(TOKEN)).toBe(true);
-    }
-  });
-
-  it("pos:<token> replies with a sell card pre-loaded for the selected token", async () => {
-    mockTokenApi(fetchSpy, TOKEN);
-    const h = makeBotHarness();
-    await h.run(positionSellCallback(TOKEN));
-    const sent = sentMessages(fetchSpy);
-    expect(sent).toHaveLength(1);
-    const markup = sent[0]!.reply_markup as
-      | { inline_keyboard: { text: string; callback_data: string }[][] }
-      | undefined;
-    expect(markup).toBeDefined();
-    const allButtons = markup!.inline_keyboard.flat();
-    expect(allButtons.some((b) => b.text.includes("Sell All"))).toBe(true);
-    for (const b of allButtons) {
-      if (b.callback_data.startsWith("bts"))
-        expect(b.callback_data.endsWith(TOKEN)).toBe(true);
-    }
-  });
-
-  it("toasts the outage copy when the token API is down", async () => {
-    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
-      if (String(input).startsWith("https://api.test.local")) {
-        return new Response("{}", { status: 503 });
-      }
-      return okFallback();
-    });
-    const h = makeBotHarness();
-    await h.run(positionBuyCallback(TOKEN));
-    const calls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
-      .filter((c) => typeof (c[1] as RequestInit)?.body === "string")
-      .map((c) => ({
-        url: String(c[0]),
-        body: JSON.parse((c[1] as RequestInit).body as string) as Record<
-          string,
-          unknown
-        >,
-      }));
-    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
-    expect(String(answer?.body.text)).toContain("Data temporarily unavailable");
-  });
-});

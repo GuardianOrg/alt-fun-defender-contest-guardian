@@ -1,36 +1,16 @@
 import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
-import {
-  buildBuyTokenKeyboard,
-  buildSellTokenKeyboard,
-  normaliseDefaultBuyUsdc,
-  normaliseDefaultSellUsdc,
-} from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import {
-  fetchBotPositions,
-  fetchToken,
-  isAddress,
-} from "../lib/api.js";
-import { parseCallback } from "../lib/callbacks.js";
+import { BOT_NAME } from "../lib/branding.js";
+import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_PAGE_CALLBACK_CMD,
-  POSITION_BUY_CALLBACK_CMD,
-  POSITION_SELL_CALLBACK_CMD,
   buildPositionsPageKeyboard,
   formatBotPositionsResponse,
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
-import {
-  fetchErc20Balance,
-  fetchUsdcBalance,
-} from "../lib/rpc.js";
-import {
-  renderBuyTokenCardText,
-  renderSellTokenCardText,
-} from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 
 const USAGE = "Usage: /positions <wallet_address>";
@@ -40,6 +20,15 @@ const INVALID_ADDRESS =
 const NON_PRIVATE_CHAT_REPLY =
   "Positions are private-DM only — open a direct chat with the bot to view your positions.";
 const NO_ACTIVE_WALLET = "No active wallet. Run /wallet to create one.";
+
+/**
+ * Resolve the deeplink-friendly bot handle for the `Buy` / `Sell` HTML
+ * anchors emitted next to each open position. Mirrors `referral.ts`'s
+ * fallback so smoke deploys without a configured `BOT_USERNAME` still
+ * render functional links.
+ */
+const resolveBotUsername = (env: AppContext["env"]): string =>
+  env.BOT_USERNAME?.trim() || BOT_NAME;
 
 interface RenderedPage {
   text: string;
@@ -57,80 +46,26 @@ const renderPage = async (
   }
   if (!res.ok) return { outage: true };
 
-  const chunks = formatBotPositionsResponse(res.data);
+  const chunks = formatBotPositionsResponse(res.data, resolveBotUsername(env));
   // Clamp the requested page — positions may have shrunk since the
   // button was rendered, in which case `page` could exceed the new
   // chunk count.
   const clamped = Math.min(Math.max(page, 0), chunks.length - 1);
-  const text = renderPaginatedPage(
-    chunks.map((c) => c.text),
-    clamped,
-  );
-  const keyboard = buildPositionsPageKeyboard(
-    clamped,
-    chunks.length,
-    wallet,
-    chunks[clamped]!.openPositions,
-  );
+  const text = renderPaginatedPage(chunks, clamped);
+  const keyboard = buildPositionsPageKeyboard(clamped, chunks.length, wallet);
   return keyboard ? { text, reply_markup: keyboard } : { text };
 };
 
-/** Reply with a fresh buy card for the selected open position. */
-const handlePositionBuy = async (
-  ctx: AppContext,
-  tokenAddress: string,
-): Promise<void> => {
-  const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
-  const active = ctx.from ? await wm.getActive(ctx.from.id) : null;
-  const [tokenResult, usdcBalance] = await Promise.all([
-    fetchToken(ctx.env, tokenAddress),
-    active ? fetchUsdcBalance(ctx.env, active.address) : Promise.resolve(null),
-  ]);
-  if (!tokenResult.ok) {
-    await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
-    return;
-  }
-  await ctx.answerCallbackQuery();
-  await ctx.reply(renderBuyTokenCardText(tokenResult.data, usdcBalance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildBuyTokenKeyboard(
-        tokenAddress,
-        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
-      ),
-    },
-    link_preview_options: { is_disabled: true },
-  });
-};
-
-/** Reply with a fresh sell card for the selected open position. */
-const handlePositionSell = async (
-  ctx: AppContext,
-  tokenAddress: string,
-): Promise<void> => {
-  const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
-  const active = ctx.from ? await wm.getActive(ctx.from.id) : null;
-  const [tokenResult, tokenBalance] = await Promise.all([
-    fetchToken(ctx.env, tokenAddress),
-    active
-      ? fetchErc20Balance(ctx.env, tokenAddress, active.address)
-      : Promise.resolve(null),
-  ]);
-  if (!tokenResult.ok) {
-    await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
-    return;
-  }
-  await ctx.answerCallbackQuery();
-  await ctx.reply(renderSellTokenCardText(tokenResult.data, tokenBalance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(
-        tokenAddress,
-        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
-      ),
-    },
-    link_preview_options: { is_disabled: true },
-  });
+/**
+ * Common reply options for every `/positions` response. Body uses HTML
+ * so the inline `Buy` / `Sell` anchors render as clickable text next
+ * to each open position — see `formatBotPositionsResponse`. Link
+ * previews are disabled because the deeplink hosts (t.me) would
+ * otherwise render a redundant preview card under the message.
+ */
+const HTML_REPLY = {
+  parse_mode: "HTML" as const,
+  link_preview_options: { is_disabled: true as const },
 };
 
 export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
@@ -175,7 +110,10 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(OUTAGE);
       return;
     }
-    await ctx.reply(page.text, page.reply_markup ? { reply_markup: page.reply_markup } : {});
+    await ctx.reply(page.text, {
+      ...HTML_REPLY,
+      ...(page.reply_markup ? { reply_markup: page.reply_markup } : {}),
+    });
   });
 
   /**
@@ -216,10 +154,10 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       }
 
       try {
-        await ctx.editMessageText(
-          page.text,
-          page.reply_markup ? { reply_markup: page.reply_markup } : {},
-        );
+        await ctx.editMessageText(page.text, {
+          ...HTML_REPLY,
+          ...(page.reply_markup ? { reply_markup: page.reply_markup } : {}),
+        });
       } catch (err) {
         // Only swallow the two known-benign Telegram 400 cases —
         // anything else (network, auth, runtime) must surface so a
@@ -251,49 +189,6 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         });
       }
       await ctx.answerCallbackQuery();
-    },
-  );
-
-  /**
-   * Per-position "Buy <TICKER>" / "Sell <TICKER>" buttons. Each maps a
-   * single open position to a fresh buy/sell card pre-loaded with that
-   * token — same view as `/buy <addr>` / `/sell <addr>` would render.
-   * The token address rides in `callback_data` so the handler stays
-   * stateless across Worker cold-starts.
-   */
-  bot.callbackQuery(
-    new RegExp(`^${POSITION_BUY_CALLBACK_CMD}:`),
-    async (ctx) => {
-      const parsed = parseCallback(ctx.callbackQuery.data ?? "");
-      const token = parsed?.args[0];
-      if (!token || !isAddress(token)) {
-        await ctx.answerCallbackQuery({ text: "Invalid request." });
-        return;
-      }
-      await handlePositionBuy(ctx, token).catch(async (err) => {
-        logger.error("positions buy handler failed", { err });
-        await ctx
-          .answerCallbackQuery({ text: OUTAGE, show_alert: true })
-          .catch(() => {});
-      });
-    },
-  );
-
-  bot.callbackQuery(
-    new RegExp(`^${POSITION_SELL_CALLBACK_CMD}:`),
-    async (ctx) => {
-      const parsed = parseCallback(ctx.callbackQuery.data ?? "");
-      const token = parsed?.args[0];
-      if (!token || !isAddress(token)) {
-        await ctx.answerCallbackQuery({ text: "Invalid request." });
-        return;
-      }
-      await handlePositionSell(ctx, token).catch(async (err) => {
-        logger.error("positions sell handler failed", { err });
-        await ctx
-          .answerCallbackQuery({ text: OUTAGE, show_alert: true })
-          .catch(() => {});
-      });
     },
   );
 
@@ -335,9 +230,9 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(OUTAGE);
       return;
     }
-    await ctx.reply(
-      page.text,
-      page.reply_markup ? { reply_markup: page.reply_markup } : {},
-    );
+    await ctx.reply(page.text, {
+      ...HTML_REPLY,
+      ...(page.reply_markup ? { reply_markup: page.reply_markup } : {}),
+    });
   });
 };
