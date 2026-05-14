@@ -393,6 +393,16 @@
   cursor: default;
 }
 
+/* Invisible sentinel observed by `IntersectionObserver` to drive the
+ * recent-trades pagination (issue #807). Sized to one trade-row's
+ * worth of space so the trigger fires comfortably before the user
+ * scrolls past the last visible row. */
+.sentinel {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
+}
+
 .tradeSkeletonTime {
   margin-left: auto;
 }

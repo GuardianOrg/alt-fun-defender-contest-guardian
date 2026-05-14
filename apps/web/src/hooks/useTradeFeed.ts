@@ -1,11 +1,15 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 import { subscribeMockTrades } from "../dev/mockFeed";
+import { fetchRouterTradesGlobal } from "../services/api";
 import {
   hasResolvedTokenName,
+  ingestResolvedTokenName,
   prefetchTokenName,
+  resolveTokenName,
   subscribeTokenName,
 } from "../services/tokenNames";
+import { routerTradeToTrade } from "../services/tradeFormatter";
 import { tradeService } from "../services/tradeService";
 
 import type { Trade } from "../services/types";
@@ -25,6 +29,16 @@ const TRADE_FEED_LOADING_TIMEOUT_MS = 1500;
 // 5s balances responsiveness against indexer load: Ponder GraphQL hits
 // are cheap and the retry only runs while at least one row is unresolved.
 const TOKEN_NAME_RETRY_INTERVAL_MS = 5000;
+
+/**
+ * Page size for the recent-trades feed (issue #807). Mirrors the hardcoded
+ * batch the live REST poll inside `tradeFeed.ts → subscribeFeed` already
+ * uses (50), so the initial display matches one server page exactly and
+ * `loadMore` requests cleanly cover the next 50 older trades. The API
+ * caps `limit` at 100, so this leaves headroom for tuning without a
+ * server-side change.
+ */
+const TRADES_PAGE_SIZE = 50;
 
 /**
  * Replace `tokenName` on every trade whose `tokenAddress` matches
@@ -61,29 +75,74 @@ export interface UseTradeFeedResult {
    * genuinely empty / disconnected.
    */
   isLoading: boolean;
+  /**
+   * True while a `loadMore` REST round-trip is in flight. Drives the
+   * page-skeleton row(s) at the bottom of the feed so the user sees the
+   * scroll-triggered fetch is making progress.
+   */
+  isFetchingMore: boolean;
+  /**
+   * False once the most recent `loadMore` page came back short — the
+   * canonical "end of list" signal, mirroring `useInfiniteTokens`.
+   */
+  hasMore: boolean;
+  /**
+   * Fetch the next page of older trades and append them to `trades`.
+   * No-op when `isFetchingMore` is true or `hasMore` is false; safe to
+   * call from an `IntersectionObserver` callback that fires repeatedly.
+   */
+  loadMore: () => void;
 }
 
-export function useTradeFeed(maxItems = 14): UseTradeFeedResult {
+export function useTradeFeed(): UseTradeFeedResult {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Ref mirrors `trades` so the retry interval can read the current
-  // address set without re-arming the interval on every state change.
+  // Ref mirrors `trades` so the retry interval and `loadMore` callback
+  // can read the current address set / page count without re-arming on
+  // every state change.
   const tradesRef = useRef<Trade[]>(trades);
   useEffect(() => {
     tradesRef.current = trades;
   }, [trades]);
+  // Cross-source dedupe set: tracks every trade id we've surfaced via
+  // either `subscribeFeed` (live WS + initial REST poll) or `loadMore`
+  // (older REST pages). The live poll inside `tradeFeed.ts` already
+  // dedupes against itself, so this set's job is the boundary case
+  // where a freshly-arrived live trade and an older paginated batch
+  // happen to overlap (e.g. a fast-moving feed where the next page
+  // shifts under us mid-fetch).
+  const seenIdsRef = useRef<Set<string>>(new Set());
+  // Mutable mirror of `isFetchingMore` / `hasMore` so the `loadMore`
+  // callback can short-circuit re-entrant invocations without a fresh
+  // identity (which would re-arm the `IntersectionObserver` in the
+  // consumer).
+  const isFetchingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
 
   useEffect(() => {
+    setTrades([]);
     setIsLoading(true);
+    setHasMore(true);
+    hasMoreRef.current = true;
+    setIsFetchingMore(false);
+    isFetchingMoreRef.current = false;
+    seenIdsRef.current = new Set();
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(
       () => setIsLoading(false),
       TRADE_FEED_LOADING_TIMEOUT_MS,
     );
 
-    const unsub = tradeService.subscribeFeed((trade) => {
-      setTrades((prev) => [trade, ...prev].slice(0, maxItems));
+    const handleNew = (trade: Trade) => {
+      // Cross-source dedupe — see `seenIdsRef` JSDoc. The check happens
+      // outside `setTrades` so React's reconciliation can't double-add
+      // on a re-invoked updater (StrictMode / batched updates).
+      if (seenIdsRef.current.has(trade.id)) return;
+      seenIdsRef.current.add(trade.id);
+      setTrades((prev) => [trade, ...prev]);
       // First trade arrived — drop the loading flag immediately so the
       // real row renders without a stale skeleton flash.
       setIsLoading(false);
@@ -91,20 +150,15 @@ export function useTradeFeed(maxItems = 14): UseTradeFeedResult {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
-    });
+    };
+
+    const unsub = tradeService.subscribeFeed(handleNew);
 
     // Dev-only easter egg (`DevSimulator`). The mock bus is inert in
     // production: nothing emits into it, and `import.meta.env.DEV` lets
     // bundlers strip this branch on `vite build`.
     const unsubMock = import.meta.env.DEV
-      ? subscribeMockTrades((trade) => {
-          setTrades((prev) => [trade, ...prev].slice(0, maxItems));
-          setIsLoading(false);
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-        })
+      ? subscribeMockTrades(handleNew)
       : () => {};
 
     // Heal rows that were appended with the truncated-address fallback
@@ -144,9 +198,56 @@ export function useTradeFeed(maxItems = 14): UseTradeFeedResult {
         timeoutRef.current = null;
       }
     };
-  }, [maxItems]);
+  }, []);
 
-  return { trades, isLoading };
+  const loadMore = useCallback(() => {
+    if (isFetchingMoreRef.current || !hasMoreRef.current) return;
+    isFetchingMoreRef.current = true;
+    setIsFetchingMore(true);
+    // Server-side `offset` is "skip this many newest trades". Using the
+    // current display count is a self-correcting cursor: live trades
+    // arriving between this snapshot and the response shift the page
+    // window, but any overlap is filtered by `seenIdsRef` below — so
+    // the next page never duplicates a trade already on screen.
+    const offset = tradesRef.current.length;
+    void (async () => {
+      try {
+        const batch = await fetchRouterTradesGlobal(TRADES_PAGE_SIZE, offset);
+        const fresh: Trade[] = [];
+        for (const raw of batch) {
+          if (seenIdsRef.current.has(raw.id)) continue;
+          seenIdsRef.current.add(raw.id);
+          // Mirror `tradeFeed.ts → subscribeFeed`: seed the name cache
+          // from the API-enriched labels (issue #703) so subsequent
+          // surfaces watching this address pick up the resolved name
+          // without a redundant Ponder round-trip.
+          ingestResolvedTokenName(raw.tokenAddress, raw.tokenSymbol);
+          ingestResolvedTokenName(raw.tokenAddress, raw.tokenName);
+          const mapped = routerTradeToTrade(raw);
+          const apiLabel =
+            raw.tokenSymbol?.trim() || raw.tokenName?.trim() || "";
+          mapped.tokenName = apiLabel || resolveTokenName(raw.tokenAddress);
+          fresh.push(mapped);
+        }
+        if (fresh.length > 0) {
+          setTrades((prev) => [...prev, ...fresh]);
+        }
+        // Short page is the canonical "end of list" signal — same
+        // contract `useInfiniteTokens` uses against `/api/v1/tokens`.
+        if (batch.length < TRADES_PAGE_SIZE) {
+          hasMoreRef.current = false;
+          setHasMore(false);
+        }
+      } catch (err) {
+        console.warn("[useTradeFeed] loadMore failed:", err);
+      } finally {
+        isFetchingMoreRef.current = false;
+        setIsFetchingMore(false);
+      }
+    })();
+  }, []);
+
+  return { trades, isLoading, isFetchingMore, hasMore, loadMore };
 }
 
 export interface UseTokenTradesResult {

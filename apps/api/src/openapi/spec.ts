@@ -407,9 +407,10 @@ Per-IP connection limits (10 concurrent across the fleet) are enforced before th
       get: {
         tags: ["Trades"],
         summary: "List recent trades",
-        description: "Returns the most recent trades across all tokens.",
+        description: "Returns the most recent trades across all tokens. Supports `offset` for paginating backwards through history (newest-first ordering).",
         parameters: [
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 }, description: "Maximum number of trades" },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 }, description: "Number of trades to skip (for pagination)" },
           apiKeyHeader,
         ],
         responses: {

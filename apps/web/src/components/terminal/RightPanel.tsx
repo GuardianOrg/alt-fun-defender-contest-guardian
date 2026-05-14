@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import { useNavigate } from "react-router";
@@ -36,10 +36,11 @@ const getTradeTimestamp = (t: Trade) => t.timestamp;
 // surface more skeleton rows than fit on a typical viewport — extras get
 // hidden behind the section's internal scroll until real trades arrive.
 const TRADE_SKELETON_COUNT = 12;
-// Total trades retained by `useTradeFeed`. The section scrolls
-// internally, so this is the upper bound on what the user can scroll
-// through — not what's visible at once.
-const TRADE_FEED_MAX = 50;
+// Skeleton rows shown beneath an in-flight `loadMore` request. Smaller
+// than the initial-load count because the user is already past the
+// initial fold — the goal is just to signal "more inbound" without
+// dominating the bottom of the visible feed.
+const PAGE_SKELETON_ROW_COUNT = 3;
 const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
 
@@ -139,11 +140,19 @@ function PositionSkeleton() {
 }
 
 export default function RightPanel() {
-  const { trades, isLoading: tradesLoading } = useTradeFeed(TRADE_FEED_MAX);
+  const {
+    trades,
+    isLoading: tradesLoading,
+    isFetchingMore,
+    hasMore,
+    loadMore,
+  } = useTradeFeed();
   const { data: tokens } = useTokens();
   const { isConnected } = useWallet();
   const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
   const navigate = useNavigate();
+  const tradesScrollRef = useRef<HTMLDivElement | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
   // Newly arrived trades flash a buy/sell-tinted background that
   // fades to transparent over ~2s. The hook's timestamp gate compares
   // each trade's on-chain timestamp to the hook's mount time, so the
@@ -164,6 +173,33 @@ export default function RightPanel() {
   // empty / disconnected feed surfaces as an empty state once the timeout
   // fires, rather than shimmering forever.
   const showTradeSkeletons = tradesLoading && trades.length === 0;
+
+  // Wire infinite scroll to the inner trades scroller (issue #807). The
+  // section body owns its own overflow (`.sectionBody`), so the
+  // observer's root MUST be that element — falling back to the viewport
+  // would never fire because the right column itself doesn't scroll.
+  // 200px rootMargin pre-fetches one viewport before the user hits the
+  // bottom, mirroring `TokenTable`'s pagination cadence.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = tradesScrollRef.current;
+    if (!sentinel || !root) return;
+    if (!hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && hasMore && !isFetchingMore) {
+            loadMore();
+          }
+        }
+      },
+      { root, rootMargin: "200px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isFetchingMore, loadMore]);
 
   return (
     <div className={styles.panel}>
@@ -218,6 +254,7 @@ export default function RightPanel() {
          * (e.g. the user's own trade confirming) are announced through
          * the toast system instead. */}
         <div
+          ref={tradesScrollRef}
           className={styles.sectionBody}
           aria-label="Recent trades"
           aria-busy={showTradeSkeletons ? true : undefined}
@@ -250,53 +287,90 @@ export default function RightPanel() {
           ) : trades.length === 0 ? (
             <div className={styles.emptyRow}>No recent trades yet</div>
           ) : (
-            trades.map((t) => {
-              const isBuy = t.side === "BUY";
-              const flashing = flashingTradeIds.has(t.id);
-              return (
-                <div
-                  key={t.id}
-                  className={cn(styles.tradeRow, flashing && styles.flash)}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
-                  onClick={() => navigate(tokenPath(t.tokenAddress))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      navigate(tokenPath(t.tokenAddress));
-                    }
-                  }}
-                >
-                  <div className={styles.tradeInfo}>
-                    <div className={styles.tradeNameRow}>
-                      <span className={styles.tradeName}>{t.tokenName}</span>
-                      <span className={styles.tradeTime}>
-                        {formatTimeAgo(t.timestamp)}
-                      </span>
-                    </div>
-                    <div className={styles.tradeWalletRow}>
-                      <span className={styles.tradeWallet}>
-                        {t.walletAddress}
-                      </span>
-                      <CopyAddressButton
-                        address={t.walletAddressFull}
-                        className={styles.tradeCopyBtn}
-                      />
-                    </div>
-                  </div>
-                  <span
-                    className={cn(
-                      styles.tradeAmount,
-                      isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
-                    )}
+            <>
+              {trades.map((t) => {
+                const isBuy = t.side === "BUY";
+                const flashing = flashingTradeIds.has(t.id);
+                return (
+                  <div
+                    key={t.id}
+                    className={cn(styles.tradeRow, flashing && styles.flash)}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
+                    onClick={() => navigate(tokenPath(t.tokenAddress))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate(tokenPath(t.tokenAddress));
+                      }
+                    }}
                   >
-                    {isBuy ? "+" : "-"}$
-                    {Math.round(t.amountUsd).toLocaleString()}
-                  </span>
+                    <div className={styles.tradeInfo}>
+                      <div className={styles.tradeNameRow}>
+                        <span className={styles.tradeName}>{t.tokenName}</span>
+                        <span className={styles.tradeTime}>
+                          {formatTimeAgo(t.timestamp)}
+                        </span>
+                      </div>
+                      <div className={styles.tradeWalletRow}>
+                        <span className={styles.tradeWallet}>
+                          {t.walletAddress}
+                        </span>
+                        <CopyAddressButton
+                          address={t.walletAddressFull}
+                          className={styles.tradeCopyBtn}
+                        />
+                      </div>
+                    </div>
+                    <span
+                      className={cn(
+                        styles.tradeAmount,
+                        isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
+                      )}
+                    >
+                      {isBuy ? "+" : "-"}$
+                      {Math.round(t.amountUsd).toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })}
+              {hasMore && (
+                <div
+                  ref={sentinelRef}
+                  className={styles.sentinel}
+                  aria-hidden="true"
+                />
+              )}
+              {isFetchingMore && (
+                <div role="status" aria-live="polite" aria-label="Loading more trades">
+                  {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
+                    <div
+                      key={`page-skel-${i}`}
+                      className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
+                      aria-hidden="true"
+                    >
+                      <div className={styles.tradeInfo}>
+                        <div className={styles.tradeNameRow}>
+                          <Skeleton width="6rem" height="11px" />
+                          <Skeleton
+                            width="2.5rem"
+                            height="10px"
+                            className={styles.tradeSkeletonTime}
+                          />
+                        </div>
+                        <Skeleton
+                          width="5rem"
+                          height="10px"
+                          className={styles.tradeSkeletonWallet}
+                        />
+                      </div>
+                      <Skeleton width="3rem" height="12px" />
+                    </div>
+                  ))}
                 </div>
-              );
-            })
+              )}
+            </>
           )}
         </div>
       </div>

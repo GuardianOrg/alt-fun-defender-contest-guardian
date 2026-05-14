@@ -59,7 +59,7 @@ function tokenAddressFromPath(pathname: string): string | undefined {
  */
 export default function DevSimulator() {
   const [open, setOpen] = useState(false);
-  const { trades } = useTradeFeed(50);
+  const { trades } = useTradeFeed();
   const { data: tokens } = useTokens();
   const location = useLocation();
   const tokenAddress = tokenAddressFromPath(location.pathname);

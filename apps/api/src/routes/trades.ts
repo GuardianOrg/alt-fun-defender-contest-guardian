@@ -130,10 +130,16 @@ async function enrichTradesWithTokenLabels(
 trades.get("/", async (c) => {
   const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const limitParam = parseNonNegativeInt(c.req.query("limit"));
-  if (limitParam === null) {
+  const offsetParam = parseNonNegativeInt(c.req.query("offset"));
+  if (limitParam === null || offsetParam === null) {
     return c.json(formatError("Invalid pagination parameters"), 400);
   }
   const limit = Math.min(limitParam ?? 50, 100);
+  // Offset enables the home-page recent-trades list to scroll backwards
+  // through history (issue #807). The frontend's `useTradeFeed` walks
+  // the endpoint page-by-page on scroll, mirroring how
+  // `useInfiniteTokens` paginates `/api/v1/tokens`.
+  const offset = offsetParam ?? 0;
 
   const cache = getCache();
   const cacheKey = new Request(c.req.url, { method: "GET" });
@@ -143,8 +149,13 @@ trades.get("/", async (c) => {
   }
 
   const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($limit: Int!) {
-      routerTrades(limit: $limit, orderBy: "timestamp", orderDirection: "desc") {
+    `query ($limit: Int!, $offset: Int!) {
+      routerTrades(
+        limit: $limit
+        offset: $offset
+        orderBy: "timestamp"
+        orderDirection: "desc"
+      ) {
         items {
           id
           tokenAddress
@@ -157,7 +168,7 @@ trades.get("/", async (c) => {
         }
       }
     }`,
-    { limit },
+    { limit, offset },
   );
 
   if (data === null) {
