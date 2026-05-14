@@ -49,6 +49,36 @@
   font-weight: 700;
 }
 
+/* Phantom-bold trick to lock each tab's width to its active-state
+ * width regardless of which tab is currently selected. `.tabActive`
+ * bumps `font-weight` from 400 → 700, and the heavier glyphs are a
+ * couple of pixels wider — without this, every selection grew the
+ * active tab and shifted its siblings sideways, producing a visible
+ * jitter as the user flipped between TRENDING / NEW / GRADUATING /
+ * GRADUATED.
+ *
+ * The label span is `inline-block` so its width hugs its widest
+ * child; the `::after` pseudo (`display: block`, `height: 0`,
+ * `visibility: hidden`) always renders the bold variant of the same
+ * text, reserving the bold width on every tab. The visible text node
+ * then renders inside that reserved box, and the bold/non-bold flip
+ * stays width-neutral. `aria-hidden` (via `pointer-events: none` and
+ * `visibility: hidden`) keeps the phantom out of the a11y tree. */
+.label {
+  display: inline-block;
+  text-align: center;
+}
+
+.label::after {
+  content: attr(data-label);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 700;
+  pointer-events: none;
+}
+
 .indicator {
   position: absolute;
   bottom: 0;

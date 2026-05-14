@@ -33,7 +33,14 @@ export default function CommandBar({ tokenCount }: Props) {
             )}
             onClick={() => dispatch(setActiveFilter(tab.filter))}
           >
-            <span>{tab.label}</span>
+            {/* `data-label` feeds the phantom-bold `::after` in
+             * `CommandBar.module.css` that reserves the active-state
+             * (font-weight: 700) width on every tab. Without it the
+             * tabs grow when activated and shove their siblings around
+             * by a pixel or two — see the rule for details. */}
+            <span className={styles.label} data-label={tab.label}>
+              {tab.label}
+            </span>
             {activeFilter === tab.filter && (
               <span className={styles.indicator} />
             )}
