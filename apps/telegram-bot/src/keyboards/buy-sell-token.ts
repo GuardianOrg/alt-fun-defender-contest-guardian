@@ -118,84 +118,60 @@ export const ALL_SELL_TOKEN_CMDS = new Set<string>(
   Object.values(SELL_TOKEN_CMD),
 );
 
+type Button = { text: string; callback_data: string };
+
 /**
- * Pack a row of two preset buttons; the last row holds the leftover
- * fifth button alone when the preset count is odd.
+ * Pack preset buttons + the custom-X button into rows of three. With the
+ * default 5 presets this yields `[p0 p1 p2] [p3 p4 X]`; for other counts
+ * X drops onto its own row when the last preset row is already full.
  */
-const presetRowsBuy = (
-  tokenAddress: string,
-  presets: readonly number[],
-): { text: string; callback_data: string }[][] => {
-  const rows: { text: string; callback_data: string }[][] = [];
-  for (let i = 0; i < presets.length; i += 2) {
-    const row = [
-      {
-        text: `Buy ${presets[i]} USDC`,
-        callback_data: encodeCallback(
-          BUY_TOKEN_CMD.buyPreset,
-          tokenAddress,
-          String(presets[i]),
-        ),
-      },
-    ];
-    const right = presets[i + 1];
-    if (right !== undefined) {
-      row.push({
-        text: `Buy ${right} USDC`,
-        callback_data: encodeCallback(
-          BUY_TOKEN_CMD.buyPreset,
-          tokenAddress,
-          String(right),
-        ),
-      });
-    }
-    rows.push(row);
+const packRowsOfThree = (
+  presetButtons: Button[],
+  customButton: Button,
+): Button[][] => {
+  const buttons = [...presetButtons, customButton];
+  const rows: Button[][] = [];
+  for (let i = 0; i < buttons.length; i += 3) {
+    rows.push(buttons.slice(i, i + 3));
   }
   return rows;
 };
 
-const presetRowsSell = (
+const presetButtonsBuy = (
   tokenAddress: string,
   presets: readonly number[],
-): { text: string; callback_data: string }[][] => {
-  const rows: { text: string; callback_data: string }[][] = [];
-  for (let i = 0; i < presets.length; i += 2) {
-    const row = [
-      {
-        text: `Sell ${presets[i]}%`,
-        callback_data: encodeCallback(
-          SELL_TOKEN_CMD.sellPercent,
-          tokenAddress,
-          String(presets[i]),
-        ),
-      },
-    ];
-    const right = presets[i + 1];
-    if (right !== undefined) {
-      row.push({
-        text: `Sell ${right}%`,
-        callback_data: encodeCallback(
-          SELL_TOKEN_CMD.sellPercent,
-          tokenAddress,
-          String(right),
-        ),
-      });
-    }
-    rows.push(row);
-  }
-  return rows;
-};
+): Button[] =>
+  presets.map((amount) => ({
+    text: `Buy ${amount} USDC`,
+    callback_data: encodeCallback(
+      BUY_TOKEN_CMD.buyPreset,
+      tokenAddress,
+      String(amount),
+    ),
+  }));
+
+const presetButtonsSell = (
+  tokenAddress: string,
+  presets: readonly number[],
+): Button[] =>
+  presets.map((pct) => ({
+    text: `Sell ${pct}%`,
+    callback_data: encodeCallback(
+      SELL_TOKEN_CMD.sellPercent,
+      tokenAddress,
+      String(pct),
+    ),
+  }));
 
 export const buildBuyTokenKeyboard = (
   tokenAddress: string,
   buyPresetsUsdc: readonly number[],
 ): InlineKeyboard => [
-  ...presetRowsBuy(tokenAddress, buyPresetsUsdc),
+  ...packRowsOfThree(presetButtonsBuy(tokenAddress, buyPresetsUsdc), {
+    text: "Buy X USDC",
+    callback_data: encodeCallback(BUY_TOKEN_CMD.buyCustom, tokenAddress),
+  }),
   [
-    {
-      text: "Buy X USDC",
-      callback_data: encodeCallback(BUY_TOKEN_CMD.buyCustom, tokenAddress),
-    },
     {
       text: "🔄 Refresh",
       callback_data: encodeCallback(BUY_TOKEN_CMD.refresh, tokenAddress),
@@ -208,15 +184,14 @@ export const buildSellTokenKeyboard = (
   tokenAddress: string,
   sellPresetsPct: readonly number[],
 ): InlineKeyboard => [
-  ...presetRowsSell(tokenAddress, sellPresetsPct),
+  ...packRowsOfThree(presetButtonsSell(tokenAddress, sellPresetsPct), {
+    text: "Sell X%",
+    callback_data: encodeCallback(
+      SELL_TOKEN_CMD.sellCustomPercent,
+      tokenAddress,
+    ),
+  }),
   [
-    {
-      text: "Sell X%",
-      callback_data: encodeCallback(
-        SELL_TOKEN_CMD.sellCustomPercent,
-        tokenAddress,
-      ),
-    },
     {
       text: "🔄 Refresh",
       callback_data: encodeCallback(SELL_TOKEN_CMD.refresh, tokenAddress),
