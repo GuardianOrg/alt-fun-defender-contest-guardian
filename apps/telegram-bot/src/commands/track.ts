@@ -54,6 +54,17 @@ import {
 const TRADES_PER_CARD = 20;
 
 /**
+ * Telegram photo-caption budget — 1024 visible chars after HTML entity
+ * parsing (see https://core.telegram.org/bots/api#sendphoto). The /track
+ * payload is sent as a single photo+caption message when the chart
+ * renders, so the card + trade rows must fit inside this envelope. When
+ * the full body overflows we shed trade rows (oldest first via slice)
+ * until it fits — the chart is the headline, losing tail trades is
+ * acceptable, losing the chart isn't.
+ */
+const CAPTION_BUDGET = 1024;
+
+/**
  * Upper bound on how long we'll wait for the chart image before sending
  * the /track text reply without it. The renderer fans out to an HTTP
  * fetch + a wasm-backed PNG conversion, either of which can blow past
@@ -141,22 +152,61 @@ const formatRelative = (deltaSec: number): string => {
 /**
  * Compose the full /track HTML body: token card + recent trades. Kept
  * pure (no ctx, no fetches) so it can be exercised directly from tests
- * without the grammY harness.
+ * without the grammY harness. `maxTrades` caps the number of rows so
+ * callers can render a shorter body that fits the photo-caption budget
+ * (defaults to the full `TRADES_PER_CARD` for the text path).
  */
 export const renderTrackBody = (
   token: TokenInfo,
   trades: Trade[],
   nowSec: number = Math.floor(Date.now() / 1000),
+  maxTrades: number = TRADES_PER_CARD,
 ): string => {
   const card = renderTrackTokenCardText(token);
-  if (trades.length === 0) {
+  const capped = trades.slice(0, Math.max(0, maxTrades));
+  if (capped.length === 0) {
     return `${card}\n\n<b>Recent trades</b>\n<i>No trades yet.</i>`;
   }
-  const rows = trades
-    .slice(0, TRADES_PER_CARD)
+  const rows = capped
     .map((t) => renderTradeRow(t, nowSec))
     .join("\n");
   return `${card}\n\n<b>Recent trades</b>\n${rows}`;
+};
+
+/**
+ * Count visible chars after Telegram's HTML-entity parser strips tags
+ * and decodes the three escaped entities we emit (`&amp;`, `&lt;`,
+ * `&gt;`). Mirrors the budget Telegram applies to photo captions so we
+ * can fit-test a candidate body before issuing `sendPhoto`.
+ */
+const countVisibleChars = (html: string): number =>
+  html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .length;
+
+/**
+ * Render the /track body for the photo-caption path: starts at the
+ * full trade count and sheds rows until the visible-char count fits
+ * within `CAPTION_BUDGET`. The card alone is well under the budget on
+ * every observed token, so this loop always terminates with at least
+ * the card rendered.
+ */
+export const renderTrackCaption = (
+  token: TokenInfo,
+  trades: Trade[],
+  nowSec: number = Math.floor(Date.now() / 1000),
+): string => {
+  for (let n = Math.min(trades.length, TRADES_PER_CARD); n >= 0; n--) {
+    const body = renderTrackBody(token, trades, nowSec, n);
+    if (countVisibleChars(body) <= CAPTION_BUDGET) return body;
+  }
+  // Even the no-trades card overflows (pathological — would require a
+  // token name + status string > 1KB). Return it anyway; Telegram will
+  // reject and the caller logs + falls back to the text send path.
+  return renderTrackBody(token, [], nowSec, 0);
 };
 
 const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
@@ -180,7 +230,10 @@ const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
 ];
 
 interface TrackRender {
+  /** Full body for the text-only path (chart unavailable). */
   text: string;
+  /** Trimmed body for the photo-caption path (≤ Telegram caption budget). */
+  caption: string;
   keyboard: InlineKeyboard;
   chartPng: Uint8Array | null;
   tokenName: string;
@@ -228,6 +281,7 @@ const buildTrack = async (
     ok: true,
     render: {
       text: renderTrackBody(tokenResult.data, trades),
+      caption: renderTrackCaption(tokenResult.data, trades),
       keyboard: buildTrackKeyboard(tokenResult.data.address),
       chartPng,
       tokenName: tokenResult.data.name,
@@ -323,36 +377,39 @@ const trackLookupConversation = async (
       return;
     }
     if (activeOrigin) {
-      // Send the chart (if available) as a fresh message — bubble type
-      // can't change from text to photo via editMessageText — then edit
-      // the origin to show the text card.
       if (result.render.chartPng) {
-        try {
-          await msgCtx.replyWithPhoto(
-            new InputFile(
-              result.render.chartPng,
-              `${result.render.tokenName || "chart"}.png`,
-            ),
-          );
-        } catch (err) {
-          logger.warn("track chart send failed", { err });
-        }
-      }
-      const edited = await conversation.external((outside) =>
-        safeEditMessageById(
-          outside,
-          activeOrigin as MessageRef,
-          result.render.text,
-          {
-            parse_mode: "HTML",
-            reply_markup: { inline_keyboard: result.render.keyboard },
-            link_preview_options: { is_disabled: true },
-          },
-        ),
-      );
-      if (!edited) {
-        // Origin gone — fall back to the legacy fresh-reply path.
+        // Bubble type can't change from text to photo via
+        // editMessageText, so when the chart renders we delete the
+        // origin and send the merged photo+caption message as a fresh
+        // reply. The delete failure mode is benign (origin gone, edit
+        // window expired) — `sendTrackReply` still lands the merged
+        // message either way.
+        const ref = activeOrigin;
+        await conversation.external(async (outside) => {
+          try {
+            await outside.api.deleteMessage(ref.chatId, ref.messageId);
+          } catch (err) {
+            logger.debug("track: origin delete before photo failed", { err });
+          }
+        });
         await sendTrackReply(msgCtx, result.render);
+      } else {
+        const edited = await conversation.external((outside) =>
+          safeEditMessageById(
+            outside,
+            activeOrigin as MessageRef,
+            result.render.text,
+            {
+              parse_mode: "HTML",
+              reply_markup: { inline_keyboard: result.render.keyboard },
+              link_preview_options: { is_disabled: true },
+            },
+          ),
+        );
+        if (!edited) {
+          // Origin gone — fall back to the legacy fresh-reply path.
+          await sendTrackReply(msgCtx, result.render);
+        }
       }
     } else {
       await sendTrackReply(msgCtx, result.render);
@@ -363,12 +420,13 @@ const trackLookupConversation = async (
 };
 
 /**
- * Send the chart image (when available) then the token card + trades.
- * Telegram's photo-caption budget is 1024 chars — far short of the
- * card-plus-20-trades body — so the image and text are sent as two
- * separate messages with the buttons attached to the text. A photo
- * failure (Telegram 400 on a malformed PNG, e.g.) is logged and
- * swallowed so the user still gets the text card.
+ * Send the /track view as a single Telegram message: photo + caption +
+ * inline keyboard when the chart renders, plain text otherwise. The
+ * caption is pre-trimmed to fit Telegram's 1024-char photo-caption
+ * budget by `renderTrackCaption`; the text path uses the full body so
+ * users on tokens whose chart failed still see all 20 trade rows.
+ * A photo failure (Telegram 400 on a malformed PNG, e.g.) falls back
+ * to the text path so the user always sees the card.
  */
 const sendTrackReply = async (
   ctx: AppContext,
@@ -378,7 +436,13 @@ const sendTrackReply = async (
     try {
       await ctx.replyWithPhoto(
         new InputFile(render.chartPng, `${render.tokenName || "chart"}.png`),
+        {
+          caption: render.caption,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: render.keyboard },
+        },
       );
+      return;
     } catch (err) {
       logger.warn("track chart send failed", { err });
     }

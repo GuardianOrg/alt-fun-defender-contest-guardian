@@ -1,12 +1,23 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
+// Mock the chart builder at module level so vitest never has to load
+// the resvg-wasm module. Default returns null (chart absent) so tests
+// that don't care about the chart hit the text-only path identical to
+// what `buildTrackChartPng` produces from empty candles in production.
+// Tests that exercise the merged photo+caption path override via
+// `vi.mocked(buildTrackChartPng).mockResolvedValueOnce(...)`.
+vi.mock("../../lib/chart.js", () => ({
+  buildTrackChartPng: vi.fn().mockResolvedValue(null),
+}));
+
 import {
   makeBotHarness,
   withTelegramOk,
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
-import { renderTrackBody } from "../../commands/track.js";
+import { renderTrackBody, renderTrackCaption } from "../../commands/track.js";
+import { buildTrackChartPng } from "../../lib/chart.js";
 import type { Trade, TokenInfo } from "../../lib/api.js";
 
 const RPC_URL = "https://rpc.test.local";
@@ -196,6 +207,42 @@ describe("renderTrackBody (pure)", () => {
   });
 });
 
+describe("renderTrackCaption (pure)", () => {
+  const token = TOKEN_INFO_FIXTURE as TokenInfo;
+  const TELEGRAM_CAPTION_BUDGET = 1024;
+
+  /** Mirror the production HTML-strip used inside renderTrackCaption. */
+  const visibleLen = (html: string): number =>
+    html
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .length;
+
+  it("fits the full body inside Telegram's photo-caption budget", () => {
+    // 50 trades is well over the 20-row cap; the caption builder must
+    // shed rows until the visible char count is <= 1024 so sendPhoto
+    // won't 400 on the merged track message.
+    const many = Array.from({ length: 50 }, (_, i) =>
+      makeTrade(i + 1, i % 2 === 0),
+    );
+    const caption = renderTrackCaption(token, many, 1_700_000_000);
+    expect(visibleLen(caption)).toBeLessThanOrEqual(TELEGRAM_CAPTION_BUDGET);
+    // Card must always survive the trim — the chart is meaningless
+    // without the token name and metrics underneath.
+    expect(caption).toContain("Test Token");
+    expect(caption).toContain("Recent trades");
+  });
+
+  it("keeps every trade row when the full body already fits", () => {
+    const few = [makeTrade(1, true), makeTrade(2, false), makeTrade(3, true)];
+    const caption = renderTrackCaption(token, few, 1_700_000_000);
+    const rowCount = (caption.match(/(🟢 BUY|🔴 SELL)/g) ?? []).length;
+    expect(rowCount).toBe(3);
+  });
+});
+
 describe("/track command", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
@@ -329,6 +376,56 @@ describe("/track command", () => {
     const sends = calls.filter((c) => c.url.includes("/sendMessage"));
     expect(sends).toHaveLength(1);
     expect(String(sends[0]!.body.text)).toMatch(/unavailable|try again/i);
+  });
+
+  it("merges chart + token detail into one sendPhoto when the chart renders", async () => {
+    const h = harness();
+    mockApi(fetchSpy);
+    // Stub the chart so `buildTrack` sees a non-null PNG and routes
+    // through the merged photo+caption path. The bytes are arbitrary
+    // — sendPhoto is mocked-OK by `withTelegramOk` and never actually
+    // decoded.
+    vi.mocked(buildTrackChartPng).mockResolvedValueOnce(
+      new Uint8Array([1, 2, 3]),
+    );
+
+    await h.run(messageUpdate(`/track ${TOKEN_ADDR}`, 21));
+
+    const calls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
+    const sendPhoto = calls.find((c) => String(c[0]).includes("/sendPhoto"));
+    const sendMessage = calls.find((c) =>
+      String(c[0]).includes("/sendMessage"),
+    );
+    expect(sendPhoto).toBeDefined();
+    // No separate text bubble — the card + trades ride along as the
+    // photo caption so the user sees a single Telegram message.
+    expect(sendMessage).toBeUndefined();
+  });
+
+  it("origin-edit flow deletes the prompt bubble before the merged photo lands", async () => {
+    const h = harness();
+    mockApi(fetchSpy);
+
+    // First update opens the wizard (edits start bubble → prompt).
+    await h.run(callbackUpdate(START_CALLBACK.track));
+    fetchSpy.mockClear();
+    mockApi(fetchSpy);
+    vi.mocked(buildTrackChartPng).mockResolvedValueOnce(
+      new Uint8Array([1, 2, 3]),
+    );
+
+    // User supplies a valid address; chart is present so the conversation
+    // must delete the prompt bubble (text) and send a fresh photo+caption
+    // — Telegram doesn't allow editing a text bubble into a photo bubble.
+    await h.run(messageUpdate(TOKEN_ADDR, 22));
+
+    const calls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
+    const sendPhoto = calls.find((c) => String(c[0]).includes("/sendPhoto"));
+    const deleteMsg = calls.find((c) =>
+      String(c[0]).includes("/deleteMessage"),
+    );
+    expect(deleteMsg).toBeDefined();
+    expect(sendPhoto).toBeDefined();
   });
 
   it("still renders the card when the trades API is 503 (graceful degrade)", async () => {
