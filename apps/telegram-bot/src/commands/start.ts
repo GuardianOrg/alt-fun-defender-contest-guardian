@@ -6,6 +6,7 @@ import {
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
 import { replyWithActionCard } from "../lib/action-card.js";
+import { replyWithTrackCard } from "./track.js";
 import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
@@ -218,12 +219,13 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     const rawParam = typeof ctx.match === "string" ? ctx.match : undefined;
     const actionParam = parseActionStartParam(rawParam);
     if (actionParam !== null) {
-      // Deeplink from `/positions` inline `Buy` / `Sell` anchor — skip
-      // the welcome screen and route straight to the matching trade
-      // card. First-start callers still get the wallet+profile created
-      // above; we just don't re-render the welcome message on top of
-      // the action card. No referrer is captured from action payloads
-      // (those carry a token address, not a referral handle).
+      // Deeplink from `/positions` inline `Buy` / `Sell` / `Track`
+      // anchor — skip the welcome screen and route straight to the
+      // matching card. First-start callers still get the wallet +
+      // profile created above; we just don't re-render the welcome
+      // message on top of the action card. No referrer is captured
+      // from action payloads (those carry a token address, not a
+      // referral handle).
       if (isFirstStart) {
         await writeDefaultRewardsWallet(ctx.env, address as Address);
         await writeProfile(ctx.env.WALLET_KV, userId, {
@@ -231,12 +233,28 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
           referrer: null,
         });
       }
-      await replyWithActionCard(
-        ctx,
-        address,
-        actionParam.action,
-        actionParam.token,
-      );
+      if (actionParam.action === "track") {
+        // Surface a friendly reply on each `replyWithTrackCard` failure
+        // mode — silently dropping the deeplink leaves the user on a
+        // blank /start with no idea why their tap did nothing.
+        const outcome = await replyWithTrackCard(ctx, actionParam.token);
+        if (outcome === "not_found") {
+          await ctx.reply(
+            "Token not found — make sure the address is correct.",
+          );
+        } else if (outcome === "unavailable") {
+          await ctx.reply(
+            "Data temporarily unavailable — try again in a moment.",
+          );
+        }
+      } else {
+        await replyWithActionCard(
+          ctx,
+          address,
+          actionParam.action,
+          actionParam.token,
+        );
+      }
       return;
     }
 

@@ -1006,7 +1006,7 @@ describe("/start referral onboarding", () => {
  * screen and reply with a fresh buy/sell card pre-loaded for the
  * selected token.
  */
-describe("/start action deeplink (buy_/sell_)", () => {
+describe("/start action deeplink (buy_/sell_/track_)", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   const TOKEN = "0xaaaa000000000000000000000000000000000000";
@@ -1119,6 +1119,90 @@ describe("/start action deeplink (buy_/sell_)", () => {
     const allButtons = markup!.inline_keyboard.flat();
     expect(allButtons.some((b) => b.text === "Sell 100%")).toBe(true);
     expect(sent[0]!.text).not.toContain("Welcome to");
+  });
+
+  it("track_<addr> deeplink replies with the track card (token + trades + Buy/Sell + Open on Alt Fun) and skips the welcome screen", async () => {
+    const h = harnessWithRpc();
+    // The track route also fetches /trades and /chart — extend the
+    // shared action-fetch mock to cover both with empty payloads so
+    // the chart renderer short-circuits without resvg-wasm.
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://api.test.local")) {
+        if (
+          url.endsWith("/rewards-wallet") &&
+          (init?.method ?? "GET") === "POST"
+        ) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            rewardsWallet?: string;
+          };
+          return new Response(
+            JSON.stringify({
+              data: { rewardsWallet: (body.rewardsWallet ?? "").toLowerCase() },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes(`/api/v1/tokens/${TOKEN}`)) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                address: TOKEN,
+                name: "Test Token",
+                ticker: "ALPHA",
+                priceUsd: 0.05,
+                mcapUsd: 50_000,
+                change24h: 12.5,
+                ltChange24h: null,
+                volume24hUsd: 1000,
+                curveFilled: 0.42,
+                status: "curve",
+                ltPair: null,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes(`/api/v1/trades/${TOKEN}`)) {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        if (url.includes(`/api/v1/chart/${TOKEN}`)) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                candles: [],
+                currentRatio: 1,
+                currentExchangeRate: 1,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    await h.run(startUpdate(7, "private", { param: `track_${TOKEN}` }));
+    const sent = sentBodies();
+    expect(sent).toHaveLength(1);
+    const text = sent[0]!.text;
+    expect(text).toContain("Test Token");
+    expect(text).toContain("Recent trades");
+    // Welcome message would carry the address as a tap-to-copy block.
+    expect(text).not.toContain("Welcome to");
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; url?: string }[][] }
+      | undefined;
+    const labels =
+      markup?.inline_keyboard.flat().map((b) => b.text) ?? [];
+    expect(labels.some((t) => t.includes("Buy"))).toBe(true);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+    expect(labels).toContain("Open on Alt Fun");
   });
 
   it("falls back to the welcome screen for a malformed action payload", async () => {

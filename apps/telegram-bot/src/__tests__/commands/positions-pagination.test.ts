@@ -171,6 +171,14 @@ describe("pp callback (positions pagination)", () => {
       expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
       const ticker = buyLabel.slice("Buy ".length);
       expect(body.text).toContain(ticker);
+      // Ticker appears in the body as an anchor pointing at the bot's
+      // `?start=track_<addr>` deeplink.
+      expect(body.text).toMatch(
+        new RegExp(
+          `<a href="https://t\\.me/[^"]+\\?start=track_0x[0-9a-f]{40}">${ticker}</a>`,
+          "i",
+        ),
+      );
     }
   });
 

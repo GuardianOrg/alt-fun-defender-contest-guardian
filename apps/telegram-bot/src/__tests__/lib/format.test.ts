@@ -162,19 +162,53 @@ describe("formatBotPositionsResponse", () => {
     ]);
   });
 
-  it("does not emit `t.me?start=...` HTML anchors in the body any more", () => {
+  it("does not emit legacy `?start=buy_` / `?start=sell_` anchors", () => {
     // Regression: the legacy Buy/Sell anchors bounced through Telegram's
     // link-handler UI even inside the same bot's chat. Per-position
-    // callback buttons (see `buildPositionsPageKeyboard`) replace them.
+    // callback buttons (see `buildPositionsPageKeyboard`) replace them
+    // for buy/sell. Only the ticker carries an anchor — the `track_`
+    // variant — added in the same iteration.
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ticker: "ALPHA",
     });
-    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    const pages = formatBotPositionsResponse(
+      { open: [pos], realised: [] },
+      null,
+    );
     const joined = pages.map((p) => p.text).join("\n");
     expect(joined).not.toContain("?start=buy_");
     expect(joined).not.toContain("?start=sell_");
+    expect(joined).not.toContain("?start=track_");
     expect(joined).not.toContain("t.me/");
+  });
+
+  it("renders the open-position ticker as a `?start=track_<addr>` anchor when a botUsername is given", () => {
+    const pos = openPos({
+      token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ticker: "ALPHA",
+    });
+    const pages = formatBotPositionsResponse(
+      { open: [pos], realised: [] },
+      "CortisolTestBot",
+    );
+    const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).toContain(
+      `<a href="https://t.me/CortisolTestBot?start=track_${pos.token}">ALPHA</a>`,
+    );
+  });
+
+  it("does not link realised-position tickers (closed positions have no /track follow-up)", () => {
+    const pos = realisedPos({
+      token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      ticker: "BETA",
+    });
+    const pages = formatBotPositionsResponse(
+      { open: [], realised: [pos] },
+      "CortisolTestBot",
+    );
+    const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).not.toContain("track_");
   });
 
   it("does not emit openActions for realised (closed) positions", () => {

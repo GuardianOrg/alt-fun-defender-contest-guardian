@@ -390,6 +390,23 @@ const sendTrackReply = async (
   });
 };
 
+/**
+ * Render the full /track view as a fresh reply in the current chat —
+ * chart photo (if available) first, then the text card with its action
+ * keyboard. Shared between the `/track <addr>` slash entry and the
+ * `/start track_<addr>` deeplink fired by the inline ticker links on
+ * each open `/positions` row.
+ */
+export const replyWithTrackCard = async (
+  ctx: AppContext,
+  tokenAddress: string,
+): Promise<"ok" | "not_found" | "unavailable"> => {
+  const result = await buildTrack(ctx.env, tokenAddress);
+  if (!result.ok) return result.kind;
+  await sendTrackReply(ctx, result.render);
+  return "ok";
+};
+
 /** Render /track for a known address as a direct reply (no conversation). */
 const replyTrack = async (
   ctx: AppContext,

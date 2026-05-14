@@ -16,6 +16,7 @@ import {
   formatBotPositionsResponse,
   renderPaginatedPage,
 } from "../lib/format.js";
+import { BOT_NAME } from "../lib/branding.js";
 import { logger } from "../lib/logger.js";
 import { editToSubmenu } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
@@ -44,7 +45,8 @@ const renderPage = async (
   }
   if (!res.ok) return { outage: true };
 
-  const pages = formatBotPositionsResponse(res.data);
+  const botUsername = env.BOT_USERNAME?.trim() || BOT_NAME;
+  const pages = formatBotPositionsResponse(res.data, botUsername);
   // Clamp the requested page — positions may have shrunk since the
   // button was rendered, in which case `page` could exceed the new
   // page count.
