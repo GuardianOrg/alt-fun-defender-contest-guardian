@@ -160,6 +160,31 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
   });
 
+  // Every prompt that instructs the user to "Tap Home to exit" must
+  // carry the [← Back] [🏠 Home] inline row, or the user is told to tap
+  // a button that isn't on the message they're reading.
+  it("token-address prompt includes [← Back] [🏠 Home] nav buttons", async () => {
+    const h = makeBotHarness();
+    mockTokenAndRpc(fetchSpy);
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toMatch(/Tap Home to exit/);
+    const kb =
+      (send!.body.reply_markup as
+        | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
+        | undefined)?.inline_keyboard ?? [];
+    const navRow = kb.find((row) => row.some((b) => b.text === "🏠 Home"));
+    expect(navRow).toBeDefined();
+    expect(navRow!).toEqual([
+      { text: "← Back", callback_data: "nav:b" },
+      { text: "🏠 Home", callback_data: "nav:h" },
+    ]);
+  });
+
   it("sends error message and re-prompts when input has no valid address", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
@@ -176,6 +201,17 @@ describe("Buy flow (st:b button → conversation)", () => {
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toMatch(/Token not found|contract address/i);
+    // Token-not-found retry tells the user to "tap Home to exit", so it
+    // must also carry the nav row.
+    const kb =
+      (send!.body.reply_markup as
+        | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
+        | undefined)?.inline_keyboard ?? [];
+    expect(
+      kb.some((row) =>
+        row.some((b) => b.text === "🏠 Home" && b.callback_data === "nav:h"),
+      ),
+    ).toBe(true);
   });
 
   it("accepts a valid address and shows the buy token card", async () => {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_NAV_STACK,
   NAV_CALLBACK,
+  backHomeMarkup,
   backHomeRow,
   clearNavStack,
   popNavSnapshot,
@@ -36,6 +37,15 @@ describe("backHomeRow", () => {
     for (const b of backHomeRow()) {
       expect(b.callback_data.length).toBeLessThanOrEqual(64);
     }
+  });
+});
+
+describe("backHomeMarkup", () => {
+  it("wraps backHomeRow in a single-row inline_keyboard reply_markup", () => {
+    const markup = backHomeMarkup();
+    expect(markup).toEqual({ inline_keyboard: [backHomeRow()] });
+    expect(markup.inline_keyboard).toHaveLength(1);
+    expect(markup.inline_keyboard[0]).toHaveLength(2);
   });
 });
 

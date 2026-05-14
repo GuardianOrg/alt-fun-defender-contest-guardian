@@ -18,7 +18,7 @@ import {
   type BotReferralStats,
 } from "../lib/api.js";
 import { BOT_NAME } from "../lib/branding.js";
-import { backHomeRow } from "../lib/nav.js";
+import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { PinManager } from "../lib/pin.js";
@@ -501,6 +501,7 @@ const changeRewardsWalletConversation = async (
             "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
           ].join("\n"),
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, warn.message_id);
       const confirmMsg = await conversation.waitFor("message:text");
@@ -522,6 +523,7 @@ const changeRewardsWalletConversation = async (
             wrap(ctx,
               "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
             ),
+            { reply_markup: backHomeMarkup() },
           );
           await trackWorkflowMessage(conversation, retry.message_id);
           continue;
@@ -532,6 +534,7 @@ const changeRewardsWalletConversation = async (
             wrap(ctx,
               "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
             ),
+            { reply_markup: backHomeMarkup() },
           );
           await trackWorkflowMessage(conversation, retry.message_id);
           continue;

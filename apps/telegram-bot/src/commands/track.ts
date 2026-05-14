@@ -28,7 +28,7 @@ import {
 } from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
-import { backHomeRow } from "../lib/nav.js";
+import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
   formatToken18,
@@ -243,6 +243,7 @@ const trackLookupConversation = async (
   const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
+    reply_markup: backHomeMarkup(),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -266,6 +267,7 @@ const trackLookupConversation = async (
       const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
+        reply_markup: backHomeMarkup(),
       });
       await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
@@ -279,6 +281,7 @@ const trackLookupConversation = async (
         const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
+          reply_markup: backHomeMarkup(),
         });
         await trackWorkflowMessage(conversation, notFound.message_id);
         continue;

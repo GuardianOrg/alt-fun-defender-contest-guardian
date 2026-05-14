@@ -30,6 +30,7 @@ import {
   submitBuy,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
+import { backHomeMarkup } from "../lib/nav.js";
 import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
@@ -100,6 +101,7 @@ const buyLookupConversation = async (
   const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
+    reply_markup: backHomeMarkup(),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -123,6 +125,7 @@ const buyLookupConversation = async (
       const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
+        reply_markup: backHomeMarkup(),
       });
       await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
@@ -141,6 +144,7 @@ const buyLookupConversation = async (
         const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
+          reply_markup: backHomeMarkup(),
         });
         await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
@@ -203,6 +207,7 @@ const buyCustomConversation = async (
 
   const promptMsg = await ctx.reply(
     `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nTap Home to exit.`,
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -226,6 +231,7 @@ const buyCustomConversation = async (
     if (amount === null) {
       const retry = await msgCtx.reply(
         `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -233,6 +239,7 @@ const buyCustomConversation = async (
     if (amount < MIN_USDC_BUY_AMOUNT) {
       const retry = await msgCtx.reply(
         `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount.`,
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -260,6 +267,7 @@ const buyCustomConversation = async (
     if (usdcBalance === null) {
       const retry = await msgCtx.reply(
         `Unable to verify your USDC balance — please try again.`,
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -272,6 +280,7 @@ const buyCustomConversation = async (
         `Insufficient USDC balance.\n` +
           `You need $${totalNeeded.toFixed(2)} (amount + fees) but have ${formatUsdc6(usdcBalance)}.\n\n` +
           `Enter a smaller amount, or tap Home to exit.`,
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;

@@ -39,6 +39,19 @@ export const backHomeRow = (): InlineCallbackButton[] => [
   { text: HOME_LABEL, callback_data: NAV_CALLBACK.home },
 ];
 
+/**
+ * Standalone `[← Back] [🏠 Home]` reply markup for wizard prompts that
+ * otherwise have no inline keyboard. Without this, copy that instructs
+ * the user to "tap Home to exit" leaves them with no Home button on the
+ * very message making the offer — the parent menu's keyboard is still
+ * tappable but is often scrolled off-screen by the time the user reads
+ * the prompt. Use on every `ctx.reply` inside a wizard that prompts for
+ * text input.
+ */
+export const backHomeMarkup = (): { inline_keyboard: InlineKeyboard } => ({
+  inline_keyboard: [backHomeRow()],
+});
+
 /** Maximum nav-stack depth held per session. Older snapshots fall off
  * the bottom — Telegram's 64KB session blob and KV's per-key write
  * cost both prefer this stay tight. */

@@ -26,7 +26,11 @@ import {
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
-import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  pushNavSnapshot,
+  snapshotFromCallback,
+} from "../lib/nav.js";
 import { parseUserAmount } from "../lib/parse-number.js";
 import {
   sweepWorkflow,
@@ -195,6 +199,7 @@ const customSlippageConversation = async (
         "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -218,6 +223,7 @@ const customSlippageConversation = async (
     if (pct === null) {
       const retry = await ctx.reply(
         wrap(ctx, "Send a positive number like `2` or `0.5`."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -226,6 +232,7 @@ const customSlippageConversation = async (
     if (bps < 1) {
       const retry = await ctx.reply(
         wrap(ctx, "Slippage must be at least 0.01%. Send again."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -236,6 +243,7 @@ const customSlippageConversation = async (
           ctx,
           `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value.`,
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -349,6 +357,7 @@ const buyPresetSlotConversation = async (
         "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -366,6 +375,7 @@ const buyPresetSlotConversation = async (
     if (value === null) {
       const retry = await ctx.reply(
         wrap(ctx, "Send a positive USDC amount like `50`."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -376,6 +386,7 @@ const buyPresetSlotConversation = async (
           ctx,
           `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value.`,
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -386,6 +397,7 @@ const buyPresetSlotConversation = async (
           ctx,
           `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value.`,
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -464,6 +476,7 @@ const sellPresetSlotConversation = async (
         "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -481,6 +494,7 @@ const sellPresetSlotConversation = async (
     if (value === null) {
       const retry = await ctx.reply(
         wrap(ctx, "Send a number between 1 and 100."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -489,6 +503,7 @@ const sellPresetSlotConversation = async (
     if (rounded < 1 || rounded > 100) {
       const retry = await ctx.reply(
         wrap(ctx, "Percent must be between 1 and 100. Send again."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;

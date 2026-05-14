@@ -24,7 +24,11 @@ import {
   parsePrivateKey,
   type StoredWallet,
 } from "../lib/wallet.js";
-import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  pushNavSnapshot,
+  snapshotFromCallback,
+} from "../lib/nav.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -602,6 +606,7 @@ const importWalletConversation = async (
         "Tap Home to exit.",
       ].join("\n"),
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -632,6 +637,7 @@ const importWalletConversation = async (
         wrap(ctx,
           "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -666,6 +672,7 @@ const importWalletConversation = async (
         wrap(ctx,
           "That private key is invalid. Paste it again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -774,6 +781,7 @@ const deleteWalletConversation = async (
     wrap(ctx,
       `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or tap Home to exit.`,
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmPrompt.message_id);
 
