@@ -663,4 +663,111 @@ describe("/settings command", () => {
       expect(text).not.toMatch(/^\d+\.\s/m);
     });
   });
+
+  // Anti-phishing phrase moved from /security to /settings (security
+  // UI consolidation). Phrase row sits above the Degen mode toggle.
+  describe("Anti-phishing phrase (moved from /security)", () => {
+    it("renders Set anti-phishing phrase as a single-button row when no phrase is set", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      const rows = (
+        send!.body.reply_markup as {
+          inline_keyboard: { text: string }[][];
+        }
+      ).inline_keyboard;
+      const phraseRow = rows.find((r) =>
+        r.some((b) => b.text === "Set anti-phishing phrase"),
+      );
+      expect(phraseRow).toBeDefined();
+      expect((send!.body.text as string)).toContain(
+        "Anti-phishing phrase: not set",
+      );
+    });
+
+    it("saves the phrase and surfaces Change / Clear buttons", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.phraseSet));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("blue heron", 3));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(settingsCommand(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(send!.body.text).toContain('Anti-phishing phrase: "blue heron"');
+      const buttonTexts = (
+        send!.body.reply_markup as {
+          inline_keyboard: { text: string }[][];
+        }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.text);
+      expect(buttonTexts).toContain("Change phrase");
+      expect(buttonTexts).toContain("Clear phrase");
+    });
+
+    it("Clear phrase wipes the session phrase and the panel updates", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.phraseSet));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("blue heron", 3));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.phraseClear, 4));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer!.body.text).toContain("Phrase cleared");
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(edit!.body.text).toContain("Anti-phishing phrase: not set");
+    });
+
+    it("rejects a phrase longer than 64 chars and stays in the wizard", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.phraseSet));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      const tooLong = "x".repeat(65);
+      await h.run(textUpdate(tooLong, 3));
+      const reply = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Phrase too long/.test(c.body.text as string),
+      );
+      expect(reply).toBeDefined();
+    });
+
+    it("the phrase row sits above the Degen mode toggle", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      const rows = (
+        send!.body.reply_markup as {
+          inline_keyboard: { text: string }[][];
+        }
+      ).inline_keyboard;
+      const phraseRowIdx = rows.findIndex((r) =>
+        r.some((b) => b.text.includes("anti-phishing phrase")),
+      );
+      const degenRowIdx = rows.findIndex((r) =>
+        r.some((b) => b.text.includes("Degen mode")),
+      );
+      expect(phraseRowIdx).toBeGreaterThanOrEqual(0);
+      expect(degenRowIdx).toBeGreaterThan(phraseRowIdx);
+    });
+  });
 });
