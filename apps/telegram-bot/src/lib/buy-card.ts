@@ -1,7 +1,7 @@
 import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
-  normaliseDefaultBuyUsdc,
+  normaliseBuyPresets,
 } from "../keyboards/buy-sell-token.js";
 import { fetchToken } from "./api.js";
 import { fetchUsdcBalance } from "./rpc.js";
@@ -60,11 +60,14 @@ export const showBuyCardForAddress = async (
     : null;
 
   const cardText = renderBuyTokenCardText(token, usdcBalance);
-  const defaultBuyUsdc = normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc);
+  const buyPresets = normaliseBuyPresets(
+    ctx.session.buyPresetsUsdc,
+    ctx.session.defaultBuyUsdc,
+  );
   await ctx.reply(cardText, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: buildBuyTokenKeyboard(token.address, defaultBuyUsdc),
+      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
     },
     link_preview_options: { is_disabled: true },
   });
