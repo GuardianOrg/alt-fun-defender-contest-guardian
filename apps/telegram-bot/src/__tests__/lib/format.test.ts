@@ -10,6 +10,7 @@ import {
   formatUsdc,
   POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
+  POSITIONS_REFRESH_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
@@ -391,10 +392,19 @@ describe("buildPositionsPageKeyboard", () => {
   const TOKEN_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const TOKEN_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-  it("returns a Back/Home-only keyboard when there are no open actions and only one page", () => {
+  it("returns a Refresh + Back/Home keyboard when there are no open actions and only one page", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, []);
     expect(kb.inline_keyboard).toEqual([
-      [{ text: "← Back", callback_data: "nav:b" }, { text: "🏠 Home", callback_data: "nav:h" }],
+      [
+        {
+          text: "🔄 Refresh",
+          callback_data: `${POSITIONS_REFRESH_CALLBACK_CMD}:0:${WALLET}`,
+        },
+      ],
+      [
+        { text: "← Back", callback_data: "nav:b" },
+        { text: "🏠 Home", callback_data: "nav:h" },
+      ],
     ]);
   });
 
@@ -404,8 +414,8 @@ describe("buildPositionsPageKeyboard", () => {
       { token: TOKEN_B, ticker: "BETA" },
     ]);
     const rows = kb.inline_keyboard;
-    // Two action rows + the trailing Close row.
-    expect(rows).toHaveLength(3);
+    // Two action rows + refresh row + the trailing Back/Home row.
+    expect(rows).toHaveLength(4);
     expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     expect(rows[0]![0]!.callback_data).toBe(
       `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
@@ -414,7 +424,11 @@ describe("buildPositionsPageKeyboard", () => {
       `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
     );
     expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[2]![0]!.callback_data).toBe(
+      `${POSITIONS_REFRESH_CALLBACK_CMD}:0:${WALLET}`,
+    );
+    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("truncates a long ticker in the button label only (callback_data carries the address)", () => {

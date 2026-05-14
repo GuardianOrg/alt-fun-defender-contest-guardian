@@ -302,6 +302,12 @@ export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
  */
 export const POSITIONS_BUY_CALLBACK_CMD = "pb";
 export const POSITIONS_SELL_CALLBACK_CMD = "ps";
+/**
+ * Refresh button on the positions card — re-fetches the wallet's
+ * positions and re-renders the same page in place so unrealised PnL,
+ * proceeds, and realised numbers reflect the latest indexer state.
+ */
+export const POSITIONS_REFRESH_CALLBACK_CMD = "pr";
 
 export interface InlineKeyboardButton {
   text: string;
@@ -409,6 +415,16 @@ export const buildPositionsPageKeyboard = (
     }
   }
   if (nav.length > 0) rows.push(nav);
+  rows.push([
+    {
+      text: "🔄 Refresh",
+      callback_data: encodeCallback(
+        POSITIONS_REFRESH_CALLBACK_CMD,
+        String(page),
+        wallet,
+      ),
+    },
+  ]);
   rows.push(backHomeRow());
   return { inline_keyboard: rows };
 };
