@@ -19,6 +19,11 @@ export type InlineKeyboard = InlineKeyboardButton[][];
  * Short callback codes — each chosen to stay well inside the 64-byte
  * `callback_data` budget even when combined with a `w_xxxxxx` walletId
  * arg (`ws:w_xxxxxx` = 11 bytes).
+ *
+ * The `wp*` / `wl*` codes own the PIN and withdrawal-lock surfaces
+ * that moved out of `/security` into the `/wallet` panel — each
+ * panel re-renders itself on action, which means each panel needs
+ * its own callback prefix.
  */
 export const WALLET_CALLBACK = {
   create: "wc",
@@ -37,7 +42,23 @@ export const WALLET_CALLBACK = {
   exportDelete: "wed",
   delete: "wd",
   withdraw: "ww",
+  pinSet: "wps",
+  pinChange: "wpc",
+  pinReset: "wpr",
+  pinCancelReset: "wprc",
+  pinCompleteReset: "wprd",
+  lockEnable: "wle",
+  lockDisable: "wld",
+  lockCancelDisable: "wlc",
 } as const;
+
+export interface WalletSecurityStatus {
+  pinSet: boolean;
+  pinResetPending: boolean;
+  pinResetReady: boolean;
+  withdrawLockEnabled: boolean;
+  withdrawDisablePending: boolean;
+}
 
 const truncateAddress = (addr: string): string =>
   `${addr.slice(0, 6)}…${addr.slice(-4)}`;
@@ -52,6 +73,7 @@ const truncateAddress = (addr: string): string =>
 export const buildWalletMainKeyboard = (
   hasWallets: boolean,
   hasActive: boolean,
+  security: WalletSecurityStatus,
 ): InlineKeyboard => {
   const rows: InlineKeyboard = [
     [
@@ -69,11 +91,77 @@ export const buildWalletMainKeyboard = (
       { text: "Export key", callback_data: WALLET_CALLBACK.exportKey },
     ]);
   }
+  rows.push(buildPinRow(security));
   if (hasActive) {
-    rows.push([{ text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw }]);
+    rows.push([
+      { text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw },
+      buildLockButton(security),
+    ]);
+  } else {
+    rows.push([buildLockButton(security)]);
   }
   rows.push(backHomeRow());
   return rows;
+};
+
+/**
+ * PIN row reflects the current PIN state so users never see a button
+ * that would immediately error: no PIN yet → just Set PIN; pending
+ * reset → revoke / complete only; otherwise → Change / Reset.
+ */
+const buildPinRow = (
+  security: WalletSecurityStatus,
+): InlineCallbackButton[] => {
+  if (!security.pinSet) {
+    return [{ text: "Set PIN", callback_data: WALLET_CALLBACK.pinSet }];
+  }
+  if (security.pinResetReady) {
+    return [
+      {
+        text: "Complete PIN reset",
+        callback_data: WALLET_CALLBACK.pinCompleteReset,
+      },
+      { text: "Cancel reset", callback_data: WALLET_CALLBACK.pinCancelReset },
+    ];
+  }
+  if (security.pinResetPending) {
+    return [
+      {
+        text: "Cancel PIN reset",
+        callback_data: WALLET_CALLBACK.pinCancelReset,
+      },
+    ];
+  }
+  return [
+    { text: "Change PIN", callback_data: WALLET_CALLBACK.pinChange },
+    { text: "Reset PIN", callback_data: WALLET_CALLBACK.pinReset },
+  ];
+};
+
+/**
+ * Withdrawal-lock toggle button. The leading 🟢 / 🔴 indicator
+ * replaces the old "Enable" / "Disable" word so the on/off state is
+ * legible at a glance next to the Withdraw button.
+ */
+const buildLockButton = (
+  security: WalletSecurityStatus,
+): InlineCallbackButton => {
+  if (!security.withdrawLockEnabled) {
+    return {
+      text: "🔴 Withdrawal lock",
+      callback_data: WALLET_CALLBACK.lockEnable,
+    };
+  }
+  if (security.withdrawDisablePending) {
+    return {
+      text: "🟢 Withdrawal lock (cancel disable)",
+      callback_data: WALLET_CALLBACK.lockCancelDisable,
+    };
+  }
+  return {
+    text: "🟢 Withdrawal lock",
+    callback_data: WALLET_CALLBACK.lockDisable,
+  };
 };
 
 /**

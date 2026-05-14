@@ -24,7 +24,10 @@ import {
   formatBpsLabel,
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
-import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import {
+  withAntiPhishing,
+  wrapWithCtxPhrase as wrap,
+} from "../lib/anti-phishing.js";
 import {
   haltAndForward,
   isOtherSlashCommand,
@@ -57,6 +60,14 @@ const MAX_SLIPPAGE_BPS = 5_000;
 const BUY_PRESETS_LENGTH = 5;
 const SELL_PRESETS_LENGTH = 5;
 
+/**
+ * Cap on the anti-phishing phrase length. Matches the legacy
+ * `/security` panel limit so users coming over from the old surface
+ * see the same constraint. 64 chars is more than enough for a
+ * recognisable token without dominating the prefixed message body.
+ */
+const MAX_PHRASE_LEN = 64;
+
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
 
@@ -73,6 +84,7 @@ const readStatus = (ctx: AppContext): SettingsStatus => ({
   slippageBps: ctx.session.slippageBps,
   defaultBuyUsdc: ctx.session.defaultBuyUsdc,
   degenMode: ctx.session.degenMode,
+  antiPhishingPhrase: ctx.session.antiPhishingPhrase ?? null,
 });
 
 const readBuyPresets = (session: SessionData): number[] =>
@@ -87,6 +99,9 @@ const renderMainStatusText = (status: SettingsStatus): string =>
     "",
     `• Slippage: ${formatBpsLabel(status.slippageBps)}`,
     `• Degen mode: ${status.degenMode ? "on" : "off"}`,
+    status.antiPhishingPhrase === null
+      ? "• Anti-phishing phrase: not set"
+      : `• Anti-phishing phrase: "${status.antiPhishingPhrase}"`,
     "",
     "Tap Buy Settings or Sell Settings to customize the preset buttons.",
   ].join("\n");
@@ -518,6 +533,75 @@ const sellPresetSlotConversation = async (
   }
 };
 
+/**
+ * Conversation: set or change the anti-phishing phrase. Lives on the
+ * `/settings` panel above [Degen mode]; lands the user back on a
+ * refreshed settings panel whose header reflects the new phrase. The
+ * inner ctx.session is a snapshot captured at enter, so the final
+ * reply explicitly uses `withAntiPhishing(..., trimmed)` instead of
+ * `wrap` — otherwise the header would render the pre-change phrase
+ * (or static fallback) even though the body below already reflects
+ * the new value.
+ */
+const setPhraseConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
+    wrap(
+      ctx,
+      [
+        "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
+        "",
+        `Max ${MAX_PHRASE_LEN} characters.`,
+      ].join("\n"),
+    ),
+    { reply_markup: backHomeMarkup() },
+  );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  while (true) {
+    const reply = await conversation.waitFor("message:text");
+    const text = reply.message.text;
+    const trimmed = text.trim();
+    if (isOtherSlashCommand(trimmed)) await haltAndForward(conversation);
+    if (await tryAddressBuyIntercept(conversation, trimmed)) return;
+    await trackWorkflowMessage(conversation, reply.message.message_id);
+    if (trimmed.length === 0) {
+      const retry = await ctx.reply(
+        wrap(ctx, "Phrase cannot be empty. Send again."),
+        { reply_markup: backHomeMarkup() },
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
+    if (trimmed.length > MAX_PHRASE_LEN) {
+      const retry = await ctx.reply(
+        wrap(
+          ctx,
+          `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
+        ),
+        { reply_markup: backHomeMarkup() },
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
+    await conversation.external((outside) => {
+      outside.session.antiPhishingPhrase = trimmed;
+    });
+    const state = await conversation.external((outside) =>
+      renderMainState(outside),
+    );
+    await ctx.reply(
+      withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
+      { reply_markup: state.reply_markup },
+    );
+    await sweepWorkflow(conversation);
+    return;
+  }
+};
+
 export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
   bot.use(
     createConversation(customSlippageConversation, "settings-custom-slippage"),
@@ -542,6 +626,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       "settings-sell-preset-slot",
     ),
   );
+  bot.use(createConversation(setPhraseConversation, "settings-set-phrase"));
 
   bot.command("settings", async (ctx) => {
     if (!ctx.from) {
@@ -687,6 +772,27 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       await ctx.conversation.enter("settings-sell-preset-slot", idx, origin);
     },
   );
+
+  bot.callbackQuery(SETTINGS_CALLBACK.phraseSet, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("settings-set-phrase");
+  });
+
+  bot.callbackQuery(SETTINGS_CALLBACK.phraseClear, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    ctx.session.antiPhishingPhrase = undefined;
+    await editToState(ctx, renderMainState(ctx));
+    await ctx.answerCallbackQuery({ text: "Phrase cleared." });
+  });
 
   bot.callbackQuery(SETTINGS_CALLBACK.degenToggle, async (ctx) => {
     if (!ctx.from) {

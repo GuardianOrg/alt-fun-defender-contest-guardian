@@ -6,7 +6,11 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { WALLET_CALLBACK } from "../../keyboards/wallet-actions.js";
-import { PinManager } from "../../lib/pin.js";
+import { PinManager, PIN_RESET_DELAY_MS } from "../../lib/pin.js";
+import {
+  SecurityState,
+  WITHDRAW_LOCK_DISABLE_COOLDOWN_MS,
+} from "../../lib/security-state.js";
 import {
   MAX_WALLETS_PER_USER,
   WalletManager,
@@ -99,9 +103,14 @@ describe("/wallet command", () => {
       expect(keyboard.flat().map((b) => b.text)).toEqual([
         "Create",
         "Import",
+        "Set PIN",
+        "🔴 Withdrawal lock",
         "← Back",
         "🏠 Home",
       ]);
+      // PIN + withdrawal-lock status lines moved from /security into /wallet.
+      expect(send!.body.text).toContain("PIN: not set");
+      expect(send!.body.text).toContain("Withdrawal lock: off");
     });
 
     it("lists existing wallets with the active marker and the full action set", async () => {
@@ -134,7 +143,9 @@ describe("/wallet command", () => {
         "Rename",
         "Delete",
         "Export key",
+        "Set PIN",
         "Withdraw",
+        "🔴 Withdrawal lock",
         "← Back",
         "🏠 Home",
       ]);
@@ -800,6 +811,144 @@ describe("/wallet command", () => {
       await h.run(textUpdate("DELETE", 6));
       expect(await wm.listWallets(7)).toHaveLength(0);
       expect(await buildPm(h).isPinSet(7)).toBe(true);
+    });
+  });
+
+  // The PIN + withdrawal-lock surfaces moved out of /security into
+  // /wallet (issue: security UI consolidation). The conversations
+  // and one-tap callbacks are now owned by `commands/wallet.ts`; the
+  // tests below pin that contract so a regression to the legacy
+  // /security panel doesn't ship silently.
+  describe("PIN + withdrawal lock (moved from /security)", () => {
+    const buildPm = (h: BotTestHarness): PinManager =>
+      new PinManager(h.kv as unknown as KVNamespace, { saltRounds: 4 });
+    const buildSec = (h: BotTestHarness): SecurityState =>
+      new SecurityState(h.kv as unknown as KVNamespace);
+
+    it("Change/Reset PIN buttons surface once a PIN is set", async () => {
+      const h = makeBotHarness();
+      await buildPm(h).setPin(7, "123456");
+      await h.run(walletUpdate(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      expect(send!.body.text).toContain("PIN: set");
+      const buttonTexts = (
+        send!.body.reply_markup as {
+          inline_keyboard: { text: string }[][];
+        }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.text);
+      expect(buttonTexts).toEqual(
+        expect.arrayContaining(["Change PIN", "Reset PIN"]),
+      );
+    });
+
+    it("Set PIN wizard set+confirm stores a bcrypt hash (not plaintext)", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinSet));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 4));
+      const pm = buildPm(h);
+      expect(await pm.isPinSet(7)).toBe(true);
+      const raw = await h.kv.get("pin:7:hash");
+      expect(String(raw)).not.toContain("123456");
+      expect(String(raw)).toMatch(/\$2[aby]\$/);
+    });
+
+    it("Withdrawal lock enable flips the flag and the panel reflects 🟢", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(WALLET_CALLBACK.lockEnable));
+      expect((await buildSec(h).getWithdrawLock(7)).enabled).toBe(true);
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(edit!.body.text).toContain("Withdrawal lock: on");
+      const buttonTexts = (
+        edit!.body.reply_markup as {
+          inline_keyboard: { text: string }[][];
+        }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.text);
+      expect(buttonTexts).toContain("🟢 Withdrawal lock");
+    });
+
+    it("Disable inside the 24h cooldown surfaces a pending toast and leaves the lock on", async () => {
+      const h = makeBotHarness();
+      await buildSec(h).enableWithdrawLock(7);
+      await h.run(callbackUpdate(WALLET_CALLBACK.lockDisable));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect((answer!.body.text as string)).toMatch(/Disable requested/);
+      const lock = await buildSec(h).getWithdrawLock(7);
+      expect(lock.enabled).toBe(true);
+      expect(lock.disableRequestedAt).not.toBeNull();
+    });
+
+    it("Disable after the 24h cooldown elapsed actually clears the lock", async () => {
+      const h = makeBotHarness();
+      const oldRequestedAt =
+        Date.now() - (WITHDRAW_LOCK_DISABLE_COOLDOWN_MS + 1000);
+      await h.kv.put(
+        "security:7:withdraw-lock",
+        JSON.stringify({ enabled: true, disableRequestedAt: oldRequestedAt }),
+      );
+      await h.run(callbackUpdate(WALLET_CALLBACK.lockDisable));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer!.body.text).toContain("Withdrawal lock disabled");
+      expect((await buildSec(h).getWithdrawLock(7)).enabled).toBe(false);
+    });
+
+    it("Reset PIN records a pending request and the panel reflects it", async () => {
+      const h = makeBotHarness();
+      await buildPm(h).setPin(7, "123456");
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinReset));
+      const status = await buildPm(h).getResetStatus(7);
+      expect(status.kind).toBe("pending");
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(edit!.body.text).toMatch(/PIN: reset requested/);
+    });
+
+    it("Cancel PIN reset wipes the pending request", async () => {
+      const h = makeBotHarness();
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+      await pm.requestReset(7);
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinCancelReset));
+      expect((await pm.getResetStatus(7)).kind).toBe("none");
+    });
+
+    it("Complete reset after 24h replaces the PIN with a freshly-confirmed new one", async () => {
+      const h = makeBotHarness();
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+      const oldRequestedAt = Date.now() - (PIN_RESET_DELAY_MS + 1000);
+      await h.kv.put(
+        "pin:7:reset",
+        JSON.stringify({ requestedAt: oldRequestedAt }),
+      );
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinCompleteReset));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("999999", 3));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("999999", 4));
+      const newOk = await pm.verifyPin(7, "999999");
+      expect(newOk.ok).toBe(true);
+      const oldRejected = await pm.verifyPin(7, "123456");
+      expect(oldRejected.ok).toBe(false);
     });
   });
 });

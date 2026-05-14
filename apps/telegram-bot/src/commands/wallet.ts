@@ -10,6 +10,7 @@ import {
   WALLET_CALLBACK,
   buildWalletMainKeyboard,
   buildWalletSwitchKeyboard,
+  type WalletSecurityStatus,
 } from "../keyboards/wallet-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import {
@@ -17,7 +18,16 @@ import {
   isOtherSlashCommand,
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
-import { PinManager } from "../lib/pin.js";
+import { PIN_RESET_DELAY_MS, PinManager, type ResetStatus } from "../lib/pin.js";
+import {
+  askNewPin,
+  formatHoursRemaining,
+  verifyExistingPin,
+} from "../lib/pin-flow.js";
+import {
+  SecurityState,
+  WITHDRAW_LOCK_DISABLE_COOLDOWN_MS,
+} from "../lib/security-state.js";
 import {
   DuplicateWalletError,
   InvalidPrivateKeyError,
@@ -109,10 +119,55 @@ const safeEditMessageText = async (
 const truncateAddress = (addr: string): string =>
   `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
+/**
+ * PIN + withdrawal-lock status lines live on the `/wallet` panel
+ * after the wallet list — the same surface that hosts the PIN and
+ * lock action buttons. The text is the same shape the legacy
+ * `/security` panel used; we just moved its home.
+ */
+const renderSecurityStatusLines = (
+  security: WalletSecurityStatus,
+  now: number,
+  pinResetReadyAt: number | null,
+): string[] => {
+  const lines: string[] = [];
+  if (!security.pinSet) {
+    lines.push("• PIN: not set");
+  } else if (security.pinResetReady) {
+    lines.push(
+      "• PIN: reset ready — tap [Complete PIN reset] to set a new PIN",
+    );
+  } else if (security.pinResetPending && pinResetReadyAt !== null) {
+    lines.push(
+      `• PIN: reset requested, available in ~${formatHoursRemaining(pinResetReadyAt, now)} — tap [Cancel PIN reset] if you didn't request this`,
+    );
+  } else {
+    lines.push("• PIN: set");
+  }
+  if (!security.withdrawLockEnabled) {
+    lines.push("• Withdrawal lock: off");
+  } else if (security.withdrawDisablePending) {
+    lines.push(
+      "• Withdrawal lock: on (disable pending — 24h cooldown in progress)",
+    );
+  } else {
+    lines.push("• Withdrawal lock: on");
+  }
+  return lines;
+};
+
 const renderMainText = (
   wallets: StoredWallet[],
   active: StoredWallet | null,
+  security: WalletSecurityStatus,
+  now: number,
+  pinResetReadyAt: number | null,
 ): string => {
+  const statusLines = renderSecurityStatusLines(
+    security,
+    now,
+    pinResetReadyAt,
+  );
   if (wallets.length === 0) {
     // "Import from Web App" stays first-class per AGENTS.md "Key
     // Constraints" so users who already have a Privy wallet see the
@@ -122,6 +177,8 @@ const renderMainText = (
       "",
       "• Create — generate a new bot-managed wallet to start trading",
       "• Import — paste an existing private key (including a Privy key exported from the Web App)",
+      "",
+      ...statusLines,
     ].join("\n");
   }
   const lines = [`Wallets (${wallets.length}/${MAX_WALLETS_PER_USER})`, ""];
@@ -134,6 +191,7 @@ const renderMainText = (
   if (active) {
     lines.push("", "* = active wallet (used for buy / sell / withdraw)");
   }
+  lines.push("", ...statusLines);
   return lines.join("\n");
 };
 
@@ -143,8 +201,41 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
 const buildPinManager = (env: AppContext["env"]): PinManager =>
   new PinManager(env.WALLET_KV, { saltRounds: env.PIN_SALT_ROUNDS });
 
+const buildSecurityState = (env: AppContext["env"]): SecurityState =>
+  new SecurityState(env.WALLET_KV);
+
+interface PinResetSummary {
+  status: WalletSecurityStatus;
+  resetReadyAt: number | null;
+}
+
+const readSecurityStatus = async (
+  env: AppContext["env"],
+  userId: number,
+): Promise<PinResetSummary> => {
+  const pin = buildPinManager(env);
+  const sec = buildSecurityState(env);
+  const [pinSet, reset, lock] = await Promise.all([
+    pin.isPinSet(userId),
+    pin.getResetStatus(userId),
+    sec.getWithdrawLock(userId),
+  ]);
+  const status: WalletSecurityStatus = {
+    pinSet,
+    pinResetPending: reset.kind === "pending",
+    pinResetReady: reset.kind === "ready",
+    withdrawLockEnabled: lock.enabled,
+    withdrawDisablePending: lock.disableRequestedAt !== null,
+  };
+  const resetReadyAt =
+    reset.kind === "pending" || reset.kind === "ready"
+      ? reset.requestedAt + PIN_RESET_DELAY_MS
+      : null;
+  return { status, resetReadyAt };
+};
+
 const renderMainState = async (
-  wm: WalletManager,
+  env: AppContext["env"],
   userId: number,
 ): Promise<{
   text: string;
@@ -152,14 +243,17 @@ const renderMainState = async (
     inline_keyboard: ReturnType<typeof buildWalletMainKeyboard>;
   };
 }> => {
+  const wm = new WalletManager(env.WALLET_KV, env.MASTER_KEY);
   const wallets = await wm.listWallets(userId);
   const active = await wm.getActive(userId);
+  const { status, resetReadyAt } = await readSecurityStatus(env, userId);
   return {
-    text: renderMainText(wallets, active),
+    text: renderMainText(wallets, active, status, Date.now(), resetReadyAt),
     reply_markup: {
       inline_keyboard: buildWalletMainKeyboard(
         wallets.length > 0,
         active !== null,
+        status,
       ),
     },
   };
@@ -167,8 +261,7 @@ const renderMainState = async (
 
 const editToMain = async (ctx: AppContext): Promise<void> => {
   if (!ctx.from || !ctx.callbackQuery?.message) return;
-  const wm = buildManager(ctx.env);
-  const state = await renderMainState(wm, ctx.from.id);
+  const state = await renderMainState(ctx.env, ctx.from.id);
   await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
@@ -241,7 +334,7 @@ const renameWalletConversation = async (
     throw err;
   }
   const state = await conversation.external((outerCtx) =>
-    renderMainState(buildManager(outerCtx.env), fromId),
+    renderMainState(outerCtx.env, fromId),
   );
   await reply.reply(wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
@@ -690,7 +783,7 @@ const importWalletConversation = async (
     const wallet = result.wallet;
 
     const state = await conversation.external((outside) =>
-      renderMainState(buildManager(outside.env), userId),
+      renderMainState(outside.env, userId),
     );
     await ctx.reply(
       wrap(ctx,
@@ -816,7 +909,7 @@ const deleteWalletConversation = async (
   }
 
   const state = await conversation.external((outside) =>
-    renderMainState(buildManager(outside.env), userId),
+    renderMainState(outside.env, userId),
   );
   await ctx.reply(
     wrap(ctx,
@@ -824,6 +917,148 @@ const deleteWalletConversation = async (
     ),
     { reply_markup: state.reply_markup },
   );
+  await sweepWorkflow(conversation);
+};
+
+/**
+ * Set-PIN conversation — drives the first-time PIN creation gated on
+ * the `/wallet` panel's [Set PIN] button. Persists the new PIN via
+ * `PinManager.setPin` and lands the user back on a refreshed wallet
+ * panel reflecting `PIN: set`.
+ */
+const setPinConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
+  const newPin = await askNewPin(
+    conversation,
+    ctx,
+    chatId,
+    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+  );
+  await conversation.external((outside) =>
+    buildPinManager(outside.env).setPin(userId, newPin),
+  );
+  const state = await conversation.external((outside) =>
+    renderMainState(outside.env, userId),
+  );
+  await ctx.reply(wrap(ctx, `PIN set.\n\n${state.text}`), {
+    reply_markup: state.reply_markup,
+  });
+  await sweepWorkflow(conversation);
+};
+
+/**
+ * Change-PIN conversation. Verifies the existing PIN first (subject
+ * to the 5-attempt lockout in `PinManager.verifyPin`) before
+ * prompting for the new PIN — same gate the legacy `/security` panel
+ * enforced.
+ */
+const changePinConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
+  const ok = await verifyExistingPin(
+    conversation,
+    ctx,
+    userId,
+    chatId,
+    "PIN change",
+  );
+  if (!ok) {
+    await sweepWorkflow(conversation);
+    return;
+  }
+  const newPin = await askNewPin(
+    conversation,
+    ctx,
+    chatId,
+    "Send the new 6-digit PIN (digits only).",
+  );
+  await conversation.external((outside) =>
+    buildPinManager(outside.env).setPin(userId, newPin),
+  );
+  const state = await conversation.external((outside) =>
+    renderMainState(outside.env, userId),
+  );
+  await ctx.reply(wrap(ctx, `PIN changed.\n\n${state.text}`), {
+    reply_markup: state.reply_markup,
+  });
+  await sweepWorkflow(conversation);
+};
+
+/**
+ * Complete-PIN-reset conversation. Driven by [Complete PIN reset]
+ * once the 24h cooldown has elapsed. The cooldown is re-checked at
+ * write time inside `PinManager.completeReset` so a stray callback
+ * in the last seconds before `readyAt` cannot bypass the gate.
+ */
+const completeResetConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
+  const reset: ResetStatus = await conversation.external((outside) =>
+    buildPinManager(outside.env).getResetStatus(userId),
+  );
+  if (reset.kind === "none") {
+    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await sweepWorkflow(conversation);
+    return;
+  }
+  if (reset.kind === "pending") {
+    const hours = formatHoursRemaining(
+      reset.requestedAt + PIN_RESET_DELAY_MS,
+      Date.now(),
+    );
+    await ctx.reply(
+      wrap(
+        ctx,
+        `Reset not yet available — ~${hours} remaining. Tap [Cancel PIN reset] if you didn't request this.`,
+      ),
+    );
+    await sweepWorkflow(conversation);
+    return;
+  }
+  const newPin = await askNewPin(
+    conversation,
+    ctx,
+    chatId,
+    "Send your new 6-digit PIN (digits only).",
+  );
+  const result = await conversation.external((outside) =>
+    buildPinManager(outside.env).completeReset(userId, newPin),
+  );
+  if (result.kind === "pending") {
+    const hours = formatHoursRemaining(result.readyAt, Date.now());
+    await ctx.reply(
+      wrap(ctx, `Reset not yet available — ~${hours} remaining.`),
+    );
+    await sweepWorkflow(conversation);
+    return;
+  }
+  if (result.kind === "not-requested") {
+    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await sweepWorkflow(conversation);
+    return;
+  }
+  const state = await conversation.external((outside) =>
+    renderMainState(outside.env, userId),
+  );
+  await ctx.reply(wrap(ctx, `PIN reset complete.\n\n${state.text}`), {
+    reply_markup: state.reply_markup,
+  });
   await sweepWorkflow(conversation);
 };
 
@@ -842,6 +1077,11 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   );
   bot.use(
     createConversation(deleteWalletConversation, "wallet-delete"),
+  );
+  bot.use(createConversation(setPinConversation, "wallet-set-pin"));
+  bot.use(createConversation(changePinConversation, "wallet-change-pin"));
+  bot.use(
+    createConversation(completeResetConversation, "wallet-complete-reset"),
   );
 
   /**
@@ -863,8 +1103,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
       return;
     }
-    const wm = buildManager(ctx.env);
-    const state = await renderMainState(wm, ctx.from.id);
+    const state = await renderMainState(ctx.env, ctx.from.id);
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
@@ -1089,17 +1328,139 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // WALLET_CALLBACK.withdraw is owned by commands/withdraw.ts and
   // enters the same wizard as the /start → Withdraw button.
 
+  bot.callbackQuery(WALLET_CALLBACK.pinSet, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("wallet-set-pin");
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.pinChange, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("wallet-change-pin");
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.pinReset, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const result = await buildPinManager(ctx.env).requestReset(ctx.from.id);
+    await editToMain(ctx);
+    if (result.kind === "ready") {
+      await ctx.answerCallbackQuery({
+        text: "Reset already ready — tap Complete PIN reset.",
+        show_alert: true,
+      });
+      return;
+    }
+    if (result.kind === "pending") {
+      const hours = formatHoursRemaining(result.readyAt, Date.now());
+      await ctx.answerCallbackQuery({
+        text: `PIN reset requested. Complete in ~${hours}. The old PIN still works during the cooldown.`,
+        show_alert: true,
+      });
+      return;
+    }
+    // `requestReset` always either schedules a new request or surfaces an
+    // existing one. Defensive ack so a future signature change doesn't
+    // leave the callback hanging.
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.pinCancelReset, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await buildPinManager(ctx.env).cancelReset(ctx.from.id);
+    await editToMain(ctx);
+    await ctx.answerCallbackQuery({ text: "Reset cancelled." });
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.pinCompleteReset, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await ctx.answerCallbackQuery();
+    await ctx.conversation.enter("wallet-complete-reset");
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.lockEnable, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await buildSecurityState(ctx.env).enableWithdrawLock(ctx.from.id);
+    await editToMain(ctx);
+    await ctx.answerCallbackQuery({ text: "Withdrawal lock enabled." });
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.lockDisable, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const result = await buildSecurityState(ctx.env).requestDisableWithdrawLock(
+      ctx.from.id,
+    );
+    await editToMain(ctx);
+    if (result.kind === "not-enabled") {
+      await ctx.answerCallbackQuery({
+        text: "Lock is not enabled.",
+        show_alert: true,
+      });
+      return;
+    }
+    if (result.kind === "disabled") {
+      await ctx.answerCallbackQuery({ text: "Withdrawal lock disabled." });
+      return;
+    }
+    const hours = formatHoursRemaining(result.readyAt, Date.now());
+    await ctx.answerCallbackQuery({
+      text: `Disable requested — completes in ~${hours}. Tap the lock button again to revoke.`,
+      show_alert: true,
+    });
+  });
+
+  bot.callbackQuery(WALLET_CALLBACK.lockCancelDisable, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await buildSecurityState(ctx.env).cancelDisableWithdrawLock(ctx.from.id);
+    await editToMain(ctx);
+    await ctx.answerCallbackQuery({ text: "Disable cancelled." });
+  });
+
+
   bot.callbackQuery(START_CALLBACK.wallet, async (ctx) => {
     if (!ctx.from) {
       await ctx.answerCallbackQuery({ text: "Missing user." });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
-    const wm = buildManager(ctx.env);
-    const state = await renderMainState(wm, ctx.from.id);
+    const state = await renderMainState(ctx.env, ctx.from.id);
     await ctx.answerCallbackQuery();
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
   });
 };
+
+export const WITHDRAW_LOCK_COOLDOWN_MS = WITHDRAW_LOCK_DISABLE_COOLDOWN_MS;

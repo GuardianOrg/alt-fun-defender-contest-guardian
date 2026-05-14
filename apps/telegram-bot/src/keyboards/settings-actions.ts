@@ -18,6 +18,8 @@ export const SETTINGS_CALLBACK = {
   buyPresetSlot: "set:bp", // appended with slot index 0..4
   sellPresetSlot: "set:sp", // appended with slot index 0..4
   degenToggle: "set:dgn",
+  phraseSet: "set:phr",
+  phraseClear: "set:phrclr",
 } as const;
 
 /** Slippage presets surfaced as one-tap buttons. Values are bps. */
@@ -27,6 +29,7 @@ export interface SettingsStatus {
   slippageBps: number;
   defaultBuyUsdc: number;
   degenMode: boolean;
+  antiPhishingPhrase: string | null;
 }
 
 /** `set:slip<bps>` — encode a preset bps value into a compact callback string. */
@@ -88,6 +91,22 @@ export const buildSettingsKeyboard = (
     callback_data: SETTINGS_CALLBACK.slipCustom,
   });
 
+  const phraseRow =
+    status.antiPhishingPhrase === null
+      ? [
+          {
+            text: "Set anti-phishing phrase",
+            callback_data: SETTINGS_CALLBACK.phraseSet,
+          },
+        ]
+      : [
+          { text: "Change phrase", callback_data: SETTINGS_CALLBACK.phraseSet },
+          {
+            text: "Clear phrase",
+            callback_data: SETTINGS_CALLBACK.phraseClear,
+          },
+        ];
+
   return [
     slipRow,
     [
@@ -100,6 +119,7 @@ export const buildSettingsKeyboard = (
         callback_data: SETTINGS_CALLBACK.sellSettings,
       },
     ],
+    phraseRow,
     [
       {
         text: status.degenMode ? "🟢 Degen mode" : "🔴 Degen mode",
