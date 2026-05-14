@@ -2,6 +2,63 @@ const FALLBACK_URL = "http://localhost:42069";
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
 const HEALTH_CHECK_TIMEOUT = 3000;
+/**
+ * Truncation guard so a sprawling aliased query (e.g. the 50-token batch
+ * `fetchHistoricalCurveSnapshots` builds) doesn't fill the log line. We
+ * only need enough to identify the query and grep for it in the source.
+ */
+const LOG_QUERY_SNIPPET_LEN = 200;
+
+/**
+ * Compact failure logger for `queryPonder`. The three swallow paths
+ * (non-200 HTTP, GraphQL `errors[]`, fetch exception) are all visually
+ * identical from the caller — a `null` return — so without logging there's
+ * no way to tell from prod tails which one fired. Structured fields so
+ * the Cloudflare log search filters by `event:"ponder_query_failed"` and
+ * by `mode` to triage.
+ */
+function logPonderFailure(args: {
+  url: string;
+  query: string;
+  variables: Record<string, unknown> | undefined;
+  mode: "http_error" | "graphql_errors" | "network_error";
+  status?: number;
+  body?: string;
+  graphqlErrors?: unknown[];
+  error?: unknown;
+}) {
+  const { url, query, variables, mode, status, body, graphqlErrors, error } =
+    args;
+  const aliasCount = (query.match(/^\s*t\d+:/gm) ?? []).length;
+  console.log(
+    JSON.stringify({
+      level: "error",
+      event: "ponder_query_failed",
+      mode,
+      url,
+      status,
+      // Aliased queries (`fetchHistoricalCurveSnapshots`) are the highest-
+      // risk failure surface; surfacing the alias count separately makes
+      // it easy to filter Cloudflare logs by "heavy aliased query failed"
+      // without grepping the snippet.
+      aliasCount,
+      querySnippet: query.slice(0, LOG_QUERY_SNIPPET_LEN),
+      variables,
+      graphqlErrors,
+      // Truncate body — Ponder's error responses can be verbose (full
+      // schema dump on validation failure). 1KB is enough to identify
+      // the failure class.
+      body: body?.slice(0, 1024),
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : error !== undefined
+            ? String(error)
+            : undefined,
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
 
 export function createPonderQuery(ponderUrl?: string) {
   const url = ponderUrl || FALLBACK_URL;
@@ -17,13 +74,46 @@ export function createPonderQuery(ponderUrl?: string) {
         body: JSON.stringify({ query, variables }),
       });
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Read the body for log context — Ponder returns
+        // `{ errors: [...] }` on GraphQL-level rejections with a 4xx (e.g.
+        // query validation failures), and a stack trace as text on 5xx.
+        // Either is gold for narrowing down why a previously-fine query
+        // started failing in prod.
+        const body = await res.text().catch(() => "<unreadable>");
+        logPonderFailure({
+          url,
+          query,
+          variables,
+          mode: "http_error",
+          status: res.status,
+          body,
+        });
+        return null;
+      }
 
       const json = (await res.json()) as { data?: T; errors?: unknown[] };
-      if (json.errors) return null;
+      if (json.errors) {
+        logPonderFailure({
+          url,
+          query,
+          variables,
+          mode: "graphql_errors",
+          status: res.status,
+          graphqlErrors: json.errors,
+        });
+        return null;
+      }
 
       return json.data ?? null;
-    } catch {
+    } catch (error) {
+      logPonderFailure({
+        url,
+        query,
+        variables,
+        mode: "network_error",
+        error,
+      });
       return null;
     }
   };
