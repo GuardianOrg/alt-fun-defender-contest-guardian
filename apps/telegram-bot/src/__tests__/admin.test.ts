@@ -36,13 +36,34 @@ const post = (body: string | object, headers: Record<string, string> = {}) =>
     env,
   );
 
+// Mirrors LEGACY_COMMAND_SLOTS in routes/admin.ts — these slots are
+// wiped with deleteMyCommands before BOT_COMMANDS is published, so
+// stale per-language / per-scope entries can't shadow the canonical
+// (default, no-language) menu. The /security hangover after b56a2d91
+// is the regression this guards against.
+const LEGACY_COMMAND_SLOT_PAYLOADS: ReadonlyArray<Record<string, unknown>> = [
+  { language_code: "en" },
+  { scope: { type: "all_private_chats" } },
+  { scope: { type: "all_private_chats" }, language_code: "en" },
+  { scope: { type: "all_group_chats" } },
+  { scope: { type: "all_group_chats" }, language_code: "en" },
+  { scope: { type: "all_chat_administrators" } },
+  { scope: { type: "all_chat_administrators" }, language_code: "en" },
+];
+
+// One setWebhook + N deleteMyCommands + one setMyCommands.
+const SET_WEBHOOK_FETCH_COUNT = 1 + LEGACY_COMMAND_SLOT_PAYLOADS.length + 1;
+// N deleteMyCommands + one setMyCommands.
+const PUBLISH_COMMANDS_FETCH_COUNT = LEGACY_COMMAND_SLOT_PAYLOADS.length + 1;
+
 describe("POST /admin/set-webhook", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     // Use mockImplementation so every call gets a fresh Response — a
-    // single Response's body can only be read once, and set-webhook now
-    // makes two upstream calls (setWebhook + setMyCommands).
+    // single Response's body can only be read once, and set-webhook
+    // makes many upstream calls (setWebhook + deleteMyCommands ×N +
+    // setMyCommands).
     fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation(() =>
@@ -118,8 +139,8 @@ describe("POST /admin/set-webhook", () => {
   it("forwards valid https url to Telegram with secret_token", async () => {
     const res = await post({ url: "https://example.com/webhook" });
     expect(res.status).toBe(200);
-    // Two upstream calls — setWebhook + setMyCommands (slash menu).
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    // setWebhook + deleteMyCommands (per legacy slot) + setMyCommands.
+    expect(fetchSpy).toHaveBeenCalledTimes(SET_WEBHOOK_FETCH_COUNT);
     const [webhookUrl, webhookInit] = fetchSpy.mock.calls[0]!;
     expect(webhookUrl).toBe(
       "https://api.telegram.org/bottest-bot-token/setWebhook",
@@ -138,8 +159,9 @@ describe("POST /admin/set-webhook", () => {
   it("also publishes BOT_COMMANDS so a fresh bot token gets its slash menu", async () => {
     const res = await post({ url: "https://example.com/webhook" });
     expect(res.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const [commandsUrl, commandsInit] = fetchSpy.mock.calls[1]!;
+    expect(fetchSpy).toHaveBeenCalledTimes(SET_WEBHOOK_FETCH_COUNT);
+    const [commandsUrl, commandsInit] =
+      fetchSpy.mock.calls[SET_WEBHOOK_FETCH_COUNT - 1]!;
     expect(commandsUrl).toBe(
       "https://api.telegram.org/bottest-bot-token/setMyCommands",
     );
@@ -154,10 +176,31 @@ describe("POST /admin/set-webhook", () => {
     );
   });
 
-  // Telegram returns HTTP 200 with `{ ok: false, error_code, description }`
-  // for API-level errors (bad token, malformed payload, etc.). The handler
-  // must treat that as a failure even though the HTTP layer says success.
-  it("surfaces setMyCommands failure without claiming success", async () => {
+  it("clears legacy scope/language slots before publishing to default", async () => {
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(200);
+    expect(fetchSpy).toHaveBeenCalledTimes(SET_WEBHOOK_FETCH_COUNT);
+    // Skip the leading setWebhook; the rest of the calls are the
+    // delete sweep followed by the final setMyCommands.
+    const deleteCalls = fetchSpy.mock.calls.slice(
+      1,
+      1 + LEGACY_COMMAND_SLOT_PAYLOADS.length,
+    );
+    for (const [url, init] of deleteCalls) {
+      expect(url).toBe(
+        "https://api.telegram.org/bottest-bot-token/deleteMyCommands",
+      );
+      // Must POST so Telegram interprets the body — a GET silently no-ops.
+      expect((init as RequestInit).method).toBe("POST");
+    }
+    const observedPayloads = deleteCalls.map((call: unknown[]) =>
+      JSON.parse((call[1] as RequestInit).body as string),
+    );
+    expect(observedPayloads).toEqual(LEGACY_COMMAND_SLOT_PAYLOADS);
+  });
+
+  it("fails if a legacy-slot delete fails (won't ship a half-cleared menu)", async () => {
+    // First call (setWebhook) succeeds, second call (first delete) fails.
     fetchSpy
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: true, result: true }), {
@@ -174,6 +217,38 @@ describe("POST /admin/set-webhook", () => {
           { status: 200 },
         ),
       );
+    const res = await post({ url: "https://example.com/webhook" });
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("set_commands_failed");
+    // setWebhook + the failed delete only — no further deletes and no
+    // setMyCommands once the cleanup chain breaks.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  // Telegram returns HTTP 200 with `{ ok: false, error_code, description }`
+  // for API-level errors (bad token, malformed payload, etc.). The handler
+  // must treat that as a failure even though the HTTP layer says success.
+  it("surfaces setMyCommands failure without claiming success", async () => {
+    // setWebhook + every delete succeed; the final setMyCommands fails.
+    const okResponse = () =>
+      new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+      });
+    fetchSpy.mockResolvedValueOnce(okResponse()); // setWebhook
+    for (let i = 0; i < LEGACY_COMMAND_SLOT_PAYLOADS.length; i++) {
+      fetchSpy.mockResolvedValueOnce(okResponse());
+    }
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request",
+        }),
+        { status: 200 },
+      ),
+    );
     const res = await post({ url: "https://example.com/webhook" });
     // 200-with-ok:false must NOT propagate as 200 — the deploy script
     // depends on the status to detect a failed publish.
@@ -270,10 +345,12 @@ describe("POST /admin/set-commands", () => {
   beforeEach(() => {
     fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(JSON.stringify({ ok: true, result: true }), {
-          status: 200,
-        }),
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ok: true, result: true }), {
+            status: 200,
+          }),
+        ),
       );
   });
   afterEach(() => fetchSpy.mockRestore());
@@ -294,15 +371,32 @@ describe("POST /admin/set-commands", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("forwards BOT_COMMANDS to Telegram setMyCommands", async () => {
+  it("clears legacy slots then forwards BOT_COMMANDS to Telegram setMyCommands", async () => {
     const res = await post();
     expect(res.status).toBe(200);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(url).toBe(
+    expect(fetchSpy).toHaveBeenCalledTimes(PUBLISH_COMMANDS_FETCH_COUNT);
+
+    const deleteCalls = fetchSpy.mock.calls.slice(
+      0,
+      LEGACY_COMMAND_SLOT_PAYLOADS.length,
+    );
+    for (const [url] of deleteCalls) {
+      expect(url).toBe(
+        "https://api.telegram.org/bottest-bot-token/deleteMyCommands",
+      );
+    }
+    expect(
+      deleteCalls.map((call: unknown[]) =>
+        JSON.parse((call[1] as RequestInit).body as string),
+      ),
+    ).toEqual(LEGACY_COMMAND_SLOT_PAYLOADS);
+
+    const [setUrl, setInit] =
+      fetchSpy.mock.calls[PUBLISH_COMMANDS_FETCH_COUNT - 1]!;
+    expect(setUrl).toBe(
       "https://api.telegram.org/bottest-bot-token/setMyCommands",
     );
-    const body = JSON.parse((init as RequestInit).body as string) as {
+    const body = JSON.parse((setInit as RequestInit).body as string) as {
       commands: Array<{ command: string; description: string }>;
     };
     expect(body.commands).toEqual(
@@ -319,6 +413,33 @@ describe("POST /admin/set-commands", () => {
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("telegram_unreachable");
+  });
+
+  // Telegram surfaces API-level failures as HTTP 200 with { ok: false } —
+  // the deploy script keys on response status, so forwarding the upstream
+  // 200 unchanged would silently mark a failed publish as successful.
+  it("502s when Telegram returns HTTP 200 with { ok: false }", async () => {
+    const okResponse = () =>
+      new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+      });
+    // Every legacy-slot delete succeeds; the final setMyCommands fails
+    // at the API layer.
+    for (let i = 0; i < LEGACY_COMMAND_SLOT_PAYLOADS.length; i++) {
+      fetchSpy.mockResolvedValueOnce(okResponse());
+    }
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request",
+        }),
+        { status: 200 },
+      ),
+    );
+    const res = await post();
+    expect(res.status).toBe(502);
   });
 });
 
