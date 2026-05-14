@@ -7,6 +7,7 @@ import ManageWalletTab from "./ManageWalletTab";
 import styles from "./ProfileView.module.css";
 import TransferOwnershipTab from "./TransferOwnershipTab";
 import { CREATE_PATH, HOME_ROUTE, tokenPath } from "../../app/routes";
+import { CREATOR_FEE_SHARE_PCT } from "../../config/constants";
 import { useBalances } from "../../hooks/useBalances";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
@@ -55,7 +56,7 @@ const EMPTY_STATES: Record<"balances" | "rewards", EmptyStateContent> = {
   },
   rewards: {
     title: "No tokens created yet",
-    body: "Launch an altcoin to start earning a share of trading fees. Fees accrue in USDC and can be claimed anytime.",
+    body: `Launch an altcoin to start earning ${CREATOR_FEE_SHARE_PCT}% of all trading fees. Fees accrue in USDC and can be claimed anytime.`,
     ctaLabel: "Launch a token",
     ctaHref: CREATE_PATH,
   },
@@ -215,6 +216,7 @@ export default function ProfileView() {
             ))}
           </div>
         </div>
+        <RewardsFooter />
       </>
     );
   };
@@ -688,6 +690,28 @@ function RewardsRowSkeleton() {
       </div>
       <div className={styles.balanceValue}>
         <Skeleton width="4rem" height="12px" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Standing disclaimer beneath the populated rewards table — mirrors the
+ * footer in `layout/RewardsTab.tsx` so the same creator-fee promise reads
+ * identically inside the floating earnings panel and on the profile page.
+ * Sourced from `CREATOR_FEE_SHARE_PCT` so the displayed % stays in sync
+ * with the on-chain split if `FEES.creatorSplit` / `FEES.protocolSplit`
+ * are ever rebalanced.
+ */
+function RewardsFooter() {
+  return (
+    <div className={styles.rewardsFooter}>
+      <div className={styles.rewardsFooterText}>
+        <span className={styles.rewardsFooterHighlight}>
+          {CREATOR_FEE_SHARE_PCT}%
+        </span>{" "}
+        of all trading fees go to token creators. Fees accrue in USDC and can
+        be claimed anytime.
       </div>
     </div>
   );

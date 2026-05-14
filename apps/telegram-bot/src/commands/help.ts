@@ -148,7 +148,7 @@ const FEES_HTML = [
   "Every buy and sell — on the bonding curve <i>and</i> post-graduation — pays two fees in USDC:",
   "",
   `• <b>Bot fee 0.5%</b> — charged by ${BOT_NAME}. If you came in via a referral link, 0.1% of your trade is paid to your referrer's rewards wallet; the rest goes to the bot treasury.`,
-  "• <b>Alt Fun fee 0.5%</b> — charged by the alt.fun protocol. Split 0.4% protocol / 0.1% to the token creator.",
+  "• <b>Alt Fun fee 0.5%</b> — charged by the alt.fun protocol. Split 0.335% protocol / 0.165% (33% of the fee) to the token creator.",
   "",
   `Post-graduation trades also pay HyperSwap's 0.3% LP fee on top, paid to HyperSwap liquidity providers (${BOT_NAME} takes 0% of this).`,
   "",

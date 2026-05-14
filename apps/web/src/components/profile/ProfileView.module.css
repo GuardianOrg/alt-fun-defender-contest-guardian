@@ -696,6 +696,29 @@
   outline-offset: -2px;
 }
 
+/* Standing disclaimer beneath the populated rewards table. Mirrors the
+ * footer chrome in `layout/EarningsPanel.module.css` so the same copy
+ * (`CREATOR_FEE_SHARE_PCT`% of fees go to creators…`) reads identically
+ * across the floating earnings panel and the profile page. Top border +
+ * mono small-caps body matches the panel's other low-contrast strips so
+ * the disclaimer reads as chrome rather than primary content. */
+.rewardsFooter {
+  padding: 1.2rem 1.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.rewardsFooterText {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--txt-3);
+}
+
+.rewardsFooterHighlight {
+  color: var(--mint);
+  font-weight: 600;
+}
+
 /* Narrower viewports keep every column visible — the `.tableScroll`
  * wrapper handles overflow by scrolling the table horizontally.
  * The phone tweaks below only adjust cosmetics (logo size, ticker
