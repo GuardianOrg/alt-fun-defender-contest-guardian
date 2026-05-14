@@ -170,7 +170,7 @@ describe("/help command", () => {
 
     const send = capture(fetchSpy).find((c) => c.url.includes("/sendMessage"));
     expect(send!.body.text).toContain("Bot fee 0.5%");
-    expect(send!.body.text).toContain("Alt Fun fee 0.5%");
+    expect(send!.body.text).toContain("Alt Fun fee 0.75%");
     // Overview-specific heading must not leak into the topic view.
     expect(send!.body.text).not.toContain("CortisolBot Help");
   });

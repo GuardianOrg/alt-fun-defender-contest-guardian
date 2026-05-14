@@ -42,8 +42,8 @@ export function formatMcapUsd(value: number): string {
 /**
  * Per-token USD price formatter. Used by the chart's price scale when the
  * unit toggle is set to `price`. Pump.fun-class launches sit at sub-cent
- * prices for their entire curve life (a $4K-mcap launch with 1B supply is
- * $4e-6/token), so `formatUsd`'s 2-decimal cap collapses every label to
+ * prices for their entire curve life (a $3K-mcap launch with 1B supply is
+ * $3e-6/token), so `formatUsd`'s 2-decimal cap collapses every label to
  * `$0.00` and the chart becomes unreadable. We fall back to 4 significant
  * figures with fixed (non-scientific) notation in the sub-cent regime so
  * users can still read precise prices off the axis.

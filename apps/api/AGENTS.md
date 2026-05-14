@@ -62,7 +62,7 @@ If the catalogue ever outgrows `STATUS_POOL_SIZE`, the right next step is a prec
 | `curveFilledOrganic` | Share of `curveFilled` from organic USDC buys (indexer's `token.organicUsdcRaised`, percent of threshold). Clamped at `curveFilled`. |
 | `curveFilledLeverageBoost` | Share of `curveFilled` from LT price appreciation, derived from the gap between `realLt × currentRate` and the net organic USDC raised (indexer's `organicUsdcRaised`, buys − sells, floored at 0). Clamped at 0 — a dropping LT shows as all-organic, no negative boost (product decision). |
 
-The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$20` raise toward a `$300` threshold rendered as `~23%` instead of `~6.67%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
+The headline is intentionally USD-only, not `max(supplyFilled, usdFilled)`. Under the constant-product AMM with the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd` ratio, `supplyFilled` systematically *leads* `usdFilled` throughout most of the curve (each early dollar moves the supply counter much faster than the dollar counter), so the old `max()` formula made fresh tokens look multiples further along than the user-paid USD actually represented — e.g. a `$500` raise toward a `$9K` threshold rendered as `~19%` instead of `~5.5%`. Users think in dollars; the bar tracks dollars. The contract's supply trigger (curve sells out → graduation regardless of USD) remains in place as a bear-market backstop; it just doesn't influence the progress headline.
 
 The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExchangeRate`). When either is degraded we fall back to returning just `curveFilled` with the other two as `null`; the frontend renders a single solid fill rather than assuming zero for the missing bucket.
 
@@ -72,16 +72,16 @@ The split requires both the indexer (`organicUsdcRaised`) and BounceTech (`ltExc
 
 - Calls `Bonding.graduationThresholdUsd()` over RPC (HyperEVM via the `HYPEREVM_RPC_URL` env var, falling back to the public RPC).
 - Caches the result per Worker isolate for 60s — the value is immutable for the life of the proxy (set once at `Bonding.initialize`, no on-chain setter), so even an aggressive cache is fine. The TTL exists so a future UUPS upgrade that bumps the value via `reinitializer` is picked up within a minute.
-- Falls back to the compile-time `DEFAULT_GRADUATION_THRESHOLD_USD` (`12_000`) from `@launchpad/shared` if the RPC is unreachable — keeps the curve bar visible during outages.
+- Falls back to the compile-time `DEFAULT_GRADUATION_THRESHOLD_USD` (`9_000`) from `@launchpad/shared` if the RPC is unreachable — keeps the curve bar visible during outages.
 
-**Don't hardcode `12_000` in enrichment logic.** Threading the threshold through `computeCurveFilledBreakdown` keeps the function pure / unit-testable; the I/O lives in the route handler.
+**Don't hardcode `9_000` in enrichment logic.** Threading the threshold through `computeCurveFilledBreakdown` keeps the function pure / unit-testable; the I/O lives in the route handler.
 
 ### Virtual vs real reserves (important)
 
 The indexer persists `curveSupply` and `ltReserve` verbatim from `Bonding.Trade.newCurveSupply` / `newLtReserve`, which are the **virtual AMM reserves** (`IPair.getReserves()`). These are the right values for chart pricing (`ratio = reserve1 / reserve0` *is* the on-curve price) but are **not** the real token/LT balances in the pair:
 
 - `reserve0` is initialised to `TOTAL_SUPPLY` (1B × 1e18) and floors at `LP_RESERVE_RAW` (250M × 1e18) at full sellout — range [250M, 1B], not [0, 750M].
-- `reserve1` is initialised to `virtualLtAtLaunch = $4K / rate_at_launch` and grows with buys — not 0 at launch.
+- `reserve1` is initialised to `virtualLtAtLaunch = $3K / rate_at_launch` and grows with buys — not 0 at launch.
 
 `token-enrich.ts` converts virtual → real before computing graduation progress:
 
@@ -89,7 +89,7 @@ The indexer persists `curveSupply` and `ltReserve` verbatim from `Bonding.Trade.
 - `virtualLtAtLaunch = k / TOTAL_SUPPLY` (from `Pair.mint` where `k = totalSupply × virtualLtReserve`).
 - `realLt = max(0, reserve1 − virtualLtAtLaunch)` — matches `IPair.assetBalance()` and therefore `Bonding.canGraduate`'s USD trigger.
 
-This means every API query that feeds graduation-progress math **must include `k`** — it's required for the virtual-LT subtraction. Without it the USD fill silently overcounts by the initial $4K virtual liquidity, so the enricher degrades cleanly to supply-only progress when `k` is missing.
+This means every API query that feeds graduation-progress math **must include `k`** — it's required for the virtual-LT subtraction. Without it the USD fill silently overcounts by the initial $3K virtual liquidity, so the enricher degrades cleanly to supply-only progress when `k` is missing.
 
 ### Post-graduation: the same columns mirror HyperSwap reserves
 

@@ -76,7 +76,7 @@ Capital model for `create-tokens`:
 2. Once the tx confirms, the wallet reads its token balance and immediately calls `Zap.sell` to swap it back to USDC.
 3. Total in-flight capital ≈ `$20 × concurrency` plus a few seconds of unwind lag.
 
-Some USDC is lost per iteration to the round-trip fee (0.5% buy + 0.5% sell + ~0.5% LT redeem ≈ `$0.30` per `$20` cycle) and to gas. Budget `~$1` per token plus headroom — for a 1000-token sweep, fund the wallet with `~$1500` and a few dollars of HYPE.
+Some USDC is lost per iteration to the round-trip fee (0.75% buy + 0.75% sell + ~0.5% LT redeem ≈ `$0.40` per `$20` cycle) and to gas. Budget `~$1` per token plus headroom — for a 1000-token sweep, fund the wallet with `~$1500` and a few dollars of HYPE.
 
 The wallet must:
 

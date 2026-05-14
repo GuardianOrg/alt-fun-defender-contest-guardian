@@ -9,7 +9,7 @@ Token launchpad on HyperEVM. Every token's bonding curve holds a BounceTech Leve
 1. **Create:** Creator picks an underlying asset + leverage (e.g. HYPE 2x Long) and launches a token
 2. **Buy:** User sends USDC → Router mints LT → LT enters bonding curve → user gets tokens
 3. **Sell:** User sends tokens → Router sells on curve → redeems LT → user gets USDC
-4. **Graduate:** Dual trigger — curve closes when **either** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$12K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`) **or** all 750M curve tokens sold. LP is seeded with exactly the tokens needed to match the last curve price ("dynamic LP seeding" → zero price gap between curve and DEX). Excess LP-reserve tokens and any unsold curve tokens are burned. LP is locked.
+4. **Graduate:** Dual trigger — curve closes when **either** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$9K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`) **or** all 750M curve tokens sold. LP is seeded with exactly the tokens needed to match the last curve price ("dynamic LP seeding" → zero price gap between curve and DEX). Excess LP-reserve tokens and any unsold curve tokens are burned. LP is locked.
 5. **Post-grad:** Trading continues through Router on HyperSwap. Leveraged exposure persists.
 
 The `Zap` contract is the only user-facing entry point. Users always pay and receive USDC.
@@ -40,9 +40,9 @@ Data flow: Contracts emit events → Ponder indexes into GraphQL (read path). Ho
 | Curve/LP split | 75% sellable on curve / 25% reserved for LP (excess burned at graduation) |
 | Virtual `reserve0` | Initialised at full 1B (`totalSupply`); only 750M real tokens transferred. Pins post-sellout virtual reserve at 250M = `LP_RESERVE` and makes `tokensForLP ≤ LP_RESERVE` a mathematical invariant. |
 | K parameter | Dynamic per token — computed at `launch()` from LT's `exchangeRate()` |
-| Opening market cap | ~`$4K` |
-| Graduation market cap | `~$16K` at launch-time rate when threshold = `$12K` (higher when LT rallies). `graduationThresholdUsd` is set at `Bonding.initialize` and only changeable via a UUPS upgrade with a `reinitializer`. |
-| Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$12K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`). **Supply:** all 750M curve tokens sold (flat/bear markets). |
+| Opening market cap | ~`$3K` |
+| Graduation market cap | `~$12K` at launch-time rate when threshold = `$9K` (higher when LT rallies). `graduationThresholdUsd` is set at `Bonding.initialize` and only changeable via a UUPS upgrade with a `reinitializer`. |
+| Graduation triggers (dual) | **USD:** `raisedLT × exchangeRate ≥ Bonding.graduationThresholdUsd` (`$9K` in production, set once at `Bonding.initialize` and immutable thereafter — changing it requires a UUPS upgrade with a `reinitializer`). **Supply:** all 750M curve tokens sold (flat/bear markets). |
 | Dynamic LP seeding | `tokensForLP = raisedLT × reserve0 / reserve1`. Guarantees LP opens at the exact last curve price (zero-gap). Excess of `LP_RESERVE` burned. |
 | Overflow buy protection | A buy that would exceed remaining real supply is capped; unused LT refunded (as USDC) to the buyer. |
 | User-facing currency | USDC in / USDC out. LT fully abstracted. |
@@ -58,12 +58,12 @@ Fees are charged by `Zap` in USDC on every buy/sell — curve **and** post-gradu
 
 | Fee | Applies to | Rate | Split | Charged where |
 |---|---|---|---|---|
-| Alt Fun buy | Every buy (curve **and** post-grad) | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
-| Alt Fun sell | Every sell (curve **and** post-grad) | 0.5% | 0.4% protocol / 0.1% creator | `Zap` (USDC → `FeeVault`) |
-| HyperSwap LP fee | Post-grad only, **on top of** the 0.5% Alt Fun fee | 0.3% | HyperSwap LPs (Alt Fun takes 0% of this) | HyperSwap V2 pair |
+| Alt Fun buy | Every buy (curve **and** post-grad) | 0.75% | 0.5% protocol / 0.25% creator | `Zap` (USDC → `FeeVault`) |
+| Alt Fun sell | Every sell (curve **and** post-grad) | 0.75% | 0.5% protocol / 0.25% creator | `Zap` (USDC → `FeeVault`) |
+| HyperSwap LP fee | Post-grad only, **on top of** the 0.75% Alt Fun fee | 0.3% | HyperSwap LPs (Alt Fun takes 0% of this) | HyperSwap V2 pair |
 | LT redemption | Every sell (LT → USDC inside `Zap`) | BounceTech internal | No additional Alt Fun fee | BounceTech LT |
 
-The Alt Fun 0.5% is **not** lifted at graduation. Post-grad trades are routed through `Zap` exactly like curve trades — the only difference is which venue `Zap` swaps against (HyperSwap V2 instead of `Bonding`/`Router.sol`). Auditors: this is intentional. Lifting fees post-grad would silently halve protocol+creator revenue the moment a token graduates and is the exact opposite of what we want.
+The Alt Fun 0.75% is **not** lifted at graduation. Post-grad trades are routed through `Zap` exactly like curve trades — the only difference is which venue `Zap` swaps against (HyperSwap V2 instead of `Bonding`/`Router.sol`). Auditors: this is intentional. Lifting fees post-grad would silently halve protocol+creator revenue the moment a token graduates and is the exact opposite of what we want.
 
 ---
 

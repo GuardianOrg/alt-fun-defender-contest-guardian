@@ -29,7 +29,7 @@ Creator calls `Zap.createToken({ name, ticker, ltAddress, description, image, ur
 
 There is **no upper bound** on the seed. A cap is trivially bypassable (the same creator seeds via wallet A then snipes the open at block N+4 from wallet B), and seed-and-burn launches are a legitimate supply pattern. The floor is the only side that protects the curve floor from being free.
 
-This deploys a `Token` clone (1B supply) and creates a `Pair` (token/LT). K is computed per token so every token opens at ~`$4K` market cap regardless of which LT is paired.
+This deploys a `Token` clone (1B supply) and creates a `Pair` (token/LT). K is computed per token so every token opens at ~`$3K` market cap regardless of which LT is paired.
 
 **Virtual token reserve.** The pair's `reserve0` is seeded at `totalSupply` (1B) while only `curveSupply = 75%` (750M) of real tokens are actually transferred. The other 250M are held in `Bonding` as `lpReserve`. This virtual-reserve design:
 
@@ -44,9 +44,9 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 ## Buy Flow
 
 1. `Zap.buy(tokenAddress, usdcAmount, minTokensOut, referrer)`
-2. `Zap` pulls `usdcAmount` USDC and deducts the 0.5% Alt Fun fee up-front (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator). The fee is charged on every buy — curve **and** post-graduation — not just curve trades.
+2. `Zap` pulls `usdcAmount` USDC and deducts the 0.75% Alt Fun fee up-front (forwarded to `FeeVault`, split 0.5% protocol / 0.25% creator). The fee is charged on every buy — curve **and** post-graduation — not just curve trades.
 3. Net USDC is minted to LT
-4. If on curve: routes through `Bonding.buy()` (the internal AMM `Router.sol`). If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). The 0.5% Alt Fun fee is identical on both paths; post-grad, HyperSwap also charges its own 0.3% LP fee on the swap leg, on top of the Alt Fun fee.
+4. If on curve: routes through `Bonding.buy()` (the internal AMM `Router.sol`). If graduated: swaps on HyperSwap V2 (TOKEN/LT pool). The 0.75% Alt Fun fee is identical on both paths; post-grad, HyperSwap also charges its own 0.3% LP fee on the swap leg, on top of the Alt Fun fee.
 5. Tokens sent to user; any leftover LT (capped-buy case) is redeemed back to USDC and refunded along with the pro-rata fee refund
 
 **Overflow buy protection.** On the final buy that would empty the curve, `Router.buy` caps `tokensOut` at the pair's real token balance and back-calculates the LT actually required (`amountInUsed`). `Bonding.buy` returns both `tokensOut` and `amountInUsed`. `Zap.buy` then refunds any unused LT to the buyer by calling `IBounceLeveragedToken.redeem()` (delivered as USDC). If the redeem reverts for any reason (e.g. below the LT's minimum redeem size), the remaining LT is transferred directly to the buyer as a fallback.
@@ -56,7 +56,7 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 1. `Zap.sell(tokenAddress, tokenAmount, minUsdcOut)`
 2. If on curve: routes through `Bonding.sell()` (the internal AMM `Router.sol`). If graduated: swaps on HyperSwap V2 (which charges a 0.3% LP fee on the swap leg, on top of the Alt Fun fee deducted below).
 3. LT redeemed atomically via `redeem()` → gross USDC into `Zap`
-4. `Zap` deducts the 0.5% Alt Fun fee (forwarded to `FeeVault`, split 0.4% protocol / 0.1% creator) — identical on curve and post-grad — and sends net USDC to the user in the same tx
+4. `Zap` deducts the 0.75% Alt Fun fee (forwarded to `FeeVault`, split 0.5% protocol / 0.25% creator) — identical on curve and post-grad — and sends net USDC to the user in the same tx
    - Sell amount is limited by the LT's idle USDC buffer (`baseAssetBalance()`)
    - Frontend checks buffer and caps sell amounts; users sell in chunks if needed
    - BounceTech automation replenishes the buffer in ~10s after each redeem
@@ -67,8 +67,8 @@ Each token stores: creator, token address, pair address, paired LT address, meta
 
 Dual trigger — fires on whichever hits first:
 
-- **USD trigger:** `(storedAssetReserve - virtualLtReserve) × exchangeRate ≥ $12K` (HYPE pumps raise the USD value of already-raised LT above the threshold). Reads the pair's STORED reserves; the launch-time `virtualLtReserve` is recovered on-the-fly as `Pair.k() / Token.TOTAL_SUPPLY()` because `_pool.k = totalSupply * virtualLtReserve` is locked in at `Pair.mint` and never modified by swaps.
-- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $12K is never reached). This IS a live `balanceOf` read but is donation-resistant in the opposite direction — token donations can only INCREASE the balance and can never satisfy `== 0`. Any donated tokens are unconditionally burned by `_prepareGraduationLiquidity`.
+- **USD trigger:** `(storedAssetReserve - virtualLtReserve) × exchangeRate ≥ $9K` (HYPE pumps raise the USD value of already-raised LT above the threshold). Reads the pair's STORED reserves; the launch-time `virtualLtReserve` is recovered on-the-fly as `Pair.k() / Token.TOTAL_SUPPLY()` because `_pool.k = totalSupply * virtualLtReserve` is locked in at `Pair.mint` and never modified by swaps.
+- **Supply trigger:** `IPair.tokenBalance() == 0` (all 750M curve tokens sold; handles flat/bear markets where $9K is never reached). This IS a live `balanceOf` read but is donation-resistant in the opposite direction — token donations can only INCREASE the balance and can never satisfy `== 0`. Any donated tokens are unconditionally burned by `_prepareGraduationLiquidity`.
 
 Direct LT donations to the pair don't count toward the USD threshold and don't enter the LP — they stay in the curve pair under the trust assumption that `BONDING_ROLE` is only ever held by `Bonding`. `Bonding.canGraduate()` is checked at the end of every buy inside `_executeBuy`; phase 1 (`Bonding._enterGraduating`) fires inline at the end of the threshold-crossing buy. There is no rate-only trigger: a USD ripening driven purely by `exchangeRate()` motion (no intervening buy) holds the ripe state only while the rate stays above threshold, and is settled by the next buy that lands while still ripe. The supply trigger is monotonic — once `tokenBalance() == 0` it cannot un-ripen, so the next buy will graduate it. Sells cannot satisfy either trigger (they reduce stored LT raised and return tokens to the pair).
 
@@ -97,7 +97,7 @@ All enforced by `test/GraduationInvariants.t.sol`:
 | 2 | Conservation | `tokensInLP + lpBurned == LP_RESERVE` (250M) |
 | 3 | Parabola cap | `tokensInLP ≤ LP_RESERVE` always (guaranteed by virtual reserve setup) |
 | 4 | Pair drained | `tokenBalance() == 0` post-graduation. `assetBalance() == 0` only when no donations occurred — any LT donated directly to the pair is excluded from LP seeding and remains locked in the pair. |
-| 5 | Both triggers work | Supply trigger fires below `$12K`; USD trigger fires with supply remaining |
+| 5 | Both triggers work | Supply trigger fires below `$9K`; USD trigger fires with supply remaining |
 | 6 | Overflow refund | Oversized buys charge only `amountInUsed`, not requested amount |
 | 7 | Donation resistance | Direct LT donations to the pair don't trigger graduation and don't skew LP open price; donated LT stays locked in the curve pair |
 
@@ -109,7 +109,7 @@ After graduation, all trades continue through `Zap` via HyperSwap. The pool is T
 
 All fees are charged by `Zap` in USDC and forwarded into `FeeVault`. The router holds no fee state — the vault is where balances live and where creators and the protocol claim.
 
-- **Rate:** 0.5% on every buy/sell (curve **and** post-grad), split 0.4% protocol / 0.1% creator.
+- **Rate:** 0.75% on every buy/sell (curve **and** post-grad), split 0.5% protocol / 0.25% creator.
 - **Accrual:** `Zap` transfers the fee USDC to `FeeVault`, then calls `FeeVault.accrue(token, creator, creatorAmount, protocolAmount, isBuy)`. Creator attribution comes from `Bonding.tokenInfo(token).creator` (set at launch, updatable via `transferCreator`).
 - **Claims:** `FeeVault.claim()` pays the caller their pooled USDC balance across every token they've launched. `FeeVault.claimProtocol()` is permissionless and pays the configured `feeTo` — anyone can trigger the payout, but funds always go to the admin-set address.
 - **Lifetime counters:** `lifetimeCreatorEarned(creator)` / `lifetimeProtocolEarned` never decrement on claim, so the UI can render "total earned / claimed / claimable" consistently.

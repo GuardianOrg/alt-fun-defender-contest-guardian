@@ -33,7 +33,7 @@ contract OwnershipTransferTest is DeployHelper {
         // here so this file covers all four multisig-owned contracts.
         Zap zapImpl = new Zap();
         bytes memory zapInit = abi.encodeCall(
-            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 75, 75, 3333)
         );
         zap = Zap(address(new ERC1967Proxy(address(zapImpl), zapInit)));
     }

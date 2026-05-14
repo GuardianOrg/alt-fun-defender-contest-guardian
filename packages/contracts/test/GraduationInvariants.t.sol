@@ -13,8 +13,8 @@ import {DeployHelper} from "./DeployHelper.sol";
 ///      2. Conservation    — `tokensForLP + lpBurned = LP_RESERVE`.
 ///      3. Parabola cap    — `tokensForLP ≤ LP_RESERVE` always (mathematical invariant).
 ///      4. Pair drained    — Zero real tokens & zero real LT remain in Pair after graduation.
-///      5. Supply trigger  — Exhausting curve supply graduates even below $12K.
-///      6. USD trigger     — Raised-value ≥ $12K graduates even with supply remaining.
+///      5. Supply trigger  — Exhausting curve supply graduates even below $9K.
+///      6. USD trigger     — Raised-value ≥ $9K graduates even with supply remaining.
 ///      7. Overflow cap    — Buy capped at real balance; excess LT refunded to buyer.
 contract GraduationInvariantsTest is DeployHelper {
     uint256 internal constant TOTAL_SUPPLY = 1_000_000_000 ether;
@@ -286,7 +286,7 @@ contract GraduationInvariantsTest is DeployHelper {
         );
     }
 
-    // ─── 5. Supply trigger fires even below $12K ─────────────────────────
+    // ─── 5. Supply trigger fires even below $9K ─────────────────────────
 
     function test_inv_supplyTrigger_belowUsdThreshold() public {
         (address tokenAddr, address pairAddr) = _launchNoSeed();

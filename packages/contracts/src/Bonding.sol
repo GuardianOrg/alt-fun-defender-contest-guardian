@@ -47,12 +47,15 @@ contract Bonding is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, Ree
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    // TEMP(pre-launch-test): virtual liquidity dropped from $4K → $100 to
-    // ship a small-capital graduation rehearsal on mainnet ahead of public
-    // launch. Pairs with `Deploy.s.sol::GRADUATION_THRESHOLD_USD` at $300
-    // (3× peg preserved). Revert to `4000 ether` (and `12_000 ether` in
-    // `Deploy.s.sol`) for the public-launch deploy in a couple of days.
-    uint256 public constant VIRTUAL_LIQUIDITY_USD = 100 ether;
+    /// @dev USD-denominated (18-dp) virtual liquidity seeded at launch.
+    ///      Combined with the LT's launch-time `exchangeRate()` to derive
+    ///      the launch-time `virtualLtReserve`, which permanently shapes
+    ///      the curve via `K = TOTAL_SUPPLY * virtualLtReserve`. Pairs
+    ///      with `Deploy.s.sol::GRADUATION_THRESHOLD_USD` at `$9K`
+    ///      (3× peg preserved). Constant — changing it for an existing
+    ///      proxy is a no-op because `K` is baked into each `Pair` at
+    ///      `mint` and never recomputed.
+    uint256 public constant VIRTUAL_LIQUIDITY_USD = 3000 ether;
 
     uint256 public constant CURVE_BPS = 7500;
     uint256 public constant LP_RESERVE_BPS = 2500;

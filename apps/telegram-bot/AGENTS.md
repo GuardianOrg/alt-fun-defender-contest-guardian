@@ -60,7 +60,7 @@ The bot consumes the endpoints `apps/api` exposes today, plus three new bot-name
 
 ## Bot Fee Model
 
-The bot is operated by an external team that charges its own fee on top of Alt Fun's 0.5% protocol fee. All trades route through a bot-team-owned `BotFeeRouter` contract, which skims the bot fee and forwards the remainder to Alt Fun's `Zap`. **The bot never calls `Zap.buy` / `Zap.sell` directly.**
+The bot is operated by an external team that charges its own fee on top of Alt Fun's 0.75% protocol fee. All trades route through a bot-team-owned `BotFeeRouter` contract, which skims the bot fee and forwards the remainder to Alt Fun's `Zap`. **The bot never calls `Zap.buy` / `Zap.sell` directly.**
 
 ### Parameters (immutable in deployed router)
 
@@ -276,7 +276,7 @@ Output:
   - Risk summary (leverage level, vol decay warning if 5x LT)
   - Quick-amount buttons: 5 user-customisable preset amounts (default `$20 / $40 / $60 / $80 / $100`, configurable in `/settings → Buy Settings`) + `Buy X USDC` (custom) + `Refresh`. Issue #818. Each preset embeds its USDC amount in the callback payload (`btp:<addr>:<amount>`) so a stale card always buys the amount the user sees on the button.
   - Confirm button (if confirmations enabled in /settings)
-  - **No fee summary anywhere in the buy flow.** The line "Bot fee 0.5% + Alt Fun fee 0.5%" was removed from the menu, the staging confirm, and the post-tx receipt (issue #801). `/help fees` is the single canonical surface for fee disclosure and carries the full referrer-aware breakdown.
+  - **No fee summary anywhere in the buy flow.** The line "Bot fee 0.5% + Alt Fun fee 0.75%" was removed from the menu, the staging confirm, and the post-tx receipt (issue #801). `/help fees` is the single canonical surface for fee disclosure and carries the full referrer-aware breakdown.
 
 Effects (after confirmation):
   - Check user USDC balance ≥ (buy amount + gas estimate); surface "Insufficient USDC" if not
@@ -324,7 +324,7 @@ Input:
 
 Output:
   - Position summary (token amount, cost basis from /api/v1/bot/positions)
-  - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
+  - Estimated USDC out from simulation (post all fees: Alt Fun 0.75% + HyperSwap LP fee post-grad + bot 0.5%)
   - Quick-sell buttons: 5 user-customisable preset percents (default `10% / 25% / 50% / 75% / 100%`, configurable in `/settings → Sell Settings`) + `Sell X%` (custom-percent prompt, integer 1–100) + `Refresh`. Issue #818.
   - Confirm button (if confirmations enabled)
   - **No fee summary anywhere in the sell flow.** Same as `/buy` — fees are not displayed on the menu, staging confirm, or receipt. `/help fees` is the single canonical surface (issue #801).
@@ -694,7 +694,7 @@ Explicit degraded-state behaviour for each dependency. Never show stale data as 
 - **Buffer-limited sells must be user-visible.** Never silently cap — show max available and require confirmation of the reduced amount.
 - **Always derive slippage bounds from a simulation.** Mirror `useTradeRouter.executeBuy` / `executeSell` exactly: simulate the trade with `min*Out = 0` to get a quote, then submit the real tx with `min*Out = quote * (10_000 - slippageBps) / 10_000`. Floor `minUsdcOut` at 1 wei when the quote is non-zero. **Never submit a Zap trade with `minTokensOut = 0` or `minUsdcOut = 0` from a live signer — that is a fully-sandwichable trade.** Same constraint applies whether the path is `buy` / `sell` or `buyWithPermit` / `sellWithPermit`.
 - **Permit-first, approve as fallback.** Default to `BotFeeRouter.buyWithBotFeePermit` / `sellWithBotFeePermit` for any token whose `permit` signature succeeds — the bot holds the private key, so signing EIP-2612 has zero UX cost and saves a tx. Fall back to legacy `approve(BotFeeRouter, maxUint256)` + plain `buyWithBotFee` / `sellWithBotFee` only when permit signing throws (pre-permit token vintage). Match the try/catch ladder in `apps/web/src/hooks/useTradeRouter.ts`, but the approval target and call target are **the router, not Zap**.
-- **Fees: Alt Fun 0.5% + bot 0.5% on every buy/sell.** Alt Fun's protocol fee is unchanged (0.5%, curve and post-grad alike, plus HyperSwap LP 0.3% post-grad). The bot adds a flat 0.5% on top, charged in USDC at the router. See *Bot Fee Model*.
+- **Fees: Alt Fun 0.75% + bot 0.5% on every buy/sell.** Alt Fun's protocol fee is 0.75% (curve and post-grad alike, plus HyperSwap LP 0.3% post-grad). The bot adds a flat 0.5% on top, charged in USDC at the router. See *Bot Fee Model*.
 - **Degen mode does not bypass PIN.** Only skips UI confirmation steps and risk-warning copy.
 
 ---
@@ -828,7 +828,7 @@ src/
 
 **`commands/buy.test.ts`**
 - Amount below `MIN_USDC_BUY_AMOUNT` (read from `@launchpad/shared`) → error reply, no simulation, no tx constructed
-- Valid contract address → token card rendered with name, mcap, and curve fill. The fee summary "Bot fee 0.5% + Alt Fun fee 0.5%" is **not** rendered anywhere in the /buy flow (menu, staging confirm, or receipt) per issue #801 — `/help fees` is the single canonical fee surface.
+- Valid contract address → token card rendered with name, mcap, and curve fill. The fee summary "Bot fee 0.5% + Alt Fun fee 0.75%" is **not** rendered anywhere in the /buy flow (menu, staging confirm, or receipt) per issue #801 — `/help fees` is the single canonical fee surface.
 - Token card shows referrer line ("(0.1% goes to your referrer)") iff user has a registered referrer in KV
 - LT mint-paused (router surfaces inner Zap revert) → "Buys paused for this token" reply, no raw revert exposed, no tx constructed
 - Confirm button with expired nonce → no-op (no tx submitted)

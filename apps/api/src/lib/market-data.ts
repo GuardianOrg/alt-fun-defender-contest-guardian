@@ -38,7 +38,7 @@ export interface PonderTokenOnchain {
    */
   curveSupply: string;
   /**
-   * Virtual AMM reserve1. Starts at `virtualLtReserveAtLaunch = $4K / rate`
+   * Virtual AMM reserve1. Starts at `virtualLtReserveAtLaunch = $3K / rate`
    * and grows with buys / shrinks with sells. Callers that want "real LT
    * raised" (== `IPair.assetBalance()` on-chain) must subtract
    * `virtualLtReserveAtLaunch = k / TOTAL_SUPPLY_RAW`.

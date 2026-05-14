@@ -16,7 +16,7 @@ const STALE_MS = 5 * 60 * 1000;
 const GC_MS = 30 * 60 * 1000;
 
 /**
- * Live `Bonding.graduationThresholdUsd`. Returns plain USD (e.g. `12000`),
+ * Live `Bonding.graduationThresholdUsd`. Returns plain USD (e.g. `9000`),
  * not 18-dp wei. The threshold is set once at proxy initialisation and
  * has no on-chain setter — see `packages/contracts/src/Bonding.sol`. We
  * still read it via RPC (rather than reusing the compile-time constant)
@@ -27,7 +27,7 @@ const GC_MS = 30 * 60 * 1000;
  * `data` is `undefined` while loading and on RPC failure (TanStack Query
  * catches the throw). Consumers should treat `undefined` as "unknown" and
  * either render a skeleton or fall back to `DEFAULT_GRADUATION_THRESHOLD_USD`
- * for non-critical display (text labels) — never hardcode 12_000 inline.
+ * for non-critical display (text labels) — never hardcode 9_000 inline.
  */
 export function useGraduationThreshold(): {
   data: number | undefined;
@@ -43,7 +43,7 @@ export function useGraduationThreshold(): {
         abi: BondingAbi,
         functionName: "graduationThresholdUsd",
       })) as bigint;
-      // 18-dp → plain USD. Live values sit in $4K–$1M (contract bounds), so
+      // 18-dp → plain USD. Live values sit in $3K–$1M (contract bounds), so
       // fits a JS Number with no precision concerns.
       return Number(wei / 10n ** 18n);
     },

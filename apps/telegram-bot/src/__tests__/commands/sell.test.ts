@@ -407,7 +407,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(send!.body.text)).toContain("Ready to sell");
     // Fee summary moved to the tx-receipt endpoint per issue #801.
     expect(String(send!.body.text)).not.toContain("Bot fee 0.5%");
-    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.5%");
+    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.75%");
   });
 
   // Regression: btsr / btsp handlers used to .catch() unhandled throws

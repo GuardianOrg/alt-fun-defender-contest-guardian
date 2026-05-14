@@ -6,8 +6,8 @@ import {
   usdcForSupplyPct,
 } from "./seedBuyMath";
 
-const THRESHOLD = 12_000;
-const BUY_FEE = 0.005; // 0.5% — must match seedBuyMath.ts BUY_FEE_BPS
+const THRESHOLD = 9_000;
+const BUY_FEE = 0.0075; // 0.75% — must match seedBuyMath.ts BUY_FEE_BPS
 
 /// Closed-form inverse of `seedBuyStats` for `supplyPct → usdcAmount`,
 /// mirroring `usdcForSupplyPct` exactly. Re-derived in the test so we can
@@ -79,7 +79,7 @@ describe("seedBuyStats", () => {
   });
 
   it("curve filled is proportional to after-fee USDC vs graduation threshold", () => {
-    const stats = seedBuyStats(THRESHOLD / 0.995, THRESHOLD); // after fee = $12,000
+    const stats = seedBuyStats(THRESHOLD / (1 - BUY_FEE), THRESHOLD); // after fee = $THRESHOLD
     expect(stats.curveFilled).toBeCloseTo(100, 4);
   });
 

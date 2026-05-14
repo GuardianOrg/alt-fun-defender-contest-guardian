@@ -26,8 +26,8 @@ import { mineVanitySalt, mineVanitySaltSync } from "./vanity.ts";
  */
 describe("mineVanitySaltSync", () => {
   it("produces a salt whose predicted address matches the canonical helper and ends in the requested suffix", () => {
-    const implementation = "0xe6A0C9D82471219C3520Cc8ec309A4b222c28cA3" as const;
-    const bondingProxy = "0x1E75bB0570e4d1c4490417C0948A37e8d6809638" as const;
+    const implementation = "0xfbEc3D3c42427Dc2c08A2401e53758F02cecB540" as const;
+    const bondingProxy = "0xb68811BcC0e4FcD825aA49F9453b065ddF752FcB" as const;
     const creator = "0x000000000000000000000000000000000000beef" as const;
     const name = "Test Token";
     const ticker = "TEST";
@@ -68,8 +68,8 @@ describe("mineVanitySaltSync", () => {
 describe("mineVanitySalt (worker thread)", () => {
   it("resolves the mine via a Worker without hanging or losing the result", async () => {
     const mined = await mineVanitySalt({
-      implementation: "0xe6A0C9D82471219C3520Cc8ec309A4b222c28cA3" as const,
-      bondingProxy: "0x1E75bB0570e4d1c4490417C0948A37e8d6809638" as const,
+      implementation: "0xfbEc3D3c42427Dc2c08A2401e53758F02cecB540" as const,
+      bondingProxy: "0xb68811BcC0e4FcD825aA49F9453b065ddF752FcB" as const,
       creator: "0x000000000000000000000000000000000000beef" as const,
       name: "Worker Smoke",
       ticker: "WORK",

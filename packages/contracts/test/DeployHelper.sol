@@ -45,10 +45,7 @@ abstract contract DeployHelper is Test {
     ///      `VIRTUAL_LIQUIDITY_USD` so the USD trigger is reachable on the
     ///      mock virtual-liquidity curves the suite spins up. Matches
     ///      the production deploy value — see `Deploy.s.sol`.
-    // TEMP(pre-launch-test): tracks the temporary $300 production threshold
-    // (paired with `VIRTUAL_LIQUIDITY_USD = $100`). Revert to
-    // `12_000 ether` alongside the contract / `Deploy.s.sol` rollback.
-    uint256 constant TEST_GRADUATION_THRESHOLD_USD = 300 ether;
+    uint256 constant TEST_GRADUATION_THRESHOLD_USD = 9000 ether;
 
     /// @dev Per-test salt counter so successive `_mineVanitySalt` calls in
     ///      a single test pick up where the previous one left off. Tests
@@ -170,7 +167,7 @@ abstract contract DeployHelper is Test {
     // a fraction of the threshold) and let these helpers do the LT/USDC
     // conversion. Hardcoding raw `N ether` of LT bakes in the current
     // `VIRTUAL_LIQUIDITY_USD` and silently breaks the moment the dial moves:
-    // a "small" 200-LT seed at $4K virtual liquidity is a curve-graduating
+    // a "small" 200-LT seed at $3K virtual liquidity is a curve-graduating
     // monster at $100.
 
     /// @dev LT amount equivalent to `usd18dp` USD at the current

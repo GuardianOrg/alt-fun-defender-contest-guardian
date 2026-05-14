@@ -415,7 +415,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(send!.body.text)).toContain("20");
     // Fee summary moved to the tx-receipt endpoint per issue #801.
     expect(String(send!.body.text)).not.toContain("Bot fee 0.5%");
-    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.5%");
+    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.75%");
   });
 
   it("Degen mode: Buy default skips the Confirm keyboard and submits immediately", async () => {
@@ -461,7 +461,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       );
       expect(receipt).toBeDefined();
       expect(String(receipt!.body.text)).not.toContain("Bot fee 0.5%");
-      expect(String(receipt!.body.text)).not.toContain("Alt Fun fee 0.5%");
+      expect(String(receipt!.body.text)).not.toContain("Alt Fun fee 0.75%");
 
       // No sendMessage carries a `cnf:` callback button.
       const hasConfirmButton = sends.some((s) => {

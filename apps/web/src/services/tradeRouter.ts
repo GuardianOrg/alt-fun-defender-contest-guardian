@@ -58,7 +58,7 @@ const HyperswapPairAbi = [
 ] as const;
 
 // Router-level USDC fee applied to every trade (curve and post-grad). The
-// `Zap` charges this same 0.5% on both paths and forwards it to
+// `Zap` charges this same 0.75% on both paths and forwards it to
 // `FeeVault`, so quotes don't need to special-case graduated tokens — the
 // fee math here mirrors the on-chain deduction regardless of execution venue.
 //

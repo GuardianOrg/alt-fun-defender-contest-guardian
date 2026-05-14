@@ -54,12 +54,6 @@ Default to no comment. Only add one when the code can't speak for itself.
 | HyperSwap | DEX (when referring to the specific post-grad venue) |
 | LT (Leveraged Token) | leveraged token (always capitalise) |
 
-## Task Tracking (MANDATORY)
-`TODO.md` in the repo root is the single source of truth for open tasks.
-- Before starting work, check `TODO.md` for relevant items.
-- When completing a task listed there, remove it.
-- When discovering new work that can't be done immediately, add it to `TODO.md`.
-
 ## CI Verification (MANDATORY)
 After making any code changes, you MUST run lint, typecheck, test, and build before responding — but **only for the packages you actually touched**. Running the full repo `npm run ci` is wasteful (contract tests in particular are slow) and is forbidden unless your change spans every package or you touched the root tooling.
 

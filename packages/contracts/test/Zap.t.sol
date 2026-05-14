@@ -28,7 +28,7 @@ contract ZapTest is DeployHelper {
 
         Zap zapImpl = new Zap();
         bytes memory zapInit = abi.encodeCall(
-            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 50, 50, 2000)
+            Zap.initialize, (address(bonding), address(usdc), address(hyperswapRouter), address(feeVault), 75, 75, 3333)
         );
         zap = Zap(address(new ERC1967Proxy(address(zapImpl), zapInit)));
 
@@ -357,8 +357,8 @@ contract ZapTest is DeployHelper {
 
     /// @dev Regression for the post-fee floor leak. `_buyInternal` checks the
     ///      gross `usdcAmount` against `MIN_USDC_AMOUNT`, but the LT mint
-    ///      consumes `netUsdc = usdcAmount − feeOnGross`. With `buyFeeBps = 50`
-    ///      a gross of `10e6` yields `netUsdc = 9_950_000 < MIN_USDC_AMOUNT`,
+    ///      consumes `netUsdc = usdcAmount − feeOnGross`. With `buyFeeBps = 75`
+    ///      a gross of `10e6` yields `netUsdc = 9_925_000 < MIN_USDC_AMOUNT`,
     ///      so without the post-fee guard the LT reverts with the undecodable
     ///      `0x05eb05ac` selector instead of `BelowMinAmount`.
     function test_buy_revertsInPostFeeDirtyBand() public {
@@ -652,7 +652,13 @@ contract ZapTest is DeployHelper {
     ) internal returns (uint256 drainLtSpent, uint256 donatedTokens) {
         address pairAddr = bonding.getTokenInfo(tokenAddr).pair;
         address drainer = makeAddr("donationDrainer");
-        drainLtSpent = 50 ether;
+        // Size the drain so `tokensOut > 250M` (the LP-reserve floor) under
+        // any `VIRTUAL_LIQUIDITY_USD`. Constant-product math gives
+        // `tokensOut = TOTAL_SUPPLY × ltIn / (virtual + ltIn)`, which crosses
+        // 250M (= ¼ of TOTAL_SUPPLY) when `ltIn = virtual / 3`. Spending the
+        // full opening virtual reserve lands `tokensOut = 500M` — plenty of
+        // headroom to push `realBalance > reserveToken` after the donation.
+        drainLtSpent = _initialVirtualLt();
         lt.mintDirect(drainer, drainLtSpent);
         if (!bonding.isRouter(drainer)) bonding.addRouter(drainer);
         vm.startPrank(drainer);
@@ -985,7 +991,7 @@ contract ZapTest is DeployHelper {
         // Floor-bump branch overshoots the mint past what the curve
         // consumes; fee is prorated against LT actually consumed
         // (sub-MIN_USDC_AMOUNT here), not against the minted amount.
-        // `feeOnGross` would be (buyAmount * 50) / 10000 ≈ 6e18;
+        // `feeOnGross` would be (buyAmount * 75) / 10000 ≈ 9e18;
         // actualFee on a few-wei curve consumption is a tiny fraction
         // of that.
         uint256 feeOnGross = (buyAmount * zap.buyFeeBps()) / zap.BPS_DENOM();
@@ -1138,13 +1144,13 @@ contract ZapTest is DeployHelper {
 
         _buyViaRouter(tokenAddr, trader, usdcIn);
 
-        uint256 expectedFee = (usdcIn * 50) / 10_000; // 0.5%
+        uint256 expectedFee = (usdcIn * 75) / 10_000; // 0.75%
         uint256 vaultAfter = usdc.balanceOf(address(feeVault));
         assertEq(vaultAfter - vaultBefore, expectedFee, "FeeVault should hold the buy fee");
 
         uint256 creatorDelta = feeVault.creatorBalance(creator) - creatorBalanceBefore;
-        uint256 expectedCreator = (expectedFee * 2000) / 10_000; // 20% of fee
-        assertEq(creatorDelta, expectedCreator, "Creator share should be 20% of fee");
+        uint256 expectedCreator = (expectedFee * 3333) / 10_000; // ~1/3 of fee
+        assertEq(creatorDelta, expectedCreator, "Creator share should be ~1/3 of fee");
         assertEq(
             feeVault.protocolBalance() - protocolBalanceBefore,
             expectedFee - expectedCreator,
@@ -1163,8 +1169,8 @@ contract ZapTest is DeployHelper {
         uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
-        // Fee is 0.5% of grossUsdc. usdcOut = grossUsdc - fee → fee = usdcOut * 50 / 9950.
-        uint256 fee = (usdcOut * 50) / 9950;
+        // Fee is 0.75% of grossUsdc. usdcOut = grossUsdc - fee → fee = usdcOut * 75 / 9925.
+        uint256 fee = (usdcOut * 75) / 9925;
         assertApproxEqAbs(usdc.balanceOf(address(feeVault)) - vaultBefore, fee, 1, "FeeVault should receive sell fee");
     }
 
@@ -1175,8 +1181,8 @@ contract ZapTest is DeployHelper {
         address tokenAddr = _createToken(seedUsdc);
 
         // Creator gets their own creator-share of the seed-buy fee back.
-        uint256 expectedFee = (seedUsdc * 50) / 10_000;
-        uint256 expectedCreator = (expectedFee * 2000) / 10_000;
+        uint256 expectedFee = (seedUsdc * 75) / 10_000;
+        uint256 expectedCreator = (expectedFee * 3333) / 10_000;
         assertEq(feeVault.creatorBalance(creator), expectedCreator, "Seed buy should accrue creator-share to creator");
         assertEq(feeVault.lifetimeCreatorEarned(creator), expectedCreator, "Lifetime should match");
         assertEq(usdc.balanceOf(address(feeVault)), expectedFee, "Vault should hold full seed buy fee");
@@ -1191,7 +1197,7 @@ contract ZapTest is DeployHelper {
         uint256 usdcIn = _smallBuyUsdc();
         _buyViaRouter(tokenAddr, makeAddr("postGradBuyer"), usdcIn);
 
-        uint256 expectedFee = (usdcIn * 50) / 10_000;
+        uint256 expectedFee = (usdcIn * 75) / 10_000;
         assertEq(
             usdc.balanceOf(address(feeVault)) - vaultBefore,
             expectedFee,
@@ -1212,7 +1218,7 @@ contract ZapTest is DeployHelper {
         uint256 usdcOut = zap.sell(tokenAddr, tokensOut, 0);
         vm.stopPrank();
 
-        uint256 fee = (usdcOut * 50) / 9950;
+        uint256 fee = (usdcOut * 75) / 9925;
         assertApproxEqAbs(
             usdc.balanceOf(address(feeVault)) - vaultBefore, fee, 1, "Post-grad sells must still accrue the same fee"
         );

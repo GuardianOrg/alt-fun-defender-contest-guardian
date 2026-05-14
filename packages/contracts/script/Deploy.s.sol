@@ -10,9 +10,6 @@ import {Router} from "../src/Router.sol";
 import {Zap} from "../src/Zap.sol";
 import {LPLock} from "../src/LPLock.sol";
 import {FeeVault} from "../src/FeeVault.sol";
-import {BotFeeRouter} from "../src/BotFeeRouter.sol";
-import {IZap} from "../src/interfaces/IZap.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IUniswapV2Router02} from "../src/interfaces/IUniswapV2Router02.sol";
 
 contract Deploy is Script {
@@ -24,37 +21,21 @@ contract Deploy is Script {
     ///      `GLOBAL_STORAGE_ADDRESS` in `bounce-tech/bounce-npm`.
     address constant BOUNCE_GLOBAL_STORAGE = 0xa07d06383c1863c8A54d427aC890643d76cc03ff;
 
-    // Fee config at deploy time: 0.5% buy/sell, 20% of that to the creator.
-    uint256 constant BUY_FEE_BPS = 50;
-    uint256 constant SELL_FEE_BPS = 50;
-    uint256 constant CREATOR_FEE_BPS = 2000;
+    // Fee config at deploy time: 0.75% buy/sell, with the creator taking
+    // 1/3 of every fee (33.33% ≈ 0.25% of trade notional, leaving the
+    // protocol with the remaining 0.5%). `creatorFeeBps` is denominated
+    // in `Zap.BPS_DENOM` (10_000), so 3_333 ≈ 1/3 with the standard
+    // floor-divide rounding the contract uses.
+    uint256 constant BUY_FEE_BPS = 75;
+    uint256 constant SELL_FEE_BPS = 75;
+    uint256 constant CREATOR_FEE_BPS = 3333;
 
     /// @dev USD-denominated (18-dp) graduation trigger seeded into the
     ///      Bonding proxy at `initialize`. Immutable for the life of the
     ///      proxy — changing it requires a UUPS upgrade with a
-    ///      `reinitializer`.
-    // TEMP(pre-launch-test): threshold dropped from $12K → $300 to ship a
-    // small-capital graduation rehearsal on mainnet ahead of public launch.
-    // Pairs with `Bonding.VIRTUAL_LIQUIDITY_USD = $100` (3× peg preserved).
-    // Revert to `12_000 ether` for the public-launch deploy in a couple
-    // of days.
-    uint256 constant GRADUATION_THRESHOLD_USD = 300 ether;
-
-    /// @dev Treasury for the external-bot fee skim (`BotFeeRouter`).
-    ///      Cold-wallet-only by design — see
-    ///      [`apps/telegram-bot/AGENTS.md → Bot Fee Model`]. Override via
-    ///      `BOT_FEE_TREASURY` env var if a separate cold wallet has been
-    ///      provisioned; otherwise defaults to the deployer for first-cut
-    ///      deploys.
-    function _botFeeTreasury(
-        address deployer
-    ) internal view returns (address) {
-        try vm.envAddress("BOT_FEE_TREASURY") returns (address t) {
-            return t;
-        } catch {
-            return deployer;
-        }
-    }
+    ///      `reinitializer`. Pairs with
+    ///      `Bonding.VIRTUAL_LIQUIDITY_USD = $3K` (3× peg preserved).
+    uint256 constant GRADUATION_THRESHOLD_USD = 9000 ether;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -118,20 +99,9 @@ contract Deploy is Script {
         FeeVault(feeVaultProxy).addDepositor(zapProxy);
         Bonding(bondingProxy).addRouter(zapProxy);
 
-        _deployBotFeeRouter(zapProxy);
-
         console.log("--- Deployment complete ---");
         console.log("USDC:", USDC);
         console.log("Uniswap V2 Router:", UNISWAP_V2_ROUTER);
-    }
-
-    function _deployBotFeeRouter(
-        address zapProxy
-    ) internal {
-        address treasury = _botFeeTreasury(msg.sender);
-        BotFeeRouter botFeeRouter = new BotFeeRouter(IZap(zapProxy), IERC20(USDC), treasury);
-        console.log("BotFeeRouter:", address(botFeeRouter));
-        console.log("BotFeeRouter treasury:", treasury);
     }
 
     function _deployBonding(

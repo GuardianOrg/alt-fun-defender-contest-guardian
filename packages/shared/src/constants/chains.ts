@@ -6,7 +6,7 @@ export const HYPER_EVM = {
 
 export const SUPPORTED_CHAINS = [HYPER_EVM] as const;
 
-export const BONDING_START_BLOCK = 34844516;
+export const BONDING_START_BLOCK = 35090407;
 
 /**
  * Block at which the team-owned `BotFeeRouter` (the contract behind the

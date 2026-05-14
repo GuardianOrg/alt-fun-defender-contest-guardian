@@ -24,12 +24,8 @@ const CURVE_SUPPLY = (TOTAL_SUPPLY * CURVE_BPS) / BPS_DENOM; // 750M — real se
 /// JS integer (USD dollars), not the on-chain 18-dp wei representation.
 /// Exported so tests can derive expected curve outputs without re-hardcoding
 /// the value (which would silently drift the moment the on-chain dial moves).
-// TEMP(pre-launch-test): dropped from 4_000 → 100 to track the temporary
-// production `Bonding.VIRTUAL_LIQUIDITY_USD` (paired with
-// `graduationThresholdUsd = $300`). Revert to `4_000` alongside the
-// contract rollback.
-export const VIRTUAL_LIQUIDITY_USD = 100;
-const BUY_FEE_BPS = 50; // 0.5%
+export const VIRTUAL_LIQUIDITY_USD = 3000;
+const BUY_FEE_BPS = 75; // 0.75%
 
 export interface SeedBuyStats {
   tokensReceived: number;

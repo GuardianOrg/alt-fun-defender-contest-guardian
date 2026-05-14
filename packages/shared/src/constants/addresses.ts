@@ -1,16 +1,20 @@
 export const CONTRACT_ADDRESSES = {
-  bonding: "0x1E75bB0570e4d1c4490417C0948A37e8d6809638",
-  factory: "0x6fC8ff7b2e595742298Fc876c3c755a9640B4035",
-  router: "0x6424c4732c3f02930d5eF9D5ab041F1D9867Fecf",
-  zap: "0x0DC348C1eDB757C6Ec6a8045fC2D85d7fA2dbc21",
-  lpLock: "0x580C97D07d313b404d615b61D0f195b0Ca2c6598",
-  feeVault: "0x3B86E3A9cDE902DCa3316c5788686aa8567477b1",
-  tokenImplementation: "0xe6A0C9D82471219C3520Cc8ec309A4b222c28cA3",
+  bonding: "0xb68811BcC0e4FcD825aA49F9453b065ddF752FcB",
+  factory: "0xd5E5Fef4cFeFb67bbA0aA1dc74B2Cd196B4786AC",
+  router: "0x70c7eC6f85B960379b7ee60Af72E0f419d915878",
+  zap: "0x693F12E9E6B35b34458793546065E8b08e0299d6",
+  lpLock: "0x8Deb9603d5F31471E993c23f73E4bDdB702a7476",
+  feeVault: "0xb4894380282533A86cb241145fac54AaAc995F18",
+  tokenImplementation: "0xfbEc3D3c42427Dc2c08A2401e53758F02cecB540",
   /**
    * `BotFeeRouter` is operated by the Telegram-bot team and deployed
    * independently of the Alt Fun protocol. Deployed at block
    * `BOT_FEE_ROUTER_START_BLOCK` (see `./chains.ts`); the indexer's
-   * Ponder source uses that block to scope its backfill.
+   * Ponder source uses that block to scope its backfill. NOTE: this
+   * address points to the previous protocol's `Zap`. The bot-team
+   * needs to redeploy `BotFeeRouter` against the new `Zap`
+   * (`0x693F12E9E6B35b34458793546065E8b08e0299d6`) and update this
+   * field plus `BOT_FEE_ROUTER_START_BLOCK` once that's done.
    */
   botFeeRouter: "0xB2b2d9c0c837a723fC27C27e097B384400796947",
 } as const;

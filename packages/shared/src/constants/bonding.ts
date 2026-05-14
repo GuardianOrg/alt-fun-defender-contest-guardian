@@ -12,9 +12,5 @@
  * (the live RPC read still wins; this is just the offline fallback).
  */
 
-/** USD denominated as a plain integer (no decimals). Matches `300 ether` in 18-dp. */
-// TEMP(pre-launch-test): dropped from 12_000 → 300 to track the temporary
-// production `Bonding.graduationThresholdUsd` (paired with
-// `VIRTUAL_LIQUIDITY_USD = $100`). Revert to `12_000` alongside the
-// contract / `Deploy.s.sol` rollback.
-export const DEFAULT_GRADUATION_THRESHOLD_USD = 300;
+/** USD denominated as a plain integer (no decimals). Matches `9000 ether` in 18-dp. */
+export const DEFAULT_GRADUATION_THRESHOLD_USD = 9000;

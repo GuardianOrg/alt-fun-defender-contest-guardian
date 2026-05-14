@@ -20,3 +20,6 @@ apps/web/src/**/*.js
 packages/contracts/cache
 packages/contracts/out
 packages/contracts/broadcast
+
+
+temp/

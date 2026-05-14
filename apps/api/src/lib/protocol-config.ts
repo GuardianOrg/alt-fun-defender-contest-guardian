@@ -52,7 +52,7 @@ interface CacheEntry {
 let cache: CacheEntry | null = null;
 
 /**
- * Returns the graduation threshold in plain USD (e.g. `12000`). Falls
+ * Returns the graduation threshold in plain USD (e.g. `9000`). Falls
  * back to the compile-time default on RPC error.
  *
  * Cached per Worker isolate for `CACHE_TTL_MS`.
@@ -83,7 +83,7 @@ async function fetchFromRpc(env: AppBindings): Promise<number | null> {
       abi: BondingAbi,
       functionName: "graduationThresholdUsd",
     })) as bigint;
-    // 18-dp wei → plain USD. Production thresholds sit in $4K–$1M, well
+    // 18-dp wei → plain USD. Production thresholds sit in $3K–$1M, well
     // within JS Number precision.
     return Number(wei / 10n ** 18n);
   } catch {

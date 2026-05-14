@@ -274,14 +274,14 @@ export interface EnrichedToken
   curveFilled: number | null;
   /**
    * Percent of the USD graduation threshold (`Bonding.graduationThresholdUsd`,
-   * set once at proxy initialisation; production = $12K) that came from
+   * set once at proxy initialisation; production = $9K) that came from
    * organic USDC buys (clamped at `curveFilled`). `null` when the
    * indexer/BounceTech are degraded or the token is graduated.
    */
   curveFilledOrganic: number | null;
   /**
    * Percent of the USD graduation threshold (`Bonding.graduationThresholdUsd`,
-   * set once at proxy initialisation; production = $12K) that came from LT
+   * set once at proxy initialisation; production = $9K) that came from LT
    * price appreciation since those buys. `null` when unknown, clamped at 0
    * when the LT has dropped (marketing number — we don't surface a negative
    * contribution).

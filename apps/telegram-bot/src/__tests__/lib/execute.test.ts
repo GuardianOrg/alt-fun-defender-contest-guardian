@@ -275,7 +275,7 @@ describe("renderConfirmReply", () => {
     // Fee summary lives only in /help fees per issue #801 — never on
     // the buy/sell menu and never on the receipt.
     expect(reply).not.toContain("Bot fee 0.5%");
-    expect(reply).not.toContain("Alt Fun fee 0.5%");
+    expect(reply).not.toContain("Alt Fun fee 0.75%");
   });
 
   it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
