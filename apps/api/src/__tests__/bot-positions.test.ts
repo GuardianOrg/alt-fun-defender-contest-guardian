@@ -685,10 +685,16 @@ describe("GET /bot/positions/:wallet", () => {
     expect(body.data.realised[0]!.token).toBe(TOKEN_B);
   });
 
-  it("clamps balance and rescales value when chain balance is below router-tracked balance", async () => {
+  it("clamps balance and rescales value + cost basis when chain balance is below router-tracked balance", async () => {
     // User bought 2 tokens via the bot ($4 cost basis, $4 indexer snapshot
-    // value), then transferred 1 out via direct Transfer. The route should
-    // display 1 token and rescale the stale snapshot value to match.
+    // value), then disposed of 1 token off-router (direct Transfer / web
+    // Zap sell / HyperSwap swap). The route displays 1 token and rescales
+    // BOTH the stale snapshot value AND the cost basis proportionally —
+    // average-cost accounting on the remaining half, mirroring the sell
+    // handler's own `costBasisUsdc *= remaining / prevBalance` math. The
+    // alternative (cost basis frozen at $4 vs rescaled $2 value) would
+    // surface a phantom -50% PnL on a position whose per-token cost is
+    // actually unchanged.
     mockPositionsAndBalances(
       [
         {
@@ -714,11 +720,74 @@ describe("GET /bot/positions/:wallet", () => {
     expect(body.data.open[0]!.balance).toBe("1000000000000000000");
     // Snapshot rescales proportionally: $4 × (1 / 2) = $2.
     expect(body.data.open[0]!.currentValueUsdc).toBe("2000000");
-    // Cost basis stays at $4 (cost-basis attribution doesn't unwind on a
-    // non-router disposal — the user incurred the cost regardless).
-    expect(body.data.open[0]!.costBasisUsdc).toBe("4000000");
-    expect(body.data.open[0]!.unrealisedPnlUsdc).toBe("-2000000");
-    expect(body.data.open[0]!.unrealisedPnlPct).toBe(-50);
+    // Cost basis rescales proportionally too: $4 × (1 / 2) = $2.
+    expect(body.data.open[0]!.costBasisUsdc).toBe("2000000");
+    // Per-token PnL is flat: $2 value vs $2 cost.
+    expect(body.data.open[0]!.unrealisedPnlUsdc).toBe("0");
+    expect(body.data.open[0]!.unrealisedPnlPct).toBe(0);
+  });
+
+  it("preserves cross-channel PnL accuracy when the live mark moved since the off-router disposal", async () => {
+    // Regression for the cross-channel PnL bug: user bought 2 tokens via the
+    // bot at $2 each ($4 cost), then sold 1 off-router. The bot's view of the
+    // remaining 1 token should track its real PnL against the live mark, not
+    // inherit the displaced $4 cost basis. Live mark = $3/token, so the
+    // displayed position is 1 token worth $3 against $2 rescaled cost — a
+    // genuine +$1 / +50% unrealised gain, not the +$1 mark vs $4 stale cost
+    // (-$3 / -75%) the un-rescaled cost basis would surface.
+    mockPositionsAndBalances(
+      [
+        {
+          token: TOKEN_A,
+          ticker: "ONE",
+          tokenBalance: "2000000000000000000", // 2 tokens router-tracked
+          costBasisUsdc: "4000000", // $4 total cost ($2/token)
+          currentValueUsdc: "4000000",
+          realisedPnlUsdc: "0",
+          totalCostUsdc: "4000000",
+          totalProceedsUsdc: "0",
+        },
+      ],
+      // 1 token left on chain after off-router disposal.
+      [{ tokenAddress: TOKEN_A, balance: "1000000000000000000" }],
+    );
+    mockFetchTokensOnchainByAddresses.mockResolvedValue([
+      {
+        address: TOKEN_A,
+        ltToken: "0xaaaa000000000000000000000000000000000000",
+        // ratio = 3 → priceUsd = $3 (up from the $2 entry).
+        curveSupply: "1000000000000000000",
+        ltReserve: "3000000000000000000",
+        k: "0",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "0",
+      },
+    ]);
+    mockFetchLiveLtRates.mockResolvedValue(
+      new Map<string, number>([
+        ["0xaaaa000000000000000000000000000000000000", 1],
+      ]),
+    );
+    const res = await createApp().request(
+      `/bot/positions/${VALID_WALLET}`,
+      {},
+      makeEnv(),
+    );
+    const body = (await res.json()) as PositionsResponseBody;
+    expect(body.data.open[0]!.balance).toBe("1000000000000000000");
+    expect(body.data.open[0]!.costBasisUsdc).toBe("2000000"); // rescaled
+    expect(body.data.open[0]!.currentValueUsdc).toBe("3000000"); // live mark
+    expect(body.data.open[0]!.unrealisedPnlUsdc).toBe("1000000"); // +$1
+    expect(body.data.open[0]!.unrealisedPnlPct).toBe(50);
   });
 
   it("clamps live-mark value to the on-chain balance, not the router-tracked balance", async () => {
