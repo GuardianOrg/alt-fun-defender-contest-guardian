@@ -1,4 +1,5 @@
 import type { Bot } from "grammy";
+import type { Message } from "grammy/types";
 
 import type { AppContext } from "../bot.js";
 import {
@@ -20,6 +21,39 @@ const API_UNAVAILABLE =
   "Data temporarily unavailable — try again in a moment.";
 
 /**
+ * Delete the previously-shipped buy card (or error fallback) for this
+ * chat, if one is still tracked on the session. Each address paste
+ * replaces the prior intercept output: stacking a new card above the
+ * stale one leaves the user staring at two conflicting screens.
+ *
+ * Best-effort: Telegram returns 400 when the message is already gone
+ * (user wiped it, or it aged past the 48h delete window) and the new
+ * card must still ship. Per-chat scoped so a paste in this chat never
+ * touches a card the bot showed in a different chat for the same user.
+ */
+const replacePreviousBuyCard = async (ctx: AppContext): Promise<void> => {
+  const prev = ctx.session.lastBuyCardMessage;
+  const chatId = ctx.chat?.id;
+  if (!prev || chatId === undefined || prev.chatId !== chatId) return;
+  ctx.session.lastBuyCardMessage = undefined;
+  try {
+    await ctx.api.deleteMessage(prev.chatId, prev.messageId);
+  } catch {
+    // Already gone / outside 48h / no rights — fall through.
+  }
+};
+
+const rememberBuyCardMessage = (ctx: AppContext, sent: Message): void => {
+  const chatId = ctx.chat?.id;
+  // Skip when Telegram didn't echo back a numeric message_id (in tests
+  // the stubbed `sendMessage` returns `result: true`; in prod the real
+  // Message always carries one). Recording undefined would crash the
+  // next deleteMessage call with a bad-arg error.
+  if (chatId === undefined || typeof sent.message_id !== "number") return;
+  ctx.session.lastBuyCardMessage = { chatId, messageId: sent.message_id };
+};
+
+/**
  * Fetch the token and the user's active-wallet USDC balance, then reply
  * with the canonical buy card (same text + keyboard as the `/buy` lookup
  * flow). Used by the address-intercept paths so a contract address
@@ -29,6 +63,10 @@ const API_UNAVAILABLE =
  * On any failure the helper surfaces the same user-facing copy the buy
  * lookup conversation does (token-not-found vs. api-unavailable), so the
  * pivot looks identical to a normal `/buy` lookup.
+ *
+ * Replaces (delete + send) any prior intercept message in this chat so
+ * the second paste in a row swaps the card in place instead of stacking
+ * a new one above the stale one.
  */
 export const showBuyCardForAddress = async (
   ctx: AppContext,
@@ -36,17 +74,20 @@ export const showBuyCardForAddress = async (
 ): Promise<void> => {
   const tokenResult = await fetchToken(ctx.env, address);
   if (!tokenResult.ok) {
+    await replacePreviousBuyCard(ctx);
     if (
       tokenResult.kind === "not_found" ||
       tokenResult.kind === "invalid_address"
     ) {
-      await ctx.reply(TOKEN_NOT_FOUND_HTML, {
+      const sent = await ctx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      rememberBuyCardMessage(ctx, sent);
       return;
     }
-    await ctx.reply(API_UNAVAILABLE);
+    const sent = await ctx.reply(API_UNAVAILABLE);
+    rememberBuyCardMessage(ctx, sent);
     return;
   }
 
@@ -66,13 +107,15 @@ export const showBuyCardForAddress = async (
     ctx.session.buyPresetsUsdc,
     ctx.session.defaultBuyUsdc,
   );
-  await ctx.reply(cardText, {
+  await replacePreviousBuyCard(ctx);
+  const sent = await ctx.reply(cardText, {
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
     },
     link_preview_options: { is_disabled: true },
   });
+  rememberBuyCardMessage(ctx, sent);
 };
 
 /**

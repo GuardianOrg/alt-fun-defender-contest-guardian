@@ -95,6 +95,17 @@ export interface SessionData {
    */
   workflowMessages?: { chatId: number; messageId: number }[];
   /**
+   * Last buy-card (or buy-card error fallback) shipped by the address
+   * intercept — bare-text paste (`registerAddressBuyIntercept`) or a
+   * wizard pivot (`tryAddressBuyIntercept`). Before shipping a new card
+   * the helper deletes this one, so a second paste replaces the first
+   * card in place instead of stacking a new card above the stale one
+   * (issue: "old prompt doesn't disappear"). Per-chat scoped so a paste
+   * in the bot's private DM never sweeps a card the user is looking at
+   * in a different chat the bot also serves.
+   */
+  lastBuyCardMessage?: { chatId: number; messageId: number };
+  /**
    * Navigation stack of message snapshots used to power the global
    * `[← Back]` / `[🏠 Home]` row that lives on every system prompt
    * except `/start`. Each entry captures the text + inline keyboard
