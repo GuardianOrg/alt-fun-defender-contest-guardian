@@ -55,7 +55,7 @@ import {
 } from "../lib/workflow-stack-conversation.js";
 
 /** Number of trades shown under the token card per AGENTS.md /track spec. */
-const TRADES_PER_CARD = 20;
+const TRADES_PER_CARD = 5;
 
 /**
  * Telegram photo-caption budget — 1024 visible chars after HTML entity
@@ -447,7 +447,7 @@ const trackLookupConversation = async (
  * inline keyboard when the chart renders, plain text otherwise. The
  * caption is pre-trimmed to fit Telegram's 1024-char photo-caption
  * budget by `renderTrackCaption`; the text path uses the full body so
- * users on tokens whose chart failed still see all 20 trade rows.
+ * users on tokens whose chart failed still see all 5 trade rows.
  * A photo failure (Telegram 400 on a malformed PNG, e.g.) falls back
  * to the text path so the user always sees the card.
  */
