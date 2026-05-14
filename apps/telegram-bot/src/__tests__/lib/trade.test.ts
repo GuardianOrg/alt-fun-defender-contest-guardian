@@ -1150,7 +1150,7 @@ describe("signPermitForRouter", () => {
   const PRIVATE_KEY =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
   const OWNER = privateKeyToAccount(PRIVATE_KEY).address;
-  const SPENDER = "0xB2b2d9c0c837a723fC27C27e097B384400796947" as const;
+  const SPENDER = "0xe617693e1D50285965e647375733BF333BB4B477" as const;
   const TOKEN_NAME = "Test USDC";
   const NONCE = 7n;
 
@@ -1383,7 +1383,7 @@ describe("tryPermit", () => {
   const PRIVATE_KEY =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
   const OWNER = privateKeyToAccount(PRIVATE_KEY).address;
-  const SPENDER = "0xB2b2d9c0c837a723fC27C27e097B384400796947" as const;
+  const SPENDER = "0xe617693e1D50285965e647375733BF333BB4B477" as const;
   const TOKEN = "0x1111111111111111111111111111111111111111" as const;
   const TOKEN_NAME = "Test Permit Token";
   const NONCE = 3n;
