@@ -1,8 +1,19 @@
-/* Sticky at the bottom so the row stays visible on mobile body-scroll. */
+/* Sticky at the bottom so the row stays visible on mobile body-scroll.
+ *
+ * Stacking notes: the footer creates a stacking context (positioned +
+ * `z-index`) so the upward-opening `DocsMenu` popup inside it sits in
+ * that context. The mobile trade-detail CTA (`TokenDetailView.module.css`
+ * `.mobileTradeBar`, z-index 100) floats just above the footer on
+ * narrow viewports, and would otherwise cover the docs popup when it
+ * unfurls upward. Anchoring the footer at 150 sits the entire menu —
+ * including its descendants — above the CTA but well below `shared/
+ * Modal` (z-index 1000) and `Toast` (1100), so opened modals / toasts
+ * still cover the menu correctly.
+ */
 .footer {
   position: sticky;
   bottom: 0;
-  z-index: 5;
+  z-index: 150;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -89,7 +100,6 @@
     padding: 0.4rem 0.8rem;
     gap: 0.8rem;
     flex-wrap: wrap;
-    justify-content: center;
   }
 
   .docsTrigger {

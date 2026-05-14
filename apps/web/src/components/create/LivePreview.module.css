@@ -4,6 +4,17 @@
   border: 1px solid var(--border);
 }
 
+/* Mobile: the parent `.layout` (CreateView.module.css) becomes the
+ * single scroll container on narrow viewports so the form + preview
+ * stack reads as one document. Per-panel scroll here would split that
+ * document into two competing scrollers again — drop our overflow
+ * constraint and let height be content-sized. */
+@media (max-width: 768px) {
+  .wrapper {
+    overflow: visible;
+  }
+}
+
 .content {
   padding: 1.6rem 1.6rem;
 }

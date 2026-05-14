@@ -170,22 +170,66 @@
   font-size: 13px;
 }
 
+/*
+ * Mobile sticky trade CTA. The right-hand trade panel is folded behind
+ * this button on small viewports — taps open the panel as a modal so
+ * the chart / hero / tabs in the left column can use the full width.
+ * Floats above the page with viewport margins (`bottom: 1.6rem`,
+ * symmetric horizontal) per the request — not flush to the edge.
+ * z-index sits below `shared/Modal`'s overlay (z-index 1000) so the
+ * scrim covers the CTA cleanly when the popup opens.
+ */
+.mobileTradeBar {
+  display: none;
+}
+
+/* Custom modal sizing for the mobile trade popup. Per the modal rules
+ * (`apps/web/AGENTS.md` → "Modals & overlays") `panelClassName` may
+ * only set sizing — chrome (bg / border / radius / shadow / animation)
+ * stays owned by `shared/Modal`. Width matches the desktop trade panel
+ * (300px) but caps at 95vw so it never overflows narrow viewports.
+ */
+.tradeModalPanel {
+  width: 360px;
+  max-width: 95vw;
+}
+
 @media (max-width: 768px) {
+  /* "Whole-screen" left panel: drop the page gutters so the chart /
+   * hero / tabs run edge-to-edge. The wrapper still flows in the
+   * document (the sticky CTA below is positioned independently). */
   .wrapper {
     flex-direction: column;
     overflow: auto;
+    margin: 0;
+    gap: 0;
   }
 
   .leftPanel {
     border-right: 0;
     border-bottom: 1px solid var(--border);
+    border-left: 0;
     min-height: 320px;
+    /* Reserve space at the bottom equal to the CTA height + its bottom
+     * margin so the page can scroll past the last tab content without
+     * the sticky button covering it. ~3.2rem button + 1.6rem bottom
+     * inset + 0.8rem breathing room. */
+    padding-bottom: 5.6rem;
   }
 
   .curveStrip {
     flex-wrap: wrap;
     height: auto;
-    padding: 0.6rem 0.8rem;
-    gap: 0.6rem;
+    padding: 0.8rem;
+    gap: 0.8rem;
+  }
+
+  .mobileTradeBar {
+    display: block;
+    position: fixed;
+    left: 1.2rem;
+    right: 1.2rem;
+    bottom: 3.6rem;
+    z-index: 100;
   }
 }

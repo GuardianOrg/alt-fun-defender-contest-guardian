@@ -307,9 +307,7 @@ export default function TokenForm({
             </div>
           </div>
           <div>
-            <label className={styles.label}>
-              Website <span className={styles.optionalTag}>(optional)</span>
-            </label>
+            <label className={styles.label}>Website</label>
             <input
               type="text"
               className={styles.input}

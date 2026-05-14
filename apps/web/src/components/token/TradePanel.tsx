@@ -26,6 +26,7 @@ import { useSlippage } from "../../hooks/useSlippage";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
 import {
+  cn,
   formatTokenAmount,
   formatUsd,
   shortenAddress,
@@ -58,9 +59,17 @@ const LOW_HYPE_THRESHOLD_WEI = parseUnits("0.005", 18);
 
 interface Props {
   token: Token;
+  /**
+   * Drop the outer `.panel` chrome (background / border / fixed width /
+   * shadow) so the panel can be embedded inside another container that
+   * already owns those — specifically the mobile trade modal, which uses
+   * `shared/Modal` for the surface and would otherwise double up borders.
+   * The internal toggle / form / CTA layout is unchanged.
+   */
+  chromeless?: boolean;
 }
 
-export default function TradePanel({ token }: Props) {
+export default function TradePanel({ token, chromeless = false }: Props) {
   // While BounceTech has paused minting on the backing LT every `Zap.buy`
   // for this token reverts (Zap mints LT from USDC on every buy). Drives
   // the disabled-buy state plus the explainer banner below; sells continue
@@ -413,6 +422,7 @@ export default function TradePanel({ token }: Props) {
   };
 
   const ticker = token.ticker;
+  const panelClass = cn(styles.panel, chromeless && styles.panelChromeless);
 
   // Token is in the contract-frozen graduating window (phase 1 of the
   // two-phase graduation has fired; awaiting the keeper's `finalizeGraduation`
@@ -422,7 +432,7 @@ export default function TradePanel({ token }: Props) {
   // automatically transitions to the post-grad UI when phase 2 lands.
   if (token.status === "graduating") {
     return (
-      <div className={styles.panel}>
+      <div className={panelClass}>
         <div className={styles.graduatingPanel}>
           <div className={styles.graduatingSpinner} />
           <div className={styles.graduatingTitle}>Token is graduating</div>
@@ -440,7 +450,7 @@ export default function TradePanel({ token }: Props) {
   }
 
   return (
-    <div className={styles.panel}>
+    <div className={panelClass}>
       <div className={styles.toggleBar}>
         <div className={styles.toggleGrid}>
           <SegmentedButton
@@ -623,11 +633,7 @@ export default function TradePanel({ token }: Props) {
         {activeError?.kind === "insufficientUsdc" && (
           <div className={styles.errorBox}>
             <span className={styles.errorIcon}>⚠</span>
-            Insufficient USDC — wallet holds $
-            {parseFloat(usdcBalance ?? "0").toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            Insufficient USDC
           </div>
         )}
 

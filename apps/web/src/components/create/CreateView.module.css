@@ -177,8 +177,22 @@ button.launchButtonConfirmed:disabled {
 }
 
 @media (max-width: 768px) {
+  /* Collapse to a single column AND hand the scroll up to `.layout`
+   * itself. With `overflow: hidden` (desktop default) the two grid rows
+   * share the constrained viewport height and each panel scrolls
+   * independently — which reads as "two stacked terminals competing
+   * for the screen" rather than a single document. Switching to
+   * `overflow: auto` here, plus `overflow: visible` on the per-column
+   * scrollers below, makes the form + live preview stack as one long
+   * page that scrolls as a single document. Matches the equivalent
+   * mobile treatment in `TokenDetailView.module.css`. */
   .layout {
     grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .formColumn {
+    overflow: visible;
   }
 
   .pageHeader {

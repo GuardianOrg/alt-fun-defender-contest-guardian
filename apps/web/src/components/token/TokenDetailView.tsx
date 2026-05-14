@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { useParams } from "react-router";
 
 import AdminPanel from "./AdminPanel";
@@ -12,16 +14,33 @@ import TradePanel from "./TradePanel";
 import TradePanelSkeleton from "./TradePanelSkeleton";
 import { useGraduationFeed } from "../../hooks/useGraduationFeed";
 import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
+import { useIsMobile } from "../../hooks/useIsMobile";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
 import { useTokenLiveFeed } from "../../hooks/useTokenLiveFeed";
 import { formatUsd, formatUsdOrDash } from "../../utils/format";
+import Button from "../shared/Button";
 import ErrorBoundary from "../shared/ErrorBoundary";
+import Modal from "../shared/Modal";
 import ProgressBar from "../shared/ProgressBar";
 
 export default function TokenDetailView() {
   const { address } = useParams<{ address: string }>();
   const { data: token, isError } = useToken(address);
+  // Mobile (≤768px) collapses the side-by-side layout: the left panel
+  // takes the full viewport and the trade panel is folded behind a
+  // sticky CTA that opens it as a modal. Tracked in JS (rather than
+  // pure CSS) so we can mount the trade panel exactly once — either
+  // inline on desktop or inside the modal on mobile — and avoid
+  // duplicate WS subscriptions / form state from rendering it twice.
+  const isMobile = useIsMobile();
+  const [tradeModalOpen, setTradeModalOpen] = useState(false);
+  // Auto-close the modal whenever the viewport crosses back to desktop
+  // (e.g. a tablet rotating, devtools resize) so we never strand an
+  // open mobile-only popup over the desktop layout.
+  useEffect(() => {
+    if (!isMobile && tradeModalOpen) setTradeModalOpen(false);
+  }, [isMobile, tradeModalOpen]);
   // Live owner-tunable threshold; fall back to the compile-time default
   // while the RPC read is in flight so the curve strip never flashes "$0".
   const { data: graduationThresholdUsd, fallback: thresholdFallback } =
@@ -197,18 +216,59 @@ export default function TokenDetailView() {
         )}
       </div>
 
-      {token ? (
-        <ErrorBoundary
-          fallback={
-            <div className={styles.errorFallback}>
-              Trade panel failed to load
-            </div>
-          }
+      {/* Desktop: trade panel (or its skeleton while metadata loads)
+          sits inline as the right column. Mobile: we suppress the
+          inline slot entirely — there's no right-hand column on a
+          stacked layout — and surface the panel via the sticky CTA +
+          modal below. Mounting in both places would duplicate WS
+          subscriptions and trade-form state. */}
+      {!isMobile &&
+        (token ? (
+          <ErrorBoundary
+            fallback={
+              <div className={styles.errorFallback}>
+                Trade panel failed to load
+              </div>
+            }
+          >
+            <TradePanel token={token} />
+          </ErrorBoundary>
+        ) : (
+          <TradePanelSkeleton />
+        ))}
+
+      {/* Mobile sticky CTA. Only rendered once the token has resolved so
+          we have a real ticker to surface — there's no inline trade
+          surface to fall back to on mobile, so a half-loaded label
+          ("Trade —") would be more noisy than just waiting. */}
+      {isMobile && token && (
+        <div className={styles.mobileTradeBar}>
+          <Button
+            variant="primary"
+            size="lg"
+            fullWidth
+            onClick={() => setTradeModalOpen(true)}
+          >
+            Trade {token.ticker}
+          </Button>
+        </div>
+      )}
+
+      {isMobile && token && tradeModalOpen && (
+        <Modal
+          onClose={() => setTradeModalOpen(false)}
+          panelClassName={styles.tradeModalPanel}
         >
-          <TradePanel token={token} />
-        </ErrorBoundary>
-      ) : (
-        <TradePanelSkeleton />
+          <ErrorBoundary
+            fallback={
+              <div className={styles.errorFallback}>
+                Trade panel failed to load
+              </div>
+            }
+          >
+            <TradePanel token={token} chromeless />
+          </ErrorBoundary>
+        </Modal>
       )}
     </div>
   );

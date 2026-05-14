@@ -140,9 +140,28 @@
   border: 0;
   outline: none;
   font-family: var(--font-mono);
-  font-size: 0.875rem;
+  /* 16px is the iOS Safari floor — anything smaller triggers an
+   * auto-zoom on focus that yanks the viewport when a user taps
+   * into the field. The root sets `font-size: 12px` (so 1rem = 12px
+   * here), which makes the previous `0.875rem` ≈ 10.5px and trips
+   * the zoom every time. Keep this in `px` rather than a rem-scaled
+   * value so future tweaks to the root size don't silently re-break
+   * mobile focus.
+   *
+   * To preserve the original visual size we then scale the input
+   * down to 10.5px visually (16 × 0.65625 = 10.5). The auto-zoom
+   * heuristic only inspects the computed `font-size` — it ignores
+   * `transform` — so this gets us "looks like 10.5px, reads as 16px
+   * to iOS". `transform-origin: left center` anchors the shrink to
+   * the icon side so the text stays butted against the search icon
+   * instead of drifting toward the centre of the field. Layout box
+   * is unaffected (transforms don't reflow), so the flex sizing of
+   * `.searchBar` is unchanged. */
+  font-size: 16px;
   line-height: 1.25rem;
   color: var(--txt);
+  transform: scale(0.65625);
+  transform-origin: left center;
 }
 
 .searchInput::placeholder {
