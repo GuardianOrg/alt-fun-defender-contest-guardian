@@ -265,6 +265,78 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(String(card!.body.text)).toContain("TEST");
   });
 
+  it("pasting a second address replaces the previous card (delete old, send new)", async () => {
+    const h = await harnessWithWallet();
+    // Inline mock — sendMessage must return a real Message so the
+    // intercept can stash its message_id and delete it on the next
+    // paste. The default `withTelegramOk` echoes `result: true`, which
+    // would null out the stash and no replace would happen.
+    let nextMessageId = 5000;
+    const sendMessageIds: number[] = [];
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/sendMessage")) {
+          const messageId = nextMessageId++;
+          sendMessageIds.push(messageId);
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: messageId,
+                date: 0,
+                chat: { id: CHAT_ID, type: "private" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000_000n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return tokenResponse();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    // First paste — buy card lands and its id is captured.
+    await h.run(messageUpdate(TOKEN_ADDR, 20));
+    const firstCardId = sendMessageIds.at(-1);
+    expect(firstCardId).toBeDefined();
+    fetchSpy.mockClear();
+
+    // Second paste — the previous card must be deleted before the new
+    // one ships, so the user sees one card on screen, not two.
+    await h.run(messageUpdate(TOKEN_ADDR, 21));
+
+    const calls = capture(fetchSpy);
+    const deletePrevIdx = calls.findIndex(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id === firstCardId,
+    );
+    expect(deletePrevIdx).toBeGreaterThanOrEqual(0);
+    // The new card must land *after* the delete — otherwise the user
+    // sees both cards on screen for the brief window between the two
+    // calls, which is the exact regression this test guards against.
+    const newCardSentIdx = calls.findIndex((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(newCardSentIdx).toBeGreaterThan(deletePrevIdx);
+  });
+
   it("non-address text outside any flow is ignored (no buy card, no error)", async () => {
     const h = await harnessWithWallet();
     wireMocks(fetchSpy);
