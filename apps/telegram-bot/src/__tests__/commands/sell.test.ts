@@ -154,7 +154,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     fetchSpy.mockRestore();
   });
 
-  it("Sell button answers callback silently and sends token-address prompt", async () => {
+  it("Sell button answers callback silently and edits start menu into the token-address prompt", async () => {
     const h = makeBotHarness();
     mockTokenAndRpc(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.sell));
@@ -162,10 +162,16 @@ describe("Sell flow (st:s button → conversation)", () => {
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
 
     expect(answer!.body.show_alert).toBeFalsy();
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
+    // Regression for the bug where /sell from the start menu sent a
+    // fresh prompt below the still-visible menu.
+    expect(send).toBeUndefined();
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toMatch(
+      /contract address|alt\.fun|hyperevmscan/i,
+    );
   });
 
   it("token-address prompt carries the [← Back] [🏠 Home] nav row", async () => {
@@ -173,13 +179,13 @@ describe("Sell flow (st:s button → conversation)", () => {
     mockTokenAndRpc(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.sell));
 
-    const send = capture(fetchSpy).find((c) =>
-      c.url.includes("/sendMessage"),
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
     );
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/Tap Home to exit/);
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toMatch(/Tap Home to exit/);
     const kb =
-      (send!.body.reply_markup as
+      (edit!.body.reply_markup as
         | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
         | undefined)?.inline_keyboard ?? [];
     expect(
@@ -191,7 +197,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     ).toBe(true);
   });
 
-  it("shows token card with token balance and sell buttons", async () => {
+  it("shows token card with token balance and sell buttons (edited in place)", async () => {
     const h = await harnessWithWallet();
     // 50k tokens × $0.001 = $50 holding
     mockTokenAndRpc(fetchSpy, {
@@ -209,16 +215,17 @@ describe("Sell flow (st:s button → conversation)", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 10));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    const text = String(send!.body.text);
-    expect(text).toContain("Test Token");
+    const cardEdit = calls
+      .filter((c) => c.url.includes("/editMessageText"))
+      .find((c) => String(c.body.text).includes("Test Token"));
+    expect(cardEdit).toBeDefined();
+    const text = String(cardEdit!.body.text);
     expect(text).toContain("TEST");
     // Must show token balance
     expect(text).toContain("Balance");
 
     const keyboard = (
-      send!.body.reply_markup as { inline_keyboard?: unknown[][] }
+      cardEdit!.body.reply_markup as { inline_keyboard?: unknown[][] }
     )?.inline_keyboard ?? [];
     const allBtns = keyboard.flat() as Array<{ text: string }>;
     expect(allBtns.some((b) => b.text === "Sell 10%")).toBe(true);
@@ -319,7 +326,7 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(answer!.body.text)).toBe("Refreshed");
   });
 
-  it("shows error and re-prompts when token is not found", async () => {
+  it("re-renders the not-found retry in place when token is not found", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
 
@@ -330,8 +337,12 @@ describe("Sell flow (st:s button → conversation)", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 10));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(String(send!.body.text)).toMatch(/not found/i);
+    expect(edit).toBeDefined();
+    // Retry edits the same origin bubble — no fresh reply lands below.
+    expect(send).toBeUndefined();
+    expect(String(edit!.body.text)).toMatch(/not found/i);
   });
 
   it("conversation aborts (not loops) when token API is unavailable", async () => {

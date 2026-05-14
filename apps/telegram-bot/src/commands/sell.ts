@@ -26,7 +26,14 @@ import {
   submitSell,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
-import { replyWithNav } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  backHomeRow,
+  editToSubmenu,
+  type MessageRef,
+  replyWithNav,
+  safeEditMessageById,
+} from "../lib/nav.js";
 import { fetchErc20Balance, fetchLtBaseAssetBalance } from "../lib/rpc.js";
 import {
   estimateHoldingUsdc,
@@ -302,20 +309,65 @@ const quoteSellProceeds = async (
 };
 
 /**
+ * Edit an origin bubble to show one of the prompt/retry texts. Mirrors
+ * the buy.ts helper so the /sell wizard runs in the same start-menu
+ * bubble the user tapped, rather than dropping a fresh prompt below it.
+ */
+const editOriginToPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  origin: MessageRef,
+  text: string,
+): Promise<boolean> =>
+  conversation.external((outside) =>
+    safeEditMessageById(outside, origin, text, {
+      parse_mode: "HTML",
+      reply_markup: backHomeMarkup(),
+      link_preview_options: { is_disabled: true },
+    }),
+  );
+
+/**
  * Conversation: collect token address → show sell card with user's balance.
  * Loops on not-found / invalid input; aborts on API unavailability.
+ *
+ * When entered from a start-menu button tap, `origin` carries the
+ * `(chatId, messageId)` of the bubble that already shows the prompt —
+ * every step edits the same bubble so the flow stays in-place. With no
+ * origin (slash entry), falls back to the legacy `replyWithNav` flow.
  */
 const sellLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-  });
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  // See `buyLookupConversation` for the rationale: the origin bubble
+  // must NOT be tracked on the workflow stack until it is repurposed as
+  // the card, otherwise the sweep on completion would delete the same
+  // bubble the wizard is running inside.
+  let activeOrigin: MessageRef | null = origin ?? null;
+
+  if (!activeOrigin) {
+    const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
+
+  const showRetry = async (msgCtx: AppContext, text: string): Promise<void> => {
+    if (activeOrigin) {
+      const edited = await editOriginToPrompt(conversation, activeOrigin, text);
+      if (edited) return;
+      activeOrigin = null;
+    }
+    const notFound = await replyWithNav(msgCtx, text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    await trackWorkflowMessage(conversation, notFound.message_id);
+  };
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
@@ -329,11 +381,7 @@ const sellLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
-      await trackWorkflowMessage(conversation, notFound.message_id);
+      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
       continue;
     }
 
@@ -347,11 +395,7 @@ const sellLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        });
-        await trackWorkflowMessage(conversation, notFound.message_id);
+        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
@@ -378,18 +422,34 @@ const sellLookupConversation = async (
     const sellPresets = await conversation.external((outerCtx) =>
       normaliseSellPresets(outerCtx.session.sellPresetsPct),
     );
-    const cardMsg = await msgCtx.reply(cardText, {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets),
-      },
-      link_preview_options: { is_disabled: true },
-    });
+    const cardKeyboard = {
+      inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets),
+    };
+
+    let cardMessageId: number | null = null;
+    if (activeOrigin) {
+      const edited = await conversation.external((outside) =>
+        safeEditMessageById(outside, activeOrigin as MessageRef, cardText, {
+          parse_mode: "HTML",
+          reply_markup: cardKeyboard,
+          link_preview_options: { is_disabled: true },
+        }),
+      );
+      if (edited) cardMessageId = activeOrigin.messageId;
+    }
+    if (cardMessageId === null) {
+      const cardMsg = await msgCtx.reply(cardText, {
+        parse_mode: "HTML",
+        reply_markup: cardKeyboard,
+        link_preview_options: { is_disabled: true },
+      });
+      cardMessageId = cardMsg.message_id;
+    }
     await sweepWorkflow(conversation);
     // Push the card onto the now-empty stack so the post-trade sweep
     // in `confirmTrade` deletes it once the user's sell lands; the
     // card's mcap/balance are stale the moment the trade commits.
-    await trackWorkflowMessage(conversation, cardMsg.message_id);
+    await trackWorkflowMessage(conversation, cardMessageId);
     return;
   }
 };
@@ -796,10 +856,14 @@ const handlePercentSell = async (
 
 export const registerSellCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(sellLookupConversation, {
-      id: "sell-lookup",
-      parallel: true,
-    }),
+    createConversation(
+      sellLookupConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "sell-lookup", parallel: true },
+    ),
   );
   bot.use(
     createConversation(
@@ -812,13 +876,28 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     ),
   );
 
-  // Start menu "Sell" button — no toast, go directly into lookup flow
+  // Start menu "Sell" button — edit the start bubble into the address
+  // prompt and thread that bubble id through the wizard so every step
+  // edits the same bubble (rather than dropping a new prompt below the
+  // still-visible start menu).
   bot.callbackQuery(START_CALLBACK.sell, async (ctx) => {
+    const result = await editToSubmenu(ctx, {
+      text: PROMPT_HTML,
+      parseMode: "HTML",
+      inlineKeyboard: [backHomeRow()],
+      linkPreviewDisabled: true,
+    });
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("sell-lookup");
+    const origin: MessageRef | undefined =
+      ctx.chat && result.editedMessageId !== undefined
+        ? { chatId: ctx.chat.id, messageId: result.editedMessageId }
+        : undefined;
+    await ctx.conversation.enter("sell-lookup", origin);
   });
 
-  // /sell command — same flow as the button
+  // /sell command — slash entry has no parent bubble to edit, so it
+  // falls through to the legacy `replyWithNav` prompt inside the
+  // conversation when no origin is passed.
   bot.command("sell", async (ctx) => {
     await ctx.conversation.enter("sell-lookup");
   });

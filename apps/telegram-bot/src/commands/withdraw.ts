@@ -39,7 +39,13 @@ import {
   isOtherSlashCommand,
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
-import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  backHomeRow,
+  editToSubmenu,
+  type MessageRef,
+  safeEditMessageById,
+} from "../lib/nav.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
@@ -399,6 +405,7 @@ const promptArg = async (
 const withdrawWizardConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -425,11 +432,33 @@ const withdrawWizardConversation = async (
     active.address,
   );
 
-  const assetPromptMsg = await ctx.reply(
-    withAntiPhishing(renderAssetPrompt(balances)),
-    { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
-  );
-  await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
+  // When entered from a start-menu (or /wallet) button, edit the
+  // origin bubble into the asset picker rather than dropping a fresh
+  // prompt below the still-visible parent menu. Subsequent wizard
+  // steps (amount, address, PIN) remain as their own messages because
+  // they're transient prompts the existing sweep already cleans up.
+  let editedOriginAsAsset = false;
+  if (origin) {
+    editedOriginAsAsset = await conversation.external((outside) =>
+      safeEditMessageById(
+        outside,
+        origin,
+        withAntiPhishing(renderAssetPrompt(balances)),
+        { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
+      ),
+    );
+  }
+  if (!editedOriginAsAsset) {
+    const assetPromptMsg = await ctx.reply(
+      withAntiPhishing(renderAssetPrompt(balances)),
+      { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
+    );
+    await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
+  } else if (origin) {
+    // The origin bubble is the asset picker; track it so the
+    // completion sweep clears it alongside the other transient prompts.
+    await trackWorkflowMessage(conversation, origin.messageId);
+  }
 
   // Filter is exact-match on the two asset codes; `next: true` lets
   // non-matching updates (Back / Home taps on this keyboard, and a
@@ -610,10 +639,14 @@ const withdrawCommandConversation = async (
 
 export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(withdrawWizardConversation, {
-      id: "withdraw-wizard",
-      parallel: true,
-    }),
+    createConversation(
+      withdrawWizardConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "withdraw-wizard", parallel: true },
+    ),
   );
   bot.use(
     createConversation(withdrawCommandConversation, {
@@ -653,8 +686,24 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    // Edit the originating bubble (start menu or /wallet panel) into a
+    // brief "loading" placeholder, pushing the parent snapshot onto the
+    // nav stack so [← Back] returns to it. The wizard then overwrites
+    // this same bubble with the asset picker once balances are fetched
+    // — keeping the flow in one stable chat bubble instead of dropping
+    // a fresh asset picker below the still-visible parent menu.
+    const result = await editToSubmenu(ctx, {
+      text: "Loading withdraw…",
+      parseMode: "HTML",
+      inlineKeyboard: [backHomeRow()],
+      linkPreviewDisabled: true,
+    });
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("withdraw-wizard");
+    const origin: MessageRef | undefined =
+      ctx.chat && result.editedMessageId !== undefined
+        ? { chatId: ctx.chat.id, messageId: result.editedMessageId }
+        : undefined;
+    await ctx.conversation.enter("withdraw-wizard", origin);
   };
 
   bot.callbackQuery(START_CALLBACK.withdraw, enterWizard);
