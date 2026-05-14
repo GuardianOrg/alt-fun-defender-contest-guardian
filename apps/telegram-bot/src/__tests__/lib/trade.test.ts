@@ -647,6 +647,94 @@ describe("awaitReceipt", () => {
     }
   });
 
+  it("decodes actualUsdcOut from the BotRouterTrade log on a successful sell", async () => {
+    // Confirm message must include the on-chain net USDC the user
+    // actually received (mirroring the buy receipt's "Received N TICKER"
+    // line, but in USDC for sells). awaitReceipt decodes
+    // `usdcAmount - botFee` from the `BotRouterTrade` log when invoked
+    // with `side: "sell"` so the caller can render "Received $X USDC".
+    const GROSS_USDC_OUT = 12_500_000n; // $12.50 6dp
+    const BOT_FEE = 100_000n; // $0.10 6dp
+    const NET_USDC_OUT = GROSS_USDC_OUT - BOT_FEE; // $12.40
+    const ZERO = "0x0000000000000000000000000000000000000000" as const;
+    const topics = encodeEventTopics({
+      abi: BotFeeRouterAbi,
+      eventName: "BotRouterTrade",
+      args: { trader: TRADER, token: TOKEN, referrer: ZERO },
+    });
+    // Non-indexed payload: side, usdcAmount, tokenAmount, botFee, referrerCut, treasuryCut.
+    const data = encodeAbiParameters(
+      [
+        { type: "uint8" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+      ],
+      [1, GROSS_USDC_OUT, 1_000_000_000_000_000_000n, BOT_FEE, 0n, BOT_FEE],
+    );
+    const receiptWithLog: Response = new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          transactionHash: TX_HASH,
+          blockNumber: "0x1",
+          blockHash:
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+          transactionIndex: "0x0",
+          from: TRADER,
+          to: ROUTER,
+          cumulativeGasUsed: "0x1",
+          gasUsed: "0x1",
+          contractAddress: null,
+          logs: [
+            {
+              address: ROUTER,
+              topics,
+              data,
+              blockNumber: "0x1",
+              transactionHash: TX_HASH,
+              transactionIndex: "0x0",
+              blockHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+              logIndex: "0x0",
+              removed: false,
+            },
+          ],
+          logsBloom: `0x${"0".repeat(512)}`,
+          status: "0x1",
+          type: "0x0",
+          effectiveGasPrice: "0x1",
+        },
+      }),
+      { status: 200 },
+    );
+    fetchSpy.mockImplementation(async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string) as { method: string };
+      if (body.method === "eth_getTransactionReceipt") return receiptWithLog;
+      if (body.method === "eth_blockNumber") return blockNumberResponse();
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x" }),
+        { status: 200 },
+      );
+    });
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: GROSS_USDC_OUT,
+      minOut: 12_000_000n,
+      side: "sell",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.actualUsdcOut).toBe(NET_USDC_OUT);
+      expect(result.actualTokensOut).toBeUndefined();
+    }
+  });
+
   it("returns ok:false kind:reverted with txHash when the receipt is reverted", async () => {
     // This is the bug the fix targets: sendTransaction returns a hash for
     // a tx that reverts on-chain (e.g. CHAOS buy 0x8edc611c…), and the

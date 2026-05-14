@@ -300,10 +300,33 @@ describe("renderConfirmReply", () => {
     expect(reply).toContain("Buy confirmed for TEST");
   });
 
-  it("omits the received line on a sell success (semantics differ)", () => {
-    // For sells, BotRouterTrade.tokenAmount is tokens sold, not tokens
-    // received, so executeSell never sets actualTokensOut. The sell
-    // confirm reply must not surface a misleading "Received" line.
+  it("includes the on-chain net USDC received on a sell when actualUsdcOut is set", () => {
+    // For sells, the receipt parses `BotRouterTrade.usdcAmount - botFee`
+    // and surfaces it as the user-facing "Received: $X USDC" line —
+    // mirroring the buy receipt's tokens-received line, but in USDC
+    // (the user-facing currency on the sell side).
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "sell",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 12_500_000n,
+        minOut: 12_000_000n,
+        // 12.34 USDC, 6-dp raw.
+        actualUsdcOut: 12_340_000n,
+      },
+    });
+    expect(reply).toMatch(/Received:\s+\$12\.34 USDC/);
+    expect(reply).toContain("Sell confirmed for TEST");
+  });
+
+  it("omits the received line on a sell when actualUsdcOut is missing", () => {
+    // Router version drift or a log-stripping relayer can leave
+    // actualUsdcOut undefined. The confirm reply must not surface a
+    // misleading "Received" line built from the pre-trade quote.
     const reply = renderConfirmReply({
       kind: "executed",
       side: "sell",

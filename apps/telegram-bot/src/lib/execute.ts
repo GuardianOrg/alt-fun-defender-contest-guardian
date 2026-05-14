@@ -16,6 +16,7 @@ import type { AppContext } from "../bot.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
 import { readProfile } from "./onboarding.js";
+import { formatUsdc } from "./format.js";
 import { formatToken18 } from "./token-card.js";
 import { clearWorkflowMessages } from "./workflow-stack.js";
 import {
@@ -245,15 +246,20 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
     const verb = side === "buy" ? "Buy" : "Sell";
-    // For buys, show the on-chain tokens received (decoded from the
-    // BotRouterTrade event) instead of just the tx hash. The line is
-    // skipped when actualTokensOut is missing (router version drift,
-    // log-stripping relayer) rather than falling back to the quote —
-    // showing a stale pre-trade estimate as "received" would mislead.
-    const receivedLine =
-      side === "buy" && result.actualTokensOut !== undefined
-        ? `Received: ${formatToken18(result.actualTokensOut)} ${ticker}\n`
-        : "";
+    // Show the on-chain amount the user actually received, decoded from
+    // the BotRouterTrade event. For buys that's tokens; for sells it's
+    // the net USDC (gross `usdcAmount` minus the router's `botFee`
+    // skim — the post-fee number that actually lands in the user's
+    // wallet, mirroring the buy receipt). The line is skipped when the
+    // decoded value is missing (router version drift, log-stripping
+    // relayer) rather than falling back to the quote — showing a stale
+    // pre-trade estimate as "received" would mislead.
+    let receivedLine = "";
+    if (side === "buy" && result.actualTokensOut !== undefined) {
+      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${ticker}\n`;
+    } else if (side === "sell" && result.actualUsdcOut !== undefined) {
+      receivedLine = `Received: $${formatUsdc(result.actualUsdcOut.toString())} USDC\n`;
+    }
     return (
       `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
       `${receivedLine}` +
