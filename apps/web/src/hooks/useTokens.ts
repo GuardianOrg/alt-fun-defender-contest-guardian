@@ -36,6 +36,34 @@ function tableFiltersKey(filters: TokenTableFiltersInput | undefined): {
 }
 
 /**
+ * Drop later duplicates by lowercased address while preserving the
+ * first occurrence's position. The infinite-scroll list concatenates
+ * page results without coordination, so when the API's trending pool
+ * shifts between a page-N and page-(N+1) fetch — a real possibility on
+ * the trending sort, where a 500-candidate pool is re-scored every
+ * request and the indexer's `tokenMetrics.baseScore` index can move
+ * tokens across page boundaries as fresh trades land — the same token
+ * can land in two pages and render as a visible duplicate row
+ * (issue #877). Same address normalisation as the rest of the codebase
+ * (lowercase) so a mixed-case API response can't sneak two copies past
+ * the dedupe.
+ *
+ * Exported so the dedupe semantics can be unit-tested without the
+ * React Query / hook harness.
+ */
+export function dedupeTokensByAddress(tokens: readonly Token[]): Token[] {
+  const seen = new Set<string>();
+  const out: Token[] = [];
+  for (const t of tokens) {
+    const key = t.address.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+/**
  * Token list for the home page + search modal. The server handles all
  * sorting — including the trending score — so the client just consumes the
  * order the API returns. That keeps the ranking honest at any catalogue
@@ -108,7 +136,12 @@ export function useInfiniteTokens(
 
   const tokens = useMemo(() => {
     const fromQuery = query.data?.pages.flat() ?? [];
-    if (mockTokens.length === 0) return fromQuery;
+    // Always dedupe by address, even with zero mock tokens — see
+    // `dedupeTokensByAddress` for the trending-pool-shift scenario that
+    // makes the same token appear in two consecutive pages
+    // (issue #877). The mock-merge path below keeps relying on the
+    // same helper so the dev easter egg can't double-insert either.
+    if (mockTokens.length === 0) return dedupeTokensByAddress(fromQuery);
     // Dev mock tokens bypass the API, so the server-side filters never
     // touch them. Apply the same predicates client-side so a mock HYPE
     // 2× Long row doesn't pollute a "Market: BTC" view in dev.
@@ -124,25 +157,11 @@ export function useInfiniteTokens(
       }
       return true;
     });
-    if (filteredMocks.length === 0) return fromQuery;
-    // De-duplicate by address — a real API response that happens to
-    // include a mock-shaped address (the random hex is statistically
-    // unique, but make the merge robust to refetch overlap anyway).
-    const seen = new Set<string>();
-    const merged: Token[] = [];
-    for (const t of filteredMocks) {
-      const key = t.address.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      merged.push(t);
-    }
-    for (const t of fromQuery) {
-      const key = t.address.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      merged.push(t);
-    }
-    return merged;
+    if (filteredMocks.length === 0) return dedupeTokensByAddress(fromQuery);
+    // Mocks first so the dev easter egg's freshly-injected rows stay
+    // pinned at the top, then real query pages — `dedupeTokensByAddress`
+    // drops any later collisions while preserving that ordering.
+    return dedupeTokensByAddress([...filteredMocks, ...fromQuery]);
   }, [
     query.data,
     mockTokens,
