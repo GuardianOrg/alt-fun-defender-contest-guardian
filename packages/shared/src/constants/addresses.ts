@@ -10,13 +10,10 @@ export const CONTRACT_ADDRESSES = {
    * `BotFeeRouter` is operated by the Telegram-bot team and deployed
    * independently of the Alt Fun protocol. Deployed at block
    * `BOT_FEE_ROUTER_START_BLOCK` (see `./chains.ts`); the indexer's
-   * Ponder source uses that block to scope its backfill. NOTE: this
-   * address points to the previous protocol's `Zap`. The bot-team
-   * needs to redeploy `BotFeeRouter` against the new `Zap`
-   * (`0x693F12E9E6B35b34458793546065E8b08e0299d6`) and update this
-   * field plus `BOT_FEE_ROUTER_START_BLOCK` once that's done.
+   * Ponder source uses that block to scope its backfill. Points at the
+   * current `Zap` (`0x693F12E9E6B35b34458793546065E8b08e0299d6`).
    */
-  botFeeRouter: "0xB2b2d9c0c837a723fC27C27e097B384400796947",
+  botFeeRouter: "0xe617693e1D50285965e647375733BF333BB4B477",
 } as const;
 
 export const HYPERSWAP_ADDRESSES = {

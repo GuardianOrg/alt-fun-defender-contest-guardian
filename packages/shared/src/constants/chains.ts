@@ -16,4 +16,4 @@ export const BONDING_START_BLOCK = 35090407;
  * Override at runtime with `BOT_FEE_ROUTER_START_BLOCK` if the router is
  * ever redeployed.
  */
-export const BOT_FEE_ROUTER_START_BLOCK = 34995303;
+export const BOT_FEE_ROUTER_START_BLOCK = 35102287;
