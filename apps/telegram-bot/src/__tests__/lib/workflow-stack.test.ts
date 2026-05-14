@@ -4,6 +4,7 @@ import {
   clearWorkflowMessages,
   getWorkflowMessages,
   pushWorkflowMessage,
+  removeWorkflowMessage,
   type WorkflowStackSession,
 } from "../../lib/workflow-stack.js";
 
@@ -223,5 +224,36 @@ describe("clearWorkflowMessages", () => {
     });
     await clearWorkflowMessages(session, api, 9);
     expect(session.workflowMessages).toEqual([{ chatId: 7, messageId: 3 }]);
+  });
+});
+
+describe("removeWorkflowMessage", () => {
+  it("removes only the matching (chatId, messageId) entry", () => {
+    const session: WorkflowStackSession = {
+      workflowMessages: [
+        { chatId: 5, messageId: 10 },
+        { chatId: 5, messageId: 11 },
+        { chatId: 9, messageId: 11 },
+      ],
+    };
+    removeWorkflowMessage(session, 5, 11);
+    expect(session.workflowMessages).toEqual([
+      { chatId: 5, messageId: 10 },
+      { chatId: 9, messageId: 11 },
+    ]);
+  });
+
+  it("is a no-op when the entry is absent", () => {
+    const session: WorkflowStackSession = {
+      workflowMessages: [{ chatId: 1, messageId: 1 }],
+    };
+    removeWorkflowMessage(session, 99, 99);
+    expect(session.workflowMessages).toEqual([{ chatId: 1, messageId: 1 }]);
+  });
+
+  it("is a no-op on an empty session", () => {
+    const session: WorkflowStackSession = {};
+    removeWorkflowMessage(session, 1, 1);
+    expect(session.workflowMessages).toEqual([]);
   });
 });

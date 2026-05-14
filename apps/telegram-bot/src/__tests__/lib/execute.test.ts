@@ -5,13 +5,21 @@ import {
   cancelTrade,
   confirmKeyboard,
   confirmTrade,
+  describeTradeForStatus,
   loadReferrer,
   renderConfirmReply,
+  renderTxPendingText,
+  renderTxSendingText,
+  runWithTxStatusUpdates,
   stageBuy,
   stageSell,
   submitBuy,
   submitSell,
 } from "../../lib/execute.js";
+import {
+  getWorkflowMessages,
+  pushWorkflowMessage,
+} from "../../lib/workflow-stack.js";
 import * as trade from "../../lib/trade.js";
 import { MemoryKV } from "../helpers/bot.js";
 import type { AppContext, SessionData } from "../../bot.js";
@@ -882,5 +890,246 @@ describe("cancelTrade", () => {
     });
     expect(cancelTrade(ctx, "wrong")).toBe(false);
     expect(ctx.session.pendingTrade).toBeDefined();
+  });
+});
+
+describe("describeTradeForStatus", () => {
+  it("renders a buy as 'Buying $X USDC of TICKER'", () => {
+    const text = describeTradeForStatus("buy", "TICK", 50_000_000n);
+    expect(text).toBe("Buying $50.00 USDC of TICK");
+  });
+
+  it("renders a sell as 'Selling X TICKER' with the formatted token amount", () => {
+    // 1.5 tokens raw = 1.5 * 1e18.
+    const text = describeTradeForStatus(
+      "sell",
+      "TICK",
+      15n * 10n ** 17n,
+    );
+    expect(text).toContain("Selling");
+    expect(text).toContain("TICK");
+    expect(text).toMatch(/Selling 1\.5\s*TICK/);
+  });
+
+  it("HTML-escapes user-controlled ticker characters", () => {
+    const text = describeTradeForStatus("buy", "<bad>", 20_000_000n);
+    expect(text).toContain("&lt;bad&gt;");
+    expect(text).not.toContain("<bad>");
+  });
+});
+
+describe("renderTxSendingText / renderTxPendingText", () => {
+  it("renderTxSendingText leads with the sending marker and the description", () => {
+    const text = renderTxSendingText("Buying $20.00 USDC of TICK");
+    expect(text).toContain("Tx sending");
+    expect(text).toContain("Buying $20.00 USDC of TICK");
+  });
+
+  it("renderTxPendingText leads with the pending marker and the description", () => {
+    const text = renderTxPendingText("Buying $20.00 USDC of TICK");
+    expect(text).toContain("Tx pending");
+    expect(text).toContain("Buying $20.00 USDC of TICK");
+  });
+});
+
+describe("runWithTxStatusUpdates", () => {
+  const buildStatusCtx = (): {
+    ctx: AppContext;
+    edits: Array<{ chatId: number; messageId: number; text: string }>;
+  } => {
+    const edits: Array<{ chatId: number; messageId: number; text: string }> =
+      [];
+    const ctx = {
+      session: { workflowMessages: [] } as Partial<SessionData>,
+      api: {
+        editMessageText: vi.fn(
+          async (chatId: number, messageId: number, text: string) => {
+            edits.push({ chatId, messageId, text });
+            return true;
+          },
+        ),
+      },
+    } as unknown as AppContext;
+    return { ctx, edits };
+  };
+
+  it("edits the target through Tx sending → result on the happy path", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    const outcome = await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      // Resolve immediately so the pending timer never fires.
+      run: async () => ({
+        kind: "executed",
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: true,
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+          quotedOut: 1n,
+          minOut: 1n,
+        },
+      }),
+      // Long delay so the pending edit cannot race the immediate resolution.
+      pendingDelayMs: 60_000,
+    });
+    expect(outcome.kind).toBe("executed");
+    expect(edits).toHaveLength(2);
+    expect(edits[0]!.text).toContain("Tx sending");
+    expect(edits[0]!.text).toContain("Buying $20.00 USDC of TICK");
+    expect(edits[1]!.text).toContain("Buy confirmed for TICK");
+  });
+
+  it("inserts a Tx pending edit when run() takes longer than the pending delay", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    let release: (() => void) | null = null;
+    const tradePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runPromise = runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "sell",
+      description: "Selling 1.5 TICK",
+      run: async () => {
+        await tradePromise;
+        return {
+          kind: "executed",
+          side: "sell",
+          ticker: "TICK",
+          result: {
+            ok: false,
+            kind: "reverted",
+            reason: "SlippageExceeded",
+          },
+        };
+      },
+      // Fire pending edit immediately.
+      pendingDelayMs: 0,
+    });
+    // Let the macrotask queue drain so the 0ms setTimeout fires before
+    // we resolve the trade.
+    await new Promise((r) => setTimeout(r, 5));
+    release!();
+    const outcome = await runPromise;
+    expect(outcome.kind).toBe("executed");
+    // Expect three edits: Tx sending → Tx pending → final.
+    expect(edits.map((e) => e.text)).toEqual([
+      expect.stringContaining("Tx sending"),
+      expect.stringContaining("Tx pending"),
+      expect.stringMatching(/Price moved/),
+    ]);
+  });
+
+  it("detaches the target from the workflow stack before run() executes", async () => {
+    const { ctx } = buildStatusCtx();
+    pushWorkflowMessage(ctx.session, 5, 99);
+    pushWorkflowMessage(ctx.session, 5, 100);
+    let stackAtRun: ReturnType<typeof getWorkflowMessages> | null = null;
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => {
+        stackAtRun = getWorkflowMessages(ctx.session);
+        return {
+          kind: "executed",
+          side: "buy",
+          ticker: "TICK",
+          result: {
+            ok: true,
+            txHash:
+              "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+            quotedOut: 1n,
+            minOut: 1n,
+          },
+        };
+      },
+      pendingDelayMs: 60_000,
+    });
+    expect(stackAtRun).toEqual([{ chatId: 5, messageId: 100 }]);
+  });
+
+  it("drains the pending edit before the final edit so the receipt wins", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    // Slow down each editMessageText so the pending edit is in-flight
+    // when the final edit is scheduled. Without the drain, the final
+    // edit could land before the pending one and the user would be left
+    // staring at a stale "Tx pending" message.
+    (ctx.api.editMessageText as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementation(
+        async (chatId: number, messageId: number, text: string) => {
+          await new Promise((r) => setTimeout(r, 15));
+          edits.push({ chatId, messageId, text });
+          return true;
+        },
+      );
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => {
+        // Give the pending timer time to fire while the first edit is
+        // still mid-flight.
+        await new Promise((r) => setTimeout(r, 20));
+        return {
+          kind: "executed",
+          side: "buy",
+          ticker: "TICK",
+          result: {
+            ok: true,
+            txHash:
+              "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+            quotedOut: 1n,
+            minOut: 1n,
+          },
+        };
+      },
+      pendingDelayMs: 0,
+    });
+    const texts = edits.map((e) => e.text);
+    const pendingIdx = texts.findIndex((t) => t.includes("Tx pending"));
+    const finalIdx = texts.findIndex((t) => t.includes("Buy confirmed"));
+    expect(pendingIdx).toBeGreaterThanOrEqual(0);
+    expect(finalIdx).toBeGreaterThan(pendingIdx);
+  });
+
+  it("still renders a final edit even if run() fails to produce a successful outcome", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({ kind: "expired" }),
+      pendingDelayMs: 60_000,
+    });
+    expect(edits).toHaveLength(2);
+    expect(edits[1]!.text).toMatch(/expired/i);
+  });
+
+  it("posts a terminal failure bubble and rethrows when run() rejects", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    const boom = new Error("rpc exploded");
+    await expect(
+      runWithTxStatusUpdates({
+        ctx,
+        target: { api: ctx.api, chatId: 5, messageId: 99 },
+        side: "buy",
+        description: "Buying $20.00 USDC of TICK",
+        run: async () => {
+          throw boom;
+        },
+        pendingDelayMs: 60_000,
+      }),
+    ).rejects.toBe(boom);
+    expect(edits).toHaveLength(2);
+    expect(edits[0]!.text).toContain("Tx sending");
+    expect(edits[1]!.text).toMatch(/Transaction failed/);
   });
 });
