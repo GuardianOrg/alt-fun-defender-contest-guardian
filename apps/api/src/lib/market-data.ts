@@ -170,47 +170,17 @@ export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
  */
 const BATCH_SIZE = 25;
 
-export async function fetchAllTokensOnchain(
-  ponderUrl: string | undefined,
-): Promise<PonderTokenOnchain[] | null> {
-  const queryPonderAll = createPonderPaginatedQuery(ponderUrl);
-  try {
-    const result = await queryPonderAll<PonderTokenOnchain>(
-      `query ($limit: Int!, $offset: Int!) {
-        tokens(limit: $limit, offset: $offset, orderBy: "timestamp", orderDirection: "desc") {
-          items {
-            address
-            ltToken
-            k
-            curveSupply
-            ltReserve
-            pendingGraduation
-            pendingGraduationAt
-            graduated
-            graduatedAt
-            bondingPair
-            hyperswapPair
-            organicUsdcRaised
-            volumeUsd
-            creatorFeesUsd
-            protocolFeesUsd
-            timestamp
-          }
-        }
-      }`,
-      "tokens",
-    );
-    return result.items;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Fetch on-chain state for a specific set of token addresses. Returns `null`
  * when the indexer is unreachable. Addresses not present in Ponder are simply
- * omitted from the result. Prefer this over `fetchAllTokensOnchain` when the
- * caller already has a bounded list (e.g. a paginated `/tokens` page).
+ * omitted from the result.
+ *
+ * Note: there is intentionally no full-catalogue counterpart. Every prior
+ * "fetch every token in the indexer" call site relied on the
+ * `fetchAllTokensOnchain` paginator's 20K silent-truncation cap and on
+ * downstream per-request fan-outs that don't scale to 100K+ tokens — the
+ * `POST /market-data` per-page endpoint and the trending tab's
+ * precomputed `tokenMetrics` candidate filter replace both code paths.
  */
 export async function fetchTokensOnchainByAddresses(
   ponderUrl: string | undefined,
@@ -1006,27 +976,14 @@ export async function buildBatchFromTokens(
 }
 
 /**
- * Fetch every token's on-chain state from Ponder + its current and historical
- * price inputs, and compute `(priceUsd, mcapUsd, change24h)` keyed by
- * lowercased token address. Used by the full-catalogue `/market-data` route.
- * Callers that only need a known subset should use
- * `computeMarketDataForAddresses` instead — it skips the full-catalogue fetch.
- */
-export async function computeMarketDataBatch(
-  ponderUrl: string | undefined,
-  bouncetechDbUrl: string | undefined,
-): Promise<MarketDataBatchResult> {
-  const tokens = await fetchAllTokensOnchain(ponderUrl);
-  if (tokens === null) {
-    return { ok: false, error: "Indexer unavailable", code: 503 };
-  }
-  return buildBatchFromTokens(ponderUrl, bouncetechDbUrl, tokens);
-}
-
-/**
- * Same as `computeMarketDataBatch` but scoped to a specific set of token
- * addresses (e.g. a paginated `/tokens` page). Avoids loading every token in
- * the indexer when the caller already knows which ones they care about.
+ * Resolve `(priceUsd, mcapUsd, change24h)` for a bounded set of token
+ * addresses. The only entry point into the market-data pipeline since the
+ * catalogue-wide `computeMarketDataBatch` was retired — every consumer
+ * (per-page `POST /market-data`, `/tokens?status=…`, internal helpers)
+ * now declares the addresses it cares about up front. Avoids loading
+ * every token in the indexer on each request, and lets us drop the
+ * `fetchAllTokensOnchain` paginator's silent 20K-row truncation cap
+ * entirely.
  */
 export async function computeMarketDataForAddresses(
   ponderUrl: string | undefined,

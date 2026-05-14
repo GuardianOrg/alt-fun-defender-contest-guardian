@@ -756,9 +756,8 @@ listRoute.get("/", async (c) => {
   }
 
   // Only fetch market data for the addresses we'll consider, not the whole
-  // catalogue. For a 50-token page (non-scored sort) this is ~20× less
-  // work on Ponder / BounceTech than `computeMarketDataBatch`; for scored
-  // sorts it's still capped at `TRENDING_POOL_SIZE`.
+  // catalogue. Page size for a non-scored sort caps per-request work at
+  // `limit` (≤100); scored sorts cap at `TRENDING_POOL_SIZE`.
   const marketResult = await computeMarketDataForAddresses(
     c.env.PONDER_URL,
     c.env.BOUNCETECH_DATABASE_URL,

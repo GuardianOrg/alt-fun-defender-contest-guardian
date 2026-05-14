@@ -2,7 +2,6 @@ import type { KeyboardEvent } from "react";
 import { useEffect, useRef } from "react";
 
 import styles from "./SearchModal.module.css";
-import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   cn,
   formatMcapUsdOrDash,
@@ -11,21 +10,29 @@ import {
 import { tierFor } from "../../utils/vanityTier";
 import VanityEffect from "../effects/VanityEffect";
 
+import type { TokenMarketStats } from "../../hooks/useTokenMarketStats";
 import type { Token } from "../../services/types";
 
 export default function SearchTrendingCard({
   token,
+  stats,
   onClick,
   highlighted,
   onMouseEnter,
 }: {
   token: Token;
+  /**
+   * Market stats resolved by the parent `SearchModal`'s lifted
+   * `useTokenMarketStatsMap(cardAddresses)` call. Lifted so the modal
+   * fans out into a single bounded `POST /market-data` covering every
+   * card instead of one React Query subscription per card.
+   */
+  stats: TokenMarketStats;
   onClick: () => void;
   highlighted?: boolean;
   onMouseEnter?: () => void;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const stats = useTokenMarketStats(token.address);
   const up = (stats.change24h ?? 0) >= 0;
 
   useEffect(() => {

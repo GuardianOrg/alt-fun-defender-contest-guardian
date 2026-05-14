@@ -1,5 +1,20 @@
 const FALLBACK_URL = "http://localhost:42069";
 const PAGE_SIZE = 1000;
+/**
+ * Maximum pages the paginator will fetch before giving up and returning
+ * `truncated: true`. Defensive cap against an unbounded GraphQL query
+ * sweeping the entire indexer table — every remaining caller of the
+ * paginator (`chart`, `holders`, `referrals`, `admin/analytics`,
+ * `balances`, `trades`, `fetchRouterTradeActivity`,
+ * `fetchTokensOnchainByAddresses`) bounds its own input (per-token,
+ * per-wallet, per-time-window), so 20 pages × 1,000 rows = 20K is two
+ * orders of magnitude above any realistic per-request need today.
+ *
+ * The previously-problematic full-catalogue caller (`fetchAllTokensOnchain`,
+ * silent truncation at 20K tokens) has been retired in favour of the
+ * per-page `POST /market-data { addresses }` endpoint, so this cap no
+ * longer silently truncates any read path.
+ */
 const MAX_PAGES = 20;
 const HEALTH_CHECK_TIMEOUT = 3000;
 /**

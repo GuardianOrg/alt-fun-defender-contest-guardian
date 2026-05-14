@@ -6,7 +6,6 @@ import { useNavigate } from "react-router";
 
 import styles from "./TokenRow.module.css";
 import { tokenPath } from "../../app/routes";
-import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   cn,
   formatMcapUsdOrDash,
@@ -20,10 +19,19 @@ import GraduatedPill from "../shared/GraduatedPill";
 import GraduatingPill from "../shared/GraduatingPill";
 import ProgressBar from "../shared/ProgressBar";
 
+import type { TokenMarketStats } from "../../hooks/useTokenMarketStats";
 import type { Token } from "../../services/types";
 
 interface Props {
   token: Token;
+  /**
+   * Market stats (mcap / 24h change / volume) resolved by the parent
+   * `TokenTable`'s lifted `useTokenMarketStatsMap(pageAddresses)` call.
+   * Lifted to the parent so the table fans out into one bounded
+   * `POST /market-data` per page instead of one React Query
+   * subscription per row.
+   */
+  stats: TokenMarketStats;
   /**
    * When true, the row paints with a fading mint background to flag it
    * as newly arrived (live WS update or dev-injected mock token). Set
@@ -33,10 +41,9 @@ interface Props {
   isNew?: boolean;
 }
 
-export default function TokenRow({ token, isNew = false }: Props) {
+export default function TokenRow({ token, stats, isNew = false }: Props) {
   const navigate = useNavigate();
   const [imgError, setImgError] = useState(false);
-  const stats = useTokenMarketStats(token.address);
   const isGraduating = token.status === "graduating";
   const isGraduated = token.status === "graduated";
   const isShort = token.direction === "short";

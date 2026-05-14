@@ -40,15 +40,24 @@ export function buildTokenMarketStats(
 }
 
 /**
- * Single consumer-facing hook for live market stats. Combines current mcap
- * from `useTokenPrices` (Ponder state + live BounceTech LT rates) with 24h
- * change from `useMarketData` (indexer-backed historical snapshots).
+ * Single-token market stats. Combines current mcap from `useTokenPrices`
+ * (Ponder state + live BounceTech LT rates) with 24h change from
+ * `useMarketData` (indexer-backed historical snapshots).
  *
  * Components should render `—` while `isLoading` and on `isError`.
+ *
+ * Address-list scope: this hook is intended for **single-token surfaces**
+ * (token detail page chart heading, info strip). Pass the rendered
+ * token's address — the underlying query fetches just that one token
+ * from `POST /api/v1/market-data`. For list surfaces (table rows,
+ * search results, portfolio) lift `useTokenMarketStatsMap(addresses)`
+ * once at the parent and pass stats down — calling this per-row would
+ * fan out into one React Query subscription per address.
  */
 export function useTokenMarketStats(address: string | undefined): TokenMarketStats {
-  const prices = useTokenPrices();
-  const marketData = useMarketData();
+  const addresses = address ? [address] : [];
+  const prices = useTokenPrices(addresses);
+  const marketData = useMarketData(addresses);
 
   const isLoading = prices.isLoading || marketData.isLoading;
   const isError = marketData.isError;
@@ -70,16 +79,24 @@ export function useTokenMarketStats(address: string | undefined): TokenMarketSta
 }
 
 /**
- * Batch variant for lists. Returns a lookup function that resolves stats for
- * any address at render time without spawning a new subscription per row.
+ * Batch variant for lists. The parent passes the visible-page addresses
+ * (token table rows, search results, portfolio held positions) and
+ * receives a lookup function that resolves stats for any of those
+ * addresses at render time without spawning per-row React Query
+ * subscriptions.
+ *
+ * Pass an explicit address list — there is no longer a catalogue-wide
+ * fallback. The hook normalises + dedupes + sorts internally so the
+ * underlying query cache key is stable across consumer-side call-site
+ * ordering.
  */
-export function useTokenMarketStatsMap(): {
+export function useTokenMarketStatsMap(addresses: readonly string[]): {
   getStats: (address: string) => TokenMarketStats;
   isLoading: boolean;
   isError: boolean;
 } {
-  const prices = useTokenPrices();
-  const marketData = useMarketData();
+  const prices = useTokenPrices(addresses);
+  const marketData = useMarketData(addresses);
 
   const isLoading = prices.isLoading || marketData.isLoading;
   const isError = marketData.isError;
