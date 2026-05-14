@@ -241,6 +241,27 @@ describe("renderTrackCaption (pure)", () => {
     const rowCount = (caption.match(/(🟢 BUY|🔴 SELL)/g) ?? []).length;
     expect(rowCount).toBe(3);
   });
+
+  it("prepends the anti-phishing header and respects the budget after wrapping", () => {
+    // Per AGENTS.md the user phrase (or static fallback) must lead
+    // every outbound message. The caption must be measured *after*
+    // wrapping so the header can't push the final string back over
+    // Telegram's 1024-char cap.
+    const userPhrase = "purple-otter-7";
+    const many = Array.from({ length: 50 }, (_, i) =>
+      makeTrade(i + 1, i % 2 === 0),
+    );
+    const caption = renderTrackCaption(token, many, 1_700_000_000, userPhrase);
+    expect(caption.startsWith(`${userPhrase}\n\n`)).toBe(true);
+    expect(visibleLen(caption)).toBeLessThanOrEqual(TELEGRAM_CAPTION_BUDGET);
+
+    // No phrase → static fallback header still gets prepended.
+    const fallback = renderTrackCaption(token, many, 1_700_000_000);
+    expect(fallback).toContain(
+      "This bot will never ask for your seed phrase",
+    );
+    expect(visibleLen(fallback)).toBeLessThanOrEqual(TELEGRAM_CAPTION_BUDGET);
+  });
 });
 
 describe("/track command", () => {
@@ -420,12 +441,18 @@ describe("/track command", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 22));
 
     const calls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
-    const sendPhoto = calls.find((c) => String(c[0]).includes("/sendPhoto"));
-    const deleteMsg = calls.find((c) =>
+    const deleteIdx = calls.findIndex((c) =>
       String(c[0]).includes("/deleteMessage"),
     );
-    expect(deleteMsg).toBeDefined();
-    expect(sendPhoto).toBeDefined();
+    const photoIdx = calls.findIndex((c) =>
+      String(c[0]).includes("/sendPhoto"),
+    );
+    expect(deleteIdx).toBeGreaterThanOrEqual(0);
+    expect(photoIdx).toBeGreaterThanOrEqual(0);
+    // The delete must land before the photo — Telegram doesn't allow
+    // editing a text bubble into a photo bubble, so sending the photo
+    // first would leave the stale prompt above the merged card.
+    expect(deleteIdx).toBeLessThan(photoIdx);
   });
 
   it("still renders the card when the trades API is 503 (graceful degrade)", async () => {
