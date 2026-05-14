@@ -6,6 +6,7 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
+import { WALLET_CALLBACK } from "../../keyboards/wallet-actions.js";
 import { WalletManager } from "../../lib/wallet.js";
 
 const ZERO_MASTER_KEY = btoa("\0".repeat(32));
@@ -627,6 +628,41 @@ describe("/start command", () => {
         u.toLowerCase().includes(created.address.toLowerCase()),
       ),
     ).toBe(true);
+  });
+
+  // Regression: every `createConversation(...)` is registered with
+  // `parallel: true`, which flips the conversations-plugin `skip`
+  // default to `next: true` so a non-matching update falls through to
+  // outer middleware instead of being dropped. Without this flag, a
+  // callback for ANY prefix outside the wizard's `waitFor` filter
+  // (here: the wallet switch picker `wsp` while a buy-lookup
+  // conversation is waiting for a token address) would be silently
+  // consumed by the active conversation. The `/^st:/` escape in
+  // `lib/nav.ts` is targeted at start-menu buttons specifically;
+  // `parallel: true` is the broader fix for every other callback.
+  it("wallet switch picker click during an active buy-lookup conversation reaches its handler", async () => {
+    const h = harnessWithRpc();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockBoth(fetchSpy);
+
+    // Enter the buy-lookup conversation (waitFor message:text).
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+    fetchSpy.mockClear();
+    mockBoth(fetchSpy);
+
+    // Wallet switch picker (`wsp`) is a non-`st:` / non-`nav:`
+    // callback. Without `parallel: true` on the buy-lookup
+    // conversation, this update was dropped by the conversations
+    // plugin's default skip behaviour and the picker never rendered.
+    await h.run(callbackUpdate(WALLET_CALLBACK.switchPicker));
+
+    const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toContain(
+      "Pick the wallet to use as active",
+    );
   });
 });
 

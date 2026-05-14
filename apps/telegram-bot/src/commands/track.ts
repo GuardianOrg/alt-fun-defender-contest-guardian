@@ -415,7 +415,12 @@ const handleTrackSell = async (
 };
 
 export const registerTrackCommand = (bot: Bot<AppContext>): void => {
-  bot.use(createConversation(trackLookupConversation, "track-lookup"));
+  bot.use(
+    createConversation(trackLookupConversation, {
+      id: "track-lookup",
+      parallel: true,
+    }),
+  );
 
   // Start-menu "Track" button — enter the lookup flow directly,
   // matching the /buy and /sell button behaviour. Replaces the

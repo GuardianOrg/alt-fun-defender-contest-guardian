@@ -610,10 +610,16 @@ const withdrawCommandConversation = async (
 
 export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(withdrawWizardConversation, "withdraw-wizard"),
+    createConversation(withdrawWizardConversation, {
+      id: "withdraw-wizard",
+      parallel: true,
+    }),
   );
   bot.use(
-    createConversation(withdrawCommandConversation, "withdraw-command"),
+    createConversation(withdrawCommandConversation, {
+      id: "withdraw-command",
+      parallel: true,
+    }),
   );
 
   bot.command("withdraw", async (ctx) => {

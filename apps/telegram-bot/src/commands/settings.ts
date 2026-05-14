@@ -604,7 +604,10 @@ const setPhraseConversation = async (
 
 export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(customSlippageConversation, "settings-custom-slippage"),
+    createConversation(customSlippageConversation, {
+      id: "settings-custom-slippage",
+      parallel: true,
+    }),
   );
   bot.use(
     createConversation(
@@ -613,7 +616,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
         ctx: AppContext,
         ...args: unknown[]
       ) => Promise<void>,
-      "settings-buy-preset-slot",
+      { id: "settings-buy-preset-slot", parallel: true },
     ),
   );
   bot.use(
@@ -623,10 +626,15 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
         ctx: AppContext,
         ...args: unknown[]
       ) => Promise<void>,
-      "settings-sell-preset-slot",
+      { id: "settings-sell-preset-slot", parallel: true },
     ),
   );
-  bot.use(createConversation(setPhraseConversation, "settings-set-phrase"));
+  bot.use(
+    createConversation(setPhraseConversation, {
+      id: "settings-set-phrase",
+      parallel: true,
+    }),
+  );
 
   bot.command("settings", async (ctx) => {
     if (!ctx.from) {

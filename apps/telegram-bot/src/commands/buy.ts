@@ -471,7 +471,12 @@ const handleFixedBuy = async (
 };
 
 export const registerBuyCommand = (bot: Bot<AppContext>): void => {
-  bot.use(createConversation(buyLookupConversation, "buy-lookup"));
+  bot.use(
+    createConversation(buyLookupConversation, {
+      id: "buy-lookup",
+      parallel: true,
+    }),
+  );
   bot.use(
     createConversation(
       buyCustomConversation as (
@@ -479,7 +484,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
         ctx: AppContext,
         ...args: unknown[]
       ) => Promise<void>,
-      "buy-custom",
+      { id: "buy-custom", parallel: true },
     ),
   );
 
