@@ -111,35 +111,29 @@ export const buildSettingsKeyboard = (
 };
 
 /**
- * Render the 5-slot Buy Settings sub-menu. Each row is a single pencil-
- * prefixed slot button so the amounts read naturally even at narrow
- * Telegram client widths. A `Back` row returns the user to the main
- * /settings panel without losing inline-keyboard state.
+ * Render the 5-slot Buy Settings sub-menu. Slots are laid out 3-on-top,
+ * 2-on-bottom so the row of buttons mirrors the natural reading order
+ * of the presets (e.g. `20 / 40 / 60` then `80 / 100`). A trailing
+ * Back / Home row returns the user to the main /settings panel.
  */
 export const buildBuySettingsKeyboard = (
   buyPresetsUsdc: readonly number[],
 ): InlineKeyboard => {
-  const rows: InlineKeyboard = buyPresetsUsdc.map((amount, idx) => [
-    {
-      text: `✏️ ${amount} USDC`,
-      callback_data: encodeBuyPresetSlot(idx),
-    },
-  ]);
-  rows.push(backHomeRow());
-  return rows;
+  const buttons = buyPresetsUsdc.map((amount, idx) => ({
+    text: `✏️ ${amount} USDC`,
+    callback_data: encodeBuyPresetSlot(idx),
+  }));
+  return [buttons.slice(0, 3), buttons.slice(3), backHomeRow()];
 };
 
 export const buildSellSettingsKeyboard = (
   sellPresetsPct: readonly number[],
 ): InlineKeyboard => {
-  const rows: InlineKeyboard = sellPresetsPct.map((pct, idx) => [
-    {
-      text: `✏️ ${pct}%`,
-      callback_data: encodeSellPresetSlot(idx),
-    },
-  ]);
-  rows.push(backHomeRow());
-  return rows;
+  const buttons = sellPresetsPct.map((pct, idx) => ({
+    text: `✏️ ${pct}%`,
+    callback_data: encodeSellPresetSlot(idx),
+  }));
+  return [buttons.slice(0, 3), buttons.slice(3), backHomeRow()];
 };
 
 const formatBpsLabel = (bps: number): string => {

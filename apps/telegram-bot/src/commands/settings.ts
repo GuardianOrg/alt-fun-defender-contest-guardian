@@ -89,23 +89,11 @@ const renderMainStatusText = (status: SettingsStatus): string =>
     "Tap Buy Settings or Sell Settings to customize the preset buttons.",
   ].join("\n");
 
-const renderBuySettingsText = (presets: readonly number[]): string =>
-  [
-    "Buy Settings",
-    "",
-    "Tap a slot to change its amount.",
-    "",
-    ...presets.map((amount, idx) => `${idx + 1}. ${amount} USDC`),
-  ].join("\n");
+const renderBuySettingsText = (): string =>
+  ["Buy Settings", "", "Tap a slot to change its amount."].join("\n");
 
-const renderSellSettingsText = (presets: readonly number[]): string =>
-  [
-    "Sell Settings",
-    "",
-    "Tap a slot to change its percent.",
-    "",
-    ...presets.map((pct, idx) => `${idx + 1}. ${pct}%`),
-  ].join("\n");
+const renderSellSettingsText = (): string =>
+  ["Sell Settings", "", "Tap a slot to change its percent."].join("\n");
 
 interface RenderedState {
   text: string;
@@ -125,7 +113,7 @@ const renderMainState = (ctx: AppContext): RenderedState => {
 const renderBuyState = (ctx: AppContext): RenderedState => {
   const presets = readBuyPresets(ctx.session);
   return {
-    text: renderBuySettingsText(presets),
+    text: renderBuySettingsText(),
     reply_markup: { inline_keyboard: buildBuySettingsKeyboard(presets) },
   };
 };
@@ -133,7 +121,7 @@ const renderBuyState = (ctx: AppContext): RenderedState => {
 const renderSellState = (ctx: AppContext): RenderedState => {
   const presets = readSellPresets(ctx.session);
   return {
-    text: renderSellSettingsText(presets),
+    text: renderSellSettingsText(),
     reply_markup: { inline_keyboard: buildSellSettingsKeyboard(presets) },
   };
 };
