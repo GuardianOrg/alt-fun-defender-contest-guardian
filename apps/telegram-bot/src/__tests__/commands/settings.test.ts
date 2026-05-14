@@ -385,21 +385,22 @@ describe("/settings command", () => {
       const calls = capture(fetchSpy);
       // Refreshed panel lands as an edit on the original menu
       // (message_id 100, set by callbackUpdate), not a fresh
-      // sendMessage that would leave the stale slot list sitting
+      // sendMessage that would leave the stale slot row sitting
       // above the wizard's output.
-      const editOnOrigin = calls.find(
-        (c) =>
-          c.url.includes("/editMessageText") &&
-          (c.body as { message_id?: number }).message_id === 100 &&
-          String(c.body.text).includes("Buy Settings") &&
-          String(c.body.text).includes("50 USDC"),
-      );
+      const editOnOrigin = calls.find((c) => {
+        if (!c.url.includes("/editMessageText")) return false;
+        if ((c.body as { message_id?: number }).message_id !== 100) return false;
+        if (!String(c.body.text).includes("Buy Settings")) return false;
+        const labels = (
+          c.body.reply_markup as { inline_keyboard: { text: string }[][] }
+        ).inline_keyboard.flat().map((b) => b.text);
+        return labels.includes("✏️ 50 USDC");
+      });
       expect(editOnOrigin).toBeDefined();
       const stalePost = calls.find(
         (c) =>
           c.url.includes("/sendMessage") &&
-          String(c.body.text).includes("Buy Settings") &&
-          String(c.body.text).includes("50 USDC"),
+          String(c.body.text).includes("Buy Settings"),
       );
       expect(stalePost).toBeUndefined();
     });
@@ -437,12 +438,14 @@ describe("/settings command", () => {
         c.url.includes("/editMessageText"),
       );
       expect(editAttempt).toBeDefined();
-      const fallback = calls.find(
-        (c) =>
-          c.url.includes("/sendMessage") &&
-          String(c.body.text).includes("Buy Settings") &&
-          String(c.body.text).includes("50 USDC"),
-      );
+      const fallback = calls.find((c) => {
+        if (!c.url.includes("/sendMessage")) return false;
+        if (!String(c.body.text).includes("Buy Settings")) return false;
+        const labels = (
+          c.body.reply_markup as { inline_keyboard: { text: string }[][] }
+        ).inline_keyboard.flat().map((b) => b.text);
+        return labels.includes("✏️ 50 USDC");
+      });
       expect(fallback).toBeDefined();
     });
 
@@ -496,6 +499,42 @@ describe("/settings command", () => {
       expect(last[0]!.callback_data).toBe("nav:b");
       expect(last[1]!.callback_data).toBe("nav:h");
     });
+
+    it("lays out buy presets as 3 / 2 / [back, home]", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.buySettings));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      const rows = (
+        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard;
+      expect(rows).toHaveLength(3);
+      expect(rows[0]!.map((b) => b.text)).toEqual([
+        "✏️ 20 USDC",
+        "✏️ 40 USDC",
+        "✏️ 60 USDC",
+      ]);
+      expect(rows[1]!.map((b) => b.text)).toEqual([
+        "✏️ 80 USDC",
+        "✏️ 100 USDC",
+      ]);
+      expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    });
+
+    it("omits the numbered slot list from the buy settings body text", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.buySettings));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      const text = edit!.body.text as string;
+      expect(text).toContain("Tap a slot to change its amount.");
+      expect(text).not.toMatch(/^\d+\.\s/m);
+      expect(text).not.toContain("USDC");
+    });
   });
 
   describe("Sell Settings sub-menu (issue #818)", () => {
@@ -539,19 +578,20 @@ describe("/settings command", () => {
       await h.run(textUpdate("60%", 3));
 
       const calls = capture(fetchSpy);
-      const editOnOrigin = calls.find(
-        (c) =>
-          c.url.includes("/editMessageText") &&
-          (c.body as { message_id?: number }).message_id === 100 &&
-          String(c.body.text).includes("Sell Settings") &&
-          String(c.body.text).includes("60%"),
-      );
+      const editOnOrigin = calls.find((c) => {
+        if (!c.url.includes("/editMessageText")) return false;
+        if ((c.body as { message_id?: number }).message_id !== 100) return false;
+        if (!String(c.body.text).includes("Sell Settings")) return false;
+        const labels = (
+          c.body.reply_markup as { inline_keyboard: { text: string }[][] }
+        ).inline_keyboard.flat().map((b) => b.text);
+        return labels.includes("✏️ 60%");
+      });
       expect(editOnOrigin).toBeDefined();
       const stalePost = calls.find(
         (c) =>
           c.url.includes("/sendMessage") &&
-          String(c.body.text).includes("Sell Settings") &&
-          String(c.body.text).includes("60%"),
+          String(c.body.text).includes("Sell Settings"),
       );
       expect(stalePost).toBeUndefined();
     });
@@ -589,6 +629,38 @@ describe("/settings command", () => {
           /between 1 and 100/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
+    });
+
+    it("lays out sell presets as 3 / 2 / [back, home]", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.sellSettings));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      const rows = (
+        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard;
+      expect(rows).toHaveLength(3);
+      expect(rows[0]!.map((b) => b.text)).toEqual([
+        "✏️ 10%",
+        "✏️ 25%",
+        "✏️ 50%",
+      ]);
+      expect(rows[1]!.map((b) => b.text)).toEqual(["✏️ 75%", "✏️ 100%"]);
+      expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    });
+
+    it("omits the numbered slot list from the sell settings body text", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.sellSettings));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      const text = edit!.body.text as string;
+      expect(text).toContain("Tap a slot to change its percent.");
+      expect(text).not.toMatch(/^\d+\.\s/m);
     });
   });
 });
