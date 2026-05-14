@@ -142,6 +142,18 @@ const App = () => {
               theme: "dark",
               accentColor: "#00ff88",
               walletChainType: "ethereum-only",
+              // Acknowledge the wallet-first flow explicitly. Without
+              // this Privy still auto-corrects to `true` (we have no
+              // email / sms / social fallback), but along the way it
+              // logs `You should only disable showWalletLoginFirst when
+              // … is also enabled. showWalletLoginFirst has been set to
+              // true` — a console warning that surfaces on every page
+              // load for every user. Setting the value here matches
+              // what the SDK ends up doing internally and silences the
+              // warning at the source. Kept in lockstep with
+              // `loginMethods: ["wallet"]` — if we ever re-add email /
+              // social this flag should be revisited.
+              showWalletLoginFirst: true,
             },
             loginMethods: ["wallet"],
             externalWallets: {
