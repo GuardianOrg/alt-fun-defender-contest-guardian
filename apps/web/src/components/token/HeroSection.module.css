@@ -22,6 +22,17 @@
   flex-shrink: 0;
 }
 
+/* The shared `Button` primary variant carries `var(--shadow-mint-glow)` by
+ * default — appropriate for top-of-funnel CTAs like "Create token" in the
+ * header, but visually noisy next to the CA chip in the token hero, where
+ * Share is a utility action and not the page's primary call to action.
+ * Suppress the glow here without changing the variant so the button keeps
+ * its mint fill + matching border (and stays flush with the chip's chrome
+ * via the same-colour border note in `Button.module.css`). */
+.shareButton {
+  box-shadow: none;
+}
+
 /* `Chip` (shared/Chip) renders the CA pill chrome — the only HeroSection
  * styles we keep are the inner label/value tones so the static "CA:"
  * prefix can sit a notch quieter than the address itself. */

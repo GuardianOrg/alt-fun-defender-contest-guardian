@@ -80,6 +80,11 @@ interface PopoverProps {
  *  CSS module when the popover was still absolutely positioned. */
 const POPOVER_OFFSET_PX = 4;
 
+/** Minimum gutter between the popover's outer edge and the viewport
+ *  edge it grows toward. Keeps the popover from sitting flush against
+ *  the screen on narrow viewports when the trigger is near a corner. */
+const VIEWPORT_GUTTER_PX = 8;
+
 /**
  * Anchored popover used by all three filter triggers. Mirrors the
  * lightweight pattern from `DocsMenu` / `SettingsPopup`: outside-click +
@@ -120,17 +125,28 @@ function FilterPopover({
       const anchor = anchorRef.current;
       if (!anchor) return;
       const rect = anchor.getBoundingClientRect();
+      // Cap the popover's width at the space available between the
+      // anchored edge and the opposite side of the viewport (minus a
+      // small gutter). Without this, a right-aligned popover whose
+      // `min-width` exceeds the distance from the trigger's right
+      // edge to the viewport's left edge would overflow past the
+      // outer container on narrow screens.
       if (align === "right") {
         setPosition({
           position: "fixed",
           top: rect.bottom + POPOVER_OFFSET_PX,
-          right: Math.max(window.innerWidth - rect.right, 0),
+          right: Math.max(window.innerWidth - rect.right, VIEWPORT_GUTTER_PX),
+          maxWidth: Math.max(rect.right - VIEWPORT_GUTTER_PX, 0),
         });
       } else {
         setPosition({
           position: "fixed",
           top: rect.bottom + POPOVER_OFFSET_PX,
-          left: Math.max(rect.left, 0),
+          left: Math.max(rect.left, VIEWPORT_GUTTER_PX),
+          maxWidth: Math.max(
+            window.innerWidth - rect.left - VIEWPORT_GUTTER_PX,
+            0,
+          ),
         });
       }
     };
@@ -410,7 +426,11 @@ export default function TableFilters() {
           onClick={() => toggle("direction")}
         />
         {open === "direction" && (
-          <FilterPopover anchorRef={directionRef} onClose={closeAll}>
+          <FilterPopover
+            anchorRef={directionRef}
+            onClose={closeAll}
+            align="right"
+          >
             <div className={styles.popoverHeader}>Direction</div>
             <div className={styles.optionList}>
               <OptionRow
