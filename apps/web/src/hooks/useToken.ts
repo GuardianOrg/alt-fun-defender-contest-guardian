@@ -1,6 +1,10 @@
 import { useMemo, useSyncExternalStore } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 
 import { useWallet } from "./useWallet";
 import {
@@ -11,6 +15,52 @@ import {
 import { tokenService } from "../services/tokenService";
 
 import type { Token } from "../services/types";
+
+/**
+ * Pull the most-recent cached `Token` for `address` out of any list
+ * query the app already has in flight: the home table's flat
+ * `["tokens", …]` cache (from `useTokens`) and its infinite-scroll
+ * sibling `["tokens-infinite", …]` (from `useInfiniteTokens`). Returns
+ * the first match (case-insensitive on address) or `undefined`.
+ *
+ * Used as `placeholderData` for `useToken` so navigating from a list
+ * paints the token's image / ticker / name / leverage / mcap on the
+ * very first frame instead of waiting for the `/tokens/:address`
+ * round-trip. The fresh fetch still runs in the background and any
+ * detail-only fields (description, social links, exact curve
+ * breakdown) snap in once it resolves — matching React Query's
+ * standard placeholder semantics, with `isPlaceholderData` flagging
+ * the transient state for any consumer that cares.
+ */
+function findCachedTokenInLists(
+  queryClient: QueryClient,
+  address: string | undefined,
+): Token | undefined {
+  if (!address) return undefined;
+  const target = address.toLowerCase();
+  // `getQueriesData` does prefix matching by default, so `["tokens"]`
+  // matches `["tokens", filter, …]` from `useTokens` but NOT
+  // `["tokens-infinite", …]` (different first segment). We scan both
+  // namespaces explicitly.
+  for (const [, data] of queryClient.getQueriesData<Token[]>({
+    queryKey: ["tokens"],
+  })) {
+    if (!data) continue;
+    const hit = data.find((t) => t.address.toLowerCase() === target);
+    if (hit) return hit;
+  }
+  for (const [, data] of queryClient.getQueriesData<{
+    pages: Token[][];
+  }>({ queryKey: ["tokens-infinite"] })) {
+    const pages = data?.pages;
+    if (!pages) continue;
+    for (const page of pages) {
+      const hit = page.find((t) => t.address.toLowerCase() === target);
+      if (hit) return hit;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Poll cadence used as a safety net while a token sits in the
@@ -64,6 +114,17 @@ export function useToken(address: string | undefined) {
   // baked into the query key so a connect / disconnect / wallet switch
   // re-fetches under the right lens (public 404 vs holder-only 200).
   const { address: wallet } = useWallet();
+  const queryClient = useQueryClient();
+  // Snapshot the list-cache entry once per `address` change. The
+  // placeholder is consulted by React Query at query-mount time only —
+  // the real fetch always supersedes it — so recomputing on every
+  // parent re-render would just be wasted work. Memoised on the
+  // queryClient ref + address so a wallet switch (which re-keys the
+  // query) still picks up the latest cached snapshot.
+  const placeholder = useMemo(
+    () => findCachedTokenInLists(queryClient, address),
+    [queryClient, address],
+  );
   const query = useQuery({
     queryKey: ["token", address, wallet ?? null],
     queryFn: () => {
@@ -72,6 +133,7 @@ export function useToken(address: string | undefined) {
     },
     enabled: !!address,
     refetchInterval: (query) => tokenRefetchInterval(query.state.data),
+    placeholderData: placeholder,
   });
 
   // Dev-only overlay (DCE'd in production by the `import.meta.env.DEV`
