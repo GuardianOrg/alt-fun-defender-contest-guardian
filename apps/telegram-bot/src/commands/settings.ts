@@ -156,7 +156,8 @@ const safeEditMessageText = async (
       e.error_code === 400 &&
       (desc.includes("message to edit not found") ||
         desc.includes("message not found") ||
-        desc.includes("message is not modified"));
+        desc.includes("message is not modified") ||
+        desc.includes("message can't be edited"));
     if (!isBenign) throw err;
   }
 };
@@ -307,7 +308,8 @@ const safeEditMessage = async (
       e.error_code === 400 &&
       (desc.includes("message to edit not found") ||
         desc.includes("message not found") ||
-        desc.includes("message is not modified"));
+        desc.includes("message is not modified") ||
+        desc.includes("message can't be edited"));
     if (isBenign) return false;
     throw err;
   }

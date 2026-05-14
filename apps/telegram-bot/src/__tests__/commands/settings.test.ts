@@ -367,6 +367,48 @@ describe("/settings command", () => {
       expect(stalePost).toBeUndefined();
     });
 
+    it("falls back to sendMessage when the origin menu is too old to edit", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeBuyPresetSlot(0)));
+
+      // Mock Telegram such that editMessageText returns the 400
+      // "message can't be edited" Telegram surfaces for messages
+      // older than ~48h; every other call still succeeds.
+      fetchSpy.mockClear();
+      fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/editMessageText")) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message can't be edited",
+            }),
+            { status: 400 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      });
+      await h.run(textUpdate("$50", 3));
+
+      const calls = capture(fetchSpy);
+      // Edit attempt fired (and 400'd), then fallback panel was sent
+      // as a fresh sendMessage so the user still sees the new value.
+      const editAttempt = calls.find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(editAttempt).toBeDefined();
+      const fallback = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          String(c.body.text).includes("Buy Settings") &&
+          String(c.body.text).includes("50 USDC"),
+      );
+      expect(fallback).toBeDefined();
+    });
+
     it("editing a non-zero slot leaves defaultBuyUsdc alone", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(encodeBuyPresetSlot(2)));
