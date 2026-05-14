@@ -100,11 +100,11 @@ export interface SessionData {
    * wizard pivot (`tryAddressBuyIntercept`). Before shipping a new card
    * the helper deletes this one, so a second paste replaces the first
    * card in place instead of stacking a new card above the stale one
-   * (issue: "old prompt doesn't disappear"). Per-chat scoped so a paste
-   * in the bot's private DM never sweeps a card the user is looking at
-   * in a different chat the bot also serves.
+   * (issue: "old prompt doesn't disappear"). Keyed by `chatId` (as a
+   * string for JSON round-trip) so a user who alternates between two
+   * chats still has each chat's last card tracked independently.
    */
-  lastBuyCardMessage?: { chatId: number; messageId: number };
+  lastBuyCardMessageByChat?: Record<string, number>;
   /**
    * Navigation stack of message snapshots used to power the global
    * `[← Back]` / `[🏠 Home]` row that lives on every system prompt

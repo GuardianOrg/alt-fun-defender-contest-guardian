@@ -28,16 +28,22 @@ const API_UNAVAILABLE =
  *
  * Best-effort: Telegram returns 400 when the message is already gone
  * (user wiped it, or it aged past the 48h delete window) and the new
- * card must still ship. Per-chat scoped so a paste in this chat never
- * touches a card the bot showed in a different chat for the same user.
+ * card must still ship. Keyed by `chatId` so a user alternating between
+ * two chats keeps each chat's last card tracked independently — a
+ * single-slot field would lose chat A's card the moment the user pasted
+ * in chat B and let stale cards stack again on the return trip.
  */
 const replacePreviousBuyCard = async (ctx: AppContext): Promise<void> => {
-  const prev = ctx.session.lastBuyCardMessage;
   const chatId = ctx.chat?.id;
-  if (!prev || chatId === undefined || prev.chatId !== chatId) return;
-  ctx.session.lastBuyCardMessage = undefined;
+  if (chatId === undefined) return;
+  const byChat = ctx.session.lastBuyCardMessageByChat;
+  if (!byChat) return;
+  const key = String(chatId);
+  const prevMessageId = byChat[key];
+  if (typeof prevMessageId !== "number") return;
+  delete byChat[key];
   try {
-    await ctx.api.deleteMessage(prev.chatId, prev.messageId);
+    await ctx.api.deleteMessage(chatId, prevMessageId);
   } catch {
     // Already gone / outside 48h / no rights — fall through.
   }
@@ -50,7 +56,9 @@ const rememberBuyCardMessage = (ctx: AppContext, sent: Message): void => {
   // Message always carries one). Recording undefined would crash the
   // next deleteMessage call with a bad-arg error.
   if (chatId === undefined || typeof sent.message_id !== "number") return;
-  ctx.session.lastBuyCardMessage = { chatId, messageId: sent.message_id };
+  const byChat = ctx.session.lastBuyCardMessageByChat ?? {};
+  byChat[String(chatId)] = sent.message_id;
+  ctx.session.lastBuyCardMessageByChat = byChat;
 };
 
 /**

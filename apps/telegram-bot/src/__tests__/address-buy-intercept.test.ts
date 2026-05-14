@@ -322,15 +322,19 @@ describe("Address → buy menu intercept (issue #821)", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 21));
 
     const calls = capture(fetchSpy);
-    const deletePrev = calls.find(
+    const deletePrevIdx = calls.findIndex(
       (c) =>
         c.url.includes("/deleteMessage") &&
         (c.body as { message_id?: number }).message_id === firstCardId,
     );
-    expect(deletePrev).toBeDefined();
-    // The new card still lands after the delete.
-    const newCardSent = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(newCardSent).toBeDefined();
+    expect(deletePrevIdx).toBeGreaterThanOrEqual(0);
+    // The new card must land *after* the delete — otherwise the user
+    // sees both cards on screen for the brief window between the two
+    // calls, which is the exact regression this test guards against.
+    const newCardSentIdx = calls.findIndex((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(newCardSentIdx).toBeGreaterThan(deletePrevIdx);
   });
 
   it("non-address text outside any flow is ignored (no buy card, no error)", async () => {
