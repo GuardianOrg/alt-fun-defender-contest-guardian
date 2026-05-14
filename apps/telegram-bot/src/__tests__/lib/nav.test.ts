@@ -272,6 +272,61 @@ describe("editToSubmenu", () => {
     expect(ctx.session.navStack?.[0]?.text).toBe("start view");
   });
 
+  it("returns the original message id on the happy edit path", async () => {
+    // Workflow-stack consumers (the post-trade sweep in track.ts)
+    // read `editedMessageId` to track the card the user is now
+    // looking at. On the happy path that's the same message we just
+    // edited, not a new send.
+    const parent = {
+      text: "track card",
+      reply_markup: { inline_keyboard: [[{ text: "Buy", callback_data: "trkb:0xabc" }]] },
+    };
+    const ctx = {
+      ...makeCtx({ parentMessage: parent }),
+      callbackQuery: {
+        message: { ...parent, message_id: 999 },
+      },
+    } as unknown as Parameters<typeof makeCtx>[0] & {
+      callbackQuery: { message: { message_id: number } };
+    };
+    // Re-create the mock with a known message_id on the callback msg.
+    const editCalls: EditCall[] = [];
+    const ctxFull = {
+      session: {} as NavStackSession,
+      callbackQuery: { message: { ...parent, message_id: 999 } },
+      editMessageText: async (text: string, extra: EditCall["extra"]) => {
+        editCalls.push({ text, extra });
+        return true;
+      },
+      reply: async () => ({ message_id: 42 }),
+      deleteMessage: async () => true,
+    };
+    const result = await editToSubmenu(ctxFull as unknown as AppContext, {
+      text: "buy card",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(result.editedMessageId).toBe(999);
+  });
+
+  it("returns the fresh reply id when the edit path fell back to delete+reply", async () => {
+    const editCalls: EditCall[] = [];
+    const ctxFull = {
+      session: {} as NavStackSession,
+      callbackQuery: { message: { text: "old", reply_markup: { inline_keyboard: [] }, message_id: 1 } },
+      editMessageText: async (text: string, extra: EditCall["extra"]) => {
+        editCalls.push({ text, extra });
+        throw { error_code: 400, description: "message to edit not found" };
+      },
+      reply: async () => ({ message_id: 777 }),
+      deleteMessage: async () => true,
+    };
+    const result = await editToSubmenu(ctxFull as unknown as AppContext, {
+      text: "buy card",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(result.editedMessageId).toBe(777);
+  });
+
   it("forwards parseMode and linkPreviewDisabled to editMessageText", async () => {
     const ctx = makeCtx();
     await editToSubmenu(ctx as unknown as AppContext, {

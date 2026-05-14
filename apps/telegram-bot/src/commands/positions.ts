@@ -245,18 +245,28 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       // snapshot pushed inside `editToActionCard`. Token-fetch outage
       // surfaces as a toast — leaving the positions view intact is the
       // friendliest fallback.
-      const ok = await editToActionCard(
-        ctx,
-        active.address,
-        action,
-        token as Address,
-      );
-      if (!ok) {
-        await ctx.answerCallbackQuery({
-          text: ACTION_TOKEN_OUTAGE,
-          show_alert: true,
-        });
-        return;
+      //
+      // The try/catch wraps the edit so a non-benign Telegram failure
+      // (e.g. 403 user blocked the bot) still acks the callback before
+      // bubbling — without the ack the client spinner hangs until
+      // Telegram's 30s timeout.
+      try {
+        const ok = await editToActionCard(
+          ctx,
+          active.address,
+          action,
+          token as Address,
+        );
+        if (!ok) {
+          await ctx.answerCallbackQuery({
+            text: ACTION_TOKEN_OUTAGE,
+            show_alert: true,
+          });
+          return;
+        }
+      } catch (err) {
+        await ctx.answerCallbackQuery();
+        throw err;
       }
       await ctx.answerCallbackQuery();
     });
@@ -304,12 +314,19 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
       return;
     }
-    await editToSubmenu(ctx, {
-      text: page.text,
-      parseMode: "HTML",
-      inlineKeyboard: page.reply_markup.inline_keyboard,
-      linkPreviewDisabled: true,
-    });
+    try {
+      await editToSubmenu(ctx, {
+        text: page.text,
+        parseMode: "HTML",
+        inlineKeyboard: page.reply_markup.inline_keyboard,
+        linkPreviewDisabled: true,
+      });
+    } catch (err) {
+      // Ack before rethrow so the client spinner unwinds even when
+      // the edit / fallback reply errors non-benignly.
+      await ctx.answerCallbackQuery();
+      throw err;
+    }
     await ctx.answerCallbackQuery();
   });
 };

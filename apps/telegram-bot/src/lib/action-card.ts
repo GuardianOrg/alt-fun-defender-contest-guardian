@@ -29,32 +29,40 @@ const buildActionView = async (
   action: "buy" | "sell",
   token: Address,
 ): Promise<ActionCardView | null> => {
-  const [tokenResult, balance] = await Promise.all([
-    fetchToken(ctx.env, token),
-    action === "buy"
-      ? fetchUsdcBalance(ctx.env, walletAddress)
-      : fetchErc20Balance(ctx.env, token, walletAddress),
-  ]);
-  if (!tokenResult.ok) return null;
-  if (action === "buy") {
-    return {
-      text: renderBuyTokenCardText(tokenResult.data, balance),
-      inlineKeyboard: buildBuyTokenKeyboard(
-        token,
-        normaliseBuyPresets(
-          ctx.session.buyPresetsUsdc,
-          ctx.session.defaultBuyUsdc,
+  // RPC rejections (balance fetch timeout, fetchToken throw) must
+  // funnel through the same `null` outage branch the callsite already
+  // handles — letting them bubble out of the callback strands the
+  // Telegram spinner and surfaces a raw stack trace to the user.
+  try {
+    const [tokenResult, balance] = await Promise.all([
+      fetchToken(ctx.env, token),
+      action === "buy"
+        ? fetchUsdcBalance(ctx.env, walletAddress)
+        : fetchErc20Balance(ctx.env, token, walletAddress),
+    ]);
+    if (!tokenResult.ok) return null;
+    if (action === "buy") {
+      return {
+        text: renderBuyTokenCardText(tokenResult.data, balance),
+        inlineKeyboard: buildBuyTokenKeyboard(
+          token,
+          normaliseBuyPresets(
+            ctx.session.buyPresetsUsdc,
+            ctx.session.defaultBuyUsdc,
+          ),
         ),
+      };
+    }
+    return {
+      text: renderSellTokenCardText(tokenResult.data, balance),
+      inlineKeyboard: buildSellTokenKeyboard(
+        token,
+        normaliseSellPresets(ctx.session.sellPresetsPct),
       ),
     };
+  } catch {
+    return null;
   }
-  return {
-    text: renderSellTokenCardText(tokenResult.data, balance),
-    inlineKeyboard: buildSellTokenKeyboard(
-      token,
-      normaliseSellPresets(ctx.session.sellPresetsPct),
-    ),
-  };
 };
 
 /**

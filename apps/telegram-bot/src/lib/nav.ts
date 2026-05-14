@@ -209,10 +209,23 @@ export interface SubmenuView {
  * the user has no way to navigate back out, since /start was the
  * entry point.
  */
+/**
+ * Result of a submenu render. `editedMessageId` is the message the
+ * user is now looking at — the original (edited in place) on the
+ * happy path, or the freshly-sent reply id when we fell back. Callers
+ * that track the rendered message on a workflow stack (e.g. the
+ * post-trade sweep) must read this rather than reusing
+ * `ctx.callbackQuery.message.message_id`, which still points at the
+ * deleted parent in the fallback branch.
+ */
+export interface SubmenuResult {
+  editedMessageId: number | undefined;
+}
+
 export const editToSubmenu = async (
   ctx: AppContext,
   view: SubmenuView,
-): Promise<void> => {
+): Promise<SubmenuResult> => {
   const parent = snapshotFromCallback(ctx);
   if (parent) pushNavSnapshot(ctx.session, parent);
   const reply_markup = { inline_keyboard: view.inlineKeyboard };
@@ -225,7 +238,7 @@ export const editToSubmenu = async (
       reply_markup,
       link_preview_options,
     });
-    return;
+    return { editedMessageId: ctx.callbackQuery?.message?.message_id };
   } catch (err) {
     if (!isBenignEditError(err)) {
       logger.warn("editToSubmenu: editMessageText failed, falling back", {
@@ -243,11 +256,12 @@ export const editToSubmenu = async (
       logger.debug("editToSubmenu: deleteMessage fallback failed", { err });
     }
   }
-  await ctx.reply(view.text, {
+  const sent = await ctx.reply(view.text, {
     parse_mode: view.parseMode,
     reply_markup,
     link_preview_options,
   });
+  return { editedMessageId: sent.message_id };
 };
 
 interface BenignEditError {

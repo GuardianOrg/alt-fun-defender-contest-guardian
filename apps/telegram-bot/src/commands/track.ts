@@ -354,9 +354,7 @@ const handleTrackBuy = async (
   }
   // Replace the /track card in place with the buy card so Back lands
   // the user back on the /track view via the snapshot pushed below.
-  // The original track message id is preserved by editMessageText, so
-  // the workflow-message tracking continues to point at the same id.
-  await editToSubmenu(ctx, {
+  const result = await editToSubmenu(ctx, {
     text: renderBuyTokenCardText(tokenResult.data, usdcBalance),
     parseMode: "HTML",
     inlineKeyboard: buildBuyTokenKeyboard(
@@ -369,13 +367,13 @@ const handleTrackBuy = async (
     linkPreviewDisabled: true,
   });
   await ctx.answerCallbackQuery();
-  // Track the (post-edit) card so the post-trade sweep clears it once
-  // a buy lands. `editMessageText` keeps the same message id as the
-  // /track card we replaced, so this pushes the id the user is now
-  // looking at.
-  const cardMsgId = ctx.callbackQuery?.message?.message_id;
-  if (ctx.chat && cardMsgId !== undefined) {
-    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsgId);
+  // Track the rendered card so the post-trade sweep clears it once a
+  // buy lands. Read the id `editToSubmenu` returned — on the happy
+  // path that's the original (edited) message, but on the benign-400
+  // fallback the original was deleted and the id now points at the
+  // fresh reply.
+  if (ctx.chat && result.editedMessageId !== undefined) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, result.editedMessageId);
   }
 };
 
@@ -399,7 +397,7 @@ const handleTrackSell = async (
     });
     return;
   }
-  await editToSubmenu(ctx, {
+  const result = await editToSubmenu(ctx, {
     text: renderSellTokenCardText(tokenResult.data, tokenBalance),
     parseMode: "HTML",
     inlineKeyboard: buildSellTokenKeyboard(
@@ -409,9 +407,8 @@ const handleTrackSell = async (
     linkPreviewDisabled: true,
   });
   await ctx.answerCallbackQuery();
-  const cardMsgId = ctx.callbackQuery?.message?.message_id;
-  if (ctx.chat && cardMsgId !== undefined) {
-    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsgId);
+  if (ctx.chat && result.editedMessageId !== undefined) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, result.editedMessageId);
   }
 };
 
