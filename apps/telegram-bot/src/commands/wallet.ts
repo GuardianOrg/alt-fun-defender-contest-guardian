@@ -40,6 +40,7 @@ import {
 } from "../lib/wallet.js";
 import {
   backHomeMarkup,
+  editToSubmenu,
   pushNavSnapshot,
   snapshotFromCallback,
 } from "../lib/nav.js";
@@ -1504,10 +1505,11 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     }
     if (!(await ensurePrivate(ctx))) return;
     const state = await renderMainState(ctx.env, ctx.from.id);
-    await ctx.answerCallbackQuery();
-    await ctx.reply(wrap(ctx, state.text), {
-      reply_markup: state.reply_markup,
+    await editToSubmenu(ctx, {
+      text: wrap(ctx, state.text),
+      inlineKeyboard: state.reply_markup.inline_keyboard,
     });
+    await ctx.answerCallbackQuery();
   });
 };
 

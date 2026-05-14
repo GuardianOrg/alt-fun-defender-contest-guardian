@@ -403,7 +403,7 @@ describe("/referral command", () => {
     expect(send!.body.text).toContain("personal Telegram account");
   });
 
-  it("Referral start-menu button sends the referral UI as a new message", async () => {
+  it("Referral start-menu button edits the /start view in place with the referral UI", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
@@ -412,10 +412,15 @@ describe("/referral command", () => {
     await h.run(callbackUpdate(START_CALLBACK.referral));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
-    expect(send).toBeDefined();
-    expect(send!.body.text).toContain("Your referral");
+    // Standardised edit-in-place navigation — no fresh ctx.reply, so
+    // tapping Back from the referral view restores the original /start
+    // message via the nav-stack snapshot pushed by editToSubmenu.
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(edit!.body.text).toContain("Your referral");
     expect(answer!.body.show_alert).toBeFalsy();
     expect(answer!.body.text ?? "").not.toMatch(/\/referral/);
   });
@@ -428,8 +433,10 @@ describe("/referral command", () => {
 
     await h.run(callbackUpdate(START_CALLBACK.referral));
 
-    const send = capture(fetchSpy).find((c) => c.url.includes("/sendMessage"));
-    expect(send!.body.text).toMatch(/https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ref_7/);
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edit!.body.text).toMatch(/https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ref_7/);
   });
 });
 

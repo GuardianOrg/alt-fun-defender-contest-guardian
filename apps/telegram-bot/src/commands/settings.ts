@@ -35,6 +35,7 @@ import {
 } from "../lib/conversation-commands.js";
 import {
   backHomeMarkup,
+  editToSubmenu,
   pushNavSnapshot,
   snapshotFromCallback,
 } from "../lib/nav.js";
@@ -663,10 +664,11 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     }
     if (!(await ensurePrivate(ctx))) return;
     const state = renderMainState(ctx);
-    await ctx.answerCallbackQuery();
-    await ctx.reply(wrap(ctx, state.text), {
-      reply_markup: state.reply_markup,
+    await editToSubmenu(ctx, {
+      text: wrap(ctx, state.text),
+      inlineKeyboard: state.reply_markup.inline_keyboard,
     });
+    await ctx.answerCallbackQuery();
   });
 
   // Slippage presets share a single prefix so they can be matched with

@@ -354,19 +354,22 @@ describe("/start command", () => {
     expect(await walletManager(h).listWallets(7)).toHaveLength(0);
   });
 
-  it("Settings button opens the settings panel inline instead of showing a hint toast", async () => {
+  it("Settings button replaces the /start view in place with the settings panel", async () => {
     const h = harnessWithRpc();
     mockBoth(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.settings));
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     // Silent callback ack — no hint toast.
     expect(answer!.body.show_alert).toBeFalsy();
     expect(String(answer!.body.text ?? "")).not.toMatch(/\/settings/);
-    // Bot replies with the settings status view.
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/Slippage:/);
+    // Edit-in-place (editToSubmenu) — no fresh sendMessage. Back can
+    // then pop the pushed /start snapshot and restore the welcome card.
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(String(edit!.body.text)).toMatch(/Slippage:/);
   });
 
   it.each([START_CALLBACK.buy, START_CALLBACK.sell, START_CALLBACK.track])(
@@ -427,11 +430,14 @@ describe("/start command", () => {
       .map(([url]) => String(url))
       .filter((u) => u.startsWith("https://api.test.local"));
 
+    const edit = tgCalls.find((c) => c.url.includes("/editMessageText"));
     const send = tgCalls.find((c) => c.url.includes("/sendMessage"));
     const answer = tgCalls.find((c) => c.url.includes("/answerCallbackQuery"));
-    // Must reply with the positions view, not a hint toast.
-    expect(send).toBeDefined();
-    expect(send!.body.text).toContain("No open positions for this wallet.");
+    // Edit-in-place — the positions view replaces the /start view on
+    // the same message, and Back pops the pushed start snapshot.
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(edit!.body.text).toContain("No open positions for this wallet.");
     expect(answer!.body.show_alert).toBeFalsy();
     expect(answer!.body.text ?? "").not.toMatch(/\/positions/);
     // Active wallet must be the one we created, not an arg-supplied address.
@@ -527,7 +533,7 @@ describe("/start command", () => {
     ]);
   });
 
-  it("Wallet button sends wallet UI directly without prompting the user to type /wallet", async () => {
+  it("Wallet button replaces the /start view in place with the wallet UI", async () => {
     const h = harnessWithRpc();
     mockBoth(fetchSpy);
     const wm = walletManager(h);
@@ -536,11 +542,14 @@ describe("/start command", () => {
     await h.run(callbackUpdate(START_CALLBACK.wallet));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
-    // Must send the wallet UI as a new message, not a toast hint.
-    expect(send).toBeDefined();
-    expect(send!.body.text).toContain("Wallets");
+    // Edit-in-place via editToSubmenu — Back from the wallet panel pops
+    // the pushed /start snapshot and restores the welcome card.
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(edit!.body.text).toContain("Wallets");
     // answerCallbackQuery must not be a show_alert hint toast.
     expect(answer!.body.show_alert).toBeFalsy();
     expect(answer!.body.text ?? "").not.toMatch(/\/wallet/);
@@ -617,9 +626,9 @@ describe("/start command", () => {
       .map(([url]) => String(url))
       .filter((u) => u.startsWith("https://api.test.local"));
 
-    const send = tgCalls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    expect(send!.body.text).toContain("No open positions for this wallet.");
+    const edit = tgCalls.find((c) => c.url.includes("/editMessageText"));
+    expect(edit).toBeDefined();
+    expect(edit!.body.text).toContain("No open positions for this wallet.");
     expect(apiUrls.some((u) => u.includes("/api/v1/bot/positions/"))).toBe(
       true,
     );

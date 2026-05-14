@@ -14,6 +14,7 @@ import {
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
+import { editToSubmenu } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
 
 const USAGE = "Usage: /positions <wallet_address>";
@@ -272,18 +273,23 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const page = await renderPage(ctx.env, active.address, 0);
-    await ctx.answerCallbackQuery();
     if ("invalid" in page) {
-      await ctx.reply(INVALID_ADDRESS);
+      // Outage / invalid states surface as toasts rather than editing
+      // the /start view into an error screen — the user keeps the
+      // welcome card and can retry.
+      await ctx.answerCallbackQuery({ text: INVALID_ADDRESS, show_alert: true });
       return;
     }
     if ("outage" in page) {
-      await ctx.reply(OUTAGE);
+      await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
       return;
     }
-    await ctx.reply(page.text, {
-      ...HTML_REPLY,
-      reply_markup: page.reply_markup,
+    await editToSubmenu(ctx, {
+      text: page.text,
+      parseMode: "HTML",
+      inlineKeyboard: page.reply_markup.inline_keyboard,
+      linkPreviewDisabled: true,
     });
+    await ctx.answerCallbackQuery();
   });
 };
