@@ -7,6 +7,7 @@ import {
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
+import { registerAddressBuyIntercept } from "./lib/buy-card.js";
 import { registerCloseCallback } from "./lib/close.js";
 import { logger } from "./lib/logger.js";
 import { registerBuyCommand } from "./commands/buy.js";
@@ -241,6 +242,11 @@ export const createBot = (
   registerTrackCommand(bot);
   registerWalletCommand(bot);
   registerWithdrawCommand(bot);
+
+  // Tail of the middleware chain — conversations plugin and command
+  // handlers run first, so this only fires for plain text outside any
+  // other matched flow. See `registerAddressBuyIntercept`.
+  registerAddressBuyIntercept(bot);
 
   bot.catch((err) => {
     // Logged + swallowed so a bug in any handler can't propagate

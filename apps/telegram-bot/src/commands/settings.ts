@@ -25,6 +25,7 @@ import {
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import { parseUserAmount } from "../lib/parse-number.js";
 import {
   sweepWorkflow,
@@ -204,6 +205,7 @@ const customSlippageConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
     // Use a generous outer bound here so a typo'd "1000%" still flows
     // to the explicit `bps > MAX_SLIPPAGE_BPS` cap message below
     // instead of the generic invalid-input reply. `parseUserAmount`
@@ -300,6 +302,7 @@ const buyPresetSlotConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
     const value = parseUserAmount(text, { max: MAX_BUY_PRESET_USDC });
     if (value === null) {
       const retry = await ctx.reply(
@@ -400,6 +403,7 @@ const sellPresetSlotConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
     const value = parseUserAmount(text.replace(/%/g, ""), { max: 100 });
     if (value === null) {
       const retry = await ctx.reply(

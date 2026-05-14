@@ -31,6 +31,7 @@ import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { WALLET_CALLBACK } from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
@@ -286,10 +287,17 @@ const verifyPinForWithdraw = async (
   }
 };
 
+/**
+ * The `interceptBuy` flag lets non-address prompts (asset, amount) pivot
+ * to the buy menu when a user pastes a contract address — see issue #821.
+ * The destination-address prompt must keep it off: a 0x-prefixed input
+ * there is the user's withdraw target, not a token to buy.
+ */
 const promptArg = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   prompt: string,
+  interceptBuy = false,
 ): Promise<string | null> => {
   const promptMsg = await ctx.reply(withAntiPhishing(prompt));
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -298,6 +306,9 @@ const promptArg = async (
   const text = reply.message.text.trim();
   if (isCancel(text)) {
     await ctx.reply(withAntiPhishing("Withdraw cancelled."));
+    return null;
+  }
+  if (interceptBuy && (await tryAddressBuyIntercept(conversation, text))) {
     return null;
   }
   return text;
@@ -324,6 +335,7 @@ const withdrawWizardConversation = async (
       conversation,
       ctx,
       "Which asset? Send HYPE or USDC (or /cancel).",
+      true,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -364,6 +376,7 @@ const withdrawWizardConversation = async (
       conversation,
       ctx,
       `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1), or /cancel.`,
+      true,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);

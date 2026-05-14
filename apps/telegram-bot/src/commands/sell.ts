@@ -18,6 +18,7 @@ import {
   haltAndForward,
   isCancel,
   isOtherSlashCommand,
+  tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
 import {
   confirmKeyboard,
@@ -442,6 +443,7 @@ const sellCustomConversation = async (
       await sweepWorkflow(conversation);
       await haltAndForward(conversation);
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
 
     const percent = parsePercentInput(text);
     if (percent === null) {
