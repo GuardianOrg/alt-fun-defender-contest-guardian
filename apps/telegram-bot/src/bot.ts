@@ -249,7 +249,12 @@ export const createBot = (
   // slash command (handled above), a plain message that contains a
   // contract address pivots to the buy card. Issue #821 — pasting an
   // address anywhere in the bot should land the user on the buy menu.
+  //
+  // Private-DM only: the buy card surfaces the active wallet's USDC
+  // balance, which must never leak into a group. Bot must not auto-react
+  // to addresses pasted in groups (CodeRabbit PR #830).
   bot.on("message:text", async (ctx) => {
+    if (ctx.chat?.type !== "private") return;
     const text = ctx.message.text.trim();
     if (text.startsWith("/")) return;
     const addr = extractTokenAddress(text);

@@ -164,6 +164,43 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(String(card!.body.text)).toContain("TEST");
   });
 
+  it("pasting a hyperevmscan URL outside any flow lands the buy card too", async () => {
+    const h = await harnessWithWallet();
+    wireMocks(fetchSpy);
+
+    await h.run(
+      messageUpdate(`https://hyperevmscan.io/token/${TOKEN_ADDR}`, 11),
+    );
+
+    const card = findCardSend(capture(fetchSpy));
+    expect(card).toBeDefined();
+    expect(String(card!.body.text)).toContain("TEST");
+  });
+
+  it("group-chat address paste does NOT trigger the buy card (privacy: USDC balance must not leak into groups)", async () => {
+    const h = await harnessWithWallet();
+    wireMocks(fetchSpy);
+
+    await h.run({
+      update_id: 12,
+      message: {
+        message_id: 999,
+        date: 0,
+        chat: { id: -100, type: "group" as const, title: "Test Group" },
+        from: { id: USER_ID, is_bot: false, first_name: "Ada" },
+        text: TOKEN_ADDR,
+        entities: [],
+      },
+    });
+
+    const calls = capture(fetchSpy);
+    const card = findCardSend(calls);
+    expect(card).toBeUndefined();
+    expect(
+      calls.filter((c) => c.url.includes("/sendMessage")),
+    ).toHaveLength(0);
+  });
+
   it("non-address text outside any flow is ignored (no buy card, no error)", async () => {
     const h = await harnessWithWallet();
     wireMocks(fetchSpy);
