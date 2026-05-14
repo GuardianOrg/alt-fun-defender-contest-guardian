@@ -154,7 +154,12 @@ export default function HeroSection({ token }: Props) {
             </svg>
           )}
         </Chip>
-        <Button variant="primary" size="sm" onClick={shareToken}>
+        <Button
+          variant="primary"
+          size="sm"
+          className={styles.shareButton}
+          onClick={shareToken}
+        >
           {shared ? "Copied!" : "Share"}
           {shared ? (
             <svg

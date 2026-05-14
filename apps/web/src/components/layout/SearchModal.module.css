@@ -195,7 +195,7 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--txt-3);
-  margin-top: 0.8rem;
+  margin: 1.6rem 0 0.8rem 0;
 }
 
 .recentText {
