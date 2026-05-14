@@ -15,10 +15,14 @@
 import type { AppContext } from "../bot.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
+import { isBenignEditError } from "./nav.js";
 import { readProfile } from "./onboarding.js";
 import { formatUsdc } from "./format.js";
-import { formatToken18 } from "./token-card.js";
-import { clearWorkflowMessages } from "./workflow-stack.js";
+import { formatToken18, formatUsdc6 } from "./token-card.js";
+import {
+  clearWorkflowMessages,
+  removeWorkflowMessage,
+} from "./workflow-stack.js";
 import {
   executeBuy,
   executeSell,
@@ -305,4 +309,139 @@ export const cancelTrade = (ctx: AppContext, nonce: string): boolean => {
   if (!intent || intent.nonce !== nonce) return false;
   ctx.session.pendingTrade = undefined;
   return true;
+};
+
+/**
+ * Delay before the `Tx sending` prompt is replaced with the `Tx pending`
+ * copy. 20s is long enough that the receipt for a normal HyperEVM block
+ * lands first (sub-second blocks; the bulk of the latency is RPC
+ * confirmation polling), and short enough that a slow node has updated
+ * the user before they wonder if the bot has hung. AGENTS.md cap on
+ * receipt-wait is `RECEIPT_TIMEOUT_MS` inside `trade.ts`; the pending
+ * copy here is purely advisory until that timeout fires.
+ */
+export const TX_PENDING_DELAY_MS = 20_000;
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * Human-readable description of a staged trade, used to label the
+ * Tx-status prompts as the trade progresses through `sending` →
+ * `pending` → `result`. For buys we render USDC notional; for sells we
+ * render the raw token amount being sold (the user is the seller; the
+ * "currency" they are sending is the token itself). Ticker is escaped
+ * because token tickers are user-controlled on launch.
+ */
+export const describeTradeForStatus = (
+  side: "buy" | "sell",
+  ticker: string,
+  amountRaw: bigint,
+): string => {
+  const ticker_ = escapeHtml(ticker);
+  if (side === "buy") {
+    return `Buying ${formatUsdc6(amountRaw)} USDC of ${ticker_}`;
+  }
+  return `Selling ${formatToken18(amountRaw)} ${ticker_}`;
+};
+
+export const renderTxSendingText = (description: string): string =>
+  `⏳ <b>Tx sending</b>\n${description}`;
+
+export const renderTxPendingText = (description: string): string =>
+  `⏳ <b>Tx pending</b>\n${description}\n\n` +
+  `Still waiting for the network to confirm — this may take another moment.`;
+
+interface TxStatusEditTarget {
+  api: AppContext["api"];
+  chatId: number;
+  messageId: number;
+}
+
+const safeEditStatus = async (
+  target: TxStatusEditTarget,
+  text: string,
+): Promise<void> => {
+  try {
+    await target.api.editMessageText(target.chatId, target.messageId, text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (err) {
+    if (isBenignEditError(err)) return;
+    logger.debug("tx status edit failed", { err });
+  }
+};
+
+export interface RunWithStatusArgs {
+  ctx: AppContext;
+  /** Bubble to edit through sending → pending → result phases. */
+  target: TxStatusEditTarget;
+  side: "buy" | "sell";
+  /** Pre-formatted "Buying $X USDC of TICKER" / "Selling X TICKER". */
+  description: string;
+  /** Trade execution to run while the status bubble is shown. */
+  run: () => Promise<ConfirmOutcome>;
+  /**
+   * Override for the `Tx pending` delay. Tests inject `0` to assert the
+   * pending edit deterministically without waiting on a real timer.
+   */
+  pendingDelayMs?: number;
+}
+
+/**
+ * Drive a single status bubble through `Tx sending` → `Tx pending` (after
+ * 20s) → result. Returns the underlying `ConfirmOutcome` so callers can
+ * still inspect the trade state. Detaches the target bubble from the
+ * workflow stack before `run()` so the post-trade sweep inside
+ * `confirmTrade` (which deletes every tracked transient on receipt-
+ * confirmed success) does not delete the bubble we are about to replace
+ * with the final receipt.
+ */
+export const runWithTxStatusUpdates = async (
+  args: RunWithStatusArgs,
+): Promise<ConfirmOutcome> => {
+  const delay = args.pendingDelayMs ?? TX_PENDING_DELAY_MS;
+
+  // Phase 1: render "Tx sending" into the target bubble.
+  await safeEditStatus(args.target, renderTxSendingText(args.description));
+
+  // Detach so the post-trade sweep leaves this bubble for our final edit.
+  removeWorkflowMessage(
+    args.ctx.session,
+    args.target.chatId,
+    args.target.messageId,
+  );
+
+  // Wrap mutable state in an object so TS does not narrow the field's
+  // type along the linear control-flow path it sees outside the
+  // setTimeout closure.
+  const state: { settled: boolean; pendingEdit: Promise<void> | null } = {
+    settled: false,
+    pendingEdit: null,
+  };
+  const pendingTimer = setTimeout(() => {
+    if (state.settled) return;
+    state.pendingEdit = safeEditStatus(
+      args.target,
+      renderTxPendingText(args.description),
+    );
+  }, delay);
+
+  let outcome: ConfirmOutcome;
+  try {
+    outcome = await args.run();
+  } finally {
+    state.settled = true;
+    clearTimeout(pendingTimer);
+  }
+
+  // Drain any in-flight pending edit so it cannot land after the final
+  // edit and overwrite the receipt with a stale "still pending" view.
+  if (state.pendingEdit !== null) {
+    await state.pendingEdit.catch(() => {});
+  }
+
+  await safeEditStatus(args.target, renderConfirmReply(outcome));
+  return outcome;
 };

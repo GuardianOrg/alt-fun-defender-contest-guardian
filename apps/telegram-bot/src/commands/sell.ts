@@ -21,7 +21,10 @@ import {
 } from "../lib/conversation-commands.js";
 import {
   confirmKeyboard,
+  describeTradeForStatus,
   renderConfirmReply,
+  renderTxSendingText,
+  runWithTxStatusUpdates,
   stageSell,
   submitSell,
 } from "../lib/execute.js";
@@ -623,22 +626,37 @@ const runPercentSell = async (
   // amount." Degen mode skips the confirm step on the happy path only;
   // a buffer-capped sell still requires an explicit confirm tap.
   if (degenMode && buffer.kind !== "capped") {
-    await msgCtx.reply(
-      `⚡ <b>Degen mode — submitting ${percent}% sell of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})…</b>`,
-      { parse_mode: "HTML" },
+    const description = describeTradeForStatus(
+      "sell",
+      token.ticker,
+      effectiveTokenRaw,
     );
-    const outcome = await conversation.external((outerCtx) =>
-      submitSell({
-        ctx: outerCtx,
-        token: token.address,
-        ticker: token.ticker,
-        tokenRaw: effectiveTokenRaw,
-      }),
-    );
-    await msgCtx.reply(renderConfirmReply(outcome), {
+    const statusMsg = await msgCtx.reply(renderTxSendingText(description), {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     });
+    const chatId = msgCtx.chat?.id;
+    if (chatId !== undefined) {
+      await conversation.external((outerCtx) =>
+        runWithTxStatusUpdates({
+          ctx: outerCtx,
+          target: {
+            api: outerCtx.api,
+            chatId,
+            messageId: statusMsg.message_id,
+          },
+          side: "sell",
+          description,
+          run: () =>
+            submitSell({
+              ctx: outerCtx,
+              token: token.address,
+              ticker: token.ticker,
+              tokenRaw: effectiveTokenRaw,
+            }),
+        }),
+      );
+    }
     return;
   }
 
@@ -818,6 +836,31 @@ const handlePercentSell = async (
   // degen only skips the confirm step on the happy path.
   if (ctx.session.degenMode && buffer.kind !== "capped") {
     await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    const cbMsg = ctx.callbackQuery?.message;
+    if (cbMsg) {
+      await runWithTxStatusUpdates({
+        ctx,
+        target: {
+          api: ctx.api,
+          chatId: cbMsg.chat.id,
+          messageId: cbMsg.message_id,
+        },
+        side: "sell",
+        description: describeTradeForStatus(
+          "sell",
+          token.ticker,
+          effectiveTokenRaw,
+        ),
+        run: () =>
+          submitSell({
+            ctx,
+            token: token.address,
+            ticker: token.ticker,
+            tokenRaw: effectiveTokenRaw,
+          }),
+      });
+      return;
+    }
     const outcome = await submitSell({
       ctx,
       token: token.address,
