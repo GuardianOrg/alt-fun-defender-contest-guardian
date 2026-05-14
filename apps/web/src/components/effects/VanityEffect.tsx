@@ -1,6 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
 
-import styles from "./VanityEffect.module.css";
+// import styles from "./VanityEffect.module.css";
 import { tierFor, tierForZeros, type VanityTier } from "../../utils/vanityTier";
 
 import type { Address } from "viem";
@@ -10,7 +10,7 @@ import type { Address } from "viem";
  * lightning enters the viewport, so the homepage doesn't pull tsparticles
  * into the critical path.
  */
-const VanityParticles = lazy(() => import("./VanityParticles"));
+// const VanityParticles = lazy(() => import("./VanityParticles"));
 
 export type VanitySize = "icon" | "row" | "card" | "hero" | "button";
 
@@ -54,43 +54,43 @@ function resolveTier(props: VanityEffectProps): VanityTier {
  * inside that scroll container at all. Leaning toward "show" with
  * downward correction is both more correct and visibly snappier.
  */
-function useInView(ref: React.RefObject<HTMLElement | null>): boolean {
-  const [inView, setInView] = useState(true);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    if (typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          setInView(entry.isIntersecting);
-        }
-      },
-      { rootMargin: "100px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref]);
-  return inView;
-}
+// function useInView(ref: React.RefObject<HTMLElement | null>): boolean {
+//   const [inView, setInView] = useState(true);
+//   useEffect(() => {
+//     const el = ref.current;
+//     if (!el) return;
+//     if (typeof IntersectionObserver === "undefined") return;
+//     const observer = new IntersectionObserver(
+//       (entries) => {
+//         for (const entry of entries) {
+//           setInView(entry.isIntersecting);
+//         }
+//       },
+//       { rootMargin: "100px" },
+//     );
+//     observer.observe(el);
+//     return () => observer.disconnect();
+//   }, [ref]);
+//   return inView;
+// }
 
 /**
  * Hook: returns true if the user has requested reduced motion at the OS
  * level. Higher-tier effects (animated borders, particle emitters) drop
  * to a static glow when this is true.
  */
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mql.matches);
-    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
-    mql.addEventListener("change", handler);
-    return () => mql.removeEventListener("change", handler);
-  }, []);
-  return reduced;
-}
+// function usePrefersReducedMotion(): boolean {
+//   const [reduced, setReduced] = useState(false);
+//   useEffect(() => {
+//     if (typeof window === "undefined" || !window.matchMedia) return;
+//     const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+//     setReduced(mql.matches);
+//     const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+//     mql.addEventListener("change", handler);
+//     return () => mql.removeEventListener("change", handler);
+//   }, []);
+//   return reduced;
+// }
 
 /**
  * Wraps `children` with a tier-appropriate visual effect. CSS-only tiers
@@ -106,8 +106,8 @@ function usePrefersReducedMotion(): boolean {
 export default function VanityEffect(props: VanityEffectProps) {
   const tier = resolveTier(props);
   const ref = useRef<HTMLDivElement>(null);
-  const inView = useInView(ref);
-  const reducedMotion = usePrefersReducedMotion();
+  // const inView = useInView(ref);
+  // const reducedMotion = usePrefersReducedMotion();
 
   /**
    * Mirror the child's computed `border-radius` onto the wrapper so the
@@ -130,8 +130,8 @@ export default function VanityEffect(props: VanityEffectProps) {
     }
   }, []);
 
-  const showParticles
-    = tier.effect === "particles" && inView && !reducedMotion;
+  // const showParticles
+  //   = tier.effect === "particles" && inView && !reducedMotion;
 
   // Wrapper-presence policy:
   //   - When the consumer asks for an explicit `as` mode OR passes a
@@ -146,35 +146,34 @@ export default function VanityEffect(props: VanityEffectProps) {
   //   - When neither is set but the tier has effects, we still need a
   //     wrapper for ::before / ::after to attach to, so we default to
   //     `block`.
-  const consumerWantsWrapper
-    = props.as !== undefined && props.as !== "contents"
-      || !!props.className;
+  const consumerWantsWrapper =
+    (props.as !== undefined && props.as !== "contents") || !!props.className;
   if (tier.id === "none" && !consumerWantsWrapper) {
     return <>{props.children}</>;
   }
 
-  const effectiveAs
-    = props.as ?? (tier.effect === "none" ? "contents" : "block");
-  const effectiveBase
-    = effectiveAs === "inline"
-      ? styles.wrapperInline
-      : effectiveAs === "block"
-        ? styles.wrapperBlock
-        : styles.wrapper;
+  // const effectiveAs =
+  //   props.as ?? (tier.effect === "none" ? "contents" : "block");
+  // const effectiveBase =
+  //   effectiveAs === "inline"
+  //     ? styles.wrapperInline
+  //     : effectiveAs === "block"
+  //       ? styles.wrapperBlock
+  //       : styles.wrapper;
 
-  const className = [effectiveBase, styles[tier.id], styles[props.size]]
-    .concat(props.className ?? [])
-    .filter(Boolean)
-    .join(" ");
+  // const className = [effectiveBase, styles[tier.id], styles[props.size]]
+  //   .concat(props.className ?? [])
+  //   .filter(Boolean)
+  //   .join(" ");
 
   return (
-    <div ref={setRef} className={className}>
+    <div ref={setRef}>
       {props.children}
-      {showParticles && (
+      {/* {showParticles && (
         <Suspense fallback={null}>
           <VanityParticles tierId={tier.id} size={props.size} />
         </Suspense>
-      )}
+      )} */}
     </div>
   );
 }
