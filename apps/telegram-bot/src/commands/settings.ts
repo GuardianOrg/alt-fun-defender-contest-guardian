@@ -25,7 +25,11 @@ import {
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
-import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import {
+  haltAndForward,
+  isOtherSlashCommand,
+  tryAddressBuyIntercept,
+} from "../lib/conversation-commands.js";
 import {
   backHomeMarkup,
   pushNavSnapshot,
@@ -64,8 +68,6 @@ const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   });
   return false;
 };
-
-const isCancel = (text: string): boolean => text.trim() === "/cancel";
 
 const readStatus = (ctx: AppContext): SettingsStatus => ({
   slippageBps: ctx.session.slippageBps,
@@ -207,11 +209,7 @@ const customSlippageConversation = async (
     const msg = await conversation.waitFor("message:text");
     await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, "Cancelled."));
-      await sweepWorkflow(conversation);
-      return;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (await tryAddressBuyIntercept(conversation, text)) return;
     // Use a generous outer bound here so a typo'd "1000%" still flows
     // to the explicit `bps > MAX_SLIPPAGE_BPS` cap message below
@@ -365,11 +363,7 @@ const buyPresetSlotConversation = async (
     const msg = await conversation.waitFor("message:text");
     await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, "Cancelled."));
-      await sweepWorkflow(conversation);
-      return;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (await tryAddressBuyIntercept(conversation, text)) return;
     const value = parseUserAmount(text, { max: MAX_BUY_PRESET_USDC });
     if (value === null) {
@@ -484,11 +478,7 @@ const sellPresetSlotConversation = async (
     const msg = await conversation.waitFor("message:text");
     await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, "Cancelled."));
-      await sweepWorkflow(conversation);
-      return;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (await tryAddressBuyIntercept(conversation, text)) return;
     const value = parseUserAmount(text.replace(/%/g, ""), { max: 100 });
     if (value === null) {

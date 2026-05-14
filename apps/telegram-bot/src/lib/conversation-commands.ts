@@ -7,28 +7,21 @@ import { showBuyCardForAddress } from "./buy-card.js";
 import { sweepWorkflow } from "./workflow-stack-conversation.js";
 
 /**
- * Whether `text` is a plain `/cancel`, the bare `cancel`, or Telegram's
- * addressed form `/cancel@BotUsername` (sent automatically by Telegram
- * clients in group chats). The lookup conversations bail out with a
- * "Cancelled." reply on this.
- */
-export const isCancel = (text: string): boolean => {
-  const lower = text.toLowerCase();
-  return lower === "cancel" || /^\/cancel(?:@\w+)?$/.test(lower);
-};
-
-/**
- * Whether `text` starts a slash command other than `/cancel`. The
- * conversations plugin consumes every text message while a conversation
- * is active, so a user typing `/positions` (or any other registered
- * command) mid-lookup would otherwise be parsed as a token address and
- * surface the misleading "Token not found." copy. Detecting the slash
- * here lets the conversation hand control back to the outer middleware
- * via `conversation.halt({ next: true })`, after which grammY's command
- * dispatcher fires the user's intended command.
+ * Whether `text` starts a slash command. The conversations plugin
+ * consumes every text message while a conversation is active, so a
+ * user typing `/positions` (or any other registered command) mid-flow
+ * would otherwise be parsed as the wizard's expected input (token
+ * address, PIN, withdraw amount, etc.) and surface misleading copy.
+ * Detecting the slash here lets the conversation hand control back to
+ * the outer middleware via `conversation.halt({ next: true })`, after
+ * which grammY's command dispatcher fires the user's intended command.
+ *
+ * There is no `/cancel` command in v1 (replaced by the global Back /
+ * Home nav row built in `lib/nav.ts`), so typing `/cancel` just halts
+ * the conversation like any other unrecognised slash.
  */
 export const isOtherSlashCommand = (text: string): boolean =>
-  !isCancel(text) && /^\/[A-Za-z][\w]{0,31}(?:@\w+)?(?:\s|$)/.test(text);
+  /^\/[A-Za-z][\w]{0,31}(?:@\w+)?(?:\s|$)/.test(text);
 
 /**
  * Halt the current conversation and let the outer middleware process

@@ -313,21 +313,26 @@ describe("/settings command", () => {
       expect((await readSession(h)).slippageBps).toBe(1000);
     });
 
-    it("/cancel exits the wizard without touching the session", async () => {
+    it("a slash command exits the custom-slippage wizard without touching the session", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SETTINGS_CALLBACK.slipCustom));
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      await h.run(textUpdate("/cancel", 3));
+      await h.run(textUpdate("/positions", 3));
 
       expect((await readSession(h)).slippageBps).toBe(1000);
-      const reply = capture(fetchSpy).find(
-        (c) =>
-          c.url.includes("/sendMessage") &&
-          /Cancelled/.test(c.body.text as string),
-      );
-      expect(reply).toBeDefined();
+      // The wizard's numeric-retry copy must NOT fire — proves the slash
+      // halted the conversation rather than the prompt rejecting
+      // "/positions" as an invalid number and looping the user.
+      const calls = capture(fetchSpy);
+      expect(
+        calls.some(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /positive number/i.test(String(c.body.text)),
+        ),
+      ).toBe(false);
     });
   });
 

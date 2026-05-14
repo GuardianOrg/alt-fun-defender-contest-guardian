@@ -454,7 +454,7 @@ describe("/wallet command", () => {
       expect(await pm.isPinSet(7)).toBe(true);
     });
 
-    it("/cancel during PIN set bails out without persisting a PIN", async () => {
+    it("a slash command typed at the PIN-set step halts the wizard without persisting a PIN", async () => {
       const h = makeBotHarness();
       const wm = walletManager(h);
       await wm.createWallet(7, "main");
@@ -462,15 +462,7 @@ describe("/wallet command", () => {
       await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      await h.run(textUpdate("/cancel", 3));
-      const calls = capture(fetchSpy);
-      expect(
-        calls.find(
-          (c) =>
-            c.url.includes("/sendMessage") &&
-            /Export cancelled/.test(c.body.text as string),
-        ),
-      ).toBeDefined();
+      await h.run(textUpdate("/positions", 3));
       const pm = buildPm(h);
       expect(await pm.isPinSet(7)).toBe(false);
     });
@@ -589,19 +581,13 @@ describe("/wallet command", () => {
       expect(await walletManager(h).listWallets(7)).toHaveLength(1);
     });
 
-    it("/cancel exits the conversation without persisting", async () => {
+    it("a slash command halts the import conversation without persisting", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(WALLET_CALLBACK.import));
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      await h.run(textUpdate("/cancel"));
+      await h.run(textUpdate("/positions"));
 
-      const cancelReply = capture(fetchSpy).find(
-        (c) =>
-          c.url.includes("/sendMessage") &&
-          /Import cancelled/.test(c.body.text as string),
-      );
-      expect(cancelReply).toBeDefined();
       expect(await walletManager(h).listWallets(7)).toHaveLength(0);
     });
 
@@ -751,7 +737,7 @@ describe("/wallet command", () => {
       expect(await wm.listWallets(7)).toHaveLength(1);
     });
 
-    it("/cancel at PIN step bails out with 'Delete cancelled' and leaves the wallet intact", async () => {
+    it("a slash command at the PIN step halts the delete wizard and leaves the wallet intact", async () => {
       const h = makeBotHarness();
       const wm = walletManager(h);
       await wm.createWallet(7, "main");
@@ -761,15 +747,7 @@ describe("/wallet command", () => {
       await h.run(callbackUpdate(WALLET_CALLBACK.delete));
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      await h.run(textUpdate("/cancel", 3));
-      const calls = capture(fetchSpy);
-      expect(
-        calls.find(
-          (c) =>
-            c.url.includes("/sendMessage") &&
-            /Delete cancelled/.test(c.body.text as string),
-        ),
-      ).toBeDefined();
+      await h.run(textUpdate("/positions", 3));
       expect(await wm.listWallets(7)).toHaveLength(1);
     });
 
