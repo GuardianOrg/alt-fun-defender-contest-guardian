@@ -563,10 +563,10 @@ const changeRewardsWalletConversation = async (
 
 export const registerReferralCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(
-      changeRewardsWalletConversation,
-      "referral-change-rewards-wallet",
-    ),
+    createConversation(changeRewardsWalletConversation, {
+      id: "referral-change-rewards-wallet",
+      parallel: true,
+    }),
   );
 
   bot.command("referral", async (ctx) => {

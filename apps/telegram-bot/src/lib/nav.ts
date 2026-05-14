@@ -275,6 +275,31 @@ export const registerNavCallbacks = (
   });
 };
 
+/**
+ * Install a `/^st:/` callback-query middleware that exits every
+ * in-flight conversation before the matching start-menu handler runs.
+ * Without this, tapping a `/start` menu button (Positions, Wallet,
+ * Settings, …) from an older menu message while a wizard is active —
+ * e.g. Buy already entered the buy-lookup conversation that is waiting
+ * for a token address — has the callback silently consumed by the
+ * conversations plugin (the default `skip` semantics drop the update
+ * instead of forwarding it to outer middleware). Mirrors the `nav:b`
+ * / `nav:h` escape pattern.
+ *
+ * MUST be wired BEFORE any `createConversation(...)` middleware so
+ * the escape runs ahead of an active conversation's update
+ * consumption. Calls `next()` so the actual start-menu handler
+ * registered downstream still fires.
+ */
+export const registerStartMenuConversationEscape = (
+  bot: Bot<AppContext>,
+): void => {
+  bot.callbackQuery(/^st:/, async (ctx, next) => {
+    await exitConversations(ctx);
+    await next();
+  });
+};
+
 const renderHome = async (
   ctx: AppContext,
   renderStart: StartRenderer,

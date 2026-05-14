@@ -6,6 +6,7 @@ import {
   type BotTestHarness,
 } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
+import { WALLET_CALLBACK } from "../../keyboards/wallet-actions.js";
 import { WalletManager } from "../../lib/wallet.js";
 
 const ZERO_MASTER_KEY = btoa("\0".repeat(32));
@@ -543,6 +544,125 @@ describe("/start command", () => {
     // answerCallbackQuery must not be a show_alert hint toast.
     expect(answer!.body.show_alert).toBeFalsy();
     expect(answer!.body.text ?? "").not.toMatch(/\/wallet/);
+  });
+
+  // Regression: after a Buy click enters the buy-lookup conversation
+  // (asks the user for a token address), clicking Positions on an
+  // earlier /start menu message used to be eaten by the active
+  // conversation — the conversations plugin's default skip behaviour
+  // drops non-matching updates instead of forwarding them to the
+  // outer middleware. The start-menu callback chain must exit any
+  // in-flight conversation first (same pattern as the global Back /
+  // Home handlers in `lib/nav.ts`) so the older menu's buttons stay
+  // tappable from anywhere in the chat history.
+  it("Positions click after a Buy click escapes the active buy-lookup conversation", async () => {
+    const h = harnessWithRpc();
+    const wm = walletManager(h);
+    const created = await wm.createWallet(7, "main");
+
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({ data: { open: [], realised: [] } }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    // First update: Buy click enters the buy-lookup conversation and
+    // sends the "send me a contract address" prompt.
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({ data: { open: [], realised: [] } }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    // Second update (callbackUpdate uses update_id=2): Positions click
+    // from the older /start menu while buy-lookup is still active.
+    // Must render the positions view, not be silently consumed.
+    await h.run(callbackUpdate(START_CALLBACK.positions));
+
+    const allCalls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
+    const tgCalls = allCalls
+      .filter(([url]) => String(url).startsWith("https://api.telegram.org"))
+      .map(([url, init]) => ({
+        url: String(url),
+        body: JSON.parse((init as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+    const apiUrls = allCalls
+      .map(([url]) => String(url))
+      .filter((u) => u.startsWith("https://api.test.local"));
+
+    const send = tgCalls.find((c) => c.url.includes("/sendMessage"));
+    expect(send).toBeDefined();
+    expect(send!.body.text).toContain("No open positions for this wallet.");
+    expect(apiUrls.some((u) => u.includes("/api/v1/bot/positions/"))).toBe(
+      true,
+    );
+    expect(
+      apiUrls.every((u) =>
+        u.toLowerCase().includes(created.address.toLowerCase()),
+      ),
+    ).toBe(true);
+  });
+
+  // Regression: every `createConversation(...)` is registered with
+  // `parallel: true`, which flips the conversations-plugin `skip`
+  // default to `next: true` so a non-matching update falls through to
+  // outer middleware instead of being dropped. Without this flag, a
+  // callback for ANY prefix outside the wizard's `waitFor` filter
+  // (here: the wallet switch picker `wsp` while a buy-lookup
+  // conversation is waiting for a token address) would be silently
+  // consumed by the active conversation. The `/^st:/` escape in
+  // `lib/nav.ts` is targeted at start-menu buttons specifically;
+  // `parallel: true` is the broader fix for every other callback.
+  it("wallet switch picker click during an active buy-lookup conversation reaches its handler", async () => {
+    const h = harnessWithRpc();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockBoth(fetchSpy);
+
+    // Enter the buy-lookup conversation (waitFor message:text).
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+    fetchSpy.mockClear();
+    mockBoth(fetchSpy);
+
+    // Wallet switch picker (`wsp`) is a non-`st:` / non-`nav:`
+    // callback. Without `parallel: true` on the buy-lookup
+    // conversation, this update was dropped by the conversations
+    // plugin's default skip behaviour and the picker never rendered.
+    await h.run(callbackUpdate(WALLET_CALLBACK.switchPicker));
+
+    const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toContain(
+      "Pick the wallet to use as active",
+    );
   });
 });
 

@@ -795,7 +795,12 @@ const handlePercentSell = async (
 };
 
 export const registerSellCommand = (bot: Bot<AppContext>): void => {
-  bot.use(createConversation(sellLookupConversation, "sell-lookup"));
+  bot.use(
+    createConversation(sellLookupConversation, {
+      id: "sell-lookup",
+      parallel: true,
+    }),
+  );
   bot.use(
     createConversation(
       sellCustomConversation as (
@@ -803,7 +808,7 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
         ctx: AppContext,
         ...args: unknown[]
       ) => Promise<void>,
-      "sell-custom",
+      { id: "sell-custom", parallel: true },
     ),
   );
 

@@ -1079,21 +1079,46 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
   // calls `ctx.conversation.enter("...")`. The name is the public
   // identifier passed to `enter` from callback handlers below.
   bot.use(
-    createConversation(renameWalletConversation, "wallet-rename"),
+    createConversation(renameWalletConversation, {
+      id: "wallet-rename",
+      parallel: true,
+    }),
   );
   bot.use(
-    createConversation(exportKeyConversation, "wallet-export-key"),
+    createConversation(exportKeyConversation, {
+      id: "wallet-export-key",
+      parallel: true,
+    }),
   );
   bot.use(
-    createConversation(importWalletConversation, "wallet-import"),
+    createConversation(importWalletConversation, {
+      id: "wallet-import",
+      parallel: true,
+    }),
   );
   bot.use(
-    createConversation(deleteWalletConversation, "wallet-delete"),
+    createConversation(deleteWalletConversation, {
+      id: "wallet-delete",
+      parallel: true,
+    }),
   );
-  bot.use(createConversation(setPinConversation, "wallet-set-pin"));
-  bot.use(createConversation(changePinConversation, "wallet-change-pin"));
   bot.use(
-    createConversation(completeResetConversation, "wallet-complete-reset"),
+    createConversation(setPinConversation, {
+      id: "wallet-set-pin",
+      parallel: true,
+    }),
+  );
+  bot.use(
+    createConversation(changePinConversation, {
+      id: "wallet-change-pin",
+      parallel: true,
+    }),
+  );
+  bot.use(
+    createConversation(completeResetConversation, {
+      id: "wallet-complete-reset",
+      parallel: true,
+    }),
   );
 
   /**
