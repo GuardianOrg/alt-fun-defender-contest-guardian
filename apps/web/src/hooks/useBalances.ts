@@ -113,10 +113,11 @@ export function buildHeldTokens(
  * Indexer-backed balances path. Reads Ponder's `tokenBalances` index
  * (wallet-scoped) and normalises the rows into the shared {@link
  * RawBalance} shape. Currently used both as the fallback when the
- * chain multicall throws AND as the source of truth for hidden-token
- * positions (see {@link mergeHiddenFromApi}) — the chain path can't
- * surface hidden tokens because they're filtered out of the public
- * catalogue.
+ * chain multicall throws AND as the gap-fill for any positions the
+ * chain didn't resolve (see {@link mergeApiPositions}) — covers hidden
+ * tokens (filtered out of the public catalogue, issue #712) plus any
+ * `balanceOf` calls that returned `failure` instead of an
+ * authoritative `0` (issue #881).
  */
 async function fetchRawBalancesFromApi(
   walletAddress: string,
@@ -135,6 +136,56 @@ async function fetchRawBalancesFromApi(
 }
 
 /**
+ * Outcome of the on-chain multicall sweep. The `balances` array carries
+ * the raw rows we'll render. `resolvedAddresses` is the set of token
+ * addresses (lowercased) where the multicall produced an authoritative
+ * answer — covers BOTH "balance > 0" rows in `balances` AND tokens whose
+ * `balanceOf` succeeded with `0` (i.e. the user has fully sold). Used
+ * downstream by {@link mergeApiBalances} to distinguish "chain says no
+ * (don't add stale indexer rows back)" from "chain didn't answer at all
+ * (gap-fill from the API)".
+ */
+export interface ChainBalanceResult {
+  balances: RawBalance[];
+  resolvedAddresses: ReadonlySet<string>;
+}
+
+/**
+ * Pure builder that folds API-sourced balances into the chain-derived
+ * set, preserving the chain's authority on overlap. Extracted from the
+ * async {@link mergeApiPositions} so the gap-fill semantics for issue
+ * #881 (chain `balanceOf` returns `failure`, indexer has the row) and
+ * issue #712 (hidden token isn't in the catalogue, never multicalled)
+ * are exercisable in unit tests without standing up the API client.
+ *
+ * Trust order:
+ *   - `chain.balances` always passes through unchanged. Chain wins on
+ *     overlap by construction — anything the chain successfully resolved
+ *     (positive OR `0`) lives in `chain.resolvedAddresses` and is
+ *     skipped from the API merge below.
+ *   - `apiBalances` rows for addresses not in `chain.resolvedAddresses`
+ *     get appended. This is the gap fill: the chain either failed to
+ *     query the address (multicall `failure`) or never tried (token
+ *     not in the catalogue), and the indexer's wallet-scoped view is
+ *     the only authoritative answer we have.
+ *
+ * Safe to call with an empty API set — the helper short-circuits to
+ * the chain rows in that case so the queryFn never allocates a fresh
+ * array for a no-op merge.
+ */
+export function mergeApiBalances(
+  chain: ChainBalanceResult,
+  apiBalances: readonly RawBalance[],
+): RawBalance[] {
+  if (apiBalances.length === 0) return chain.balances;
+  const apiExtras = apiBalances.filter(
+    (b) => !chain.resolvedAddresses.has(b.address.toLowerCase()),
+  );
+  if (apiExtras.length === 0) return chain.balances;
+  return [...chain.balances, ...apiExtras];
+}
+
+/**
  * Primary balances path: walk every public-catalogue token and probe
  * the wallet's `balanceOf` via a chunked viem multicall. Authoritative
  * because the chain is the source of truth and works regardless of
@@ -145,7 +196,7 @@ async function fetchRawBalancesFromApi(
  */
 async function fetchRawBalancesFromChain(
   walletAddress: string,
-): Promise<RawBalance[]> {
+): Promise<ChainBalanceResult> {
   // Walk the full catalogue, not just the first page. The chain path is
   // primary (the indexer's `tokenBalance` index is empty until #418 ships)
   // and a hard-coded `fetchTokens(100)` cap means holders of any token
@@ -173,6 +224,7 @@ async function fetchRawBalancesFromChain(
   // peak memory footprint scales with chunk size, not catalogue size.
   const MULTICALL_CHUNK_SIZE = 250;
   const balances: RawBalance[] = [];
+  const resolvedAddresses = new Set<string>();
   for (let start = 0; start < tokens.length; start += MULTICALL_CHUNK_SIZE) {
     const tokenChunk = tokens.slice(start, start + MULTICALL_CHUNK_SIZE);
     const chunkResults = await hyperEvmClient.multicall({
@@ -186,10 +238,21 @@ async function fetchRawBalancesFromChain(
     });
     for (let i = 0; i < chunkResults.length; i++) {
       const result = chunkResults[i];
+      const token = tokenChunk[i];
+      // `allowFailure: true` swallows individual reverts as
+      // `status: "failure"`. A failed call means we have no
+      // authoritative answer for that token, NOT that the user holds
+      // zero of it — record nothing, and let `mergeApiPositions` fill
+      // the gap from the indexer if it has a row for it (issue #881).
       if (result.status !== "success") continue;
+      // Successful answer (whether positive or zero) means the chain
+      // is authoritative for this token at this block. Mark it
+      // resolved so the API merge below doesn't re-introduce a stale
+      // indexer row (e.g. user fully sold and the indexer hasn't
+      // ingested the sale yet).
+      resolvedAddresses.add(token.address.toLowerCase());
       const balance = result.result as bigint;
       if (balance <= 0n) continue;
-      const token = tokenChunk[i];
       balances.push({
         address: token.address,
         name: token.name,
@@ -206,42 +269,52 @@ async function fetchRawBalancesFromChain(
       });
     }
   }
-  return balances;
+  return { balances, resolvedAddresses };
 }
 
 /**
- * Fold any hidden-token positions the API surfaces into the chain-derived
- * balance set (issue #712). The chain multicall walks `fetchAllTokens`,
- * which is filtered to the public lens — so a hidden token a wallet
- * still holds never gets a `balanceOf` probe. The API balances endpoint
- * is wallet-scoped (via Ponder's `tokenBalances`) and now exposes hidden
- * rows, so any position the chain path missed shows up here marked
- * `isHidden: true`.
+ * Fold any positions the API surfaces but the chain multicall didn't into
+ * the final balance set. Originally narrow to hidden tokens (issue #712 —
+ * those are filtered out of `fetchAllTokens` by construction so the chain
+ * path could never see them), but the same gap-filling logic is needed
+ * for any non-hidden token the multicall left unresolved (issue #881):
  *
- * If the API call fails (or Ponder's index is cold), hidden positions
- * silently fall off the panel rather than corrupting the chain-derived
- * visible positions. Trust order: chain wins on overlap, API only fills
- * the hidden-token gap.
+ *   - Individual `balanceOf` calls inside a `multicall({ allowFailure:
+ *     true })` can return `status: "failure"` (revert / RPC node hadn't
+ *     propagated a freshly-deployed contract / chunk-level transient
+ *     error) and are skipped via `continue` in
+ *     `fetchRawBalancesFromChain`. Without an API merge those positions
+ *     vanish.
+ *   - The catalogue used to drive the multicall is itself eventually-
+ *     consistent (see `Cache-Control: s-maxage=5` on `/api/v1/tokens`).
+ *     A token freshly registered seconds ago may not be in the cached
+ *     page the user's session pulls, so the chain probe never runs for
+ *     it even though the indexer's wallet-scoped index already has the
+ *     balance.
+ *
+ * Trust order is unchanged: chain still wins on overlap. The merge
+ * skips API rows for any address the chain *resolved* — even when that
+ * resolution was a successful `balanceOf == 0` — so a briefly-stale
+ * indexer (user fully sold, the `Transfer` event hasn't been ingested
+ * yet) does NOT smuggle a sold-out position back into the panel. Only
+ * tokens whose chain answer was `failure` (no authoritative answer) or
+ * that were never queried at all (not in the catalogue) get filled in
+ * from the API.
+ *
+ * If the API call fails (or Ponder's index is cold), the gap-fill is
+ * skipped silently and we render the chain-derived set as-is.
  */
-async function mergeHiddenFromApi(args: {
+async function mergeApiPositions(args: {
   walletAddress: string;
-  chainBalances: RawBalance[];
+  chain: ChainBalanceResult;
 }): Promise<RawBalance[]> {
   let apiBalances: RawBalance[];
   try {
     apiBalances = await fetchRawBalancesFromApi(args.walletAddress);
   } catch {
-    return args.chainBalances;
+    return args.chain.balances;
   }
-  if (apiBalances.length === 0) return args.chainBalances;
-  const knownAddresses = new Set(
-    args.chainBalances.map((b) => b.address.toLowerCase()),
-  );
-  const hiddenExtras = apiBalances.filter(
-    (b) => b.isHidden && !knownAddresses.has(b.address.toLowerCase()),
-  );
-  if (hiddenExtras.length === 0) return args.chainBalances;
-  return [...args.chainBalances, ...hiddenExtras];
+  return mergeApiBalances(args.chain, apiBalances);
 }
 
 /**
@@ -250,9 +323,10 @@ async function mergeHiddenFromApi(args: {
  *
  *   1. The on-chain `balanceOf` multicall (primary; authoritative
  *      regardless of indexer health).
- *   2. The wallet-scoped `/balances` API call (fills in hidden
- *      positions the chain path can't surface — see {@link
- *      mergeHiddenFromApi}).
+ *   2. The wallet-scoped `/balances` API call (fills in any positions
+ *      the chain path can't surface — hidden tokens (issue #712), plus
+ *      anything else the multicall silently missed; see {@link
+ *      mergeApiPositions}).
  *   3. The token-price + market-data caches via {@link useTokenPrices}
  *      / {@link useMarketData}.
  *
@@ -278,19 +352,24 @@ export function useBalances() {
       // RPC outages. Token catalogue is ~100 entries today, so the multicall
       // fits in a single RPC round-trip.
       //
-      // Hidden tokens are NOT in `fetchAllTokens` (the public catalogue is
-      // filtered to `isHidden = false`), so the chain path can never surface
-      // a hidden position. The API path, however, is wallet-scoped via
-      // Ponder and now returns hidden rows for holders (issue #712); we
-      // fold those in on top of the chain result so a holder can still see
-      // (and sell) their hidden position. If the API path fails entirely
-      // we fall back to it as the only source, mirroring the previous
-      // behaviour for RPC outages.
+      // The chain multicall can also silently miss individual tokens —
+      // hidden tokens are filtered out of `fetchAllTokens` by construction
+      // (issue #712), and a freshly-launched contract can land an
+      // `allowFailure: true` `balanceOf` revert / pre-cache miss on the
+      // catalogue page (issue #881). The API path is wallet-scoped via
+      // Ponder, doesn't touch the catalogue, and lists every token whose
+      // indexed balance is `> 0`, so we fold its rows on top of the chain
+      // result for any addresses the multicall didn't surface. Chain
+      // still wins on overlap, so a successful `balanceOf == 0` (user
+      // fully sold) removes the token from `chainBalances` AND from
+      // `mergeApiPositions`'s gap fill — see the function's docstring.
+      // If the API path fails entirely we fall back to it as the only
+      // source, mirroring the previous behaviour for RPC outages.
       try {
-        const chainBalances = await fetchRawBalancesFromChain(address);
-        return await mergeHiddenFromApi({
+        const chain = await fetchRawBalancesFromChain(address);
+        return await mergeApiPositions({
           walletAddress: address,
-          chainBalances,
+          chain,
         });
       } catch {
         return fetchRawBalancesFromApi(address);
