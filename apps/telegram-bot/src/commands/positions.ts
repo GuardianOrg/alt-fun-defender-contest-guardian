@@ -3,7 +3,10 @@ import type { Address } from "viem";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { replyWithActionCard } from "../lib/action-card.js";
+import {
+  ACTION_TOKEN_OUTAGE,
+  editToActionCard,
+} from "../lib/action-card.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_BUY_CALLBACK_CMD,
@@ -237,8 +240,25 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         });
         return;
       }
+      // Replace the /positions message in place with the buy/sell card
+      // so Back lands the user back on the positions list via the
+      // snapshot pushed inside `editToActionCard`. Token-fetch outage
+      // surfaces as a toast — leaving the positions view intact is the
+      // friendliest fallback.
+      const ok = await editToActionCard(
+        ctx,
+        active.address,
+        action,
+        token as Address,
+      );
+      if (!ok) {
+        await ctx.answerCallbackQuery({
+          text: ACTION_TOKEN_OUTAGE,
+          show_alert: true,
+        });
+        return;
+      }
       await ctx.answerCallbackQuery();
-      await replyWithActionCard(ctx, active.address, action, token as Address);
     });
   };
   registerActionCallback(POSITIONS_BUY_CALLBACK_CMD, "buy");

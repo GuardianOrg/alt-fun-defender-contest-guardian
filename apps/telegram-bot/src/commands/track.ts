@@ -27,7 +27,7 @@ import {
 } from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
-import { backHomeRow, replyWithNav } from "../lib/nav.js";
+import { backHomeRow, editToSubmenu, replyWithNav } from "../lib/nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
   formatToken18,
@@ -352,26 +352,30 @@ const handleTrackBuy = async (
     });
     return;
   }
+  // Replace the /track card in place with the buy card so Back lands
+  // the user back on the /track view via the snapshot pushed below.
+  // The original track message id is preserved by editMessageText, so
+  // the workflow-message tracking continues to point at the same id.
+  await editToSubmenu(ctx, {
+    text: renderBuyTokenCardText(tokenResult.data, usdcBalance),
+    parseMode: "HTML",
+    inlineKeyboard: buildBuyTokenKeyboard(
+      tokenAddress,
+      normaliseBuyPresets(
+        ctx.session.buyPresetsUsdc,
+        ctx.session.defaultBuyUsdc,
+      ),
+    ),
+    linkPreviewDisabled: true,
+  });
   await ctx.answerCallbackQuery();
-  const cardMsg = await ctx.reply(
-    renderBuyTokenCardText(tokenResult.data, usdcBalance),
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildBuyTokenKeyboard(
-          tokenAddress,
-          normaliseBuyPresets(
-            ctx.session.buyPresetsUsdc,
-            ctx.session.defaultBuyUsdc,
-          ),
-        ),
-      },
-      link_preview_options: { is_disabled: true },
-    },
-  );
-  // Track the card so the post-trade sweep clears it once a buy lands.
-  if (ctx.chat) {
-    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  // Track the (post-edit) card so the post-trade sweep clears it once
+  // a buy lands. `editMessageText` keeps the same message id as the
+  // /track card we replaced, so this pushes the id the user is now
+  // looking at.
+  const cardMsgId = ctx.callbackQuery?.message?.message_id;
+  if (ctx.chat && cardMsgId !== undefined) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsgId);
   }
 };
 
@@ -395,22 +399,19 @@ const handleTrackSell = async (
     });
     return;
   }
+  await editToSubmenu(ctx, {
+    text: renderSellTokenCardText(tokenResult.data, tokenBalance),
+    parseMode: "HTML",
+    inlineKeyboard: buildSellTokenKeyboard(
+      tokenAddress,
+      normaliseSellPresets(ctx.session.sellPresetsPct),
+    ),
+    linkPreviewDisabled: true,
+  });
   await ctx.answerCallbackQuery();
-  const cardMsg = await ctx.reply(
-    renderSellTokenCardText(tokenResult.data, tokenBalance),
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildSellTokenKeyboard(
-          tokenAddress,
-          normaliseSellPresets(ctx.session.sellPresetsPct),
-        ),
-      },
-      link_preview_options: { is_disabled: true },
-    },
-  );
-  if (ctx.chat) {
-    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  const cardMsgId = ctx.callbackQuery?.message?.message_id;
+  if (ctx.chat && cardMsgId !== undefined) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsgId);
   }
 };
 
