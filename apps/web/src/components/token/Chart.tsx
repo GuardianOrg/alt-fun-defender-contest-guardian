@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useEffect, useRef, useState } from "react";
 
 import styles from "./Chart.module.css";
@@ -198,7 +199,7 @@ export default function Chart({ address, token }: Props) {
         <span className={styles.axisLabel} aria-hidden>
           {unit === "mcap" ? "Market cap" : "Price"}
         </span>
-        <div className={styles.mcapOverlay} aria-label="Market cap">
+        {/* <div className={styles.mcapOverlay} aria-label="Market cap">
           <span className={styles.mcapLabel}>Market cap</span>
           <RollingNumber
             className={styles.mcapValue}
@@ -216,7 +217,7 @@ export default function Chart({ address, token }: Props) {
               {formatPercent(change24h)} 24h
             </span>
           )}
-        </div>
+        </div> */}
       </div>
       <div className={styles.periodBar}>
         <div className={styles.intervalGroup}>
