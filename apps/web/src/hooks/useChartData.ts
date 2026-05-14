@@ -95,6 +95,20 @@ interface UseChartDataResult {
   currentMcap: number;
   /** Percent change over the chart window (first open → last close) */
   changePercent: number;
+  /**
+   * Live USD market cap derived from the latest WS-driven candle close
+   * (raw per-token price × {@link TOKEN_SUPPLY}). Updates on every trade
+   * WS event and every 1s LT exchange-rate tick — i.e. with the same
+   * cadence as the chart's price line — so consumers that drive a
+   * rolling-number overlay can match the chart's responsiveness instead
+   * of lagging on the 30s `/market-data` poll cycle.
+   *
+   * Unit-agnostic: returned in mcap dollars regardless of the chart's
+   * `unit` toggle (the toggle only affects the y-axis scale of `candles`).
+   * `null` until the first candle lands so consumers can fall back to a
+   * polled value during the initial REST round-trip.
+   */
+  liveMcapUsd: number | null;
 }
 
 interface TradeWsPayload {
@@ -365,5 +379,15 @@ export function useChartData(
         100
       : 0;
 
-  return { candles, loading, currentMcap, changePercent };
+  // Always derive from the raw `priceCandles` (per-token USD price)
+  // rather than the unit-converted `candles` — the latter would collapse
+  // to per-token price when the user toggles the y-axis to `price`, but
+  // the mcap overlay always renders in dollars. `null` while no candle
+  // has landed yet lets consumers fall back to a polled value cleanly.
+  const liveMcapUsd =
+    priceCandles.length > 0
+      ? (priceCandles[priceCandles.length - 1].close as number) * TOKEN_SUPPLY
+      : null;
+
+  return { candles, loading, currentMcap, changePercent, liveMcapUsd };
 }

@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, formatUnits, http } from "viem";
 
 import { useMarketData } from "./useMarketData";
-import { useTokenPrices } from "./useTokenPrices";
 import { useWallet } from "./useWallet";
 import { hyperEVM } from "../config/chains";
 import { DEFAULT_TOKEN_IMAGE } from "../config/constants";
@@ -327,8 +326,9 @@ async function mergeApiPositions(args: {
  *      the chain path can't surface — hidden tokens (issue #712), plus
  *      anything else the multicall silently missed; see {@link
  *      mergeApiPositions}).
- *   3. The token-price + market-data caches via {@link useTokenPrices}
- *      / {@link useMarketData}.
+ *   3. The market-data cache via {@link useMarketData} (one query
+ *      drives both the per-token `priceUsd` lookup the dust filter
+ *      reads through `getPrice` and the `change24h` row column).
  *
  * Returns a `HeldToken[]` already filtered through the dust threshold
  * (see {@link buildHeldTokens}) plus a `totalValue` rollup and a
@@ -386,8 +386,11 @@ export function useBalances() {
     () => (query.data ?? []).map((b) => b.address),
     [query.data],
   );
-  const { getPrice, isLoading: pricesLoading } = useTokenPrices(heldAddresses);
-  const { getTokenMarketData } = useMarketData(heldAddresses);
+  const {
+    getPrice,
+    getTokenMarketData,
+    isLoading: marketLoading,
+  } = useMarketData(heldAddresses);
 
   const tokens = buildHeldTokens(query.data ?? [], getPrice, getTokenMarketData);
 
@@ -396,6 +399,6 @@ export function useBalances() {
   return {
     tokens,
     totalValue,
-    isLoading: query.isLoading || pricesLoading,
+    isLoading: query.isLoading || marketLoading,
   };
 }

@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import styles from "./Chart.module.css";
+import {
+  getTokenOverride,
+  subscribeTokenOverrides,
+} from "../../dev/devTokenOverrides";
 import { useChart } from "../../hooks/useChart";
 import { useChartData } from "../../hooks/useChartData";
-// import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
+import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
 } from "../../services/api";
-import { cn } from "../../utils/format";
+import { cn, formatMcapUsd, formatPercent } from "../../utils/format";
+import RollingNumber from "../shared/RollingNumber";
 import SegmentedButton from "../shared/SegmentedButton";
 
 import type {
@@ -75,14 +80,38 @@ export default function Chart({ address, token }: Props) {
     };
   }, [intervalMenuOpen]);
 
-  // const { mcapUsd, change24h } = useTokenMarketStats(address);
+  const { mcapUsd: polledMcapUsd, change24h } = useTokenMarketStats(address);
 
-  const { candles, loading } = useChartData(
+  const { candles, loading, liveMcapUsd } = useChartData(
     address,
     token?.ltAddress,
     mode,
     unit,
   );
+
+  // Dev-only mcap override: the `DevSimulator` "pump mcap" / "dump mcap"
+  // buttons write into the override store to drive the rolling-number
+  // animation without waiting on real on-chain activity. `useTokenMarketStats`
+  // already routes the override through its `mcapUsd` field, but we
+  // bypass that source below in favour of `liveMcapUsd` for responsiveness,
+  // so we have to re-read the override here for the override path to
+  // still win. The `import.meta.env.DEV` gate inside the snapshot keeps
+  // this dead-code-eliminated in production builds (the subscribe call
+  // resolves to a no-op listener set so it stays cheap).
+  const overrideMcapUsd = useSyncExternalStore(
+    subscribeTokenOverrides,
+    () =>
+      import.meta.env.DEV ? getTokenOverride(address)?.mcapUsd : undefined,
+    () => undefined,
+  );
+
+  // Display priority:
+  //   1. Dev override (QA-only; must win when set so pump/dump buttons work)
+  //   2. Live WS-derived mcap from `useChartData` — updates on every trade
+  //      + every 1s LT price tick, matching the chart's price line cadence
+  //   3. Polled `/market-data` value — 30s lag fallback for the gap between
+  //      mount and the first WS tick (and for tokens with no LT yet)
+  const mcapUsd = overrideMcapUsd ?? liveMcapUsd ?? polledMcapUsd;
 
   useChart({
     containerRef: chartContainerRef,
@@ -197,7 +226,7 @@ export default function Chart({ address, token }: Props) {
         <span className={styles.axisLabel} aria-hidden>
           {unit === "mcap" ? "Market cap" : "Price"}
         </span>
-        {/* <div className={styles.mcapOverlay} aria-label="Market cap">
+        <div className={styles.mcapOverlay} aria-label="Market cap">
           <span className={styles.mcapLabel}>Market cap</span>
           <RollingNumber
             className={styles.mcapValue}
@@ -215,7 +244,7 @@ export default function Chart({ address, token }: Props) {
               {formatPercent(change24h)} 24h
             </span>
           )}
-        </div> */}
+        </div>
       </div>
       <div className={styles.periodBar}>
         <div className={styles.intervalGroup}>

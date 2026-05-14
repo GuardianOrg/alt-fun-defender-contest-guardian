@@ -40,7 +40,7 @@ export interface TokenOverride {
   /**
    * Forced USD market cap. Applied in `useTokenMarketStats` (not
    * `applyTokenOverride`, since `mcapUsd` lives outside the `Token`
-   * shape — it's resolved by `useTokenPrices` against the `/market-data`
+   * shape — it's resolved by `useMarketData` against the `/market-data`
    * endpoint). Used by the `DevSimulator` "pump mcap" button to drive
    * the rolling-number animation on the chart overlay without waiting
    * for a real on-chain trade.

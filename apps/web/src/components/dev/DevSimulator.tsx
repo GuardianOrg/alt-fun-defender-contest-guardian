@@ -26,15 +26,23 @@ import type { Token, TokenStatus, Trade } from "../../services/types";
 const TRADE_CURVE_BUMP_MIN = 3;
 const TRADE_CURVE_BUMP_RANGE = 4;
 
-// Random multiplier range for the "pump mcap" button. A 6–18% bump per
-// click gives a few clearly perceptible jumps before the rolling-number
-// animation flattens out around an order of magnitude up — comfortable
-// for QAing both small and large tween distances by hand. Cold-start
-// (no API mcap yet) seeds at a fixed $25K so the first click has
-// somewhere to count up *from*.
+// Random multiplier range for the "pump mcap" / "dump mcap" buttons. A
+// 6–18% delta per click gives a few clearly perceptible jumps before the
+// rolling-number animation flattens out around an order of magnitude —
+// comfortable for QAing both small and large tween distances by hand.
+// Pump multiplies by `1 + delta`; dump divides by the same factor so
+// repeated pump+dump pairs round-trip back near the starting value
+// instead of drifting toward zero. Cold-start (no API mcap yet) seeds
+// at a fixed $25K so the first click has somewhere to count up / down
+// *from*.
 const MCAP_PUMP_PCT_MIN = 0.06;
 const MCAP_PUMP_PCT_RANGE = 0.12;
 const MCAP_PUMP_COLD_START_USD = 25_000;
+// Floor the dump at $1 — `formatMcapUsd` clamps negatives to `$0` and
+// `RollingNumber` skips the tween when transitioning to/from null, so
+// letting the override decay all the way to zero would silently break
+// the down-roll animation after a few rapid clicks.
+const MCAP_DUMP_FLOOR_USD = 1;
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: TokenStatus; label: string }> = [
   { value: "active", label: "Active" },
@@ -193,6 +201,27 @@ export default function DevSimulator() {
       (mcapUsd && mcapUsd > 0 ? mcapUsd : MCAP_PUMP_COLD_START_USD);
     const factor = 1 + MCAP_PUMP_PCT_MIN + Math.random() * MCAP_PUMP_PCT_RANGE;
     setTokenOverride(tokenAddress, { mcapUsd: base * factor });
+  };
+
+  /**
+   * Mirror of {@link pumpMcap} that drives the rolling-mcap animation in
+   * the *down* direction so the red-glow / scale-down branch of
+   * `RollingNumber` is QAable by hand. Divides by the same random
+   * multiplier `pumpMcap` uses so alternating pump/dump clicks roughly
+   * round-trip back to the starting value instead of drifting. Floored
+   * at {@link MCAP_DUMP_FLOOR_USD} — the formatter clamps negatives to
+   * `$0` and the tween skips null transitions, both of which would
+   * silently swallow the down-roll if the override decayed past zero.
+   */
+  const dumpMcap = () => {
+    if (!tokenAddress) return;
+    const base =
+      override?.mcapUsd ??
+      (mcapUsd && mcapUsd > 0 ? mcapUsd : MCAP_PUMP_COLD_START_USD);
+    const factor = 1 + MCAP_PUMP_PCT_MIN + Math.random() * MCAP_PUMP_PCT_RANGE;
+    setTokenOverride(tokenAddress, {
+      mcapUsd: Math.max(MCAP_DUMP_FLOOR_USD, base / factor),
+    });
   };
 
   if (!import.meta.env.DEV) return null;
@@ -355,37 +384,58 @@ export default function DevSimulator() {
                   >
                     +1 trade
                   </button>
-                  {/* "pump mcap" — bumps the mcap override by a small
-                   * random percentage on top of the current value so
-                   * the chart's rolling-number animation visibly ticks
-                   * up. Independent of the curve / status overrides
-                   * (and the progress bar) — useful for QAing the
-                   * mcap glow + tween in isolation, including past
-                   * graduation. */}
+                  {/* "pump mcap" / "dump mcap" — bump the mcap override
+                   * up or down by a small random percentage on top of
+                   * the current value so the chart's rolling-number
+                   * animation visibly ticks in either direction.
+                   * Independent of the curve / status overrides (and
+                   * the progress bar) — useful for QAing the mcap glow
+                   * + tween in isolation, including past graduation.
+                   * Both directions are needed because the up-roll
+                   * (mint glow) and down-roll (red glow) keyframes are
+                   * distinct branches of `RollingNumber` and a single
+                   * button can only exercise one of them. */}
                   <button
                     type="button"
                     className={styles.btn}
                     onClick={pumpMcap}
-                    title="Bump market cap by ~6–18% to trigger the rolling animation"
+                    title="Bump market cap up by ~6–18% to trigger the roll-up animation"
                   >
                     pump mcap
                   </button>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onClick={dumpMcap}
+                    title="Drop market cap by ~6–18% to trigger the roll-down animation"
+                  >
+                    dump mcap
+                  </button>
                 </div>
               )}
-              {/* Show the pump button on its own row when graduated —
-               * the trade/curve buttons disappear above but the mcap
-               * tween is still meaningful (and arguably more so, since
-               * post-graduation tokens trade on HyperSwap and the mcap
-               * is the dominant signal on the page). */}
+              {/* Show the pump / dump buttons on their own row when
+               * graduated — the trade/curve buttons disappear above
+               * but the mcap tween is still meaningful (and arguably
+               * more so, since post-graduation tokens trade on
+               * HyperSwap and the mcap is the dominant signal on the
+               * page). */}
               {isGraduatedOverride && (
                 <div className={styles.row}>
                   <button
                     type="button"
                     className={styles.btn}
                     onClick={pumpMcap}
-                    title="Bump market cap by ~6–18% to trigger the rolling animation"
+                    title="Bump market cap up by ~6–18% to trigger the roll-up animation"
                   >
                     pump mcap
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onClick={dumpMcap}
+                    title="Drop market cap by ~6–18% to trigger the roll-down animation"
+                  >
+                    dump mcap
                   </button>
                 </div>
               )}
