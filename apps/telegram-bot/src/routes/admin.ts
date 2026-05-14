@@ -6,6 +6,60 @@ import { callTelegram } from "../lib/telegram.js";
 
 const admin = new Hono<AppBindings>();
 
+/**
+ * Telegram resolves the slash-menu by walking from the most specific
+ * (scope, language) pair to the least specific — most-specific wins.
+ * That means a stale entry on any non-default slot shadows the canonical
+ * (default, no-language) list this Worker pushes, and the user keeps
+ * seeing commands that have already been removed in code. This was the
+ * /security menu hangover after `b56a2d91`: setMyCommands at the default
+ * slot succeeded on every deploy, but English-locale users still saw the
+ * deleted entry because a stale `(default, en)` overlay was sitting on
+ * top. Wipe every non-canonical slot a past deploy or BotFather
+ * conversation could have plausibly written before publishing the new
+ * list. Telegram returns ok:true on deletes even when the slot is empty,
+ * so this loop is safe to keep running on every publish.
+ *
+ * `chat`, `chat_administrators`, `chat_member` are omitted — they
+ * require a chat_id we don't track, and we have never set them.
+ */
+const LEGACY_COMMAND_SLOTS: ReadonlyArray<{
+  scope?: { type: string };
+  language_code?: string;
+}> = [
+  { language_code: "en" },
+  { scope: { type: "all_private_chats" } },
+  { scope: { type: "all_private_chats" }, language_code: "en" },
+  { scope: { type: "all_group_chats" } },
+  { scope: { type: "all_group_chats" }, language_code: "en" },
+  { scope: { type: "all_chat_administrators" } },
+  { scope: { type: "all_chat_administrators" }, language_code: "en" },
+];
+
+/**
+ * Clear stale slots then push BOT_COMMANDS to the default (no-language)
+ * slot. Returns the first failure encountered, or the final
+ * setMyCommands result on success.
+ */
+async function publishCommands(
+  botToken: string,
+): Promise<TelegramCallResult> {
+  for (const slot of LEGACY_COMMAND_SLOTS) {
+    const payload: Record<string, unknown> = {};
+    if (slot.scope) payload.scope = slot.scope;
+    if (slot.language_code) payload.language_code = slot.language_code;
+    const result = await callTelegramJson(
+      botToken,
+      "deleteMyCommands",
+      payload,
+    );
+    if (!result.ok) return result;
+  }
+  return callTelegramJson(botToken, "setMyCommands", {
+    commands: BOT_COMMANDS.map((cmd) => ({ ...cmd })),
+  });
+}
+
 admin.use("*", async (c, next) => {
   const key = c.req.header("x-admin-key");
   if (!key || key !== c.env.ADMIN_API_KEY) {
@@ -69,11 +123,7 @@ admin.post("/set-webhook", async (c) => {
     });
   }
 
-  const commandsResult = await callTelegramJson(
-    c.env.TELEGRAM_BOT_TOKEN,
-    "setMyCommands",
-    { commands: BOT_COMMANDS.map((cmd) => ({ ...cmd })) },
-  );
+  const commandsResult = await publishCommands(c.env.TELEGRAM_BOT_TOKEN);
   if (!commandsResult.ok) {
     return Response.json(
       {
@@ -99,12 +149,14 @@ admin.get("/webhook-info", async (c) =>
  * Publish the slash-menu (BOT_COMMANDS) to Telegram. Telegram caches the
  * list per bot, so run once after deploy and whenever BOT_COMMANDS
  * changes — handlers do not need to re-push on every webhook.
+ *
+ * Wipes legacy scope/language slots first (see `publishCommands`) so a
+ * stale entry on a non-default slot can't shadow the canonical list.
  */
-admin.post("/set-commands", async (c) =>
-  proxyTelegram(c.env.TELEGRAM_BOT_TOKEN, "setMyCommands", {
-    commands: BOT_COMMANDS.map((c) => ({ ...c })),
-  }),
-);
+admin.post("/set-commands", async (c) => {
+  const result = await publishCommands(c.env.TELEGRAM_BOT_TOKEN);
+  return Response.json(result.body, { status: result.status });
+});
 
 // Centralise Telegram-side failures so the admin routes return a deterministic
 // 502 instead of a generic 500 when the upstream is down or returns junk JSON.
