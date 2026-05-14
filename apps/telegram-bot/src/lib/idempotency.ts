@@ -81,6 +81,13 @@ export interface IntentResult {
    * the same "received N tokens" line the first attempt produced.
    */
   actualTokensOut?: string;
+  /**
+   * Actual net USDC received on a confirmed sell, raw 6-dp decimal
+   * string (`usdcAmount - botFee` from the `BotRouterTrade` log).
+   * Persisted so a webhook-retry renders the same "received $X USDC"
+   * line the first attempt produced.
+   */
+  actualUsdcOut?: string;
 }
 
 export interface IntentRecord {

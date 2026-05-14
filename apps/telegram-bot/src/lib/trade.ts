@@ -544,6 +544,16 @@ export type ExecutionResult =
        * back to `quotedOut` otherwise.
        */
       actualTokensOut?: bigint;
+      /**
+       * Net USDC the user actually received on a sell, computed as
+       * `BotRouterTrade.usdcAmount - BotRouterTrade.botFee` from the
+       * receipt's log (the gross sell proceeds minus the router's bot-fee
+       * skim — the post-fee number that actually lands in the user's
+       * wallet). Undefined for buys and when the event can't be decoded.
+       * Callers render this when present and fall back to `quotedOut`
+       * otherwise.
+       */
+      actualUsdcOut?: bigint;
     }
   /**
    * Tx was accepted into the mempool but `waitForTransactionReceipt`
@@ -651,6 +661,39 @@ const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
 };
 
 /**
+ * Decode the `BotRouterTrade` event from a sell receipt's logs and return
+ * the net USDC the user actually received — `usdcAmount - botFee`. Per
+ * the ABI: on a sell `usdcAmount` is the gross USDC out before the
+ * router's bot-fee skim, so the post-fee net (what hits the user's
+ * wallet) is the gross minus `botFee`. Mirrors `extractBuyTokensOut` —
+ * returns undefined when the event isn't present or decoding fails so
+ * callers can fall back to the simulation quote.
+ */
+const extractSellUsdcOut = (logs: readonly Log[]): bigint | undefined => {
+  for (const log of logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: BotFeeRouterAbi,
+        eventName: "BotRouterTrade",
+        topics: log.topics,
+        data: log.data,
+      });
+      const args = decoded.args as { usdcAmount?: bigint; botFee?: bigint };
+      if (
+        typeof args.usdcAmount === "bigint" &&
+        typeof args.botFee === "bigint"
+      ) {
+        const net = args.usdcAmount - args.botFee;
+        return net >= 0n ? net : undefined;
+      }
+    } catch {
+      // Not a BotRouterTrade log — skip.
+    }
+  }
+  return undefined;
+};
+
+/**
  * Wait for a submitted tx's receipt and translate the outcome into the
  * `ExecutionResult` taxonomy.
  *
@@ -691,12 +734,17 @@ export const awaitReceipt = async (
       successOut.side === "buy"
         ? extractBuyTokensOut(receipt.logs)
         : undefined;
+    const actualUsdcOut =
+      successOut.side === "sell"
+        ? extractSellUsdcOut(receipt.logs)
+        : undefined;
     return {
       ok: true,
       txHash,
       quotedOut: successOut.quotedOut,
       minOut: successOut.minOut,
       ...(actualTokensOut !== undefined ? { actualTokensOut } : {}),
+      ...(actualUsdcOut !== undefined ? { actualUsdcOut } : {}),
     };
   } catch (err) {
     // Receipt-timeout is the common case here: the tx is in the mempool
@@ -808,6 +856,9 @@ const toIntentResult = (result: ExecutionResult): IntentResult => {
       ...(result.actualTokensOut !== undefined
         ? { actualTokensOut: result.actualTokensOut.toString() }
         : {}),
+      ...(result.actualUsdcOut !== undefined
+        ? { actualUsdcOut: result.actualUsdcOut.toString() }
+        : {}),
     };
   }
   return {
@@ -855,12 +906,17 @@ const fromIntentResult = (
         result.actualTokensOut !== undefined
           ? BigInt(result.actualTokensOut)
           : undefined;
+      const actualUsdcOut =
+        result.actualUsdcOut !== undefined
+          ? BigInt(result.actualUsdcOut)
+          : undefined;
       return {
         ok: true,
         txHash: result.txHash,
         quotedOut: BigInt(result.quotedOut),
         minOut: BigInt(result.minOut),
         ...(actualTokensOut !== undefined ? { actualTokensOut } : {}),
+        ...(actualUsdcOut !== undefined ? { actualUsdcOut } : {}),
       };
     } catch {
       return null;
