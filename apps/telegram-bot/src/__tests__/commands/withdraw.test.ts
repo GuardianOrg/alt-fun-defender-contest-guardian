@@ -80,7 +80,9 @@ const enterAndAnswerWizard = async (
   fetchSpy.mockClear();
   mockTelegramOk(fetchSpy);
 
-  await h.run(textUpdate("HYPE", 2));
+  // Asset picker is now button-driven: the wizard renders [USDC] [HYPE]
+  // on the prompt and awaits a callback_query rather than a text reply.
+  await h.run(callbackUpdate("wda:hype", 2));
   fetchSpy.mockClear();
   mockTelegramOk(fetchSpy);
 
@@ -108,7 +110,10 @@ describe("/withdraw command", () => {
     await ensureActiveWallet(h);
     await buildPm(h).setPin(USER_ID, "123456");
 
-    // 1.5 HYPE in wei = 1.5e18 = 0x14d1120d7b160000
+    // 1.5 HYPE in wei = 1.5e18 = 0x14d1120d7b160000. Balances are fetched
+    // up front for the asset picker, so the mock must be in place BEFORE
+    // entering the wizard — `conversation.external` caches the result
+    // and replays it on the asset-pick turn.
     const balanceHandler = async (
       _input: RequestInfo | URL,
       init?: RequestInit,
@@ -129,10 +134,11 @@ describe("/withdraw command", () => {
       return new Response(JSON.stringify({}), { status: 500 });
     };
 
+    withTelegramOk(fetchSpy, balanceHandler);
     await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
     fetchSpy.mockClear();
     withTelegramOk(fetchSpy, balanceHandler);
-    await h.run(textUpdate("HYPE", 2));
+    await h.run(callbackUpdate("wda:hype", 2));
 
     const sends = captureTg(fetchSpy).filter((c) =>
       c.url.includes("/sendMessage"),
@@ -146,6 +152,76 @@ describe("/withdraw command", () => {
     );
   });
 
+  it("asset picker shows both USDC and HYPE balances inline with the buttons", async () => {
+    const h = makeBotHarness();
+    await ensureActiveWallet(h);
+    await buildPm(h).setPin(USER_ID, "123456");
+
+    // 25 USDC (6dp) and 1.5 HYPE (18dp). Same handler shape as above —
+    // both balances are now read up front for the picker so we mock the
+    // ERC20 `eth_call` leg as well as `eth_getBalance`.
+    const balanceHandler = async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as RequestInit).body as string) as {
+        method: string;
+      };
+      if (body.method === "eth_getBalance") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: "0x14d1120d7b160000",
+          }),
+          { status: 200 },
+        );
+      }
+      if (body.method === "eth_call") {
+        // 25_000_000 in 32-byte hex
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result:
+              "0x00000000000000000000000000000000000000000000000000000000017d7840",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 500 });
+    };
+
+    withTelegramOk(fetchSpy, balanceHandler);
+    await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
+
+    const sends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const prompt = sends.find((c) =>
+      /Which asset\?/.test(c.body.text as string),
+    );
+    expect(prompt).toBeDefined();
+    const text = String(prompt!.body.text);
+    expect(text).toMatch(/You have 25 USDC and 1\.5 HYPE\./);
+
+    const keyboard = (
+      prompt!.body.reply_markup as {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      }
+    ).inline_keyboard;
+    // First row: USDC on the left, HYPE on the right.
+    expect(keyboard[0]?.[0]?.text).toBe("USDC");
+    expect(keyboard[0]?.[0]?.callback_data).toBe("wda:usdc");
+    expect(keyboard[0]?.[1]?.text).toBe("HYPE");
+    expect(keyboard[0]?.[1]?.callback_data).toBe("wda:hype");
+    // Second row: Back + Home — global nav row, not asset-specific.
+    expect(keyboard[1]?.map((b) => b.callback_data)).toEqual([
+      "nav:b",
+      "nav:h",
+    ]);
+  });
+
   it("amount prompt falls back to 'unavailable' when the RPC read fails", async () => {
     const h = makeBotHarness();
     await ensureActiveWallet(h);
@@ -157,7 +233,7 @@ describe("/withdraw command", () => {
     await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
     fetchSpy.mockClear();
     mockTelegramOk(fetchSpy);
-    await h.run(textUpdate("HYPE", 2));
+    await h.run(callbackUpdate("wda:hype", 2));
 
     const sends = captureTg(fetchSpy).filter((c) =>
       c.url.includes("/sendMessage"),
@@ -201,7 +277,7 @@ describe("/withdraw command", () => {
     await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
     fetchSpy.mockClear();
     withTelegramOk(fetchSpy, balanceHandler);
-    await h.run(textUpdate("HYPE", 2));
+    await h.run(callbackUpdate("wda:hype", 2));
     fetchSpy.mockClear();
     withTelegramOk(fetchSpy, balanceHandler);
     await h.run(textUpdate("0.1", 3));
