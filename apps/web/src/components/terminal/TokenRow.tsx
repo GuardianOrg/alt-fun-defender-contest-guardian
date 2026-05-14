@@ -13,7 +13,7 @@ import {
   isRecentlyDeployed,
 } from "../../utils/format";
 import { tierFor } from "../../utils/vanityTier";
-import VanityEffect from "../effects/VanityEffect";
+// import VanityEffect from "../effects/VanityEffect";
 import AssetIcon from "../shared/AssetIcon";
 import GraduatedPill from "../shared/GraduatedPill";
 import GraduatingPill from "../shared/GraduatingPill";
@@ -184,8 +184,9 @@ export default function TokenRow({ token, stats, isNew = false }: Props) {
 
   if (!hasVanityTier) return rowEl;
   return (
-    <VanityEffect tier={vanityTier} size="row" as="block">
-      {rowEl}
-    </VanityEffect>
+    // <VanityEffect tier={vanityTier} size="row" as="block">
+    //   {rowEl}
+    // </VanityEffect>
+    <>{rowEl}</>
   );
 }
