@@ -815,6 +815,28 @@ describe("/start referral onboarding", () => {
     expect(rewardsPost).toBeDefined();
   });
 
+  it("first /start pins the referral-identity wallet on the profile", async () => {
+    // The address /start mints is the user's identity wallet for
+    // every future /referral and every inbound `ref_<userId>` click —
+    // independent of how many wallets they later import or which
+    // becomes active. Persisting it here is what makes the identity
+    // immutable.
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7));
+
+    const wallet = (await walletManager(h).getActive(7))!;
+    const raw = (await h.kv.get("profile:7")) as string | null;
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!) as {
+      referralIdentityWallet?: string;
+    };
+    expect(parsed.referralIdentityWallet?.toLowerCase()).toBe(
+      wallet.address.toLowerCase(),
+    );
+  });
+
   it("records username → userId mapping on every /start when the user has a Telegram username", async () => {
     const h = harness();
     mockAll();
@@ -995,6 +1017,54 @@ describe("/start referral onboarding", () => {
     const profile = await profileFor(h, 7);
     expect(profile!.referrer?.toLowerCase()).toBe(
       wallet.address.toLowerCase(),
+    );
+  });
+
+  it("ref_<userId> resolves via referrer's identity wallet, ignoring later setActive flips", async () => {
+    // Lifetime attribution is the whole point of the referrer slot:
+    // a sharer who imports a second wallet AFTER handing out their
+    // link must not silently fork their referrer identity onto the
+    // new wallet for every fresh click. This pins the resolution to
+    // `profile.referralIdentityWallet`, which is set once at first
+    // /start and immutable thereafter.
+    const h = harness();
+    const wm = walletManager(h);
+    const identityWallet = await wm.createWallet(42, "identity");
+    const switchedWallet = await wm.createWallet(42, "later");
+    await wm.setActive(42, switchedWallet.id);
+    // Profile written exactly the way the post-fix first /start
+    // writes it — identity pinned to the original wallet even though
+    // the active wallet has since changed.
+    await h.kv.put(
+      "profile:42",
+      JSON.stringify({
+        createdAt: 1_700_000_000_000,
+        referrer: null,
+        referralIdentityWallet: identityWallet.address.toLowerCase(),
+      }),
+    );
+
+    // API responds for the identity wallet only; a stray lookup
+    // against the active wallet would hit the 404 branch and the new
+    // user's referrer would resolve to null.
+    mockAll({
+      referralStatsByWallet: {
+        [identityWallet.address.toLowerCase()]: {
+          rewardsWallet: identityWallet.address.toLowerCase(),
+        },
+      },
+    });
+
+    await h.run(startUpdate(7, "private", { param: "ref_42" }));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer?.toLowerCase()).toBe(
+      identityWallet.address.toLowerCase(),
+    );
+    // The currently-active wallet must NOT show up — proves the
+    // resolver did not fall back to `getActive`.
+    expect(profile!.referrer?.toLowerCase()).not.toBe(
+      switchedWallet.address.toLowerCase(),
     );
   });
 });

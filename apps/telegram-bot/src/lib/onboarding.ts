@@ -26,6 +26,28 @@ export interface UserProfile {
    * which case trades pass `address(0)` and no referral cut accrues.
    */
   referrer: Address | null;
+  /**
+   * Stable wallet identity used when *this* user appears as a
+   * referrer to someone else. Set at first /start = the initial
+   * custodial wallet address. Immutable thereafter — independent of
+   * `setActive` flips and of later `createWallet` / `importWallet`
+   * calls. Two surfaces depend on this being stable:
+   *
+   *   1. `/referral` — the rewards-wallet KV record (`rewards-wallet:
+   *      {wallet}` in the api) is keyed by this address, so the
+   *      user's referral stats and rewards-wallet config follow their
+   *      identity across wallet switches instead of forking onto a
+   *      fresh identity every time they flip active.
+   *   2. `resolveReferrer` at deeplink-click time — a new user
+   *      tapping `ref_<userId>` always lands on the same referrer
+   *      identity, not whichever wallet the referrer happens to have
+   *      active in that moment.
+   *
+   * Optional in the type so legacy profiles written before this field
+   * existed still parse — `getReferralIdentityWallet` lazily backfills
+   * via the user's current active wallet the first time it runs.
+   */
+  referralIdentityWallet?: Address;
 }
 
 const profileKey = (userId: number): string => `profile:${userId}`;
@@ -99,6 +121,17 @@ export const readProfile = async (
     if (parsed.referrer !== null && !isAddress(parsed.referrer, { strict: false })) {
       return null;
     }
+    // `referralIdentityWallet` is optional (legacy profiles predate it).
+    // When present it must be a valid address; a malformed value drops
+    // the whole profile rather than silently falling back, since the
+    // alternative is divergent identity between the on-disk record and
+    // the lazy backfill on next read.
+    if (
+      parsed.referralIdentityWallet !== undefined &&
+      !isAddress(parsed.referralIdentityWallet, { strict: false })
+    ) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -142,22 +175,69 @@ const readUserIdForUsername = async (
 };
 
 /**
+ * Return the user's stable referral-identity wallet — the address that
+ * keys their `/referral` rewards-wallet record and that every referee
+ * deeplinks resolve through. Returns `null` when the user has no
+ * active wallet at all (never ran /start).
+ *
+ * For profiles written under the new schema, this is just
+ * `profile.referralIdentityWallet`. For legacy profiles missing the
+ * field, the helper backfills lazily using the user's current active
+ * wallet and persists the result — making subsequent reads stable
+ * even if the user flips `setActive` afterwards. The backfill is
+ * best-effort: a KV write failure does not surface here, since the
+ * fallback path still returns a valid address for *this* call and the
+ * next call simply repeats the backfill.
+ */
+export const getReferralIdentityWallet = async (
+  env: Env,
+  wm: WalletManager,
+  userId: number,
+): Promise<Address | null> => {
+  const profile = await readProfile(env.WALLET_KV, userId);
+  if (profile?.referralIdentityWallet) {
+    return profile.referralIdentityWallet.toLowerCase() as Address;
+  }
+  const active = await wm.getActive(userId);
+  if (!active) return null;
+  const identity = active.address.toLowerCase() as Address;
+  if (profile !== null) {
+    try {
+      await writeProfile(env.WALLET_KV, userId, {
+        ...profile,
+        referralIdentityWallet: identity,
+      });
+    } catch (err) {
+      logger.warn("getReferralIdentityWallet: backfill write failed", {
+        userId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return identity;
+};
+
+/**
  * Resolve a referral deeplink param to the referrer's rewards-wallet
  * address. Returns `null` when:
  *   - The username mapping has no entry (the referrer never ran /start
  *     under that handle).
- *   - The referrer has no active wallet (they have not onboarded — no
- *     retro-link by spec).
+ *   - The referrer has no resolvable identity wallet (they have not
+ *     onboarded — no retro-link by spec).
  *   - The api referral lookup fails (treated like "unset rewards
  *     wallet" — drop silently rather than wedging /start on a
  *     transient outage).
  *
- * The returned address is the referrer's *rewards wallet* as the api
- * reports it today — which defaults to the referrer's active custodial
- * wallet if they have not explicitly set one (see api/routes/bot/
- * referrals.ts `readRewardsWallet`). This is the address the bot will
- * pass as the `referrer` arg to `BotFeeRouter` on every trade the new
- * user makes, forever.
+ * The lookup keys off `getReferralIdentityWallet`, not the referrer's
+ * currently-active wallet — otherwise a referrer who flipped
+ * `setActive` between sharing their link and the click would route
+ * the new attribution onto a fresh wallet's (empty) KV record. The
+ * returned address is the referrer's *rewards wallet* as the api
+ * reports it — which defaults to the identity wallet itself if no
+ * explicit override has been set (see api/routes/bot/referrals.ts
+ * `readRewardsWallet`). This is the address the bot passes as the
+ * `referrer` arg to `BotFeeRouter` on every trade the new user makes,
+ * forever.
  */
 export const resolveReferrer = async (
   env: Env,
@@ -170,10 +250,10 @@ export const resolveReferrer = async (
       : await readUserIdForUsername(env.WALLET_KV, param.username);
   if (referrerUserId === null) return null;
 
-  const active = await wm.getActive(referrerUserId);
-  if (!active) return null;
+  const identity = await getReferralIdentityWallet(env, wm, referrerUserId);
+  if (!identity) return null;
 
-  const stats = await fetchBotReferralStats(env, active.address);
+  const stats = await fetchBotReferralStats(env, identity);
   if (!stats.ok) {
     logger.warn("resolveReferrer: fetchBotReferralStats failed", {
       referrerUserId,
