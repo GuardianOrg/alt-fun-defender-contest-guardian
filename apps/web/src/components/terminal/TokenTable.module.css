@@ -105,3 +105,28 @@
   letter-spacing: 0.1em;
 }
 
+/* Per-tab "no rows" state. Sits inside `.tableInner` so it inherits
+ * the head's row-width gutter — the centered text reads as part of
+ * the table area rather than a floating overlay. Generous vertical
+ * padding gives it breathing room without forcing a fixed height
+ * (which would push the table head off-screen on a short viewport).
+ *
+ * `position: sticky; left: 0` pins the message to the viewport's
+ * left edge while horizontally scrolling — the table area is wider
+ * than the viewport on narrow screens, and a non-sticky message
+ * scrolls out of view with the rest of the table inner. */
+.emptyState {
+  position: sticky;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4.8rem 1.6rem;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--txt-3);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
