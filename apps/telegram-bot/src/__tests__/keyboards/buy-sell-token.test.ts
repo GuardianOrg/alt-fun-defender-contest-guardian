@@ -60,6 +60,42 @@ describe("buildBuyTokenKeyboard", () => {
   });
 });
 
+describe("3-column layout (issue: pack buy/sell card in rows of three)", () => {
+  it("buy keyboard packs 5 presets + custom into two rows of three, then Refresh, then Back/Home", () => {
+    const rows = buildBuyTokenKeyboard(TOKEN, [...DEFAULT_BUY_PRESETS_USDC]);
+    expect(rows).toHaveLength(4);
+    expect(rows[0]!.map((b) => b.text)).toEqual([
+      "Buy 20 USDC",
+      "Buy 40 USDC",
+      "Buy 60 USDC",
+    ]);
+    expect(rows[1]!.map((b) => b.text)).toEqual([
+      "Buy 80 USDC",
+      "Buy 100 USDC",
+      "Buy X USDC",
+    ]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+  });
+
+  it("sell keyboard packs 5 presets + custom into two rows of three, then Refresh, then Back/Home", () => {
+    const rows = buildSellTokenKeyboard(TOKEN, [...DEFAULT_SELL_PRESETS_PCT]);
+    expect(rows).toHaveLength(4);
+    expect(rows[0]!.map((b) => b.text)).toEqual([
+      "Sell 10%",
+      "Sell 25%",
+      "Sell 50%",
+    ]);
+    expect(rows[1]!.map((b) => b.text)).toEqual([
+      "Sell 75%",
+      "Sell 100%",
+      "Sell X%",
+    ]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+  });
+});
+
 describe("Back/Home row", () => {
   it("buy keyboard ends with a Back/Home row", () => {
     const rows = buildBuyTokenKeyboard(TOKEN, [...DEFAULT_BUY_PRESETS_USDC]);
