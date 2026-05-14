@@ -99,7 +99,8 @@ describe("/wallet command", () => {
       expect(keyboard.flat().map((b) => b.text)).toEqual([
         "Create",
         "Import",
-        "Close",
+        "← Back",
+        "🏠 Home",
       ]);
     });
 
@@ -134,7 +135,8 @@ describe("/wallet command", () => {
         "Delete",
         "Export key",
         "Withdraw",
-        "Close",
+        "← Back",
+        "🏠 Home",
       ]);
     });
 
@@ -206,15 +208,15 @@ describe("/wallet command", () => {
           inline_keyboard: { text: string; callback_data: string }[][];
         }
       ).inline_keyboard;
-      expect(keyboard).toHaveLength(4);
+      expect(keyboard).toHaveLength(3);
       expect(keyboard[0]?.[0]?.callback_data).toBe(
         `${WALLET_CALLBACK.switchTo}:${a.id}`,
       );
       expect(keyboard[1]?.[0]?.callback_data).toBe(
         `${WALLET_CALLBACK.switchTo}:${b.id}`,
       );
-      expect(keyboard[2]?.[0]?.callback_data).toBe(WALLET_CALLBACK.mainBack);
-      expect(keyboard[3]?.[0]?.text).toBe("Close");
+      expect(keyboard[2]?.[0]?.text).toBe("← Back");
+      expect(keyboard[2]?.[1]?.text).toBe("🏠 Home");
       expect(keyboard[0]?.[0]?.text).toMatch(/^\* /);
       expect(keyboard[1]?.[0]?.text).toMatch(/^ {2}/);
     });

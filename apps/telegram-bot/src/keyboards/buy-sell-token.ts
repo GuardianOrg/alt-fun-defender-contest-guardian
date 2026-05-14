@@ -1,7 +1,7 @@
 import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 
 import { encodeCallback } from "../lib/callbacks.js";
-import { closeButtonRow } from "../lib/close.js";
+import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /** Default 5-slot buy preset amounts (USDC) — issue #818. */
@@ -201,7 +201,7 @@ export const buildBuyTokenKeyboard = (
       callback_data: encodeCallback(BUY_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
-  closeButtonRow(),
+  backHomeRow(),
 ];
 
 export const buildSellTokenKeyboard = (
@@ -222,5 +222,5 @@ export const buildSellTokenKeyboard = (
       callback_data: encodeCallback(SELL_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
-  closeButtonRow(),
+  backHomeRow(),
 ];

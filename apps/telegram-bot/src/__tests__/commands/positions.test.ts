@@ -205,7 +205,8 @@ describe("/positions", () => {
     expect(row[0]!.callback_data).toBe(`pb:${TOKEN}`);
     expect(row[1]!.callback_data).toBe(`ps:${TOKEN}`);
     expect(markup.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual([
-      "Close",
+      "← Back",
+      "🏠 Home",
     ]);
   });
 
@@ -287,7 +288,7 @@ describe("/positions", () => {
     // Multiple per-position rows + a nav row + a trailing Close row.
     expect(markup.inline_keyboard.length).toBeGreaterThan(2);
     const closeRow = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
-    expect(closeRow.map((b) => b.text)).toEqual(["Close"]);
+    expect(closeRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
     const nav = markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);

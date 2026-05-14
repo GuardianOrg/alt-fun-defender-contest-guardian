@@ -24,6 +24,7 @@ import {
   parsePrivateKey,
   type StoredWallet,
 } from "../lib/wallet.js";
+import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -307,7 +308,7 @@ const runPinSetFlow = async (
   // burn `deleteMessage` calls on the eventual clear.
   const askMsg = await ctx.reply(
     wrap(ctx,
-      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions. Send /cancel to abort.",
+      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
     ),
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -328,7 +329,7 @@ const runPinSetFlow = async (
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "PIN must be exactly 6 digits. Send again or /cancel.",
+          "PIN must be exactly 6 digits. Send again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -357,7 +358,7 @@ const runPinSetFlow = async (
     if (text !== candidate) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "PINs do not match. Send the confirmation PIN again or /cancel.",
+          "PINs do not match. Send the confirmation PIN again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -371,7 +372,7 @@ const runPinSetFlow = async (
   );
   const finalAsk = await ctx.reply(
     wrap(ctx,
-      `PIN set. Send it once more to authorise the ${actionLabel}, or /cancel.`,
+      `PIN set. Send it once more to authorise the ${actionLabel}.`,
     ),
   );
   await trackWorkflowMessage(conversation, finalAsk.message_id);
@@ -395,7 +396,7 @@ const runPinVerifyFlow = async (
   if (pinAlreadySet) {
     const askMsg = await ctx.reply(
       wrap(ctx,
-        `Send your 6-digit PIN to authorise the ${actionLabel}, or /cancel.`,
+        `Send your 6-digit PIN to authorise the ${actionLabel}.`,
       ),
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -440,7 +441,7 @@ const runPinVerifyFlow = async (
     }
     const retry = await ctx.reply(
       wrap(ctx,
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -598,7 +599,7 @@ const importWalletConversation = async (
         "",
         "Your message is deleted from this chat the instant the bot reads it. The bot never stores the plaintext key — only an encrypted copy.",
         "",
-        "Send /cancel to abort.",
+        "Tap Home to exit.",
       ].join("\n"),
     ),
   );
@@ -629,7 +630,7 @@ const importWalletConversation = async (
     if (!parsed) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again or send /cancel.",
+          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -663,7 +664,7 @@ const importWalletConversation = async (
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
         wrap(ctx,
-          "That private key is invalid. Paste it again or send /cancel.",
+          "That private key is invalid. Paste it again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -771,7 +772,7 @@ const deleteWalletConversation = async (
 
   const confirmPrompt = await ctx.reply(
     wrap(ctx,
-      `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or /cancel.`,
+      `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or tap Home to exit.`,
     ),
   );
   await trackWorkflowMessage(conversation, confirmPrompt.message_id);
@@ -909,6 +910,11 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const active = await wm.getActive(ctx.from.id);
+    // Push the wallet-main snapshot so the global Back row on the
+    // switch picker pops back here. snapshotFromCallback reads the
+    // current message before we edit it.
+    const parent = snapshotFromCallback(ctx);
+    if (parent) pushNavSnapshot(ctx.session, parent);
     await safeEditMessageText(
       ctx,
       wrap(ctx, "Pick the wallet to use as active:"),
@@ -958,12 +964,6 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
     },
   );
-
-  bot.callbackQuery(WALLET_CALLBACK.mainBack, async (ctx) => {
-    if (!(await ensurePrivate(ctx))) return;
-    await editToMain(ctx);
-    await ctx.answerCallbackQuery();
-  });
 
   /**
    * Rename picker stub: in v1 we enter the conversation for the active

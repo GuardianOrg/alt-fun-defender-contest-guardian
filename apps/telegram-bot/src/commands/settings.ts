@@ -26,6 +26,7 @@ import {
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
 import { parseUserAmount } from "../lib/parse-number.js";
 import {
   sweepWorkflow,
@@ -191,7 +192,7 @@ const customSlippageConversation = async (
         `Quick presets: ${presetList}.`,
         `Max ${MAX_SLIPPAGE_BPS / 100}% — past that the trade lib rejects.`,
         "",
-        "Send /cancel to keep the current value.",
+        "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
   );
@@ -216,7 +217,7 @@ const customSlippageConversation = async (
     });
     if (pct === null) {
       const retry = await ctx.reply(
-        wrap(ctx, "Send a positive number like `2` or `0.5`, or /cancel."),
+        wrap(ctx, "Send a positive number like `2` or `0.5`."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -224,7 +225,7 @@ const customSlippageConversation = async (
     const bps = Math.round(pct * 100);
     if (bps < 1) {
       const retry = await ctx.reply(
-        wrap(ctx, "Slippage must be at least 0.01%. Send again or /cancel."),
+        wrap(ctx, "Slippage must be at least 0.01%. Send again."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -233,7 +234,7 @@ const customSlippageConversation = async (
       const retry = await ctx.reply(
         wrap(
           ctx,
-          `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value or /cancel.`,
+          `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value.`,
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -345,7 +346,7 @@ const buyPresetSlotConversation = async (
         "",
         `Send a USDC amount between $${MIN_USDC_BUY_AMOUNT} and $${MAX_BUY_PRESET_USDC}.`,
         "",
-        "Send /cancel to keep the current value.",
+        "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
   );
@@ -364,7 +365,7 @@ const buyPresetSlotConversation = async (
     const value = parseUserAmount(text, { max: MAX_BUY_PRESET_USDC });
     if (value === null) {
       const retry = await ctx.reply(
-        wrap(ctx, "Send a positive USDC amount like `50`, or /cancel."),
+        wrap(ctx, "Send a positive USDC amount like `50`."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -373,7 +374,7 @@ const buyPresetSlotConversation = async (
       const retry = await ctx.reply(
         wrap(
           ctx,
-          `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value or /cancel.`,
+          `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value.`,
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -383,7 +384,7 @@ const buyPresetSlotConversation = async (
       const retry = await ctx.reply(
         wrap(
           ctx,
-          `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value or /cancel.`,
+          `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value.`,
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -460,7 +461,7 @@ const sellPresetSlotConversation = async (
         "",
         "Send a percent between 1 and 100.",
         "",
-        "Send /cancel to keep the current value.",
+        "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
   );
@@ -479,7 +480,7 @@ const sellPresetSlotConversation = async (
     const value = parseUserAmount(text.replace(/%/g, ""), { max: 100 });
     if (value === null) {
       const retry = await ctx.reply(
-        wrap(ctx, "Send a number between 1 and 100, or /cancel."),
+        wrap(ctx, "Send a number between 1 and 100."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -487,7 +488,7 @@ const sellPresetSlotConversation = async (
     const rounded = Math.round(value);
     if (rounded < 1 || rounded > 100) {
       const retry = await ctx.reply(
-        wrap(ctx, "Percent must be between 1 and 100. Send again or /cancel."),
+        wrap(ctx, "Percent must be between 1 and 100. Send again."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -625,6 +626,8 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const parent = snapshotFromCallback(ctx);
+    if (parent) pushNavSnapshot(ctx.session, parent);
     await editToState(ctx, renderBuyState(ctx));
     await ctx.answerCallbackQuery();
   });
@@ -635,17 +638,9 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const parent = snapshotFromCallback(ctx);
+    if (parent) pushNavSnapshot(ctx.session, parent);
     await editToState(ctx, renderSellState(ctx));
-    await ctx.answerCallbackQuery();
-  });
-
-  bot.callbackQuery(SETTINGS_CALLBACK.back, async (ctx) => {
-    if (!ctx.from) {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    if (!(await ensurePrivate(ctx))) return;
-    await editToState(ctx, renderMainState(ctx));
     await ctx.answerCallbackQuery();
   });
 

@@ -573,6 +573,23 @@ No keeper or broadcast Durable Objects in v1. Snipe / copy / alert features that
 
 ---
 
+## Navigation Model — Back / Home (no `/cancel`)
+
+Every system-prompt message the bot sends (wallet panel, settings panel, security panel, referral card, positions card, track card, buy card, sell card, settings sub-menus, wallet switch picker — every reply with an inline keyboard) carries a trailing `[← Back] [🏠 Home]` row built by `backHomeRow()` in `lib/nav.ts`. The `/start` welcome view is the **single exception**: it is the home screen and has nowhere to back out to, so its keyboard never carries the row.
+
+The two callbacks are wired globally by `registerNavCallbacks(bot, renderStart)` in `lib/nav.ts`:
+
+- **Back (`nav:b`)** — pops the most recent snapshot off `session.navStack` and edits the current message back to that view. With an empty stack it degrades to Home. Before either path runs, any in-flight conversation is aborted via `ctx.conversation.exitAll()`, so wizards (PIN entry, withdraw, rewards-wallet change, custom-slippage prompt, etc.) exit cleanly when the user taps Back on the prompt's parent menu.
+- **Home (`nav:h`)** — clears `session.navStack`, aborts in-flight conversations, and edits the current message to a fresh `/start` view (rendered via `buildStartSnapshot` so the welcome card, address, and balances match a `/start` invocation exactly).
+
+`session.navStack` is a cap-`MAX_NAV_STACK` (=10) array of `NavSnapshot` records (`{ text, parseMode?, keyboard, linkPreviewDisabled? }`). Handlers that navigate **forward** into a sub-screen call `pushNavSnapshot(session, snapshotFromCallback(ctx))` *before* editing the message — `snapshotFromCallback` reads the current text + reply_markup off `ctx.callbackQuery.message` so no caller has to re-render the parent to capture it. Photo messages (chart cards) return `null` from `snapshotFromCallback`: those screens cannot be restored via `editMessageText`, so Back from a deeper view degrades to Home for them, which is correct.
+
+**There is no `/cancel` text command in v1.** Earlier wizard prompts told the user to "send /cancel to abort"; that copy is gone, replaced with "Tap Home to exit." The legacy `isCancel` helpers in `commands/{security,referral,withdraw,wallet,settings}.ts` are retained as a compatibility fallback — typing `/cancel` still exits a conversation — but no surface advertises it. New wizards must not introduce a `/cancel` text path; they rely on the global Back / Home callbacks on the parent menu's keyboard (which remains tappable while the wizard awaits text).
+
+When designing a new system-prompt keyboard, always end it with `backHomeRow()` from `lib/nav.ts` and never with a bespoke "← Back" or "Close" row. The single exception (start menu) is enforced by convention — there is no lint rule.
+
+---
+
 ## Telegram Platform Constraints
 
 These are non-obvious Telegram API limits that will cause silent failures if ignored.
@@ -878,7 +895,7 @@ src/
 - Tapping a preset slippage button (`set:slip<bps>`) persists the new `slippageBps` on the session and the panel edit reflects the new value
 - A malformed `set:slip…` callback payload (no integer) is a no-op — session unchanged, no crash
 - Degen-mode toggle flips `session.degenMode` off on the first tap (starting from the on-by-default state) and back on on the second; both branches surface the matching toast
-- Custom-slippage wizard accepts decimal percent input (e.g. `2.5` → `250` bps), capped at 50% (`100` rejected with "capped at 50%" copy), rejects non-numeric input, and `/cancel` exits without touching the session
+- Custom-slippage wizard accepts decimal percent input (e.g. `2.5` → `250` bps), capped at 50% (`100` rejected with "capped at 50%" copy), rejects non-numeric input, and tapping Back / Home on the parent /settings panel exits without touching the session
 - [Buy Settings] sub-menu renders one `✏️ N USDC` button per slot (5 slots); editing slot 0 persists into `session.buyPresetsUsdc[0]` and mirrors into `session.defaultBuyUsdc`; editing a non-zero slot leaves `defaultBuyUsdc` alone; entries below `MIN_USDC_BUY_AMOUNT` are rejected with the minimum-buy copy and the session is unchanged
 - [Sell Settings] sub-menu renders one `✏️ N%` button per slot (5 slots); editing any slot persists into `session.sellPresetsPct[idx]`; entries outside `[1, 100]` are rejected and the session is unchanged
 - [← Back] returns the sub-menu to the main /settings panel without re-sending the message

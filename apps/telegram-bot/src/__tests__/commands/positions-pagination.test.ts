@@ -148,7 +148,7 @@ describe("pp callback (positions pagination)", () => {
     const rows = body.reply_markup.inline_keyboard;
     expect(rows.length).toBeGreaterThan(2);
     // Last row is Close, second-to-last is the nav row.
-    expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual(["Close"]);
+    expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
     const nav = rows[rows.length - 2]!;
     const navTexts = nav.map((b) => b.text);
     expect(navTexts).toContain("← Prev");
@@ -198,7 +198,7 @@ describe("pp callback (positions pagination)", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
     expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Close"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {

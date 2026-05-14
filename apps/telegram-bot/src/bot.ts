@@ -8,8 +8,8 @@ import {
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
 import { registerAddressBuyIntercept } from "./lib/buy-card.js";
-import { registerCloseCallback } from "./lib/close.js";
 import { logger } from "./lib/logger.js";
+import { registerNavCallbacks } from "./lib/nav.js";
 import { registerBuyCommand } from "./commands/buy.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
@@ -17,7 +17,7 @@ import { registerReferralCommand } from "./commands/referral.js";
 import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerSettingsCommand } from "./commands/settings.js";
-import { registerStartCommand } from "./commands/start.js";
+import { buildStartSnapshot, registerStartCommand } from "./commands/start.js";
 import { registerTrackCommand } from "./commands/track.js";
 import { registerWalletCommand } from "./commands/wallet.js";
 import { registerWithdrawCommand } from "./commands/withdraw.js";
@@ -94,6 +94,14 @@ export interface SessionData {
    * command, and on successful completion. See `lib/workflow-stack.ts`.
    */
   workflowMessages?: { chatId: number; messageId: number }[];
+  /**
+   * Navigation stack of message snapshots used to power the global
+   * `[← Back]` / `[🏠 Home]` row that lives on every system prompt
+   * except `/start`. Each entry captures the text + inline keyboard
+   * the user was last looking at; tapping Back pops one and edits the
+   * current message back to that state. See `lib/nav.ts`.
+   */
+  navStack?: import("./lib/nav.js").NavSnapshot[];
 }
 
 /**
@@ -230,7 +238,7 @@ export const createBot = (
     }),
   );
 
-  registerCloseCallback(bot);
+  registerNavCallbacks(bot, async (ctx) => buildStartSnapshot(ctx));
   registerHelpCommand(bot);
   registerStartCommand(bot);
   registerBuyCommand(bot);

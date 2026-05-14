@@ -18,7 +18,7 @@ import {
   type BotReferralStats,
 } from "../lib/api.js";
 import { BOT_NAME } from "../lib/branding.js";
-import { closeButtonRow } from "../lib/close.js";
+import { backHomeRow } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { PinManager } from "../lib/pin.js";
@@ -173,7 +173,7 @@ const buildKeyboard = (): ReferralView["reply_markup"] => ({
         callback_data: REFERRAL_CALLBACK.changeRewardsWallet,
       },
     ],
-    closeButtonRow(),
+    backHomeRow(),
   ],
 });
 
@@ -251,7 +251,7 @@ const REWARDS_WALLET_WARNING = [
   "",
   "Set the new wallet to a long-lived address you control (hardware wallet or main custodial wallet) — avoid exchange deposit addresses or rotating addresses.",
   "",
-  "Send the new rewards wallet address (0x-prefixed, 40 hex chars), or /cancel.",
+  "Send the new rewards wallet address (0x-prefixed, 40 hex chars).",
 ].join("\n");
 
 const isCancel = (text: string): boolean => text.trim() === "/cancel";
@@ -312,7 +312,7 @@ const runPinGate = async (
   if (!pinAlreadySet) {
     const askMsg = await ctx.reply(
       wrap(ctx,
-        "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes, or /cancel.",
+        "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
       ),
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -332,7 +332,7 @@ const runPinGate = async (
       if (!PinManager.isValidPinFormat(text)) {
         const retry = await ctx.reply(
           wrap(ctx,
-            "PIN must be exactly 6 digits. Send again or /cancel.",
+            "PIN must be exactly 6 digits. Send again.",
           ),
         );
         await trackWorkflowMessage(conversation, retry.message_id);
@@ -359,7 +359,7 @@ const runPinGate = async (
       if (text !== candidate) {
         const retry = await ctx.reply(
           wrap(ctx,
-            "PINs do not match. Send the confirmation PIN again or /cancel.",
+            "PINs do not match. Send the confirmation PIN again.",
           ),
         );
         await trackWorkflowMessage(conversation, retry.message_id);
@@ -376,7 +376,7 @@ const runPinGate = async (
 
   const askMsg = await ctx.reply(
     wrap(ctx,
-      "Send your 6-digit PIN to authorise the rewards-wallet change, or /cancel.",
+      "Send your 6-digit PIN to authorise the rewards-wallet change.",
     ),
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -418,7 +418,7 @@ const runPinGate = async (
     }
     const retry = await ctx.reply(
       wrap(ctx,
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -480,7 +480,7 @@ const changeRewardsWalletConversation = async (
     if (!isAddress(text, { strict: false })) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address, or /cancel.",
+          "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -498,7 +498,7 @@ const changeRewardsWalletConversation = async (
             "⚠️ That address is a known burn / null address.",
             "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
             "",
-            "Send 'confirm' to proceed anyway, /cancel to abort, or send a different address.",
+            "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
           ].join("\n"),
         ),
       );
@@ -520,7 +520,7 @@ const changeRewardsWalletConversation = async (
         if (!isAddress(confirmText, { strict: false })) {
           const retry = await ctx.reply(
             wrap(ctx,
-              "Aborted. Send 'confirm', /cancel, or a new 0x-prefixed address.",
+              "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
             ),
           );
           await trackWorkflowMessage(conversation, retry.message_id);
@@ -530,7 +530,7 @@ const changeRewardsWalletConversation = async (
         if (isKnownBurnAddress(next)) {
           const retry = await ctx.reply(
             wrap(ctx,
-              "That's still a known burn address. Send 'confirm' to proceed, /cancel to abort, or a different address.",
+              "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
             ),
           );
           await trackWorkflowMessage(conversation, retry.message_id);

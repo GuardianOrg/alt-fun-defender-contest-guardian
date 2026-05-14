@@ -357,10 +357,10 @@ describe("buildPositionsPageKeyboard", () => {
   const TOKEN_A = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const TOKEN_B = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
-  it("returns a Close-only keyboard when there are no open actions and only one page", () => {
+  it("returns a Back/Home-only keyboard when there are no open actions and only one page", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, []);
     expect(kb.inline_keyboard).toEqual([
-      [{ text: "Close", callback_data: "cls" }],
+      [{ text: "← Back", callback_data: "nav:b" }, { text: "🏠 Home", callback_data: "nav:h" }],
     ]);
   });
 
@@ -380,7 +380,7 @@ describe("buildPositionsPageKeyboard", () => {
       `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
     );
     expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["Close"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
@@ -406,7 +406,7 @@ describe("buildPositionsPageKeyboard", () => {
     expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,
     );
-    expect(rows.at(-1)!.map((b) => b.text)).toEqual(["Close"]);
+    expect(rows.at(-1)!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("middle page: emits [← Prev] and [Next →] with correct target indices", () => {
@@ -419,14 +419,14 @@ describe("buildPositionsPageKeyboard", () => {
     expect(nav[1]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:2:${WALLET}`,
     );
-    expect(kb.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual(["Close"]);
+    expect(kb.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("last page: emits only [← Prev]", () => {
     const kb = buildPositionsPageKeyboard(2, 3, WALLET, []);
     const nav = kb.inline_keyboard[0]!;
     expect(nav.map((b) => b.text)).toEqual(["← Prev"]);
-    expect(kb.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual(["Close"]);
+    expect(kb.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("every callback_data stays inside the 64-byte Telegram ceiling", () => {

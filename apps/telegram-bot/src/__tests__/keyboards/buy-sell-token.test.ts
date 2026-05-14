@@ -60,19 +60,21 @@ describe("buildBuyTokenKeyboard", () => {
   });
 });
 
-describe("Close row", () => {
-  it("buy keyboard ends with a Close row", () => {
+describe("Back/Home row", () => {
+  it("buy keyboard ends with a Back/Home row", () => {
     const rows = buildBuyTokenKeyboard(TOKEN, [...DEFAULT_BUY_PRESETS_USDC]);
     const last = rows[rows.length - 1]!;
-    expect(last.map((b) => b.text)).toEqual(["Close"]);
-    expect((last[0] as { callback_data: string }).callback_data).toBe("cls");
+    expect(last.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect((last[0] as { callback_data: string }).callback_data).toBe("nav:b");
+    expect((last[1] as { callback_data: string }).callback_data).toBe("nav:h");
   });
 
-  it("sell keyboard ends with a Close row", () => {
+  it("sell keyboard ends with a Back/Home row", () => {
     const rows = buildSellTokenKeyboard(TOKEN, [...DEFAULT_SELL_PRESETS_PCT]);
     const last = rows[rows.length - 1]!;
-    expect(last.map((b) => b.text)).toEqual(["Close"]);
-    expect((last[0] as { callback_data: string }).callback_data).toBe("cls");
+    expect(last.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect((last[0] as { callback_data: string }).callback_data).toBe("nav:b");
+    expect((last[1] as { callback_data: string }).callback_data).toBe("nav:h");
   });
 });
 

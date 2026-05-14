@@ -100,6 +100,44 @@ const renderStart = async (
 });
 
 /**
+ * Build the /start snapshot for the nav system without sending or
+ * editing any message. Used by `lib/nav.ts` to handle Home and the
+ * empty-stack Back fallback — both must restore the same view a fresh
+ * `/start` would produce. Returns `null` when there's no active wallet
+ * to surface (caller falls back to a toast).
+ */
+export const buildStartSnapshot = async (
+  ctx: AppContext,
+): Promise<{
+  text: string;
+  parseMode: "HTML";
+  keyboard: ReturnType<typeof buildStartMenuKeyboard>;
+  linkPreviewDisabled: true;
+} | null> => {
+  if (!ctx.from) return null;
+  const wm = buildManager(ctx.env);
+  const active = await wm.getActive(ctx.from.id);
+  if (!active) return null;
+  const [usdcBalance, hypeBalance] = await Promise.all([
+    fetchUsdcBalance(ctx.env, active.address),
+    fetchNativeBalance(ctx.env, active.address),
+  ]);
+  const rendered = await renderStart(
+    ctx.env,
+    active.address,
+    usdcBalance,
+    hypeBalance,
+    ctxAntiPhishingPhrase(ctx),
+  );
+  return {
+    text: rendered.text,
+    parseMode: rendered.parse_mode,
+    keyboard: rendered.reply_markup.inline_keyboard,
+    linkPreviewDisabled: true,
+  };
+};
+
+/**
  * Resolve the user's active wallet address, auto-creating the first
  * wallet if the user has none. Returns `null` only when wallet
  * creation throws — the cap branch can't trigger here because we
