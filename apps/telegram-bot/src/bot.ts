@@ -9,7 +9,10 @@ import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
 import { registerAddressBuyIntercept } from "./lib/buy-card.js";
 import { logger } from "./lib/logger.js";
-import { registerNavCallbacks } from "./lib/nav.js";
+import {
+  registerNavCallbacks,
+  registerStartMenuConversationEscape,
+} from "./lib/nav.js";
 import { registerBuyCommand } from "./commands/buy.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
@@ -249,6 +252,10 @@ export const createBot = (
   );
 
   registerNavCallbacks(bot, async (ctx) => buildStartSnapshot(ctx));
+  // Must run BEFORE any createConversation middleware (installed
+  // inside the `register*Command` modules below) so an in-flight
+  // wizard can't swallow a tap on an older `/start` menu's button.
+  registerStartMenuConversationEscape(bot);
   registerHelpCommand(bot);
   registerStartCommand(bot);
   registerBuyCommand(bot);
