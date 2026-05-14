@@ -11,6 +11,15 @@
  * needing a per-site size variant. */
 .pill {
   position: relative;
+  /* `isolation: isolate` forms a local stacking context so the
+   * `::after` shimmer's `z-index: 2` (see below) is scoped to the
+   * pill rather than computed against the page root. Without this,
+   * the shimmer renders above the sticky terminal-table header
+   * (`.tableHead` in `TokenTable.module.css`, `z-index: 1`) as a
+   * graduated row scrolls under it — the pill's `position: relative`
+   * alone doesn't create a stacking context. Same idiom used in
+   * `AssetTape` and `VanityEffect`. */
+  isolation: isolate;
   overflow: hidden;
   display: inline-flex;
   align-items: center;
