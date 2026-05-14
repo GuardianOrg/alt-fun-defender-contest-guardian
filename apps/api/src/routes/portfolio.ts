@@ -1,36 +1,26 @@
 import { Hono } from "hono";
 import { isAddress } from "viem";
 
+import { createDb } from "../db/client.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { fetchPortfolioPositions } from "../lib/indexer-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const portfolio = new Hono<{ Bindings: AppBindings }>();
 
-interface PonderTokenBalance {
-  tokenAddress: string;
-  balance: string;
-}
-
-interface PonderWalletPosition {
-  tokenAddress: string;
-  costBasisUsdc: string;
-}
-
-const PORTFOLIO_PAGE_SIZE = 1000;
-
 /**
- * Wallet positions. Sourced from the indexer's `tokenBalance` index (one row
- * per ERC-20 Transfer, including non-Zap activity) joined against the
- * `walletPosition` table for cost basis. Replaces the previous implementation
- * which paginated up to 20K trades per request to recompute both fields in
- * memory (issue #397).
+ * Wallet positions. Now sourced via a direct SQL LEFT JOIN between the
+ * indexer's `ponder_prod.token_balance` (one row per ERC-20 Transfer,
+ * including non-Zap activity) and `ponder_prod.wallet_position` (Zap-only
+ * cost basis). One Postgres round-trip on the same Neon connection the API
+ * already uses — replaces the legacy two-GraphQL-query Ponder hit and the
+ * "paginate up to 20K trades" implementation before that (issue #397).
  *
- * - `tokenBalance` reflects the wallet's true on-chain holdings — direct
+ * - `token_balance` reflects the wallet's true on-chain holdings — direct
  *   transfers, airdrops, and Zap-mediated buys/sells all contribute.
- * - `walletPosition` is Zap-only and tracks proportional cost basis.
+ * - `wallet_position` is Zap-only and tracks proportional cost basis.
  *   Wallets that received tokens via direct Transfer correctly show a
  *   non-zero balance with zero cost basis.
  *
@@ -45,69 +35,26 @@ portfolio.get("/:wallet", async (c) => {
   }
   const wallet = rawWallet.toLowerCase();
 
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+  const db = createDb(c.env.DATABASE_URL);
+  const result = await fetchPortfolioPositions(db, wallet);
 
-  const data = await queryPonder<{
-    tokenBalances: { items: PonderTokenBalance[] } | null;
-    walletPositions: { items: PonderWalletPosition[] } | null;
-  }>(
-    `query ($wallet: String!, $limit: Int!) {
-      tokenBalances(
-        where: { wallet: $wallet, balance_gt: "0" }
-        limit: $limit
-      ) {
-        items {
-          tokenAddress
-          balance
-        }
-      }
-      walletPositions(where: { wallet: $wallet }, limit: $limit) {
-        items {
-          tokenAddress
-          costBasisUsdc
-        }
-      }
-    }`,
-    { wallet, limit: PORTFOLIO_PAGE_SIZE },
-  );
-
-  if (data === null) {
+  if (result === null) {
     return c.json(
       formatError("Indexer unavailable — portfolio data cannot be loaded"),
       503,
     );
   }
 
-  const balances = data.tokenBalances?.items ?? [];
-  const positionRows = data.walletPositions?.items ?? [];
-
-  // Index cost basis by token address so the join below is O(1).
-  const costBasisByToken = new Map<string, string>();
-  for (const p of positionRows) {
-    costBasisByToken.set(p.tokenAddress.toLowerCase(), p.costBasisUsdc);
-  }
-
-  const positions = balances
-    .filter((b) => BigInt(b.balance) > 0n)
-    .map((b) => ({
-      tokenAddress: b.tokenAddress,
-      tokenAmount: b.balance,
-      costBasisUsdc: costBasisByToken.get(b.tokenAddress.toLowerCase()) ?? "0",
-    }));
-
-  // Truncated only when we hit the page-size ceiling. Positions are tied to
-  // unique tokens, so this caps at "wallet holds 1000+ distinct tokens" — a
-  // degenerate case the indexer can serve fully but isn't worth fanning out
-  // for in the API layer.
-  const truncated =
-    balances.length === PORTFOLIO_PAGE_SIZE ||
-    positionRows.length === PORTFOLIO_PAGE_SIZE;
-
   c.header(
     "Cache-Control",
     "public, s-maxage=15, stale-while-revalidate=30",
   );
-  return c.json(formatSuccess({ positions, approximate: truncated }));
+  return c.json(
+    formatSuccess({
+      positions: result.positions,
+      approximate: result.truncated,
+    }),
+  );
 });
 
 export default portfolio;

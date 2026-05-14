@@ -279,24 +279,57 @@ async function runTests() {
     assert(res.status === 400, `Expected 400, got ${res.status}`);
   });
 
-  console.log("\n--- Ponder degradation ---\n");
+  console.log("\n--- Ponder process down (indexer routes read direct from Postgres) ---\n");
 
-  await test("GET /api/v1/trades returns 503 without indexer", async () => {
-    const { res } = await fetchJson("/api/v1/trades?limit=5");
-    assert(res.status === 503, `Expected 503, got ${res.status}`);
+  // After the GraphQL → direct-SQL migration, /trades, /stats, /holders, and
+  // /portfolio read `ponder_prod.*` straight from Neon — they do NOT depend
+  // on the Ponder process being reachable. So with no Ponder running we
+  // still expect 200s from this set, sourced from whatever rows the shared
+  // Postgres holds. This is a deliberate resilience improvement: the API
+  // stays up under Ponder outages as long as Neon is up.
+
+  await test("GET /api/v1/trades serves from Postgres without Ponder", async () => {
+    const { res, body } = await fetchJson("/api/v1/trades?limit=5");
+    assert(res.status === 200, `Expected 200, got ${res.status}`);
+    assert(Array.isArray(body.data), "Expected `data` to be an array");
   });
 
-  await test("GET /api/v1/stats returns degraded data", async () => {
+  await test("GET /api/v1/stats serves live counters without Ponder", async () => {
     const { res, body } = await fetchJson("/api/v1/stats");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert("totalTokens" in body.data, "Missing totalTokens");
-    assert(body.dataSource === "degraded", `Expected degraded, got ${body.dataSource}`);
+    // Direct SQL — `dataSource` should now be "live" since Postgres is
+    // reachable. A `degraded` reply would mean the indexer-side read
+    // failed (the very thing this PR was meant to eliminate).
+    assert(
+      body.dataSource === "live",
+      `Expected live (direct-SQL path), got ${body.dataSource}`,
+    );
   });
 
-  await test("GET /api/v1/holders/:address returns 503", async () => {
+  await test("GET /api/v1/holders/:address serves from Postgres without Ponder", async () => {
     if (!discoveredToken) skip("DB has no tokens");
-    const { res } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
-    assert(res.status === 503, `Expected 503, got ${res.status}`);
+    const { res, body } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
+    assert(res.status === 200, `Expected 200, got ${res.status}`);
+    assert(Array.isArray(body.data.holders), "Expected `holders` to be an array");
+    assert(
+      typeof body.data.totalHolders === "number",
+      "Expected `totalHolders` to be a number",
+    );
+  });
+
+  await test("GET /api/v1/portfolio/:wallet serves from Postgres without Ponder", async () => {
+    // Use the zero address as a sentinel wallet — every running indexer
+    // has zero rows for it, so we get a stable empty-positions response
+    // without needing to discover a real holder.
+    const { res, body } = await fetchJson(
+      "/api/v1/portfolio/0x0000000000000000000000000000000000000001",
+    );
+    assert(res.status === 200, `Expected 200, got ${res.status}`);
+    assert(
+      Array.isArray(body.data.positions),
+      "Expected `positions` to be an array",
+    );
   });
 
   await test("GET /api/v1/security/:address returns fallback", async () => {

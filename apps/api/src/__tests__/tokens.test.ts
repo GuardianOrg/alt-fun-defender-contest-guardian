@@ -21,12 +21,42 @@ vi.mock("../db/client.js", () => ({
   createDb: () => mockDb,
 }));
 
-// --- Ponder mock ---
+// --- Indexer-reads mock (replaces the legacy Ponder GraphQL mocks) ---
+//
+// The detail tests below were originally written against `createPonderQuery`
+// / `createPonderPaginatedQuery`, which the route used to call once for the
+// `token(address)` lookup and again for the aliased `tokenSnapshots(...)`
+// historical-curve fetch. After the GraphQL → direct-SQL migration those
+// two paths land on `fetchTokenOnchain` / `fetchHistoricalCurveSnapshots` /
+// `fetchRouterTradeActivity` instead.
+//
+// `mockPonderQuery` is kept as the underlying queue-of-values so the existing
+// `mockResolvedValueOnce(...)` setups in each test continue to work without
+// being rewritten. The adapters below translate the legacy GraphQL shapes
+// (`{ token: ... }` and `{ t0: { items: [] } }`) into the indexer-reads
+// return contract; the third upstream the route fires now
+// (`fetchRouterTradeActivity`) returns an empty activity map by default
+// since none of these tests exercise the 24h-volume path.
 const mockPonderQuery = vi.fn();
-const mockPonderPaginatedQuery = vi.fn();
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
-  createPonderPaginatedQuery: () => mockPonderPaginatedQuery,
+
+vi.mock("../lib/indexer-reads.js", () => ({
+  fetchTokenOnchain: async () => {
+    const result = await mockPonderQuery();
+    if (result === null) return "unavailable";
+    return result?.token ?? null;
+  },
+  fetchHistoricalCurveSnapshots: async (_db: unknown, addrs: string[]) => {
+    const result = await mockPonderQuery();
+    if (result === null) return null;
+    const map = new Map<string, unknown>();
+    for (const a of addrs) map.set(a.toLowerCase(), null);
+    return map;
+  },
+  fetchRouterTradeActivity: async () => new Map(),
+  fetchTokensOnchainByAddresses: async () => [],
+  fetchGraduatedTokensOnchain: async () => [],
+  fetchNonGraduatedTokensOnchain: async () => [],
+  fetchTrendingCandidateAddresses: async () => [],
 }));
 
 // --- BounceTech DB mock ---

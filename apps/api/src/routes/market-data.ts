@@ -88,7 +88,7 @@ marketData.post("/", async (c) => {
   }
 
   const result = await computeMarketDataForAddresses(
-    c.env.PONDER_URL,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     addresses,
   );
@@ -112,7 +112,7 @@ marketData.get("/:address", async (c) => {
   }
 
   const result = await computeMarketDataSingle(
-    c.env.PONDER_URL,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     address,
   );

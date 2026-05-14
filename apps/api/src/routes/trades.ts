@@ -1,47 +1,49 @@
 import { Hono } from "hono";
 import { isAddress } from "viem";
 
+import { createDb } from "../db/client.js";
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
-import { createPonderQuery, createPonderPaginatedQuery } from "../lib/ponder-client.js";
+import {
+  checkIndexerHealth,
+  fetchRouterTrades,
+  fetchTokenLabels,
+} from "../lib/indexer-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
-import type {
-  ApiTradeWithLabels,
-  PonderRouterTrade,
-} from "../lib/ponder-types.js";
+import type { ApiTradeWithLabels } from "./../lib/ponder-types.js";
 
 /**
- * Trade endpoints are polled hard by the frontend — the global feed at
- * 15s when the WS is connected (3s otherwise) and per-token at 15/5s —
- * so they're the single biggest contributor to the per-IP rate-limit
- * draw for shared-WiFi users (issue #549). Historical pages
- * (`offset > 0`) are stable — once a trade lands at position 50+ it
- * never moves or disappears — so caching them is a pure win and absorbs
- * the bulk of shared-IP polling traffic.
+ * Trade endpoints are polled hard by the frontend — the global feed at 15s
+ * when the WS is connected (3s otherwise) and per-token at 15/5s — so
+ * they're the single biggest contributor to the per-IP rate-limit draw for
+ * shared-WiFi users (issue #549). Historical pages (`offset > 0`) are stable
+ * — once a trade lands at position 50+ it never moves or disappears — so
+ * caching them is a pure win and absorbs the bulk of shared-IP polling
+ * traffic.
  *
  * The "live tail" (`offset === 0`) is treated separately by
- * `shouldBypassCache` below: we deliberately skip the cache for it
- * because the WS broadcast races the Ponder GraphQL checkpoint. The
- * indexer's Zap event handler fires the broadcast HTTP POST inside the
- * same tx that inserts the `routerTrade` row, then returns; Ponder
- * commits the tx (and exposes the row via GraphQL) afterwards. The WS
- * message therefore reaches the client *before* the trade is queryable,
- * so any `offset=0` request served from a cache that was populated
- * immediately before the trade landed returns a stale window — the row
- * the user just saw flash in the feed is missing on the next refresh.
- * Skipping cache for `offset=0` closes that race.
+ * `shouldBypassCache` below: we deliberately skip the cache for it because
+ * the WS broadcast races the indexer's transaction commit. The indexer's
+ * Zap event handler fires the broadcast HTTP POST inside the same tx that
+ * inserts the `router_trade` row, then returns; the indexer commits the tx
+ * (and exposes the row via the read path) afterwards. The WS message
+ * therefore reaches the client *before* the trade is queryable, so any
+ * `offset=0` request served from a cache that was populated immediately
+ * before the trade landed returns a stale window — the row the user just
+ * saw flash in the feed is missing on the next refresh. Skipping cache for
+ * `offset=0` closes that race.
  */
 const TRADES_CACHE_TTL_SECONDS = 5;
 
 /**
  * Whether the request should bypass the edge cache. The live-tail
- * (`offset === 0`) page is fetched on every poll + every page refresh
- * and is exactly where the WS-vs-GraphQL-checkpoint race produces
- * user-visible staleness ("my trade flashed in the feed, then
- * disappeared on refresh"). Historical pages (`offset > 0`) are
- * append-only — they describe rows that are already deep in history —
- * so they remain cached at `TRADES_CACHE_TTL_SECONDS`.
+ * (`offset === 0`) page is fetched on every poll + every page refresh and is
+ * exactly where the WS-vs-read-checkpoint race produces user-visible
+ * staleness ("my trade flashed in the feed, then disappeared on refresh").
+ * Historical pages (`offset > 0`) are append-only — they describe rows that
+ * are already deep in history — so they remain cached at
+ * `TRADES_CACHE_TTL_SECONDS`.
  */
 function shouldBypassCache(offset: number): boolean {
   return offset === 0;
@@ -63,10 +65,9 @@ function getCache(): Cache | undefined {
  * Strip blank-after-trim values so the client doesn't cache the empty
  * placeholder labels written by `Factory:PairCreated` before
  * `Bonding:TokenLaunched` overwrites them. Mirrors the
- * `tokenLabelOrUndefined` helper on the indexer side (see
- * `apps/indexer/src/bonding.ts`) — kept duplicated rather than shared
- * because the indexer and API don't have a sensible shared package and
- * the function is one branch on a trimmed string.
+ * `tokenLabelOrUndefined` helper on the indexer side — kept duplicated
+ * rather than shared because the indexer and API don't have a sensible
+ * shared package and the function is one branch on a trimmed string.
  */
 function nonBlankOrUndefined(label: string | null | undefined): string | undefined {
   if (!label) return undefined;
@@ -74,85 +75,51 @@ function nonBlankOrUndefined(label: string | null | undefined): string | undefin
   return trimmed === "" ? undefined : trimmed;
 }
 
-/** Per-batch cap on the secondary `tokens(address_in: ...)` query. The
- *  primary `routerTrades` query is already capped at 100 (see `/`
- *  endpoint below); de-duping by `tokenAddress` collapses that further,
- *  so 100 is a safe ceiling even for a feed full of unique tokens.  */
-const TOKEN_LABEL_BATCH_SIZE = 100;
-
-interface PonderTokenLabel {
-  address: string;
-  name: string;
-  symbol: string;
+interface RawTrade {
+  id: string;
+  tokenAddress: string;
+  trader: string;
+  isBuy: boolean;
+  usdcAmount: string;
+  tokenAmount: string;
+  blockNumber: string;
+  timestamp: string;
 }
 
 /**
- * Enrich a list of `routerTrade` items with the corresponding token's
- * display labels (`tokenSymbol` / `tokenName`) by batching a single
- * Ponder `tokens(where: { address_in: ... })` query for every unique
- * `tokenAddress` in the batch. Returns the same items shape with the
- * two optional fields populated (or omitted when the indexer briefly
- * holds a blank-label placeholder row).
+ * Enrich a list of `router_trade` rows with the corresponding token's
+ * display labels (`tokenSymbol` / `tokenName`) by issuing a single
+ * `SELECT … WHERE address IN (...)` against `ponder_prod.token` for the
+ * unique addresses in the batch.
  *
- * Failure-mode: if the secondary lookup fails (Ponder transient
- * degradation, or none of the addresses resolve), the trades are
- * returned with the labels left undefined — the web client falls back
- * through its existing `prefetchTokenName` healer, so a degraded
- * label fetch never blocks the trade feed.
+ * Failure-mode: when the label fetch fails, the trades are returned with
+ * the labels left undefined — the web client falls back through its
+ * existing `prefetchTokenName` healer, so a degraded label fetch never
+ * blocks the trade feed.
  */
 async function enrichTradesWithTokenLabels(
-  trades: PonderRouterTrade[],
-  ponderUrl: string,
+  rows: RawTrade[],
+  db: ReturnType<typeof createDb>,
 ): Promise<ApiTradeWithLabels[]> {
-  if (trades.length === 0) return [];
+  if (rows.length === 0) return [];
 
   const uniqueAddresses = Array.from(
-    new Set(trades.map((t) => t.tokenAddress.toLowerCase())),
+    new Set(rows.map((r) => r.tokenAddress.toLowerCase())),
   );
 
-  const labelMap = new Map<string, { name?: string; symbol?: string }>();
+  const labelMap = await fetchTokenLabels(db, uniqueAddresses);
 
-  // Chunk the address list so we never exceed the batch cap. The
-  // primary trades query is already <=100 so this typically runs as a
-  // single batch; the loop is here strictly to keep the call shape
-  // safe if a caller later raises the trade-batch limit.
-  for (let i = 0; i < uniqueAddresses.length; i += TOKEN_LABEL_BATCH_SIZE) {
-    const slice = uniqueAddresses.slice(i, i + TOKEN_LABEL_BATCH_SIZE);
-    const queryPonder = createPonderQuery(ponderUrl);
-    const data = await queryPonder<{
-      tokens: { items: PonderTokenLabel[] } | null;
-    }>(
-      `query ($addresses: [String!]!, $limit: Int!) {
-        tokens(where: { address_in: $addresses }, limit: $limit) {
-          items {
-            address
-            name
-            symbol
-          }
-        }
-      }`,
-      { addresses: slice, limit: TOKEN_LABEL_BATCH_SIZE },
-    );
-    for (const t of data?.tokens?.items ?? []) {
-      labelMap.set(t.address.toLowerCase(), {
-        name: nonBlankOrUndefined(t.name),
-        symbol: nonBlankOrUndefined(t.symbol),
-      });
-    }
-  }
-
-  return trades.map<ApiTradeWithLabels>((t) => {
-    const labels = labelMap.get(t.tokenAddress.toLowerCase());
+  return rows.map<ApiTradeWithLabels>((r) => {
+    const labels = labelMap?.get(r.tokenAddress.toLowerCase());
     return {
-      ...t,
-      tokenSymbol: labels?.symbol,
-      tokenName: labels?.name,
+      ...r,
+      tokenSymbol: nonBlankOrUndefined(labels?.symbol),
+      tokenName: nonBlankOrUndefined(labels?.name),
     };
   });
 }
 
 trades.get("/", async (c) => {
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
   const limitParam = parseNonNegativeInt(c.req.query("limit"));
   const offsetParam = parseNonNegativeInt(c.req.query("offset"));
   if (limitParam === null || offsetParam === null) {
@@ -160,9 +127,7 @@ trades.get("/", async (c) => {
   }
   const limit = Math.min(limitParam ?? 50, 100);
   // Offset enables the home-page recent-trades list to scroll backwards
-  // through history (issue #807). The frontend's `useTradeFeed` walks
-  // the endpoint page-by-page on scroll, mirroring how
-  // `useInfiniteTokens` paginates `/api/v1/tokens`.
+  // through history (issue #807).
   const offset = offsetParam ?? 0;
 
   const bypassCache = shouldBypassCache(offset);
@@ -173,44 +138,22 @@ trades.get("/", async (c) => {
     if (cached) return cached;
   }
 
-  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($limit: Int!, $offset: Int!) {
-      routerTrades(
-        limit: $limit
-        offset: $offset
-        orderBy: "timestamp"
-        orderDirection: "desc"
-      ) {
-        items {
-          id
-          tokenAddress
-          trader
-          isBuy
-          usdcAmount
-          tokenAmount
-          blockNumber
-          timestamp
-        }
-      }
-    }`,
-    { limit, offset },
-  );
+  const db = createDb(c.env.DATABASE_URL);
+  const rows = await fetchRouterTrades(db, { limit, offset });
 
-  if (data === null) {
-    return c.json(formatError("Indexer unavailable — trade data cannot be loaded"), 503);
+  if (rows === null) {
+    return c.json(
+      formatError("Indexer unavailable — trade data cannot be loaded"),
+      503,
+    );
   }
 
-  const items = data.routerTrades?.items ?? [];
-  const enriched = await enrichTradesWithTokenLabels(items, c.env.PONDER_URL);
+  const enriched = await enrichTradesWithTokenLabels(rows, db);
 
   const response = c.json(formatSuccess(enriched));
-  // The bypass header is the full "don't cache anywhere" directive so
-  // (a) any CDN / corporate proxy in the path holds nothing, and (b) the
-  // browser doesn't apply its heuristic cache to a refresh-driven fetch.
-  // Without `max-age=0` a browser is free to fast-forward back/forward
-  // navigation from its memory cache and re-introduce the same stale
-  // window we're closing at the edge. See `routes/tokens/detail.ts` for
-  // the mirror pattern on the holder-aware bypass.
+  // See the global `trades.get("/")` handler for why the live tail emits
+  // the full "don't cache anywhere" directive — closes the WS-vs-commit
+  // race for the same reason `offset=0` is bypassed on the cache read.
   response.headers.set(
     "Cache-Control",
     bypassCache
@@ -241,37 +184,47 @@ trades.get("/ohlcv/:address", async (c) => {
   const bucketSize = INTERVAL_SECONDS[interval];
 
   if (!bucketSize) {
-    return c.json(formatError(`Invalid interval. Supported: ${Object.keys(INTERVAL_SECONDS).join(", ")}`), 400);
+    return c.json(
+      formatError(
+        `Invalid interval. Supported: ${Object.keys(INTERVAL_SECONDS).join(", ")}`,
+      ),
+      400,
+    );
   }
 
-  // Pre-check Ponder availability before paginated query
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const healthCheck = await queryPonder<{ __typename: string }>("{ __typename }");
-  if (healthCheck === null) {
-    return c.json(formatError("Indexer unavailable — OHLCV data cannot be loaded"), 503);
+  const db = createDb(c.env.DATABASE_URL);
+
+  // Pre-check indexer DB availability before walking the trade history —
+  // matches the legacy `checkPonderHealth` shape so the route still 503s
+  // cleanly when the underlying read path is wedged.
+  const healthy = await checkIndexerHealth(db);
+  if (!healthy) {
+    return c.json(
+      formatError("Indexer unavailable — OHLCV data cannot be loaded"),
+      503,
+    );
   }
 
-  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: rawTrades } = await queryPonderAll<PonderRouterTrade>(
-    `query ($address: String!, $limit: Int!, $offset: Int!) {
-      routerTrades(
-        where: { tokenAddress: $address }
-        limit: $limit
-        offset: $offset
-        orderBy: "timestamp"
-        orderDirection: "asc"
-      ) {
-        items {
-          usdcAmount
-          tokenAmount
-          isBuy
-          timestamp
-        }
-      }
-    }`,
-    "routerTrades",
-    { address },
-  );
+  // Pull the full per-token trade history in chronological order. With
+  // direct SQL this is one query — no paginated 20×1000 sweep. The OHLCV
+  // route is rarely hit (chart-only) and the per-token row count is bounded
+  // by trading activity, so an unbounded SELECT is acceptable here. If we
+  // ever index a megacap token we can cap with `LIMIT 100_000` and
+  // surface a "truncated" hint — none of today's tokens come close.
+  const rawTrades = await fetchRouterTrades(db, {
+    tokenAddress: address,
+    limit: 100_000,
+    offset: 0,
+    direction: "asc",
+  });
+
+  if (rawTrades === null) {
+    return c.json(
+      formatError("Indexer unavailable — OHLCV data cannot be loaded"),
+      503,
+    );
+  }
+
   if (rawTrades.length === 0) {
     return c.json(formatSuccess([]));
   }
@@ -303,7 +256,14 @@ trades.get("/ohlcv/:address", async (c) => {
       existing.close = price;
       existing.volume += usdcAmount;
     } else {
-      const candle = { time: bucketTs, open: price, high: price, low: price, close: price, volume: usdcAmount };
+      const candle = {
+        time: bucketTs,
+        open: price,
+        high: price,
+        low: price,
+        close: price,
+        volume: usdcAmount,
+      };
       candleMap.set(bucketTs, candle);
       candles.push(candle);
     }
@@ -320,31 +280,23 @@ trades.get("/sparkline/:address", async (c) => {
   const address = rawAddress.toLowerCase();
   const points = Math.min(Number(c.req.query("points") ?? "20"), 50);
 
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($address: String!, $limit: Int!) {
-      routerTrades(
-        where: { tokenAddress: $address }
-        limit: $limit
-        orderBy: "timestamp"
-        orderDirection: "desc"
-      ) {
-        items {
-          usdcAmount
-          tokenAmount
-          timestamp
-        }
-      }
-    }`,
-    { address, limit: points * 3 },
-  );
+  const db = createDb(c.env.DATABASE_URL);
+  const rawTrades = await fetchRouterTrades(db, {
+    tokenAddress: address,
+    limit: points * 3,
+    offset: 0,
+    direction: "desc",
+  });
 
-  const rawTrades = data?.routerTrades?.items ?? [];
+  if (rawTrades === null) {
+    return c.json(formatSuccess([]));
+  }
+
   if (rawTrades.length === 0) {
     return c.json(formatSuccess([]));
   }
 
-  // Compute prices and sample down to `points` values, oldest-first
+  // Compute prices and sample down to `points` values, oldest-first.
   const prices: number[] = [];
   for (const t of rawTrades) {
     const tokenAmount = Number(t.tokenAmount) / 1e18;
@@ -352,9 +304,8 @@ trades.get("/sparkline/:address", async (c) => {
     const price = Number(t.usdcAmount) / 1e6 / tokenAmount;
     prices.push(price);
   }
-  prices.reverse(); // oldest first
+  prices.reverse();
 
-  // Sample evenly if we have more prices than requested points
   if (prices.length > points) {
     const sampled: number[] = [];
     for (let i = 0; i < points; i++) {
@@ -373,7 +324,7 @@ trades.get("/:address", async (c) => {
     return c.json(formatError("Invalid address"), 400);
   }
   const address = rawAddress.toLowerCase();
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
+
   const limitParam = parseNonNegativeInt(c.req.query("limit"));
   const offsetParam = parseNonNegativeInt(c.req.query("offset"));
   if (limitParam === null || offsetParam === null) {
@@ -390,40 +341,23 @@ trades.get("/:address", async (c) => {
     if (cached) return cached;
   }
 
-  const data = await queryPonder<{ routerTrades: { items: PonderRouterTrade[] } }>(
-    `query ($address: String!, $limit: Int!, $offset: Int!) {
-      routerTrades(
-        where: { tokenAddress: $address }
-        limit: $limit
-        offset: $offset
-        orderBy: "timestamp"
-        orderDirection: "desc"
-      ) {
-        items {
-          id
-          tokenAddress
-          trader
-          isBuy
-          usdcAmount
-          tokenAmount
-          blockNumber
-          timestamp
-        }
-      }
-    }`,
-    { address, limit, offset },
-  );
+  const db = createDb(c.env.DATABASE_URL);
+  const rows = await fetchRouterTrades(db, {
+    tokenAddress: address,
+    limit,
+    offset,
+  });
 
-  if (data === null) {
-    return c.json(formatError("Indexer unavailable — trade data cannot be loaded"), 503);
+  if (rows === null) {
+    return c.json(
+      formatError("Indexer unavailable — trade data cannot be loaded"),
+      503,
+    );
   }
 
-  const items = data.routerTrades?.items ?? [];
-  const enriched = await enrichTradesWithTokenLabels(items, c.env.PONDER_URL);
+  const enriched = await enrichTradesWithTokenLabels(rows, db);
 
   const response = c.json(formatSuccess(enriched));
-  // See the global `trades.get("/")` handler for why the live tail
-  // emits the full "don't cache anywhere" directive.
   response.headers.set(
     "Cache-Control",
     bypassCache

@@ -3,12 +3,17 @@ import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
 
-const mockPonderQuery = vi.fn();
-const mockPonderPaginatedQuery = vi.fn();
+const mockFetchHolders = vi.fn();
+const mockFetchTokenPairAddresses = vi.fn();
 
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
-  createPonderPaginatedQuery: () => mockPonderPaginatedQuery,
+vi.mock("../lib/indexer-reads.js", () => ({
+  fetchHolders: (...args: unknown[]) => mockFetchHolders(...args),
+  fetchTokenPairAddresses: (...args: unknown[]) =>
+    mockFetchTokenPairAddresses(...args),
+}));
+
+vi.mock("../db/client.js", () => ({
+  createDb: () => ({}),
 }));
 
 const { default: holdersRoute } = await import("../routes/holders.js");
@@ -46,10 +51,11 @@ const TOTAL_SUPPLY = ONE_BILLION * ONE;
 describe("GET /holders/:address", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockPonderQuery.mockResolvedValue({
-      token: { bondingPair: BONDING_PAIR, hyperswapPair: HYPERSWAP_PAIR },
+    mockFetchTokenPairAddresses.mockResolvedValue({
+      bondingPair: BONDING_PAIR,
+      hyperswapPair: HYPERSWAP_PAIR,
     });
-    mockPonderPaginatedQuery.mockResolvedValue({ items: [], truncated: false });
+    mockFetchHolders.mockResolvedValue({ holders: [], totalHolders: 0 });
   });
 
   it("returns 400 for an invalid address", async () => {
@@ -62,12 +68,16 @@ describe("GET /holders/:address", () => {
 
   it("returns 400 for a non-numeric limit", async () => {
     const app = createApp();
-    const res = await app.request(`/holders/${TOKEN_ADDR}?limit=abc`, {}, makeEnv());
+    const res = await app.request(
+      `/holders/${TOKEN_ADDR}?limit=abc`,
+      {},
+      makeEnv(),
+    );
     expect(res.status).toBe(400);
   });
 
-  it("returns 503 when the indexer is unavailable", async () => {
-    mockPonderQuery.mockResolvedValue(null);
+  it("returns 503 when the pair-address resolution errors", async () => {
+    mockFetchTokenPairAddresses.mockResolvedValue("error");
     const app = createApp();
     const res = await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
     expect(res.status).toBe(503);
@@ -75,26 +85,29 @@ describe("GET /holders/:address", () => {
     expect(body.error).toContain("Indexer unavailable");
   });
 
-  it("queries tokenBalances with the bonding proxy, bonding + hyperswap pairs, and zero address excluded", async () => {
+  it("returns 503 when the holders read errors", async () => {
+    mockFetchHolders.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
+    expect(res.status).toBe(503);
+  });
+
+  it("queries the holders read with the bonding proxy + bonding/hyperswap pairs + zero address excluded", async () => {
     const app = createApp();
     await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
 
-    expect(mockPonderPaginatedQuery).toHaveBeenCalledTimes(1);
-    const [query, collectionKey, vars] = mockPonderPaginatedQuery.mock.calls[0] as [
-      string,
-      string,
-      Record<string, unknown>,
+    expect(mockFetchHolders).toHaveBeenCalledTimes(1);
+    const [, opts] = mockFetchHolders.mock.calls[0] as [
+      unknown,
+      {
+        tokenAddress: string;
+        limit: number;
+        excludedWallets: string[];
+      },
     ];
 
-    expect(collectionKey).toBe("tokenBalances");
-    expect(query).toContain("tokenBalances(");
-    expect(query).toContain("balance_gt:");
-    expect(query).toContain("wallet_not_in:");
-    expect(query).toContain('orderBy: "balance"');
-    expect(query).toContain('orderDirection: "desc"');
-
-    expect(vars.address).toBe(TOKEN_ADDR.toLowerCase());
-    expect(vars.excluded).toEqual([
+    expect(opts.tokenAddress).toBe(TOKEN_ADDR.toLowerCase());
+    expect(opts.excludedWallets).toEqual([
       "0x0000000000000000000000000000000000000000",
       BONDING_ADDRESS,
       BONDING_PAIR.toLowerCase(),
@@ -103,34 +116,33 @@ describe("GET /holders/:address", () => {
   });
 
   it("only excludes zero address and bonding proxy when the token has not yet been indexed", async () => {
-    mockPonderQuery.mockResolvedValue({ token: null });
+    mockFetchTokenPairAddresses.mockResolvedValue("missing");
     const app = createApp();
     await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
 
-    const [, , vars] = mockPonderPaginatedQuery.mock.calls[0] as [
-      string,
-      string,
-      Record<string, unknown>,
+    const [, opts] = mockFetchHolders.mock.calls[0] as [
+      unknown,
+      { excludedWallets: string[] },
     ];
-    expect(vars.excluded).toEqual([
+    expect(opts.excludedWallets).toEqual([
       "0x0000000000000000000000000000000000000000",
       BONDING_ADDRESS,
     ]);
   });
 
   it("only excludes set pair addresses (drops null hyperswapPair pre-graduation)", async () => {
-    mockPonderQuery.mockResolvedValue({
-      token: { bondingPair: BONDING_PAIR, hyperswapPair: null },
+    mockFetchTokenPairAddresses.mockResolvedValue({
+      bondingPair: BONDING_PAIR,
+      hyperswapPair: null,
     });
     const app = createApp();
     await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
 
-    const [, , vars] = mockPonderPaginatedQuery.mock.calls[0] as [
-      string,
-      string,
-      Record<string, unknown>,
+    const [, opts] = mockFetchHolders.mock.calls[0] as [
+      unknown,
+      { excludedWallets: string[] },
     ];
-    expect(vars.excluded).toEqual([
+    expect(opts.excludedWallets).toEqual([
       "0x0000000000000000000000000000000000000000",
       BONDING_ADDRESS,
       BONDING_PAIR.toLowerCase(),
@@ -142,13 +154,13 @@ describe("GET /holders/:address", () => {
     const wallet2 = "0xbbbb000000000000000000000000000000000002";
     const wallet3 = "0xcccc000000000000000000000000000000000003";
 
-    mockPonderPaginatedQuery.mockResolvedValue({
-      items: [
+    mockFetchHolders.mockResolvedValue({
+      holders: [
         { wallet: wallet1, balance: (50_000_000n * ONE).toString() },
         { wallet: wallet2, balance: (10_000_000n * ONE).toString() },
         { wallet: wallet3, balance: (1_000n * ONE).toString() },
       ],
-      truncated: false,
+      totalHolders: 3,
     });
 
     const app = createApp();
@@ -184,16 +196,31 @@ describe("GET /holders/:address", () => {
   });
 
   it("respects the limit query param (capped at 100) without altering totalHolders", async () => {
-    const items = Array.from({ length: 150 }, (_, i) => ({
-      wallet: `0x${(i + 1).toString(16).padStart(40, "0")}`,
-      balance: (BigInt(150 - i) * ONE).toString(),
-    }));
-    mockPonderPaginatedQuery.mockResolvedValue({ items, truncated: false });
+    // The route caps `limit` at 100 before calling `fetchHolders`. We
+    // assert the cap by inspecting the args, then return a representative
+    // page so the response shape can be checked too.
+    mockFetchHolders.mockResolvedValue({
+      holders: Array.from({ length: 10 }, (_, i) => ({
+        wallet: `0x${(i + 1).toString(16).padStart(40, "0")}`,
+        balance: (BigInt(10 - i) * ONE).toString(),
+      })),
+      totalHolders: 150,
+    });
 
     const app = createApp();
-    const res = await app.request(`/holders/${TOKEN_ADDR}?limit=10`, {}, makeEnv());
+    const res = await app.request(
+      `/holders/${TOKEN_ADDR}?limit=10`,
+      {},
+      makeEnv(),
+    );
 
     expect(res.status).toBe(200);
+    const [, opts] = mockFetchHolders.mock.calls[0] as [
+      unknown,
+      { limit: number },
+    ];
+    expect(opts.limit).toBe(10);
+
     const body = (await res.json()) as {
       data: { holders: unknown[]; totalHolders: number };
     };
@@ -202,14 +229,26 @@ describe("GET /holders/:address", () => {
   });
 
   it("caps limit at 100 even when a larger value is requested", async () => {
-    const items = Array.from({ length: 250 }, (_, i) => ({
-      wallet: `0x${(i + 1).toString(16).padStart(40, "0")}`,
-      balance: ONE.toString(),
-    }));
-    mockPonderPaginatedQuery.mockResolvedValue({ items, truncated: false });
+    mockFetchHolders.mockResolvedValue({
+      holders: Array.from({ length: 100 }, (_, i) => ({
+        wallet: `0x${(i + 1).toString(16).padStart(40, "0")}`,
+        balance: ONE.toString(),
+      })),
+      totalHolders: 250,
+    });
 
     const app = createApp();
-    const res = await app.request(`/holders/${TOKEN_ADDR}?limit=500`, {}, makeEnv());
+    const res = await app.request(
+      `/holders/${TOKEN_ADDR}?limit=500`,
+      {},
+      makeEnv(),
+    );
+
+    const [, opts] = mockFetchHolders.mock.calls[0] as [
+      unknown,
+      { limit: number },
+    ];
+    expect(opts.limit).toBe(100);
 
     const body = (await res.json()) as {
       data: { holders: unknown[]; totalHolders: number };
@@ -218,36 +257,39 @@ describe("GET /holders/:address", () => {
     expect(body.data.totalHolders).toBe(250);
   });
 
-  it("propagates the truncated flag as `approximate`", async () => {
-    mockPonderPaginatedQuery.mockResolvedValue({
-      items: [
-        { wallet: "0xaaaa000000000000000000000000000000000001", balance: ONE.toString() },
+  it("always returns `approximate: false` — direct SQL count is exact", async () => {
+    mockFetchHolders.mockResolvedValue({
+      holders: [
+        {
+          wallet: "0xaaaa000000000000000000000000000000000001",
+          balance: ONE.toString(),
+        },
       ],
-      truncated: true,
+      totalHolders: 1,
     });
 
     const app = createApp();
     const res = await app.request(`/holders/${TOKEN_ADDR}`, {}, makeEnv());
     const body = (await res.json()) as { data: { approximate: boolean } };
-    expect(body.data.approximate).toBe(true);
+    expect(body.data.approximate).toBe(false);
   });
 
   it("filters out zero-balance rows the indexer may surface (issue #421)", async () => {
-    // Belt-and-suspenders: the GraphQL query already filters
-    // `balance_gt: "0"`, but we additionally drop zero-balance rows
-    // post-fetch so a regression in Ponder's bigint comparison filter
-    // never resurrects fully-exited wallets in the UI.
     const wallet1 = "0xaaaa000000000000000000000000000000000001";
     const wallet2 = "0xbbbb000000000000000000000000000000000002";
     const wallet3 = "0xcccc000000000000000000000000000000000003";
 
-    mockPonderPaginatedQuery.mockResolvedValue({
-      items: [
+    mockFetchHolders.mockResolvedValue({
+      holders: [
         { wallet: wallet1, balance: (50_000_000n * ONE).toString() },
         { wallet: wallet2, balance: "0" },
         { wallet: wallet3, balance: (1_000n * ONE).toString() },
       ],
-      truncated: false,
+      // `totalHolders` comes from the SQL aggregation which already
+      // filters `balance > 0`, so the route trusts it verbatim. The
+      // post-fetch zero filter is purely a defence against malformed
+      // rows; it does not subtract from `totalHolders`.
+      totalHolders: 3,
     });
 
     const app = createApp();
@@ -263,26 +305,18 @@ describe("GET /holders/:address", () => {
 
     expect(body.data.holders).toHaveLength(2);
     expect(body.data.holders.map((h) => h.wallet)).toEqual([wallet1, wallet3]);
-    // `totalHolders` reflects what we actually return — zero-balance rows
-    // are not holders, so they shouldn't bump the count either.
-    expect(body.data.totalHolders).toBe(2);
   });
 
   it("skips rows with malformed balance strings rather than 500-ing the route", async () => {
-    // A misbehaving indexer (or a future schema change) could surface a
-    // non-numeric `balance` value (e.g. `"NaN"`, decimal strings, `null`).
-    // `BigInt(...)` throws on those; the route must skip the bad row and
-    // keep serving the good ones — the holders tab is a best-effort read
-    // and a single bad row shouldn't black-hole everyone's view of a token.
     const wallet1 = "0xaaaa000000000000000000000000000000000001";
     const wallet2 = "0xbbbb000000000000000000000000000000000002";
 
-    mockPonderPaginatedQuery.mockResolvedValue({
-      items: [
+    mockFetchHolders.mockResolvedValue({
+      holders: [
         { wallet: wallet1, balance: (10n * ONE).toString() },
         { wallet: wallet2, balance: "not-a-bigint" },
       ],
-      truncated: false,
+      totalHolders: 2,
     });
 
     const app = createApp();
@@ -298,15 +332,17 @@ describe("GET /holders/:address", () => {
 
     expect(body.data.holders).toHaveLength(1);
     expect(body.data.holders[0].wallet).toBe(wallet1);
-    expect(body.data.totalHolders).toBe(1);
   });
 
   it("returns 100% for the rare case of a single holder of full supply", async () => {
-    mockPonderPaginatedQuery.mockResolvedValue({
-      items: [
-        { wallet: "0xaaaa000000000000000000000000000000000001", balance: TOTAL_SUPPLY.toString() },
+    mockFetchHolders.mockResolvedValue({
+      holders: [
+        {
+          wallet: "0xaaaa000000000000000000000000000000000001",
+          balance: TOTAL_SUPPLY.toString(),
+        },
       ],
-      truncated: false,
+      totalHolders: 1,
     });
 
     const app = createApp();

@@ -1,76 +1,51 @@
 import { Hono } from "hono";
 
+import { createDb } from "../db/client.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderQuery } from "../lib/ponder-client.js";
+import { fetchPlatformStats } from "../lib/indexer-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const stats = new Hono<{ Bindings: AppBindings }>();
 
-interface PonderGlobalStats {
-  totalTokens: string | null;
-  tokensLive: string | null;
-  tokensGraduated: string | null;
-  totalVolumeUsd: string | null;
-}
-
-interface PonderHourlyVolumeItem {
-  hourStart: string;
-  volumeUsd: string;
-}
-
 const SECONDS_PER_HOUR = 3600;
 
 /**
- * Platform-wide stats. Two cheap queries replace the old "paginate every
- * token + every 24h trade" approach (issue #397):
+ * Platform-wide stats. Two cheap reads replace the old "paginate every token
+ * + every 24h trade" approach (issue #397):
  *
- *   1. `globalStats` singleton — token counts and lifetime volume, kept in
- *      lockstep on every TokenLaunched / TokenGraduated / Zap.Buy / Zap.Sell
- *      by the indexer (`apps/indexer/src/bonding.ts`).
- *   2. `hourlyVolumes` — one row per hour-start, summed across the last 24
- *      buckets to derive `volume24h`. Bounded scan (≤24 rows) regardless of
- *      how many trades the platform processes.
+ *   1. `ponder_prod.global_stats` singleton — token counts and lifetime
+ *      volume, kept in lockstep on every TokenLaunched / TokenGraduated /
+ *      Zap.Buy / Zap.Sell by the indexer.
+ *   2. `ponder_prod.hourly_volume` — one row per hour-start, summed across
+ *      the last 25 buckets by Postgres so `volume24h` falls out of a
+ *      bounded-cost aggregation.
+ *
+ * As of the GraphQL → direct-SQL migration both reads go through Drizzle on
+ * the existing Neon connection (`lib/indexer-reads.ts`), eliminating the
+ * Ponder GraphQL hop that was the bottleneck under launch traffic.
  *
  * The endpoint also sets a short `s-maxage` so the Cloudflare edge absorbs
  * concurrent requests (the values move slowly enough that 30s of staleness is
- * imperceptible, but it keeps Ponder protected from a thundering herd if the
- * landing page is suddenly viral).
+ * imperceptible).
  */
 stats.get("/", async (c) => {
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-
   const nowSeconds = Math.floor(Date.now() / 1000);
   // Anchor the 24h window at the current hour-start so the bucket scan
   // matches indexer-side keying. We scan 25 buckets so the rolling window
   // always covers a full 24h regardless of where in the hour we land.
-  const currentHourStart = Math.floor(nowSeconds / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+  const currentHourStart =
+    Math.floor(nowSeconds / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
   const windowStart = currentHourStart - 24 * SECONDS_PER_HOUR;
 
-  const data = await queryPonder<{
-    globalStats: PonderGlobalStats | null;
-    hourlyVolumes: { items: PonderHourlyVolumeItem[] } | null;
-  }>(
-    `query ($since: BigInt!) {
-      globalStats(id: "global") {
-        totalTokens
-        tokensLive
-        tokensGraduated
-        totalVolumeUsd
-      }
-      hourlyVolumes(where: { hourStart_gte: $since }, limit: 25) {
-        items {
-          hourStart
-          volumeUsd
-        }
-      }
-    }`,
-    { since: String(windowStart) },
-  );
+  const db = createDb(c.env.DATABASE_URL);
+  const result = await fetchPlatformStats(db, windowStart);
 
-  if (!data) {
-    // Indexer outage — emit zeros with `degraded` so the UI can render
-    // something while the LandingPage doesn't know how to handle a 503 here.
+  if (!result) {
+    // Indexer-table read threw (e.g. Neon pool exhaustion) — emit zeros with
+    // `degraded` so the landing page still renders something while the
+    // upstream issue resolves. The 503 alternative would blank the homepage
+    // banner outright, which is a worse failure mode.
     setStatsCacheHeader(c);
     return c.json(
       formatSuccess(
@@ -85,18 +60,10 @@ stats.get("/", async (c) => {
     );
   }
 
-  const singleton = data.globalStats;
-  const totalTokens = singleton ? Number(singleton.totalTokens ?? "0") : 0;
-  const tokensLive = singleton ? Number(singleton.tokensLive ?? "0") : 0;
-  const tokensGraduated = singleton ? Number(singleton.tokensGraduated ?? "0") : 0;
-
-  // Sum the windowed buckets. Sourced from `hourlyVolume`, which the indexer
-  // keys by hour-start Unix timestamp on every Zap.Buy / Zap.Sell.
-  const buckets = data.hourlyVolumes?.items ?? [];
-  let volume24h = 0n;
-  for (const b of buckets) {
-    volume24h += BigInt(b.volumeUsd);
-  }
+  const singleton = result.singleton;
+  const totalTokens = singleton ? singleton.totalTokens : 0;
+  const tokensLive = singleton ? singleton.tokensLive : 0;
+  const tokensGraduated = singleton ? singleton.tokensGraduated : 0;
 
   setStatsCacheHeader(c);
   return c.json(
@@ -105,7 +72,7 @@ stats.get("/", async (c) => {
         tokensLive,
         tokensGraduated,
         totalTokens,
-        volume24h: volume24h.toString(),
+        volume24h: result.volume24h.toString(),
       },
       "live",
     ),
@@ -117,7 +84,7 @@ stats.get("/", async (c) => {
  * change slowly (totalTokens at most a few times an hour, volume24h on every
  * trade) and the UI surface is the homepage banner — staleness is invisible.
  * Critically this means a viral page-load only ever fans 1 request per region
- * per 30s through to Ponder.
+ * per 30s through to the indexer DB.
  */
 function setStatsCacheHeader(c: { header: (k: string, v: string) => void }) {
   c.header(

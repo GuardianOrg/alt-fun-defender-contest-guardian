@@ -3,12 +3,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppBindings } from "../lib/types.js";
 
-const mockPonderQuery = vi.fn();
-const mockPonderPaginatedQuery = vi.fn();
+const mockFetchTokensOnchainByAddresses = vi.fn();
+const mockFetchTokenOnchain = vi.fn();
+const mockFetchHistoricalCurveSnapshots = vi.fn();
+const mockFetchRouterTradeActivity = vi.fn();
 
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
-  createPonderPaginatedQuery: () => mockPonderPaginatedQuery,
+vi.mock("../lib/indexer-reads.js", () => ({
+  fetchTokensOnchainByAddresses: (...args: unknown[]) =>
+    mockFetchTokensOnchainByAddresses(...args),
+  fetchTokenOnchain: (...args: unknown[]) => mockFetchTokenOnchain(...args),
+  fetchHistoricalCurveSnapshots: (...args: unknown[]) =>
+    mockFetchHistoricalCurveSnapshots(...args),
+  fetchRouterTradeActivity: (...args: unknown[]) =>
+    mockFetchRouterTradeActivity(...args),
+  // Functions market-data.ts doesn't reach in this test surface but the
+  // module still imports — stub them so the module compiles under
+  // `vi.mock`'s factory.
+  fetchGraduatedTokensOnchain: vi.fn(),
+  fetchNonGraduatedTokensOnchain: vi.fn(),
+  fetchTrendingCandidateAddresses: vi.fn(),
+}));
+
+vi.mock("../db/client.js", () => ({
+  createDb: () => ({}),
 }));
 
 const mockNeonQuery = vi.fn();
@@ -58,10 +75,21 @@ function mockBounceLtResponse(rates: Record<string, string>) {
   }));
 }
 
-/**
- * Helper for the new `POST /market-data { addresses }` contract — same
- * Hono.request invocation as the GET tests, just method=POST + JSON body.
- */
+function snapshotMapForCutoff(addr: string, supply: string, reserve: string) {
+  // Mirrors the `Map<lowercaseAddress, snapshot | null>` shape that
+  // `fetchHistoricalCurveSnapshots` resolves to. Empty entries map to
+  // `null` so the route's fallback-to-current-curve path can be exercised.
+  return new Map<
+    string,
+    { curveSupply: string; ltReserve: string; timestamp: string } | null
+  >([
+    [
+      addr.toLowerCase(),
+      { curveSupply: supply, ltReserve: reserve, timestamp: "1699999000" },
+    ],
+  ]);
+}
+
 function postMarketData(addresses: string[]) {
   return createApp().request(
     "/market-data",
@@ -82,7 +110,11 @@ describe("POST /market-data { addresses } — input validation", () => {
   it("returns 400 on a non-JSON body", async () => {
     const res = await createApp().request(
       "/market-data",
-      { method: "POST", body: "not-json", headers: { "Content-Type": "application/json" } },
+      {
+        method: "POST",
+        body: "not-json",
+        headers: { "Content-Type": "application/json" },
+      },
       makeEnv(),
     );
     expect(res.status).toBe(400);
@@ -91,7 +123,11 @@ describe("POST /market-data { addresses } — input validation", () => {
   it("returns 400 when `addresses` is missing or not an array", async () => {
     const res1 = await createApp().request(
       "/market-data",
-      { method: "POST", body: JSON.stringify({}), headers: { "Content-Type": "application/json" } },
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+        headers: { "Content-Type": "application/json" },
+      },
       makeEnv(),
     );
     expect(res1.status).toBe(400);
@@ -113,8 +149,7 @@ describe("POST /market-data { addresses } — input validation", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Record<string, unknown> };
     expect(body.data).toEqual({});
-    // Empty input short-circuits — never touches Ponder or BounceTech.
-    expect(mockPonderPaginatedQuery).not.toHaveBeenCalled();
+    expect(mockFetchTokensOnchainByAddresses).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
@@ -124,32 +159,17 @@ describe("POST /market-data { addresses } — input validation", () => {
   });
 
   it("returns 400 when more than 200 addresses are requested", async () => {
-    // Bounded fan-out: the route caps `addresses[]` at 200 so a runaway
-    // client can't trigger an unbounded Ponder query batch fan-out.
     const tooMany: string[] = [];
     for (let i = 0; i < 201; i++) {
-      // Synthesise distinct valid EIP-55 addresses by varying the trailing
-      // byte. `isAddress` only validates hex shape + checksum, so a
-      // lowercase 40-hex string passes the format check (we hand-roll
-      // valid hex below).
       tooMany.push(`0x${i.toString(16).padStart(40, "0")}`);
     }
     const res = await postMarketData(tooMany);
     expect(res.status).toBe(400);
-    // Assert the specific cap message — without it the test would also
-    // pass if the route 400'd for an unrelated reason (e.g. one of the
-    // synthesised addresses failed checksum validation), masking a
-    // regression in the cap-vs-format ordering.
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("200");
   });
 
   it("returns 400 for a JSON `null` body (no addresses field to read)", async () => {
-    // Regression coverage: `c.req.json()` parses a literal `null` body
-    // as valid JSON, but the route's `body.addresses` access would
-    // throw on it without an explicit null/non-object guard, surfacing
-    // as a 500 instead of the user-visible 400 we want. CodeRabbit
-    // feedback on PR #872.
     const res = await createApp().request(
       "/market-data",
       {
@@ -169,17 +189,26 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
   });
 
   it("returns 503 when BounceTech API (live LT rates) is unreachable", async () => {
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "100000000000000000000",
-          timestamp: "1700000000",
-        },
-      ],
-    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "100000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
+      },
+    ]);
     mockFetch.mockResolvedValueOnce({ ok: false });
 
     const res = await postMarketData([TOKEN_A]);
@@ -190,19 +219,29 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
   });
 
   it("degrades (200 with null change24h, dataSource=degraded) when BounceTech snapshot DB is unreachable", async () => {
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: "1700000000",
-        },
-      ],
-    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
+      },
+    ]);
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
     mockNeonQuery.mockRejectedValueOnce(new Error("db down"));
 
     const res = await postMarketData([TOKEN_A]);
@@ -219,34 +258,36 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
   });
 
   it("computes mcap and change24h from curve snapshot + historical LT rate", async () => {
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: "1700000000",
-        },
-      ],
-    });
-
-    // Current LT exchange rate = 2.0 (2e18)
-    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-
-    // Historical curve snapshot: supply=1e24, reserve=1e20 → ratio=1e-4
-    mockPonderQuery.mockResolvedValueOnce({
-      t0: {
-        items: [
-          {
-            curveSupply: "1000000000000000000000000",
-            ltReserve: "100000000000000000000",
-            timestamp: "1699999000",
-          },
-        ],
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
       },
-    });
+    ]);
 
+    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(
+      snapshotMapForCutoff(
+        TOKEN_A,
+        "1000000000000000000000000",
+        "100000000000000000000",
+      ),
+    );
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
     mockNeonQuery.mockResolvedValueOnce([
       { token_address: LT_A, exchange_rate: "1500000000000000000" },
     ]);
@@ -267,19 +308,30 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
   });
 
   it("falls back to current curve state when no trade snapshot ≤ cutoff exists", async () => {
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: "1700000000",
-        },
-      ],
-    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
+      },
+    ]);
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    // Empty snapshot map → fall through to live curve.
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
     mockNeonQuery.mockResolvedValueOnce([
       { token_address: LT_A, exchange_rate: "1000000000000000000" },
     ]);
@@ -296,19 +348,32 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
 
   it("computes since-launch change when token is newer than the 24h cutoff", async () => {
     const recentLaunch = Math.floor(Date.now() / 1000) - 1000;
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          k: "1000000000000000000000000000000000000000000000000",
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: String(recentLaunch),
-        },
-      ],
-    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: String(recentLaunch),
+      },
+    ]);
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
+    // Order matters — `buildBatchFromTokens` resolves cutoff rates first,
+    // then launch rates. Empty cutoff result + populated launch result
+    // exercises the since-launch reconstruction branch.
     mockNeonQuery.mockResolvedValueOnce([]);
     mockNeonQuery.mockResolvedValueOnce([
       { token_address: TOKEN_A, exchange_rate: "1000000000000000000" },
@@ -327,19 +392,29 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
   });
 
   it("returns change24h=null when BounceTech has no historical rate for the LT", async () => {
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: "1700000000",
-        },
-      ],
-    });
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
+      },
+    ]);
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
     mockNeonQuery.mockResolvedValueOnce([]);
 
     const res = await postMarketData([TOKEN_A]);
@@ -363,7 +438,7 @@ describe("GET /market-data/:address", () => {
   });
 
   it("returns 404 when token is unknown", async () => {
-    mockPonderQuery.mockResolvedValueOnce({ token: null });
+    mockFetchTokenOnchain.mockResolvedValueOnce(null);
 
     const app = createApp();
     const res = await app.request(`/market-data/${TOKEN_A}`, {}, makeEnv());
@@ -372,19 +447,26 @@ describe("GET /market-data/:address", () => {
   });
 
   it("returns single-token stats", async () => {
-    mockPonderQuery
-      .mockResolvedValueOnce({
-        token: {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: "1700000000",
-        },
-      })
-      .mockResolvedValueOnce({
-        t0: { items: [] },
-      });
+    mockFetchTokenOnchain.mockResolvedValueOnce({
+      address: TOKEN_A,
+      ltToken: LT_A,
+      k: "1000000000000000000000000000000000000000000000000",
+      curveSupply: "1000000000000000000000000",
+      ltReserve: "200000000000000000000",
+      pendingGraduation: false,
+      pendingGraduationAt: null,
+      graduated: false,
+      graduatedAt: null,
+      bondingPair: null,
+      hyperswapPair: null,
+      organicUsdcRaised: "0",
+      volumeUsd: "0",
+      creatorFeesUsd: "0",
+      protocolFeesUsd: "0",
+      timestamp: "1700000000",
+    });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
     mockNeonQuery.mockResolvedValueOnce([
       { token_address: LT_A, exchange_rate: "1000000000000000000" },

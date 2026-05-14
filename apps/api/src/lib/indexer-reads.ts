@@ -1,0 +1,806 @@
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  notInArray,
+  sql,
+} from "drizzle-orm";
+
+import {
+  indexerGlobalStats,
+  indexerHourlyVolume,
+  indexerRouterTrade,
+  indexerToken,
+  indexerTokenBalance,
+  indexerTokenMetrics,
+} from "../db/indexer-schema.js";
+
+import type { Database } from "../db/client.js";
+import type {
+  MarketDataItem,
+  PonderTokenOnchain,
+  RouterTradeActivity,
+} from "./market-data.js";
+
+/**
+ * Direct-SQL replacements for the Ponder GraphQL fetchers that used to back
+ * every user-facing read on the API. Ponder still owns the *writes* — the
+ * indexer process keeps `ponder_prod.*` up to date on every chain event — but
+ * the API now reads from those tables directly via Drizzle on the existing
+ * Neon connection. This eliminates the GraphQL hop entirely:
+ *
+ *   - No serialised Node event loop bottleneck on the Ponder process. The
+ *     indexer can stay flat on the floor processing events while reads
+ *     scale with Neon, not with the indexer's single isolate.
+ *   - No HTTP fan-out to Railway. The list route used to do 3–25 sequential
+ *     GraphQL POSTs per cold miss; now it does ~1–4 Postgres queries on
+ *     the same Drizzle/Neon HTTP session the API already opens for its own
+ *     `tokens` table.
+ *   - Postgres planner does the joins/sorts/aggregations the route used to
+ *     fake in TypeScript by paginating raw rows.
+ *
+ * Functions in this module return `null` on caught error (mirroring the
+ * legacy `createPonderQuery` contract) so the existing 503-on-null branches
+ * in the route handlers still work without restructuring. They never partially
+ * succeed — every read is a single Postgres round-trip.
+ *
+ * Type-compatibility note: the `PonderTokenOnchain` / `MarketDataItem` /
+ * `RouterTradeActivity` shapes are imported from `market-data.ts` to keep the
+ * downstream enrichment code (`buildBatchFromTokens`, `enrich`, the trending
+ * score) untouched. The field names mirror the legacy GraphQL response, even
+ * though our column names are the snake-case Postgres versions — the Drizzle
+ * schema in `indexer-schema.ts` handles the mapping.
+ */
+
+/**
+ * Structured-logging shim for the catch blocks below. Every read in this
+ * module follows the legacy `return null on error` contract so the route
+ * handlers' existing 503 branches still trip — but the failure must not be
+ * silent, or production 503s become unactionable. Logs the event name +
+ * sanitized context as JSON so Cloudflare's tail / Logpush can pivot on
+ * it. CodeRabbit feedback on PR #898.
+ */
+function logIndexerReadFailure(
+  event: string,
+  error: unknown,
+  context: Record<string, unknown> = {},
+): void {
+  console.log(
+    JSON.stringify({
+      level: "error",
+      event,
+      ...context,
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message }
+          : String(error),
+      timestamp: new Date().toISOString(),
+    }),
+  );
+}
+
+interface IndexerTokenRow {
+  address: string;
+  ltToken: string;
+  k: string;
+  curveSupply: string;
+  ltReserve: string;
+  pendingGraduation: boolean;
+  pendingGraduationAt: string | null;
+  graduated: boolean;
+  graduatedAt: string | null;
+  bondingPair: string | null;
+  hyperswapPair: string | null;
+  organicUsdcRaised: string;
+  volumeUsd: string;
+  creatorFeesUsd: string;
+  protocolFeesUsd: string;
+  timestamp: string;
+}
+
+const TOKEN_COLUMNS = {
+  address: indexerToken.address,
+  ltToken: indexerToken.ltToken,
+  k: indexerToken.k,
+  curveSupply: indexerToken.curveSupply,
+  ltReserve: indexerToken.ltReserve,
+  pendingGraduation: indexerToken.pendingGraduation,
+  pendingGraduationAt: indexerToken.pendingGraduationAt,
+  graduated: indexerToken.graduated,
+  graduatedAt: indexerToken.graduatedAt,
+  bondingPair: indexerToken.bondingPair,
+  hyperswapPair: indexerToken.hyperswapPair,
+  organicUsdcRaised: indexerToken.organicUsdcRaised,
+  volumeUsd: indexerToken.volumeUsd,
+  creatorFeesUsd: indexerToken.creatorFeesUsd,
+  protocolFeesUsd: indexerToken.protocolFeesUsd,
+  timestamp: indexerToken.timestamp,
+} as const;
+
+function toPonderTokenOnchain(row: IndexerTokenRow): PonderTokenOnchain {
+  return {
+    address: row.address,
+    ltToken: row.ltToken,
+    k: row.k,
+    curveSupply: row.curveSupply,
+    ltReserve: row.ltReserve,
+    pendingGraduation: row.pendingGraduation,
+    pendingGraduationAt: row.pendingGraduationAt,
+    graduated: row.graduated,
+    graduatedAt: row.graduatedAt,
+    bondingPair: row.bondingPair,
+    hyperswapPair: row.hyperswapPair,
+    organicUsdcRaised: row.organicUsdcRaised,
+    volumeUsd: row.volumeUsd,
+    creatorFeesUsd: row.creatorFeesUsd,
+    protocolFeesUsd: row.protocolFeesUsd,
+    timestamp: row.timestamp,
+  };
+}
+
+/**
+ * Fetch indexer-side on-chain state for a specific set of token addresses.
+ * Addresses are matched case-insensitively (the indexer stores lowercased).
+ * Returns `null` on unhandled error so callers can return 503; an empty result
+ * for "no matching rows" returns `[]`.
+ */
+export async function fetchTokensOnchainByAddresses(
+  db: Database,
+  addresses: string[],
+): Promise<PonderTokenOnchain[] | null> {
+  if (addresses.length === 0) return [];
+  const lowered = addresses.map((a) => a.toLowerCase());
+  try {
+    const rows = (await db
+      .select(TOKEN_COLUMNS)
+      .from(indexerToken)
+      .where(inArray(indexerToken.address, lowered))) as IndexerTokenRow[];
+    return rows.map(toPonderTokenOnchain);
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchTokensOnchainByAddresses_failed", error, {
+      addressCount: addresses.length,
+    });
+    return null;
+  }
+}
+
+export async function fetchTokenOnchain(
+  db: Database,
+  address: string,
+): Promise<PonderTokenOnchain | null | "unavailable"> {
+  try {
+    const rows = (await db
+      .select(TOKEN_COLUMNS)
+      .from(indexerToken)
+      .where(eq(indexerToken.address, address.toLowerCase()))
+      .limit(1)) as IndexerTokenRow[];
+    if (rows.length === 0) return null;
+    return toPonderTokenOnchain(rows[0]);
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchTokenOnchain_failed", error, {
+      address: address.toLowerCase(),
+    });
+    return "unavailable";
+  }
+}
+
+/**
+ * Page of graduated tokens ordered by `graduatedAt desc`. The `graduatedAt`
+ * column can be null on rows for tokens that haven't been observed graduated
+ * yet — the `graduated: true` filter guarantees we only see rows with a real
+ * timestamp, but we still feed `desc(graduatedAt)` which Drizzle/Postgres
+ * orders NULLS LAST by default for numeric desc.
+ */
+export async function fetchGraduatedTokensOnchain(
+  db: Database,
+  limit: number,
+  offset: number,
+): Promise<PonderTokenOnchain[] | null> {
+  try {
+    const rows = (await db
+      .select(TOKEN_COLUMNS)
+      .from(indexerToken)
+      .where(eq(indexerToken.graduated, true))
+      .orderBy(desc(indexerToken.graduatedAt))
+      .limit(limit)
+      .offset(offset)) as IndexerTokenRow[];
+    return rows.map(toPonderTokenOnchain);
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchGraduatedTokensOnchain_failed", error, {
+      limit,
+      offset,
+    });
+    return null;
+  }
+}
+
+/**
+ * Page of non-graduated tokens ordered by `curveSupply asc` (closest to
+ * sold-out first). Used by the GRADUATING tab to derive a bounded candidate
+ * pool before applying the USD-denominated `curveFilled >= 85%` gate in the
+ * route handler — see `apps/api/AGENTS.md` → "Why fetch the Ponder pool
+ * sorted by `curveSupply asc`".
+ */
+export async function fetchNonGraduatedTokensOnchain(
+  db: Database,
+  limit: number,
+  offset: number,
+): Promise<PonderTokenOnchain[] | null> {
+  try {
+    const rows = (await db
+      .select(TOKEN_COLUMNS)
+      .from(indexerToken)
+      .where(eq(indexerToken.graduated, false))
+      .orderBy(asc(indexerToken.curveSupply))
+      .limit(limit)
+      .offset(offset)) as IndexerTokenRow[];
+    return rows.map(toPonderTokenOnchain);
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchNonGraduatedTokensOnchain_failed",
+      error,
+      { limit, offset },
+    );
+    return null;
+  }
+}
+
+/**
+ * Latest `token_snapshot` row per address with `timestamp <= cutoff`. Used to
+ * reconstruct the curve ratio 24h ago for the change24h calculation.
+ *
+ * Single SQL query using `DISTINCT ON (token_address)` — replaces the legacy
+ * `fetchHistoricalCurveSnapshots` which fanned out one aliased GraphQL
+ * sub-query per token (capped at 50 per batch, sequential across batches).
+ */
+export async function fetchHistoricalCurveSnapshots(
+  db: Database,
+  tokenAddresses: string[],
+  cutoffSec: number,
+): Promise<Map<string, { curveSupply: string; ltReserve: string; timestamp: string } | null> | null> {
+  const result = new Map<string, { curveSupply: string; ltReserve: string; timestamp: string } | null>();
+  // Seed under the **lowercased** key so callers that pass checksum-case
+  // addresses don't end up with two entries (`0xAbc... → null` from the
+  // seed and `0xabc... → snapshot` from the write below) — the lookup by
+  // the original key would then miss real data. Caller convention is
+  // "compare addresses lowercased everywhere"; this map honours it.
+  // CodeRabbit feedback on PR #898.
+  for (const addr of tokenAddresses) result.set(addr.toLowerCase(), null);
+  if (tokenAddresses.length === 0) return result;
+
+  const lowered = tokenAddresses.map((a) => a.toLowerCase());
+  try {
+    // `drizzle-orm/neon-http`'s `db.execute(sql`...`)` resolves to a
+    // `NeonHttpQueryResult` object (`{ rows, rowCount, command, ... }`) —
+    // NOT the rows array directly. We have to pluck `.rows`. The raw
+    // `neon()` SQL tag used elsewhere in this codebase (BounceTech reads
+    // in `market-data.ts`) does return the array directly, so the two
+    // patterns aren't symmetric. Discovered by the smoke test on the
+    // sibling `fetchPortfolioPositions` after the original cast hid the
+    // shape mismatch at type-check time.
+    const queryResult = await db.execute(sql`
+      SELECT DISTINCT ON (token_address)
+        token_address,
+        curve_supply::text AS curve_supply,
+        lt_reserve::text AS lt_reserve,
+        timestamp::text AS timestamp
+      FROM ponder_prod.token_snapshot
+      WHERE token_address = ANY(${lowered}::text[])
+        AND timestamp <= ${cutoffSec}::numeric
+      ORDER BY token_address, timestamp DESC
+    `);
+    const rows = queryResult.rows as unknown as Array<{
+      token_address: string;
+      curve_supply: string;
+      lt_reserve: string;
+      timestamp: string;
+    }>;
+    for (const r of rows) {
+      result.set(r.token_address.toLowerCase(), {
+        curveSupply: r.curve_supply,
+        ltReserve: r.lt_reserve,
+        timestamp: r.timestamp,
+      });
+    }
+    return result;
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchHistoricalCurveSnapshots_failed",
+      error,
+      { addressCount: tokenAddresses.length, cutoffSec },
+    );
+    return null;
+  }
+}
+
+/**
+ * Aggregate `Zap` router-trade activity (24h volume + last trade timestamp)
+ * per token, in a single `GROUP BY` query.
+ *
+ * The legacy GraphQL implementation paginated up to 20×1000 rows over HTTP,
+ * summed in memory, and returned `null` on truncation (so the trending score
+ * could fall back to "unknown" rather than silently under-counting). This
+ * direct-SQL version has no truncation case — Postgres aggregates the full
+ * window in one shot — so we always return populated data.
+ *
+ * Tokens with no trades in the window are absent from the map; callers
+ * substitute `volume24hUsd = 0` / `lastTradeAt = null` for them. Empty input
+ * short-circuits to an empty map (no SQL).
+ */
+export async function fetchRouterTradeActivity(
+  db: Database,
+  addresses: string[],
+  nowSec: number,
+): Promise<Map<string, RouterTradeActivity> | null> {
+  if (addresses.length === 0) return new Map();
+  const lowered = addresses.map((a) => a.toLowerCase());
+  const sinceSec = nowSec - 86_400;
+  try {
+    const rows = (await db
+      .select({
+        tokenAddress: indexerRouterTrade.tokenAddress,
+        volumeUsdcRaw: sql<string>`SUM(${indexerRouterTrade.usdcAmount})::text`,
+        lastTradeAtSec: sql<string>`MAX(${indexerRouterTrade.timestamp})::text`,
+      })
+      .from(indexerRouterTrade)
+      .where(
+        and(
+          inArray(indexerRouterTrade.tokenAddress, lowered),
+          gte(indexerRouterTrade.timestamp, String(sinceSec)),
+        ),
+      )
+      .groupBy(indexerRouterTrade.tokenAddress)) as Array<{
+        tokenAddress: string;
+        volumeUsdcRaw: string;
+        lastTradeAtSec: string;
+      }>;
+
+    const activity = new Map<string, RouterTradeActivity>();
+    for (const row of rows) {
+      // USDC is 6dp on-chain; convert to display USD here so the route
+      // can ship the value verbatim.
+      const volume24hUsd = Number(BigInt(row.volumeUsdcRaw)) / 1e6;
+      activity.set(row.tokenAddress.toLowerCase(), {
+        volume24hUsd,
+        lastTradeAtSec: Number(row.lastTradeAtSec),
+      });
+    }
+    return activity;
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchRouterTradeActivity_failed",
+      error,
+      { addressCount: addresses.length, sinceSec },
+    );
+    return null;
+  }
+}
+
+/** Resolved metadata for the `/trades` per-token enrichment shim. */
+export interface TokenLabel {
+  address: string;
+  name: string;
+  symbol: string;
+}
+
+/**
+ * Fetch display labels (`name`, `symbol`) for a set of token addresses. The
+ * `/trades` route uses this to attach `tokenSymbol` / `tokenName` to each
+ * `routerTrade` row in a single Postgres query — replaces a second Ponder
+ * GraphQL round-trip per `/trades` response.
+ */
+export async function fetchTokenLabels(
+  db: Database,
+  addresses: string[],
+): Promise<Map<string, TokenLabel> | null> {
+  if (addresses.length === 0) return new Map();
+  const lowered = addresses.map((a) => a.toLowerCase());
+  try {
+    const rows = await db
+      .select({
+        address: indexerToken.address,
+        name: indexerToken.name,
+        symbol: indexerToken.symbol,
+      })
+      .from(indexerToken)
+      .where(inArray(indexerToken.address, lowered));
+    const map = new Map<string, TokenLabel>();
+    for (const r of rows) {
+      map.set(r.address.toLowerCase(), {
+        address: r.address,
+        name: r.name,
+        symbol: r.symbol,
+      });
+    }
+    return map;
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchTokenLabels_failed", error, {
+      addressCount: addresses.length,
+    });
+    return null;
+  }
+}
+
+/** Shape returned by `/trades` callers — matches the legacy `PonderRouterTrade`. */
+export interface IndexerRouterTradeRow {
+  id: string;
+  tokenAddress: string;
+  trader: string;
+  isBuy: boolean;
+  usdcAmount: string;
+  tokenAmount: string;
+  blockNumber: string;
+  timestamp: string;
+}
+
+/**
+ * Page of router trades, newest first. When `tokenAddress` is supplied the
+ * page is scoped to a single token; otherwise the global feed is returned.
+ *
+ * The previous GraphQL paginator returned all 20×1000 rows for the `/ohlcv`
+ * route by sweeping `routerTrades(orderDirection: asc)` from genesis. That
+ * pattern is preserved by the `direction` argument so the OHLCV builder can
+ * still walk the full per-token history in chronological order.
+ */
+export async function fetchRouterTrades(
+  db: Database,
+  opts: {
+    tokenAddress?: string;
+    limit: number;
+    offset: number;
+    direction?: "asc" | "desc";
+  },
+): Promise<IndexerRouterTradeRow[] | null> {
+  const direction = opts.direction ?? "desc";
+  // `timestamp` (block.timestamp, second resolution) is NOT unique — a single
+  // block can carry multiple Zap.Buy / Zap.Sell events, all stamped with the
+  // identical Unix-second value. Ordering by it alone makes offset-based
+  // pagination non-deterministic: rows tied on `timestamp` reshuffle each
+  // request, so the same `(limit, offset)` pair can return duplicates on one
+  // call and skip rows on the next. Add `id` (the indexer-assigned primary
+  // key, globally unique and stable) as the secondary sort to lock the
+  // ordering. Mirrors the direction for both columns so reverse paging stays
+  // symmetric. CodeRabbit feedback on PR #898.
+  const orderBy =
+    direction === "asc"
+      ? [asc(indexerRouterTrade.timestamp), asc(indexerRouterTrade.id)]
+      : [desc(indexerRouterTrade.timestamp), desc(indexerRouterTrade.id)];
+
+  try {
+    const where = opts.tokenAddress
+      ? eq(indexerRouterTrade.tokenAddress, opts.tokenAddress.toLowerCase())
+      : undefined;
+
+    const rows = await db
+      .select({
+        id: indexerRouterTrade.id,
+        tokenAddress: indexerRouterTrade.tokenAddress,
+        trader: indexerRouterTrade.trader,
+        isBuy: indexerRouterTrade.isBuy,
+        usdcAmount: indexerRouterTrade.usdcAmount,
+        tokenAmount: indexerRouterTrade.tokenAmount,
+        blockNumber: indexerRouterTrade.blockNumber,
+        timestamp: indexerRouterTrade.timestamp,
+      })
+      .from(indexerRouterTrade)
+      .where(where)
+      .orderBy(...orderBy)
+      .limit(opts.limit)
+      .offset(opts.offset);
+
+    return rows.map((r) => ({
+      id: r.id,
+      tokenAddress: r.tokenAddress,
+      trader: r.trader,
+      isBuy: r.isBuy,
+      usdcAmount: r.usdcAmount,
+      tokenAmount: r.tokenAmount,
+      blockNumber: r.blockNumber,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchRouterTrades_failed", error, {
+      tokenAddress: opts.tokenAddress ?? null,
+      limit: opts.limit,
+      offset: opts.offset,
+      direction,
+    });
+    return null;
+  }
+}
+
+/**
+ * Aggregated per-wallet positions, joining the indexer's
+ * `token_balance` (live ERC-20 balance from every Transfer) with
+ * `wallet_position` (Zap-only running cost basis).
+ *
+ * Returned shape mirrors what `/portfolio/:wallet` ships to the client.
+ * Zero balances are filtered out at the SQL level. Wallets without any
+ * Zap activity for a held token correctly surface as
+ * `costBasisUsdc: "0"` — that mirrors the legacy semantics where a
+ * direct-transfer recipient has no Zap cost basis.
+ */
+export interface WalletPositionRow {
+  tokenAddress: string;
+  tokenAmount: string;
+  costBasisUsdc: string;
+}
+
+const PORTFOLIO_PAGE_SIZE = 1000;
+
+export async function fetchPortfolioPositions(
+  db: Database,
+  wallet: string,
+): Promise<{ positions: WalletPositionRow[]; truncated: boolean } | null> {
+  const lowered = wallet.toLowerCase();
+  try {
+    // `LIMIT PAGE_SIZE + 1` is the "is there a next page?" trick: if the
+    // query returns one row past the page size, the wallet has at least
+    // one more holding we're cutting off (truncated). If it returns
+    // exactly the page size or fewer, the page is complete. The previous
+    // `length === PAGE_SIZE` check couldn't distinguish "exactly N
+    // holdings" from "more than N", so wallets that happened to hold
+    // exactly 1000 tokens were mis-flagged as truncated. CodeRabbit
+    // feedback on PR #898.
+    //
+    // Note: `drizzle-orm/neon-http`'s `db.execute(sql`...`)` resolves to
+    // a `NeonHttpQueryResult` (`{ rows, rowCount, ... }`) — NOT the rows
+    // array. Unwrap `.rows`. The smoke test caught the original `result
+    // .map is not a function` regression that the cast hid.
+    const queryResult = await db.execute(sql`
+      SELECT
+        b.token_address     AS token_address,
+        b.balance::text     AS balance,
+        COALESCE(p.cost_basis_usdc, 0)::text AS cost_basis_usdc
+      FROM ponder_prod.token_balance b
+      LEFT JOIN ponder_prod.wallet_position p
+        ON p.wallet = b.wallet AND p.token_address = b.token_address
+      WHERE b.wallet = ${lowered}
+        AND b.balance > 0
+      LIMIT ${PORTFOLIO_PAGE_SIZE + 1}
+    `);
+    const rows = queryResult.rows as unknown as Array<{
+      token_address: string;
+      balance: string;
+      cost_basis_usdc: string;
+    }>;
+
+    const truncated = rows.length > PORTFOLIO_PAGE_SIZE;
+    const pageRows = truncated ? rows.slice(0, PORTFOLIO_PAGE_SIZE) : rows;
+    const positions = pageRows.map((r) => ({
+      tokenAddress: r.token_address,
+      tokenAmount: r.balance,
+      costBasisUsdc: r.cost_basis_usdc,
+    }));
+
+    return { positions, truncated };
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchPortfolioPositions_failed",
+      error,
+      { wallet: lowered },
+    );
+    return null;
+  }
+}
+
+/** Shape returned by `fetchHolders`. */
+export interface HolderRow {
+  wallet: string;
+  balance: string;
+}
+
+/**
+ * Top-N holders (by balance desc) for a token, plus a total count of holders
+ * with non-zero balance after excluding protocol wallets. Both come from a
+ * single SQL round-trip; the previous GraphQL implementation paginated up to
+ * 20K rows and counted in memory.
+ *
+ * `excludedWallets` carries the bonding proxy + bonding pair + hyperswap pair
+ * + zero address, all lowercased — see the route handler for the rationale.
+ */
+export async function fetchHolders(
+  db: Database,
+  opts: {
+    tokenAddress: string;
+    limit: number;
+    excludedWallets: string[];
+  },
+): Promise<{ holders: HolderRow[]; totalHolders: number } | null> {
+  const tokenAddress = opts.tokenAddress.toLowerCase();
+  const excluded = opts.excludedWallets.map((w) => w.toLowerCase());
+
+  try {
+    const baseConds = [
+      eq(indexerTokenBalance.tokenAddress, tokenAddress),
+      gt(indexerTokenBalance.balance, "0"),
+    ];
+    if (excluded.length > 0) {
+      baseConds.push(notInArray(indexerTokenBalance.wallet, excluded));
+    }
+
+    const [{ count: rawCount } = { count: "0" }] = (await db
+      .select({ count: sql<string>`COUNT(*)::text` })
+      .from(indexerTokenBalance)
+      .where(and(...baseConds))) as Array<{ count: string }>;
+
+    const totalHolders = Number(rawCount);
+
+    if (totalHolders === 0) {
+      return { holders: [], totalHolders };
+    }
+
+    const rows = await db
+      .select({
+        wallet: indexerTokenBalance.wallet,
+        balance: indexerTokenBalance.balance,
+      })
+      .from(indexerTokenBalance)
+      .where(and(...baseConds))
+      .orderBy(desc(indexerTokenBalance.balance))
+      .limit(opts.limit);
+
+    return {
+      holders: rows.map((r) => ({ wallet: r.wallet, balance: r.balance })),
+      totalHolders,
+    };
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchHolders_failed", error, {
+      tokenAddress,
+      limit: opts.limit,
+    });
+    return null;
+  }
+}
+
+/** Shape returned by `fetchGlobalStats`. */
+export interface GlobalStatsRow {
+  totalTokens: number;
+  tokensLive: number;
+  tokensGraduated: number;
+  totalVolumeUsd: string;
+}
+
+/** Bounded scan of the last 25 `hourly_volume` buckets summed via Postgres. */
+export async function fetchPlatformStats(
+  db: Database,
+  windowStart: number,
+): Promise<{ singleton: GlobalStatsRow | null; volume24h: bigint } | null> {
+  try {
+    const [singletonRow] = await db
+      .select({
+        totalTokens: indexerGlobalStats.totalTokens,
+        tokensLive: indexerGlobalStats.tokensLive,
+        tokensGraduated: indexerGlobalStats.tokensGraduated,
+        totalVolumeUsd: indexerGlobalStats.totalVolumeUsd,
+      })
+      .from(indexerGlobalStats)
+      .where(eq(indexerGlobalStats.id, "global"))
+      .limit(1);
+
+    const [{ volume24h = "0" } = { volume24h: "0" }] = (await db
+      .select({
+        volume24h: sql<string>`COALESCE(SUM(${indexerHourlyVolume.volumeUsd}), 0)::text`,
+      })
+      .from(indexerHourlyVolume)
+      .where(gte(indexerHourlyVolume.hourStart, String(windowStart)))) as Array<{ volume24h: string }>;
+
+    const singleton: GlobalStatsRow | null = singletonRow
+      ? {
+          totalTokens: Number(singletonRow.totalTokens ?? "0"),
+          tokensLive: Number(singletonRow.tokensLive ?? "0"),
+          tokensGraduated: Number(singletonRow.tokensGraduated ?? "0"),
+          totalVolumeUsd: singletonRow.totalVolumeUsd ?? "0",
+        }
+      : null;
+
+    return { singleton, volume24h: BigInt(volume24h) };
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchPlatformStats_failed", error, {
+      windowStart,
+    });
+    return null;
+  }
+}
+
+/**
+ * Resolve `(bondingPair, hyperswapPair)` for a token without pulling the
+ * full row. Used by `/holders/:address` to build the exclusion list. A
+ * missing row (`null`) means the token isn't indexed yet — the route falls
+ * back to "exclude just the zero address + bonding proxy" in that case.
+ */
+export async function fetchTokenPairAddresses(
+  db: Database,
+  tokenAddress: string,
+): Promise<{ bondingPair: string | null; hyperswapPair: string | null } | "missing" | "error"> {
+  try {
+    const [row] = await db
+      .select({
+        bondingPair: indexerToken.bondingPair,
+        hyperswapPair: indexerToken.hyperswapPair,
+      })
+      .from(indexerToken)
+      .where(eq(indexerToken.address, tokenAddress.toLowerCase()))
+      .limit(1);
+    if (!row) return "missing";
+    return {
+      bondingPair: row.bondingPair,
+      hyperswapPair: row.hyperswapPair,
+    };
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokenPairAddresses_failed",
+      error,
+      { tokenAddress: tokenAddress.toLowerCase() },
+    );
+    return "error";
+  }
+}
+
+/**
+ * Top-K trending candidate token addresses, ranked by the indexer-side
+ * `base_score` column. The route then re-scores at read time using the full
+ * `computeTrendingScore` (which mixes in the time-dependent freshness /
+ * recency / dead-penalty terms we deliberately don't precompute server-side).
+ *
+ * `minLastTradeAtSec` is the dead-token cutoff — applied here so the index
+ * skips fully-dead rows entirely. With the `tokenMetrics` row count bounded
+ * by the catalogue size and `base_score` being a precomputed column, this
+ * query is O(matching-rows) with a btree-sort cost — fast even on a cold
+ * cache.
+ */
+export async function fetchTrendingCandidateAddresses(
+  db: Database,
+  limit: number,
+  minLastTradeAtSec: number,
+): Promise<string[] | null> {
+  try {
+    const rows = await db
+      .select({ tokenAddress: indexerTokenMetrics.tokenAddress })
+      .from(indexerTokenMetrics)
+      .where(gt(indexerTokenMetrics.lastTradeAt, String(minLastTradeAtSec)))
+      .orderBy(desc(indexerTokenMetrics.baseScore))
+      .limit(limit);
+    return rows.map((r) => r.tokenAddress.toLowerCase());
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTrendingCandidateAddresses_failed",
+      error,
+      { limit, minLastTradeAtSec },
+    );
+    return null;
+  }
+}
+
+/**
+ * Cheap-but-real reachability probe for the indexer DB connection. Mirrors
+ * the legacy `checkPonderHealth` semantics: an empty table is fine (returns
+ * `true`), a thrown exception is `false`. Used by the `/health` endpoint and
+ * the OHLCV pre-check.
+ *
+ * Touches the `token` row count rather than `SELECT 1` so a Postgres pool
+ * that's reachable but starved of capacity still surfaces as `false`.
+ */
+export async function checkIndexerHealth(db: Database): Promise<boolean> {
+  try {
+    await db
+      .select({ address: indexerToken.address })
+      .from(indexerToken)
+      .limit(1);
+    return true;
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.checkIndexerHealth_failed", error);
+    return false;
+  }
+}
+
+/**
+ * Re-export the legacy shapes so callers can import them from one place
+ * during the GraphQL → direct-SQL migration. `market-data.ts` still owns
+ * the canonical type definitions; this is purely a re-export convenience.
+ */
+export type { MarketDataItem, PonderTokenOnchain, RouterTradeActivity };

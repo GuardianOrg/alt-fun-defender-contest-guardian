@@ -3,10 +3,15 @@ import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
 
-const mockPonderQuery = vi.fn();
+const mockFetchPortfolioPositions = vi.fn();
 
-vi.mock("../lib/ponder-client.js", () => ({
-  createPonderQuery: () => mockPonderQuery,
+vi.mock("../lib/indexer-reads.js", () => ({
+  fetchPortfolioPositions: (...args: unknown[]) =>
+    mockFetchPortfolioPositions(...args),
+}));
+
+vi.mock("../db/client.js", () => ({
+  createDb: () => ({}),
 }));
 
 const { default: portfolioRoute } = await import("../routes/portfolio.js");
@@ -46,27 +51,29 @@ describe("GET /portfolio/:wallet", () => {
   });
 
   it("returns 503 when the indexer is unreachable", async () => {
-    mockPonderQuery.mockResolvedValue(null);
+    mockFetchPortfolioPositions.mockResolvedValue(null);
     const app = createApp();
     const res = await app.request(`/portfolio/${WALLET}`, {}, makeEnv());
     expect(res.status).toBe(503);
   });
 
-  it("joins tokenBalances with walletPositions for cost basis", async () => {
-    mockPonderQuery.mockResolvedValue({
-      tokenBalances: {
-        items: [
-          { tokenAddress: TOKEN_A, balance: "1000000000000000000000000" },
-          { tokenAddress: TOKEN_B, balance: "5000000000000000000" },
-        ],
-      },
-      walletPositions: {
-        items: [
-          // Cost basis only known for TOKEN_A — TOKEN_B was acquired via
-          // direct transfer (no Zap activity).
-          { tokenAddress: TOKEN_A, costBasisUsdc: "250000000" },
-        ],
-      },
+  it("joins token_balance with wallet_position for cost basis", async () => {
+    mockFetchPortfolioPositions.mockResolvedValue({
+      positions: [
+        {
+          tokenAddress: TOKEN_A,
+          tokenAmount: "1000000000000000000000000",
+          costBasisUsdc: "250000000",
+        },
+        // Direct-transfer recipient: balance present, cost basis from
+        // `COALESCE(p.cost_basis_usdc, 0)` → "0".
+        {
+          tokenAddress: TOKEN_B,
+          tokenAmount: "5000000000000000000",
+          costBasisUsdc: "0",
+        },
+      ],
+      truncated: false,
     });
 
     const app = createApp();
@@ -75,7 +82,11 @@ describe("GET /portfolio/:wallet", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       data: {
-        positions: { tokenAddress: string; tokenAmount: string; costBasisUsdc: string }[];
+        positions: {
+          tokenAddress: string;
+          tokenAmount: string;
+          costBasisUsdc: string;
+        }[];
         approximate: boolean;
       };
     };
@@ -86,7 +97,6 @@ describe("GET /portfolio/:wallet", () => {
       tokenAmount: "1000000000000000000000000",
       costBasisUsdc: "250000000",
     });
-    // Transfer-only acquisition → balance present, cost basis defaults to "0".
     expect(body.data.positions[1]).toEqual({
       tokenAddress: TOKEN_B,
       tokenAmount: "5000000000000000000",
@@ -95,46 +105,25 @@ describe("GET /portfolio/:wallet", () => {
     expect(body.data.approximate).toBe(false);
   });
 
-  it("excludes positions with zero balance (defensive — the where filter already does this)", async () => {
-    mockPonderQuery.mockResolvedValue({
-      tokenBalances: {
-        items: [
-          { tokenAddress: TOKEN_A, balance: "0" },
-          { tokenAddress: TOKEN_B, balance: "1" },
-        ],
-      },
-      walletPositions: { items: [] },
-    });
-
-    const app = createApp();
-    const res = await app.request(`/portfolio/${WALLET}`, {}, makeEnv());
-    const body = (await res.json()) as {
-      data: { positions: { tokenAddress: string }[] };
-    };
-
-    expect(body.data.positions).toHaveLength(1);
-    expect(body.data.positions[0].tokenAddress).toBe(TOKEN_B);
-  });
-
-  it("makes a single GraphQL round-trip (no pagination)", async () => {
-    mockPonderQuery.mockResolvedValue({
-      tokenBalances: { items: [] },
-      walletPositions: { items: [] },
+  it("makes a single read-path round-trip (one JOIN, no pagination)", async () => {
+    mockFetchPortfolioPositions.mockResolvedValue({
+      positions: [],
+      truncated: false,
     });
 
     const app = createApp();
     await app.request(`/portfolio/${WALLET}`, {}, makeEnv());
-    expect(mockPonderQuery).toHaveBeenCalledTimes(1);
+    expect(mockFetchPortfolioPositions).toHaveBeenCalledTimes(1);
   });
 
-  it("flags `approximate: true` when balance results hit the page-size cap", async () => {
-    const balances = Array.from({ length: 1000 }, (_, i) => ({
-      tokenAddress: `0x${(i + 1).toString(16).padStart(40, "0")}`,
-      balance: "1",
-    }));
-    mockPonderQuery.mockResolvedValue({
-      tokenBalances: { items: balances },
-      walletPositions: { items: [] },
+  it("propagates `truncated` to `approximate` on a saturated page", async () => {
+    mockFetchPortfolioPositions.mockResolvedValue({
+      positions: Array.from({ length: 1000 }, (_, i) => ({
+        tokenAddress: `0x${(i + 1).toString(16).padStart(40, "0")}`,
+        tokenAmount: "1",
+        costBasisUsdc: "0",
+      })),
+      truncated: true,
     });
 
     const app = createApp();
@@ -144,9 +133,9 @@ describe("GET /portfolio/:wallet", () => {
   });
 
   it("sets a Cache-Control header for edge caching", async () => {
-    mockPonderQuery.mockResolvedValue({
-      tokenBalances: { items: [] },
-      walletPositions: { items: [] },
+    mockFetchPortfolioPositions.mockResolvedValue({
+      positions: [],
+      truncated: false,
     });
 
     const app = createApp();

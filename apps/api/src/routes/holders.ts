@@ -2,25 +2,19 @@ import { Hono } from "hono";
 import { isAddress } from "viem";
 import { CONTRACT_ADDRESSES } from "@launchpad/shared";
 
+import { createDb } from "../db/client.js";
 import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
-import { createPonderPaginatedQuery, createPonderQuery } from "../lib/ponder-client.js";
+import {
+  fetchHolders,
+  fetchTokenPairAddresses,
+} from "../lib/indexer-reads.js";
 
 import type { AppBindings } from "../lib/types.js";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const BONDING_ADDRESS = CONTRACT_ADDRESSES.bonding.toLowerCase();
 const TOTAL_SUPPLY = 1_000_000_000n * 10n ** 18n;
-
-interface PonderTokenInfo {
-  bondingPair: string | null;
-  hyperswapPair: string | null;
-}
-
-interface PonderTokenBalance {
-  wallet: string;
-  balance: string;
-}
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
@@ -31,17 +25,25 @@ function parseNonNegativeInt(value: string | undefined): number | undefined | nu
 const holders = new Hono<{ Bindings: AppBindings }>();
 
 /**
- * Holder list for a given token. Sourced from Ponder's `tokenBalances` index
- * (updated on every `Transfer`) so direct ERC-20 transfers, post-graduation
- * HyperSwap swaps that don't go through Zap, and any future protocol
- * integrators are all reflected — the previous implementation reconstructed
- * balances from `routerTrades` only and silently undercounted holders +
- * mis-totalled balances as soon as a token saw any off-Zap movement.
+ * Holder list for a given token. Sourced from the indexer's
+ * `ponder_prod.token_balance` table (updated on every `Transfer`) so direct
+ * ERC-20 transfers, post-graduation HyperSwap swaps that don't go through
+ * Zap, and any future protocol integrators are all reflected — the previous
+ * implementation reconstructed balances from `routerTrades` only and
+ * silently undercounted holders + mis-totalled balances as soon as a token
+ * saw any off-Zap movement.
  *
- * The bonding proxy (holds the 25 % LP reserve until graduation), bonding
+ * The bonding proxy (holds the 25% LP reserve until graduation), bonding
  * curve pair, HyperSwap LP pair, and zero address are excluded: they're
- * protocol contracts (LP reserve / curve reserve / locked LP / burned),
- * not user-facing holders.
+ * protocol contracts (LP reserve / curve reserve / locked LP / burned), not
+ * user-facing holders.
+ *
+ * As of the GraphQL → direct-SQL migration the route does **two** Postgres
+ * round-trips on the same Neon connection: one to resolve the per-token
+ * exclusion pair addresses, one to fetch the top-N holders + the precise
+ * total count. Replaces a `token(...)` GraphQL call + a paginated
+ * `tokenBalances(...)` sweep (up to 20×1000 sequential pages) — same data,
+ * one to two orders of magnitude less work on the upstream.
  */
 holders.get("/:address", async (c) => {
   const rawAddress = c.req.param("address");
@@ -56,94 +58,84 @@ holders.get("/:address", async (c) => {
   }
   const limit = Math.min(limitParam ?? 20, 100);
 
-  // Doubles as the indexer health check — a healthy Ponder always answers
-  // this; a degraded Ponder returns `null`.
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
-  const tokenInfoResult = await queryPonder<{ token: PonderTokenInfo | null }>(
-    `query ($address: String!) {
-      token(address: $address) {
-        bondingPair
-        hyperswapPair
-      }
-    }`,
-    { address },
-  );
-  if (tokenInfoResult === null) {
-    return c.json(formatError("Indexer unavailable — holder data cannot be loaded"), 503);
+  const db = createDb(c.env.DATABASE_URL);
+
+  // Resolve `bondingPair` / `hyperswapPair` so we can exclude protocol
+  // wallets from the holders. A `"missing"` token is treated the same as
+  // the legacy GraphQL path's `token: null` — fall back to excluding only
+  // the zero address + bonding proxy. A `"error"` propagates as a 503.
+  const pairs = await fetchTokenPairAddresses(db, address);
+  if (pairs === "error") {
+    return c.json(
+      formatError("Indexer unavailable — holder data cannot be loaded"),
+      503,
+    );
   }
 
-  const excludedWallets = [
-    ZERO_ADDRESS,
-    BONDING_ADDRESS,
-    tokenInfoResult.token?.bondingPair,
-    tokenInfoResult.token?.hyperswapPair,
-  ]
-    .filter((w): w is string => typeof w === "string" && w.length > 0)
-    .map((w) => w.toLowerCase());
-
-  const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-  const { items: rawBalances, truncated } = await queryPonderAll<PonderTokenBalance>(
-    `query ($address: String!, $excluded: [String!]!, $limit: Int!, $offset: Int!) {
-      tokenBalances(
-        where: { tokenAddress: $address, balance_gt: "0", wallet_not_in: $excluded }
-        limit: $limit
-        offset: $offset
-        orderBy: "balance"
-        orderDirection: "desc"
-      ) {
-        items {
-          wallet
-          balance
-        }
-      }
-    }`,
-    "tokenBalances",
-    { address, excluded: excludedWallets },
-  );
-
-  // Defense-in-depth: even though the Ponder query already filters
-  // `balance_gt: "0"`, drop any zero-balance rows here too. A holder whose
-  // balance went to zero (sold everything, or transferred all tokens out)
-  // is not a holder — Ponder writes a `balance = 0` row on `Transfer` rather
-  // than deleting it (see `apps/indexer/src/bonding.ts` → `Token:Transfer`),
-  // so this is the last line of defence against any GraphQL filter regression
-  // surfacing fully-exited wallets in the UI (issue #421). Filtering after
-  // pagination keeps `totalHolders` aligned with what we actually return.
-  //
-  // The `BigInt()` parse is wrapped in a try/catch so a single malformed row
-  // from a misbehaving indexer (e.g. `null`, `"NaN"`, decimal-string) is
-  // skipped instead of 500-ing the whole route — the holders tab is a
-  // best-effort read surface, and one bad row shouldn't black-hole the
-  // entire list for everyone watching a viral token.
-  const balances = rawBalances.flatMap((b) => {
-    let parsedBalance: bigint;
-    try {
-      parsedBalance = BigInt(b.balance);
-    } catch {
-      return [];
+  const excludedWallets = [ZERO_ADDRESS, BONDING_ADDRESS];
+  if (pairs !== "missing") {
+    if (pairs.bondingPair) excludedWallets.push(pairs.bondingPair.toLowerCase());
+    if (pairs.hyperswapPair) {
+      excludedWallets.push(pairs.hyperswapPair.toLowerCase());
     }
-    return parsedBalance > 0n ? [{ ...b, parsedBalance }] : [];
-  });
+  }
 
-  const holderList = balances.slice(0, limit).map((b) => ({
-    wallet: b.wallet,
-    balance: b.balance,
-    percentage: Number((b.parsedBalance * 10000n) / TOTAL_SUPPLY) / 100,
-  }));
+  const result = await fetchHolders(db, {
+    tokenAddress: address,
+    limit,
+    excludedWallets,
+  });
+  if (result === null) {
+    return c.json(
+      formatError("Indexer unavailable — holder data cannot be loaded"),
+      503,
+    );
+  }
+
+  // Defense-in-depth: drop zero-balance rows + skip rows with malformed
+  // balance strings. The SQL `balance > 0` filter already handles the
+  // former, but a misbehaving indexer (or a future schema change) could
+  // surface a non-numeric `balance` value — `BigInt(...)` throws on those,
+  // and the holders tab is a best-effort read where one bad row shouldn't
+  // black-hole the whole list. See issue #421 for the historical context.
+  const holderList: {
+    wallet: string;
+    balance: string;
+    percentage: number;
+  }[] = [];
+  for (const row of result.holders) {
+    let parsed: bigint;
+    try {
+      parsed = BigInt(row.balance);
+    } catch {
+      continue;
+    }
+    if (parsed <= 0n) continue;
+    holderList.push({
+      wallet: row.wallet,
+      balance: row.balance,
+      percentage: Number((parsed * 10000n) / TOTAL_SUPPLY) / 100,
+    });
+  }
 
   // Edge cache the holder list — it changes on every Transfer but a few
   // seconds of staleness is invisible on the UI, and the cache absorbs the
   // thundering-herd pattern (100 users opening the same viral token) that
   // would otherwise serialise into the indexer's PG pool.
-  c.header(
-    "Cache-Control",
-    "public, s-maxage=15, stale-while-revalidate=30",
+  c.header("Cache-Control", "public, s-maxage=15, stale-while-revalidate=30");
+  return c.json(
+    formatSuccess({
+      holders: holderList,
+      totalHolders: result.totalHolders,
+      // The SQL aggregation has no truncation case (Postgres COUNT(*) returns
+      // the exact total regardless of how many holders exist), so this field
+      // is always false now. Kept on the response envelope for the legacy
+      // GraphQL paginator contract — once we're confident no client is
+      // surfacing a "showing top N of 20K+" banner from this flag, we can
+      // drop it in a follow-up.
+      approximate: false,
+    }),
   );
-  return c.json(formatSuccess({
-    holders: holderList,
-    totalHolders: balances.length,
-    approximate: truncated,
-  }));
 });
 
 export default holders;

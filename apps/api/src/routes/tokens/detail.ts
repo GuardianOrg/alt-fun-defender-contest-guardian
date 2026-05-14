@@ -231,7 +231,7 @@ detailRoute.get("/:address", async (c) => {
   }
 
   const marketResult = await computeMarketDataSingle(
-    c.env.PONDER_URL,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     address,
   );

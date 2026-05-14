@@ -2,10 +2,16 @@ import { getAddress } from "viem";
 import { neon } from "@neondatabase/serverless";
 import { computeTokenPrice } from "@launchpad/shared";
 
+import { createDb } from "../db/client.js";
 import {
-  createPonderQuery,
-  createPonderPaginatedQuery,
-} from "./ponder-client.js";
+  fetchGraduatedTokensOnchain as readGraduatedTokensOnchain,
+  fetchHistoricalCurveSnapshots as readHistoricalCurveSnapshots,
+  fetchNonGraduatedTokensOnchain as readNonGraduatedTokensOnchain,
+  fetchRouterTradeActivity as readRouterTradeActivity,
+  fetchTokenOnchain as readTokenOnchain,
+  fetchTokensOnchainByAddresses as readTokensOnchainByAddresses,
+  fetchTrendingCandidateAddresses as readTrendingCandidateAddresses,
+} from "./indexer-reads.js";
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
 export const TOKEN_SUPPLY = 1_000_000_000;
@@ -94,10 +100,6 @@ interface PonderTokenSnapshot {
   timestamp: string;
 }
 
-interface PonderSnapshotPage {
-  items: PonderTokenSnapshot[];
-}
-
 interface BounceLt {
   address: string;
   exchangeRate: string;
@@ -156,76 +158,20 @@ export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
 }
 
 /**
- * Number of `tokenSnapshots(...)` aliases per outbound GraphQL request to
- * Ponder. Bounded by graphql-yoga's default `MaxTokensPlugin` ceiling of
- * **1,000 lexer tokens per document** — our per-alias selection (with
- * `where`, `orderBy`, `orderDirection`, `limit`, and the inner `items {
- * curveSupply ltReserve timestamp }` block) weighs in at ~32 tokens, so
- * the parse-time cliff sits at ~31 aliases. Confirmed empirically against
- * prod Ponder (batch=30 → ok, batch=35 → `Syntax Error: Token limit of
- * 1000 exceeded.`). 25 leaves comfortable margin for adding one more
- * inner field without re-tripping the limit. The fan-out is parallelised
- * across batches (see `fetchHistoricalCurveSnapshots`), so smaller
- * batches do not regress wall-clock latency.
- */
-const BATCH_SIZE = 25;
-
-/**
  * Fetch on-chain state for a specific set of token addresses. Returns `null`
- * when the indexer is unreachable. Addresses not present in Ponder are simply
- * omitted from the result.
+ * when Postgres throws (Neon pool exhausted, transient connection error).
+ * Addresses not present in the indexer's `token` table are simply omitted
+ * from the result.
  *
- * Note: there is intentionally no full-catalogue counterpart. Every prior
- * "fetch every token in the indexer" call site relied on the
- * `fetchAllTokensOnchain` paginator's 20K silent-truncation cap and on
- * downstream per-request fan-outs that don't scale to 100K+ tokens — the
- * `POST /market-data` per-page endpoint and the trending tab's
- * precomputed `tokenMetrics` candidate filter replace both code paths.
+ * Reads `ponder_prod.token` directly — see `lib/indexer-reads.ts` for the
+ * underlying SQL. The legacy GraphQL paginator this used to fan out to is
+ * gone; every read is a single Postgres round-trip.
  */
 export async function fetchTokensOnchainByAddresses(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   addresses: string[],
 ): Promise<PonderTokenOnchain[] | null> {
-  if (addresses.length === 0) return [];
-  const queryPonderAll = createPonderPaginatedQuery(ponderUrl);
-  const lowered = addresses.map((a) => a.toLowerCase());
-  try {
-    const result = await queryPonderAll<PonderTokenOnchain>(
-      `query ($addresses: [String!]!, $limit: Int!, $offset: Int!) {
-        tokens(
-          where: { address_in: $addresses }
-          limit: $limit
-          offset: $offset
-          orderBy: "timestamp"
-          orderDirection: "desc"
-        ) {
-          items {
-            address
-            ltToken
-            k
-            curveSupply
-            ltReserve
-            pendingGraduation
-            pendingGraduationAt
-            graduated
-            graduatedAt
-            bondingPair
-            hyperswapPair
-            organicUsdcRaised
-            volumeUsd
-            creatorFeesUsd
-            protocolFeesUsd
-            timestamp
-          }
-        }
-      }`,
-      "tokens",
-      { addresses: lowered },
-    );
-    return result.items;
-  } catch {
-    return null;
-  }
+  return readTokensOnchainByAddresses(createDb(databaseUrl), addresses);
 }
 
 // The GRADUATING tab is a *progress* surface, not a *contract-state*
@@ -247,51 +193,17 @@ export async function fetchTokensOnchainByAddresses(
 
 /**
  * Fetch graduated tokens ordered by `graduatedAt desc`, paginated. Used by
- * the GRADUATED tab: Postgres' `status` column is never flipped to
- * "graduated" (the indexer is source of truth), so we drive the list off
- * Ponder and batch-lookup metadata from the API's own DB.
+ * the GRADUATED tab: Postgres' `status` column on `public.tokens` is never
+ * flipped to "graduated" (the indexer is source of truth), so we drive the
+ * list off `ponder_prod.token` and batch-lookup the metadata rows from the
+ * API's own DB.
  */
 export async function fetchGraduatedTokensOnchain(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   limit: number,
   offset: number,
 ): Promise<PonderTokenOnchain[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{
-    tokens: { items: PonderTokenOnchain[] };
-  }>(
-    `query ($limit: Int!, $offset: Int!) {
-      tokens(
-        where: { graduated: true }
-        limit: $limit
-        offset: $offset
-        orderBy: "graduatedAt"
-        orderDirection: "desc"
-      ) {
-        items {
-          address
-          ltToken
-          k
-          curveSupply
-          ltReserve
-          pendingGraduation
-          pendingGraduationAt
-          graduated
-          graduatedAt
-          bondingPair
-          hyperswapPair
-          organicUsdcRaised
-          volumeUsd
-          creatorFeesUsd
-          protocolFeesUsd
-          timestamp
-        }
-      }
-    }`,
-    { limit, offset },
-  );
-  if (data === null) return null;
-  return data.tokens.items;
+  return readGraduatedTokensOnchain(createDb(databaseUrl), limit, offset);
 }
 
 /**
@@ -322,98 +234,40 @@ export async function fetchGraduatedTokensOnchain(
  * Top-K trending candidates by precomputed `tokenMetrics.baseScore`. Replaces
  * the legacy "newest 500 tokens" candidate pool that was trivially spammable
  * — a burst of 500 zero-trade launches used to flush every real candidate
- * out of the trending tab. The indexer now maintains `baseScore` on every
- * `Zap.Buy` / `Zap.Sell` from three cumulative anti-spam signals
- * (`volumeUsdLifetime`, `distinctTraderCount`, `tradeCount`); spam tokens
- * with zero trades score 0 and rank below any token with even one real trade.
+ * out of the trending tab. The indexer maintains `baseScore` on every
+ * `Zap.Buy` / `Zap.Sell` from three cumulative anti-spam signals; spam
+ * tokens with zero trades score 0 and rank below any token with even one
+ * real trade.
  *
- * Returns lowercased token addresses. The route then hydrates them with
- * the existing token metadata + on-chain state + live market data, and
- * re-scores at read time with the full `computeTrendingScore` (which adds
- * the time-dependent freshness / recency / dead-penalty terms that we
- * deliberately don't precompute on the indexer side).
- *
- * `lastTradeAt_gt` filter screens out tokens that haven't traded inside
- * the trending window. The dead-penalty term (`-1000`) would do the same
- * job at the API layer, but pushing the filter into the GraphQL query
- * lets the index skip dead rows entirely — keeps the result set tight and
- * the response payload bounded under a viral hour.
- *
- * Returns `null` on indexer failure so the route can degrade gracefully
- * (same pattern as `fetchGraduatedTokensOnchain` / `fetchNonGraduatedTokensOnchain`).
+ * Returns lowercased token addresses. The route hydrates them with the
+ * existing token metadata + on-chain state + live market data, then
+ * re-scores at read time with the full `computeTrendingScore`.
  */
 export async function fetchTrendingCandidateAddresses(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   limit: number,
   /** Unix seconds — earliest `lastTradeAt` that still counts as alive. */
   minLastTradeAtSec: number,
 ): Promise<string[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{
-    tokenMetricss: {
-      items: Array<{ tokenAddress: string; baseScore: number }>;
-    };
-  }>(
-    `query ($limit: Int!, $minLastTradeAt: BigInt!) {
-      tokenMetricss(
-        where: { lastTradeAt_gt: $minLastTradeAt }
-        limit: $limit
-        orderBy: "baseScore"
-        orderDirection: "desc"
-      ) {
-        items {
-          tokenAddress
-          baseScore
-        }
-      }
-    }`,
-    { limit, minLastTradeAt: String(minLastTradeAtSec) },
+  return readTrendingCandidateAddresses(
+    createDb(databaseUrl),
+    limit,
+    minLastTradeAtSec,
   );
-  if (data === null) return null;
-  return data.tokenMetricss.items.map((row) => row.tokenAddress.toLowerCase());
 }
 
+/**
+ * Page of non-graduated tokens ordered by `curveSupply asc` (closest to
+ * sold-out first). Used by the GRADUATING tab to derive a bounded candidate
+ * pool before the route applies the USD-denominated `curveFilled >= 85%`
+ * gate in memory.
+ */
 export async function fetchNonGraduatedTokensOnchain(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   limit: number,
   offset: number,
 ): Promise<PonderTokenOnchain[] | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{
-    tokens: { items: PonderTokenOnchain[] };
-  }>(
-    `query ($limit: Int!, $offset: Int!) {
-      tokens(
-        where: { graduated: false }
-        limit: $limit
-        offset: $offset
-        orderBy: "curveSupply"
-        orderDirection: "asc"
-      ) {
-        items {
-          address
-          ltToken
-          k
-          curveSupply
-          ltReserve
-          pendingGraduation
-          pendingGraduationAt
-          graduated
-          graduatedAt
-          bondingPair
-          hyperswapPair
-          organicUsdcRaised
-          volumeUsd
-          creatorFeesUsd
-          protocolFeesUsd
-          timestamp
-        }
-      }
-    }`,
-    { limit, offset },
-  );
-  if (data === null) return null;
-  return data.tokens.items;
+  return readNonGraduatedTokensOnchain(createDb(databaseUrl), limit, offset);
 }
 
 export interface RouterTradeActivity {
@@ -422,185 +276,53 @@ export interface RouterTradeActivity {
 }
 
 /**
- * Aggregate `Zap` trades over the last 24h, keyed by token
- * address (lowercased). Used to power the trending score's volume and
- * recency components, and to expose `volume24hUsd` / `lastTradeAt` on the
- * token list response.
+ * Aggregate `Zap` router trades over the last 24h, keyed by token address
+ * (lowercased). Used to power the trending score's volume + recency terms,
+ * and to expose `volume24hUsd` / `lastTradeAt` on the token list response.
  *
- * Returns `null` when the signal is unreliable — either Ponder is
- * unreachable, or pagination truncated before we saw every trade in the
- * window (the paginator caps at MAX_PAGES × PAGE_SIZE; with `timestamp desc`
- * ordering truncation drops the oldest slice of the window, which would
- * silently zero out any token whose trades all fall in that tail and
- * falsely trip the trending dead-token penalty). Downstream,
- * `buildBatchFromTokens` collapses a `null` return to
- * `volume24hUsd: null, lastTradeAtSec: null` on every token — the trending
- * score then drops the volume + recency terms for this request and keeps
- * sorting on change24h / mcap / freshness, which is the honest "unknown"
- * behaviour.
- *
- * Tokens with no trades in the window are simply absent from the map;
- * callers substitute `volume24hUsd = 0` / `lastTradeAt = null` for them.
+ * Implemented as a single `SUM ... GROUP BY` against `ponder_prod.router_trade`
+ * (see `indexer-reads.ts → fetchRouterTradeActivity`). There's no truncation
+ * case anymore — Postgres aggregates the full window in one shot — so the
+ * `null` return now strictly means "the underlying read threw". Tokens with
+ * no trades in the window are simply absent from the map; callers substitute
+ * `volume24hUsd = 0` / `lastTradeAt = null` for them.
  */
 export async function fetchRouterTradeActivity(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   addresses: string[],
   nowSec: number,
 ): Promise<Map<string, RouterTradeActivity> | null> {
-  if (addresses.length === 0) return new Map();
-  const queryPonderAll = createPonderPaginatedQuery(ponderUrl);
-  const lowered = addresses.map((a) => a.toLowerCase());
-  const sinceSec = nowSec - 86_400;
-
-  try {
-    const result = await queryPonderAll<{
-      tokenAddress: string;
-      usdcAmount: string;
-      timestamp: string;
-    }>(
-      `query ($addresses: [String!]!, $since: BigInt!, $limit: Int!, $offset: Int!) {
-        routerTrades(
-          where: { tokenAddress_in: $addresses, timestamp_gte: $since }
-          limit: $limit
-          offset: $offset
-          orderBy: "timestamp"
-          orderDirection: "desc"
-        ) {
-          items {
-            tokenAddress
-            usdcAmount
-            timestamp
-          }
-        }
-      }`,
-      "routerTrades",
-      { addresses: lowered, since: String(sinceSec) },
-    );
-
-    if (result.truncated) {
-      console.warn(
-        "[market-data] routerTrade 24h aggregation truncated; " +
-          "returning null so trending falls back to unknown volume/recency. " +
-          `addresses=${addresses.length} items=${result.items.length}`,
-      );
-      return null;
-    }
-
-    const activity = new Map<string, RouterTradeActivity>();
-    for (const trade of result.items) {
-      const addr = trade.tokenAddress.toLowerCase();
-      const usdc = Number(BigInt(trade.usdcAmount)) / 1e6;
-      const ts = Number(trade.timestamp);
-      const existing = activity.get(addr);
-      if (existing) {
-        existing.volume24hUsd += usdc;
-        if (ts > existing.lastTradeAtSec) existing.lastTradeAtSec = ts;
-      } else {
-        activity.set(addr, { volume24hUsd: usdc, lastTradeAtSec: ts });
-      }
-    }
-    return activity;
-  } catch {
-    return null;
-  }
+  return readRouterTradeActivity(createDb(databaseUrl), addresses, nowSec);
 }
 
 export async function fetchTokenOnchain(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   address: string,
 ): Promise<PonderTokenOnchain | null | "unavailable"> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const data = await queryPonder<{ token: PonderTokenOnchain | null }>(
-    `query ($address: String!) {
-      token(address: $address) {
-        address
-        ltToken
-        k
-        curveSupply
-        ltReserve
-        pendingGraduation
-        pendingGraduationAt
-        graduated
-        graduatedAt
-        bondingPair
-        hyperswapPair
-        organicUsdcRaised
-        volumeUsd
-        creatorFeesUsd
-        protocolFeesUsd
-        timestamp
-      }
-    }`,
-    { address: address.toLowerCase() },
-  );
-  if (data === null) return "unavailable";
-  return data.token;
+  return readTokenOnchain(createDb(databaseUrl), address);
 }
 
 /**
  * For each token address, fetch the latest `tokenSnapshot` ≤ cutoff. Used to
  * reconstruct the curve ratio at `cutoff` for 24h change calculation. Returns
- * `null` when the indexer is unreachable.
+ * `null` when the underlying read throws — every other caller of this
+ * function tolerates a missing snapshot per-address (live curve state acts
+ * as the fallback), so the only error mode the caller cares about is the
+ * "everything failed" one.
+ *
+ * Replaces the legacy aliased-GraphQL batching with a single
+ * `DISTINCT ON (token_address)` scan against `ponder_prod.token_snapshot`.
  */
 export async function fetchHistoricalCurveSnapshots(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   tokenAddresses: string[],
   cutoffSec: number,
 ): Promise<Map<string, PonderTokenSnapshot | null> | null> {
-  const queryPonder = createPonderQuery(ponderUrl);
-  const snapshots = new Map<string, PonderTokenSnapshot | null>();
-  for (const addr of tokenAddresses) snapshots.set(addr, null);
-
-  // Chunk the address list into batches sized below graphql-yoga's
-  // per-document token limit (see `BATCH_SIZE`'s docstring). The batches
-  // are independent — each builds its own aliased GraphQL document and
-  // populates a disjoint slice of `snapshots` — so we run them in
-  // parallel. Sequential dispatch would multiply the route's tail
-  // latency by the batch count (6–10× under the current catalogue
-  // size), which is the regression `BATCH_SIZE = 50` was originally
-  // chosen to avoid before we learned about the parse-time limit.
-  const batches: string[][] = [];
-  for (let i = 0; i < tokenAddresses.length; i += BATCH_SIZE) {
-    batches.push(tokenAddresses.slice(i, i + BATCH_SIZE));
-  }
-
-  const batchResults = await Promise.all(
-    batches.map((batch) => {
-      const selections = batch
-        .map(
-          (addr, j) =>
-            `t${j}: tokenSnapshots(
-              where: { tokenAddress: "${addr}", timestamp_lte: "${cutoffSec}" }
-              orderBy: "timestamp"
-              orderDirection: "desc"
-              limit: 1
-            ) { items { curveSupply, ltReserve, timestamp } }`,
-        )
-        .join("\n");
-
-      const query = `query {
-        ${selections}
-      }`;
-
-      return queryPonder<Record<string, PonderSnapshotPage>>(query);
-    }),
+  return readHistoricalCurveSnapshots(
+    createDb(databaseUrl),
+    tokenAddresses,
+    cutoffSec,
   );
-
-  // Any single batch failing is unrecoverable for *this* slice of
-  // tokens, but the route degrades cleanly on a null return (see
-  // `buildBatchFromTokens`'s failure-mode policy), so we surface null
-  // here and let the caller decide.
-  for (let b = 0; b < batches.length; b++) {
-    const data = batchResults[b];
-    if (data === null) return null;
-    const batch = batches[b];
-    for (let j = 0; j < batch.length; j++) {
-      const page = data[`t${j}`];
-      snapshots.set(batch[j], page?.items?.[0] ?? null);
-    }
-  }
-
-  return snapshots;
 }
 
 /**
@@ -868,7 +590,7 @@ export type MarketDataBatchResult =
  * `volume24hUsd` / `lastTradeAtSec`.
  */
 export async function buildBatchFromTokens(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   bouncetechDbUrl: string | undefined,
   tokens: PonderTokenOnchain[],
 ): Promise<MarketDataBatchResult> {
@@ -914,10 +636,10 @@ export async function buildBatchFromTokens(
     historicalLtRatesAtLaunch,
     routerActivity,
   ] = await Promise.all([
-    fetchHistoricalCurveSnapshots(ponderUrl, oldTokenAddresses, cutoffSec),
+    fetchHistoricalCurveSnapshots(databaseUrl, oldTokenAddresses, cutoffSec),
     fetchHistoricalLtRates(bouncetechDbUrl, allLtAddresses, cutoffSec),
     fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
-    fetchRouterTradeActivity(ponderUrl, allTokenAddresses, nowSec),
+    fetchRouterTradeActivity(databaseUrl, allTokenAddresses, nowSec),
   ]);
 
   // `buildPastPriceInputs` accepts null for each historical map and
@@ -986,18 +708,18 @@ export async function buildBatchFromTokens(
  * entirely.
  */
 export async function computeMarketDataForAddresses(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   bouncetechDbUrl: string | undefined,
   addresses: string[],
 ): Promise<MarketDataBatchResult> {
   if (addresses.length === 0) {
     return { ok: true, data: { tokens: [], market: {} } };
   }
-  const tokens = await fetchTokensOnchainByAddresses(ponderUrl, addresses);
+  const tokens = await fetchTokensOnchainByAddresses(databaseUrl, addresses);
   if (tokens === null) {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
-  return buildBatchFromTokens(ponderUrl, bouncetechDbUrl, tokens);
+  return buildBatchFromTokens(databaseUrl, bouncetechDbUrl, tokens);
 }
 
 export type MarketDataSingleResult =
@@ -1009,11 +731,11 @@ export type MarketDataSingleResult =
   | { ok: false; error: string; code: 404 | 503 };
 
 export async function computeMarketDataSingle(
-  ponderUrl: string | undefined,
+  databaseUrl: string,
   bouncetechDbUrl: string | undefined,
   tokenAddress: string,
 ): Promise<MarketDataSingleResult> {
-  const token = await fetchTokenOnchain(ponderUrl, tokenAddress);
+  const token = await fetchTokenOnchain(databaseUrl, tokenAddress);
   if (token === "unavailable") {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
@@ -1021,7 +743,9 @@ export async function computeMarketDataSingle(
     return { ok: false, error: "Token not found", code: 404 };
   }
 
-  const result = await buildBatchFromTokens(ponderUrl, bouncetechDbUrl, [token]);
+  const result = await buildBatchFromTokens(databaseUrl, bouncetechDbUrl, [
+    token,
+  ]);
   if (!result.ok) return result;
 
   const market = result.data.market[token.address.toLowerCase()];

@@ -364,7 +364,7 @@ listRoute.get("/", async (c) => {
   // available without an extra join.
   if (status === "graduated") {
     const onchainPage = await fetchGraduatedTokensOnchain(
-      c.env.PONDER_URL,
+      c.env.DATABASE_URL,
       STATUS_POOL_SIZE,
       0,
     );
@@ -441,10 +441,10 @@ listRoute.get("/", async (c) => {
       return empty;
     }
 
-    // Reuse the already-resolved Ponder tokens — saves a round-trip
+    // Reuse the already-resolved indexer tokens — saves a round-trip
     // compared to computeMarketDataForAddresses which re-fetches them.
     const marketResult = await buildBatchFromTokens(
-      c.env.PONDER_URL,
+      c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
       pagedOnchain,
     );
@@ -506,7 +506,7 @@ listRoute.get("/", async (c) => {
   // sort + paginate in memory.
   if (status === "graduating") {
     const onchainPage = await fetchNonGraduatedTokensOnchain(
-      c.env.PONDER_URL,
+      c.env.DATABASE_URL,
       STATUS_POOL_SIZE,
       0,
     );
@@ -593,7 +593,7 @@ listRoute.get("/", async (c) => {
     // capped at `STATUS_POOL_SIZE`, matching the per-request work budget
     // the trending-sort path already shoulders.
     const marketResult = await buildBatchFromTokens(
-      c.env.PONDER_URL,
+      c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
       candidatesOnchain,
     );
@@ -745,7 +745,7 @@ listRoute.get("/", async (c) => {
   if (isScoredSort) {
     const nowSecForCandidates = Math.floor(Date.now() / 1000);
     const candidates = await fetchTrendingCandidateAddresses(
-      c.env.PONDER_URL,
+      c.env.DATABASE_URL,
       TRENDING_POOL_SIZE,
       nowSecForCandidates - TRENDING_LAST_TRADE_WINDOW_SEC,
     );
@@ -799,7 +799,7 @@ listRoute.get("/", async (c) => {
   // catalogue. Page size for a non-scored sort caps per-request work at
   // `limit` (≤100); scored sorts cap at `TRENDING_POOL_SIZE`.
   const marketResult = await computeMarketDataForAddresses(
-    c.env.PONDER_URL,
+    c.env.DATABASE_URL,
     c.env.BOUNCETECH_DATABASE_URL,
     dbTokens.map((t) => t.address),
   );
