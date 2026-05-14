@@ -15,6 +15,7 @@
 import type { AppContext } from "../bot.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
+import { readProfile } from "./onboarding.js";
 import { formatToken18 } from "./token-card.js";
 import { clearWorkflowMessages } from "./workflow-stack.js";
 import {
@@ -33,28 +34,27 @@ export const CONFIRM_WINDOW_MS = 60_000;
 
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
-/** KV key holding the lifetime referrer wallet for a Telegram user. */
-const referrerKey = (userId: number): string => `referrer:${userId}`;
-
 const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 
 /**
- * Read the user's lifetime-attributed referrer wallet from KV. Written
- * once at /start when the user lands via a `ref_` deeplink (see AGENTS.md
- * "/start → Referrer resolution"); reads on every trade for lifetime
- * attribution. Returns `ZERO_ADDRESS` when no referrer is recorded (the
- * common case for users who came in without a deeplink). Malformed KV
- * values are also coerced to `ZERO_ADDRESS` so a corrupt record cannot
- * route a referrer cut to a junk address — auditors flagged this as a
- * Major issue (PR #707 CodeRabbit review).
+ * Read the user's lifetime-attributed referrer wallet from the profile
+ * KV record. Written once at first /start (see AGENTS.md "/start →
+ * Referrer resolution" and `onboarding.ts:writeProfile`); reads on
+ * every trade for lifetime attribution. Returns `ZERO_ADDRESS` when no
+ * profile or no referrer is recorded (the common case for users who
+ * came in without a `ref_` deeplink). Malformed records are coerced to
+ * `ZERO_ADDRESS` so a corrupt record cannot route a referrer cut to a
+ * junk address — auditors flagged this as a Major issue (PR #707
+ * CodeRabbit review).
  */
 export const loadReferrer = async (
   env: AppContext["env"],
   userId: number,
 ): Promise<Hex> => {
-  const raw = await env.WALLET_KV.get(referrerKey(userId));
-  if (raw === null) return ZERO_ADDRESS;
-  const trimmed = raw.trim();
+  const profile = await readProfile(env.WALLET_KV, userId);
+  const referrer = profile?.referrer;
+  if (!referrer) return ZERO_ADDRESS;
+  const trimmed = referrer.trim();
   return HEX_ADDRESS_RE.test(trimmed) ? (trimmed as Hex) : ZERO_ADDRESS;
 };
 
