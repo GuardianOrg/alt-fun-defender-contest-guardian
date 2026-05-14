@@ -5,18 +5,33 @@ import {
 } from "@grammyjs/conversations";
 import type { Bot } from "grammy";
 
-import type { AppContext } from "../bot.js";
+import type { AppContext, SessionData } from "../bot.js";
+import {
+  MAX_BUY_PRESET_USDC,
+  normaliseBuyPresets,
+  normaliseSellPresets,
+} from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
   SETTINGS_CALLBACK,
   SLIPPAGE_PRESETS_BPS,
+  buildBuySettingsKeyboard,
+  buildSellSettingsKeyboard,
   buildSettingsKeyboard,
+  decodeBuyPresetSlot,
+  decodeSellPresetSlot,
   decodeSlippagePreset,
   formatBpsLabel,
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
 import { parseUserAmount } from "../lib/parse-number.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const NO_USER_REPLY =
   "Settings require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
@@ -31,12 +46,8 @@ const NON_PRIVATE_CHAT_REPLY =
  */
 const MAX_SLIPPAGE_BPS = 5_000;
 
-/**
- * Upper bound on the persisted default buy amount. Mirrors the `$10_000`
- * cap surfaced for the /buy custom-amount wizard so a stored default
- * can't sneak past balance-sanity checks elsewhere.
- */
-const MAX_BUY_USDC = 10_000;
+const BUY_PRESETS_LENGTH = 5;
+const SELL_PRESETS_LENGTH = 5;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -58,13 +69,38 @@ const readStatus = (ctx: AppContext): SettingsStatus => ({
   degenMode: ctx.session.degenMode,
 });
 
-const renderStatusText = (status: SettingsStatus): string =>
+const readBuyPresets = (session: SessionData): number[] =>
+  normaliseBuyPresets(session.buyPresetsUsdc, session.defaultBuyUsdc);
+
+const readSellPresets = (session: SessionData): number[] =>
+  normaliseSellPresets(session.sellPresetsPct);
+
+const renderMainStatusText = (status: SettingsStatus): string =>
   [
     "Settings",
     "",
     `• Slippage: ${formatBpsLabel(status.slippageBps)}`,
-    `• Default buy: $${status.defaultBuyUsdc} USDC`,
     `• Degen mode: ${status.degenMode ? "on" : "off"}`,
+    "",
+    "Tap Buy Settings or Sell Settings to customize the preset buttons.",
+  ].join("\n");
+
+const renderBuySettingsText = (presets: readonly number[]): string =>
+  [
+    "Buy Settings",
+    "",
+    "Tap a slot to change its amount.",
+    "",
+    ...presets.map((amount, idx) => `${idx + 1}. ${amount} USDC`),
+  ].join("\n");
+
+const renderSellSettingsText = (presets: readonly number[]): string =>
+  [
+    "Sell Settings",
+    "",
+    "Tap a slot to change its percent.",
+    "",
+    ...presets.map((pct, idx) => `${idx + 1}. ${pct}%`),
   ].join("\n");
 
 interface RenderedState {
@@ -74,11 +110,27 @@ interface RenderedState {
   };
 }
 
-const renderState = (ctx: AppContext): RenderedState => {
+const renderMainState = (ctx: AppContext): RenderedState => {
   const status = readStatus(ctx);
   return {
-    text: renderStatusText(status),
+    text: renderMainStatusText(status),
     reply_markup: { inline_keyboard: buildSettingsKeyboard(status) },
+  };
+};
+
+const renderBuyState = (ctx: AppContext): RenderedState => {
+  const presets = readBuyPresets(ctx.session);
+  return {
+    text: renderBuySettingsText(presets),
+    reply_markup: { inline_keyboard: buildBuySettingsKeyboard(presets) },
+  };
+};
+
+const renderSellState = (ctx: AppContext): RenderedState => {
+  const presets = readSellPresets(ctx.session);
+  return {
+    text: renderSellSettingsText(presets),
+    reply_markup: { inline_keyboard: buildSellSettingsKeyboard(presets) },
   };
 };
 
@@ -105,13 +157,16 @@ const safeEditMessageText = async (
       e.error_code === 400 &&
       (desc.includes("message to edit not found") ||
         desc.includes("message not found") ||
-        desc.includes("message is not modified"));
+        desc.includes("message is not modified") ||
+        desc.includes("message can't be edited"));
     if (!isBenign) throw err;
   }
 };
 
-const editToMain = async (ctx: AppContext): Promise<void> => {
-  const state = renderState(ctx);
+const editToState = async (
+  ctx: AppContext,
+  state: RenderedState,
+): Promise<void> => {
   await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
@@ -125,10 +180,11 @@ const customSlippageConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
+  await sweepWorkflow(conversation);
   const presetList = SLIPPAGE_PRESETS_BPS.map((bps) =>
     formatBpsLabel(bps),
   ).join(" / ");
-  await ctx.reply(
+  const promptMsg = await ctx.reply(
     wrap(
       ctx,
       [
@@ -136,18 +192,22 @@ const customSlippageConversation = async (
         `Quick presets: ${presetList}.`,
         `Max ${MAX_SLIPPAGE_BPS / 100}% — past that the trade lib rejects.`,
         "",
-        "Send /cancel to keep the current value.",
+        "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
     if (isCancel(text)) {
       await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
       return;
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
     // Use a generous outer bound here so a typo'd "1000%" still flows
     // to the explicit `bps > MAX_SLIPPAGE_BPS` cap message below
     // instead of the generic invalid-input reply. `parseUserAmount`
@@ -156,25 +216,28 @@ const customSlippageConversation = async (
       max: MAX_SLIPPAGE_BPS,
     });
     if (pct === null) {
-      await ctx.reply(
-        wrap(ctx, "Send a positive number like `2` or `0.5`, or /cancel."),
+      const retry = await ctx.reply(
+        wrap(ctx, "Send a positive number like `2` or `0.5`."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const bps = Math.round(pct * 100);
     if (bps < 1) {
-      await ctx.reply(
-        wrap(ctx, "Slippage must be at least 0.01%. Send again or /cancel."),
+      const retry = await ctx.reply(
+        wrap(ctx, "Slippage must be at least 0.01%. Send again."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (bps > MAX_SLIPPAGE_BPS) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(
           ctx,
-          `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value or /cancel.`,
+          `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     try {
@@ -187,85 +250,277 @@ const customSlippageConversation = async (
       // catch) must never reach a "saved" reply. The session plugin's
       // own flush errors land on `bot.catch` in `bot.ts`.
       await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
       return;
     }
-    const state = await conversation.external((outside) => renderState(outside));
+    const state = await conversation.external((outside) =>
+      renderMainState(outside),
+    );
     await ctx.reply(
       wrap(ctx, `Slippage set to ${formatBpsLabel(bps)}.\n\n${state.text}`),
       { reply_markup: state.reply_markup },
     );
+    await sweepWorkflow(conversation);
     return;
   }
 };
 
 /**
- * Conversation: collect a new default buy amount (USDC). Floored at
- * `MIN_USDC_BUY_AMOUNT` so a stored default can't fall below the bot's
- * minimum-trade gate (which would just immediately reject the trade).
+ * Origin reference to the Buy / Sell Settings menu message the user
+ * tapped a slot button on. Captured at callback time and threaded
+ * through the slot wizard so the conversation can edit that same
+ * message in place after the new value is saved — sending a fresh
+ * panel below would leave the stale slot values visible above it.
  */
-const buyAmountConversation = async (
+interface OriginMessageRef {
+  chatId: number;
+  messageId: number;
+}
+
+/**
+ * Same benign-error swallow as `safeEditMessageText` above. Used from
+ * inside conversations via `conversation.external` to refresh the
+ * origin menu in place; returns `true` only when the edit landed so
+ * callers can fall back to `ctx.reply` when the original message is
+ * gone (deleted, > 48h, or "not modified").
+ */
+const safeEditMessage = async (
+  outside: AppContext,
+  origin: OriginMessageRef,
+  text: string,
+  extra: Parameters<AppContext["api"]["editMessageText"]>[3] = {},
+): Promise<boolean> => {
+  try {
+    await outside.api.editMessageText(
+      origin.chatId,
+      origin.messageId,
+      text,
+      extra,
+    );
+    return true;
+  } catch (err) {
+    const e = err as {
+      error_code?: number;
+      description?: string;
+      message?: string;
+    };
+    const desc = (e.description ?? e.message ?? "").toLowerCase();
+    const isBenign =
+      e.error_code === 400 &&
+      (desc.includes("message to edit not found") ||
+        desc.includes("message not found") ||
+        desc.includes("message is not modified") ||
+        desc.includes("message can't be edited"));
+    if (isBenign) return false;
+    throw err;
+  }
+};
+
+/**
+ * Conversation: edit one slot of the buy-preset list (issue #818).
+ * `slotIdx` is the 0-based slot the user tapped. Stores the parsed
+ * amount in `session.buyPresetsUsdc[slotIdx]` and, if `slotIdx === 0`,
+ * mirrors it into `session.defaultBuyUsdc` so callsites still reading
+ * the legacy field don't drift from slot 0.
+ *
+ * `origin` is the Buy Settings menu message the user tapped from; the
+ * conversation edits it in place after saving so the panel above the
+ * wizard reflects the new value rather than leaving the stale list
+ * visible alongside a freshly-sent panel below.
+ */
+const buyPresetSlotConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  slotIdx: number,
+  origin?: OriginMessageRef,
 ): Promise<void> => {
-  await ctx.reply(
+  if (!Number.isInteger(slotIdx) || slotIdx < 0 || slotIdx >= BUY_PRESETS_LENGTH) {
+    return;
+  }
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
     wrap(
       ctx,
       [
-        `Send your default buy amount in USDC (minimum $${MIN_USDC_BUY_AMOUNT}, max $${MAX_BUY_USDC}).`,
+        "Change the value of the buy amount button.",
         "",
-        "Send /cancel to keep the current value.",
+        `Send a USDC amount between $${MIN_USDC_BUY_AMOUNT} and $${MAX_BUY_PRESET_USDC}.`,
+        "",
+        "Tap Home to exit and keep the current value.",
       ].join("\n"),
     ),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
     if (isCancel(text)) {
       await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
       return;
     }
-    const value = parseUserAmount(text, { max: MAX_BUY_USDC });
+    if (await tryAddressBuyIntercept(conversation, text)) return;
+    const value = parseUserAmount(text, { max: MAX_BUY_PRESET_USDC });
     if (value === null) {
-      await ctx.reply(
-        wrap(ctx, "Send a positive USDC amount like `50`, or /cancel."),
+      const retry = await ctx.reply(
+        wrap(ctx, "Send a positive USDC amount like `50`."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value < MIN_USDC_BUY_AMOUNT) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         wrap(
           ctx,
-          `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value or /cancel.`,
+          `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
-    if (value > MAX_BUY_USDC) {
-      await ctx.reply(
+    if (value > MAX_BUY_PRESET_USDC) {
+      const retry = await ctx.reply(
         wrap(
           ctx,
-          `Capped at $${MAX_BUY_USDC} USDC. Send a smaller value or /cancel.`,
+          `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
-    // Round to whole USDC — the value is shown on buttons and stored
-    // for use as a /buy prefill; sub-dollar precision is noise.
     const rounded = Math.round(value);
     try {
       await conversation.external((outside) => {
-        outside.session.defaultBuyUsdc = rounded;
+        const current = normaliseBuyPresets(
+          outside.session.buyPresetsUsdc,
+          outside.session.defaultBuyUsdc,
+        );
+        current[slotIdx] = rounded;
+        outside.session.buyPresetsUsdc = current;
+        if (slotIdx === 0) {
+          // Keep the legacy single-amount field synced with slot 0 so
+          // call sites that still read it (action-card, /buy default)
+          // never drift from the user's customised preset.
+          outside.session.defaultBuyUsdc = rounded;
+        }
       });
     } catch {
       await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
       return;
     }
-    const state = await conversation.external((outside) => renderState(outside));
-    await ctx.reply(
-      wrap(ctx, `Default buy set to $${rounded} USDC.\n\n${state.text}`),
-      { reply_markup: state.reply_markup },
-    );
+    const edited = origin
+      ? await conversation.external(async (outside) => {
+          const state = renderBuyState(outside);
+          return safeEditMessage(outside, origin, wrap(outside, state.text), {
+            reply_markup: state.reply_markup,
+          });
+        })
+      : false;
+    if (!edited) {
+      const state = await conversation.external((outside) =>
+        renderBuyState(outside),
+      );
+      await ctx.reply(wrap(ctx, state.text), {
+        reply_markup: state.reply_markup,
+      });
+    }
+    await sweepWorkflow(conversation);
+    return;
+  }
+};
+
+/**
+ * Conversation: edit one slot of the sell-preset percent list.
+ * Accepts integer percents in [1, 100]. `origin` is the Sell Settings
+ * menu message — edited in place after save so the stale preset list
+ * above the wizard prompt doesn't linger alongside a freshly-sent
+ * updated panel.
+ */
+const sellPresetSlotConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  slotIdx: number,
+  origin?: OriginMessageRef,
+): Promise<void> => {
+  if (
+    !Number.isInteger(slotIdx) ||
+    slotIdx < 0 ||
+    slotIdx >= SELL_PRESETS_LENGTH
+  ) {
+    return;
+  }
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
+    wrap(
+      ctx,
+      [
+        "Change the value of the sell percent button.",
+        "",
+        "Send a percent between 1 and 100.",
+        "",
+        "Tap Home to exit and keep the current value.",
+      ].join("\n"),
+    ),
+  );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
+
+  while (true) {
+    const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
+    const text = msg.message.text.trim();
+    if (isCancel(text)) {
+      await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
+      return;
+    }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
+    const value = parseUserAmount(text.replace(/%/g, ""), { max: 100 });
+    if (value === null) {
+      const retry = await ctx.reply(
+        wrap(ctx, "Send a number between 1 and 100."),
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1 || rounded > 100) {
+      const retry = await ctx.reply(
+        wrap(ctx, "Percent must be between 1 and 100. Send again."),
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
+    try {
+      await conversation.external((outside) => {
+        const current = normaliseSellPresets(outside.session.sellPresetsPct);
+        current[slotIdx] = rounded;
+        outside.session.sellPresetsPct = current;
+      });
+    } catch {
+      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
+      return;
+    }
+    const edited = origin
+      ? await conversation.external(async (outside) => {
+          const state = renderSellState(outside);
+          return safeEditMessage(outside, origin, wrap(outside, state.text), {
+            reply_markup: state.reply_markup,
+          });
+        })
+      : false;
+    if (!edited) {
+      const state = await conversation.external((outside) =>
+        renderSellState(outside),
+      );
+      await ctx.reply(wrap(ctx, state.text), {
+        reply_markup: state.reply_markup,
+      });
+    }
+    await sweepWorkflow(conversation);
     return;
   }
 };
@@ -274,7 +529,26 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
   bot.use(
     createConversation(customSlippageConversation, "settings-custom-slippage"),
   );
-  bot.use(createConversation(buyAmountConversation, "settings-buy-amount"));
+  bot.use(
+    createConversation(
+      buyPresetSlotConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      "settings-buy-preset-slot",
+    ),
+  );
+  bot.use(
+    createConversation(
+      sellPresetSlotConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      "settings-sell-preset-slot",
+    ),
+  );
 
   bot.command("settings", async (ctx) => {
     if (!ctx.from) {
@@ -290,7 +564,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
-    const state = renderState(ctx);
+    const state = renderMainState(ctx);
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
@@ -302,7 +576,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
-    const state = renderState(ctx);
+    const state = renderMainState(ctx);
     await ctx.answerCallbackQuery();
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
@@ -329,7 +603,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       // under the cap; this is defence-in-depth.
       const clamped = Math.min(Math.max(bps, 1), MAX_SLIPPAGE_BPS);
       ctx.session.slippageBps = clamped;
-      await editToMain(ctx);
+      await editToState(ctx, renderMainState(ctx));
       await ctx.answerCallbackQuery({
         text: `Slippage set to ${formatBpsLabel(clamped)}.`,
       });
@@ -346,15 +620,80 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     await ctx.conversation.enter("settings-custom-slippage");
   });
 
-  bot.callbackQuery(SETTINGS_CALLBACK.buyAmount, async (ctx) => {
+  bot.callbackQuery(SETTINGS_CALLBACK.buySettings, async (ctx) => {
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const parent = snapshotFromCallback(ctx);
+    if (parent) pushNavSnapshot(ctx.session, parent);
+    await editToState(ctx, renderBuyState(ctx));
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("settings-buy-amount");
   });
+
+  bot.callbackQuery(SETTINGS_CALLBACK.sellSettings, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    const parent = snapshotFromCallback(ctx);
+    if (parent) pushNavSnapshot(ctx.session, parent);
+    await editToState(ctx, renderSellState(ctx));
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(
+    new RegExp(`^${SETTINGS_CALLBACK.buyPresetSlot}\\d+$`),
+    async (ctx) => {
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      if (!(await ensurePrivate(ctx))) return;
+      const idx = decodeBuyPresetSlot(ctx.callbackQuery.data ?? "");
+      if (idx === null || idx < 0 || idx >= BUY_PRESETS_LENGTH) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      // Capture the Buy Settings menu the tap originated from so the
+      // wizard can edit it in place when it ends — sending a fresh
+      // panel below would leave the stale slot row visible above.
+      const origin = ctx.callbackQuery.message
+        ? {
+            chatId: ctx.callbackQuery.message.chat.id,
+            messageId: ctx.callbackQuery.message.message_id,
+          }
+        : undefined;
+      await ctx.answerCallbackQuery();
+      await ctx.conversation.enter("settings-buy-preset-slot", idx, origin);
+    },
+  );
+
+  bot.callbackQuery(
+    new RegExp(`^${SETTINGS_CALLBACK.sellPresetSlot}\\d+$`),
+    async (ctx) => {
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      if (!(await ensurePrivate(ctx))) return;
+      const idx = decodeSellPresetSlot(ctx.callbackQuery.data ?? "");
+      if (idx === null || idx < 0 || idx >= SELL_PRESETS_LENGTH) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      const origin = ctx.callbackQuery.message
+        ? {
+            chatId: ctx.callbackQuery.message.chat.id,
+            messageId: ctx.callbackQuery.message.message_id,
+          }
+        : undefined;
+      await ctx.answerCallbackQuery();
+      await ctx.conversation.enter("settings-sell-preset-slot", idx, origin);
+    },
+  );
 
   bot.callbackQuery(SETTINGS_CALLBACK.degenToggle, async (ctx) => {
     if (!ctx.from) {
@@ -364,7 +703,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     const next = !ctx.session.degenMode;
     ctx.session.degenMode = next;
-    await editToMain(ctx);
+    await editToState(ctx, renderMainState(ctx));
     await ctx.answerCallbackQuery({
       text: next ? "Degen mode enabled." : "Degen mode disabled.",
     });

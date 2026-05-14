@@ -8,11 +8,18 @@ import { MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
 import type { AppContext } from "../bot.js";
 import {
   buildSellTokenKeyboard,
-  normaliseDefaultSellUsdc,
+  isSellPercent,
+  normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
+import {
+  haltAndForward,
+  isCancel,
+  isOtherSlashCommand,
+  tryAddressBuyIntercept,
+} from "../lib/conversation-commands.js";
 import {
   confirmKeyboard,
   renderConfirmReply,
@@ -20,7 +27,6 @@ import {
   submitSell,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
-import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchErc20Balance, fetchLtBaseAssetBalance } from "../lib/rpc.js";
 import {
   estimateHoldingUsdc,
@@ -33,6 +39,11 @@ import {
   type Hex,
 } from "../lib/trade.js";
 import { WalletManager } from "../lib/wallet.js";
+import { pushWorkflowMessage } from "../lib/workflow-stack.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 /**
  * Heuristic combined fee rate applied to `priceUsd × balance` when the
@@ -43,9 +54,6 @@ import { WalletManager } from "../lib/wallet.js";
  * `simulateSellWithBotFee` once the router secret is provisioned.
  */
 const COMBINED_FEE_RATE = 0.01;
-
-/** Required fee-summary line per AGENTS.md key constraints. */
-const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
 
 /**
  * Headroom kept between the user's post-fee proceeds and the LT's idle
@@ -71,14 +79,14 @@ const PROMPT_HTML =
   "• <code>0x1234…abcd</code>\n" +
   "• <code>https://alt.fun/0x1234…</code>\n" +
   "• <code>https://hyperevmscan.io/token/0x1234…</code>\n\n" +
-  "Send /cancel to exit.";
+  "Tap Home to exit.";
 
 const TOKEN_NOT_FOUND_HTML =
   "❌ <b>Token not found.</b>\n\n" +
   "Make sure you have the correct contract address. You can find it on:\n" +
   "• <a href=\"https://alt.fun\">alt.fun</a> — tap the token → copy address\n" +
   "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
-  "Try again or send /cancel to exit.";
+  "Try again, or tap Home to exit.";
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
 const API_UNAVAILABLE =
@@ -134,22 +142,27 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
 
 /**
- * Compute how many raw tokens to submit for a "sell $X worth" intent.
- * Returns `balance` directly when the target meets or exceeds the user's
- * total estimated proceeds — the BotFeeRouter caps at remaining-balance
- * inside `transferFrom` anyway, and the fraction math would overshoot
- * for tiny dust quantities.
+ * Push a transient message onto the chat-scoped workflow stack so a
+ * later `clearWorkflowMessages` sweep (run after a trade lands) deletes
+ * it. Used for the token-detail card and the "Ready to sell…" staging
+ * prompt — both are stale the moment the trade confirms. No-op when the
+ * context has no resolvable chat id (rare, only for inline-mode).
  */
-const sellTokenAmount = (
-  balance: bigint,
-  targetUsdc: number,
-  proceedsUsdc: number,
-): bigint => {
-  if (proceedsUsdc <= 0 || targetUsdc >= proceedsUsdc) return balance;
-  // Scale by 1e6 to keep enough precision; balance × (target / proceeds).
-  const ratio = BigInt(Math.floor((targetUsdc / proceedsUsdc) * 1_000_000));
-  const amount = (balance * ratio) / 1_000_000n;
-  return amount === 0n ? balance : amount;
+const trackForPostTradeSweep = (ctx: AppContext, messageId: number): void => {
+  if (!ctx.chat) return;
+  pushWorkflowMessage(ctx.session, ctx.chat.id, messageId);
+};
+
+/**
+ * Compute the raw token amount for `percent` of the user's `balance`.
+ * `100%` returns `balance` directly so a fully-closing sell drains the
+ * exact wei the user holds (no rounding dust left behind). For partial
+ * percents we use integer bigint math: `balance × percent / 100`.
+ */
+const tokensForPercent = (balance: bigint, percent: number): bigint => {
+  if (percent >= 100) return balance;
+  if (percent <= 0) return 0n;
+  return (balance * BigInt(percent)) / 100n;
 };
 
 /**
@@ -296,26 +309,36 @@ const sellLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
-  await ctx.reply(PROMPT_HTML, {
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
+    }
+    if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
+      await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
     }
 
@@ -329,14 +352,16 @@ const sellLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
+        await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -355,24 +380,41 @@ const sellLookupConversation = async (
         : null;
 
     const cardText = renderSellTokenCardText(token, tokenBalance);
-    const defaultSellUsdc = normaliseDefaultSellUsdc(
-      await conversation.external(
-        (outerCtx) => outerCtx.session.defaultBuyUsdc,
-      ),
+    const sellPresets = await conversation.external((outerCtx) =>
+      normaliseSellPresets(outerCtx.session.sellPresetsPct),
     );
-    await msgCtx.reply(cardText, {
+    const cardMsg = await msgCtx.reply(cardText, {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: buildSellTokenKeyboard(token.address, defaultSellUsdc),
+        inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets),
       },
       link_preview_options: { is_disabled: true },
     });
+    await sweepWorkflow(conversation);
+    // Push the card onto the now-empty stack so the post-trade sweep
+    // in `confirmTrade` deletes it once the user's sell lands; the
+    // card's mcap/balance are stale the moment the trade commits.
+    await trackWorkflowMessage(conversation, cardMsg.message_id);
     return;
   }
 };
 
+const isInt1to100 = (value: number): boolean =>
+  Number.isFinite(value) && Number.isInteger(value) && value >= 1 && value <= 100;
+
+const parsePercentInput = (raw: string): number | null => {
+  // Strip a trailing % and whitespace; accept integer percent values
+  // only — fractional percents would round to dust on small balances
+  // and confuse the displayed receipt.
+  const cleaned = raw.trim().replace(/%\s*$/, "").trim();
+  if (cleaned === "") return null;
+  if (!/^\d+$/.test(cleaned)) return null;
+  const n = Number(cleaned);
+  return isInt1to100(n) ? n : null;
+};
+
 /**
- * Conversation: collect custom sell USDC target amount.
+ * Conversation: collect custom sell percentage (1–100%).
  * `tokenAddress` is passed via `ctx.conversation.enter("sell-custom", addr)`.
  */
 const sellCustomConversation = async (
@@ -380,166 +422,197 @@ const sellCustomConversation = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
-  await ctx.reply(
-    `Enter the USDC amount to receive (minimum $${MIN_USDC_SELL_AMOUNT}):\n\nSend /cancel to exit.`,
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(
+    "Enter a percent of your position to sell (1–100):\n\nTap Home to exit.",
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
     }
-
-    const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
-    if (amount === null) {
-      await msgCtx.reply(
-        `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_SELL_AMOUNT}.`,
-      );
-      continue;
+    if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
+      await haltAndForward(conversation);
     }
-    if (amount < MIN_USDC_SELL_AMOUNT) {
-      await msgCtx.reply(
-        `Minimum sell is $${MIN_USDC_SELL_AMOUNT} USDC proceeds. Enter a larger amount or send /cancel.`,
+    if (await tryAddressBuyIntercept(conversation, text)) return;
+
+    const percent = parsePercentInput(text);
+    if (percent === null) {
+      const retry = await msgCtx.reply(
+        "Please enter a whole number between 1 and 100 (e.g. 35).",
       );
-      continue;
-    }
-
-    const userId = msgCtx.from?.id ?? ctx.from?.id;
-    const active = userId
-      ? await conversation.external((outerCtx) =>
-          buildManager(outerCtx.env).getActive(userId),
-        )
-      : null;
-    if (!active) {
-      await msgCtx.reply(
-        "No active wallet — run /wallet to create or import one.",
-      );
-      return;
-    }
-
-    const [tokenResult, tokenBalance] = await Promise.all([
-      conversation.external((outerCtx) =>
-        fetchToken(outerCtx.env, tokenAddress),
-      ),
-      conversation.external((outerCtx) =>
-        fetchErc20Balance(outerCtx.env, tokenAddress, active.address),
-      ),
-    ]);
-
-    if (!tokenResult.ok) {
-      await msgCtx.reply(API_UNAVAILABLE);
-      return;
-    }
-
-    const token = tokenResult.data;
-
-    // Null balance = RPC unavailable; don't coerce to zero.
-    if (tokenBalance === null) {
-      await msgCtx.reply(
-        "Unable to verify your token balance — please try again.",
-      );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
-    if (tokenBalance === 0n) {
-      await msgCtx.reply(
-        `You hold no ${token.ticker}. Get some via the buy flow first.`,
-      );
-      return;
-    }
+    await runPercentSell(conversation, msgCtx, tokenAddress, percent);
+    await sweepWorkflow(conversation);
+    return;
+  }
+};
 
-    const quote = await conversation.external((outerCtx) =>
-      quoteSellProceeds(
-        outerCtx.env,
-        tokenAddress,
-        tokenBalance,
-        active.address,
-        token.priceUsd,
-      ),
+/**
+ * Shared percent-sell flow used by both the conversation custom path and
+ * the inline button callback. Validates wallet/token/balance, runs the
+ * proceeds + buffer preflight, and either submits in degen mode or
+ * stages a confirm card.
+ */
+const runPercentSell = async (
+  conversation: Conversation<AppContext, AppContext>,
+  msgCtx: AppContext,
+  tokenAddress: string,
+  percent: number,
+): Promise<void> => {
+  const userId = msgCtx.from?.id;
+  const active = userId
+    ? await conversation.external((outerCtx) =>
+        buildManager(outerCtx.env).getActive(userId),
+      )
+    : null;
+  if (!active) {
+    await msgCtx.reply(
+      "No active wallet — run /wallet to create or import one.",
     );
-    if (quote === null) {
-      await msgCtx.reply(PROCEEDS_UNAVAILABLE);
-      return;
-    }
-    if (quote.proceedsUsd < amount) {
-      await msgCtx.reply(
-        `Insufficient balance. Your ${formatToken18(tokenBalance)} ${token.ticker} would yield ≈$${quote.proceedsUsd.toFixed(2)} after fees.\n\nEnter a smaller amount or send /cancel.`,
-      );
-      continue;
-    }
+    return;
+  }
 
-    const tokenRaw = sellTokenAmount(tokenBalance, amount, quote.proceedsUsd);
-    const buffer = await conversation.external((outerCtx) =>
-      previewBufferCap(outerCtx.env, token.ltPair, tokenRaw, amount),
+  const [tokenResult, tokenBalance] = await Promise.all([
+    conversation.external((outerCtx) =>
+      fetchToken(outerCtx.env, tokenAddress),
+    ),
+    conversation.external((outerCtx) =>
+      fetchErc20Balance(outerCtx.env, tokenAddress, active.address),
+    ),
+  ]);
+
+  if (!tokenResult.ok) {
+    await msgCtx.reply(API_UNAVAILABLE);
+    return;
+  }
+
+  const token = tokenResult.data;
+
+  // Null balance = RPC unavailable; don't coerce to zero.
+  if (tokenBalance === null) {
+    await msgCtx.reply(
+      "Unable to verify your token balance — please try again.",
     );
-    if (buffer.kind === "below_min") {
-      await msgCtx.reply(BUFFER_BELOW_MIN_HTML(buffer.maxProceedsUsd), {
-        parse_mode: "HTML",
-      });
-      return;
-    }
+    return;
+  }
 
-    const effectiveTokenRaw =
-      buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenRaw;
-    const effectiveProceedsUsd =
-      buffer.kind === "capped" ? buffer.reducedProceedsUsd : amount;
+  if (tokenBalance === 0n) {
+    await msgCtx.reply(`You hold no ${token.ticker}.`);
+    return;
+  }
 
-    const degenMode = await conversation.external(
-      (outerCtx): boolean => outerCtx.session.degenMode,
+  const tokenRaw = tokensForPercent(tokenBalance, percent);
+  if (tokenRaw === 0n) {
+    await msgCtx.reply(
+      `${percent}% of your ${token.ticker} balance rounds to zero — try a larger percent.`,
     );
-    // AGENTS.md "Buffer-limited sells must be user-visible. Never silently
-    // cap — show max available and require confirmation of the reduced
-    // amount." Degen mode skips the confirm step on the happy path only;
-    // a buffer-capped sell still requires an explicit confirm tap.
-    if (degenMode && buffer.kind !== "capped") {
-      await msgCtx.reply(
-        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC sell of ${token.ticker}…</b>\n\n` +
-          `<i>${FEE_SUMMARY}</i>`,
-        { parse_mode: "HTML" },
-      );
-      const outcome = await conversation.external((outerCtx) =>
-        submitSell({
-          ctx: outerCtx,
-          token: token.address,
-          ticker: token.ticker,
-          tokenRaw: effectiveTokenRaw,
-        }),
-      );
-      await msgCtx.reply(renderConfirmReply(outcome), {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
-      return;
-    }
+    return;
+  }
 
-    const { nonce } = await conversation.external(
-      (outerCtx): { nonce: string } =>
-        stageSell({
-          ctx: outerCtx,
-          token: token.address,
-          ticker: token.ticker,
-          tokenRaw: effectiveTokenRaw,
-        }),
+  const quote = await conversation.external((outerCtx) =>
+    quoteSellProceeds(
+      outerCtx.env,
+      tokenAddress,
+      tokenRaw,
+      active.address,
+      token.priceUsd,
+    ),
+  );
+  if (quote === null) {
+    await msgCtx.reply(PROCEEDS_UNAVAILABLE);
+    return;
+  }
+  if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
+    await msgCtx.reply(
+      `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum. Increase the percent or tap Home to exit.`,
     );
-    const header =
-      buffer.kind === "capped"
-        ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
-          `(reduced from $${amount.toFixed(2)}).\n` +
-          `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-          `<i>${FEE_SUMMARY}</i>\n\n` +
-          `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
-        : `✅ <b>Ready to sell $${amount.toFixed(2)} USDC worth of ${token.ticker}</b>\n\n` +
-          `<i>${FEE_SUMMARY}</i>\n\n` +
-          `Tap <b>Confirm</b> within 60s to submit.`;
-    await msgCtx.reply(header, {
+    return;
+  }
+
+  const buffer = await conversation.external((outerCtx) =>
+    previewBufferCap(
+      outerCtx.env,
+      token.ltPair,
+      tokenRaw,
+      quote.proceedsUsd,
+    ),
+  );
+  if (buffer.kind === "below_min") {
+    await msgCtx.reply(BUFFER_BELOW_MIN_HTML(buffer.maxProceedsUsd), {
       parse_mode: "HTML",
-      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
     });
     return;
   }
+
+  const effectiveTokenRaw =
+    buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenRaw;
+  const effectiveProceedsUsd =
+    buffer.kind === "capped" ? buffer.reducedProceedsUsd : quote.proceedsUsd;
+
+  const degenMode = await conversation.external(
+    (outerCtx): boolean => outerCtx.session.degenMode,
+  );
+  // AGENTS.md "Buffer-limited sells must be user-visible. Never silently
+  // cap — show max available and require confirmation of the reduced
+  // amount." Degen mode skips the confirm step on the happy path only;
+  // a buffer-capped sell still requires an explicit confirm tap.
+  if (degenMode && buffer.kind !== "capped") {
+    await msgCtx.reply(
+      `⚡ <b>Degen mode — submitting ${percent}% sell of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})…</b>`,
+      { parse_mode: "HTML" },
+    );
+    const outcome = await conversation.external((outerCtx) =>
+      submitSell({
+        ctx: outerCtx,
+        token: token.address,
+        ticker: token.ticker,
+        tokenRaw: effectiveTokenRaw,
+      }),
+    );
+    await msgCtx.reply(renderConfirmReply(outcome), {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    return;
+  }
+
+  const { nonce } = await conversation.external(
+    (outerCtx): { nonce: string } =>
+      stageSell({
+        ctx: outerCtx,
+        token: token.address,
+        ticker: token.ticker,
+        tokenRaw: effectiveTokenRaw,
+      }),
+  );
+  const header =
+    buffer.kind === "capped"
+      ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
+        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
+        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
+      : `✅ <b>Ready to sell ${percent}% of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit.`;
+  const stagingMsg = await msgCtx.reply(header, {
+    parse_mode: "HTML",
+    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+  });
+  // Staging prompt is stale once the trade lands — push so the
+  // post-trade sweep clears it alongside the originating card.
+  await trackWorkflowMessage(conversation, stagingMsg.message_id);
 };
 
 /** Re-fetch token + token balance and edit the existing sell card in-place. */
@@ -570,7 +643,7 @@ const handleSellRefresh = async (
     reply_markup: {
       inline_keyboard: buildSellTokenKeyboard(
         tokenAddress,
-        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
+        normaliseSellPresets(ctx.session.sellPresetsPct),
       ),
     },
     link_preview_options: { is_disabled: true },
@@ -578,11 +651,14 @@ const handleSellRefresh = async (
   await ctx.answerCallbackQuery({ text: "Refreshed" });
 };
 
-/** Validate holding then show confirmation for a fixed USDC target sell. */
-const handleFixedSell = async (
+/**
+ * Validate holding then show confirmation (or submit, in degen mode) for
+ * a percentage-of-balance sell triggered by an inline keyboard tap.
+ */
+const handlePercentSell = async (
   ctx: AppContext,
   tokenAddress: string,
-  targetUsdc: number,
+  percent: number,
 ): Promise<void> => {
   if (!ctx.from) {
     await ctx.answerCallbackQuery();
@@ -630,10 +706,19 @@ const handleFixedSell = async (
     return;
   }
 
+  const tokenRaw = tokensForPercent(tokenBalance, percent);
+  if (tokenRaw === 0n) {
+    await ctx.answerCallbackQuery({
+      text: `${percent}% of your ${token.ticker} balance rounds to zero.`,
+      show_alert: true,
+    });
+    return;
+  }
+
   const quote = await quoteSellProceeds(
     ctx.env,
     tokenAddress,
-    tokenBalance,
+    tokenRaw,
     active.address,
     token.priceUsd,
   );
@@ -651,20 +736,12 @@ const handleFixedSell = async (
     });
     return;
   }
-  if (quote.proceedsUsd < targetUsdc) {
-    await ctx.answerCallbackQuery({
-      text: `Insufficient holding: estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} < $${targetUsdc} target.`,
-      show_alert: true,
-    });
-    return;
-  }
 
-  const tokenRaw = sellTokenAmount(tokenBalance, targetUsdc, quote.proceedsUsd);
   const buffer = await previewBufferCap(
     ctx.env,
     token.ltPair,
     tokenRaw,
-    targetUsdc,
+    quote.proceedsUsd,
   );
   if (buffer.kind === "below_min") {
     await ctx.answerCallbackQuery({
@@ -676,7 +753,13 @@ const handleFixedSell = async (
   const effectiveTokenRaw =
     buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenRaw;
   const effectiveProceedsUsd =
-    buffer.kind === "capped" ? buffer.reducedProceedsUsd : targetUsdc;
+    buffer.kind === "capped" ? buffer.reducedProceedsUsd : quote.proceedsUsd;
+
+  // Track the token-detail card the user just tapped on so the
+  // post-trade sweep clears it once the sell commits.
+  if (ctx.callbackQuery?.message) {
+    trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
+  }
 
   // Buffer-capped sells always require explicit confirm per AGENTS.md;
   // degen only skips the confirm step on the happy path.
@@ -701,150 +784,21 @@ const handleFixedSell = async (
     ticker: token.ticker,
     tokenRaw: effectiveTokenRaw,
   });
+  const allOf = percent === 100 ? ` all ${formatToken18(tokenBalance)}` : "";
   const header =
     buffer.kind === "capped"
       ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
-        `(reduced from $${targetUsdc}).\n` +
-        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
-      : `✅ <b>Ready to sell $${targetUsdc} USDC worth of ${token.ticker}</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`;
-  await ctx.reply(header, {
-    parse_mode: "HTML",
-    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
-  });
-};
-
-/** Validate holding then show confirmation to sell the entire position. */
-const handleSellAll = async (
-  ctx: AppContext,
-  tokenAddress: string,
-): Promise<void> => {
-  if (!ctx.from) {
-    await ctx.answerCallbackQuery();
-    return;
-  }
-  const wm = buildManager(ctx.env);
-  const active = await wm.getActive(ctx.from.id);
-  if (!active) {
-    await ctx.answerCallbackQuery({
-      text: "No active wallet — run /wallet to set one up.",
-      show_alert: true,
-    });
-    return;
-  }
-
-  const [tokenResult, tokenBalance] = await Promise.all([
-    fetchToken(ctx.env, tokenAddress),
-    fetchErc20Balance(ctx.env, tokenAddress, active.address),
-  ]);
-
-  if (!tokenResult.ok) {
-    await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
-      show_alert: true,
-    });
-    return;
-  }
-
-  const token = tokenResult.data;
-
-  // Null balance = RPC unavailable; don't coerce to zero.
-  if (tokenBalance === null) {
-    await ctx.answerCallbackQuery({
-      text: "Unable to verify your token balance — please try again.",
-      show_alert: true,
-    });
-    return;
-  }
-
-  if (tokenBalance === 0n) {
-    await ctx.answerCallbackQuery({
-      text: `You hold no ${token.ticker}.`,
-      show_alert: true,
-    });
-    return;
-  }
-
-  const quote = await quoteSellProceeds(
-    ctx.env,
-    tokenAddress,
-    tokenBalance,
-    active.address,
-    token.priceUsd,
-  );
-  if (quote === null) {
-    await ctx.answerCallbackQuery({
-      text: PROCEEDS_UNAVAILABLE,
-      show_alert: true,
-    });
-    return;
-  }
-  if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
-    await ctx.answerCallbackQuery({
-      text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
-      show_alert: true,
-    });
-    return;
-  }
-
-  const buffer = await previewBufferCap(
-    ctx.env,
-    token.ltPair,
-    tokenBalance,
-    quote.proceedsUsd,
-  );
-  if (buffer.kind === "below_min") {
-    await ctx.answerCallbackQuery({
-      text: `LT buffer too low — max sell ≈$${buffer.maxProceedsUsd.toFixed(2)} < $${MIN_USDC_SELL_AMOUNT} min. Retry in ~10s.`,
-      show_alert: true,
-    });
-    return;
-  }
-
-  const effectiveTokenRaw =
-    buffer.kind === "capped" ? buffer.reducedTokenAmount : tokenBalance;
-
-  // Buffer-capped sells always require explicit confirm per AGENTS.md;
-  // degen only skips the confirm step on the happy path.
-  if (ctx.session.degenMode && buffer.kind !== "capped") {
-    await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
-    const outcome = await submitSell({
-      ctx,
-      token: token.address,
-      ticker: token.ticker,
-      tokenRaw: effectiveTokenRaw,
-    });
-    await ctx.reply(renderConfirmReply(outcome), {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
-    return;
-  }
-  await ctx.answerCallbackQuery();
-  const { nonce } = stageSell({
-    ctx,
-    token: token.address,
-    ticker: token.ticker,
-    tokenRaw: effectiveTokenRaw,
-  });
-  const header =
-    buffer.kind === "capped"
-      ? `⚠️ <b>Buffer low — capping sell at $${buffer.reducedProceedsUsd.toFixed(2)}</b> ` +
-        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)}).\n` +
+        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
         `Selling ${formatToken18(effectiveTokenRaw)} of ${formatToken18(tokenBalance)} ${token.ticker}. ` +
         `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
-      : `✅ <b>Ready to sell all ${formatToken18(tokenBalance)} ${token.ticker}</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
+      : `✅ <b>Ready to sell ${percent}%${allOf} of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`;
-  await ctx.reply(header, {
+  const stagingMsg = await ctx.reply(header, {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
   });
+  trackForPostTradeSweep(ctx, stagingMsg.message_id);
 };
 
 export const registerSellCommand = (bot: Bot<AppContext>): void => {
@@ -878,48 +832,60 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleSellRefresh(ctx, parsed.args[0]).catch((err) => {
+    // Mirror track.ts / positions.ts — an unhandled throw used to
+    // log-and-swallow with no ACK, leaving the client spinner stuck
+    // until Telegram's 30s timeout. Surface the outage via
+    // answerCallbackQuery so the press is visibly resolved.
+    await handleSellRefresh(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("sell refresh failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
-  // Sell <defaultBuyUsdc> USDC — resolves the target USDC amount from
-  // the live session value at click time, mirroring the buy-side
-  // /^btd:/ handler. Same `normaliseDefaultSellUsdc` used by the
-  // keyboard label so the rendered button and the executed target are
-  // provably equal.
-  bot.callbackQuery(/^btsd:/, async (ctx) => {
+  // Sell N% — percent is encoded as the second arg of the
+  // `btsp:<addr>:<percent>` callback. Validated as an integer in
+  // [1, 100] (issue #818 widened this from the old fixed-preset set
+  // because the keyboard now renders from the user's customised
+  // /settings list); out-of-range or non-integer payloads are dropped
+  // as malformed so a crafted callback can't bypass the validator.
+  bot.callbackQuery(/^btsp:/, async (ctx) => {
+    const parsed = parseCallback(ctx.callbackQuery.data);
+    const tokenAddress = parsed?.args[0];
+    const percentRaw = parsed?.args[1];
+    if (!tokenAddress || !percentRaw) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    const percent = Number(percentRaw);
+    if (!isSellPercent(percent)) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    await handlePercentSell(ctx, tokenAddress, percent).catch(async (err) => {
+      logger.error("sell percent handler failed", { err, percent });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
+    });
+  });
+
+  // Sell X% — enter custom-percent conversation
+  bot.callbackQuery(/^btspx:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
     }
-    const amount = normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc);
-    await handleFixedSell(ctx, parsed.args[0], amount).catch((err) => {
-      logger.error("sell default handler failed", { err });
-    });
-  });
-
-  // Sell All
-  bot.callbackQuery(/^btsa:/, async (ctx) => {
-    const parsed = parseCallback(ctx.callbackQuery.data);
-    if (!parsed?.args[0]) {
-      await ctx.answerCallbackQuery();
-      return;
-    }
-    await handleSellAll(ctx, parsed.args[0]).catch((err) => {
-      logger.error("sell all handler failed", { err });
-    });
-  });
-
-  // Sell X USDC — enter custom amount conversation
-  bot.callbackQuery(/^btsx:/, async (ctx) => {
-    const parsed = parseCallback(ctx.callbackQuery.data);
-    if (!parsed?.args[0]) {
-      await ctx.answerCallbackQuery();
-      return;
+    // Push the originating token-detail card onto the workflow stack
+    // before entering the wizard, so the post-trade sweep deletes it
+    // once the user's eventual sell lands.
+    if (ctx.callbackQuery.message) {
+      trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
     }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("sell-custom", parsed.args[0]);
   });
 };
+

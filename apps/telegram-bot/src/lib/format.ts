@@ -4,6 +4,7 @@ import type {
   BotRealisedPosition,
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
+import { backHomeRow } from "./nav.js";
 
 const TOKEN_DECIMALS = 18;
 const USDC_DECIMALS = 6;
@@ -115,9 +116,35 @@ const formatPct = (pct: number | null): string => {
   return "0.00%";
 };
 
+/**
+ * Escape a string for safe interpolation inside a Telegram HTML
+ * message body. Tickers come from on-chain `Token.symbol()` and can
+ * contain any UTF-8 — including `<`, `>`, `&` — so anything that lands
+ * outside an HTML attribute must go through this. Attribute values
+ * (the addresses in `<a href="...">`) are ASCII hex so they don't need
+ * escaping, but we wrap them anyway to keep the call shape uniform.
+ */
+export const escapeHtml = (s: string): string =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+
+/**
+ * Wrap a 0x-prefixed token address in `<code>` so Telegram renders it
+ * as a tap-to-copy monospace span on every platform (mobile long-press,
+ * desktop click). The address is ASCII hex so no HTML escaping is
+ * needed — kept as a raw string passthrough rather than running
+ * `escapeHtml` unnecessarily.
+ */
+const formatTokenAddress = (token: string): string =>
+  `<code>${token}</code>`;
+
 const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
-  const labelRaw = `${pos.ticker}`;
+  const labelRaw = escapeHtml(pos.ticker);
   const suffix =
+    `\n  ${formatTokenAddress(pos.token)}` +
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
     `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
@@ -132,8 +159,9 @@ const formatRealisedLine = (
   pos: BotRealisedPosition,
   limit: number,
 ): string => {
-  const labelRaw = `${pos.ticker}`;
+  const labelRaw = escapeHtml(pos.ticker);
   const suffix =
+    `\n  ${formatTokenAddress(pos.token)}` +
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
@@ -145,106 +173,115 @@ const formatRealisedLine = (
 };
 
 /**
- * One rendered page of the positions reply: the text body plus the
- * subset of open positions whose lines are visible on that page. The
- * `openPositions` list drives the per-position [Buy] [Sell] rows the
- * page keyboard emits — only positions visible on the current page
- * get buttons so the keyboard stays aligned with the body.
+ * Per-page open-position metadata. The pagination handler uses this to
+ * emit one `[Buy <TICKER>] [Sell <TICKER>]` keyboard row per position
+ * on the current page, scoped so navigating to a different page swaps
+ * the action rows along with the body text.
  */
-export interface PositionsChunk {
-  text: string;
-  openPositions: BotOpenPosition[];
+export interface PositionActionTarget {
+  token: string;
+  ticker: string;
 }
 
-interface TaggedLine {
+export interface PositionsPage {
   text: string;
-  openPos?: BotOpenPosition;
+  /** Open positions whose lines land on this page (in render order). */
+  openActions: PositionActionTarget[];
 }
 
 /**
- * Chunker variant of `chunkPositionsMessage` that propagates per-line
- * `openPos` tags so each emitted chunk also exposes which open
- * positions landed in it. Same packing rules and footer reservation
- * as the untagged chunker — kept separate to avoid churning the
- * existing string-array helper used by the test suite.
- */
-const chunkTaggedLines = (
-  header: string,
-  lines: TaggedLine[],
-  limit: number,
-): PositionsChunk[] => {
-  if (lines.length === 0) return [{ text: header, openPositions: [] }];
-  const chunks: PositionsChunk[] = [];
-  let currentText = header;
-  let currentOpen: BotOpenPosition[] = [];
-  for (const line of lines) {
-    const joiner = currentText === "" ? "" : "\n\n";
-    if (currentText.length + joiner.length + line.text.length > limit) {
-      if (currentText !== "")
-        chunks.push({ text: currentText, openPositions: currentOpen });
-      currentText = line.text;
-      currentOpen = line.openPos ? [line.openPos] : [];
-      continue;
-    }
-    currentText =
-      currentText === "" ? line.text : `${currentText}${joiner}${line.text}`;
-    if (line.openPos) currentOpen.push(line.openPos);
-  }
-  if (currentText !== "")
-    chunks.push({ text: currentText, openPositions: currentOpen });
-  return chunks;
-};
-
-/**
- * Render the bot-positions response as a list of paginated chunks. Open
+ * Render the bot-positions response as a list of paginated pages. Open
  * and Realised sections share one paginated stream: Open header +
  * lines first, then Realised header + lines if any closed-out chunks
  * exist. The 4096-char-per-chunk limit and the pagination-footer
  * reservation match `formatPositionsResponse`.
  *
- * Each chunk also exposes the open positions whose lines are visible
- * on it (`openPositions`). The `/positions` command uses that list to
- * build per-position [Buy] [Sell] callback rows aligned with the
- * lines actually rendered on the page.
+ * Each open-position line emits matching `PositionActionTarget` entries
+ * on the page it lands on, so the pagination keyboard can attach a
+ * `[Buy] [Sell]` row per position without the keyboard drifting out of
+ * sync with the visible text when the user navigates between pages.
  */
 export const formatBotPositionsResponse = (
   data: BotPositionsResponse,
-): PositionsChunk[] => {
+): PositionsPage[] => {
   if (data.open.length === 0 && data.realised.length === 0) {
-    return [
-      { text: "No open positions for this wallet.", openPositions: [] },
-    ];
+    return [{ text: "No open positions for this wallet.", openActions: [] }];
   }
   const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
-  const lines: TaggedLine[] = [];
+  const lines: string[] = [];
+  // Parallel to `lines` — `null` for non-open lines (headers, realised)
+  // so the chunker can carry per-line action targets through alongside
+  // the text without leaking any layout knowledge into the caller.
+  const lineActions: (PositionActionTarget | null)[] = [];
+  let header = "";
   if (data.open.length > 0) {
-    lines.push({ text: `Open positions (${data.open.length})` });
-    for (const p of data.open)
-      lines.push({ text: formatOpenLine(p, limit), openPos: p });
+    header = `Open positions (${data.open.length})`;
+    for (const p of data.open) {
+      lines.push(formatOpenLine(p, limit));
+      lineActions.push({ token: p.token, ticker: p.ticker });
+    }
   }
   if (data.realised.length > 0) {
-    lines.push({ text: `Realised positions (${data.realised.length})` });
-    for (const p of data.realised)
-      lines.push({ text: formatRealisedLine(p, limit) });
+    const realisedHeader = `Realised positions (${data.realised.length})`;
+    if (header === "") header = realisedHeader;
+    else {
+      lines.push(realisedHeader);
+      lineActions.push(null);
+    }
+    for (const p of data.realised) {
+      lines.push(formatRealisedLine(p, limit));
+      lineActions.push(null);
+    }
   }
-  // First line becomes the chunk header so a section header always
-  // sticks with the lines below it when chunking spills.
-  const [header, ...body] = lines;
-  return chunkTaggedLines(header?.text ?? "", body, limit);
+  return chunkPositionsPages(header, lines, lineActions, limit);
+};
+
+/**
+ * Chunk position lines into pages that each fit inside Telegram's
+ * 4096-char ceiling, threading per-line `PositionActionTarget` metadata
+ * through unchanged. Mirrors `chunkPositionsMessage`'s greedy packing
+ * (header on first chunk only, joiner counted toward the limit) — kept
+ * as a parallel implementation rather than a shared helper because the
+ * action-target plumbing would otherwise leak into the text-only chunk
+ * helper (still consumed by tests).
+ */
+const chunkPositionsPages = (
+  header: string,
+  lines: string[],
+  lineActions: (PositionActionTarget | null)[],
+  limit: number = TELEGRAM_MESSAGE_LIMIT,
+): PositionsPage[] => {
+  if (lines.length === 0) return [{ text: header, openActions: [] }];
+  const pages: PositionsPage[] = [];
+  let currentText = header;
+  let currentActions: PositionActionTarget[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const action = lineActions[i] ?? null;
+    const joiner = currentText === "" ? "" : "\n\n";
+    if (currentText.length + joiner.length + line.length > limit) {
+      if (currentText !== "")
+        pages.push({ text: currentText, openActions: currentActions });
+      currentText = line;
+      currentActions = action ? [action] : [];
+      continue;
+    }
+    currentText = currentText === "" ? line : `${currentText}${joiner}${line}`;
+    if (action) currentActions.push(action);
+  }
+  if (currentText !== "")
+    pages.push({ text: currentText, openActions: currentActions });
+  return pages;
 };
 
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
-
 /**
- * Per-open-position callback codes emitted by `/positions`. Each pairs
- * with a token address (3+1+42 = 46 bytes, safely under the 64-byte
- * `callback_data` budget). Handlers in `commands/positions.ts` open a
- * fresh buy/sell card for the selected token — mirrors `/track`'s
- * `trkb` / `trks` pattern but keeps the wiring local so the positions
- * UI doesn't reach across commands.
+ * Per-position buy/sell callback short codes (Telegram's 64-byte
+ * `callback_data` ceiling is tight — `pb`/`ps` + 0x-prefixed 40-char
+ * address fits with room to spare).
  */
-export const POSITION_BUY_CALLBACK_CMD = "pob";
-export const POSITION_SELL_CALLBACK_CMD = "pos";
+export const POSITIONS_BUY_CALLBACK_CMD = "pb";
+export const POSITIONS_SELL_CALLBACK_CMD = "ps";
 
 export interface InlineKeyboardButton {
   text: string;
@@ -256,49 +293,75 @@ export interface InlineKeyboardMarkup {
 }
 
 /**
- * Render one page of a chunked positions response. A multi-page reply
+ * Render one page of a paginated positions response. A multi-page reply
  * gets a `Page X/Y` footer so the user knows where they are; a single
  * page renders verbatim. The keyboard handles navigation — see
  * `buildPositionsPageKeyboard` for the matching nav row.
  */
 export const renderPaginatedPage = (
-  chunks: string[],
+  pages: PositionsPage[],
   page: number,
 ): string => {
-  if (chunks.length === 0) return "";
-  const safePage = Math.max(0, Math.min(page, chunks.length - 1));
-  const body = chunks[safePage]!;
-  if (chunks.length === 1) return body;
-  return `${body}\n\nPage ${safePage + 1} of ${chunks.length}`;
+  if (pages.length === 0) return "";
+  const safePage = Math.max(0, Math.min(page, pages.length - 1));
+  const body = pages[safePage]!.text;
+  if (pages.length === 1) return body;
+  return `${body}\n\nPage ${safePage + 1} of ${pages.length}`;
 };
 
 /**
- * Build the `[← Prev] [Next →]` row that travels with a multi-page
- * positions reply. Returns `null` for single-page outputs so the
- * caller can omit `reply_markup` entirely — sending an empty keyboard
- * would render an awkward zero-height bar in the Telegram client.
+ * Truncate a ticker so the rendered `[Buy <TICKER>]` / `[Sell <TICKER>]`
+ * button label stays readable on narrow clients. Buttons word-wrap on
+ * Telegram desktop but the truncated form is preferable to multi-line
+ * keyboard rows. 12 chars is the typical iOS portrait budget.
+ */
+const truncateTickerForButton = (ticker: string): string => {
+  const MAX = 12;
+  return ticker.length > MAX ? `${ticker.slice(0, MAX - 1)}…` : ticker;
+};
+
+/**
+ * Build the inline-keyboard markup for one page: a `[Buy <TICKER>]
+ * [Sell <TICKER>]` row per open position on the page, optionally
+ * followed by a `[← Prev] [Next →]` nav row when the response
+ * paginates, then a trailing `[Close]` row. Always returns a
+ * keyboard — even an empty-state page surfaces Close so the user can
+ * dismiss the prompt.
  *
- * The wallet rides in `callback_data` (not in server-side state) so
- * the bot can survive Worker cold-starts and re-deploys without
- * needing a KV-backed page cache. Recomputing on each click is cheap
- * over the service binding.
+ * Per-position buttons replace the legacy `Buy` / `Sell` HTML anchors
+ * that pointed at `t.me/<bot>?start=buy_<addr>` deeplinks. The anchors
+ * bounced the user through Telegram's link-handler UI even inside the
+ * same bot's chat; callback buttons fire inline so the action card
+ * lands as the next message in the same chat.
+ *
+ * The wallet rides in nav `callback_data` (not server-side state) so
+ * the bot survives Worker cold-starts without a KV-backed page cache.
+ * Per-position buttons don't need the wallet — the buy/sell card is
+ * scoped to the user's active wallet, resolved at click time.
  */
 export const buildPositionsPageKeyboard = (
   page: number,
   totalPages: number,
   wallet: string,
-  openPositions: readonly BotOpenPosition[] = [],
-): InlineKeyboardMarkup | null => {
+  openActions: PositionActionTarget[],
+): InlineKeyboardMarkup => {
   const rows: InlineKeyboardButton[][] = [];
-  for (const pos of openPositions) {
+  for (const action of openActions) {
+    const label = truncateTickerForButton(action.ticker);
     rows.push([
       {
-        text: `Buy ${pos.ticker}`,
-        callback_data: encodeCallback(POSITION_BUY_CALLBACK_CMD, pos.token),
+        text: `Buy ${label}`,
+        callback_data: encodeCallback(
+          POSITIONS_BUY_CALLBACK_CMD,
+          action.token,
+        ),
       },
       {
-        text: `Sell ${pos.ticker}`,
-        callback_data: encodeCallback(POSITION_SELL_CALLBACK_CMD, pos.token),
+        text: `Sell ${label}`,
+        callback_data: encodeCallback(
+          POSITIONS_SELL_CALLBACK_CMD,
+          action.token,
+        ),
       },
     ]);
   }
@@ -326,5 +389,6 @@ export const buildPositionsPageKeyboard = (
     }
   }
   if (nav.length > 0) rows.push(nav);
-  return rows.length > 0 ? { inline_keyboard: rows } : null;
+  rows.push(backHomeRow());
+  return { inline_keyboard: rows };
 };

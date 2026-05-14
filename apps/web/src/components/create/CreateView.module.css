@@ -42,6 +42,7 @@
 }
 
 .subheading {
+  font-family: var(--font-display);
   font-size: 13px;
   color: var(--txt-3);
   max-width: 420px;
@@ -151,6 +152,7 @@ button.launchButtonConfirmed:disabled {
 }
 
 .idleHint {
+  font-family: var(--font-display);
   font-size: 13px;
   color: var(--txt-3);
   text-align: center;

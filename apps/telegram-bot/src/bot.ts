@@ -7,7 +7,9 @@ import {
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
+import { registerAddressBuyIntercept } from "./lib/buy-card.js";
 import { logger } from "./lib/logger.js";
+import { registerNavCallbacks } from "./lib/nav.js";
 import { registerBuyCommand } from "./commands/buy.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
@@ -15,7 +17,7 @@ import { registerReferralCommand } from "./commands/referral.js";
 import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerSettingsCommand } from "./commands/settings.js";
-import { registerStartCommand } from "./commands/start.js";
+import { buildStartSnapshot, registerStartCommand } from "./commands/start.js";
 import { registerTrackCommand } from "./commands/track.js";
 import { registerWalletCommand } from "./commands/wallet.js";
 import { registerWithdrawCommand } from "./commands/withdraw.js";
@@ -33,6 +35,20 @@ import type { Env } from "./lib/types.js";
 export interface SessionData {
   slippageBps: number;
   defaultBuyUsdc: number;
+  /**
+   * 5-slot customizable buy preset amounts in USDC (issue #818). Older
+   * sessions written before this field landed have it undefined; the
+   * `normaliseBuyPresets` helper in `keyboards/buy-sell-token.ts` lifts
+   * the legacy `defaultBuyUsdc` into slot 0 and fills the rest with
+   * defaults.
+   */
+  buyPresetsUsdc?: number[];
+  /**
+   * 5-slot customizable sell preset percentages (issue #818). Older
+   * sessions have it undefined; `normaliseSellPresets` falls back to
+   * the default `[10, 25, 50, 75, 100]`.
+   */
+  sellPresetsPct?: number[];
   antiPhishingPhrase?: string;
   degenMode: boolean;
   /**
@@ -68,13 +84,43 @@ export interface SessionData {
     nonce: string;
     expiresAt: number;
   };
+  /**
+   * Workflow-stack of transient (chatId, messageId) pairs generated
+   * during a multi-step prompt flow (e.g. /buy lookup → user reply →
+   * custom amount → user reply). Per-chat scoped so a sweep in chat A
+   * doesn't touch ids belonging to chat B — the session is keyed per
+   * user, but a single user can run flows in both a private DM and a
+   * group. Cleared on cancel, on interruption by another slash
+   * command, and on successful completion. See `lib/workflow-stack.ts`.
+   */
+  workflowMessages?: { chatId: number; messageId: number }[];
+  /**
+   * Navigation stack of message snapshots used to power the global
+   * `[← Back]` / `[🏠 Home]` row that lives on every system prompt
+   * except `/start`. Each entry captures the text + inline keyboard
+   * the user was last looking at; tapping Back pops one and edits the
+   * current message back to that state. See `lib/nav.ts`.
+   */
+  navStack?: import("./lib/nav.js").NavSnapshot[];
 }
 
-const DEFAULT_SESSION: SessionData = {
-  slippageBps: 100,
+/**
+ * Default preset values, deep-cloned on every `initial()` call so two
+ * fresh sessions can never share an inner array reference. The session
+ * plugin's shallow `{...DEFAULT_SESSION}` spread would otherwise let an
+ * in-place mutation in one chat's handler bleed across every other
+ * session served by this Worker isolate (CodeRabbit PR #829).
+ */
+const DEFAULT_BUY_PRESETS = [20, 40, 60, 80, 100] as const;
+const DEFAULT_SELL_PRESETS = [10, 25, 50, 75, 100] as const;
+
+const buildDefaultSession = (): SessionData => ({
+  slippageBps: 1000,
   defaultBuyUsdc: 20,
-  degenMode: false,
-};
+  buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
+  sellPresetsPct: [...DEFAULT_SELL_PRESETS],
+  degenMode: true,
+});
 
 /**
  * Composite context type for the bot.
@@ -154,7 +200,7 @@ export const createBot = (
 
   bot.use(
     session<SessionData, AppContext>({
-      initial: () => ({ ...DEFAULT_SESSION }),
+      initial: () => buildDefaultSession(),
       // KvAdapter's `KVNamespace` type comes from its own pinned
       // `@cloudflare/workers-types` version, which can drift from ours.
       // Cast through unknown — the runtime surface (get/put/delete) is
@@ -192,6 +238,7 @@ export const createBot = (
     }),
   );
 
+  registerNavCallbacks(bot, async (ctx) => buildStartSnapshot(ctx));
   registerHelpCommand(bot);
   registerStartCommand(bot);
   registerBuyCommand(bot);
@@ -203,6 +250,11 @@ export const createBot = (
   registerTrackCommand(bot);
   registerWalletCommand(bot);
   registerWithdrawCommand(bot);
+
+  // Tail of the middleware chain — conversations plugin and command
+  // handlers run first, so this only fires for plain text outside any
+  // other matched flow. See `registerAddressBuyIntercept`.
+  registerAddressBuyIntercept(bot);
 
   bot.catch((err) => {
     // Logged + swallowed so a bug in any handler can't propagate

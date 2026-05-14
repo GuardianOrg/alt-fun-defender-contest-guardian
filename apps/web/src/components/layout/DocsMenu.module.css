@@ -1,0 +1,79 @@
+/* Anchored upward (bottom: 100%) — the footer is pinned to the viewport
+ * bottom, so a downward menu would be clipped. Reuses the global
+ * `modalin` keyframe (see index.css). */
+.menu {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  margin-bottom: 0.4rem;
+  min-width: 12rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  box-shadow: var(--shadow-panel);
+  z-index: 50;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  animation: modalin 0.15s ease;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.4rem 0.8rem;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--txt-2);
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.item:hover {
+  color: var(--mint);
+  background: var(--bg-3);
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: -2px;
+}
+
+.item svg {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+}
+
+.label {
+  flex: 1;
+}
+
+/* Legal-doc rows skip the leading icon but indent the label to align
+ * with the icon'd rows above the separator, so the column stays
+ * visually consistent across both groups. */
+.itemLegal {
+  color: var(--txt-3);
+  padding-left: 1.6rem;
+}
+
+.itemLegal:hover {
+  color: var(--mint);
+}
+
+.separator {
+  height: 1px;
+  margin: 0.4rem 0.2rem;
+  background: var(--border-2);
+}

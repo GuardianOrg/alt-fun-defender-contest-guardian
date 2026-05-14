@@ -1,0 +1,19 @@
+import { describe, it, expect } from "vitest";
+
+import wrangler from "../../wrangler.json" with { type: "json" };
+
+describe("wrangler.json", () => {
+  it("defines a non-empty BOT_USERNAME var so referral links resolve to the deployed bot", () => {
+    const config = wrangler as { vars?: Record<string, unknown> };
+    expect(config.vars).toBeDefined();
+    const botUsername = config.vars?.BOT_USERNAME;
+    expect(typeof botUsername).toBe("string");
+    expect((botUsername as string).trim().length).toBeGreaterThan(0);
+    expect(botUsername).toMatch(/^[A-Za-z0-9_]{5,32}$/);
+  });
+
+  it("points API_BASE_URL at the public api.alt.fun host so prod traffic hits the canonical apex", () => {
+    const config = wrangler as { vars?: Record<string, unknown> };
+    expect(config.vars?.API_BASE_URL).toBe("https://api.alt.fun");
+  });
+});

@@ -8,11 +8,19 @@ import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
-  normaliseDefaultBuyUsdc,
+  isBuyPresetAmount,
+  MAX_BUY_PRESET_USDC,
+  normaliseBuyPresets,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
+import {
+  haltAndForward,
+  isCancel,
+  isOtherSlashCommand,
+  tryAddressBuyIntercept,
+} from "../lib/conversation-commands.js";
 import {
   cancelTrade,
   confirmKeyboard,
@@ -26,12 +34,14 @@ import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import { pushWorkflowMessage } from "../lib/workflow-stack.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
-
-/** Required fee-summary line per AGENTS.md key constraints. */
-const FEE_SUMMARY = "Bot fee 0.5% + Alt Fun fee 0.5%";
 
 const PROMPT_HTML =
   "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
@@ -39,14 +49,14 @@ const PROMPT_HTML =
   "• <code>0x1234…abcd</code>\n" +
   "• <code>https://alt.fun/0x1234…</code>\n" +
   "• <code>https://hyperevmscan.io/token/0x1234…</code>\n\n" +
-  "Send /cancel to exit.";
+  "Tap Home to exit.";
 
 const TOKEN_NOT_FOUND_HTML =
   "❌ <b>Token not found.</b>\n\n" +
   "Make sure you have the correct contract address. You can find it on:\n" +
   "• <a href=\"https://alt.fun\">alt.fun</a> — tap the token → copy address\n" +
   "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
-  "Try again or send /cancel to exit.";
+  "Try again, or tap Home to exit.";
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
 const API_UNAVAILABLE =
@@ -82,26 +92,39 @@ const buyLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
-  await ctx.reply(PROMPT_HTML, {
+  // Sweep any prompts left behind by a prior interrupted flow so the
+  // user's view opens cleanly on the new lookup. Idempotent — no-op if
+  // the stack is already empty.
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
+    }
+    if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
+      await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
     }
 
@@ -115,14 +138,16 @@ const buyLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
+        await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -141,18 +166,26 @@ const buyLookupConversation = async (
         : null;
 
     const cardText = renderBuyTokenCardText(token, usdcBalance);
-    const defaultBuyUsdc = normaliseDefaultBuyUsdc(
-      await conversation.external(
-        (outerCtx) => outerCtx.session.defaultBuyUsdc,
+    const buyPresets = await conversation.external((outerCtx) =>
+      normaliseBuyPresets(
+        outerCtx.session.buyPresetsUsdc,
+        outerCtx.session.defaultBuyUsdc,
       ),
     );
-    await msgCtx.reply(cardText, {
+    const cardMsg = await msgCtx.reply(cardText, {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: buildBuyTokenKeyboard(token.address, defaultBuyUsdc),
+        inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
       },
       link_preview_options: { is_disabled: true },
     });
+    // Token card is the lookup's terminal result — sweep the chain of
+    // prompts + retries above it so the user sees only the card.
+    await sweepWorkflow(conversation);
+    // Push the card onto the now-empty stack so the post-trade sweep
+    // in `confirmTrade` deletes it once the user's buy lands; the card's
+    // mcap/balance are stale the moment the trade commits.
+    await trackWorkflowMessage(conversation, cardMsg.message_id);
     return;
   }
 };
@@ -166,30 +199,42 @@ const buyCustomConversation = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<void> => {
-  await ctx.reply(
-    `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nSend /cancel to exit.`,
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(
+    `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nTap Home to exit.`,
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
     }
+    if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
+      await haltAndForward(conversation);
+    }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
 
     const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
     if (amount === null) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (amount < MIN_USDC_BUY_AMOUNT) {
-      await msgCtx.reply(
-        `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount or send /cancel.`,
+      const retry = await msgCtx.reply(
+        `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
@@ -203,6 +248,7 @@ const buyCustomConversation = async (
       await msgCtx.reply(
         "No active wallet — run /wallet to create or import one.",
       );
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -212,20 +258,22 @@ const buyCustomConversation = async (
     // Null means RPC failed — don't treat as zero, which would produce
     // a false "insufficient balance" rejection for a working wallet.
     if (usdcBalance === null) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Unable to verify your USDC balance — please try again.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const usdcAvailable = Number(usdcBalance) / 1_000_000;
     const totalNeeded = amount * (1 + COMBINED_FEE_RATE);
 
     if (usdcAvailable < totalNeeded) {
-      await msgCtx.reply(
+      const retry = await msgCtx.reply(
         `Insufficient USDC balance.\n` +
           `You need $${totalNeeded.toFixed(2)} (amount + fees) but have ${formatUsdc6(usdcBalance)}.\n\n` +
-          `Enter a smaller amount or send /cancel.`,
+          `Enter a smaller amount, or tap Home to exit.`,
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
@@ -234,6 +282,7 @@ const buyCustomConversation = async (
     );
     if (!tokenResult.ok) {
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
 
@@ -244,8 +293,7 @@ const buyCustomConversation = async (
     );
     if (degenMode) {
       await msgCtx.reply(
-        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC buy of ${token.ticker}…</b>\n\n` +
-          `<i>${FEE_SUMMARY}</i>`,
+        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC buy of ${token.ticker}…</b>`,
         { parse_mode: "HTML" },
       );
       const outcome = await conversation.external((outerCtx) =>
@@ -260,6 +308,7 @@ const buyCustomConversation = async (
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await sweepWorkflow(conversation);
       return;
     }
     const { nonce } = await conversation.external(
@@ -271,15 +320,18 @@ const buyCustomConversation = async (
           usdcRaw,
         }),
     );
-    await msgCtx.reply(
+    const stagingMsg = await msgCtx.reply(
       `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
-        `<i>${FEE_SUMMARY}</i>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.`,
       {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
       },
     );
+    await sweepWorkflow(conversation);
+    // Staging prompt is stale once the trade lands — push so the
+    // post-trade sweep clears it alongside the originating card.
+    await trackWorkflowMessage(conversation, stagingMsg.message_id);
     return;
   }
 };
@@ -310,12 +362,27 @@ const handleBuyRefresh = async (
     reply_markup: {
       inline_keyboard: buildBuyTokenKeyboard(
         tokenAddress,
-        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+        normaliseBuyPresets(
+          ctx.session.buyPresetsUsdc,
+          ctx.session.defaultBuyUsdc,
+        ),
       ),
     },
     link_preview_options: { is_disabled: true },
   });
   await ctx.answerCallbackQuery({ text: "Refreshed" });
+};
+
+/**
+ * Push a transient message onto the chat-scoped workflow stack so a
+ * later `clearWorkflowMessages` sweep (run after a trade lands) deletes
+ * it. Used for the token-detail card and the "Ready to buy…" staging
+ * prompt — both are stale the moment the trade confirms. No-op when the
+ * context has no resolvable chat id (rare, only for inline-mode).
+ */
+const trackForPostTradeSweep = (ctx: AppContext, messageId: number): void => {
+  if (!ctx.chat) return;
+  pushWorkflowMessage(ctx.session, ctx.chat.id, messageId);
 };
 
 /** Validate balance then show confirmation for a fixed buy amount. */
@@ -371,6 +438,11 @@ const handleFixedBuy = async (
   }
 
   const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
+  // Track the token-detail card the user just tapped on so the
+  // post-trade sweep clears it once the buy commits.
+  if (ctx.callbackQuery?.message) {
+    trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
+  }
   if (ctx.session.degenMode) {
     await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
     const outcome = await submitBuy({
@@ -392,15 +464,15 @@ const handleFixedBuy = async (
     ticker: tokenResult.data.ticker,
     usdcRaw,
   });
-  await ctx.reply(
+  const stagingMsg = await ctx.reply(
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
-      `<i>${FEE_SUMMARY}</i>\n\n` +
       `Tap <b>Confirm</b> within 60s to submit.`,
     {
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
     },
   );
+  trackForPostTradeSweep(ctx, stagingMsg.message_id);
 };
 
 export const registerBuyCommand = (bot: Bot<AppContext>): void => {
@@ -434,37 +506,44 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleBuyRefresh(ctx, parsed.args[0]).catch((err) => {
+    // An unhandled throw inside the handler used to log-and-swallow,
+    // leaving the Telegram client spinner on the button until its 30s
+    // timeout — visually indistinguishable from a no-op. Surface the
+    // outage via answerCallbackQuery so the user can tell the press
+    // landed and failed, then retry.
+    await handleBuyRefresh(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("buy refresh failed", { err });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
-  // Buy <defaultBuyUsdc> USDC — resolves the amount from the live
-  // session value at click time so /settings changes apply even on a
-  // stale card. Same `normaliseDefaultBuyUsdc` used by the keyboard
-  // label, so the rendered button and the executed amount are
-  // guaranteed equal.
-  bot.callbackQuery(/^btd:/, async (ctx) => {
+  // Buy <amount> USDC — preset slot. The keyboard encodes the amount
+  // directly in the callback payload (`btp:<addr>:<amount>`) so a stale
+  // card always buys the amount the user sees on the button, even if
+  // they have edited a different /settings slot since the card was sent.
+  // `isBuyPresetAmount` defends against tampered payloads bypassing the
+  // min/max bounds enforced by the /settings wizard.
+  bot.callbackQuery(/^btp:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
-    if (!parsed?.args[0]) {
+    const tokenAddress = parsed?.args[0];
+    const amountRaw = parsed?.args[1];
+    if (!tokenAddress || !amountRaw) {
       await ctx.answerCallbackQuery();
       return;
     }
-    const amount = normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc);
-    await handleFixedBuy(ctx, parsed.args[0], amount).catch((err) => {
-      logger.error("buy default handler failed", { err });
-    });
-  });
-
-  // Buy 100 USDC
-  bot.callbackQuery(/^bt100:/, async (ctx) => {
-    const parsed = parseCallback(ctx.callbackQuery.data);
-    if (!parsed?.args[0]) {
+    const amount = Number(amountRaw);
+    if (!isBuyPresetAmount(amount)) {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedBuy(ctx, parsed.args[0], 100).catch((err) => {
-      logger.error("buy 100 handler failed", { err });
+    const clamped = Math.min(Math.max(amount, MIN_USDC_BUY_AMOUNT), MAX_BUY_PRESET_USDC);
+    await handleFixedBuy(ctx, tokenAddress, clamped).catch(async (err) => {
+      logger.error("buy preset handler failed", { err, amount: clamped });
+      await ctx
+        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .catch(() => {});
     });
   });
 
@@ -474,6 +553,12 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
+    }
+    // Push the originating token-detail card onto the workflow stack
+    // before entering the wizard, so the post-trade sweep deletes it
+    // once the user's eventual buy lands.
+    if (ctx.callbackQuery.message) {
+      trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
     }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("buy-custom", parsed.args[0]);

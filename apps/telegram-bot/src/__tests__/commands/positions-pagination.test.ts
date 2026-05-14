@@ -120,7 +120,7 @@ describe("pp callback (positions pagination)", () => {
     expect(answer?.body.text).toContain("Data temporarily unavailable");
   });
 
-  it("edits the originating message with the requested page content + keyboard", async () => {
+  it("edits the originating message with the requested page content + per-position rows scoped to that page + nav row", async () => {
     mockApi(fetchSpy, 250);
     const h = makeBotHarness();
     await h.run(ppCallback(`pp:1:${WALLET}`));
@@ -132,6 +132,7 @@ describe("pp callback (positions pagination)", () => {
       chat_id: number;
       message_id: number;
       text: string;
+      parse_mode?: string;
       reply_markup: {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
@@ -139,22 +140,37 @@ describe("pp callback (positions pagination)", () => {
     expect(body.chat_id).toBe(42);
     expect(body.message_id).toBe(99);
     expect(body.text).toContain("Page 2 of");
-    // Last row is the pagination nav row; rows above are per-position
-    // [Buy] [Sell] callbacks for the open positions on the page.
-    const nav =
-      body.reply_markup.inline_keyboard[
-        body.reply_markup.inline_keyboard.length - 1
-      ]!;
+    // Body no longer carries `t.me?start=...` anchors — per-position
+    // callback buttons replace them so the action fires inline.
+    expect(body.parse_mode).toBe("HTML");
+    expect(body.text).not.toContain("?start=buy_");
+    expect(body.text).not.toContain("?start=sell_");
+    const rows = body.reply_markup.inline_keyboard;
+    expect(rows.length).toBeGreaterThan(2);
+    // Last row is Close, second-to-last is the nav row.
+    expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    const nav = rows[rows.length - 2]!;
     const navTexts = nav.map((b) => b.text);
     expect(navTexts).toContain("← Prev");
     if (navTexts.length > 1) expect(navTexts).toContain("Next →");
     for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
     }
-    for (const row of body.reply_markup.inline_keyboard.slice(0, -1)) {
+    // Every non-nav, non-Close row must be a Buy/Sell pair pointing at
+    // a token. The tickers on this page must also appear in the body
+    // text — so a navigation never desyncs the keyboard from the
+    // visible list.
+    for (let i = 0; i < rows.length - 2; i++) {
+      const row = rows[i]!;
       expect(row).toHaveLength(2);
-      expect(row[0]!.callback_data).toMatch(/^pob:0x[0-9a-f]{40}$/i);
-      expect(row[1]!.callback_data).toMatch(/^pos:0x[0-9a-f]{40}$/i);
+      const buyLabel = row[0]!.text;
+      const sellLabel = row[1]!.text;
+      expect(buyLabel.startsWith("Buy ")).toBe(true);
+      expect(sellLabel.startsWith("Sell ")).toBe(true);
+      expect(row[0]!.callback_data.startsWith("pb:0x")).toBe(true);
+      expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
+      const ticker = buyLabel.slice("Buy ".length);
+      expect(body.text).toContain(ticker);
     }
   });
 
@@ -172,16 +188,17 @@ describe("pp callback (positions pagination)", () => {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
     };
-    // Single page → no "Page X of Y" footer. Per-position rows still
-    // ship (one [Buy] [Sell] for the single open position); the nav
-    // row is omitted since there is only one page.
+    // Single page → no "Page X of Y" footer. Still has one per-position
+    // row of [Buy] / [Sell] buttons.
     expect(body.text).not.toContain("Page ");
-    expect(body.reply_markup).toBeDefined();
-    expect(body.reply_markup!.inline_keyboard).toHaveLength(1);
-    const row = body.reply_markup!.inline_keyboard[0]!;
-    expect(row).toHaveLength(2);
-    expect(row[0]!.text).toMatch(/^Buy /);
-    expect(row[1]!.text).toMatch(/^Sell /);
+    expect(body.text).not.toContain("?start=buy_");
+    expect(body.text).not.toContain("?start=sell_");
+    const rows = body.reply_markup!.inline_keyboard;
+    // One action row + trailing Close row.
+    expect(rows).toHaveLength(2);
+    expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
+    expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {

@@ -1,20 +1,16 @@
+import { useRef, useState } from "react";
+
+import DocsMenu from "./DocsMenu";
 import styles from "./SiteFooter.module.css";
 import DevSimulator from "../dev/DevSimulator";
 
 const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
-const WHITEPAPER_URL = "/whitepaper.pdf";
-const AUDIT_URL = "/audit.pdf";
-// Legal docs are rendered from `apps/web/legal-source/*.md` by
-// `scripts/build-legal-docs.mjs` and copied through Vite's `public/`
-// pipeline. Keep these constants in sync with the output filenames if
-// the source files are ever renamed.
-const TERMS_URL = "/altfun-terms-of-use.html";
-const PRIVACY_URL = "/altfun-privacy-notice.html";
-const DMCA_URL = "/altfun-dmca-policy.html";
+const DOCS_URL = "https://docs.alt.fun";
 
-const DocIcon = () => (
+const ChevronDownIcon = () => (
   <svg
+    className={styles.chevron}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -23,25 +19,7 @@ const DocIcon = () => (
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="8" y1="13" x2="16" y2="13" />
-    <line x1="8" y1="17" x2="16" y2="17" />
-  </svg>
-);
-
-const ShieldCheckIcon = () => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M9 12l2 2 4-4" />
-    <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />
+    <polyline points="6 9 12 15 18 9" />
   </svg>
 );
 
@@ -57,79 +35,64 @@ const TelegramIcon = () => (
   </svg>
 );
 
+const GitBookIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M10.802 17.77a.703.703 0 1 1-.002 1.406.703.703 0 0 1 .002-1.406m11.024-4.347a.703.703 0 1 1 .001-1.406.703.703 0 0 1-.001 1.406m0-2.876a2.176 2.176 0 0 0-2.174 2.174c0 .233.039.465.115.691l-7.181 3.823a2.165 2.165 0 0 0-1.784-.937c-.829 0-1.584.475-1.95 1.216l-6.451-3.402c-.682-.358-1.192-1.48-1.138-2.502.028-.533.212-.947.493-1.107.178-.1.392-.092.62.027l.042.023c1.71.9 7.304 3.847 7.54 3.956.363.169.565.237 1.185-.057l11.564-6.014c.17-.064.368-.227.368-.474 0-.342-.354-.477-.355-.477-.658-.315-1.669-.788-2.655-1.25-2.108-.987-4.497-2.105-5.546-2.655-.906-.474-1.635-.074-1.765.006l-.252.125C7.78 6.048 1.46 9.178 1.1 9.397.457 9.789.058 10.57.006 11.539c-.08 1.537.703 3.14 1.824 3.727l6.822 3.518a2.175 2.175 0 0 0 2.15 1.862 2.177 2.177 0 0 0 2.173-2.14l7.514-4.073c.38.298.853.461 1.337.461A2.176 2.176 0 0 0 24 12.72a2.176 2.176 0 0 0-2.174-2.174" />
+  </svg>
+);
+
 /**
  * Thin global footer rendered as the last flex child of the app layout.
- * Three groups keep the row scannable in a tight space:
- *   - Left: Whitepaper + Audit Report (icon + label, distinct artifacts)
- *   - Center: Terms / Privacy / DMCA (text-only legal links)
- *   - Right: X + Telegram (icon-only socials)
+ * Two groups keep the row scannable in a tight space:
+ *   - Left: a single "Documents" dropdown trigger that consolidates
+ *     Whitepaper / Audit Report / Terms / Privacy / DMCA into one popover
+ *     to reduce footer noise. See `DocsMenu` for the menu contents.
+ *   - Right: GitBook (docs) + X + Telegram (icon-only socials)
  * Sticky at the bottom of the viewport on every route — see
  * `SiteFooter.module.css` for the layout/positioning rationale.
  */
 export default function SiteFooter() {
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
+  const docsTriggerWrapRef = useRef<HTMLDivElement>(null);
+
   return (
     <footer className={styles.footer}>
       <div className={styles.docs}>
-        <a
-          className={styles.docLink}
-          href={WHITEPAPER_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <DocIcon />
-          Whitepaper
-        </a>
-        <span className={styles.divider} aria-hidden="true">
-          ·
-        </span>
-        <a
-          className={styles.docLink}
-          href={AUDIT_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          <ShieldCheckIcon />
-          Audit Report
-        </a>
+        <div ref={docsTriggerWrapRef} className={styles.docsTriggerWrap}>
+          <button
+            type="button"
+            className={styles.docsTrigger}
+            onClick={() => setDocsMenuOpen((prev) => !prev)}
+            aria-haspopup="menu"
+            aria-expanded={docsMenuOpen}
+            aria-label="Documents menu"
+          >
+            <span>Documents</span>
+            <ChevronDownIcon />
+          </button>
+          {docsMenuOpen && (
+            <DocsMenu
+              anchorRef={docsTriggerWrapRef}
+              onClose={() => setDocsMenuOpen(false)}
+            />
+          )}
+        </div>
         {/* Dev-only simulator trigger — returns `null` outside
          * `import.meta.env.DEV` so production renders nothing here. */}
         <DevSimulator />
       </div>
 
-      <div className={styles.legal}>
-        <a
-          className={styles.legalLink}
-          href={TERMS_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Terms
-        </a>
-        <span className={styles.divider} aria-hidden="true">
-          ·
-        </span>
-        <a
-          className={styles.legalLink}
-          href={PRIVACY_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          Privacy
-        </a>
-        <span className={styles.divider} aria-hidden="true">
-          ·
-        </span>
-        <a
-          className={styles.legalLink}
-          href={DMCA_URL}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          DMCA
-        </a>
-      </div>
-
       <div className={styles.socials}>
+        <a
+          className={styles.iconLink}
+          href={DOCS_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Read the alt.fun docs on GitBook"
+          title="Docs"
+        >
+          <GitBookIcon />
+        </a>
         <a
           className={styles.iconLink}
           href={X_URL}

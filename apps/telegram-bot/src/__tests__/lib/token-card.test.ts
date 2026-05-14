@@ -19,6 +19,9 @@ const baseToken = (overrides: Partial<TokenInfo> = {}): TokenInfo => ({
   curveFilled: 30,
   status: "curve",
   ltPair: null,
+  underlying: "HYPE",
+  leverage: 5,
+  ltDirection: "long",
   ...overrides,
 });
 
@@ -29,16 +32,18 @@ describe("renderBuyTokenCardText", () => {
     expect(text).toContain("TEST");
     expect(text).toContain("24h Change");
     expect(text).toContain("+5.20%");
-    expect(text).toContain("LT 24h");
+    expect(text).not.toContain("LT 24h");
     expect(text).toContain("Market Cap");
+    expect(text).toContain("Price:");
     expect(text).toContain("24h Volume");
+    expect(text.indexOf("Market Cap")).toBeLessThan(text.indexOf("Price:"));
     expect(text).toContain("$12.3K");
     expect(text).toContain("Your USDC Balance");
     expect(text).toContain("$50.00");
     expect(text).toContain("View on Explorer");
     expect(text).toContain("View on Alt Fun");
     expect(text).toContain(
-      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+      `https://alt.fun/token/0x1111111111111111111111111111111111111111`,
     );
     const explorerIdx = text.indexOf("View on Explorer");
     const altFunIdx = text.indexOf("View on Alt Fun");
@@ -62,6 +67,10 @@ describe("renderSellTokenCardText", () => {
     expect(text).toContain("$12.3K");
     expect(text).toContain("Your Balance");
     expect(text).toContain("TEST");
+    expect(text).not.toContain("LT 24h");
+    expect(text).toContain("Market Cap");
+    expect(text).toContain("Price:");
+    expect(text.indexOf("Market Cap")).toBeLessThan(text.indexOf("Price:"));
   });
 
   it("shows zero balance when user holds none", () => {
@@ -74,7 +83,7 @@ describe("renderSellTokenCardText", () => {
     expect(text).toContain("View on Explorer");
     expect(text).toContain("View on Alt Fun");
     expect(text).toContain(
-      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+      `https://alt.fun/token/0x1111111111111111111111111111111111111111`,
     );
     expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
       text.indexOf("View on Explorer"),
@@ -88,10 +97,72 @@ describe("renderTrackTokenCardText", () => {
     expect(text).toContain("View on Explorer");
     expect(text).toContain("View on Alt Fun");
     expect(text).toContain(
-      `https://alt.fun/0x1111111111111111111111111111111111111111`,
+      `https://alt.fun/token/0x1111111111111111111111111111111111111111`,
     );
     expect(text.indexOf("View on Alt Fun")).toBeGreaterThan(
       text.indexOf("View on Explorer"),
     );
+  });
+});
+
+describe("header LT symbol (issue #820)", () => {
+  const expectHeader = (text: string, expected: string) => {
+    expect(text.split("\n")[0]).toBe(expected);
+  };
+
+  it("renders ticker + LT symbol on the buy card", () => {
+    const text = renderBuyTokenCardText(baseToken(), 0n);
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>HYPE5L</code>)",
+    );
+  });
+
+  it("renders ticker + LT symbol on the sell card", () => {
+    const text = renderSellTokenCardText(baseToken(), 0n);
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>HYPE5L</code>)",
+    );
+  });
+
+  it("renders ticker + LT symbol on the track card", () => {
+    const text = renderTrackTokenCardText(baseToken());
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>HYPE5L</code>)",
+    );
+  });
+
+  it("uses S suffix for short LT", () => {
+    const text = renderTrackTokenCardText(
+      baseToken({ underlying: "ETH", leverage: 3, ltDirection: "short" }),
+    );
+    expectHeader(
+      text,
+      "<b>Test Token</b> (<code>TEST</code> / <code>ETH3S</code>)",
+    );
+  });
+
+  it("falls back to bare ticker when underlying is missing (older api)", () => {
+    const text = renderTrackTokenCardText(baseToken({ underlying: null }));
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
+  });
+
+  it("falls back to bare ticker when leverage is missing", () => {
+    const text = renderTrackTokenCardText(baseToken({ leverage: null }));
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
+  });
+
+  it("falls back to bare ticker when ltDirection is missing", () => {
+    const text = renderTrackTokenCardText(baseToken({ ltDirection: null }));
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
+  });
+
+  it("falls back to bare ticker on an unrecognised direction", () => {
+    const text = renderTrackTokenCardText(
+      baseToken({ ltDirection: "neutral" }),
+    );
+    expectHeader(text, "<b>Test Token</b> (<code>TEST</code>)");
   });
 });

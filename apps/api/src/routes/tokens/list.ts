@@ -1,4 +1,4 @@
-import { eq, desc, asc, ilike, or, and, inArray, notInArray, type SQL } from "drizzle-orm";
+import { eq, gt, desc, asc, ilike, or, and, inArray, notInArray, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 
@@ -14,7 +14,7 @@ import {
   buildBatchFromTokens,
   computeMarketDataForAddresses,
   fetchGraduatedTokensOnchain,
-  fetchGraduatingTokensOnchain,
+  fetchNonGraduatedTokensOnchain,
   type MarketDataItem,
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
@@ -28,6 +28,7 @@ import {
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
+import { isBoostedToken } from "../../lib/trending-tuning.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -51,11 +52,47 @@ const TRENDING_POOL_SIZE = 500;
 // TRENDING_POOL_SIZE — bounded work per request, falls back to a cron-
 // populated column once the catalogue outgrows it.
 const STATUS_POOL_SIZE = 500;
+/**
+ * Curve-fill percentage at which a token starts appearing in the
+ * GRADUATING tab. The tab is a *progress* surface ("close to
+ * graduation") — distinct from the on-chain `status === "graduating"`
+ * field, which means "phase 1 has fired, trading is frozen" and
+ * continues to drive the GRADUATING pill / trade-panel overlay
+ * regardless of this threshold.
+ *
+ * 85% picks the closing-stretch slice: gives users a clear "shortlist
+ * of tokens about to graduate" without diluting the tab with
+ * mid-curve tokens that haven't earned the spotlight yet. Centralised
+ * here so the route + tests + any future docs share the constant.
+ */
+const GRADUATING_TAB_MIN_CURVE_FILLED = 85;
 
 function parseNonNegativeInt(value: string | undefined): number | undefined | null {
   if (value === undefined) return undefined;
   if (!/^\d+$/.test(value)) return null;
   return Number.parseInt(value, 10);
+}
+
+/**
+ * Parse a `createdAfter` query parameter as an ISO-8601 timestamp.
+ *
+ * Returns:
+ *   - `undefined` when the param is absent (no filter applied).
+ *   - `null` when the param is present but malformed (handler emits 400).
+ *   - a `Date` when the param is a well-formed ISO-8601 string.
+ *
+ * The leading `YYYY-MM-DD` shape guard rejects English-style inputs like
+ * `"tomorrow"`, bare years (`"2024"`), and the empty string — all of which
+ * `new Date(...)` would either accept or silently coerce. Anything that
+ * passes the shape check still has its `getTime()` checked so the Date
+ * constructor's lenient fallback to `Invalid Date` doesn't slip through.
+ */
+function parseCreatedAfter(value: string | undefined): Date | undefined | null {
+  if (value === undefined) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }
 
 function enrich(
@@ -212,6 +249,16 @@ listRoute.get("/", async (c) => {
   const limit = Math.min(limitParam ?? DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
   const offset = offsetParam ?? 0;
 
+  // Strictly-greater-than filter on `createdAt`. Cursor-style backfill
+  // pattern: a consumer tracking the latest `createdAt` it's processed
+  // can ask for "everything newer than that" without re-receiving the
+  // boundary row. Naming mirrors the public contract — `createdAfter`
+  // reads as exclusive, and that's what we implement.
+  const createdAfter = parseCreatedAfter(c.req.query("createdAfter"));
+  if (createdAfter === null) {
+    return c.json(formatError("Invalid createdAfter parameter"), 400);
+  }
+
   const underlying = c.req.query("underlying");
   const directionRaw = c.req.query("direction");
   const direction =
@@ -274,25 +321,18 @@ listRoute.get("/", async (c) => {
 
   const db = createDb(c.env.DATABASE_URL);
 
-  // ---------- Ponder-first paths: status=graduated | status=graduating ----------
+  // ---------- Ponder-first path: status=graduated ----------
   //
   // Postgres' `status` column is never flipped by the API (the indexer is
-  // the source of truth for graduation). Driving these tabs off Ponder
-  // keeps them accurate and keeps the ordering fields (`graduatedAt` /
-  // `curveSupply`) available without extra joins.
-  if (status === "graduated" || status === "graduating") {
-    const onchainPage =
-      status === "graduated"
-        ? await fetchGraduatedTokensOnchain(
-            c.env.PONDER_URL,
-            STATUS_POOL_SIZE,
-            0,
-          )
-        : await fetchGraduatingTokensOnchain(
-            c.env.PONDER_URL,
-            STATUS_POOL_SIZE,
-            0,
-          );
+  // the source of truth for graduation). Driving this tab off Ponder
+  // keeps it accurate and keeps the ordering field (`graduatedAt`)
+  // available without an extra join.
+  if (status === "graduated") {
+    const onchainPage = await fetchGraduatedTokensOnchain(
+      c.env.PONDER_URL,
+      STATUS_POOL_SIZE,
+      0,
+    );
 
     if (onchainPage === null) {
       return c.json(formatError("Indexer unavailable"), 503);
@@ -335,8 +375,13 @@ listRoute.get("/", async (c) => {
       dbByAddress.set(row.address.toLowerCase(), row);
     }
 
-    // Preserve Ponder's ordering (graduatedAt desc / curveSupply asc) and
-    // drop anything hidden in the DB or not matching the user's filters.
+    // Preserve Ponder's `graduatedAt desc` ordering and drop anything
+    // hidden in the DB or not matching the user's filters.
+    // `createdAfter` is enforced here (rather than in the SQL `where`)
+    // because the Ponder-first path's row selection is driven by the
+    // indexer page, not by a `tokens.createdAt` predicate — keeping the
+    // filter in one place keeps semantics identical across branches.
+    const createdAfterMs = createdAfter?.getTime();
     const orderedDbRows: DbToken[] = [];
     const orderedOnchain: PonderTokenOnchain[] = [];
     for (const onchain of onchainPage) {
@@ -344,6 +389,9 @@ listRoute.get("/", async (c) => {
       const row = dbByAddress.get(addr);
       if (!row) continue;
       if (!matchesFilters(row, filters)) continue;
+      if (createdAfterMs !== undefined && row.createdAt.getTime() <= createdAfterMs) {
+        continue;
+      }
       orderedDbRows.push(row);
       orderedOnchain.push(onchain);
     }
@@ -402,6 +450,185 @@ listRoute.get("/", async (c) => {
     return response;
   }
 
+  // ---------- Ponder-first path: status=graduating ----------
+  //
+  // The GRADUATING tab is a *progress* surface — it lists every
+  // non-graduated token whose enriched `curveFilled` is
+  // `≥ GRADUATING_TAB_MIN_CURVE_FILLED`, sorted by `curveFilled desc`.
+  // Distinct from the per-token `status === "graduating"` field, which
+  // marks the contract-frozen phase-1 window and continues to drive the
+  // GRADUATING pill + trade-panel overlay regardless of this tab's
+  // filter. See `lib/market-data.ts` and `lib/token-enrich.ts` for the
+  // rationale.
+  //
+  // We can't push the 85% gate or the curveFilled sort into the Ponder
+  // query because `curveFilled` is USD-denominated (`realLt × rate /
+  // threshold × 100`) and depends on the BounceTech LT exchange rate,
+  // which Ponder doesn't have. We instead fetch a bounded pool ordered
+  // by `curveSupply asc` (closest-to-sold-out first; strong proxy for
+  // high curveFilled — see `fetchNonGraduatedTokensOnchain`), enrich the
+  // pool to recover the real `curveFilled` per token, then filter +
+  // sort + paginate in memory.
+  if (status === "graduating") {
+    const onchainPage = await fetchNonGraduatedTokensOnchain(
+      c.env.PONDER_URL,
+      STATUS_POOL_SIZE,
+      0,
+    );
+
+    if (onchainPage === null) {
+      return c.json(formatError("Indexer unavailable"), 503);
+    }
+
+    if (onchainPage.length === 0) {
+      const empty = c.json(formatSuccess([], "live"));
+      empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+      if (cache) await cache.put(cacheKey, empty.clone());
+      return empty;
+    }
+
+    // `tokens.address` is stored checksummed (see `create.ts` — we run
+    // every insert through `getAddress`). Ponder returns addresses
+    // lowercased. Checksum for the DB query, but keep the lowercased form
+    // for map lookups below where we compare against Ponder strings.
+    const checksummedAddresses = onchainPage.map((t) => getAddress(t.address));
+
+    const excluded = excludedUnderlyingCondition();
+    const dbRowsRaw = await db
+      .select()
+      .from(tokens)
+      .where(
+        and(
+          eq(tokens.isHidden, false),
+          inArray(tokens.address, checksummedAddresses),
+          ...(excluded ? [excluded] : []),
+        ),
+      );
+
+    const availability = await getLiveLtAvailability().catch(() => null);
+    const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
+
+    const dbByAddress = new Map<string, DbToken>();
+    for (const row of liveFiltered) {
+      dbByAddress.set(row.address.toLowerCase(), row);
+    }
+
+    // Match each Ponder candidate against its DB row, dropping anything
+    // hidden or filtered out by the user's `underlying` / `direction` /
+    // etc. clauses. We hold on to both the DB row AND the Ponder row
+    // because `buildBatchFromTokens` below needs the already-fetched
+    // onchain set to avoid a redundant Ponder round-trip.
+    //
+    // `createdAfter` is enforced in this in-memory loop (rather than in
+    // the SQL `where` above) for the same reason the graduated branch
+    // does it: row selection is driven by the indexer page, not by a
+    // `tokens.createdAt` predicate, so keeping the filter co-located
+    // with the other in-memory rejects (`matchesFilters`) makes the
+    // semantics symmetric across both Ponder-first branches.
+    const graduatingCreatedAfterMs = createdAfter?.getTime();
+    const candidatesDb: DbToken[] = [];
+    const candidatesOnchain: PonderTokenOnchain[] = [];
+    for (const onchain of onchainPage) {
+      const addr = onchain.address.toLowerCase();
+      const row = dbByAddress.get(addr);
+      if (!row) continue;
+      if (!matchesFilters(row, filters)) continue;
+      if (
+        graduatingCreatedAfterMs !== undefined &&
+        row.createdAt.getTime() <= graduatingCreatedAfterMs
+      ) {
+        continue;
+      }
+      candidatesDb.push(row);
+      candidatesOnchain.push(onchain);
+    }
+
+    if (candidatesDb.length === 0) {
+      const empty = c.json(formatSuccess([], "live"));
+      empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+      if (cache) await cache.put(cacheKey, empty.clone());
+      return empty;
+    }
+
+    // Resolve market data for the *full* candidate pool — not just the
+    // paginated slice. We need every candidate's `curveFilled` to
+    // evaluate the 85% gate and the `curveFilled desc` sort *before*
+    // applying `offset` / `limit`, otherwise pagination would reference
+    // unfiltered positions and produce short / wrong pages. The pool is
+    // capped at `STATUS_POOL_SIZE`, matching the per-request work budget
+    // the trending-sort path already shoulders.
+    const marketResult = await buildBatchFromTokens(
+      c.env.PONDER_URL,
+      c.env.BOUNCETECH_DATABASE_URL,
+      candidatesOnchain,
+    );
+
+    const onchainByAddress = new Map<string, PonderTokenOnchain>();
+    const marketByAddress = new Map<string, MarketDataItem>();
+    if (marketResult.ok) {
+      for (const t of marketResult.data.tokens) {
+        onchainByAddress.set(t.address.toLowerCase(), t);
+      }
+      for (const [addr, entry] of Object.entries(marketResult.data.market)) {
+        marketByAddress.set(addr, entry);
+      }
+    } else {
+      // Degraded: enrich without market data. `curveFilled` falls back
+      // to supplyFilled (driven purely by `curveSupply`), which is still
+      // enough to evaluate the 85% gate for the overwhelming majority of
+      // tokens (USD progress lags supply progress at typical LT-rate
+      // ranges — see `computeCurveFilledBreakdown` docstring). Better
+      // than blanking the tab while BounceTech is down.
+      for (const t of candidatesOnchain) {
+        onchainByAddress.set(t.address.toLowerCase(), t);
+      }
+    }
+
+    const graduationThresholdUsd = await getGraduationThresholdUsd(c.env);
+    const enrichedAll = candidatesDb.map((t) =>
+      enrich(
+        t,
+        onchainByAddress.get(t.address.toLowerCase()),
+        marketByAddress.get(t.address.toLowerCase()),
+        graduationThresholdUsd,
+      ),
+    );
+
+    // Gate + sort. `graduated` is double-checked here defensively — the
+    // Ponder query already filtered on `graduated: false`, but a token
+    // whose `Bonding:TokenGraduated` event landed between the Ponder
+    // fetch and the enrich (or whose `enrich` short-circuited
+    // `curveFilled` to 100 via the graduated branch of
+    // `computeCurveFilledBreakdown`) should never leak into this tab.
+    const gated = enrichedAll.filter(
+      (t) =>
+        !t.graduated &&
+        t.curveFilled !== null &&
+        t.curveFilled >= GRADUATING_TAB_MIN_CURVE_FILLED,
+    );
+
+    // Primary: curveFilled desc. Tie-break: mcap desc (treats
+    // unknown/null as 0 so quiet tokens don't leapfrog priced ones on
+    // ties) — matches the trending sort's tie-break choice for
+    // consistency across in-memory-sorted tabs.
+    gated.sort((a, b) => {
+      const aFilled = a.curveFilled ?? 0;
+      const bFilled = b.curveFilled ?? 0;
+      if (bFilled !== aFilled) return bFilled - aFilled;
+      return (b.mcapUsd ?? 0) - (a.mcapUsd ?? 0);
+    });
+
+    const paged = gated.slice(offset, offset + limit);
+
+    const response = c.json(
+      formatSuccess(paged, marketResult.ok ? "live" : "degraded"),
+    );
+    const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+    response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+    if (cache) await cache.put(cacheKey, response.clone());
+    return response;
+  }
+
   // ---------- DB-first path: everything else ----------
 
   // Pull the live-LT availability snapshot before building the SQL — when
@@ -425,6 +652,7 @@ listRoute.get("/", async (c) => {
   if (direction) conditions.push(eq(tokens.ltDirection, direction));
   if (leverage !== undefined) conditions.push(eq(tokens.leverage, leverage));
   if (creator) conditions.push(eq(tokens.creator, creator));
+  if (createdAfter) conditions.push(gt(tokens.createdAt, createdAfter));
   if (availability && availability.fresh && availability.liveAddresses.size > 0) {
     // `tokens.ltPair` is stored checksummed (see `lib/token-registration.ts`,
     // which runs every insert through `getAddress`). The live snapshot is
@@ -516,6 +744,7 @@ listRoute.get("/", async (c) => {
         createdAtSec,
         lastTradeAtSec,
         nowSec,
+        isBoosted: isBoostedToken(t.address),
       });
       return { token: t, score };
     });

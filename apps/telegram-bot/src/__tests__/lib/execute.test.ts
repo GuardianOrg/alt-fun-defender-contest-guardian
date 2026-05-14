@@ -272,6 +272,52 @@ describe("renderConfirmReply", () => {
     });
     expect(reply).toContain("Buy confirmed for TEST");
     expect(reply).toContain("hyperevmscan.io/tx/0xdeadbeef");
+    // Fee summary lives only in /help fees per issue #801 — never on
+    // the buy/sell menu and never on the receipt.
+    expect(reply).not.toContain("Bot fee 0.5%");
+    expect(reply).not.toContain("Alt Fun fee 0.5%");
+  });
+
+  it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
+    // Confirm reply now surfaces the actual on-chain amount decoded
+    // from the BotRouterTrade log, formatted via formatToken18 against
+    // the user-supplied ticker. Pre-fix the user saw only the tx hash.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1_200n * 10n ** 18n,
+        minOut: 1_100n * 10n ** 18n,
+        // 1234.5 tokens, 18-dp raw.
+        actualTokensOut: 1_234_500_000_000_000_000_000n,
+      },
+    });
+    expect(reply).toMatch(/Received:\s+1,?234\.50\d* TEST/);
+    expect(reply).toContain("Buy confirmed for TEST");
+  });
+
+  it("omits the received line on a sell success (semantics differ)", () => {
+    // For sells, BotRouterTrade.tokenAmount is tokens sold, not tokens
+    // received, so executeSell never sets actualTokensOut. The sell
+    // confirm reply must not surface a misleading "Received" line.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "sell",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(reply).not.toMatch(/Received:/);
+    expect(reply).toContain("Sell confirmed for TEST");
   });
 
   it("renders the mapped error copy on failure", () => {
@@ -286,6 +332,29 @@ describe("renderConfirmReply", () => {
       },
     });
     expect(reply).toMatch(/Price moved/);
+  });
+
+  it("renders ⏳ (not ❌) with explorer link for a pending receipt-timeout result", () => {
+    // Receipt-timeout = tx in mempool, outcome unknown. Prefixing with
+    // ❌ would tell the user their trade failed even though the chain
+    // may still mine it to success or revert. ⏳ matches the "pending,
+    // check explorer" semantics the reviewer asked for.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: false,
+        kind: "pending",
+        reason: "WaitForTransactionReceiptTimeoutError",
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+      },
+    });
+    expect(reply.startsWith("⏳")).toBe(true);
+    expect(reply).not.toMatch(/^❌/);
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0xdeadbeef");
   });
 });
 
@@ -523,6 +592,218 @@ describe("submitBuy / submitSell (degen-mode entry)", () => {
     });
     const call = execBuySpy.mock.calls[0] as [unknown, { referrer: string }];
     expect(call[1].referrer).toBe(referrer);
+  });
+});
+
+describe("post-trade workflow-stack sweep", () => {
+  let execBuySpy: ReturnType<typeof vi.spyOn>;
+  let execSellSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    execBuySpy = vi.spyOn(trade, "executeBuy");
+    execSellSpy = vi.spyOn(trade, "executeSell");
+  });
+  afterEach(() => {
+    execBuySpy.mockRestore();
+    execSellSpy.mockRestore();
+  });
+
+  /**
+   * Build a ctx with a stub `api.deleteMessage`, a chat id, and any
+   * workflow-stack entries pre-loaded. Mirrors what a real chat looks
+   * like by the time the user taps Confirm: the stack already holds
+   * the token-detail card + the "Ready to…" staging prompt, both
+   * pushed by the upstream callback handler.
+   */
+  const fakeCtxWithSweep = async (
+    stack: { chatId: number; messageId: number }[] = [],
+  ) => {
+    const { ctx, kv } = await fakeCtx();
+    const deleteMessage = vi.fn().mockResolvedValue(undefined);
+    (ctx as unknown as { api: unknown }).api = { deleteMessage };
+    (ctx as unknown as { chat: unknown }).chat = { id: 7, type: "private" };
+    ctx.session.workflowMessages = [...stack];
+    return { ctx, kv, deleteMessage };
+  };
+
+  it("deletes every tracked workflow message on a successful buy", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 555 }, // token-detail card
+      { chatId: 7, messageId: 556 }, // "Ready to buy…" staging prompt
+    ]);
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    expect(deleteMessage).toHaveBeenCalledTimes(2);
+    expect(deleteMessage).toHaveBeenCalledWith(7, 555);
+    expect(deleteMessage).toHaveBeenCalledWith(7, 556);
+    expect(ctx.session.workflowMessages).toEqual([]);
+  });
+
+  it("deletes every tracked workflow message on a successful sell", async () => {
+    execSellSpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xbeef",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 222 },
+    ]);
+    const { nonce } = stageSell({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      tokenRaw: 10n ** 18n,
+    });
+    await confirmTrade(ctx, nonce);
+    expect(deleteMessage).toHaveBeenCalledWith(7, 222);
+  });
+
+  it("preserves entries for OTHER chats on sweep (per-chat scope)", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 100 },
+      { chatId: 99, messageId: 200 }, // different chat — must survive
+    ]);
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    expect(deleteMessage).toHaveBeenCalledTimes(1);
+    expect(deleteMessage).toHaveBeenCalledWith(7, 100);
+    expect(ctx.session.workflowMessages).toEqual([
+      { chatId: 99, messageId: 200 },
+    ]);
+  });
+
+  it("does NOT sweep when the trade reverts (user may want to retry from the card)", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: false,
+      kind: "reverted",
+      reason: "SlippageExceeded",
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 555 },
+    ]);
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    expect(deleteMessage).not.toHaveBeenCalled();
+    expect(ctx.session.workflowMessages).toEqual([
+      { chatId: 7, messageId: 555 },
+    ]);
+  });
+
+  it("does NOT sweep when the receipt is still pending (tx in mempool)", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: false,
+      kind: "pending",
+      reason: "WaitForTransactionReceiptTimeoutError",
+      txHash: "0xabc",
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 555 },
+    ]);
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    expect(deleteMessage).not.toHaveBeenCalled();
+  });
+
+  it("swallows a Telegram 400 'message not found' on each delete (already gone)", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, kv } = await fakeCtx();
+    const deleteMessage = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("Bad Request: message to delete not found"), {
+          error_code: 400,
+          description: "Bad Request: message to delete not found",
+        }),
+      );
+    (ctx as unknown as { api: unknown }).api = { deleteMessage };
+    (ctx as unknown as { chat: unknown }).chat = { id: 7, type: "private" };
+    ctx.session.workflowMessages = [{ chatId: 7, messageId: 555 }];
+    void kv;
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    const outcome = await confirmTrade(ctx, nonce);
+    expect(outcome.kind).toBe("executed");
+    expect(deleteMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("submitBuy (degen-mode) sweeps the stack on success", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 88 },
+    ]);
+    await submitBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    expect(deleteMessage).toHaveBeenCalledWith(7, 88);
+  });
+
+  it("submitSell (degen-mode) sweeps the stack on success", async () => {
+    execSellSpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xbeef",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx, deleteMessage } = await fakeCtxWithSweep([
+      { chatId: 7, messageId: 88 },
+    ]);
+    await submitSell({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      tokenRaw: 10n ** 18n,
+    });
+    expect(deleteMessage).toHaveBeenCalledWith(7, 88);
   });
 });
 

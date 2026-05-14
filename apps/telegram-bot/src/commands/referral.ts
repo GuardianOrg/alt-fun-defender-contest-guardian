@@ -8,6 +8,7 @@ import { isAddress } from "viem";
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
+  ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
   wrapWithCtxPhrase as wrap,
 } from "../lib/anti-phishing.js";
@@ -17,10 +18,15 @@ import {
   type BotReferralStats,
 } from "../lib/api.js";
 import { BOT_NAME } from "../lib/branding.js";
+import { backHomeRow } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { PinManager } from "../lib/pin.js";
 import { WalletManager } from "../lib/wallet.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const DEFAULT_BOT_USERNAME = BOT_NAME;
 
@@ -167,6 +173,7 @@ const buildKeyboard = (): ReferralView["reply_markup"] => ({
         callback_data: REFERRAL_CALLBACK.changeRewardsWallet,
       },
     ],
+    backHomeRow(),
   ],
 });
 
@@ -244,7 +251,7 @@ const REWARDS_WALLET_WARNING = [
   "",
   "Set the new wallet to a long-lived address you control (hardware wallet or main custodial wallet) — avoid exchange deposit addresses or rotating addresses.",
   "",
-  "Send the new rewards wallet address (0x-prefixed, 40 hex chars), or /cancel.",
+  "Send the new rewards wallet address (0x-prefixed, 40 hex chars).",
 ].join("\n");
 
 const isCancel = (text: string): boolean => text.trim() === "/cancel";
@@ -303,11 +310,12 @@ const runPinGate = async (
   );
 
   if (!pinAlreadySet) {
-    await ctx.reply(
-      wrap(ctx, 
-        "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes, or /cancel.",
+    const askMsg = await ctx.reply(
+      wrap(ctx,
+        "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
       ),
     );
+    await trackWorkflowMessage(conversation, askMsg.message_id);
     let candidate: string | null = null;
     while (candidate === null) {
       const msg = await conversation.waitFor("message:text");
@@ -322,18 +330,20 @@ const runPinGate = async (
         return false;
       }
       if (!PinManager.isValidPinFormat(text)) {
-        await ctx.reply(
-          wrap(ctx, 
-            "PIN must be exactly 6 digits. Send again or /cancel.",
+        const retry = await ctx.reply(
+          wrap(ctx,
+            "PIN must be exactly 6 digits. Send again.",
           ),
         );
+        await trackWorkflowMessage(conversation, retry.message_id);
         continue;
       }
       candidate = text;
     }
-    await ctx.reply(
+    const confirmAsk = await ctx.reply(
       wrap(ctx, "Confirm — send the same 6 digits again."),
     );
+    await trackWorkflowMessage(conversation, confirmAsk.message_id);
     while (true) {
       const msg = await conversation.waitFor("message:text");
       const text = msg.message.text.trim();
@@ -347,11 +357,12 @@ const runPinGate = async (
         return false;
       }
       if (text !== candidate) {
-        await ctx.reply(
-          wrap(ctx, 
-            "PINs do not match. Send the confirmation PIN again or /cancel.",
+        const retry = await ctx.reply(
+          wrap(ctx,
+            "PINs do not match. Send the confirmation PIN again.",
           ),
         );
+        await trackWorkflowMessage(conversation, retry.message_id);
         continue;
       }
       break;
@@ -363,11 +374,12 @@ const runPinGate = async (
     return true;
   }
 
-  await ctx.reply(
-    wrap(ctx, 
-      "Send your 6-digit PIN to authorise the rewards-wallet change, or /cancel.",
+  const askMsg = await ctx.reply(
+    wrap(ctx,
+      "Send your 6-digit PIN to authorise the rewards-wallet change.",
     ),
   );
+  await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
@@ -390,7 +402,7 @@ const runPinGate = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, 
+        wrap(ctx,
           `Too many wrong PIN attempts — locked for ~${mins} min. Rewards-wallet change cancelled.`,
         ),
       );
@@ -398,17 +410,18 @@ const runPinGate = async (
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(ctx, 
+        wrap(ctx,
           "PIN state lost — re-run /referral → Change rewards wallet.",
         ),
       );
       return false;
     }
-    await ctx.reply(
-      wrap(ctx, 
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+    const retry = await ctx.reply(
+      wrap(ctx,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
 };
 
@@ -425,36 +438,52 @@ const changeRewardsWalletConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
 
   const active = await conversation.external((outside) =>
     buildManager(outside.env).getActive(userId),
   );
   if (!active) {
     await ctx.reply(NO_WALLET_REPLY);
+    await sweepWorkflow(conversation);
     return;
   }
 
-  await ctx.reply(REWARDS_WALLET_WARNING, {
+  // Anti-phishing header is mandatory on every outbound user-facing
+  // message (AGENTS.md "Security Model"). The static `wrap()` helper
+  // is plain-text only — this reply uses parse_mode=HTML so the user's
+  // phrase must be HTML-escaped before concatenation to avoid breaking
+  // Telegram's parser if a phrase contains `<` or `&`.
+  const warningText = [
+    escapeHtml(resolveAntiPhishingHeader(ctxAntiPhishingPhrase(ctx))),
+    "",
+    REWARDS_WALLET_WARNING,
+  ].join("\n");
+  const warningMsg = await ctx.reply(warningText, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
+  await trackWorkflowMessage(conversation, warningMsg.message_id);
 
   let candidate: string | null = null;
   while (candidate === null) {
     const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
     if (isCancel(text)) {
       await ctx.reply(
         wrap(ctx, "Rewards-wallet change cancelled."),
       );
+      await sweepWorkflow(conversation);
       return;
     }
     if (!isAddress(text, { strict: false })) {
-      await ctx.reply(
-        wrap(ctx, 
-          "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address, or /cancel.",
+      const retry = await ctx.reply(
+        wrap(ctx,
+          "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const lowered = text.toLowerCase();
@@ -463,22 +492,25 @@ const changeRewardsWalletConversation = async (
       // user attempts to set the rewards wallet to … a known burn
       // address." Gate the persist behind an explicit `confirm` so a
       // mis-paste can't permanently route earnings into a null sink.
-      await ctx.reply(
-        wrap(ctx, 
+      const warn = await ctx.reply(
+        wrap(ctx,
           [
             "⚠️ That address is a known burn / null address.",
             "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
             "",
-            "Send 'confirm' to proceed anyway, /cancel to abort, or send a different address.",
+            "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
           ].join("\n"),
         ),
       );
+      await trackWorkflowMessage(conversation, warn.message_id);
       const confirmMsg = await conversation.waitFor("message:text");
+      await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
       const confirmText = confirmMsg.message.text.trim();
       if (isCancel(confirmText)) {
         await ctx.reply(
           wrap(ctx, "Rewards-wallet change cancelled."),
         );
+        await sweepWorkflow(conversation);
         return;
       }
       if (confirmText.toLowerCase() !== "confirm") {
@@ -486,20 +518,22 @@ const changeRewardsWalletConversation = async (
         // through the validator so the user can recover from the
         // warning without restarting the wizard.
         if (!isAddress(confirmText, { strict: false })) {
-          await ctx.reply(
-            wrap(ctx, 
-              "Aborted. Send 'confirm', /cancel, or a new 0x-prefixed address.",
+          const retry = await ctx.reply(
+            wrap(ctx,
+              "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
             ),
           );
+          await trackWorkflowMessage(conversation, retry.message_id);
           continue;
         }
         const next = confirmText.toLowerCase();
         if (isKnownBurnAddress(next)) {
-          await ctx.reply(
-            wrap(ctx, 
-              "That's still a known burn address. Send 'confirm' to proceed, /cancel to abort, or a different address.",
+          const retry = await ctx.reply(
+            wrap(ctx,
+              "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
             ),
           );
+          await trackWorkflowMessage(conversation, retry.message_id);
           continue;
         }
         candidate = next;
@@ -511,28 +545,33 @@ const changeRewardsWalletConversation = async (
   const newRewardsWallet: string = candidate;
 
   const pinOk = await runPinGate(conversation, ctx, userId, chatId);
-  if (!pinOk) return;
+  if (!pinOk) {
+    await sweepWorkflow(conversation);
+    return;
+  }
 
   const result = await conversation.external((outside) =>
     setBotRewardsWallet(outside.env, active.address, newRewardsWallet),
   );
   if (!result.ok) {
     await ctx.reply(
-      wrap(ctx, 
+      wrap(ctx,
         result.kind === "unavailable"
           ? "API temporarily unavailable — try again in a moment."
           : "Could not update rewards wallet. Try again later.",
       ),
     );
+    await sweepWorkflow(conversation);
     return;
   }
 
   await ctx.reply(
-    wrap(ctx, 
+    wrap(ctx,
       `Rewards wallet updated to ${result.data.rewardsWallet}.`,
     ),
   );
   await sendReferral(ctx, userId, ctx.from?.username);
+  await sweepWorkflow(conversation);
 };
 
 export const registerReferralCommand = (bot: Bot<AppContext>): void => {

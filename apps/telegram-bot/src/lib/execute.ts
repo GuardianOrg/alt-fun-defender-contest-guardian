@@ -14,6 +14,9 @@
 
 import type { AppContext } from "../bot.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
+import { logger } from "./logger.js";
+import { formatToken18 } from "./token-card.js";
+import { clearWorkflowMessages } from "./workflow-stack.js";
 import {
   executeBuy,
   executeSell,
@@ -203,6 +206,23 @@ export const confirmTrade = async (
           idempotency,
         });
 
+  // Best-effort sweep of every transient message tracked on the
+  // workflow stack for this chat (token-detail card + "Ready to…"
+  // staging prompt + any leftover wizard prompts). Once the trade has
+  // committed on-chain, all of those views are stale and clutter the
+  // chat above the receipt. Only fires on receipt-confirmed success —
+  // a `pending` (still in mempool) or `failed` outcome means the user
+  // may want to retry from the same card, so we leave the stack
+  // intact. `clearWorkflowMessages` is already per-chat scoped and
+  // swallows `message not found` errors (already deleted, >48h old).
+  if (result?.ok && ctx.chat) {
+    try {
+      await clearWorkflowMessages(ctx.session, ctx.api, ctx.chat.id);
+    } catch (err) {
+      logger.debug("post-trade workflow sweep failed", { err });
+    }
+  }
+
   return { kind: "executed", result, ticker: intent.ticker, side: intent.side };
 };
 
@@ -225,12 +245,27 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
     const verb = side === "buy" ? "Buy" : "Sell";
+    // For buys, show the on-chain tokens received (decoded from the
+    // BotRouterTrade event) instead of just the tx hash. The line is
+    // skipped when actualTokensOut is missing (router version drift,
+    // log-stripping relayer) rather than falling back to the quote —
+    // showing a stale pre-trade estimate as "received" would mislead.
+    const receivedLine =
+      side === "buy" && result.actualTokensOut !== undefined
+        ? `Received: ${formatToken18(result.actualTokensOut)} ${ticker}\n`
+        : "";
     return (
       `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
+      `${receivedLine}` +
       `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
-  return `❌ ${renderExecutionError(result)}`;
+  // `pending` is not a failure — the tx is in the mempool and may still
+  // mine. Render with ⏳ so users don't read it as a revert. ❌ stays
+  // reserved for outcomes the chain has definitively rejected or where
+  // no tx ever landed.
+  const prefix = result.kind === "pending" ? "⏳" : "❌";
+  return `${prefix} ${renderExecutionError(result)}`;
 };
 
 /**

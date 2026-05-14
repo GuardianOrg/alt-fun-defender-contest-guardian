@@ -62,13 +62,25 @@ export type IntentStatus =
 export interface IntentResult {
   ok: boolean;
   /** Failure taxonomy from `ExecutionResult`. Only present on `ok: false`. */
-  kind?: "not_configured" | "reverted" | "unavailable" | "insufficient_funds";
+  kind?:
+    | "not_configured"
+    | "reverted"
+    | "unavailable"
+    | "insufficient_funds"
+    | "pending";
   reason?: string;
   txHash?: Hash;
   /** Quoted-out amount in raw units, decimal string. Present on `ok: true`. */
   quotedOut?: string;
   /** Slippage-floored minimum-out in raw units, decimal string. Present on `ok: true`. */
   minOut?: string;
+  /**
+   * Actual tokens received on a confirmed buy, raw 18-dp decimal string.
+   * Decoded from the `BotRouterTrade` log on the original receipt and
+   * persisted so a webhook-retry that reads the existing record renders
+   * the same "received N tokens" line the first attempt produced.
+   */
+  actualTokensOut?: string;
 }
 
 export interface IntentRecord {

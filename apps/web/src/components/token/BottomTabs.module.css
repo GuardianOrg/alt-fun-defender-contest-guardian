@@ -7,10 +7,19 @@
   border-collapse: collapse;
 }
 
+/* Sticky inside the scroll container `.tabContent`. The `z-index: 1` is
+ * the minimum needed to keep the header painted above scrolling body
+ * rows — Safari has documented stacking bugs where a sticky `<thead>`
+ * gets visually overlapped by `<tbody>` rows without an explicit
+ * z-index, even though the header row's `--bg-1` background is fully
+ * opaque. Nothing else inside `.tabContent` is positioned, so `1` is
+ * sufficient (the original `10` was defensive padding, not a real
+ * conflict). The sibling `.holdersHeader` doesn't need this trick
+ * because it's a `<div>`, not a `<thead>`. */
 .tradesHead {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 1;
 }
 
 .tradesHeaderRow {
@@ -264,10 +273,13 @@
 }
 
 /* Bottom-tab segments use `SegmentedButton` from shared/. The override
- * here just shrinks them to the slim 2rem height the existing footer
- * row was designed around. */
+ * here gives them the display font and a touch more height + horizontal
+ * padding so the TRADES / HOLDERS labels read with a bit of breathing
+ * room rather than feeling crammed into the 2rem footer row. */
 .tabBtn {
-  height: 2rem;
+  height: 2.4rem;
+  padding: 0 1.8rem;
+  font-family: var(--font-display);
 }
 
 /* Sibling flex child of the chart inside `.leftPanel`. Was a hard 200px,
@@ -279,6 +291,7 @@
   flex: 1 1 0;
   min-height: 160px;
   overflow-y: auto;
+  padding-top: 4px;
 }
 
 .tabError {

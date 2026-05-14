@@ -12,6 +12,7 @@ import {
   buildWalletSwitchKeyboard,
 } from "../keyboards/wallet-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import { PinManager } from "../lib/pin.js";
 import {
   DuplicateWalletError,
@@ -23,6 +24,11 @@ import {
   parsePrivateKey,
   type StoredWallet,
 } from "../lib/wallet.js";
+import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const NO_USER_REPLY =
   "Wallets require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
@@ -179,20 +185,28 @@ const renameWalletConversation = async (
   ctx: AppContext,
   walletId: string,
 ): Promise<void> => {
-  await ctx.reply(
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
     wrap(ctx, "Send the new label for this wallet (max 32 chars)."),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
+  await trackWorkflowMessage(conversation, reply.message.message_id);
   const label = reply.message.text.trim();
+  if (await tryAddressBuyIntercept(conversation, label)) return;
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
-      wrap(ctx, 
+      wrap(ctx,
         `Label must be 1–${RENAME_MAX_LEN} characters. Rename cancelled.`,
       ),
     );
+    await sweepWorkflow(conversation);
     return;
   }
-  if (!reply.from) return;
+  if (!reply.from) {
+    await sweepWorkflow(conversation);
+    return;
+  }
   // The `ctx` captured in this closure is a *replay-time* context on
   // every resume, not the one that originally entered the conversation
   // — the outer `ctx.env = env` middleware never ran for it. Pull
@@ -211,6 +225,7 @@ const renameWalletConversation = async (
       await reply.reply(
         wrap(ctx, "Wallet no longer exists. Rename cancelled."),
       );
+      await sweepWorkflow(conversation);
       return;
     }
     throw err;
@@ -221,6 +236,7 @@ const renameWalletConversation = async (
   await reply.reply(wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
+  await sweepWorkflow(conversation);
 };
 
 /**
@@ -285,11 +301,17 @@ const runPinSetFlow = async (
   chatId: number,
   actionLabel: string,
 ): Promise<boolean> => {
-  await ctx.reply(
-    wrap(ctx, 
-      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions. Send /cancel to abort.",
+  // Track the bot's prompt messages so a sweep on exit removes them.
+  // User-side PIN replies are NOT tracked: `sweepPinMessage` deletes
+  // them individually for security (PIN must not survive in chat any
+  // longer than necessary) — pushing already-deleted ids would just
+  // burn `deleteMessage` calls on the eventual clear.
+  const askMsg = await ctx.reply(
+    wrap(ctx,
+      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
     ),
   );
+  await trackWorkflowMessage(conversation, askMsg.message_id);
 
   let candidate: string | null = null;
   while (candidate === null) {
@@ -305,19 +327,21 @@ const runPinSetFlow = async (
       return false;
     }
     if (!PinManager.isValidPinFormat(text)) {
-      await ctx.reply(
-        wrap(ctx, 
-          "PIN must be exactly 6 digits. Send again or /cancel.",
+      const retry = await ctx.reply(
+        wrap(ctx,
+          "PIN must be exactly 6 digits. Send again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     candidate = text;
   }
 
-  await ctx.reply(
+  const confirmAsk = await ctx.reply(
     wrap(ctx, "Confirm — send the same 6 digits again."),
   );
+  await trackWorkflowMessage(conversation, confirmAsk.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -332,11 +356,12 @@ const runPinSetFlow = async (
       return false;
     }
     if (text !== candidate) {
-      await ctx.reply(
-        wrap(ctx, 
-          "PINs do not match. Send the confirmation PIN again or /cancel.",
+      const retry = await ctx.reply(
+        wrap(ctx,
+          "PINs do not match. Send the confirmation PIN again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     break;
@@ -345,11 +370,12 @@ const runPinSetFlow = async (
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, candidate!),
   );
-  await ctx.reply(
-    wrap(ctx, 
-      `PIN set. Send it once more to authorise the ${actionLabel}, or /cancel.`,
+  const finalAsk = await ctx.reply(
+    wrap(ctx,
+      `PIN set. Send it once more to authorise the ${actionLabel}.`,
     ),
   );
+  await trackWorkflowMessage(conversation, finalAsk.message_id);
   return true;
 };
 
@@ -368,11 +394,12 @@ const runPinVerifyFlow = async (
   retryHint: string,
 ): Promise<boolean> => {
   if (pinAlreadySet) {
-    await ctx.reply(
-      wrap(ctx, 
-        `Send your 6-digit PIN to authorise the ${actionLabel}, or /cancel.`,
+    const askMsg = await ctx.reply(
+      wrap(ctx,
+        `Send your 6-digit PIN to authorise the ${actionLabel}.`,
       ),
     );
+    await trackWorkflowMessage(conversation, askMsg.message_id);
   }
 
   while (true) {
@@ -397,7 +424,7 @@ const runPinVerifyFlow = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, 
+        wrap(ctx,
           `Too many wrong PIN attempts — locked for ~${mins} min. ${capitalize(actionLabel)} cancelled.`,
         ),
       );
@@ -412,11 +439,12 @@ const runPinVerifyFlow = async (
       );
       return false;
     }
-    await ctx.reply(
-      wrap(ctx, 
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+    const retry = await ctx.reply(
+      wrap(ctx,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
 };
 
@@ -442,6 +470,7 @@ const exportKeyConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
 
   // Conversation bodies replay across waitFor boundaries; on replay
   // the hydrated `ctx` does NOT carry `env` (that's set by an outer
@@ -463,7 +492,10 @@ const exportKeyConversation = async (
       chatId,
       "export",
     );
-    if (!setOk) return;
+    if (!setOk) {
+      await sweepWorkflow(conversation);
+      return;
+    }
   }
 
   const verifyOk = await runPinVerifyFlow(
@@ -475,7 +507,10 @@ const exportKeyConversation = async (
     "export",
     "/wallet → Export key",
   );
-  if (!verifyOk) return;
+  if (!verifyOk) {
+    await sweepWorkflow(conversation);
+    return;
+  }
 
   // Re-fetch the wallet now (not at entry) so a concurrent delete is
   // caught here instead of leaking a stale key from a closure.
@@ -486,12 +521,21 @@ const exportKeyConversation = async (
     await ctx.reply(
       wrap(ctx, "Wallet no longer exists. Export aborted."),
     );
+    await sweepWorkflow(conversation);
     return;
   }
   const privateKey = await conversation.external((outside) =>
     buildManager(outside.env).decrypt(walletRecord.encryptedKey, userId),
   );
   const wallet = walletRecord;
+
+  // Sweep prompt history BEFORE rendering the reveal so the PIN-set /
+  // PIN-verify ladder gets cleared first, and the reveal lands at the
+  // bottom of the chat where the 30s auto-delete + "Delete now" path
+  // can manage it independently. The reveal id is intentionally NOT
+  // tracked on the workflow stack — auto-delete owns its lifecycle and
+  // a future sweep must not prematurely remove a still-pending reveal.
+  await sweepWorkflow(conversation);
 
   const revealBody = [
     "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
@@ -546,18 +590,20 @@ const importWalletConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
 
-  await ctx.reply(
-    wrap(ctx, 
+  const promptMsg = await ctx.reply(
+    wrap(ctx,
       [
         "Paste the private key for the wallet you want to import (0x-prefixed, 64 hex chars).",
         "",
         "Your message is deleted from this chat the instant the bot reads it. The bot never stores the plaintext key — only an encrypted copy.",
         "",
-        "Send /cancel to abort.",
+        "Tap Home to exit.",
       ].join("\n"),
     ),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const reply = await conversation.waitFor("message:text");
@@ -566,22 +612,28 @@ const importWalletConversation = async (
     // in the chat while the bot replies with an error. Telegram's 48h
     // deleteMessage window is plenty for a freshly-sent message; the
     // sweep itself is best-effort and tolerates already-gone messages.
+    // Do NOT push the key reply id onto the workflow stack — it is
+    // already deleted; pushing would only burn a `deleteMessage` call
+    // on the next sweep.
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, reply.message.message_id),
     );
 
     if (isCancel(text)) {
       await ctx.reply(wrap(ctx, "Import cancelled."));
+      await sweepWorkflow(conversation);
       return;
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
 
     const parsed = parsePrivateKey(text);
     if (!parsed) {
-      await ctx.reply(
-        wrap(ctx, 
-          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again or send /cancel.",
+      const retry = await ctx.reply(
+        wrap(ctx,
+          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
 
@@ -610,27 +662,30 @@ const importWalletConversation = async (
         ),
     );
     if (result.kind === "invalid") {
-      await ctx.reply(
-        wrap(ctx, 
-          "That private key is invalid. Paste it again or send /cancel.",
+      const retry = await ctx.reply(
+        wrap(ctx,
+          "That private key is invalid. Paste it again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (result.kind === "duplicate") {
       await ctx.reply(
-        wrap(ctx, 
+        wrap(ctx,
           "That wallet is already in your list. Import cancelled.",
         ),
       );
+      await sweepWorkflow(conversation);
       return;
     }
     if (result.kind === "cap") {
       await ctx.reply(
-        wrap(ctx, 
+        wrap(ctx,
           `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first, then try importing again.`,
         ),
       );
+      await sweepWorkflow(conversation);
       return;
     }
     const wallet = result.wallet;
@@ -639,11 +694,12 @@ const importWalletConversation = async (
       renderMainState(buildManager(outside.env), userId),
     );
     await ctx.reply(
-      wrap(ctx, 
+      wrap(ctx,
         `Imported ${truncateAddress(wallet.address)}.\n\n${state.text}`,
       ),
       { reply_markup: state.reply_markup },
     );
+    await sweepWorkflow(conversation);
     return;
   }
 };
@@ -666,6 +722,7 @@ const deleteWalletConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
 
   const pinAlreadySet = await conversation.external((outside) =>
     buildPinManager(outside.env).isPinSet(userId),
@@ -679,7 +736,10 @@ const deleteWalletConversation = async (
       chatId,
       "delete",
     );
-    if (!setOk) return;
+    if (!setOk) {
+      await sweepWorkflow(conversation);
+      return;
+    }
   }
 
   const verifyOk = await runPinVerifyFlow(
@@ -691,7 +751,10 @@ const deleteWalletConversation = async (
     "delete",
     "/wallet → Delete",
   );
-  if (!verifyOk) return;
+  if (!verifyOk) {
+    await sweepWorkflow(conversation);
+    return;
+  }
 
   // Re-fetch the wallet after PIN passes so a concurrent delete (from a
   // second client) is caught here rather than blowing up inside
@@ -703,22 +766,27 @@ const deleteWalletConversation = async (
     await ctx.reply(
       wrap(ctx, "Wallet no longer exists. Delete aborted."),
     );
+    await sweepWorkflow(conversation);
     return;
   }
 
-  await ctx.reply(
-    wrap(ctx, 
-      `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or /cancel.`,
+  const confirmPrompt = await ctx.reply(
+    wrap(ctx,
+      `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or tap Home to exit.`,
     ),
   );
+  await trackWorkflowMessage(conversation, confirmPrompt.message_id);
 
   const confirmMsg = await conversation.waitFor("message:text");
+  await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
   const confirmText = confirmMsg.message.text.trim();
+  if (await tryAddressBuyIntercept(conversation, confirmText)) return;
   if (confirmText !== "DELETE") {
     // Anything other than the exact uppercase token aborts — `/cancel`,
     // lowercase, typo, fat-fingered emoji. The strictness is the point;
     // this gate exists to require deliberate action.
     await ctx.reply(wrap(ctx, "Delete cancelled."));
+    await sweepWorkflow(conversation);
     return;
   }
 
@@ -742,6 +810,7 @@ const deleteWalletConversation = async (
     await ctx.reply(
       wrap(ctx, "Wallet no longer exists. Delete aborted."),
     );
+    await sweepWorkflow(conversation);
     return;
   }
 
@@ -749,11 +818,12 @@ const deleteWalletConversation = async (
     renderMainState(buildManager(outside.env), userId),
   );
   await ctx.reply(
-    wrap(ctx, 
+    wrap(ctx,
       `Deleted ${truncateAddress(walletRecord.address)}.\n\n${state.text}`,
     ),
     { reply_markup: state.reply_markup },
   );
+  await sweepWorkflow(conversation);
 };
 
 export const registerWalletCommand = (bot: Bot<AppContext>): void => {
@@ -840,6 +910,11 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const active = await wm.getActive(ctx.from.id);
+    // Push the wallet-main snapshot so the global Back row on the
+    // switch picker pops back here. snapshotFromCallback reads the
+    // current message before we edit it.
+    const parent = snapshotFromCallback(ctx);
+    if (parent) pushNavSnapshot(ctx.session, parent);
     await safeEditMessageText(
       ctx,
       wrap(ctx, "Pick the wallet to use as active:"),
@@ -889,12 +964,6 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       });
     },
   );
-
-  bot.callbackQuery(WALLET_CALLBACK.mainBack, async (ctx) => {
-    if (!(await ensurePrivate(ctx))) return;
-    await editToMain(ctx);
-    await ctx.answerCallbackQuery();
-  });
 
   /**
    * Rename picker stub: in v1 we enter the conversation for the active

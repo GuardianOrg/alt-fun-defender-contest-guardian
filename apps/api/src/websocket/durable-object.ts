@@ -11,10 +11,28 @@ export const ALL_TOKENS_KEY = "__all__";
 const GLOBAL_CHANNELS = new Set(["newToken", "stats"]);
 
 /** Interval between idle-check sweeps (ms). */
-const IDLE_CHECK_INTERVAL_MS = 60_000;
+const IDLE_CHECK_INTERVAL_MS = 30_000;
 
-/** Connections with no activity for this duration receive a ping (ms). */
-const IDLE_PING_THRESHOLD_MS = 120_000;
+/**
+ * Connections with no activity for this duration receive a server-initiated
+ * ping (ms).
+ *
+ * Set comfortably under the Cloudflare edge / typical NAT idle-eviction
+ * window (~100 s) so a backgrounded tab whose own ping `setInterval` has
+ * been throttled by the browser still sees activity on the wire before
+ * the connection is silently dropped. The client's `onmessage` handler
+ * fires on network events even when the tab is hidden (timer throttling
+ * does not apply to socket events), so it'll mirror back a `pong` and the
+ * connection stays healthy without help from the throttled main-thread
+ * timer.
+ *
+ * Pairs with the client-side Web Worker keep-alive ticker in
+ * `apps/web/src/services/websocket.ts`: with the worker the client pings
+ * at the intended 30 s cadence even in background tabs, so this server
+ * fallback rarely fires; it exists for browsers / runtimes where the
+ * worker is unavailable.
+ */
+const IDLE_PING_THRESHOLD_MS = 60_000;
 
 /** Connections that don't respond to a ping within this duration are closed (ms). */
 const PONG_TIMEOUT_MS = 30_000;

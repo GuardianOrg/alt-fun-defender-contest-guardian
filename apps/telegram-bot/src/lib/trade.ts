@@ -22,8 +22,10 @@ import {
 import {
   BaseError,
   ContractFunctionRevertedError,
+  WaitForTransactionReceiptTimeoutError,
   createPublicClient,
   createWalletClient,
+  decodeEventLog,
   domainSeparator,
   encodeFunctionData,
   http,
@@ -31,6 +33,7 @@ import {
   parseSignature,
   type Address,
   type Hash,
+  type Log,
   type PublicClient,
   type WalletClient,
 } from "viem";
@@ -526,16 +529,46 @@ export interface ExecuteSellArgs {
 }
 
 export type ExecutionResult =
-  | { ok: true; txHash: Hash; quotedOut: bigint; minOut: bigint }
+  | {
+      ok: true;
+      txHash: Hash;
+      quotedOut: bigint;
+      minOut: bigint;
+      /**
+       * Tokens actually received on a buy, parsed from the
+       * `BotRouterTrade.tokenAmount` field of the receipt's log. Undefined
+       * for sells (where `BotRouterTrade.tokenAmount` is the tokens *sold*,
+       * not received) and when the event can't be decoded from the receipt
+       * (e.g. a future router version that doesn't emit the event, or a
+       * partial-log receipt). Callers render this when present and fall
+       * back to `quotedOut` otherwise.
+       */
+      actualTokensOut?: bigint;
+    }
+  /**
+   * Tx was accepted into the mempool but `waitForTransactionReceipt`
+   * didn't mine within `RECEIPT_TIMEOUT_MS`. Distinct from `unavailable`
+   * (RPC error, no on-chain action) and `reverted` (mined-and-failed) —
+   * the chain may still settle this hash as success or revert later, so
+   * the UI must render a neutral "pending, check explorer" message
+   * rather than ❌. `txHash` is required: receipt-timeout is only
+   * reachable after `sendTransaction` returned, so the invariant is
+   * encoded in the type.
+   */
+  | { ok: false; kind: "pending"; reason?: string; txHash: Hash }
   | {
       ok: false;
-      kind: "not_configured" | "reverted" | "unavailable" | "insufficient_funds";
+      kind:
+        | "not_configured"
+        | "reverted"
+        | "unavailable"
+        | "insufficient_funds";
       reason?: string;
       /**
        * Set when the tx was actually submitted on-chain — i.e. failure
-       * happened post-`sendTransaction` (reverted receipt, or receipt
-       * wait timed out). Lets the UI surface an explorer link so the
-       * user can audit the on-chain outcome themselves.
+       * happened post-`sendTransaction` (reverted receipt). Lets the UI
+       * surface an explorer link so the user can audit the on-chain
+       * outcome themselves.
        */
       txHash?: Hash;
     };
@@ -587,6 +620,37 @@ const ensureAllowance = async (
 };
 
 /**
+ * Decode the `BotRouterTrade` event from a receipt's logs and return its
+ * `tokenAmount` field. Used by `awaitReceipt` to surface the real tokens
+ * received on a confirmed buy — the on-chain truth, not the pre-trade
+ * quote, so the user sees what actually landed in their wallet even if
+ * slippage moved the trade between sim and execution.
+ *
+ * Returns `undefined` when the event isn't present (router version drift,
+ * a relayer that strips logs) or when decoding fails — callers fall back
+ * to the simulation quote rather than failing the whole reply. We only
+ * read the first matching log; the router emits exactly one
+ * `BotRouterTrade` per trade.
+ */
+const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
+  for (const log of logs) {
+    try {
+      const decoded = decodeEventLog({
+        abi: BotFeeRouterAbi,
+        eventName: "BotRouterTrade",
+        topics: log.topics,
+        data: log.data,
+      });
+      const args = decoded.args as { tokenAmount?: bigint };
+      if (typeof args.tokenAmount === "bigint") return args.tokenAmount;
+    } catch {
+      // Not a BotRouterTrade log — skip.
+    }
+  }
+  return undefined;
+};
+
+/**
  * Wait for a submitted tx's receipt and translate the outcome into the
  * `ExecutionResult` taxonomy.
  *
@@ -599,14 +663,16 @@ const ensureAllowance = async (
  * user-facing copy reflects the real chain state.
  *
  * Bounded by `RECEIPT_TIMEOUT_MS`: a stuck node or a pending tx that
- * never mines within the window surfaces as `unavailable` with the
- * txHash attached so the user can check the explorer themselves. Never
- * claim success without an on-chain confirmation.
+ * never mines within the window surfaces as `pending` with the txHash
+ * attached so the UI can render "tx pending — check explorer" (⏳, not
+ * ❌) instead of misleading the user into thinking the trade failed.
+ * Other RPC failures still surface as `unavailable`. Never claim success
+ * without an on-chain confirmation.
  */
 export const awaitReceipt = async (
   publicClient: PublicClient,
   txHash: Hash,
-  successOut: { quotedOut: bigint; minOut: bigint },
+  successOut: { quotedOut: bigint; minOut: bigint; side?: "buy" | "sell" },
 ): Promise<ExecutionResult> => {
   try {
     const receipt = await publicClient.waitForTransactionReceipt({
@@ -621,8 +687,34 @@ export const awaitReceipt = async (
         txHash,
       };
     }
-    return { ok: true, txHash, quotedOut: successOut.quotedOut, minOut: successOut.minOut };
+    const actualTokensOut =
+      successOut.side === "buy"
+        ? extractBuyTokensOut(receipt.logs)
+        : undefined;
+    return {
+      ok: true,
+      txHash,
+      quotedOut: successOut.quotedOut,
+      minOut: successOut.minOut,
+      ...(actualTokensOut !== undefined ? { actualTokensOut } : {}),
+    };
   } catch (err) {
+    // Receipt-timeout is the common case here: the tx is in the mempool
+    // and may still mine to success or revert. Surface as `pending` so
+    // the user sees a neutral "check explorer" message instead of a
+    // failure indicator. Anything else (network drop, RPC 5xx, malformed
+    // response) stays `unavailable`.
+    if (
+      err instanceof WaitForTransactionReceiptTimeoutError ||
+      (err instanceof Error && err.name === "WaitForTransactionReceiptTimeoutError")
+    ) {
+      return {
+        ok: false,
+        kind: "pending",
+        reason: err.message,
+        txHash,
+      };
+    }
     return {
       ok: false,
       kind: "unavailable",
@@ -713,6 +805,9 @@ const toIntentResult = (result: ExecutionResult): IntentResult => {
       txHash: result.txHash,
       quotedOut: result.quotedOut.toString(),
       minOut: result.minOut.toString(),
+      ...(result.actualTokensOut !== undefined
+        ? { actualTokensOut: result.actualTokensOut.toString() }
+        : {}),
     };
   }
   return {
@@ -721,6 +816,23 @@ const toIntentResult = (result: ExecutionResult): IntentResult => {
     reason: result.reason,
     txHash: result.txHash,
   };
+};
+
+/**
+ * Persist the receipt outcome to the commit-log, skipping `pending` so the
+ * record stays at `status: "submitted"` with the txHash intact. A retry of
+ * the same idempotency key then re-enters `resolveDuplicate`, which sees
+ * `submitted` + txHash and re-polls the receipt — letting a tx that mines
+ * after our local timeout still surface success/revert on retry instead
+ * of being frozen as a permanent failure.
+ */
+const recordReceiptOutcome = async (
+  kv: IdempotencyKv,
+  key: string,
+  result: ExecutionResult,
+): Promise<void> => {
+  if (!result.ok && result.kind === "pending") return;
+  await markFinal(kv, key, toIntentResult(result));
 };
 
 /**
@@ -739,19 +851,36 @@ const fromIntentResult = (
       return null;
     }
     try {
+      const actualTokensOut =
+        result.actualTokensOut !== undefined
+          ? BigInt(result.actualTokensOut)
+          : undefined;
       return {
         ok: true,
         txHash: result.txHash,
         quotedOut: BigInt(result.quotedOut),
         minOut: BigInt(result.minOut),
+        ...(actualTokensOut !== undefined ? { actualTokensOut } : {}),
       };
     } catch {
       return null;
     }
   }
+  // `pending` is its own discriminated arm in `ExecutionResult` and
+  // requires a non-optional txHash. A commit-log record with `pending`
+  // and a missing hash is malformed (we never persist pending — the
+  // record stays at `submitted` instead, see `recordReceiptOutcome`),
+  // so degrade to `unavailable` rather than fabricating a Hash.
+  const kind = result.kind ?? "unavailable";
+  if (kind === "pending") {
+    if (!result.txHash) {
+      return { ok: false, kind: "unavailable", reason: result.reason };
+    }
+    return { ok: false, kind: "pending", reason: result.reason, txHash: result.txHash };
+  }
   return {
     ok: false,
-    kind: result.kind ?? "unavailable",
+    kind,
     reason: result.reason,
     txHash: result.txHash,
   };
@@ -774,6 +903,7 @@ const fromIntentResult = (
 const resolveDuplicate = async (
   publicClient: PublicClient,
   record: IntentRecord,
+  side: "buy" | "sell",
 ): Promise<ExecutionResult> => {
   const decoded = fromIntentResult(record.result);
   if (decoded) return decoded;
@@ -783,6 +913,7 @@ const resolveDuplicate = async (
     return awaitReceipt(publicClient, record.txHash, {
       quotedOut: 0n,
       minOut: 0n,
+      side,
     });
   }
   return {
@@ -919,7 +1050,7 @@ export const executeBuy = async (
         args.idempotency.key,
       );
       if (claim.kind === "duplicate") {
-        return resolveDuplicate(publicClient, claim.record);
+        return resolveDuplicate(publicClient, claim.record, "buy");
       }
     }
 
@@ -938,13 +1069,14 @@ export const executeBuy = async (
     const result = await awaitReceipt(publicClient, txHash, {
       quotedOut: quotedTokensOut,
       minOut: minTokensOut,
+      side: "buy",
     });
 
     if (args.idempotency) {
-      await markFinal(
+      await recordReceiptOutcome(
         args.idempotency.kv,
         args.idempotency.key,
-        toIntentResult(result),
+        result,
       );
     }
 
@@ -1064,7 +1196,7 @@ export const executeSell = async (
         args.idempotency.key,
       );
       if (claim.kind === "duplicate") {
-        return resolveDuplicate(publicClient, claim.record);
+        return resolveDuplicate(publicClient, claim.record, "sell");
       }
     }
 
@@ -1083,13 +1215,14 @@ export const executeSell = async (
     const result = await awaitReceipt(publicClient, txHash, {
       quotedOut: quotedUsdcOut,
       minOut: minUsdcOut,
+      side: "sell",
     });
 
     if (args.idempotency) {
-      await markFinal(
+      await recordReceiptOutcome(
         args.idempotency.kv,
         args.idempotency.key,
-        toIntentResult(result),
+        result,
       );
     }
 
@@ -1120,6 +1253,12 @@ export const renderExecutionError = (
   }
   if (result.kind === "insufficient_funds") {
     return "Insufficient HYPE for gas — top up the wallet and retry.";
+  }
+  if (result.kind === "pending") {
+    return (
+      `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
+      `Check the explorer: ${explorerTxUrl(result.txHash)}`
+    );
   }
   if (result.kind === "unavailable") {
     if (result.txHash) {

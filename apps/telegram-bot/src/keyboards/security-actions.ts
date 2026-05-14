@@ -1,3 +1,4 @@
+import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
@@ -84,5 +85,6 @@ export const buildSecurityKeyboard = (
     ]);
   }
 
+  rows.push(backHomeRow());
   return rows;
 };

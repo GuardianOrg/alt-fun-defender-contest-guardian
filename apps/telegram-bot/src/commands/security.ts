@@ -15,6 +15,7 @@ import {
   withAntiPhishing,
   wrapWithCtxPhrase as wrap,
 } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import {
   PIN_RESET_DELAY_MS,
   PinManager,
@@ -24,6 +25,10 @@ import {
   SecurityState,
   WITHDRAW_LOCK_DISABLE_COOLDOWN_MS,
 } from "../lib/security-state.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const NO_USER_REPLY =
   "Security settings require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
@@ -201,11 +206,13 @@ const askNewPin = async (
   chatId: number,
   prompt: string,
 ): Promise<string | null> => {
-  await ctx.reply(wrap(ctx, prompt));
+  const askMsg = await ctx.reply(wrap(ctx, prompt));
+  await trackWorkflowMessage(conversation, askMsg.message_id);
   let candidate: string | null = null;
   while (candidate === null) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
+    // PIN reply swept individually; not tracked on the workflow stack.
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
@@ -214,15 +221,19 @@ const askNewPin = async (
       return null;
     }
     if (!PinManager.isValidPinFormat(text)) {
-      await ctx.reply(
-        wrap(ctx, "PIN must be exactly 6 digits. Send again or /cancel."),
+      const retry = await ctx.reply(
+        wrap(ctx, "PIN must be exactly 6 digits. Send again."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     candidate = text;
   }
 
-  await ctx.reply(wrap(ctx, "Confirm — send the same 6 digits again."));
+  const confirmAsk = await ctx.reply(
+    wrap(ctx, "Confirm — send the same 6 digits again."),
+  );
+  await trackWorkflowMessage(conversation, confirmAsk.message_id);
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
@@ -234,11 +245,12 @@ const askNewPin = async (
       return null;
     }
     if (text !== candidate) {
-      await ctx.reply(
-        wrap(ctx, 
-          "PINs do not match. Send the confirmation PIN again or /cancel.",
+      const retry = await ctx.reply(
+        wrap(ctx,
+          "PINs do not match. Send the confirmation PIN again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     return candidate;
@@ -252,11 +264,12 @@ const verifyExistingPin = async (
   chatId: number,
   actionLabel: string,
 ): Promise<boolean> => {
-  await ctx.reply(
-    wrap(ctx, 
-      `Send your current 6-digit PIN to authorise ${actionLabel}, or /cancel.`,
+  const askMsg = await ctx.reply(
+    wrap(ctx,
+      `Send your current 6-digit PIN to authorise ${actionLabel}.`,
     ),
   );
+  await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
@@ -277,7 +290,7 @@ const verifyExistingPin = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, 
+        wrap(ctx,
           `Too many wrong PIN attempts — locked for ~${mins} min. ${actionLabel} cancelled.`,
         ),
       );
@@ -289,11 +302,12 @@ const verifyExistingPin = async (
       );
       return false;
     }
-    await ctx.reply(
-      wrap(ctx, 
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+    const retry = await ctx.reply(
+      wrap(ctx,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
 };
 
@@ -304,13 +318,17 @@ const setPinConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
   const newPin = await askNewPin(
     conversation,
     ctx,
     chatId,
-    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions. Send /cancel to abort.",
+    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
   );
-  if (newPin === null) return;
+  if (newPin === null) {
+    await sweepWorkflow(conversation);
+    return;
+  }
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
   );
@@ -321,6 +339,7 @@ const setPinConversation = async (
     wrap(ctx, `PIN set.\n\n${state.text}`),
     { reply_markup: state.reply_markup },
   );
+  await sweepWorkflow(conversation);
 };
 
 const changePinConversation = async (
@@ -330,6 +349,7 @@ const changePinConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
   const ok = await verifyExistingPin(
     conversation,
     ctx,
@@ -337,14 +357,20 @@ const changePinConversation = async (
     chatId,
     "PIN change",
   );
-  if (!ok) return;
+  if (!ok) {
+    await sweepWorkflow(conversation);
+    return;
+  }
   const newPin = await askNewPin(
     conversation,
     ctx,
     chatId,
-    "Send the new 6-digit PIN (digits only), or /cancel.",
+    "Send the new 6-digit PIN (digits only).",
   );
-  if (newPin === null) return;
+  if (newPin === null) {
+    await sweepWorkflow(conversation);
+    return;
+  }
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
   );
@@ -355,6 +381,7 @@ const changePinConversation = async (
     wrap(ctx, `PIN changed.\n\n${state.text}`),
     { reply_markup: state.reply_markup },
   );
+  await sweepWorkflow(conversation);
 };
 
 const completeResetConversation = async (
@@ -364,11 +391,13 @@ const completeResetConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
   const reset: ResetStatus = await conversation.external((outside) =>
     buildPinManager(outside.env).getResetStatus(userId),
   );
   if (reset.kind === "none") {
     await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await sweepWorkflow(conversation);
     return;
   }
   if (reset.kind === "pending") {
@@ -377,19 +406,23 @@ const completeResetConversation = async (
       Date.now(),
     );
     await ctx.reply(
-      wrap(ctx, 
+      wrap(ctx,
         `PIN reset not yet available — ~${hours} remaining. Tap [Cancel PIN reset] if you didn't request this.`,
       ),
     );
+    await sweepWorkflow(conversation);
     return;
   }
   const newPin = await askNewPin(
     conversation,
     ctx,
     chatId,
-    "Send your new 6-digit PIN (digits only), or /cancel.",
+    "Send your new 6-digit PIN (digits only).",
   );
-  if (newPin === null) return;
+  if (newPin === null) {
+    await sweepWorkflow(conversation);
+    return;
+  }
   const result = await conversation.external((outside) =>
     buildPinManager(outside.env).completeReset(userId, newPin),
   );
@@ -401,10 +434,12 @@ const completeResetConversation = async (
     await ctx.reply(
       wrap(ctx, `Reset not yet available — ~${hours} remaining.`),
     );
+    await sweepWorkflow(conversation);
     return;
   }
   if (result.kind === "not-requested") {
     await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await sweepWorkflow(conversation);
     return;
   }
   const state = await conversation.external((outside) =>
@@ -414,6 +449,7 @@ const completeResetConversation = async (
     wrap(ctx, `PIN reset complete.\n\n${state.text}`),
     { reply_markup: state.reply_markup },
   );
+  await sweepWorkflow(conversation);
 };
 
 const setPhraseConversation = async (
@@ -422,35 +458,42 @@ const setPhraseConversation = async (
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
-  await ctx.reply(
-    wrap(ctx, 
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
+    wrap(ctx,
       [
         "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
         "",
-        `Max ${MAX_PHRASE_LEN} characters. Send /cancel to abort.`,
+        `Max ${MAX_PHRASE_LEN} characters.`,
       ].join("\n"),
     ),
   );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
   while (true) {
     const reply = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, reply.message.message_id);
     const text = reply.message.text;
     if (isCancel(text.trim())) {
       await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
       return;
     }
     const trimmed = text.trim();
+    if (await tryAddressBuyIntercept(conversation, trimmed)) return;
     if (trimmed.length === 0) {
-      await ctx.reply(
-        wrap(ctx, "Phrase cannot be empty. Send again or /cancel."),
+      const retry = await ctx.reply(
+        wrap(ctx, "Phrase cannot be empty. Send again."),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (trimmed.length > MAX_PHRASE_LEN) {
-      await ctx.reply(
-        wrap(ctx, 
-          `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one or /cancel.`,
+      const retry = await ctx.reply(
+        wrap(ctx,
+          `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     await conversation.external((outside) => {
@@ -468,6 +511,7 @@ const setPhraseConversation = async (
       withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
       { reply_markup: state.reply_markup },
     );
+    await sweepWorkflow(conversation);
     return;
   }
 };

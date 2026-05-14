@@ -1,9 +1,6 @@
-import { useRef, useState } from "react";
-
 import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router";
 
-import AddressMenu from "./AddressMenu";
 import styles from "./Header.module.css";
 import { CREATE_PATH, PROFILE_PATH } from "../../app/routes";
 import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
@@ -15,11 +12,7 @@ import Chip from "../shared/Chip";
 export default function Header() {
   const navigate = useNavigate();
   const dispatch = useDispatch();
-  const { isConnected, address, shortAddress, connect, disconnect } =
-    useWallet();
-  const tinyAddress = address ? `${address.slice(0, 5)}…` : undefined;
-  const [addressMenuOpen, setAddressMenuOpen] = useState(false);
-  const walletChipWrapRef = useRef<HTMLDivElement>(null);
+  const { isConnected, connect } = useWallet();
 
   return (
     <header className={styles.header}>
@@ -48,30 +41,7 @@ export default function Header() {
       </div>
 
       <div className={styles.rightSide}>
-        {isConnected && address ? (
-          <div ref={walletChipWrapRef} className={styles.walletChipWrap}>
-            <Chip
-              className={styles.headerChip}
-              onClick={() => setAddressMenuOpen((prev) => !prev)}
-              aria-label="Wallet address menu"
-              aria-haspopup="menu"
-              aria-expanded={addressMenuOpen}
-            >
-              <span className={styles.fullText}>{shortAddress}</span>
-              <span className={styles.shortText}>{tinyAddress}</span>
-            </Chip>
-            {addressMenuOpen && (
-              <AddressMenu
-                address={address}
-                anchorRef={walletChipWrapRef}
-                onDisconnect={() => {
-                  void disconnect();
-                }}
-                onClose={() => setAddressMenuOpen(false)}
-              />
-            )}
-          </div>
-        ) : (
+        {!isConnected && (
           <Button
             variant="primary"
             size="sm"

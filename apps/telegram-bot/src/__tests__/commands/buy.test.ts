@@ -126,6 +126,12 @@ const harnessWithWallet = async (): Promise<BotTestHarness> => {
   const parsed = JSON.parse(stored) as { address: string };
   parsed.address = WALLET_ADDR;
   await h.kv.put(`wallet:7:${w.id}`, JSON.stringify(parsed));
+  // Seed degenMode: false so the default test path exercises the
+  // confirm-card flow. Degen-on is asserted in its own dedicated test.
+  await h.kv.put(
+    "session:7",
+    JSON.stringify({ slippageBps: 100, defaultBuyUsdc: 20, degenMode: false }),
+  );
   return h;
 };
 
@@ -218,6 +224,57 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(text).toContain("Test Token");
   });
 
+  // Regression for issue #805: a slash command typed mid-lookup used to
+  // get parsed as a token address and surface "Token not found.". The
+  // conversation must halt and let the outer middleware run the command
+  // (here, /positions) so the user sees the actual /positions output.
+  it("halts and forwards to the outer dispatcher when a slash command (e.g. /positions) is typed mid-lookup", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.buy));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({ data: { open: [], realised: [] } }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run({
+      update_id: 10,
+      message: {
+        message_id: 10,
+        date: 0,
+        chat: { id: 42, type: "private" as const },
+        from: { id: 7, is_bot: false, first_name: "Ada" },
+        text: "/positions",
+        entities: [{ type: "bot_command", offset: 0, length: 10 }],
+      },
+    });
+
+    const calls = capture(fetchSpy);
+    const sends = calls.filter((c) => c.url.includes("/sendMessage"));
+    // The /positions handler runs and renders its empty-state copy
+    // (issue #805 user-facing requirement). The "Token not found." path
+    // from the buy-lookup conversation must not fire.
+    expect(sends).toHaveLength(1);
+    expect(String(sends[0]!.body.text)).toBe(
+      "No open positions for this wallet.",
+    );
+    expect(String(sends[0]!.body.text)).not.toMatch(/Token not found/i);
+    // The positions endpoint was hit — confirms the command actually ran
+    // rather than the conversation silently swallowing the update.
+    const positionsCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .map((c) => String(c[0]))
+      .find((url) => url.includes("/api/v1/bot/positions/"));
+    expect(positionsCall).toBeDefined();
+  });
+
   it("conversation aborts (not loops) when token API is unavailable", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
@@ -258,7 +315,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -270,8 +327,8 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 100_000_000n }); // $100
 
-    // btd:<addr>
-    const callbackData = `btd:${TOKEN_ADDR}`;
+    // btp:<addr>:<amount>
+    const callbackData = `btp:${TOKEN_ADDR}:20`;
     await h.run(callbackUpdate(callbackData));
 
     const calls = capture(fetchSpy);
@@ -284,7 +341,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 10_000_000n }); // $10
 
-    const callbackData = `bt100:${TOKEN_ADDR}`;
+    const callbackData = `btp:${TOKEN_ADDR}:100`;
     await h.run(callbackUpdate(callbackData));
 
     const calls = capture(fetchSpy);
@@ -293,20 +350,20 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/insufficient|balance/i);
   });
 
-  it("Buy 20 callback shows confirmation with fee summary when balance is sufficient", async () => {
+  it("Buy 20 callback shows confirmation without fee summary in the menu", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
 
-    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to buy");
     expect(String(send!.body.text)).toContain("20");
-    // Fee summary line is mandatory per AGENTS.md
-    expect(String(send!.body.text)).toContain("Bot fee 0.5%");
-    expect(String(send!.body.text)).toContain("Alt Fun fee 0.5%");
+    // Fee summary moved to the tx-receipt endpoint per issue #801.
+    expect(String(send!.body.text)).not.toContain("Bot fee 0.5%");
+    expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.5%");
   });
 
   it("Degen mode: Buy default skips the Confirm keyboard and submits immediately", async () => {
@@ -333,7 +390,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     });
 
     try {
-      await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
       const calls = capture(fetchSpy);
       const sends = calls.filter((c) => c.url.includes("/sendMessage"));
@@ -344,11 +401,15 @@ describe("Buy flow (st:b button → conversation)", () => {
       );
       expect(confirmCard).toBeUndefined();
 
-      // The reply chain renders the tx receipt instead.
+      // The reply chain renders the tx receipt instead. Fee summary
+      // lives only in /help fees per issue #801 — never on the buy
+      // menu and never on the receipt.
       const receipt = sends.find((s) =>
         String(s.body.text).includes("Buy confirmed"),
       );
       expect(receipt).toBeDefined();
+      expect(String(receipt!.body.text)).not.toContain("Bot fee 0.5%");
+      expect(String(receipt!.body.text)).not.toContain("Alt Fun fee 0.5%");
 
       // No sendMessage carries a `cnf:` callback button.
       const hasConfirmButton = sends.some((s) => {
@@ -370,20 +431,22 @@ describe("Buy flow (st:b button → conversation)", () => {
     }
   });
 
-  it("btd callback uses the user's defaultBuyUsdc (e.g. $75) from the live session", async () => {
+  it("btp callback buys the amount encoded in the payload (issue #818)", async () => {
     const h = await harnessWithWallet();
-    // Pre-seed the session with a non-default buy amount.
+    // Pre-seed a non-default preset list — the keyboard would have
+    // rendered slot 0 as $75, embedding `:75` in the btp callback.
     await h.kv.put(
       "session:7",
       JSON.stringify({
         slippageBps: 100,
         defaultBuyUsdc: 75,
+        buyPresetsUsdc: [75, 40, 60, 80, 100],
         degenMode: false,
       }),
     );
     mockTokenAndRpc(fetchSpy, { usdcBalance: 500_000_000n }); // $500
 
-    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:75`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -405,5 +468,69 @@ describe("Buy flow (st:b button → conversation)", () => {
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     expect(edit).toBeDefined();
     expect(String(answer!.body.text)).toBe("Refreshed");
+  });
+
+  // Regression: btr / btp handlers used to .catch() unhandled throws
+  // with a log-only sink, leaving the Telegram client spinner stuck
+  // until its 30s timeout. The outer catch must ACK with show_alert
+  // so the user sees the failure instead of a silent button.
+  it("btr surfaces an outage toast when the handler throws (KV down)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy);
+    const getActiveSpy = vi
+      .spyOn(WalletManager.prototype, "getActive")
+      .mockRejectedValue(new Error("kv down"));
+
+    try {
+      await h.run(callbackUpdate(`btr:${TOKEN_ADDR}`));
+
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(String(answer!.body.text)).toMatch(/unavailable|try again/i);
+    } finally {
+      getActiveSpy.mockRestore();
+    }
+  });
+
+  it("btp surfaces an outage toast when the handler throws (KV down)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy);
+    const getActiveSpy = vi
+      .spyOn(WalletManager.prototype, "getActive")
+      .mockRejectedValue(new Error("kv down"));
+
+    try {
+      await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
+
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(String(answer!.body.text)).toMatch(/unavailable|try again/i);
+    } finally {
+      getActiveSpy.mockRestore();
+    }
+  });
+
+  it("btp surfaces an outage toast for any preset amount (KV down)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy);
+    const getActiveSpy = vi
+      .spyOn(WalletManager.prototype, "getActive")
+      .mockRejectedValue(new Error("kv down"));
+
+    try {
+      await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:100`));
+
+      const calls = capture(fetchSpy);
+      const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(String(answer!.body.text)).toMatch(/unavailable|try again/i);
+    } finally {
+      getActiveSpy.mockRestore();
+    }
   });
 });

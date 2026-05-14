@@ -20,10 +20,14 @@ export interface BotCommandSpec {
 
 export const BOT_COMMANDS: readonly BotCommandSpec[] = [
   { command: "start", description: "Open the main menu and create or import a wallet" },
+  { command: "help", description: "Command list and security guidance" },
   { command: "buy", description: "Buy a token by contract address" },
   { command: "sell", description: "Sell a token from your positions" },
   { command: "positions", description: "Show open and realised positions" },
+  { command: "track", description: "Show a token info card and recent trades" },
   { command: "wallet", description: "Manage wallets — create, import, switch, export" },
+  { command: "withdraw", description: "Withdraw HYPE or USDC to an external wallet" },
   { command: "settings", description: "Slippage, default buy amount, degen mode" },
+  { command: "security", description: "PIN, sessions, anti-phishing, withdrawal locks" },
   { command: "referral", description: "Your referral link and earned rewards" },
 ];

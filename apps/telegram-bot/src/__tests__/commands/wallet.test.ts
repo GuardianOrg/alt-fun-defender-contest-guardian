@@ -96,7 +96,12 @@ describe("/wallet command", () => {
           inline_keyboard: { text: string }[][];
         }
       ).inline_keyboard;
-      expect(keyboard.flat().map((b) => b.text)).toEqual(["Create", "Import"]);
+      expect(keyboard.flat().map((b) => b.text)).toEqual([
+        "Create",
+        "Import",
+        "← Back",
+        "🏠 Home",
+      ]);
     });
 
     it("lists existing wallets with the active marker and the full action set", async () => {
@@ -130,6 +135,8 @@ describe("/wallet command", () => {
         "Delete",
         "Export key",
         "Withdraw",
+        "← Back",
+        "🏠 Home",
       ]);
     });
 
@@ -208,7 +215,8 @@ describe("/wallet command", () => {
       expect(keyboard[1]?.[0]?.callback_data).toBe(
         `${WALLET_CALLBACK.switchTo}:${b.id}`,
       );
-      expect(keyboard[2]?.[0]?.callback_data).toBe(WALLET_CALLBACK.mainBack);
+      expect(keyboard[2]?.[0]?.text).toBe("← Back");
+      expect(keyboard[2]?.[1]?.text).toBe("🏠 Home");
       expect(keyboard[0]?.[0]?.text).toMatch(/^\* /);
       expect(keyboard[1]?.[0]?.text).toMatch(/^ {2}/);
     });

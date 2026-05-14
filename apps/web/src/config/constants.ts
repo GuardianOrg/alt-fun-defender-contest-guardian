@@ -50,6 +50,19 @@ export const DEFAULT_REFERRAL_CODE =
 export const TOKEN_SUPPLY = 1_000_000_000;
 
 /**
+ * Default token logo served from `apps/web/public/` when the creator
+ * skipped image upload at launch. Substituted into `Token.image` /
+ * `HeldToken.image` / `CreatedToken.imageUrl` at the service layer so
+ * every consumer (rows, hero, balances, creator-rewards) renders the
+ * same fallback art instead of falling through to the mint-`?`
+ * placeholder. The on-chain `image` field stays empty in that case
+ * (the API rejects non-R2 URLs by design — see
+ * `apps/api/src/lib/token-registration.ts` `validateImageUrl`), so
+ * other clients reading the chain are free to apply their own default.
+ */
+export const DEFAULT_TOKEN_IMAGE = "/default-token-image.jpg";
+
+/**
  * Quick-select chips in the trade-settings popup. Fractional (`0.02 = 2%`)
  * to match the `slippage` arg every router/quote function expects. Keep in
  * lock-step with `DEFAULT_SLIPPAGE` below — the default must remain a member

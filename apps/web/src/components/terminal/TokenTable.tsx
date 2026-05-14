@@ -10,7 +10,7 @@ import { useTokenListLiveFeed } from "../../hooks/useTokenListLiveFeed";
 import { useInfiniteTokens } from "../../hooks/useTokens";
 import { selectActiveFilter } from "../../state/uiSlice";
 
-import type { Token } from "../../services/types";
+import type { Token, TokenFilter } from "../../services/types";
 
 // Stable accessors for `useFlashOnNew` — defined at module scope so
 // the hook doesn't see a fresh function identity on every render.
@@ -20,6 +20,18 @@ import type { Token } from "../../services/types";
 // historical decision inside the hook (see its JSDoc).
 const getTokenId = (t: Token) => t.address.toLowerCase();
 const getTokenTimestamp = (t: Token) => t.createdAt;
+
+// Per-tab copy for the "no rows" state. Sits next to the tab list in
+// `CommandBar` conceptually — keep both in sync if a new filter
+// lands. Phrasing intentionally matches the tab label so a user
+// scanning the screen reads "GRADUATING" then "No tokens graduating
+// at this time" without translation.
+const EMPTY_STATE_MESSAGES: Record<TokenFilter, string> = {
+  trending: "No trending tokens at this time",
+  new: "No new tokens at this time",
+  graduating: "No tokens graduating at this time",
+  graduated: "No graduated tokens yet",
+};
 
 function TableHead() {
   return (
@@ -46,13 +58,8 @@ const PAGE_SKELETON_ROW_COUNT = 3;
 
 export default function TokenTable() {
   const activeFilter = useSelector(selectActiveFilter);
-  const {
-    tokens,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-  } = useInfiniteTokens(activeFilter);
+  const { tokens, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
+    useInfiniteTokens(activeFilter);
   // Keep the row-level mcap / 24h change / progress bar live as trades
   // land on-chain — throttled invalidation of the catalogue +
   // market-data queries off the global `trade` WS channel. See issue
@@ -111,6 +118,14 @@ export default function TokenTable() {
   // off and `tokens.length` carries the catalogue. After that, the
   // sentinel + "Loading more…" indicator handle pagination feedback.
   const showInitialSkeletons = isLoading && tokens.length === 0;
+  // Once the initial fetch resolves with zero rows we surface a
+  // per-tab empty-state line instead of leaving the table area blank
+  // (a blank table head reads as "still loading" rather than "no
+  // results"). Gated on `!isLoading` so the empty copy never flashes
+  // during the first request — the skeleton branch above owns that
+  // window — and only when `tokens.length === 0` so it can never
+  // overlap with real rows during a background refetch.
+  const showEmptyState = !isLoading && tokens.length === 0;
 
   return (
     <div className={styles.wrapper}>
@@ -121,29 +136,31 @@ export default function TokenTable() {
             aria-busy={showInitialSkeletons || undefined}
           >
             <TableHead />
-            {showInitialSkeletons
-              ? Array.from(
-                  { length: INITIAL_SKELETON_ROW_COUNT },
-                  (_, i) => <TokenRowSkeleton key={i} />,
-                )
-              : tokens.map((t) => (
-                  <TokenRow
-                    key={t.address}
-                    token={t}
-                    isNew={flashingIds.has(getTokenId(t))}
-                  />
-                ))}
+            {showInitialSkeletons ? (
+              Array.from({ length: INITIAL_SKELETON_ROW_COUNT }, (_, i) => (
+                <TokenRowSkeleton key={i} />
+              ))
+            ) : showEmptyState ? (
+              <div className={styles.emptyState} role="status">
+                {EMPTY_STATE_MESSAGES[activeFilter]}
+              </div>
+            ) : (
+              tokens.map((t) => (
+                <TokenRow
+                  key={t.address}
+                  token={t}
+                  isNew={flashingIds.has(getTokenId(t))}
+                />
+              ))
+            )}
             {hasNextPage && (
               <div ref={sentinelRef} className={styles.sentinel} aria-hidden />
             )}
             {isFetchingNextPage && (
               <div role="status" aria-live="polite" aria-label="Loading more">
-                {Array.from(
-                  { length: PAGE_SKELETON_ROW_COUNT },
-                  (_, i) => (
-                    <TokenRowSkeleton key={`page-skel-${i}`} />
-                  ),
-                )}
+                {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
+                  <TokenRowSkeleton key={`page-skel-${i}`} />
+                ))}
               </div>
             )}
           </div>

@@ -43,6 +43,7 @@
 }
 
 .sectionHeader {
+  font-family: var(--font-display);
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -390,6 +391,16 @@
  * doesn't shift layout when the WS feed delivers the first event. */
 .tradeSkeletonRow {
   cursor: default;
+}
+
+/* Invisible sentinel observed by `IntersectionObserver` to drive the
+ * recent-trades pagination (issue #807). Sized to one trade-row's
+ * worth of space so the trigger fires comfortably before the user
+ * scrolls past the last visible row. */
+.sentinel {
+  height: 1px;
+  width: 100%;
+  pointer-events: none;
 }
 
 .tradeSkeletonTime {

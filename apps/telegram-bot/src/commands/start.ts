@@ -5,6 +5,7 @@ import {
   START_CALLBACK,
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
+import { replyWithActionCard } from "../lib/action-card.js";
 import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
@@ -12,6 +13,7 @@ import {
 import { BOT_NAME } from "../lib/branding.js";
 import { logger } from "../lib/logger.js";
 import {
+  parseActionStartParam,
   parseStartParam,
   readProfile,
   recordUsername,
@@ -20,8 +22,8 @@ import {
   writeProfile,
 } from "../lib/onboarding.js";
 import { resolveBuyUsdcUrl } from "../lib/relay.js";
-import { fetchUsdcBalance } from "../lib/rpc.js";
-import { formatUsdc6 } from "../lib/token-card.js";
+import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
+import { formatHype18, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
@@ -50,9 +52,11 @@ const escapeHtml = (s: string): string =>
 const renderWelcomeHtml = (
   address: string,
   usdcBalance: bigint | null,
+  hypeBalance: bigint | null,
   phrase: string | null | undefined,
 ): string => {
-  const balance = formatUsdc6(usdcBalance);
+  const usdc = formatUsdc6(usdcBalance);
+  const hype = formatHype18(hypeBalance);
   return [
     escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
@@ -62,7 +66,8 @@ const renderWelcomeHtml = (
     `<code>${escapeHtml(address)}</code>`,
     "(Tap to copy)",
     "",
-    `Balance: ${escapeHtml(balance)} USDC`,
+    `Balance: ${escapeHtml(usdc)} USDC`,
+    `Gas balance: ${escapeHtml(hype)} HYPE`,
     "",
     "Once funded, tap Refresh and your balance will appear here.",
   ].join("\n");
@@ -79,9 +84,10 @@ const renderStart = async (
   env: AppContext["env"],
   address: string,
   usdcBalance: bigint | null,
+  hypeBalance: bigint | null,
   phrase: string | null | undefined,
 ): Promise<RenderedStart> => ({
-  text: renderWelcomeHtml(address, usdcBalance, phrase),
+  text: renderWelcomeHtml(address, usdcBalance, hypeBalance, phrase),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
       resolveBuyUsdcUrl(env, address),
@@ -92,6 +98,44 @@ const renderStart = async (
   // button's host on mobile, pushing the keyboard off-screen.
   link_preview_options: { is_disabled: true },
 });
+
+/**
+ * Build the /start snapshot for the nav system without sending or
+ * editing any message. Used by `lib/nav.ts` to handle Home and the
+ * empty-stack Back fallback — both must restore the same view a fresh
+ * `/start` would produce. Returns `null` when there's no active wallet
+ * to surface (caller falls back to a toast).
+ */
+export const buildStartSnapshot = async (
+  ctx: AppContext,
+): Promise<{
+  text: string;
+  parseMode: "HTML";
+  keyboard: ReturnType<typeof buildStartMenuKeyboard>;
+  linkPreviewDisabled: true;
+} | null> => {
+  if (!ctx.from) return null;
+  const wm = buildManager(ctx.env);
+  const active = await wm.getActive(ctx.from.id);
+  if (!active) return null;
+  const [usdcBalance, hypeBalance] = await Promise.all([
+    fetchUsdcBalance(ctx.env, active.address),
+    fetchNativeBalance(ctx.env, active.address),
+  ]);
+  const rendered = await renderStart(
+    ctx.env,
+    active.address,
+    usdcBalance,
+    hypeBalance,
+    ctxAntiPhishingPhrase(ctx),
+  );
+  return {
+    text: rendered.text,
+    parseMode: rendered.parse_mode,
+    keyboard: rendered.reply_markup.inline_keyboard,
+    linkPreviewDisabled: true,
+  };
+};
 
 /**
  * Resolve the user's active wallet address, auto-creating the first
@@ -171,14 +215,37 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
 
+    const rawParam = typeof ctx.match === "string" ? ctx.match : undefined;
+    const actionParam = parseActionStartParam(rawParam);
+    if (actionParam !== null) {
+      // Deeplink from `/positions` inline `Buy` / `Sell` anchor — skip
+      // the welcome screen and route straight to the matching trade
+      // card. First-start callers still get the wallet+profile created
+      // above; we just don't re-render the welcome message on top of
+      // the action card. No referrer is captured from action payloads
+      // (those carry a token address, not a referral handle).
+      if (isFirstStart) {
+        await writeDefaultRewardsWallet(ctx.env, address as Address);
+        await writeProfile(ctx.env.WALLET_KV, userId, {
+          createdAt: Date.now(),
+          referrer: null,
+        });
+      }
+      await replyWithActionCard(
+        ctx,
+        address,
+        actionParam.action,
+        actionParam.token,
+      );
+      return;
+    }
+
     if (isFirstStart) {
       // Resolve referrer AFTER the wallet exists so a self-referral
       // (`ref_<own userId>`) maps to the new user's own active wallet
       // — the spec allows self-referral and on day one their rewards
       // wallet equals the custodial wallet just minted above.
-      const param = parseStartParam(
-        typeof ctx.match === "string" ? ctx.match : undefined,
-      );
+      const param = parseStartParam(rawParam);
       let referrer: Address | null = null;
       if (param !== null) {
         referrer = await resolveReferrer(ctx.env, buildManager(ctx.env), param);
@@ -196,11 +263,15 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       });
     }
 
-    const balance = await fetchUsdcBalance(ctx.env, address);
+    const [usdcBalance, hypeBalance] = await Promise.all([
+      fetchUsdcBalance(ctx.env, address),
+      fetchNativeBalance(ctx.env, address),
+    ]);
     const rendered = await renderStart(
       ctx.env,
       address,
-      balance,
+      usdcBalance,
+      hypeBalance,
       ctxAntiPhishingPhrase(ctx),
     );
     await ctx.reply(rendered.text, {
@@ -235,11 +306,15 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
-    const balance = await fetchUsdcBalance(ctx.env, active.address);
+    const [usdcBalance, hypeBalance] = await Promise.all([
+      fetchUsdcBalance(ctx.env, active.address),
+      fetchNativeBalance(ctx.env, active.address),
+    ]);
     const rendered = await renderStart(
       ctx.env,
       active.address,
-      balance,
+      usdcBalance,
+      hypeBalance,
       ctxAntiPhishingPhrase(ctx),
     );
     await safeEditMessageText(ctx, rendered.text, {
@@ -248,7 +323,10 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       link_preview_options: rendered.link_preview_options,
     });
     await ctx.answerCallbackQuery({
-      text: balance === null ? "Balance unavailable" : "Balance refreshed",
+      text:
+        usdcBalance === null && hypeBalance === null
+          ? "Balance unavailable"
+          : "Balance refreshed",
     });
   });
 };

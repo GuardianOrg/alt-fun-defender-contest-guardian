@@ -103,6 +103,127 @@ describe("/withdraw command", () => {
     fetchSpy.mockRestore();
   });
 
+  it("amount prompt surfaces the wallet's available balance for the chosen asset", async () => {
+    const h = makeBotHarness();
+    await ensureActiveWallet(h);
+    await buildPm(h).setPin(USER_ID, "123456");
+
+    // 1.5 HYPE in wei = 1.5e18 = 0x14d1120d7b160000
+    const balanceHandler = async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as RequestInit).body as string) as {
+        method: string;
+      };
+      if (body.method === "eth_getBalance") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: "0x14d1120d7b160000",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 500 });
+    };
+
+    await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, balanceHandler);
+    await h.run(textUpdate("HYPE", 2));
+
+    const sends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const amountPrompt = sends.find((c) =>
+      /How much HYPE/.test(c.body.text as string),
+    );
+    expect(amountPrompt).toBeDefined();
+    expect(String(amountPrompt!.body.text)).toMatch(
+      /Your HYPE balance is 1\.5 HYPE/,
+    );
+  });
+
+  it("amount prompt falls back to 'unavailable' when the RPC read fails", async () => {
+    const h = makeBotHarness();
+    await ensureActiveWallet(h);
+    await buildPm(h).setPin(USER_ID, "123456");
+
+    // The default mockTelegramOk throws on any non-Telegram fetch; the
+    // rpc helpers catch that and return null, so the prompt must
+    // degrade gracefully rather than leaking the underlying error.
+    await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
+    fetchSpy.mockClear();
+    mockTelegramOk(fetchSpy);
+    await h.run(textUpdate("HYPE", 2));
+
+    const sends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const amountPrompt = sends.find((c) =>
+      /How much HYPE/.test(c.body.text as string),
+    );
+    expect(amountPrompt).toBeDefined();
+    expect(String(amountPrompt!.body.text)).toMatch(
+      /Your HYPE balance is unavailable/,
+    );
+  });
+
+  it("summary includes the available balance and warns when the amount exceeds it", async () => {
+    const h = makeBotHarness();
+    await ensureActiveWallet(h);
+    await buildPm(h).setPin(USER_ID, "123456");
+
+    // 0.05 HYPE in wei = 5e16 = 0xb1a2bc2ec50000 — below the 0.1 HYPE
+    // the wizard collects below, so the summary must warn.
+    const balanceHandler = async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const body = JSON.parse((init as RequestInit).body as string) as {
+        method: string;
+      };
+      if (body.method === "eth_getBalance") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: "0xb1a2bc2ec50000",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({}), { status: 500 });
+    };
+
+    await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, balanceHandler);
+    await h.run(textUpdate("HYPE", 2));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, balanceHandler);
+    await h.run(textUpdate("0.1", 3));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, balanceHandler);
+    await h.run(textUpdate(DEST, 4));
+    fetchSpy.mockClear();
+    withTelegramOk(fetchSpy, balanceHandler);
+    await h.run(textUpdate("123456", 30));
+
+    const sends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const summary = sends.find((c) =>
+      /Withdraw summary/.test(c.body.text as string),
+    );
+    expect(summary).toBeDefined();
+    const text = String(summary!.body.text);
+    expect(text).toMatch(/Available balance: 0\.05 HYPE/);
+    expect(text).toMatch(/exceeds available balance/);
+  });
+
   it("rejects before the PIN prompt when the withdrawal lock is enabled", async () => {
     const h = makeBotHarness();
     await ensureActiveWallet(h);

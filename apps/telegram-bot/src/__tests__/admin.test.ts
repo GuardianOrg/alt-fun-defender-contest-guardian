@@ -4,6 +4,21 @@ import app from "../index.js";
 import { BOT_COMMANDS } from "../lib/bot-commands.js";
 import { makeTestEnv } from "./helpers/env.js";
 
+// Vite/vitest-only glob import: pulls every commands/*.ts as raw source
+// at test time. Avoids `node:fs` (this app's tsconfig excludes node
+// types since it targets Cloudflare Workers). The local type assertion
+// keeps `vite/client` types out of the worker tsconfig.
+interface ViteImportMeta {
+  glob: (
+    pattern: string,
+    options: { query: string; import: string; eager: boolean },
+  ) => Record<string, string>;
+}
+const COMMAND_SOURCES = (import.meta as unknown as ViteImportMeta).glob(
+  "../commands/*.ts",
+  { query: "?raw", import: "default", eager: true },
+);
+
 const env = makeTestEnv();
 
 const post = (body: string | object, headers: Record<string, string> = {}) =>
@@ -315,5 +330,24 @@ describe("BOT_COMMANDS shape", () => {
       expect(description.length).toBeGreaterThan(0);
       expect(description.length).toBeLessThanOrEqual(256);
     }
+  });
+
+  // Slash menu drift killed us before: a command wired up via
+  // `bot.command()` but missing from BOT_COMMANDS is invisible to users
+  // typing "/" in chat. Scan the source files instead of trusting the
+  // human writer to keep two lists in sync.
+  it("lists every command registered via bot.command(...)", () => {
+    const registered = new Set<string>();
+    for (const src of Object.values(COMMAND_SOURCES)) {
+      for (const match of src.matchAll(/bot\.command\(\s*"([a-z0-9_]+)"/g)) {
+        registered.add(match[1]!);
+      }
+    }
+    expect(registered.size).toBeGreaterThan(0);
+    const listed = new Set(BOT_COMMANDS.map((c) => c.command));
+    const missing = [...registered].filter((c) => !listed.has(c));
+    expect(missing).toEqual([]);
+    const orphaned = [...listed].filter((c) => !registered.has(c));
+    expect(orphaned).toEqual([]);
   });
 });

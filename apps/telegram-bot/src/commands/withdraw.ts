@@ -31,7 +31,9 @@ import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { WALLET_CALLBACK } from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import { PinManager } from "../lib/pin.js";
+import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
 import {
   executeWithdraw,
@@ -44,6 +46,10 @@ import {
 } from "../lib/withdraw.js";
 import { explorerTxUrl } from "../lib/trade.js";
 import { WalletManager } from "../lib/wallet.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 const NO_USER_REPLY =
   "Withdrawals require a personal Telegram account — this message has no user attached.";
@@ -142,16 +148,64 @@ const parseInlineArgs = (raw: string): ParseResult => {
   return { ok: true, args: { asset: assetUpper, amountRaw: amount, to } };
 };
 
-const renderSummary = (args: ParsedArgs): string =>
-  [
+/**
+ * Read the active wallet's balance for the chosen asset. Returns `null`
+ * on any RPC failure so the caller can render a clean "unavailable"
+ * fallback — matches the rest of the bot's RPC error handling policy.
+ */
+const fetchAssetBalance = async (
+  env: AppContext["env"],
+  asset: WithdrawAsset,
+  address: string,
+): Promise<bigint | null> =>
+  asset === "HYPE"
+    ? fetchNativeBalance(env, address)
+    : fetchUsdcBalance(env, address);
+
+/**
+ * `conversation.external` requires a JSON-serialisable return value —
+ * `bigint` is not. Stringify inside the external call and parse back so
+ * the conversations plugin can replay the result on later turns.
+ */
+const fetchAssetBalanceExternal = async (
+  conversation: Conversation<AppContext, AppContext>,
+  asset: WithdrawAsset,
+  address: string,
+): Promise<bigint | null> => {
+  const stringified = await conversation.external((outside) =>
+    fetchAssetBalance(outside.env, asset, address).then((v) =>
+      v === null ? null : v.toString(),
+    ),
+  );
+  return stringified === null ? null : BigInt(stringified);
+};
+
+const formatBalance = (
+  balance: bigint | null,
+  asset: WithdrawAsset,
+): string =>
+  balance === null
+    ? "unavailable"
+    : `${formatAmount(balance, asset)} ${asset}`;
+
+const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
+  const lines = [
     "Withdraw summary",
     "",
     `• Asset: ${args.asset}`,
     `• Amount: ${formatAmount(args.amountRaw, args.asset)} ${args.asset}`,
+    `• Available balance: ${formatBalance(balance, args.asset)}`,
     `• Destination: ${args.to}`,
-    "",
-    "Tap Confirm Withdraw within 60s to submit.",
-  ].join("\n");
+  ];
+  if (balance !== null && args.amountRaw > balance) {
+    lines.push(
+      "",
+      "⚠️ Amount exceeds available balance — withdraw will fail.",
+    );
+  }
+  lines.push("", "Tap Confirm Withdraw within 60s to submit.");
+  return lines.join("\n");
+};
 
 const confirmKeyboard = (
   nonce: string,
@@ -186,14 +240,17 @@ const verifyPinForWithdraw = async (
   userId: number,
   chatId: number,
 ): Promise<boolean> => {
-  await ctx.reply(
+  const askMsg = await ctx.reply(
     withAntiPhishing(
-      "Send your 6-digit PIN to authorise the withdraw, or /cancel.",
+      "Send your 6-digit PIN to authorise the withdraw.",
     ),
   );
+  await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
+    // PIN reply is swept individually for security; not tracked on the
+    // workflow stack (already gone by the time a later sweep would run).
     await conversation.external((outside) =>
       sweepMessage(outside, chatId, msg.message.message_id),
     );
@@ -221,24 +278,37 @@ const verifyPinForWithdraw = async (
       await ctx.reply(withAntiPhishing(NO_PIN_REPLY));
       return false;
     }
-    await ctx.reply(
+    const retry = await ctx.reply(
       withAntiPhishing(
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
 };
 
+/**
+ * The `interceptBuy` flag lets non-address prompts (asset, amount) pivot
+ * to the buy menu when a user pastes a contract address — see issue #821.
+ * The destination-address prompt must keep it off: a 0x-prefixed input
+ * there is the user's withdraw target, not a token to buy.
+ */
 const promptArg = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   prompt: string,
+  interceptBuy = false,
 ): Promise<string | null> => {
-  await ctx.reply(withAntiPhishing(prompt));
+  const promptMsg = await ctx.reply(withAntiPhishing(prompt));
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
+  await trackWorkflowMessage(conversation, reply.message.message_id);
   const text = reply.message.text.trim();
   if (isCancel(text)) {
     await ctx.reply(withAntiPhishing("Withdraw cancelled."));
+    return null;
+  }
+  if (interceptBuy && (await tryAddressBuyIntercept(conversation, text))) {
     return null;
   }
   return text;
@@ -257,40 +327,69 @@ const withdrawWizardConversation = async (
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
+  await sweepWorkflow(conversation);
 
   let asset: WithdrawAsset | null = null;
   while (asset === null) {
     const raw = await promptArg(
       conversation,
       ctx,
-      "Which asset? Send HYPE or USDC (or /cancel).",
+      "Which asset? Send HYPE or USDC.",
+      true,
     );
-    if (raw === null) return;
+    if (raw === null) {
+      await sweepWorkflow(conversation);
+      return;
+    }
     const upper = raw.toUpperCase();
     if (isWithdrawAsset(upper)) {
       asset = upper;
       break;
     }
-    await ctx.reply(
-      withAntiPhishing("Unsupported asset. Send HYPE or USDC, or /cancel."),
+    const retry = await ctx.reply(
+      withAntiPhishing("Unsupported asset. Send HYPE or USDC."),
     );
+    await trackWorkflowMessage(conversation, retry.message_id);
   }
+
+  // Resolve the active wallet early so the amount prompt can show the
+  // user how much of the chosen asset they actually hold. If there is no
+  // active wallet the rest of the wizard cannot proceed — bail now rather
+  // than asking for amount + destination only to reject at PIN time.
+  const active = await conversation.external((outside) =>
+    buildWalletManager(outside.env).getActive(userId),
+  );
+  if (!active) {
+    await ctx.reply(withAntiPhishing(NO_ACTIVE_WALLET_REPLY));
+    await sweepWorkflow(conversation);
+    return;
+  }
+  const balance = await fetchAssetBalanceExternal(
+    conversation,
+    asset,
+    active.address,
+  );
 
   let amountRaw: bigint | null = null;
   while (amountRaw === null) {
     const raw = await promptArg(
       conversation,
       ctx,
-      `How much ${asset}? Send a positive amount (e.g. 0.1), or /cancel.`,
+      `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1).`,
+      true,
     );
-    if (raw === null) return;
+    if (raw === null) {
+      await sweepWorkflow(conversation);
+      return;
+    }
     const parsed = parseAmount(raw, asset);
     if (parsed === null) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         withAntiPhishing(
-          "Invalid amount — must be a positive decimal within the asset's precision. Send again or /cancel.",
+          "Invalid amount — must be a positive decimal within the asset's precision. Send again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     amountRaw = parsed;
@@ -301,16 +400,20 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      "Destination address? Send a 0x-prefixed EVM address, or /cancel.",
+      "Destination address? Send a 0x-prefixed EVM address.",
     );
-    if (raw === null) return;
+    if (raw === null) {
+      await sweepWorkflow(conversation);
+      return;
+    }
     const parsed = parseDestination(raw);
     if (parsed === null) {
-      await ctx.reply(
+      const retry = await ctx.reply(
         withAntiPhishing(
-          "Invalid address — must be 0x followed by 40 hex characters. Send again or /cancel.",
+          "Invalid address — must be 0x followed by 40 hex characters. Send again.",
         ),
       );
+      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     to = parsed;
@@ -323,6 +426,7 @@ const withdrawWizardConversation = async (
     chatId,
     { asset, amountRaw, to },
   );
+  await sweepWorkflow(conversation);
 };
 
 /**
@@ -371,6 +475,12 @@ const runPreFlightAndStage = async (
   const ok = await verifyPinForWithdraw(conversation, ctx, userId, chatId);
   if (!ok) return;
 
+  const balance = await fetchAssetBalanceExternal(
+    conversation,
+    args.asset,
+    active.address,
+  );
+
   const nonce = newNonce();
   const expiresAt = Date.now() + CONFIRM_WINDOW_MS;
   await conversation.external((outside) => {
@@ -383,7 +493,7 @@ const runPreFlightAndStage = async (
     };
   });
 
-  await ctx.reply(withAntiPhishing(renderSummary(args)), {
+  await ctx.reply(withAntiPhishing(renderSummary(args, balance)), {
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
   });
 };
@@ -400,6 +510,7 @@ const withdrawCommandConversation = async (
   argsRaw: string,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
+  await sweepWorkflow(conversation);
   const parsed = parseInlineArgs(argsRaw);
   if (!parsed.ok) {
     await ctx.reply(withAntiPhishing(parsed.reason));
@@ -412,6 +523,7 @@ const withdrawCommandConversation = async (
     ctx.chat.id,
     parsed.args,
   );
+  await sweepWorkflow(conversation);
 };
 
 export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {

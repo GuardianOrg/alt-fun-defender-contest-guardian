@@ -88,14 +88,17 @@ export interface UseVanityAddressReturn {
    * waits for a freshly-mined salt rather than handing back the stale
    * cache entry.
    *
-   * Called by the create flow when a pre-flight `getBytecode` on the
-   * predicted clone address shows the address is already taken — i.e.
-   * the user has previously launched a token with the same
+   * Called from `CreateView`'s `mineFreshSalt` callback when
+   * `useCreateToken`'s pre-flight `getBytecode` on the predicted
+   * clone address shows the address is already taken — i.e. the user
+   * has previously launched a token with the same
    * `(creator, name, ticker, salt)` quartet. Without this the miner
    * would just keep serving the same colliding salt to every retry,
    * stranding the user behind a permanent `Clones.FailedDeployment()`
    * revert (`0xb06ebf3d`). Re-mining produces a fresh `userSalt` that
-   * derives a different CREATE2 address, breaking the collision.
+   * derives a different CREATE2 address, breaking the collision so the
+   * pre-flight can pass on the next iteration without user
+   * intervention.
    */
   invalidateCachedSalt: (name: string, ticker: string) => void;
 }

@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  WaitForTransactionReceiptTimeoutError,
   domainSeparator,
   encodeAbiParameters,
   encodeErrorResult,
+  encodeEventTopics,
   parseAbi,
   recoverTypedDataAddress,
 } from "viem";
+import { BotFeeRouterAbi } from "@launchpad/shared";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
@@ -484,6 +487,166 @@ describe("awaitReceipt", () => {
     }
   });
 
+  it("returns ok:false kind:pending with txHash when the receipt poll times out", async () => {
+    // The reviewer comment that prompted this fix: a 20s RECEIPT_TIMEOUT_MS
+    // expiry must surface as a neutral "tx pending" outcome carrying the
+    // hash, not as an `unavailable` failure. The hash is the user's only
+    // affordance for checking the explorer themselves while the tx is
+    // still mining, so it MUST be set on the result.
+    //
+    // We mock `waitForTransactionReceipt` directly instead of letting viem
+    // poll a never-mining receipt for 20s — the timeout window is fixed
+    // module-level, so simulating real elapsed time would make this test
+    // a wall-clock dependency.
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+    const timeoutErr = new WaitForTransactionReceiptTimeoutError({
+      hash: TX_HASH,
+    });
+    const waitSpy = vi
+      .spyOn(client, "waitForTransactionReceipt")
+      .mockRejectedValue(timeoutErr);
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 0n,
+      minOut: 0n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("pending");
+      expect(result.txHash).toBe(TX_HASH);
+    }
+    waitSpy.mockRestore();
+  });
+
+  it("returns ok:false kind:unavailable with txHash for non-timeout RPC errors", async () => {
+    // Non-timeout errors (network drop, RPC 5xx, malformed response)
+    // must keep the `unavailable` kind — only `WaitForTransactionReceiptTimeoutError`
+    // collapses to `pending`. This guards against future refactors that
+    // accidentally widen the pending path to swallow real failures.
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+    const waitSpy = vi
+      .spyOn(client, "waitForTransactionReceipt")
+      .mockRejectedValue(new Error("HTTP 503: upstream connect timeout"));
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 0n,
+      minOut: 0n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.kind).toBe("unavailable");
+      expect(result.txHash).toBe(TX_HASH);
+    }
+    waitSpy.mockRestore();
+  });
+
+  it("decodes actualTokensOut from the BotRouterTrade log on a successful buy", async () => {
+    // Issue #802: confirm message must include the on-chain tokens the
+    // user actually received. The router emits one `BotRouterTrade` per
+    // trade with `tokenAmount` set to the tokens transferred to the
+    // trader on a buy. awaitReceipt decodes that log when invoked with
+    // `side: "buy"` so the caller can render "Received N TICKER".
+    const TOKENS_RECEIVED = 1_234_500_000_000_000_000_000n; // 1234.5 * 1e18
+    const ZERO = "0x0000000000000000000000000000000000000000" as const;
+    const topics = encodeEventTopics({
+      abi: BotFeeRouterAbi,
+      eventName: "BotRouterTrade",
+      args: { trader: TRADER, token: TOKEN, referrer: ZERO },
+    });
+    // Non-indexed payload: side, usdcAmount, tokenAmount, botFee, referrerCut, treasuryCut.
+    const data = encodeAbiParameters(
+      [
+        { type: "uint8" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+        { type: "uint256" },
+      ],
+      [0, 20_000_000n, TOKENS_RECEIVED, 100_000n, 0n, 100_000n],
+    );
+    const receiptWithLog: Response = new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        result: {
+          transactionHash: TX_HASH,
+          blockNumber: "0x1",
+          blockHash:
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+          transactionIndex: "0x0",
+          from: TRADER,
+          to: ROUTER,
+          cumulativeGasUsed: "0x1",
+          gasUsed: "0x1",
+          contractAddress: null,
+          logs: [
+            {
+              address: ROUTER,
+              topics,
+              data,
+              blockNumber: "0x1",
+              transactionHash: TX_HASH,
+              transactionIndex: "0x0",
+              blockHash:
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+              logIndex: "0x0",
+              removed: false,
+            },
+          ],
+          logsBloom: `0x${"0".repeat(512)}`,
+          status: "0x1",
+          type: "0x0",
+          effectiveGasPrice: "0x1",
+        },
+      }),
+      { status: 200 },
+    );
+    fetchSpy.mockImplementation(async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(init?.body as string) as { method: string };
+      if (body.method === "eth_getTransactionReceipt") return receiptWithLog;
+      if (body.method === "eth_blockNumber") return blockNumberResponse();
+      return new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x" }),
+        { status: 200 },
+      );
+    });
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 1_200n * 10n ** 18n,
+      minOut: 1_100n * 10n ** 18n,
+      side: "buy",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.actualTokensOut).toBe(TOKENS_RECEIVED);
+    }
+  });
+
+  it("leaves actualTokensOut undefined when side is omitted (sell path)", async () => {
+    // Sell side: `BotRouterTrade.tokenAmount` is tokens *sold*, not
+    // received, so the buy-only `actualTokensOut` field must stay
+    // undefined for sells to avoid mislabelling. The current call sites
+    // pass `side: "sell"` from executeSell and no side from legacy
+    // callers — both should leave the field unset.
+    fetchSpy.mockImplementation(routeRpc("0x1") as never);
+    const client = buildPublicClient({ HYPEREVM_RPC_URL: RPC_URL });
+
+    const result = await awaitReceipt(client, TX_HASH, {
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.actualTokensOut).toBeUndefined();
+    }
+  });
+
   it("returns ok:false kind:reverted with txHash when the receipt is reverted", async () => {
     // This is the bug the fix targets: sendTransaction returns a hash for
     // a tx that reverts on-chain (e.g. CHAOS buy 0x8edc611c…), and the
@@ -543,6 +706,26 @@ describe("renderExecutionError with on-chain revert", () => {
         "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
     });
     expect(reply).toMatch(/receipt not seen/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+  });
+
+  it("renders a neutral pending message with explorer link when receipt times out", () => {
+    // `pending` is the receipt-timeout case: tx is in mempool, may still
+    // mine. Copy must read as "pending — check explorer", not as a
+    // failure. The caller in execute.ts is responsible for the ⏳ prefix
+    // (see `renderConfirmReply`) — renderExecutionError just owns the
+    // body copy.
+    const reply = renderExecutionError({
+      ok: false,
+      kind: "pending",
+      reason: "WaitForTransactionReceiptTimeoutError",
+      txHash:
+        "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+    });
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toMatch(/check the explorer/i);
+    // Must not read as a failure — no "failed" / "reverted" / "❌" copy.
+    expect(reply).not.toMatch(/failed|reverted|❌/i);
     expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
   });
 });

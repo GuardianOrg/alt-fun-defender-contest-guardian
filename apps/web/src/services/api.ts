@@ -614,9 +614,21 @@ export interface ApiRouterTrade {
  * Fetch the global feed of router-routed trades. Used by the home-page
  * trade ticker. Crucially graduation-aware (unlike Ponder's `trades`
  * GraphQL which only sees `Bonding.Trade`).
+ *
+ * `offset` lets the right-panel recent-trades list page backwards
+ * through history when the user scrolls past the initial batch
+ * (issue #807). Mirrors the per-token endpoint's pagination shape so
+ * a single helper covers both.
  */
-export function fetchRouterTradesGlobal(limit = 20): Promise<ApiRouterTrade[]> {
-  return apiFetch(`/api/v1/trades?limit=${limit}`);
+export function fetchRouterTradesGlobal(
+  limit = 20,
+  offset = 0,
+): Promise<ApiRouterTrade[]> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return apiFetch(`/api/v1/trades?${params.toString()}`);
 }
 
 /**

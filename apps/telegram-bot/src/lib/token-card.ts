@@ -1,7 +1,7 @@
 import type { TokenInfo } from "./api.js";
 
 const HYPEREVMSCAN_BASE = "https://hyperevmscan.io";
-const ALTFUN_BASE = "https://alt.fun";
+const ALTFUN_TOKEN_BASE = "https://alt.fun/token";
 
 /** 6-decimal USDC raw → "$X.XX" string. */
 export const formatUsdc6 = (raw: bigint | null): string => {
@@ -10,6 +10,24 @@ export const formatUsdc6 = (raw: bigint | null): string => {
   const whole = raw / 1_000_000n;
   const frac = Number(raw % 1_000_000n) / 1_000_000;
   return `$${(Number(whole) + frac).toFixed(2)}`;
+};
+
+/**
+ * 18-decimal native HYPE raw → human-readable balance string.
+ * Returns "—" on null (RPC failure) so callers can render a degraded
+ * state without crashing. Native HYPE is the gas asset on HyperEVM —
+ * every tx the bot signs spends a small amount, so the /start panel
+ * surfaces this alongside USDC.
+ */
+export const formatHype18 = (raw: bigint | null): string => {
+  if (raw === null) return "—";
+  if (raw === 0n) return "0";
+  const whole = raw / 10n ** 18n;
+  const fracRaw = raw % 10n ** 18n;
+  const frac = Number(fracRaw) / 1e18;
+  const total = Number(whole) + frac;
+  if (total >= 1) return total.toFixed(4).replace(/\.?0+$/, "");
+  return total.toFixed(6).replace(/\.?0+$/, "") || "0";
 };
 
 /** 18-decimal token raw → human-readable string (no "$"). */
@@ -62,6 +80,39 @@ const formatVolume = (v: number | null): string => {
   return `$${v.toFixed(2)}`;
 };
 
+/**
+ * Build the LT symbol from the underlying / leverage / direction fields
+ * (e.g. `HYPE` + `5` + `long` → `HYPE5L`). Returns `null` when any
+ * component is missing so the card falls back to the bare ticker —
+ * older API builds that don't yet expose these fields keep working.
+ *
+ * Direction comes from the api DB row as `"long"` | `"short"` (lower
+ * case); the LT symbol convention uses `L` / `S` so we collapse with
+ * a first-letter uppercase. Any unrecognised direction is dropped
+ * rather than guessed.
+ */
+const buildLtSymbol = (token: TokenInfo): string | null => {
+  if (!token.underlying || token.leverage === null || !token.ltDirection) {
+    return null;
+  }
+  const direction = token.ltDirection.toLowerCase();
+  if (direction !== "long" && direction !== "short") return null;
+  const suffix = direction === "long" ? "L" : "S";
+  return `${token.underlying}${token.leverage}${suffix}`;
+};
+
+/**
+ * Token card header — "<b>Name</b> (<code>TICKER</code> / <code>HYPE5L</code>)".
+ * Falls back to just `(TICKER)` when the LT symbol can't be assembled
+ * (older API build missing underlying/leverage/ltDirection). Issue #820.
+ */
+const renderHeader = (token: TokenInfo): string => {
+  const ltSymbol = buildLtSymbol(token);
+  const ticker = `<code>${escapeHtml(token.ticker)}</code>`;
+  const suffix = ltSymbol ? ` / <code>${escapeHtml(ltSymbol)}</code>` : "";
+  return `<b>${escapeHtml(token.name)}</b> (${ticker}${suffix})`;
+};
+
 const statusLabel = (status: string): string => {
   if (status === "graduated") return "Graduated ✅";
   if (status === "graduating") return "Graduating 🔄";
@@ -77,21 +128,18 @@ export const renderBuyTokenCardText = (
   usdcBalance: bigint | null,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
-  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
+  const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
-    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
+    `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
     `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
     `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
+    `📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`,
   ];
-  if (token.ltChange24h !== null) {
-    lines.push(`⚡ <b>LT 24h:</b> ${formatPct(token.ltChange24h)}`);
-  }
-  lines.push(`💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`);
-  lines.push(`📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`);
   if (token.status !== "graduated") {
     lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
   }
@@ -114,7 +162,7 @@ export const renderSellTokenCardText = (
   tokenBalance: bigint | null,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
-  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
+  const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
 
   let holdingText: string;
   if (tokenBalance === null) {
@@ -132,17 +180,14 @@ export const renderSellTokenCardText = (
   }
 
   const lines: string[] = [
-    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
+    `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
     `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
     `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
+    `📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`,
   ];
-  if (token.ltChange24h !== null) {
-    lines.push(`⚡ <b>LT 24h:</b> ${formatPct(token.ltChange24h)}`);
-  }
-  lines.push(`💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`);
-  lines.push(`📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`);
   lines.push(
     "",
     `💼 <b>Your Balance:</b> ${holdingText}`,
@@ -160,11 +205,11 @@ export const renderSellTokenCardText = (
  */
 export const renderTrackTokenCardText = (token: TokenInfo): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
-  const altFunUrl = `${ALTFUN_BASE}/${token.address}`;
+  const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
-    `<b>${escapeHtml(token.name)}</b> (<code>${escapeHtml(token.ticker)}</code>)`,
+    renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
     `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,

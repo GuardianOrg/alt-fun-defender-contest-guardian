@@ -165,13 +165,17 @@ export function getErrorMessage(e: unknown): string {
     return `Amount below minimum ($${MIN_USDC_BUY_AMOUNT} buy / $${MIN_USDC_SELL_AMOUNT} sell).`;
   }
   // OpenZeppelin `Clones.FailedDeployment()` selector — thrown by
-  // `Bonding._deployAndSeed` when the predicted CREATE2 address already
-  // has bytecode. The `useCreateToken` pre-flight catches the common
-  // case before the wallet popup, but viem still surfaces this raw
-  // selector if a tx slips through (e.g. two parallel launches landing
-  // in the same block, with the second tx losing the race). Surface
-  // it as the same "change name/ticker, then retry" copy the
-  // pre-flight uses so the recovery path is consistent.
+  // `Bonding._deployAndSeed` when the predicted CREATE2 address
+  // already has bytecode. The `useCreateToken` pre-flight loop
+  // auto-recovers from the common cache-collision case by re-mining
+  // a fresh salt before the wallet popup, so the only realistic way
+  // we still see this raw selector is a parallel-tab race: two
+  // simultaneous launches by the same wallet for the same
+  // `(name, ticker)` whose pre-flights both pass against the same
+  // empty CREATE2 slot, then land in the same block — the loser
+  // reverts here. Clicking Launch again triggers the pre-flight
+  // again, which now sees the winning bytecode and re-mines around
+  // it, so the recovery is just "retry".
   // Lowercase match on the named selector so we still catch RPC/wallet
   // wrappers that normalise the error string casing (e.g. some
   // providers re-emit "faileddeployment()" or wrap the revert in a
@@ -180,8 +184,8 @@ export function getErrorMessage(e: unknown): string {
   // sufficient for that arm.
   if (raw.includes("0xb06ebf3d") || lower.includes("faileddeployment")) {
     return (
-      "A token with this name and ticker already exists for your wallet. " +
-      "Change the name or ticker, or click Launch again to mine a new vanity address."
+      "Another launch claimed that address before yours landed. " +
+      "Click Launch again — we'll mine a fresh address automatically."
     );
   }
   if (lower.includes("wallet timeout") || lower.includes("request timeout")) {

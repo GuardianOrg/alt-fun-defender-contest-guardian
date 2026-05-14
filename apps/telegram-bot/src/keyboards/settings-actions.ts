@@ -1,19 +1,27 @@
+import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
  * Callback codes for `/settings`. Prefixed `set:` to stay clear of
  * `sec:*` (security) and well inside the 64-byte `callback_data`
  * budget (`set:slip500` = 11 bytes).
+ *
+ * Buy/Sell sub-menus (issue #818) live under `set:bs` / `set:ss` and
+ * per-slot edit prompts under `set:bp<i>` / `set:sp<i>` where `i`
+ * is the slot index (0..4).
  */
 export const SETTINGS_CALLBACK = {
   slipPreset: "set:slip", // appended with bps value, e.g. `set:slip500`
   slipCustom: "set:slipx",
-  buyAmount: "set:buy",
+  buySettings: "set:bs",
+  sellSettings: "set:ss",
+  buyPresetSlot: "set:bp", // appended with slot index 0..4
+  sellPresetSlot: "set:sp", // appended with slot index 0..4
   degenToggle: "set:dgn",
 } as const;
 
 /** Slippage presets surfaced as one-tap buttons. Values are bps. */
-export const SLIPPAGE_PRESETS_BPS: readonly number[] = [50, 100, 200, 500];
+export const SLIPPAGE_PRESETS_BPS: readonly number[] = [500, 1000, 1500, 2000];
 
 export interface SettingsStatus {
   slippageBps: number;
@@ -34,11 +42,36 @@ export const decodeSlippagePreset = (data: string): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+/** `set:bp<idx>` — callback for the i-th buy-preset slot. */
+export const encodeBuyPresetSlot = (idx: number): string =>
+  `${SETTINGS_CALLBACK.buyPresetSlot}${idx}`;
+
+export const decodeBuyPresetSlot = (data: string): number | null => {
+  if (!data.startsWith(SETTINGS_CALLBACK.buyPresetSlot)) return null;
+  const rest = data.slice(SETTINGS_CALLBACK.buyPresetSlot.length);
+  if (!/^\d+$/.test(rest)) return null;
+  const n = Number(rest);
+  return Number.isInteger(n) ? n : null;
+};
+
+/** `set:sp<idx>` — callback for the i-th sell-preset slot. */
+export const encodeSellPresetSlot = (idx: number): string =>
+  `${SETTINGS_CALLBACK.sellPresetSlot}${idx}`;
+
+export const decodeSellPresetSlot = (data: string): number | null => {
+  if (!data.startsWith(SETTINGS_CALLBACK.sellPresetSlot)) return null;
+  const rest = data.slice(SETTINGS_CALLBACK.sellPresetSlot.length);
+  if (!/^\d+$/.test(rest)) return null;
+  const n = Number(rest);
+  return Number.isInteger(n) ? n : null;
+};
+
 /**
  * Render the `/settings` status panel keyboard:
  *   Row 1: slippage presets (current selection marked) + custom
- *   Row 2: change default buy amount
- *   Row 3: degen mode toggle (label flips between Enable / Disable)
+ *   Row 2: Buy Settings → opens the 5-slot sub-menu (issue #818)
+ *   Row 3: Sell Settings → opens the 5-slot sub-menu
+ *   Row 4: degen mode toggle
  */
 export const buildSettingsKeyboard = (
   status: SettingsStatus,
@@ -59,17 +92,54 @@ export const buildSettingsKeyboard = (
     slipRow,
     [
       {
-        text: `Default buy: $${status.defaultBuyUsdc}`,
-        callback_data: SETTINGS_CALLBACK.buyAmount,
+        text: "Buy Settings",
+        callback_data: SETTINGS_CALLBACK.buySettings,
+      },
+      {
+        text: "Sell Settings",
+        callback_data: SETTINGS_CALLBACK.sellSettings,
       },
     ],
     [
       {
-        text: status.degenMode ? "Disable degen mode" : "Enable degen mode",
+        text: status.degenMode ? "🟢 Degen mode" : "🔴 Degen mode",
         callback_data: SETTINGS_CALLBACK.degenToggle,
       },
     ],
+    backHomeRow(),
   ];
+};
+
+/**
+ * Render the 5-slot Buy Settings sub-menu. Each row is a single pencil-
+ * prefixed slot button so the amounts read naturally even at narrow
+ * Telegram client widths. A `Back` row returns the user to the main
+ * /settings panel without losing inline-keyboard state.
+ */
+export const buildBuySettingsKeyboard = (
+  buyPresetsUsdc: readonly number[],
+): InlineKeyboard => {
+  const rows: InlineKeyboard = buyPresetsUsdc.map((amount, idx) => [
+    {
+      text: `✏️ ${amount} USDC`,
+      callback_data: encodeBuyPresetSlot(idx),
+    },
+  ]);
+  rows.push(backHomeRow());
+  return rows;
+};
+
+export const buildSellSettingsKeyboard = (
+  sellPresetsPct: readonly number[],
+): InlineKeyboard => {
+  const rows: InlineKeyboard = sellPresetsPct.map((pct, idx) => [
+    {
+      text: `✏️ ${pct}%`,
+      callback_data: encodeSellPresetSlot(idx),
+    },
+  ]);
+  rows.push(backHomeRow());
+  return rows;
 };
 
 const formatBpsLabel = (bps: number): string => {

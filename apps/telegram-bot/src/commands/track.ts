@@ -8,8 +8,8 @@ import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
-  normaliseDefaultBuyUsdc,
-  normaliseDefaultSellUsdc,
+  normaliseBuyPresets,
+  normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import type { InlineKeyboard } from "../keyboards/wallet-actions.js";
@@ -21,8 +21,14 @@ import {
   type TokenInfo,
 } from "../lib/api.js";
 import { encodeCallback, parseCallback } from "../lib/callbacks.js";
+import {
+  haltAndForward,
+  isCancel,
+  isOtherSlashCommand,
+} from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
+import { backHomeRow } from "../lib/nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
   formatToken18,
@@ -32,6 +38,11 @@ import {
   renderTrackTokenCardText,
 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
+import { pushWorkflowMessage } from "../lib/workflow-stack.js";
+import {
+  sweepWorkflow,
+  trackWorkflowMessage,
+} from "../lib/workflow-stack-conversation.js";
 
 /** Number of trades shown under the token card per AGENTS.md /track spec. */
 const TRADES_PER_CARD = 20;
@@ -46,7 +57,7 @@ const TRADES_PER_CARD = 20;
  */
 const CHART_TIMEOUT_MS = 5_000;
 
-const ALT_FUN_TOKEN_BASE = "https://alt.fun";
+const ALT_FUN_TOKEN_BASE = "https://alt.fun/token";
 
 /**
  * Short callback codes scoped to /track. `trkb` and `trks` carry a
@@ -63,14 +74,14 @@ const PROMPT_HTML =
   "• <code>0x1234…abcd</code>\n" +
   "• <code>https://alt.fun/0x1234…</code>\n" +
   "• <code>https://hyperevmscan.io/token/0x1234…</code>\n\n" +
-  "Send /cancel to exit.";
+  "Tap Home to exit.";
 
 const TOKEN_NOT_FOUND_HTML =
   "❌ <b>Token not found.</b>\n\n" +
   "Make sure you have the correct contract address. You can find it on:\n" +
   "• <a href=\"https://alt.fun\">alt.fun</a> — tap the token → copy address\n" +
   "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
-  "Try again or send /cancel to exit.";
+  "Try again, or tap Home to exit.";
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
 const API_UNAVAILABLE =
@@ -159,6 +170,7 @@ const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
       url: `${ALT_FUN_TOKEN_BASE}/${tokenAddress}`,
     },
   ],
+  backHomeRow(),
 ];
 
 interface TrackRender {
@@ -226,26 +238,36 @@ const trackLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
 ): Promise<void> => {
-  await ctx.reply(PROMPT_HTML, {
+  await sweepWorkflow(conversation);
+
+  const promptMsg = await ctx.reply(PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (text === "/cancel" || text.toLowerCase() === "cancel") {
+    if (isCancel(text)) {
       await msgCtx.reply("Cancelled.");
+      await sweepWorkflow(conversation);
       return;
+    }
+    if (isOtherSlashCommand(text)) {
+      await sweepWorkflow(conversation);
+      await haltAndForward(conversation);
     }
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
     }
 
@@ -254,16 +276,19 @@ const trackLookupConversation = async (
     );
     if (!result.ok) {
       if (result.kind === "not_found") {
-        await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });
+        await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
       }
       await msgCtx.reply(API_UNAVAILABLE);
+      await sweepWorkflow(conversation);
       return;
     }
     await sendTrackReply(msgCtx, result.render);
+    await sweepWorkflow(conversation);
     return;
   }
 };
@@ -334,16 +359,26 @@ const handleTrackBuy = async (
     return;
   }
   await ctx.answerCallbackQuery();
-  await ctx.reply(renderBuyTokenCardText(tokenResult.data, usdcBalance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildBuyTokenKeyboard(
-        tokenAddress,
-        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
-      ),
+  const cardMsg = await ctx.reply(
+    renderBuyTokenCardText(tokenResult.data, usdcBalance),
+    {
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: buildBuyTokenKeyboard(
+          tokenAddress,
+          normaliseBuyPresets(
+            ctx.session.buyPresetsUsdc,
+            ctx.session.defaultBuyUsdc,
+          ),
+        ),
+      },
+      link_preview_options: { is_disabled: true },
     },
-    link_preview_options: { is_disabled: true },
-  });
+  );
+  // Track the card so the post-trade sweep clears it once a buy lands.
+  if (ctx.chat) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  }
 };
 
 /** Send a fresh sell card for the tracked token. Mirrors the /sell entry view. */
@@ -367,16 +402,22 @@ const handleTrackSell = async (
     return;
   }
   await ctx.answerCallbackQuery();
-  await ctx.reply(renderSellTokenCardText(tokenResult.data, tokenBalance), {
-    parse_mode: "HTML",
-    reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(
-        tokenAddress,
-        normaliseDefaultSellUsdc(ctx.session.defaultBuyUsdc),
-      ),
+  const cardMsg = await ctx.reply(
+    renderSellTokenCardText(tokenResult.data, tokenBalance),
+    {
+      parse_mode: "HTML",
+      reply_markup: {
+        inline_keyboard: buildSellTokenKeyboard(
+          tokenAddress,
+          normaliseSellPresets(ctx.session.sellPresetsPct),
+        ),
+      },
+      link_preview_options: { is_disabled: true },
     },
-    link_preview_options: { is_disabled: true },
-  });
+  );
+  if (ctx.chat) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  }
 };
 
 export const registerTrackCommand = (bot: Bot<AppContext>): void => {

@@ -16,8 +16,14 @@ describe("getErrorMessage", () => {
   // `Clones` library), so prior to the explicit branch in
   // `getErrorMessage` users would see the raw `0xb06ebf3d` blob and
   // have no way to recover. This pins both the raw selector and the
-  // decoded name to the same actionable copy.
-  it("decodes the raw `0xb06ebf3d` selector to a name-collision message", () => {
+  // decoded name to the same actionable copy. The pre-flight in
+  // `useCreateToken` auto-recovers from the cache-collision case
+  // before the wallet popup, so this branch only fires for the
+  // parallel-tab race (two simultaneous launches landing in the same
+  // block, with the second tx losing); the recovery is still just
+  // "click Launch again", which re-runs the now-collision-aware
+  // pre-flight.
+  it("decodes the raw `0xb06ebf3d` selector to a race-loser message", () => {
     const message = getErrorMessage(
       new Error(
         'The contract function "createToken" reverted with the ' +
@@ -25,15 +31,15 @@ describe("getErrorMessage", () => {
           '"0xb06ebf3d" as it was not found on the provided ABI.',
       ),
     );
-    expect(message).toMatch(/already exists for your wallet/i);
-    expect(message).toMatch(/change the name or ticker/i);
+    expect(message).toMatch(/another launch claimed/i);
+    expect(message).toMatch(/click launch again/i);
   });
 
   it("decodes the named `FailedDeployment` selector the same way", () => {
     const message = getErrorMessage(
       new Error("execution reverted: FailedDeployment()"),
     );
-    expect(message).toMatch(/already exists for your wallet/i);
+    expect(message).toMatch(/another launch claimed/i);
   });
 
   // Some RPC/wallet error wrappers normalise the revert message casing
@@ -44,7 +50,7 @@ describe("getErrorMessage", () => {
     const message = getErrorMessage(
       new Error("execution reverted: faileddeployment()"),
     );
-    expect(message).toMatch(/already exists for your wallet/i);
+    expect(message).toMatch(/another launch claimed/i);
   });
 
   // The min-amount selector predates this fix; included as a sanity

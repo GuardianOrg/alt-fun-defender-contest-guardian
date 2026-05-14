@@ -355,4 +355,49 @@ describe("GET /trades", () => {
     expect(body.status).toBe("error");
     expect(body.data).toBeNull();
   });
+
+  it("forwards limit + offset to the Ponder query (issue #807)", async () => {
+    // The home-page recent-trades list paginates by walking offsets
+    // through this endpoint; the route must thread both knobs into the
+    // GraphQL query so a `limit=20&offset=40` request lands on the
+    // third page rather than refetching the first.
+    mockPonderQuery
+      .mockResolvedValueOnce({ routerTrades: { items: [] } })
+      .mockResolvedValueOnce({ tokens: { items: [] } });
+
+    const app = createApp();
+    const res = await app.request("/trades?limit=20&offset=40", {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const firstCall = mockPonderQuery.mock.calls[0];
+    const variables = firstCall[1] as { limit: number; offset: number };
+    expect(variables.limit).toBe(20);
+    expect(variables.offset).toBe(40);
+  });
+
+  it("rejects non-integer offset with 400", async () => {
+    const app = createApp();
+    const res = await app.request("/trades?offset=abc", {}, makeEnv());
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { status: string; error: string | null };
+    expect(body.error).toBe("Invalid pagination parameters");
+    // Defence-in-depth: the route must short-circuit before touching the
+    // indexer when the input fails validation.
+    expect(mockPonderQuery).not.toHaveBeenCalled();
+  });
+
+  it("defaults offset to 0 when omitted", async () => {
+    mockPonderQuery
+      .mockResolvedValueOnce({ routerTrades: { items: [] } })
+      .mockResolvedValueOnce({ tokens: { items: [] } });
+
+    const app = createApp();
+    const res = await app.request("/trades?limit=10", {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const firstCall = mockPonderQuery.mock.calls[0];
+    const variables = firstCall[1] as { limit: number; offset: number };
+    expect(variables.offset).toBe(0);
+  });
 });
