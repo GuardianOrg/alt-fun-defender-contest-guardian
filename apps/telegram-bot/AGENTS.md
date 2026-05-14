@@ -310,7 +310,7 @@ Failure modes specific to buys:
 
 Token card format mirrors the web UI: name · ticker · mcap · curve-fill bar · leverage tag.
 
-Slippage default: from `/settings` (default 1%). Priority fee default: from `/settings`.
+Slippage default: from `/settings` (default 10%). Priority fee default: from `/settings`.
 
 **Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. The first quick-amount button reads `session.defaultBuyUsdc` (default `$20`, floored at `MIN_USDC_BUY_AMOUNT` defensively at click time). Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
 
@@ -427,7 +427,7 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 
 | Setting | Default | Description |
 |---|---|---|
-| Slippage | 1% (100 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `0.5% / 1% / 2% / 5%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). |
+| Slippage | 10% (1000 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `5% / 10% / 15% / 20%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). LT-backed curves move fast enough on the underlying alone that 1% slippage was tripping legitimate trades — the 10% default keeps the golden path through. |
 | Default buy amount | `$20 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. **Consumed at click time by the first button on the `/buy` card** (`Buy $N USDC` — see `keyboards/buy-sell-token.ts`); the handler resolves the value from the live session at the moment the user taps, so a /settings change applies immediately even on a stale card. The `/sell` card is percent-of-balance and does not consume this setting. |
 | Degen mode | On | One-tap toggle. Stored as `session.degenMode`. **Default on for new accounts** — the bot is targeted at active traders who want to skip the confirm tap, so the friction-free path is the default; users who want the confirm card flip it off in /settings. When on, `/buy` and `/sell` skip the inline [Confirm] / [Cancel] keyboard and submit the trade as soon as the quick-amount button is tapped (or the custom-amount wizard completes). Slippage bound, referrer attribution, and `BotFeeRouter` routing are identical to the confirm path — only the user-facing confirm step is removed. **Buffer-capped sells still require an explicit confirm tap regardless of degen mode** per the AGENTS.md "Buffer-limited sells must be user-visible" constraint. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
 
@@ -872,7 +872,7 @@ src/
 - No claim/withdraw/payout button anywhere in the screen
 
 **`commands/settings.test.ts`**
-- Status view renders the default trio (`Slippage: 1%` / `Default buy: $20 USDC` / `Degen mode: on`) on a brand-new account, with the [• 1% •] preset marked and an `Anti-phishing phrase lives in /security` pointer
+- Status view renders the default trio (`Slippage: 10%` / `Default buy: $20 USDC` / `Degen mode: on`) on a brand-new account, with the [• 10% •] preset marked among the `5% / 10% / 15% / 20%` row (Custom % wizard capped at 50% per the `slippageBps ≤ 10_000` guard) and an `Anti-phishing phrase lives in /security` pointer
 - `/settings` in a group chat is rejected with the "private-DM only" copy and never leaks slippage / buy-amount state into the group transcript
 - Tapping a preset slippage button (`set:slip<bps>`) persists the new `slippageBps` on the session and the panel edit reflects the new value
 - A malformed `set:slip…` callback payload (no integer) is a no-op — session unchanged, no crash
