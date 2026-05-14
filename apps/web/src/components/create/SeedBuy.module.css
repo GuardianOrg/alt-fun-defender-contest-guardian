@@ -48,6 +48,21 @@
   border-bottom-color: var(--mint);
 }
 
+/* Hide the native number-input spinner arrows. Chrome/Safari/Edge render
+ * inner up/down buttons that pop in on focus; Firefox uses the textfield
+ * appearance + moz spin. Mirrors the same suppression on the trade panel
+ * amount field — see `TradePanel.module.css` `.amountInput`. */
+.amountInput::-webkit-outer-spin-button,
+.amountInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.amountInput[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 .quickGrid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

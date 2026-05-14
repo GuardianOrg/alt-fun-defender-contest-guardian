@@ -101,6 +101,20 @@
   border: 1px solid var(--border);
 }
 
+/*
+ * Embedded variant: drops the outer chrome (background / border / shadow /
+ * fixed width) so the panel can sit inside another container that already
+ * owns those — specifically the mobile trade modal where `shared/Modal`
+ * provides the surface. Without this we'd render two stacked panels with
+ * subtly different borders for a visible double-ring effect.
+ */
+.panelChromeless {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 
 .impactWarning {
   color: #ffc832;

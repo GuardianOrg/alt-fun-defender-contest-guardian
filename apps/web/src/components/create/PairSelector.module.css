@@ -296,10 +296,6 @@
   color: var(--txt-3);
   letter-spacing: 0.04em;
   margin-top: 0.8rem;
-  padding: 0.6rem 0.8rem;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background: rgba(16, 37, 32, 0.3);
 }
 
 .hlBadgeLogo {
