@@ -34,7 +34,11 @@ import {
   WALLET_CALLBACK,
 } from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
-import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import {
+  haltAndForward,
+  isOtherSlashCommand,
+  tryAddressBuyIntercept,
+} from "../lib/conversation-commands.js";
 import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
@@ -114,8 +118,6 @@ const sweepMessage = async (
     // 48h delete window plus user-deleted-already cases are both benign.
   }
 };
-
-const isCancel = (text: string): boolean => text.trim() === "/cancel";
 
 interface ParsedArgs {
   asset: WithdrawAsset;
@@ -331,10 +333,7 @@ const verifyPinForWithdraw = async (
     await conversation.external((outside) =>
       sweepMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(withAntiPhishing("Withdraw cancelled."));
-      return false;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
@@ -384,10 +383,7 @@ const promptArg = async (
   const reply = await conversation.waitFor("message:text");
   await trackWorkflowMessage(conversation, reply.message.message_id);
   const text = reply.message.text.trim();
-  if (isCancel(text)) {
-    await ctx.reply(withAntiPhishing("Withdraw cancelled."));
-    return null;
-  }
+  if (isOtherSlashCommand(text)) await haltAndForward(conversation);
   if (interceptBuy && (await tryAddressBuyIntercept(conversation, text))) {
     return null;
   }

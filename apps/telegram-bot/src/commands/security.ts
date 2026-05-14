@@ -15,7 +15,12 @@ import {
   withAntiPhishing,
   wrapWithCtxPhrase as wrap,
 } from "../lib/anti-phishing.js";
-import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import {
+  haltAndForward,
+  isOtherSlashCommand,
+  tryAddressBuyIntercept,
+} from "../lib/conversation-commands.js";
+import { backHomeMarkup } from "../lib/nav.js";
 import {
   PIN_RESET_DELAY_MS,
   PinManager,
@@ -54,8 +59,6 @@ const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   });
   return false;
 };
-
-const isCancel = (text: string): boolean => text.trim() === "/cancel";
 
 const buildPinManager = (env: AppContext["env"]): PinManager =>
   new PinManager(env.WALLET_KV, { saltRounds: env.PIN_SALT_ROUNDS });
@@ -206,7 +209,9 @@ const askNewPin = async (
   chatId: number,
   prompt: string,
 ): Promise<string | null> => {
-  const askMsg = await ctx.reply(wrap(ctx, prompt));
+  const askMsg = await ctx.reply(wrap(ctx, prompt), {
+    reply_markup: backHomeMarkup(),
+  });
   await trackWorkflowMessage(conversation, askMsg.message_id);
   let candidate: string | null = null;
   while (candidate === null) {
@@ -216,13 +221,11 @@ const askNewPin = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, "Cancelled."));
-      return null;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
         wrap(ctx, "PIN must be exactly 6 digits. Send again."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -232,6 +235,7 @@ const askNewPin = async (
 
   const confirmAsk = await ctx.reply(
     wrap(ctx, "Confirm — send the same 6 digits again."),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
   while (true) {
@@ -240,15 +244,13 @@ const askNewPin = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, "Cancelled."));
-      return null;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
         wrap(ctx,
           "PINs do not match. Send the confirmation PIN again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -268,6 +270,7 @@ const verifyExistingPin = async (
     wrap(ctx,
       `Send your current 6-digit PIN to authorise ${actionLabel}.`,
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
@@ -276,10 +279,7 @@ const verifyExistingPin = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, `${actionLabel} cancelled.`));
-      return false;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
@@ -306,6 +306,7 @@ const verifyExistingPin = async (
       wrap(ctx,
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -467,22 +468,20 @@ const setPhraseConversation = async (
         `Max ${MAX_PHRASE_LEN} characters.`,
       ].join("\n"),
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   while (true) {
     const reply = await conversation.waitFor("message:text");
     await trackWorkflowMessage(conversation, reply.message.message_id);
     const text = reply.message.text;
-    if (isCancel(text.trim())) {
-      await ctx.reply(wrap(ctx, "Cancelled."));
-      await sweepWorkflow(conversation);
-      return;
-    }
     const trimmed = text.trim();
+    if (isOtherSlashCommand(trimmed)) await haltAndForward(conversation);
     if (await tryAddressBuyIntercept(conversation, trimmed)) return;
     if (trimmed.length === 0) {
       const retry = await ctx.reply(
         wrap(ctx, "Phrase cannot be empty. Send again."),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -492,6 +491,7 @@ const setPhraseConversation = async (
         wrap(ctx,
           `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;

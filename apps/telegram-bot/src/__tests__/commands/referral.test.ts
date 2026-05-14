@@ -461,7 +461,7 @@ describe("Change rewards wallet wizard", () => {
       "Send the new rewards wallet address",
     );
     // The warning is a wizard prompt — must carry Back/Home so the user
-    // can exit without typing /cancel.
+    // has a visible exit on the prompt itself.
     const kb =
       (send!.body.reply_markup as
         | {
@@ -525,7 +525,7 @@ describe("Change rewards wallet wizard", () => {
     expect(postCall).toBeUndefined();
   });
 
-  it("aborts cleanly on /cancel from inside the burn-address gate", async () => {
+  it("halts cleanly on a slash command from inside the burn-address gate", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
     await wm.createWallet(7, "main");
@@ -535,26 +535,33 @@ describe("Change rewards wallet wizard", () => {
     await h.run(
       textUpdate("0x000000000000000000000000000000000000dEaD", 51),
     );
-    await h.run(textUpdate("/cancel", 52));
+    await h.run(textUpdate("/positions", 52));
 
-    const sends = capture(fetchSpy).filter((c) =>
-      c.url.includes("/sendMessage"),
+    // No POST to /rewards-wallet — the conversation halted before
+    // confirming the burn address.
+    const postCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>).find(
+      (c) =>
+        String(c[0]).endsWith("/rewards-wallet") &&
+        ((c[1] as RequestInit | undefined)?.method ?? "GET") === "POST",
     );
-    expect(sends[sends.length - 1].body.text).toContain("cancelled");
+    expect(postCall).toBeUndefined();
   });
 
-  it("cancels cleanly on /cancel before address entry", async () => {
+  it("halts cleanly on a slash command before address entry", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
     await wm.createWallet(7, "main");
     mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 30 }));
-    await h.run(textUpdate("/cancel", 31));
+    await h.run(textUpdate("/positions", 31));
 
-    const sends = capture(fetchSpy).filter((c) =>
-      c.url.includes("/sendMessage"),
+    // No POST to /rewards-wallet — the conversation halted on the slash.
+    const postCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>).find(
+      (c) =>
+        String(c[0]).endsWith("/rewards-wallet") &&
+        ((c[1] as RequestInit | undefined)?.method ?? "GET") === "POST",
     );
-    expect(sends[sends.length - 1].body.text).toContain("cancelled");
+    expect(postCall).toBeUndefined();
   });
 });

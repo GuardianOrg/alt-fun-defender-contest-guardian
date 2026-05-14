@@ -17,7 +17,6 @@ import { extractTokenAddress, fetchToken } from "../lib/api.js";
 import { parseCallback } from "../lib/callbacks.js";
 import {
   haltAndForward,
-  isCancel,
   isOtherSlashCommand,
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
@@ -109,11 +108,6 @@ const buyLookupConversation = async (
     await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (isCancel(text)) {
-      await msgCtx.reply("Cancelled.");
-      await sweepWorkflow(conversation);
-      return;
-    }
     if (isOtherSlashCommand(text)) {
       await sweepWorkflow(conversation);
       await haltAndForward(conversation);
@@ -213,11 +207,6 @@ const buyCustomConversation = async (
     await trackWorkflowMessage(conversation, msgCtx.message.message_id);
     const text = msgCtx.message.text.trim();
 
-    if (isCancel(text)) {
-      await msgCtx.reply("Cancelled.");
-      await sweepWorkflow(conversation);
-      return;
-    }
     if (isOtherSlashCommand(text)) {
       await sweepWorkflow(conversation);
       await haltAndForward(conversation);

@@ -18,6 +18,10 @@ import {
   type BotReferralStats,
 } from "../lib/api.js";
 import { BOT_NAME } from "../lib/branding.js";
+import {
+  haltAndForward,
+  isOtherSlashCommand,
+} from "../lib/conversation-commands.js";
 import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
@@ -254,8 +258,6 @@ const REWARDS_WALLET_WARNING = [
   "Send the new rewards wallet address (0x-prefixed, 40 hex chars).",
 ].join("\n");
 
-const isCancel = (text: string): boolean => text.trim() === "/cancel";
-
 /**
  * Well-known burn / null addresses. `0x0` is the EVM null sink;
  * `0xdEaD…dEaD` is the de-facto community burn (used by countless
@@ -324,12 +326,7 @@ const runPinGate = async (
       await conversation.external((outside) =>
         sweepPinMessage(outside, chatId, msg.message.message_id),
       );
-      if (isCancel(text)) {
-        await ctx.reply(
-          wrap(ctx, "Rewards-wallet change cancelled."),
-        );
-        return false;
-      }
+      if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       if (!PinManager.isValidPinFormat(text)) {
         const retry = await ctx.reply(
           wrap(ctx,
@@ -353,12 +350,7 @@ const runPinGate = async (
       await conversation.external((outside) =>
         sweepPinMessage(outside, chatId, msg.message.message_id),
       );
-      if (isCancel(text)) {
-        await ctx.reply(
-          wrap(ctx, "Rewards-wallet change cancelled."),
-        );
-        return false;
-      }
+      if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       if (text !== candidate) {
         const retry = await ctx.reply(
           wrap(ctx,
@@ -391,12 +383,7 @@ const runPinGate = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(
-        wrap(ctx, "Rewards-wallet change cancelled."),
-      );
-      return false;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
@@ -477,13 +464,7 @@ const changeRewardsWalletConversation = async (
     const msg = await conversation.waitFor("message:text");
     await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
-    if (isCancel(text)) {
-      await ctx.reply(
-        wrap(ctx, "Rewards-wallet change cancelled."),
-      );
-      await sweepWorkflow(conversation);
-      return;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!isAddress(text, { strict: false })) {
       const retry = await ctx.reply(
         wrap(ctx,
@@ -515,13 +496,8 @@ const changeRewardsWalletConversation = async (
       const confirmMsg = await conversation.waitFor("message:text");
       await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
       const confirmText = confirmMsg.message.text.trim();
-      if (isCancel(confirmText)) {
-        await ctx.reply(
-          wrap(ctx, "Rewards-wallet change cancelled."),
-        );
-        await sweepWorkflow(conversation);
-        return;
-      }
+      if (isOtherSlashCommand(confirmText))
+        await haltAndForward(conversation);
       if (confirmText.toLowerCase() !== "confirm") {
         // Treat anything else as a fresh address attempt — loop back
         // through the validator so the user can recover from the

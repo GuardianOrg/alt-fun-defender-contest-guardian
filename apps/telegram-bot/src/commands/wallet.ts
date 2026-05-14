@@ -12,7 +12,11 @@ import {
   buildWalletSwitchKeyboard,
 } from "../keyboards/wallet-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
-import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import {
+  haltAndForward,
+  isOtherSlashCommand,
+  tryAddressBuyIntercept,
+} from "../lib/conversation-commands.js";
 import { PinManager } from "../lib/pin.js";
 import {
   DuplicateWalletError,
@@ -288,13 +292,11 @@ const scheduleRevealAutoDelete = (
   }, EXPORT_REVEAL_AUTO_DELETE_MS);
 };
 
-const isCancel = (text: string): boolean => text.trim() === "/cancel";
-
 /**
  * First-time PIN set wizard: ask, validate format, ask again to
- * confirm, persist. Returns true on success, false if the user
- * /cancel'd. Each PIN message is swept out of chat history the
- * instant we've read it.
+ * confirm, persist. Returns true on success, false if the user typed a
+ * slash command to bail out. Each PIN message is swept out of chat
+ * history the instant we've read it.
  */
 const capitalize = (s: string): string =>
   s.charAt(0).toUpperCase() + s.slice(1);
@@ -326,12 +328,7 @@ const runPinSetFlow = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(
-        wrap(ctx, `${capitalize(actionLabel)} cancelled.`),
-      );
-      return false;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
         wrap(ctx,
@@ -357,12 +354,7 @@ const runPinSetFlow = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(
-        wrap(ctx, `${capitalize(actionLabel)} cancelled.`),
-      );
-      return false;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
         wrap(ctx,
@@ -419,12 +411,7 @@ const runPinVerifyFlow = async (
     await conversation.external((outside) =>
       sweepPinMessage(outside, chatId, msg.message.message_id),
     );
-    if (isCancel(text)) {
-      await ctx.reply(
-        wrap(ctx, `${capitalize(actionLabel)} cancelled.`),
-      );
-      return false;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
@@ -632,11 +619,7 @@ const importWalletConversation = async (
       sweepPinMessage(outside, chatId, reply.message.message_id),
     );
 
-    if (isCancel(text)) {
-      await ctx.reply(wrap(ctx, "Import cancelled."));
-      await sweepWorkflow(conversation);
-      return;
-    }
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (await tryAddressBuyIntercept(conversation, text)) return;
 
     const parsed = parsePrivateKey(text);
@@ -798,9 +781,9 @@ const deleteWalletConversation = async (
   const confirmText = confirmMsg.message.text.trim();
   if (await tryAddressBuyIntercept(conversation, confirmText)) return;
   if (confirmText !== "DELETE") {
-    // Anything other than the exact uppercase token aborts — `/cancel`,
-    // lowercase, typo, fat-fingered emoji. The strictness is the point;
-    // this gate exists to require deliberate action.
+    // Anything other than the exact uppercase token aborts — lowercase,
+    // typo, fat-fingered emoji. The strictness is the point; this gate
+    // exists to require deliberate action.
     await ctx.reply(wrap(ctx, "Delete cancelled."));
     await sweepWorkflow(conversation);
     return;
