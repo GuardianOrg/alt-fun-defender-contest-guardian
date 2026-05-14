@@ -15,6 +15,7 @@ import {
   withAntiPhishing,
   wrapWithCtxPhrase as wrap,
 } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import {
   PIN_RESET_DELAY_MS,
   PinManager,
@@ -478,6 +479,7 @@ const setPhraseConversation = async (
       return;
     }
     const trimmed = text.trim();
+    if (await tryAddressBuyIntercept(conversation, trimmed)) return;
     if (trimmed.length === 0) {
       const retry = await ctx.reply(
         wrap(ctx, "Phrase cannot be empty. Send again or /cancel."),

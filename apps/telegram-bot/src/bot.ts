@@ -7,6 +7,8 @@ import {
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
+import { extractTokenAddress } from "./lib/api.js";
+import { showBuyCardForAddress } from "./lib/buy-card.js";
 import { registerCloseCallback } from "./lib/close.js";
 import { logger } from "./lib/logger.js";
 import { registerBuyCommand } from "./commands/buy.js";
@@ -241,6 +243,19 @@ export const createBot = (
   registerTrackCommand(bot);
   registerWalletCommand(bot);
   registerWithdrawCommand(bot);
+
+  // Bare-text fallback: outside any active conversation (the conversations
+  // plugin already consumes updates while one is running) and outside any
+  // slash command (handled above), a plain message that contains a
+  // contract address pivots to the buy card. Issue #821 — pasting an
+  // address anywhere in the bot should land the user on the buy menu.
+  bot.on("message:text", async (ctx) => {
+    const text = ctx.message.text.trim();
+    if (text.startsWith("/")) return;
+    const addr = extractTokenAddress(text);
+    if (!addr) return;
+    await showBuyCardForAddress(ctx, addr);
+  });
 
   bot.catch((err) => {
     // Logged + swallowed so a bug in any handler can't propagate

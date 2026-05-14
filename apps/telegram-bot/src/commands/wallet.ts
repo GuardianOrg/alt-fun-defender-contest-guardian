@@ -12,6 +12,7 @@ import {
   buildWalletSwitchKeyboard,
 } from "../keyboards/wallet-actions.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
 import { PinManager } from "../lib/pin.js";
 import {
   DuplicateWalletError,
@@ -191,6 +192,7 @@ const renameWalletConversation = async (
   const reply = await conversation.waitFor("message:text");
   await trackWorkflowMessage(conversation, reply.message.message_id);
   const label = reply.message.text.trim();
+  if (await tryAddressBuyIntercept(conversation, label)) return;
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
       wrap(ctx,
@@ -621,6 +623,7 @@ const importWalletConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
 
     const parsed = parsePrivateKey(text);
     if (!parsed) {
@@ -776,6 +779,7 @@ const deleteWalletConversation = async (
   const confirmMsg = await conversation.waitFor("message:text");
   await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
   const confirmText = confirmMsg.message.text.trim();
+  if (await tryAddressBuyIntercept(conversation, confirmText)) return;
   if (confirmText !== "DELETE") {
     // Anything other than the exact uppercase token aborts — `/cancel`,
     // lowercase, typo, fat-fingered emoji. The strictness is the point;

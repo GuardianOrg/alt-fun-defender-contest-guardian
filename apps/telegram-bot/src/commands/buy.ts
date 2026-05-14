@@ -19,6 +19,7 @@ import {
   haltAndForward,
   isCancel,
   isOtherSlashCommand,
+  tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
 import {
   cancelTrade,
@@ -219,6 +220,7 @@ const buyCustomConversation = async (
       await sweepWorkflow(conversation);
       await haltAndForward(conversation);
     }
+    if (await tryAddressBuyIntercept(conversation, text)) return;
 
     const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
     if (amount === null) {
