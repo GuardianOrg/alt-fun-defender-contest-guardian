@@ -271,7 +271,7 @@ export function useBalances() {
       // On-chain multicall is authoritative and works regardless of indexer
       // health. The API path (`fetchRawBalancesFromApi`) reads the indexer's
       // `tokenBalance` index, which is currently empty for every token (see
-      // bounce-tech/alt-fun#418 — `Token:Transfer` events are not being
+      // #418 — `Token:Transfer` events are not being
       // ingested), so it silently returns no positions and the "MY POSITIONS"
       // panel always shows "No positions yet". Until #418 ships, chain is
       // the source of truth here; the API call is kept as a fallback for

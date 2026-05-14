@@ -9,8 +9,7 @@
  * normalisation the API has been storing values like `javascript:alert(1)`,
  * `https://x.com.evil.tld/login`, or IDN homographs (`https://х.com/...`),
  * any of which becomes a stored phishing or XSS sink the moment a future
- * render path drops the current `startsWith("http")` guard. See
- * https://github.com/bounce-tech/alt-fun/issues/400.
+ * render path drops the current `startsWith("http")` guard. See #400.
  *
  * Strategy:
  *   - Twitter / X and Telegram are stored as **handles only** (e.g. `alice`
