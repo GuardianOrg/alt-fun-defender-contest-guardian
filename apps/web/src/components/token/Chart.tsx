@@ -1,16 +1,14 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useEffect, useRef, useState } from "react";
 
 import styles from "./Chart.module.css";
 import { useChart } from "../../hooks/useChart";
 import { useChartData } from "../../hooks/useChartData";
-import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
+// import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
 } from "../../services/api";
-import { cn, formatMcapUsd, formatPercent } from "../../utils/format";
-import RollingNumber from "../shared/RollingNumber";
+import { cn } from "../../utils/format";
 import SegmentedButton from "../shared/SegmentedButton";
 
 import type {
@@ -77,7 +75,7 @@ export default function Chart({ address, token }: Props) {
     };
   }, [intervalMenuOpen]);
 
-  const { mcapUsd, change24h } = useTokenMarketStats(address);
+  // const { mcapUsd, change24h } = useTokenMarketStats(address);
 
   const { candles, loading } = useChartData(
     address,
