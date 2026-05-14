@@ -153,6 +153,25 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(buttons.some((b) => b.text.includes("Buy 100"))).toBe(true);
   });
 
+  it("pasting a bare address sweeps the user's message before showing the buy card", async () => {
+    const h = await harnessWithWallet();
+    wireMocks(fetchSpy);
+
+    await h.run(messageUpdate(TOKEN_ADDR, 13));
+
+    const calls = capture(fetchSpy);
+    const del = calls.find((c) => c.url.includes("/deleteMessage"));
+    expect(del).toBeDefined();
+    expect(del!.body).toMatchObject({
+      chat_id: CHAT_ID,
+      // messageUpdate(_, 13) → message_id = 100 + 13 = 113
+      message_id: 113,
+    });
+    // The card still ships even though the user's message was wiped.
+    const card = findCardSend(calls);
+    expect(card).toBeDefined();
+  });
+
   it("pasting an alt.fun URL outside any flow lands the buy card too", async () => {
     const h = await harnessWithWallet();
     wireMocks(fetchSpy);
@@ -199,6 +218,51 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(
       calls.filter((c) => c.url.includes("/sendMessage")),
     ).toHaveLength(0);
+    // The intercept short-circuits before the deleteMessage call too —
+    // the bot must not try to delete user posts in groups it doesn't
+    // own.
+    expect(
+      calls.filter((c) => c.url.includes("/deleteMessage")),
+    ).toHaveLength(0);
+  });
+
+  it("buy card still ships when deleteMessage fails (best-effort sweep, hard guarantee on the card)", async () => {
+    const h = await harnessWithWallet();
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url.includes("/deleteMessage")) {
+        // Telegram returns 400 when the message is already gone — the
+        // intercept must swallow and still ship the card.
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error_code: 400,
+            description: "Bad Request: message to delete not found",
+          }),
+          { status: 400 },
+        );
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000_000n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return tokenResponse();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(messageUpdate(TOKEN_ADDR, 14));
+
+    const card = findCardSend(capture(fetchSpy));
+    expect(card).toBeDefined();
+    expect(String(card!.body.text)).toContain("TEST");
   });
 
   it("non-address text outside any flow is ignored (no buy card, no error)", async () => {
