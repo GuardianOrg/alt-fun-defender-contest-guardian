@@ -156,18 +156,12 @@ describe("pp callback (positions pagination)", () => {
     for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
     }
-    // Each open position emits a `[<TICKER>]` track row followed by a
-    // `[Buy] [Sell]` row. Non-nav, non-Close rows therefore alternate
-    // track/buy-sell. The tickers on this page must also appear in the
-    // body text — so a navigation never desyncs the keyboard from the
+    // Every non-nav, non-Close row must be a Buy/Sell pair pointing at
+    // a token. The tickers on this page must also appear in the body
+    // text — so a navigation never desyncs the keyboard from the
     // visible list.
-    const actionRows = rows.slice(0, -2);
-    expect(actionRows.length % 2).toBe(0);
-    for (let i = 0; i < actionRows.length; i += 2) {
-      const track = actionRows[i]!;
-      expect(track).toHaveLength(1);
-      expect(track[0]!.callback_data.startsWith("pt:0x")).toBe(true);
-      const row = actionRows[i + 1]!;
+    for (let i = 0; i < rows.length - 2; i++) {
+      const row = rows[i]!;
       expect(row).toHaveLength(2);
       const buyLabel = row[0]!.text;
       const sellLabel = row[1]!.text;
@@ -176,8 +170,15 @@ describe("pp callback (positions pagination)", () => {
       expect(row[0]!.callback_data.startsWith("pb:0x")).toBe(true);
       expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
       const ticker = buyLabel.slice("Buy ".length);
-      expect(track[0]!.text).toBe(ticker);
       expect(body.text).toContain(ticker);
+      // Ticker appears in the body as an anchor pointing at the bot's
+      // `?start=track_<addr>` deeplink.
+      expect(body.text).toMatch(
+        new RegExp(
+          `<a href="https://t\\.me/[^"]+\\?start=track_0x[0-9a-f]{40}">${ticker}</a>`,
+          "i",
+        ),
+      );
     }
   });
 
@@ -201,13 +202,11 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     const rows = body.reply_markup!.inline_keyboard;
-    // Track row + buy/sell row + trailing Close row.
-    expect(rows).toHaveLength(3);
-    expect(rows[0]).toHaveLength(1);
-    expect(rows[0]![0]!.callback_data.startsWith("pt:0x")).toBe(true);
-    expect(rows[1]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
-    expect(rows[1]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    // One action row + trailing Close row.
+    expect(rows).toHaveLength(2);
+    expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
+    expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {

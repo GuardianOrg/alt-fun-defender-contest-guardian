@@ -141,17 +141,36 @@ export const escapeHtml = (s: string): string =>
 const formatTokenAddress = (token: string): string =>
   `<code>${token}</code>`;
 
-const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
+/**
+ * Render a `track_<addr>` deeplink to the bot. Tapping the ticker on an
+ * open-position line bounces the user through Telegram's link handler
+ * back into this same bot's chat with `/start track_<addr>` — the
+ * `/start` handler routes the payload to the /track card. Telegram
+ * accepts both `https://t.me/<bot>?start=<payload>` and the in-app
+ * `tg://resolve?domain=<bot>&start=<payload>` form; we use the https
+ * variant because Telegram's preview UI shows a friendlier label.
+ */
+const trackDeeplinkHref = (botUsername: string, token: string): string =>
+  `https://t.me/${botUsername}?start=track_${token}`;
+
+const formatOpenLine = (
+  pos: BotOpenPosition,
+  limit: number,
+  botUsername: string | null,
+): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
     `\n  ${formatTokenAddress(pos.token)}` +
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
     `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
-  const label =
+  const truncated =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
+  const label = botUsername
+    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
+    : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
@@ -203,6 +222,7 @@ export interface PositionsPage {
  */
 export const formatBotPositionsResponse = (
   data: BotPositionsResponse,
+  botUsername: string | null = null,
 ): PositionsPage[] => {
   if (data.open.length === 0 && data.realised.length === 0) {
     return [{ text: "No open positions for this wallet.", openActions: [] }];
@@ -217,7 +237,7 @@ export const formatBotPositionsResponse = (
   if (data.open.length > 0) {
     header = `Open positions (${data.open.length})`;
     for (const p of data.open) {
-      lines.push(formatOpenLine(p, limit));
+      lines.push(formatOpenLine(p, limit, botUsername));
       lineActions.push({ token: p.token, ticker: p.ticker });
     }
   }
@@ -276,13 +296,12 @@ const chunkPositionsPages = (
 
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
 /**
- * Per-position buy/sell/track callback short codes (Telegram's 64-byte
- * `callback_data` ceiling is tight — `pb`/`ps`/`pt` + 0x-prefixed
- * 40-char address fits with room to spare).
+ * Per-position buy/sell callback short codes (Telegram's 64-byte
+ * `callback_data` ceiling is tight — `pb`/`ps` + 0x-prefixed 40-char
+ * address fits with room to spare).
  */
 export const POSITIONS_BUY_CALLBACK_CMD = "pb";
 export const POSITIONS_SELL_CALLBACK_CMD = "ps";
-export const POSITIONS_TRACK_CALLBACK_CMD = "pt";
 
 export interface InlineKeyboardButton {
   text: string;
@@ -349,18 +368,6 @@ export const buildPositionsPageKeyboard = (
   const rows: InlineKeyboardButton[][] = [];
   for (const action of openActions) {
     const label = truncateTickerForButton(action.ticker);
-    // Per-position track row — labelled with the ticker so it reads as
-    // a "name link" for the position. Tapping edits the /positions
-    // message in place into the /track view for this token.
-    rows.push([
-      {
-        text: label,
-        callback_data: encodeCallback(
-          POSITIONS_TRACK_CALLBACK_CMD,
-          action.token,
-        ),
-      },
-    ]);
     rows.push([
       {
         text: `Buy ${label}`,

@@ -391,36 +391,19 @@ const sendTrackReply = async (
 };
 
 /**
- * Edit-in-place variant: edit the callback's source bubble into the
- * /track text card. The chart image (if any) is sent as a separate
- * reply because Telegram cannot edit a text bubble into a photo. Used
- * by the per-open-position track button on /positions so tapping a
- * token name replaces the positions view with that token's track card.
+ * Render the full /track view as a fresh reply in the current chat —
+ * chart photo (if available) first, then the text card with its action
+ * keyboard. Shared between the `/track <addr>` slash entry and the
+ * `/start track_<addr>` deeplink fired by the inline ticker links on
+ * each open `/positions` row.
  */
-export const editToTrackCard = async (
+export const replyWithTrackCard = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<"ok" | "not_found" | "unavailable"> => {
   const result = await buildTrack(ctx.env, tokenAddress);
   if (!result.ok) return result.kind;
-  if (result.render.chartPng) {
-    try {
-      await ctx.replyWithPhoto(
-        new InputFile(
-          result.render.chartPng,
-          `${result.render.tokenName || "chart"}.png`,
-        ),
-      );
-    } catch (err) {
-      logger.warn("track chart send failed", { err });
-    }
-  }
-  await editToSubmenu(ctx, {
-    text: result.render.text,
-    parseMode: "HTML",
-    inlineKeyboard: result.render.keyboard,
-    linkPreviewDisabled: true,
-  });
+  await sendTrackReply(ctx, result.render);
   return "ok";
 };
 

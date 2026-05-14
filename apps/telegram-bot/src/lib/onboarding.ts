@@ -59,17 +59,17 @@ export const parseStartParam = (raw: string | undefined): StartParam | null => {
 };
 
 /**
- * Action deeplink payload — `buy_<addr>` or `sell_<addr>` — emitted by
- * the inline `Buy` / `Sell` HTML anchors on each open position in
- * `/positions`. Tapping the anchor returns the user to the bot chat
- * and fires `/start <payload>`, which the start handler routes to a
- * fresh buy/sell card for the selected token.
+ * Action deeplink payload — `buy_<addr>` / `sell_<addr>` / `track_<addr>`
+ * — emitted by the inline links on each open position in `/positions`.
+ * Tapping the link returns the user to the bot chat and fires
+ * `/start <payload>`, which the start handler routes to a fresh
+ * buy / sell / track card for the selected token.
  *
  * Kept separate from `parseStartParam` so the referral resolver path
  * never sees an action payload and vice versa.
  */
 export type ActionStartParam = {
-  action: "buy" | "sell";
+  action: "buy" | "sell" | "track";
   token: Address;
 };
 
@@ -82,7 +82,7 @@ export const parseActionStartParam = (
   if (sep <= 0) return null;
   const prefix = arg.slice(0, sep);
   const body = arg.slice(sep + 1);
-  if (prefix !== "buy" && prefix !== "sell") return null;
+  if (prefix !== "buy" && prefix !== "sell" && prefix !== "track") return null;
   if (!isAddress(body, { strict: false })) return null;
   return { action: prefix, token: body.toLowerCase() as Address };
 };
