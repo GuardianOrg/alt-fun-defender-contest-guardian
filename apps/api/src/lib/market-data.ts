@@ -155,7 +155,20 @@ export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
   }
 }
 
-const BATCH_SIZE = 50;
+/**
+ * Number of `tokenSnapshots(...)` aliases per outbound GraphQL request to
+ * Ponder. Bounded by graphql-yoga's default `MaxTokensPlugin` ceiling of
+ * **1,000 lexer tokens per document** — our per-alias selection (with
+ * `where`, `orderBy`, `orderDirection`, `limit`, and the inner `items {
+ * curveSupply ltReserve timestamp }` block) weighs in at ~32 tokens, so
+ * the parse-time cliff sits at ~31 aliases. Confirmed empirically against
+ * prod Ponder (batch=30 → ok, batch=35 → `Syntax Error: Token limit of
+ * 1000 exceeded.`). 25 leaves comfortable margin for adding one more
+ * inner field without re-tripping the limit. The fan-out is parallelised
+ * across batches (see `fetchHistoricalCurveSnapshots`), so smaller
+ * batches do not regress wall-clock latency.
+ */
+const BATCH_SIZE = 25;
 
 export async function fetchAllTokensOnchain(
   ponderUrl: string | undefined,
@@ -513,27 +526,49 @@ export async function fetchHistoricalCurveSnapshots(
   const snapshots = new Map<string, PonderTokenSnapshot | null>();
   for (const addr of tokenAddresses) snapshots.set(addr, null);
 
+  // Chunk the address list into batches sized below graphql-yoga's
+  // per-document token limit (see `BATCH_SIZE`'s docstring). The batches
+  // are independent — each builds its own aliased GraphQL document and
+  // populates a disjoint slice of `snapshots` — so we run them in
+  // parallel. Sequential dispatch would multiply the route's tail
+  // latency by the batch count (6–10× under the current catalogue
+  // size), which is the regression `BATCH_SIZE = 50` was originally
+  // chosen to avoid before we learned about the parse-time limit.
+  const batches: string[][] = [];
   for (let i = 0; i < tokenAddresses.length; i += BATCH_SIZE) {
-    const batch = tokenAddresses.slice(i, i + BATCH_SIZE);
-    const selections = batch
-      .map(
-        (addr, j) =>
-          `t${j}: tokenSnapshots(
-            where: { tokenAddress: "${addr}", timestamp_lte: "${cutoffSec}" }
-            orderBy: "timestamp"
-            orderDirection: "desc"
-            limit: 1
-          ) { items { curveSupply, ltReserve, timestamp } }`,
-      )
-      .join("\n");
+    batches.push(tokenAddresses.slice(i, i + BATCH_SIZE));
+  }
 
-    const query = `query {
-      ${selections}
-    }`;
+  const batchResults = await Promise.all(
+    batches.map((batch) => {
+      const selections = batch
+        .map(
+          (addr, j) =>
+            `t${j}: tokenSnapshots(
+              where: { tokenAddress: "${addr}", timestamp_lte: "${cutoffSec}" }
+              orderBy: "timestamp"
+              orderDirection: "desc"
+              limit: 1
+            ) { items { curveSupply, ltReserve, timestamp } }`,
+        )
+        .join("\n");
 
-    const data = await queryPonder<Record<string, PonderSnapshotPage>>(query);
+      const query = `query {
+        ${selections}
+      }`;
+
+      return queryPonder<Record<string, PonderSnapshotPage>>(query);
+    }),
+  );
+
+  // Any single batch failing is unrecoverable for *this* slice of
+  // tokens, but the route degrades cleanly on a null return (see
+  // `buildBatchFromTokens`'s failure-mode policy), so we surface null
+  // here and let the caller decide.
+  for (let b = 0; b < batches.length; b++) {
+    const data = batchResults[b];
     if (data === null) return null;
-
+    const batch = batches[b];
     for (let j = 0; j < batch.length; j++) {
       const page = data[`t${j}`];
       snapshots.set(batch[j], page?.items?.[0] ?? null);
@@ -666,13 +701,21 @@ export interface PastPriceInputs {
  * `k` (the AMM invariant set in `Pair.mint`) rather than querying Ponder —
  * a just-launched token has no `tokenSnapshot` rows yet, but its initial
  * state is fully determined by `(TOTAL_SUPPLY_RAW, k / TOTAL_SUPPLY_RAW)`.
+ *
+ * `historicalCurve` / `historicalLtRatesAtCutoff` /
+ * `historicalLtRatesAtLaunch` may be `null` when the corresponding upstream
+ * query failed entirely (Ponder / BounceTech outage). In that case the
+ * function returns `null` for the affected branch — distinct from a
+ * specific token's row being missing from a *successful* fetch, which
+ * legitimately means "no curve activity since cutoff" and falls through
+ * to the live curve state as the historical reference.
  */
 export function buildPastPriceInputs(
   token: PonderTokenOnchain,
   cutoffSec: number,
-  historicalCurve: Map<string, PonderTokenSnapshot | null>,
-  historicalLtRatesAtCutoff: Map<string, number>,
-  historicalLtRatesAtLaunch: Map<string, number>,
+  historicalCurve: Map<string, PonderTokenSnapshot | null> | null,
+  historicalLtRatesAtCutoff: Map<string, number> | null,
+  historicalLtRatesAtLaunch: Map<string, number> | null,
 ): PastPriceInputs | null {
   const ltAddr = token.ltToken.toLowerCase();
   const tokenAddr = token.address.toLowerCase();
@@ -680,6 +723,7 @@ export function buildPastPriceInputs(
   const tokenIsTooNew = launchTimestamp > cutoffSec;
 
   if (tokenIsTooNew) {
+    if (historicalLtRatesAtLaunch === null) return null;
     const ltRate = historicalLtRatesAtLaunch.get(tokenAddr);
     if (ltRate === undefined || ltRate <= 0) return null;
 
@@ -696,6 +740,16 @@ export function buildPastPriceInputs(
       ltReserve: kRaw / TOTAL_SUPPLY_RAW,
       ltRate,
     };
+  }
+
+  // Old token path: needs both the LT rate at cutoff and (optionally) a
+  // historical curve snapshot. A missing snapshot for a *single* token in
+  // a successful Ponder fetch means "no curve activity since cutoff" and
+  // is correctly resolved by falling through to the live curve state. A
+  // null `historicalCurve` map means the entire upstream fetch failed, so
+  // we don't have that signal and must surface a null past price.
+  if (historicalCurve === null || historicalLtRatesAtCutoff === null) {
+    return null;
   }
 
   const ltRate = historicalLtRatesAtCutoff.get(ltAddr);
@@ -767,13 +821,26 @@ export interface MarketDataBatch {
 }
 
 export type MarketDataBatchResult =
-  | { ok: true; data: MarketDataBatch }
+  | { ok: true; data: MarketDataBatch; dataSource?: "live" | "degraded" }
   | { ok: false; error: string; code: 503 };
 
 /**
  * Given a resolved set of `PonderTokenOnchain` rows, fetch the current and
  * historical price inputs from BounceTech + Ponder and compute
  * `(priceUsd, mcapUsd, change24h)` keyed by lowercased token address.
+ *
+ * Failure-mode policy: failures in the **current**-price inputs
+ * (`fetchLiveLtRates`) bubble up as `ok: false` 503, since without them
+ * every `priceUsd` / `mcapUsd` would be null. Failures in the **historical**
+ * inputs (`fetchHistoricalCurveSnapshots`,
+ * `fetchHistoricalLtRates`, `fetchLtRatesAtLaunches`) degrade gracefully
+ * instead — they only feed `past24hPriceUsd` / `change24h` / `ltChange24h`,
+ * so we still emit usable price/mcap/volume rows and surface the partial
+ * payload as `dataSource: "degraded"`. Previously a transient indexer
+ * hiccup on the heavy aliased `tokenSnapshots` query 503'd the whole
+ * route, nuking the frontend's polled price feed for every connected
+ * client. Same approach `routerActivity` already takes for
+ * `volume24hUsd` / `lastTradeAtSec`.
  */
 export async function buildBatchFromTokens(
   ponderUrl: string | undefined,
@@ -781,7 +848,7 @@ export async function buildBatchFromTokens(
   tokens: PonderTokenOnchain[],
 ): Promise<MarketDataBatchResult> {
   if (tokens.length === 0) {
-    return { ok: true, data: { tokens: [], market: {} } };
+    return { ok: true, data: { tokens: [], market: {} }, dataSource: "live" };
   }
 
   const liveLtRates = await fetchLiveLtRates();
@@ -827,23 +894,24 @@ export async function buildBatchFromTokens(
     fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
     fetchRouterTradeActivity(ponderUrl, allTokenAddresses, nowSec),
   ]);
-  if (historicalCurve === null) {
-    return { ok: false, error: "Indexer unavailable", code: 503 };
-  }
-  if (historicalLtRatesAtCutoff === null || historicalLtRatesAtLaunch === null) {
-    return {
-      ok: false,
-      error: "BounceTech snapshot DB unavailable",
-      code: 503,
-    };
-  }
+
+  // `buildPastPriceInputs` accepts null for each historical map and
+  // collapses to `past24hPriceUsd: null` / `change24h: null` for the
+  // affected tokens — same treatment `routerActivity` already gets for
+  // `volume24hUsd` / `lastTradeAtSec`. We flip `dataSource` to
+  // `"degraded"` whenever any of these queries failed so the frontend's
+  // `apiFetch` can surface a status banner.
+  const historicalDegraded =
+    historicalCurve === null ||
+    historicalLtRatesAtCutoff === null ||
+    historicalLtRatesAtLaunch === null;
 
   const market: Record<string, MarketDataItem> = {};
   for (const token of tokens) {
     const addr = token.address.toLowerCase();
     const ltAddr = token.ltToken.toLowerCase();
     const currentLtRate = liveLtRates.get(ltAddr) ?? 0;
-    const ltRate24hAgo = historicalLtRatesAtCutoff.get(ltAddr) ?? null;
+    const ltRate24hAgo = historicalLtRatesAtCutoff?.get(ltAddr) ?? null;
     const past = buildPastPriceInputs(
       token,
       cutoffSec,
@@ -874,7 +942,12 @@ export async function buildBatchFromTokens(
     );
   }
 
-  return { ok: true, data: { tokens, market } };
+  return {
+    ok: true,
+    data: { tokens, market },
+    dataSource:
+      historicalDegraded || routerActivity === null ? "degraded" : "live",
+  };
 }
 
 /**
@@ -919,6 +992,7 @@ export type MarketDataSingleResult =
   | {
       ok: true;
       data: { token: PonderTokenOnchain; market: MarketDataItem };
+      dataSource?: "live" | "degraded";
     }
   | { ok: false; error: string; code: 404 | 503 };
 
@@ -942,5 +1016,5 @@ export async function computeMarketDataSingle(
   if (!market) {
     return { ok: false, error: "Indexer unavailable", code: 503 };
   }
-  return { ok: true, data: { token, market } };
+  return { ok: true, data: { token, market }, dataSource: result.dataSource };
 }

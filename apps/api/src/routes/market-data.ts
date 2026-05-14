@@ -14,6 +14,13 @@ import type { AppBindings } from "../lib/types.js";
 export type { MarketDataItem };
 
 const CACHE_TTL_SECONDS = 30;
+/**
+ * Shorter TTL when the response is marked `dataSource: "degraded"`, so a
+ * transient indexer hiccup doesn't pin the whole edge cache to partial data
+ * for a full minute. 5s matches the cadence the frontend already polls at
+ * for live-feed surfaces.
+ */
+const DEGRADED_CACHE_TTL_SECONDS = 5;
 
 const marketData = new Hono<{ Bindings: AppBindings }>();
 
@@ -35,8 +42,11 @@ marketData.get("/", async (c) => {
     return c.json(formatError(result.error), result.code);
   }
 
-  const response = c.json(formatSuccess(result.data.market));
-  response.headers.set("Cache-Control", `s-maxage=${CACHE_TTL_SECONDS}`);
+  const dataSource = result.dataSource ?? "live";
+  const response = c.json(formatSuccess(result.data.market, dataSource));
+  const ttl =
+    dataSource === "live" ? CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
 
   if (cache) {
     await cache.put(cacheKey, response.clone());
@@ -60,7 +70,7 @@ marketData.get("/:address", async (c) => {
     return c.json(formatError(result.error), result.code);
   }
 
-  return c.json(formatSuccess(result.data.market));
+  return c.json(formatSuccess(result.data.market, result.dataSource ?? "live"));
 });
 
 export default marketData;

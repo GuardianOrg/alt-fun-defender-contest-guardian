@@ -98,7 +98,15 @@ describe("GET /market-data", () => {
     expect(body.error).toContain("BounceTech API");
   });
 
-  it("returns 503 when BounceTech snapshot DB is unreachable", async () => {
+  it("degrades gracefully (200 with null change24h, dataSource=degraded) when BounceTech snapshot DB is unreachable", async () => {
+    // BounceTech's snapshot DB feeds *historical* price math
+    // (`past24hPriceUsd` / `change24h` / `ltChange24h`). The live LT rate
+    // (and therefore `priceUsd` / `mcapUsd`) comes from a separate
+    // BounceTech endpoint — so a snapshot-DB outage shouldn't 503 the
+    // whole price feed, it should just null-out the change fields. The
+    // route flips `dataSource` to "degraded" so the frontend's apiFetch
+    // can surface a status banner. See `buildBatchFromTokens` for the
+    // policy split.
     mockPonderPaginatedQuery.mockResolvedValueOnce({
       items: [
         {
@@ -117,9 +125,73 @@ describe("GET /market-data", () => {
     const app = createApp();
     const res = await app.request("/market-data", {}, makeEnv());
 
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("BounceTech snapshot DB");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      dataSource: string;
+      data: Record<
+        string,
+        {
+          mcapUsd: number | null;
+          change24h: number | null;
+          ltChange24h: number | null;
+        }
+      >;
+    };
+    expect(body.dataSource).toBe("degraded");
+    const entry = body.data[TOKEN_A.toLowerCase()];
+    expect(entry.mcapUsd).toBeGreaterThan(0);
+    expect(entry.change24h).toBeNull();
+    expect(entry.ltChange24h).toBeNull();
+  });
+
+  it("degrades gracefully (200 with null change24h, dataSource=degraded) when the historical curve query fails", async () => {
+    // The aliased `tokenSnapshots` query in `fetchHistoricalCurveSnapshots`
+    // is the heavy one — 50 token aliases per batch — and is what trips
+    // the live-prod 503 the frontend sees when a slow Ponder query
+    // returns errors mid-batch. With the graceful-degradation policy, a
+    // null return from the historical curve fetch should only null-out
+    // the past-price-derived fields; the live `priceUsd` / `mcapUsd`
+    // path is untouched.
+    mockPonderPaginatedQuery.mockResolvedValueOnce({
+      items: [
+        {
+          address: TOKEN_A,
+          ltToken: LT_A,
+          curveSupply: "1000000000000000000000000",
+          ltReserve: "200000000000000000000",
+          timestamp: "1700000000",
+        },
+      ],
+    });
+    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    // Historical curve query returns null (queryPonder swallowed an
+    // upstream error). Old token path → past24h fields null.
+    mockPonderQuery.mockResolvedValueOnce(null);
+    // BounceTech historical rates are still up.
+    mockNeonQuery.mockResolvedValueOnce([
+      { token_address: LT_A, exchange_rate: "1500000000000000000" },
+    ]);
+
+    const app = createApp();
+    const res = await app.request("/market-data", {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      dataSource: string;
+      data: Record<
+        string,
+        {
+          mcapUsd: number | null;
+          change24h: number | null;
+          past24hPriceUsd: number | null;
+        }
+      >;
+    };
+    expect(body.dataSource).toBe("degraded");
+    const entry = body.data[TOKEN_A.toLowerCase()];
+    expect(entry.mcapUsd).toBeGreaterThan(0);
+    expect(entry.change24h).toBeNull();
+    expect(entry.past24hPriceUsd).toBeNull();
   });
 
   it("computes mcap and change24h from curve snapshot + historical LT rate", async () => {
