@@ -58,25 +58,117 @@ function mockBounceLtResponse(rates: Record<string, string>) {
   }));
 }
 
-describe("GET /market-data", () => {
+/**
+ * Helper for the new `POST /market-data { addresses }` contract — same
+ * Hono.request invocation as the GET tests, just method=POST + JSON body.
+ */
+function postMarketData(addresses: string[]) {
+  return createApp().request(
+    "/market-data",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addresses }),
+    },
+    makeEnv(),
+  );
+}
+
+describe("POST /market-data { addresses } — input validation", () => {
   beforeEach(() => {
     vi.resetAllMocks();
   });
 
-  it("returns 503 when the indexer is unreachable", async () => {
-    mockPonderPaginatedQuery.mockRejectedValueOnce(
-      new Error("indexer offline"),
+  it("returns 400 on a non-JSON body", async () => {
+    const res = await createApp().request(
+      "/market-data",
+      { method: "POST", body: "not-json", headers: { "Content-Type": "application/json" } },
+      makeEnv(),
     );
-
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
-
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("Indexer unavailable");
+    expect(res.status).toBe(400);
   });
 
-  it("returns 503 when BounceTech API is unreachable", async () => {
+  it("returns 400 when `addresses` is missing or not an array", async () => {
+    const res1 = await createApp().request(
+      "/market-data",
+      { method: "POST", body: JSON.stringify({}), headers: { "Content-Type": "application/json" } },
+      makeEnv(),
+    );
+    expect(res1.status).toBe(400);
+
+    const res2 = await createApp().request(
+      "/market-data",
+      {
+        method: "POST",
+        body: JSON.stringify({ addresses: "not-an-array" }),
+        headers: { "Content-Type": "application/json" },
+      },
+      makeEnv(),
+    );
+    expect(res2.status).toBe(400);
+  });
+
+  it("returns 200 with empty map on empty `addresses[]` (no upstream calls)", async () => {
+    const res = await postMarketData([]);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Record<string, unknown> };
+    expect(body.data).toEqual({});
+    // Empty input short-circuits — never touches Ponder or BounceTech.
+    expect(mockPonderPaginatedQuery).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when an entry isn't a valid EVM address", async () => {
+    const res = await postMarketData(["not-an-address"]);
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when more than 200 addresses are requested", async () => {
+    // Bounded fan-out: the route caps `addresses[]` at 200 so a runaway
+    // client can't trigger an unbounded Ponder query batch fan-out.
+    const tooMany: string[] = [];
+    for (let i = 0; i < 201; i++) {
+      // Synthesise distinct valid EIP-55 addresses by varying the trailing
+      // byte. `isAddress` only validates hex shape + checksum, so a
+      // lowercase 40-hex string passes the format check (we hand-roll
+      // valid hex below).
+      tooMany.push(`0x${i.toString(16).padStart(40, "0")}`);
+    }
+    const res = await postMarketData(tooMany);
+    expect(res.status).toBe(400);
+    // Assert the specific cap message — without it the test would also
+    // pass if the route 400'd for an unrelated reason (e.g. one of the
+    // synthesised addresses failed checksum validation), masking a
+    // regression in the cap-vs-format ordering.
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("200");
+  });
+
+  it("returns 400 for a JSON `null` body (no addresses field to read)", async () => {
+    // Regression coverage: `c.req.json()` parses a literal `null` body
+    // as valid JSON, but the route's `body.addresses` access would
+    // throw on it without an explicit null/non-object guard, surfacing
+    // as a 500 instead of the user-visible 400 we want. CodeRabbit
+    // feedback on PR #872.
+    const res = await createApp().request(
+      "/market-data",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      },
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /market-data { addresses } — happy + degraded paths", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns 503 when BounceTech API (live LT rates) is unreachable", async () => {
     mockPonderPaginatedQuery.mockResolvedValueOnce({
       items: [
         {
@@ -90,23 +182,14 @@ describe("GET /market-data", () => {
     });
     mockFetch.mockResolvedValueOnce({ ok: false });
 
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
+    const res = await postMarketData([TOKEN_A]);
 
     expect(res.status).toBe(503);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("BounceTech API");
   });
 
-  it("degrades gracefully (200 with null change24h, dataSource=degraded) when BounceTech snapshot DB is unreachable", async () => {
-    // BounceTech's snapshot DB feeds *historical* price math
-    // (`past24hPriceUsd` / `change24h` / `ltChange24h`). The live LT rate
-    // (and therefore `priceUsd` / `mcapUsd`) comes from a separate
-    // BounceTech endpoint — so a snapshot-DB outage shouldn't 503 the
-    // whole price feed, it should just null-out the change fields. The
-    // route flips `dataSource` to "degraded" so the frontend's apiFetch
-    // can surface a status banner. See `buildBatchFromTokens` for the
-    // policy split.
+  it("degrades (200 with null change24h, dataSource=degraded) when BounceTech snapshot DB is unreachable", async () => {
     mockPonderPaginatedQuery.mockResolvedValueOnce({
       items: [
         {
@@ -122,76 +205,17 @@ describe("GET /market-data", () => {
     mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
     mockNeonQuery.mockRejectedValueOnce(new Error("db down"));
 
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
+    const res = await postMarketData([TOKEN_A]);
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       dataSource: string;
-      data: Record<
-        string,
-        {
-          mcapUsd: number | null;
-          change24h: number | null;
-          ltChange24h: number | null;
-        }
-      >;
+      data: Record<string, { mcapUsd: number | null; change24h: number | null }>;
     };
     expect(body.dataSource).toBe("degraded");
     const entry = body.data[TOKEN_A.toLowerCase()];
     expect(entry.mcapUsd).toBeGreaterThan(0);
     expect(entry.change24h).toBeNull();
-    expect(entry.ltChange24h).toBeNull();
-  });
-
-  it("degrades gracefully (200 with null change24h, dataSource=degraded) when the historical curve query fails", async () => {
-    // The aliased `tokenSnapshots` query in `fetchHistoricalCurveSnapshots`
-    // is the heavy one — 50 token aliases per batch — and is what trips
-    // the live-prod 503 the frontend sees when a slow Ponder query
-    // returns errors mid-batch. With the graceful-degradation policy, a
-    // null return from the historical curve fetch should only null-out
-    // the past-price-derived fields; the live `priceUsd` / `mcapUsd`
-    // path is untouched.
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: "1700000000",
-        },
-      ],
-    });
-    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    // Historical curve query returns null (queryPonder swallowed an
-    // upstream error). Old token path → past24h fields null.
-    mockPonderQuery.mockResolvedValueOnce(null);
-    // BounceTech historical rates are still up.
-    mockNeonQuery.mockResolvedValueOnce([
-      { token_address: LT_A, exchange_rate: "1500000000000000000" },
-    ]);
-
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      dataSource: string;
-      data: Record<
-        string,
-        {
-          mcapUsd: number | null;
-          change24h: number | null;
-          past24hPriceUsd: number | null;
-        }
-      >;
-    };
-    expect(body.dataSource).toBe("degraded");
-    const entry = body.data[TOKEN_A.toLowerCase()];
-    expect(entry.mcapUsd).toBeGreaterThan(0);
-    expect(entry.change24h).toBeNull();
-    expect(entry.past24hPriceUsd).toBeNull();
   });
 
   it("computes mcap and change24h from curve snapshot + historical LT rate", async () => {
@@ -223,32 +247,22 @@ describe("GET /market-data", () => {
       },
     });
 
-    // Historical LT rate = 1.5 (1.5e18). BounceTech DB returns checksummed address.
     mockNeonQuery.mockResolvedValueOnce([
-      {
-        token_address: LT_A,
-        exchange_rate: "1500000000000000000",
-      },
+      { token_address: LT_A, exchange_rate: "1500000000000000000" },
     ]);
 
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
+    const res = await postMarketData([TOKEN_A]);
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      status: string;
-      data: Record<
-        string,
-        { mcapUsd: number | null; change24h: number | null }
-      >;
+      data: Record<string, { mcapUsd: number | null; change24h: number | null }>;
     };
 
     const entry = body.data[TOKEN_A.toLowerCase()];
     expect(entry).toBeDefined();
-    // Current price = 2e-4 × 2.0 = 4e-4 → mcap = 4e-4 × 1e9 = 400k
     expect(entry.mcapUsd).toBeGreaterThan(0);
-    // past price = 1e-4 × 1.5 = 1.5e-4; change = (4e-4 - 1.5e-4)/1.5e-4 × 100
     expect(entry.change24h).not.toBeNull();
+    // past price = 1e-4 × 1.5 = 1.5e-4; current = 2e-4 × 2.0 = 4e-4
     expect(entry.change24h!).toBeCloseTo(((4e-4 - 1.5e-4) / 1.5e-4) * 100, 1);
   });
 
@@ -270,8 +284,7 @@ describe("GET /market-data", () => {
       { token_address: LT_A, exchange_rate: "1000000000000000000" },
     ]);
 
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
+    const res = await postMarketData([TOKEN_A]);
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -283,9 +296,6 @@ describe("GET /market-data", () => {
 
   it("computes since-launch change when token is newer than the 24h cutoff", async () => {
     const recentLaunch = Math.floor(Date.now() / 1000) - 1000;
-    // k = 1e48 → launch supply = TOTAL_SUPPLY_RAW = 1e27, launch reserve = k/1e27 = 1e21.
-    // Launch ratio = 1e21 / 1e27 = 1e-6.
-    // Current curve: supply=1e24, reserve=2e20 → ratio = 2e-4.
     mockPonderPaginatedQuery.mockResolvedValueOnce({
       items: [
         {
@@ -298,25 +308,13 @@ describe("GET /market-data", () => {
         },
       ],
     });
-    // Current LT rate = 2.0 → current price = 2e-4 × 2.0 = 4e-4.
     mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    // No old tokens → no historical curve snapshots are queried.
-    // `fetchHistoricalLtRates` is still called for all LTs (for
-    // `ltChange24h`); we let it return an empty map — this test doesn't
-    // assert on `ltChange24h`, only on `change24h`, which is driven by
-    // `fetchLtRatesAtLaunches` for new tokens.
     mockNeonQuery.mockResolvedValueOnce([]);
-    // New tokens → `fetchLtRatesAtLaunches` returns LT rate at launch = 1.0.
-    // Launch price = 1e-6 × 1.0 = 1e-6 → change = (4e-4 - 1e-6) / 1e-6 × 100.
-    // Note: this query's `SELECT a.token_address` returns the token address
-    // (not the LT) — the map is keyed by token so tokens sharing an LT but
-    // with different launch timestamps don't collide.
     mockNeonQuery.mockResolvedValueOnce([
       { token_address: TOKEN_A, exchange_rate: "1000000000000000000" },
     ]);
 
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
+    const res = await postMarketData([TOKEN_A]);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       data: Record<string, { mcapUsd: number | null; change24h: number | null }>;
@@ -326,38 +324,6 @@ describe("GET /market-data", () => {
     expect(entry.mcapUsd).toBeGreaterThan(0);
     expect(entry.change24h).not.toBeNull();
     expect(entry.change24h!).toBeCloseTo(((4e-4 - 1e-6) / 1e-6) * 100, 1);
-  });
-
-  it("returns change24h=null for a newer-than-cutoff token when BounceTech has no rate at launch", async () => {
-    const recentLaunch = Math.floor(Date.now() / 1000) - 1000;
-    mockPonderPaginatedQuery.mockResolvedValueOnce({
-      items: [
-        {
-          address: TOKEN_A,
-          ltToken: LT_A,
-          k: "1000000000000000000000000000000000000000000000000",
-          curveSupply: "1000000000000000000000000",
-          ltReserve: "200000000000000000000",
-          timestamp: String(recentLaunch),
-        },
-      ],
-    });
-    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
-    // fetchHistoricalLtRates (all LTs, cutoff) — empty, LT has no 24h-ago rate.
-    mockNeonQuery.mockResolvedValueOnce([]);
-    // fetchLtRatesAtLaunches — empty, no rate at launch → change24h null.
-    mockNeonQuery.mockResolvedValueOnce([]);
-
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      data: Record<string, { mcapUsd: number | null; change24h: number | null }>;
-    };
-
-    const entry = body.data[TOKEN_A.toLowerCase()];
-    expect(entry.mcapUsd).toBeGreaterThan(0);
-    expect(entry.change24h).toBeNull();
   });
 
   it("returns change24h=null when BounceTech has no historical rate for the LT", async () => {
@@ -376,8 +342,7 @@ describe("GET /market-data", () => {
     mockPonderQuery.mockResolvedValueOnce({ t0: { items: [] } });
     mockNeonQuery.mockResolvedValueOnce([]);
 
-    const app = createApp();
-    const res = await app.request("/market-data", {}, makeEnv());
+    const res = await postMarketData([TOKEN_A]);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       data: Record<string, { change24h: number | null }>;

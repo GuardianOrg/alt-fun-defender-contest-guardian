@@ -492,8 +492,54 @@ export interface MarketDataEntry {
 
 export type MarketDataMap = Record<string, MarketDataEntry>;
 
-export function fetchMarketData(): Promise<MarketDataMap> {
-  return apiFetch("/api/v1/market-data");
+/**
+ * Maximum addresses per outbound `POST /api/v1/market-data` request.
+ * Mirrors the server-side cap (`MAX_ADDRESSES_PER_REQUEST` in
+ * `apps/api/src/routes/market-data.ts`); requests larger than this are
+ * chunked client-side and merged below so the caller doesn't have to
+ * page their own consumer (home-table infinite scroll will routinely
+ * accumulate more than this).
+ */
+const MARKET_DATA_CHUNK_SIZE = 200;
+
+/**
+ * Per-page market-data fetch. Replaces the legacy catalogue-wide
+ * `GET /api/v1/market-data` dump (which fanned out to O(catalogue)
+ * upstream calls per cache miss). Consumers pass the address slice they
+ * care about — token table page, search results, portfolio held
+ * positions — and get back the same address-keyed map.
+ *
+ * Empty `addresses[]` short-circuits with `{}` (no round-trip). When
+ * the caller passes more than `MARKET_DATA_CHUNK_SIZE` addresses we
+ * fire chunked requests in parallel and merge — the server cap is a
+ * defensive bound on per-request fan-out, not a user-facing limit on
+ * the home table's infinite-scroll backlog.
+ */
+export async function fetchMarketData(
+  addresses: string[],
+): Promise<MarketDataMap> {
+  if (addresses.length === 0) return {};
+  if (addresses.length <= MARKET_DATA_CHUNK_SIZE) {
+    return apiFetch("/api/v1/market-data", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addresses }),
+    });
+  }
+  const chunks: string[][] = [];
+  for (let i = 0; i < addresses.length; i += MARKET_DATA_CHUNK_SIZE) {
+    chunks.push(addresses.slice(i, i + MARKET_DATA_CHUNK_SIZE));
+  }
+  const results = await Promise.all(
+    chunks.map((chunk) =>
+      apiFetch<MarketDataMap>("/api/v1/market-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addresses: chunk }),
+      }),
+    ),
+  );
+  return Object.assign({}, ...results);
 }
 
 export function fetchMarketDataForToken(

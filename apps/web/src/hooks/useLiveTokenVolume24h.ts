@@ -68,7 +68,12 @@ export function tradeBroadcastToUsd(raw: TradeBroadcast): number | null {
 export function useLiveTokenVolume24h(
   address: string | undefined,
 ): number | null {
-  const { getTokenMarketData, dataUpdatedAt } = useMarketData();
+  // Single-token surface — pass just this token's address. The hook
+  // dedupes + normalises internally and the React Query cache shares
+  // entries with any other consumer asking for the same single-address
+  // window (e.g. `useTokenMarketStats` on the same detail page).
+  const addresses = address ? [address] : [];
+  const { getTokenMarketData, dataUpdatedAt } = useMarketData(addresses);
   const baseVolume = address
     ? (getTokenMarketData(address)?.volume24hUsd ?? null)
     : null;

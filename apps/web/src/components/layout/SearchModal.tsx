@@ -1,8 +1,11 @@
+import { useMemo } from "react";
+
 import styles from "./SearchModal.module.css";
 import SearchResultsList from "./SearchResultsList";
 import SearchTrendingCard from "./SearchTrendingCard";
 import SearchTrendingCardSkeleton from "./SearchTrendingCardSkeleton";
 import { useSearchModal } from "../../hooks/useSearchModal";
+import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import Modal from "../shared/Modal";
 
 // Count of skeleton trending cards rendered while `useTokens` is in flight.
@@ -25,6 +28,21 @@ export default function SearchModal() {
     setHighlightedIndex,
     tokensLoading,
   } = useSearchModal();
+
+  // Lift the per-card market-data fetch to the modal so the trending +
+  // recently-viewed rows share a single bounded
+  // `POST /market-data { addresses }` instead of fanning out into one
+  // React Query subscription per card. `useTokenMarketStatsMap` dedupes
+  // internally, so passing addresses from both rows in one array is
+  // safe even when a token appears in both.
+  const cardAddresses = useMemo(
+    () => [
+      ...trendingTokens.map((t) => t.address),
+      ...recentlyViewedTokens.map((t) => t.address),
+    ],
+    [trendingTokens, recentlyViewedTokens],
+  );
+  const { getStats } = useTokenMarketStatsMap(cardAddresses);
 
   if (!open) return null;
 
@@ -80,6 +98,7 @@ export default function SearchModal() {
                   <SearchTrendingCard
                     key={t.address}
                     token={t}
+                    stats={getStats(t.address)}
                     onClick={() => goToToken(t.address)}
                     highlighted={highlightedIndex === i}
                     onMouseEnter={() => setHighlightedIndex(i)}
@@ -95,6 +114,7 @@ export default function SearchModal() {
                 <SearchTrendingCard
                   key={t.address}
                   token={t}
+                  stats={getStats(t.address)}
                   onClick={() => goToToken(t.address)}
                   highlighted={highlightedIndex === recentOffset + i}
                   onMouseEnter={() =>

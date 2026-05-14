@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+
 import { useQuery } from "@tanstack/react-query";
 import { createPublicClient, formatUnits, http } from "viem";
 
@@ -261,8 +263,6 @@ async function mergeHiddenFromApi(args: {
  */
 export function useBalances() {
   const { address } = useWallet();
-  const { getPrice, isLoading: pricesLoading } = useTokenPrices();
-  const { getTokenMarketData } = useMarketData();
 
   const query = useQuery({
     queryKey: ["balances", address],
@@ -298,6 +298,17 @@ export function useBalances() {
     },
     enabled: !!address,
   });
+
+  // Held addresses drive the per-page market-data + price fetches —
+  // never the whole catalogue. Re-derives on every balances refetch so
+  // a newly-acquired position lights up its USD value within the next
+  // market-data poll cycle.
+  const heldAddresses = useMemo(
+    () => (query.data ?? []).map((b) => b.address),
+    [query.data],
+  );
+  const { getPrice, isLoading: pricesLoading } = useTokenPrices(heldAddresses);
+  const { getTokenMarketData } = useMarketData(heldAddresses);
 
   const tokens = buildHeldTokens(query.data ?? [], getPrice, getTokenMarketData);
 

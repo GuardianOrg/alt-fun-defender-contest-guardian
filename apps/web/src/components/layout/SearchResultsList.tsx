@@ -1,5 +1,5 @@
 import type { KeyboardEvent } from "react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import styles from "./SearchModal.module.css";
 import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
@@ -25,7 +25,13 @@ export default function SearchResultsList({
   onHighlight: (index: number) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const { getStats } = useTokenMarketStatsMap();
+  // Scope the market-data fetch to the visible search results — no
+  // catalogue-wide dump.
+  const addresses = useMemo(
+    () => results.map((r) => r.address),
+    [results],
+  );
+  const { getStats } = useTokenMarketStatsMap(addresses);
 
   useEffect(() => {
     if (highlightedIndex < 0 || !listRef.current) return;

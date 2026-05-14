@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { useDispatch, useSelector } from "react-redux";
 
@@ -7,6 +7,7 @@ import TokenRowSkeleton from "./TokenRowSkeleton";
 import styles from "./TokenTable.module.css";
 import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokenListLiveFeed } from "../../hooks/useTokenListLiveFeed";
+import { useTokenMarketStatsMap } from "../../hooks/useTokenMarketStats";
 import { useInfiniteTokens } from "../../hooks/useTokens";
 import {
   clearTokenFilters,
@@ -75,6 +76,20 @@ export default function TokenTable() {
   // market-data queries off the global `trade` WS channel. See issue
   // #710 and the JSDoc on `useTokenListLiveFeed`.
   useTokenListLiveFeed();
+
+  // Lift the per-page market-data fetch to the table parent so child
+  // rows don't each spawn their own React Query subscription. One
+  // bounded `POST /market-data { addresses }` covers every row in the
+  // current infinite-scroll window; `useTokenMarketStatsMap`
+  // normalises + dedupes the address list internally so the cache key
+  // is stable across renders. `useMemo` keeps the array identity
+  // stable when `tokens` content is unchanged so the underlying query
+  // doesn't refetch on every parent re-render.
+  const addresses = useMemo(
+    () => tokens.map((t) => t.address),
+    [tokens],
+  );
+  const { getStats } = useTokenMarketStatsMap(addresses);
 
   // Highlight newly arrived tokens for ~2s on every tab. The earlier
   // version gated this with `enabled: activeFilter === "new"` on the
@@ -181,6 +196,7 @@ export default function TokenTable() {
                 <TokenRow
                   key={t.address}
                   token={t}
+                  stats={getStats(t.address)}
                   isNew={flashingIds.has(getTokenId(t))}
                 />
               ))
