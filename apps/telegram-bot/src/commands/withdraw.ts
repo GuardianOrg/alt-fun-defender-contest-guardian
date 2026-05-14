@@ -242,7 +242,7 @@ const verifyPinForWithdraw = async (
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
     withAntiPhishing(
-      "Send your 6-digit PIN to authorise the withdraw, or /cancel.",
+      "Send your 6-digit PIN to authorise the withdraw.",
     ),
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -280,7 +280,7 @@ const verifyPinForWithdraw = async (
     }
     const retry = await ctx.reply(
       withAntiPhishing(
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -334,7 +334,7 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      "Which asset? Send HYPE or USDC (or /cancel).",
+      "Which asset? Send HYPE or USDC.",
       true,
     );
     if (raw === null) {
@@ -347,7 +347,7 @@ const withdrawWizardConversation = async (
       break;
     }
     const retry = await ctx.reply(
-      withAntiPhishing("Unsupported asset. Send HYPE or USDC, or /cancel."),
+      withAntiPhishing("Unsupported asset. Send HYPE or USDC."),
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -375,7 +375,7 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1), or /cancel.`,
+      `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1).`,
       true,
     );
     if (raw === null) {
@@ -386,7 +386,7 @@ const withdrawWizardConversation = async (
     if (parsed === null) {
       const retry = await ctx.reply(
         withAntiPhishing(
-          "Invalid amount — must be a positive decimal within the asset's precision. Send again or /cancel.",
+          "Invalid amount — must be a positive decimal within the asset's precision. Send again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -400,7 +400,7 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      "Destination address? Send a 0x-prefixed EVM address, or /cancel.",
+      "Destination address? Send a 0x-prefixed EVM address.",
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -410,7 +410,7 @@ const withdrawWizardConversation = async (
     if (parsed === null) {
       const retry = await ctx.reply(
         withAntiPhishing(
-          "Invalid address — must be 0x followed by 40 hex characters. Send again or /cancel.",
+          "Invalid address — must be 0x followed by 40 hex characters. Send again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);

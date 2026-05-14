@@ -1,4 +1,4 @@
-import { closeButtonRow } from "../lib/close.js";
+import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
@@ -17,7 +17,6 @@ export const SETTINGS_CALLBACK = {
   sellSettings: "set:ss",
   buyPresetSlot: "set:bp", // appended with slot index 0..4
   sellPresetSlot: "set:sp", // appended with slot index 0..4
-  back: "set:back",
   degenToggle: "set:dgn",
 } as const;
 
@@ -107,7 +106,7 @@ export const buildSettingsKeyboard = (
         callback_data: SETTINGS_CALLBACK.degenToggle,
       },
     ],
-    closeButtonRow(),
+    backHomeRow(),
   ];
 };
 
@@ -126,8 +125,7 @@ export const buildBuySettingsKeyboard = (
       callback_data: encodeBuyPresetSlot(idx),
     },
   ]);
-  rows.push([{ text: "← Back", callback_data: SETTINGS_CALLBACK.back }]);
-  rows.push(...closeButtonRowAsInline());
+  rows.push(backHomeRow());
   return rows;
 };
 
@@ -140,14 +138,9 @@ export const buildSellSettingsKeyboard = (
       callback_data: encodeSellPresetSlot(idx),
     },
   ]);
-  rows.push([{ text: "← Back", callback_data: SETTINGS_CALLBACK.back }]);
-  rows.push(...closeButtonRowAsInline());
+  rows.push(backHomeRow());
   return rows;
 };
-
-// `closeButtonRow()` returns a single row of buttons; spread it into the
-// rows[] caller above by wrapping in an outer array of length 1.
-const closeButtonRowAsInline = (): InlineKeyboard => [closeButtonRow()];
 
 const formatBpsLabel = (bps: number): string => {
   const pct = bps / 100;

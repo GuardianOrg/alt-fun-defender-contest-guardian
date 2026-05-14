@@ -222,7 +222,7 @@ const askNewPin = async (
     }
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx, "PIN must be exactly 6 digits. Send again or /cancel."),
+        wrap(ctx, "PIN must be exactly 6 digits. Send again."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -247,7 +247,7 @@ const askNewPin = async (
     if (text !== candidate) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "PINs do not match. Send the confirmation PIN again or /cancel.",
+          "PINs do not match. Send the confirmation PIN again.",
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -266,7 +266,7 @@ const verifyExistingPin = async (
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
     wrap(ctx,
-      `Send your current 6-digit PIN to authorise ${actionLabel}, or /cancel.`,
+      `Send your current 6-digit PIN to authorise ${actionLabel}.`,
     ),
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -304,7 +304,7 @@ const verifyExistingPin = async (
     }
     const retry = await ctx.reply(
       wrap(ctx,
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again or /cancel.`,
+        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -323,7 +323,7 @@ const setPinConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions. Send /cancel to abort.",
+    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
   );
   if (newPin === null) {
     await sweepWorkflow(conversation);
@@ -365,7 +365,7 @@ const changePinConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send the new 6-digit PIN (digits only), or /cancel.",
+    "Send the new 6-digit PIN (digits only).",
   );
   if (newPin === null) {
     await sweepWorkflow(conversation);
@@ -417,7 +417,7 @@ const completeResetConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send your new 6-digit PIN (digits only), or /cancel.",
+    "Send your new 6-digit PIN (digits only).",
   );
   if (newPin === null) {
     await sweepWorkflow(conversation);
@@ -464,7 +464,7 @@ const setPhraseConversation = async (
       [
         "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
         "",
-        `Max ${MAX_PHRASE_LEN} characters. Send /cancel to abort.`,
+        `Max ${MAX_PHRASE_LEN} characters.`,
       ].join("\n"),
     ),
   );
@@ -482,7 +482,7 @@ const setPhraseConversation = async (
     if (await tryAddressBuyIntercept(conversation, trimmed)) return;
     if (trimmed.length === 0) {
       const retry = await ctx.reply(
-        wrap(ctx, "Phrase cannot be empty. Send again or /cancel."),
+        wrap(ctx, "Phrase cannot be empty. Send again."),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -490,7 +490,7 @@ const setPhraseConversation = async (
     if (trimmed.length > MAX_PHRASE_LEN) {
       const retry = await ctx.reply(
         wrap(ctx,
-          `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one or /cancel.`,
+          `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);

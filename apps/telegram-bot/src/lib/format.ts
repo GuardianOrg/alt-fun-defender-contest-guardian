@@ -4,7 +4,7 @@ import type {
   BotRealisedPosition,
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
-import { closeButtonRow } from "./close.js";
+import { backHomeRow } from "./nav.js";
 
 const TOKEN_DECIMALS = 18;
 const USDC_DECIMALS = 6;
@@ -389,6 +389,6 @@ export const buildPositionsPageKeyboard = (
     }
   }
   if (nav.length > 0) rows.push(nav);
-  rows.push(closeButtonRow());
+  rows.push(backHomeRow());
   return { inline_keyboard: rows };
 };

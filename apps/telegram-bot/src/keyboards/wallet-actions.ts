@@ -1,4 +1,4 @@
-import { closeButtonRow } from "../lib/close.js";
+import { backHomeRow } from "../lib/nav.js";
 import type { StoredWallet } from "../lib/wallet.js";
 
 export interface InlineCallbackButton {
@@ -24,7 +24,6 @@ export const WALLET_CALLBACK = {
   create: "wc",
   switchPicker: "wsp",
   switchTo: "ws",
-  mainBack: "wm",
   rename: "wr",
   import: "wi",
   exportKey: "we",
@@ -73,7 +72,7 @@ export const buildWalletMainKeyboard = (
   if (hasActive) {
     rows.push([{ text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw }]);
   }
-  rows.push(closeButtonRow());
+  rows.push(backHomeRow());
   return rows;
 };
 
@@ -93,7 +92,6 @@ export const buildWalletSwitchKeyboard = (
       callback_data: `${WALLET_CALLBACK.switchTo}:${w.id}`,
     },
   ]);
-  rows.push([{ text: "Back", callback_data: WALLET_CALLBACK.mainBack }]);
-  rows.push(closeButtonRow());
+  rows.push(backHomeRow());
   return rows;
 };

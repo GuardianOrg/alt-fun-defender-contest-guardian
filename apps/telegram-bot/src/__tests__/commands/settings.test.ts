@@ -441,23 +441,23 @@ describe("/settings command", () => {
       expect(reply).toBeDefined();
     });
 
-    it("Back returns the user to the main settings panel", async () => {
+    it("the buy-settings sub-menu surfaces the global Back / Home row", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SETTINGS_CALLBACK.buySettings));
-
-      fetchSpy.mockClear();
-      mockTelegramOk(fetchSpy);
-      await h.run(callbackUpdate(SETTINGS_CALLBACK.back, 3));
 
       const edit = capture(fetchSpy).find((c) =>
         c.url.includes("/editMessageText"),
       );
       expect(edit).toBeDefined();
-      const labels = (
-        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
-      ).inline_keyboard.flat().map((b) => b.text);
-      expect(labels).toContain("Buy Settings");
-      expect(labels).toContain("Sell Settings");
+      const rows = (
+        edit!.body.reply_markup as {
+          inline_keyboard: { text: string; callback_data?: string }[][];
+        }
+      ).inline_keyboard;
+      const last = rows[rows.length - 1]!;
+      expect(last.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+      expect(last[0]!.callback_data).toBe("nav:b");
+      expect(last[1]!.callback_data).toBe("nav:h");
     });
   });
 
