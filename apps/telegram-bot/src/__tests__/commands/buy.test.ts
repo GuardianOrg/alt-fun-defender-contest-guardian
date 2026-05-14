@@ -315,7 +315,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -327,8 +327,8 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 100_000_000n }); // $100
 
-    // btd:<addr>
-    const callbackData = `btd:${TOKEN_ADDR}`;
+    // btp:<addr>:<amount>
+    const callbackData = `btp:${TOKEN_ADDR}:20`;
     await h.run(callbackUpdate(callbackData));
 
     const calls = capture(fetchSpy);
@@ -341,7 +341,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 10_000_000n }); // $10
 
-    const callbackData = `bt100:${TOKEN_ADDR}`;
+    const callbackData = `btp:${TOKEN_ADDR}:100`;
     await h.run(callbackUpdate(callbackData));
 
     const calls = capture(fetchSpy);
@@ -354,7 +354,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
 
-    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -390,7 +390,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     });
 
     try {
-      await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
       const calls = capture(fetchSpy);
       const sends = calls.filter((c) => c.url.includes("/sendMessage"));
@@ -431,20 +431,22 @@ describe("Buy flow (st:b button → conversation)", () => {
     }
   });
 
-  it("btd callback uses the user's defaultBuyUsdc (e.g. $75) from the live session", async () => {
+  it("btp callback buys the amount encoded in the payload (issue #818)", async () => {
     const h = await harnessWithWallet();
-    // Pre-seed the session with a non-default buy amount.
+    // Pre-seed a non-default preset list — the keyboard would have
+    // rendered slot 0 as $75, embedding `:75` in the btp callback.
     await h.kv.put(
       "session:7",
       JSON.stringify({
         slippageBps: 100,
         defaultBuyUsdc: 75,
+        buyPresetsUsdc: [75, 40, 60, 80, 100],
         degenMode: false,
       }),
     );
     mockTokenAndRpc(fetchSpy, { usdcBalance: 500_000_000n }); // $500
 
-    await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:75`));
 
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
@@ -468,11 +470,10 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(answer!.body.text)).toBe("Refreshed");
   });
 
-  // Regression: btr / btd / bt100 handlers used to .catch() unhandled
-  // throws with a log-only sink, leaving the Telegram client spinner
-  // stuck until its 30s timeout. The outer catch must ACK with
-  // show_alert so the user sees the failure instead of a silent
-  // button.
+  // Regression: btr / btp handlers used to .catch() unhandled throws
+  // with a log-only sink, leaving the Telegram client spinner stuck
+  // until its 30s timeout. The outer catch must ACK with show_alert
+  // so the user sees the failure instead of a silent button.
   it("btr surfaces an outage toast when the handler throws (KV down)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
@@ -493,7 +494,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     }
   });
 
-  it("btd surfaces an outage toast when the handler throws (KV down)", async () => {
+  it("btp surfaces an outage toast when the handler throws (KV down)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
     const getActiveSpy = vi
@@ -501,7 +502,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       .mockRejectedValue(new Error("kv down"));
 
     try {
-      await h.run(callbackUpdate(`btd:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
       const calls = capture(fetchSpy);
       const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
@@ -513,7 +514,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     }
   });
 
-  it("bt100 surfaces an outage toast when the handler throws (KV down)", async () => {
+  it("btp surfaces an outage toast for any preset amount (KV down)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
     const getActiveSpy = vi
@@ -521,7 +522,7 @@ describe("Buy flow (st:b button → conversation)", () => {
       .mockRejectedValue(new Error("kv down"));
 
     try {
-      await h.run(callbackUpdate(`bt100:${TOKEN_ADDR}`));
+      await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:100`));
 
       const calls = capture(fetchSpy);
       const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));

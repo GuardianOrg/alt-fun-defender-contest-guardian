@@ -8,7 +8,8 @@ import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
-  normaliseDefaultBuyUsdc,
+  normaliseBuyPresets,
+  normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import type { InlineKeyboard } from "../keyboards/wallet-actions.js";
@@ -363,7 +364,10 @@ const handleTrackBuy = async (
       reply_markup: {
         inline_keyboard: buildBuyTokenKeyboard(
           tokenAddress,
-          normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+          normaliseBuyPresets(
+            ctx.session.buyPresetsUsdc,
+            ctx.session.defaultBuyUsdc,
+          ),
         ),
       },
       link_preview_options: { is_disabled: true },
@@ -401,7 +405,10 @@ const handleTrackSell = async (
     {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: buildSellTokenKeyboard(tokenAddress),
+        inline_keyboard: buildSellTokenKeyboard(
+          tokenAddress,
+          normaliseSellPresets(ctx.session.sellPresetsPct),
+        ),
       },
       link_preview_options: { is_disabled: true },
     },

@@ -34,6 +34,20 @@ import type { Env } from "./lib/types.js";
 export interface SessionData {
   slippageBps: number;
   defaultBuyUsdc: number;
+  /**
+   * 5-slot customizable buy preset amounts in USDC (issue #818). Older
+   * sessions written before this field landed have it undefined; the
+   * `normaliseBuyPresets` helper in `keyboards/buy-sell-token.ts` lifts
+   * the legacy `defaultBuyUsdc` into slot 0 and fills the rest with
+   * defaults.
+   */
+  buyPresetsUsdc?: number[];
+  /**
+   * 5-slot customizable sell preset percentages (issue #818). Older
+   * sessions have it undefined; `normaliseSellPresets` falls back to
+   * the default `[10, 25, 50, 75, 100]`.
+   */
+  sellPresetsPct?: number[];
   antiPhishingPhrase?: string;
   degenMode: boolean;
   /**
@@ -84,6 +98,8 @@ export interface SessionData {
 const DEFAULT_SESSION: SessionData = {
   slippageBps: 1000,
   defaultBuyUsdc: 20,
+  buyPresetsUsdc: [20, 40, 60, 80, 100],
+  sellPresetsPct: [10, 25, 50, 75, 100],
   degenMode: true,
 };
 

@@ -5,12 +5,21 @@ import {
 } from "@grammyjs/conversations";
 import type { Bot } from "grammy";
 
-import type { AppContext } from "../bot.js";
+import type { AppContext, SessionData } from "../bot.js";
+import {
+  MAX_BUY_PRESET_USDC,
+  normaliseBuyPresets,
+  normaliseSellPresets,
+} from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
   SETTINGS_CALLBACK,
   SLIPPAGE_PRESETS_BPS,
+  buildBuySettingsKeyboard,
+  buildSellSettingsKeyboard,
   buildSettingsKeyboard,
+  decodeBuyPresetSlot,
+  decodeSellPresetSlot,
   decodeSlippagePreset,
   formatBpsLabel,
   type SettingsStatus,
@@ -35,12 +44,8 @@ const NON_PRIVATE_CHAT_REPLY =
  */
 const MAX_SLIPPAGE_BPS = 5_000;
 
-/**
- * Upper bound on the persisted default buy amount. Mirrors the `$10_000`
- * cap surfaced for the /buy custom-amount wizard so a stored default
- * can't sneak past balance-sanity checks elsewhere.
- */
-const MAX_BUY_USDC = 10_000;
+const BUY_PRESETS_LENGTH = 5;
+const SELL_PRESETS_LENGTH = 5;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -62,13 +67,38 @@ const readStatus = (ctx: AppContext): SettingsStatus => ({
   degenMode: ctx.session.degenMode,
 });
 
-const renderStatusText = (status: SettingsStatus): string =>
+const readBuyPresets = (session: SessionData): number[] =>
+  normaliseBuyPresets(session.buyPresetsUsdc, session.defaultBuyUsdc);
+
+const readSellPresets = (session: SessionData): number[] =>
+  normaliseSellPresets(session.sellPresetsPct);
+
+const renderMainStatusText = (status: SettingsStatus): string =>
   [
     "Settings",
     "",
     `• Slippage: ${formatBpsLabel(status.slippageBps)}`,
-    `• Default buy: $${status.defaultBuyUsdc} USDC`,
     `• Degen mode: ${status.degenMode ? "on" : "off"}`,
+    "",
+    "Tap Buy Settings or Sell Settings to customize the preset buttons.",
+  ].join("\n");
+
+const renderBuySettingsText = (presets: readonly number[]): string =>
+  [
+    "Buy Settings",
+    "",
+    "Tap a slot to change its amount.",
+    "",
+    ...presets.map((amount, idx) => `${idx + 1}. ${amount} USDC`),
+  ].join("\n");
+
+const renderSellSettingsText = (presets: readonly number[]): string =>
+  [
+    "Sell Settings",
+    "",
+    "Tap a slot to change its percent.",
+    "",
+    ...presets.map((pct, idx) => `${idx + 1}. ${pct}%`),
   ].join("\n");
 
 interface RenderedState {
@@ -78,11 +108,27 @@ interface RenderedState {
   };
 }
 
-const renderState = (ctx: AppContext): RenderedState => {
+const renderMainState = (ctx: AppContext): RenderedState => {
   const status = readStatus(ctx);
   return {
-    text: renderStatusText(status),
+    text: renderMainStatusText(status),
     reply_markup: { inline_keyboard: buildSettingsKeyboard(status) },
+  };
+};
+
+const renderBuyState = (ctx: AppContext): RenderedState => {
+  const presets = readBuyPresets(ctx.session);
+  return {
+    text: renderBuySettingsText(presets),
+    reply_markup: { inline_keyboard: buildBuySettingsKeyboard(presets) },
+  };
+};
+
+const renderSellState = (ctx: AppContext): RenderedState => {
+  const presets = readSellPresets(ctx.session);
+  return {
+    text: renderSellSettingsText(presets),
+    reply_markup: { inline_keyboard: buildSellSettingsKeyboard(presets) },
   };
 };
 
@@ -114,8 +160,10 @@ const safeEditMessageText = async (
   }
 };
 
-const editToMain = async (ctx: AppContext): Promise<void> => {
-  const state = renderState(ctx);
+const editToState = async (
+  ctx: AppContext,
+  state: RenderedState,
+): Promise<void> => {
   await safeEditMessageText(ctx, wrap(ctx, state.text), {
     reply_markup: state.reply_markup,
   });
@@ -201,7 +249,9 @@ const customSlippageConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
-    const state = await conversation.external((outside) => renderState(outside));
+    const state = await conversation.external((outside) =>
+      renderMainState(outside),
+    );
     await ctx.reply(
       wrap(ctx, `Slippage set to ${formatBpsLabel(bps)}.\n\n${state.text}`),
       { reply_markup: state.reply_markup },
@@ -212,20 +262,28 @@ const customSlippageConversation = async (
 };
 
 /**
- * Conversation: collect a new default buy amount (USDC). Floored at
- * `MIN_USDC_BUY_AMOUNT` so a stored default can't fall below the bot's
- * minimum-trade gate (which would just immediately reject the trade).
+ * Conversation: edit one slot of the buy-preset list (issue #818).
+ * `slotIdx` is the 0-based slot the user tapped. Stores the parsed
+ * amount in `session.buyPresetsUsdc[slotIdx]` and, if `slotIdx === 0`,
+ * mirrors it into `session.defaultBuyUsdc` so callsites still reading
+ * the legacy field don't drift from slot 0.
  */
-const buyAmountConversation = async (
+const buyPresetSlotConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  slotIdx: number,
 ): Promise<void> => {
+  if (!Number.isInteger(slotIdx) || slotIdx < 0 || slotIdx >= BUY_PRESETS_LENGTH) {
+    return;
+  }
   await sweepWorkflow(conversation);
   const promptMsg = await ctx.reply(
     wrap(
       ctx,
       [
-        `Send your default buy amount in USDC (minimum $${MIN_USDC_BUY_AMOUNT}, max $${MAX_BUY_USDC}).`,
+        "Change the value of the buy amount button.",
+        "",
+        `Send a USDC amount between $${MIN_USDC_BUY_AMOUNT} and $${MAX_BUY_PRESET_USDC}.`,
         "",
         "Send /cancel to keep the current value.",
       ].join("\n"),
@@ -242,7 +300,7 @@ const buyAmountConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
-    const value = parseUserAmount(text, { max: MAX_BUY_USDC });
+    const value = parseUserAmount(text, { max: MAX_BUY_PRESET_USDC });
     if (value === null) {
       const retry = await ctx.reply(
         wrap(ctx, "Send a positive USDC amount like `50`, or /cancel."),
@@ -260,33 +318,121 @@ const buyAmountConversation = async (
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
-    if (value > MAX_BUY_USDC) {
+    if (value > MAX_BUY_PRESET_USDC) {
       const retry = await ctx.reply(
         wrap(
           ctx,
-          `Capped at $${MAX_BUY_USDC} USDC. Send a smaller value or /cancel.`,
+          `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value or /cancel.`,
         ),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
-    // Round to whole USDC — the value is shown on buttons and stored
-    // for use as a /buy prefill; sub-dollar precision is noise.
     const rounded = Math.round(value);
     try {
       await conversation.external((outside) => {
-        outside.session.defaultBuyUsdc = rounded;
+        const current = normaliseBuyPresets(
+          outside.session.buyPresetsUsdc,
+          outside.session.defaultBuyUsdc,
+        );
+        current[slotIdx] = rounded;
+        outside.session.buyPresetsUsdc = current;
+        if (slotIdx === 0) {
+          // Keep the legacy single-amount field synced with slot 0 so
+          // call sites that still read it (action-card, /buy default)
+          // never drift from the user's customised preset.
+          outside.session.defaultBuyUsdc = rounded;
+        }
       });
     } catch {
       await ctx.reply(wrap(ctx, "Failed to save — please retry."));
       await sweepWorkflow(conversation);
       return;
     }
-    const state = await conversation.external((outside) => renderState(outside));
-    await ctx.reply(
-      wrap(ctx, `Default buy set to $${rounded} USDC.\n\n${state.text}`),
-      { reply_markup: state.reply_markup },
+    const state = await conversation.external((outside) =>
+      renderBuyState(outside),
     );
+    await ctx.reply(wrap(ctx, state.text), {
+      reply_markup: state.reply_markup,
+    });
+    await sweepWorkflow(conversation);
+    return;
+  }
+};
+
+/**
+ * Conversation: edit one slot of the sell-preset percent list.
+ * Accepts integer percents in [1, 100].
+ */
+const sellPresetSlotConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  slotIdx: number,
+): Promise<void> => {
+  if (
+    !Number.isInteger(slotIdx) ||
+    slotIdx < 0 ||
+    slotIdx >= SELL_PRESETS_LENGTH
+  ) {
+    return;
+  }
+  await sweepWorkflow(conversation);
+  const promptMsg = await ctx.reply(
+    wrap(
+      ctx,
+      [
+        "Change the value of the sell amount button.",
+        "",
+        "Send a percent between 1 and 100.",
+        "",
+        "Send /cancel to keep the current value.",
+      ].join("\n"),
+    ),
+  );
+  await trackWorkflowMessage(conversation, promptMsg.message_id);
+
+  while (true) {
+    const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
+    const text = msg.message.text.trim();
+    if (isCancel(text)) {
+      await ctx.reply(wrap(ctx, "Cancelled."));
+      await sweepWorkflow(conversation);
+      return;
+    }
+    const value = parseUserAmount(text.replace(/%/g, ""), { max: 100 });
+    if (value === null) {
+      const retry = await ctx.reply(
+        wrap(ctx, "Send a number between 1 and 100, or /cancel."),
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
+    const rounded = Math.round(value);
+    if (rounded < 1 || rounded > 100) {
+      const retry = await ctx.reply(
+        wrap(ctx, "Percent must be between 1 and 100. Send again or /cancel."),
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
+    try {
+      await conversation.external((outside) => {
+        const current = normaliseSellPresets(outside.session.sellPresetsPct);
+        current[slotIdx] = rounded;
+        outside.session.sellPresetsPct = current;
+      });
+    } catch {
+      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
+      return;
+    }
+    const state = await conversation.external((outside) =>
+      renderSellState(outside),
+    );
+    await ctx.reply(wrap(ctx, state.text), {
+      reply_markup: state.reply_markup,
+    });
     await sweepWorkflow(conversation);
     return;
   }
@@ -296,7 +442,26 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
   bot.use(
     createConversation(customSlippageConversation, "settings-custom-slippage"),
   );
-  bot.use(createConversation(buyAmountConversation, "settings-buy-amount"));
+  bot.use(
+    createConversation(
+      buyPresetSlotConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      "settings-buy-preset-slot",
+    ),
+  );
+  bot.use(
+    createConversation(
+      sellPresetSlotConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      "settings-sell-preset-slot",
+    ),
+  );
 
   bot.command("settings", async (ctx) => {
     if (!ctx.from) {
@@ -312,7 +477,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
-    const state = renderState(ctx);
+    const state = renderMainState(ctx);
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
     });
@@ -324,7 +489,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
-    const state = renderState(ctx);
+    const state = renderMainState(ctx);
     await ctx.answerCallbackQuery();
     await ctx.reply(wrap(ctx, state.text), {
       reply_markup: state.reply_markup,
@@ -351,7 +516,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       // under the cap; this is defence-in-depth.
       const clamped = Math.min(Math.max(bps, 1), MAX_SLIPPAGE_BPS);
       ctx.session.slippageBps = clamped;
-      await editToMain(ctx);
+      await editToState(ctx, renderMainState(ctx));
       await ctx.answerCallbackQuery({
         text: `Slippage set to ${formatBpsLabel(clamped)}.`,
       });
@@ -368,15 +533,71 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     await ctx.conversation.enter("settings-custom-slippage");
   });
 
-  bot.callbackQuery(SETTINGS_CALLBACK.buyAmount, async (ctx) => {
+  bot.callbackQuery(SETTINGS_CALLBACK.buySettings, async (ctx) => {
     if (!ctx.from) {
       await ctx.answerCallbackQuery();
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    await editToState(ctx, renderBuyState(ctx));
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("settings-buy-amount");
   });
+
+  bot.callbackQuery(SETTINGS_CALLBACK.sellSettings, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await editToState(ctx, renderSellState(ctx));
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(SETTINGS_CALLBACK.back, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (!(await ensurePrivate(ctx))) return;
+    await editToState(ctx, renderMainState(ctx));
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(
+    new RegExp(`^${SETTINGS_CALLBACK.buyPresetSlot}\\d+$`),
+    async (ctx) => {
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      if (!(await ensurePrivate(ctx))) return;
+      const idx = decodeBuyPresetSlot(ctx.callbackQuery.data ?? "");
+      if (idx === null || idx < 0 || idx >= BUY_PRESETS_LENGTH) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      await ctx.conversation.enter("settings-buy-preset-slot", idx);
+    },
+  );
+
+  bot.callbackQuery(
+    new RegExp(`^${SETTINGS_CALLBACK.sellPresetSlot}\\d+$`),
+    async (ctx) => {
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      if (!(await ensurePrivate(ctx))) return;
+      const idx = decodeSellPresetSlot(ctx.callbackQuery.data ?? "");
+      if (idx === null || idx < 0 || idx >= SELL_PRESETS_LENGTH) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      await ctx.answerCallbackQuery();
+      await ctx.conversation.enter("settings-sell-preset-slot", idx);
+    },
+  );
 
   bot.callbackQuery(SETTINGS_CALLBACK.degenToggle, async (ctx) => {
     if (!ctx.from) {
@@ -386,7 +607,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     const next = !ctx.session.degenMode;
     ctx.session.degenMode = next;
-    await editToMain(ctx);
+    await editToState(ctx, renderMainState(ctx));
     await ctx.answerCallbackQuery({
       text: next ? "Degen mode enabled." : "Degen mode disabled.",
     });

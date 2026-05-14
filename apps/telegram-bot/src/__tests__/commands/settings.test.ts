@@ -8,6 +8,8 @@ import {
 import {
   SETTINGS_CALLBACK,
   SLIPPAGE_PRESETS_BPS,
+  encodeBuyPresetSlot,
+  encodeSellPresetSlot,
   encodeSlippagePreset,
 } from "../../keyboards/settings-actions.js";
 
@@ -75,20 +77,20 @@ const capture = (fetchSpy: ReturnType<typeof vi.spyOn>): TgCall[] =>
     >,
   }));
 
-const readSession = async (h: BotTestHarness): Promise<{
+interface ReadSession {
   slippageBps: number;
   defaultBuyUsdc: number;
+  buyPresetsUsdc?: number[];
+  sellPresetsPct?: number[];
   degenMode: boolean;
-}> => {
+}
+
+const readSession = async (h: BotTestHarness): Promise<ReadSession> => {
   const raw = await h.kv.get("session:7");
   if (typeof raw !== "string") {
     throw new Error("session not persisted");
   }
-  return JSON.parse(raw) as {
-    slippageBps: number;
-    defaultBuyUsdc: number;
-    degenMode: boolean;
-  };
+  return JSON.parse(raw) as ReadSession;
 };
 
 describe("/settings command", () => {
@@ -104,7 +106,7 @@ describe("/settings command", () => {
   });
 
   describe("status view", () => {
-    it("renders defaults (10% / $20 / degen on) on a brand-new account", async () => {
+    it("renders defaults on a brand-new account", async () => {
       const h = makeBotHarness();
       await h.run(settingsCommand(7));
       const send = capture(fetchSpy).find((c) =>
@@ -113,12 +115,11 @@ describe("/settings command", () => {
       expect(send).toBeDefined();
       const text = send!.body.text as string;
       expect(text).toContain("Slippage: 10%");
-      expect(text).toContain("Default buy: $20 USDC");
       expect(text).toContain("Degen mode: on");
       expect(text).not.toContain("Anti-phishing phrase lives in /security");
     });
 
-    it("marks the current slippage preset with bullets and shows the buy amount on its button", async () => {
+    it("exposes Buy Settings / Sell Settings entry buttons (issue #818)", async () => {
       const h = makeBotHarness();
       await h.run(settingsCommand(7));
       const send = capture(fetchSpy).find((c) =>
@@ -128,12 +129,13 @@ describe("/settings command", () => {
         send!.body.reply_markup as { inline_keyboard: { text: string }[][] }
       ).inline_keyboard.flat();
       const labels = buttons.map((b) => b.text);
-      expect(labels).toContain("• 10% •"); // current selection
+      expect(labels).toContain("• 10% •");
       expect(labels).toContain("5%");
       expect(labels).toContain("15%");
       expect(labels).toContain("20%");
       expect(labels).toContain("Custom %");
-      expect(labels).toContain("Default buy: $20");
+      expect(labels).toContain("Buy Settings");
+      expect(labels).toContain("Sell Settings");
       expect(labels).toContain("🟢 Degen mode");
     });
 
@@ -156,7 +158,6 @@ describe("/settings command", () => {
   describe("slippage preset buttons", () => {
     it("tapping a preset persists the new bps to the session and acknowledges", async () => {
       const h = makeBotHarness();
-      // Initialise the session by surfacing the panel first.
       await h.run(settingsCommand(7));
 
       fetchSpy.mockClear();
@@ -180,10 +181,8 @@ describe("/settings command", () => {
       await h.run(settingsCommand(7));
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      // Looks like our prefix but has no integer — decode returns null.
       await h.run(callbackUpdate("set:slipabc"));
       const session = await readSession(h);
-      // Default unchanged.
       expect(session.slippageBps).toBe(1000);
     });
   });
@@ -256,7 +255,6 @@ describe("/settings command", () => {
       await h.run(textUpdate("100", 3));
 
       const session = await readSession(h);
-      // Default unchanged — wizard rejected the input.
       expect(session.slippageBps).toBe(1000);
       const reply = capture(fetchSpy).find(
         (c) =>
@@ -301,33 +299,159 @@ describe("/settings command", () => {
     });
   });
 
-  describe("default buy amount wizard", () => {
-    it("accepts a valid USDC amount and rounds to whole dollars", async () => {
+  describe("Buy Settings sub-menu (issue #818)", () => {
+    it("opens the 5-slot buy preset panel with pencil-prefixed labels", async () => {
       const h = makeBotHarness();
-      await h.run(callbackUpdate(SETTINGS_CALLBACK.buyAmount));
+      await h.run(settingsCommand(7));
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
-      await h.run(textUpdate("$75.4", 3));
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.buySettings));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(edit).toBeDefined();
+      expect(edit!.body.text).toContain("Buy Settings");
+      const labels = (
+        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard.flat().map((b) => b.text);
+      expect(labels).toContain("✏️ 20 USDC");
+      expect(labels).toContain("✏️ 40 USDC");
+      expect(labels).toContain("✏️ 60 USDC");
+      expect(labels).toContain("✏️ 80 USDC");
+      expect(labels).toContain("✏️ 100 USDC");
+      expect(labels).toContain("← Back");
+    });
+
+    it("editing slot 0 persists the new amount and mirrors defaultBuyUsdc", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeBuyPresetSlot(0)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("$50", 3));
 
       const session = await readSession(h);
-      expect(session.defaultBuyUsdc).toBe(75);
+      expect(session.buyPresetsUsdc).toEqual([50, 40, 60, 80, 100]);
+      expect(session.defaultBuyUsdc).toBe(50);
+    });
+
+    it("editing a non-zero slot leaves defaultBuyUsdc alone", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeBuyPresetSlot(2)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("250", 3));
+
+      const session = await readSession(h);
+      expect(session.buyPresetsUsdc).toEqual([20, 40, 250, 80, 100]);
+      expect(session.defaultBuyUsdc).toBe(20);
     });
 
     it("rejects amounts below the bot minimum and stays in the wizard", async () => {
       const h = makeBotHarness();
-      await h.run(callbackUpdate(SETTINGS_CALLBACK.buyAmount));
+      await h.run(callbackUpdate(encodeBuyPresetSlot(1)));
 
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(textUpdate("5", 3));
 
-      // Default unchanged.
-      expect((await readSession(h)).defaultBuyUsdc).toBe(20);
+      const session = await readSession(h);
+      // Defaults are preserved unchanged — wizard rejected the input.
+      expect(session.buyPresetsUsdc).toEqual([20, 40, 60, 80, 100]);
       const reply = capture(fetchSpy).find(
         (c) =>
           c.url.includes("/sendMessage") &&
           /Minimum is \$/.test(c.body.text as string),
+      );
+      expect(reply).toBeDefined();
+    });
+
+    it("Back returns the user to the main settings panel", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.buySettings));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.back, 3));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(edit).toBeDefined();
+      const labels = (
+        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard.flat().map((b) => b.text);
+      expect(labels).toContain("Buy Settings");
+      expect(labels).toContain("Sell Settings");
+    });
+  });
+
+  describe("Sell Settings sub-menu (issue #818)", () => {
+    it("opens the 5-slot sell preset panel with pencil-prefixed labels", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.sellSettings));
+
+      const edit = capture(fetchSpy).find((c) =>
+        c.url.includes("/editMessageText"),
+      );
+      expect(edit).toBeDefined();
+      expect(edit!.body.text).toContain("Sell Settings");
+      const labels = (
+        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard.flat().map((b) => b.text);
+      expect(labels).toContain("✏️ 10%");
+      expect(labels).toContain("✏️ 25%");
+      expect(labels).toContain("✏️ 50%");
+      expect(labels).toContain("✏️ 75%");
+      expect(labels).toContain("✏️ 100%");
+    });
+
+    it("editing a slot persists the new percent", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeSellPresetSlot(3)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("60%", 3));
+
+      const session = await readSession(h);
+      expect(session.sellPresetsPct).toEqual([10, 25, 50, 60, 100]);
+    });
+
+    it("rejects out-of-range percents and stays in the wizard", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeSellPresetSlot(0)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("250", 3));
+
+      const session = await readSession(h);
+      // Defaults are preserved unchanged — wizard rejected the input.
+      expect(session.sellPresetsPct).toEqual([10, 25, 50, 75, 100]);
+      const reply = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /between 1 and 100/i.test(c.body.text as string),
+      );
+      expect(reply).toBeDefined();
+    });
+
+    it("rejects non-numeric input and stays in the wizard", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeSellPresetSlot(0)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("nope", 3));
+
+      const reply = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /between 1 and 100/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
     });
