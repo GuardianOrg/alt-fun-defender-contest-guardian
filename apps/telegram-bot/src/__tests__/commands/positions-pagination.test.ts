@@ -146,21 +146,25 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     const rows = body.reply_markup.inline_keyboard;
-    expect(rows.length).toBeGreaterThan(2);
-    // Last row is Close, second-to-last is the nav row.
+    expect(rows.length).toBeGreaterThan(3);
+    // Last row is Back/Home, second-to-last is the Refresh row,
+    // third-to-last is the nav row.
     expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
-    const nav = rows[rows.length - 2]!;
+    const refreshRow = rows[rows.length - 2]!;
+    expect(refreshRow.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(refreshRow[0]!.callback_data).toMatch(/^pr:1:0x[0-9a-f]{40}$/i);
+    const nav = rows[rows.length - 3]!;
     const navTexts = nav.map((b) => b.text);
     expect(navTexts).toContain("← Prev");
     if (navTexts.length > 1) expect(navTexts).toContain("Next →");
     for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
     }
-    // Every non-nav, non-Close row must be a Buy/Sell pair pointing at
-    // a token. The tickers on this page must also appear in the body
-    // text — so a navigation never desyncs the keyboard from the
-    // visible list.
-    for (let i = 0; i < rows.length - 2; i++) {
+    // Every non-nav, non-Refresh, non-Back/Home row must be a Buy/Sell
+    // pair pointing at a token. The tickers on this page must also
+    // appear in the body text — so a navigation never desyncs the
+    // keyboard from the visible list.
+    for (let i = 0; i < rows.length - 3; i++) {
       const row = rows[i]!;
       expect(row).toHaveLength(2);
       const buyLabel = row[0]!.text;
@@ -202,11 +206,88 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     const rows = body.reply_markup!.inline_keyboard;
-    // One action row + trailing Close row.
-    expect(rows).toHaveLength(2);
+    // One action row + refresh row + trailing Back/Home row.
+    expect(rows).toHaveLength(3);
     expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
     expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
-    expect(rows[1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[1]![0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+  });
+
+  it("pr callback refreshes positions in place and toasts 'Refreshed' (proceeds + realised reflect latest indexer state)", async () => {
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/bot/positions/")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              open: [
+                {
+                  token: "0xaaaa000000000000000000000000000000000000",
+                  ticker: "ALPHA",
+                  balance: "1000000000000000000",
+                  costBasisUsdc: "20000000",
+                  currentValueUsdc: "30000000",
+                  unrealisedPnlUsdc: "10000000",
+                  unrealisedPnlPct: 50,
+                },
+              ],
+              realised: [
+                {
+                  token: "0xbbbb000000000000000000000000000000000000",
+                  ticker: "BETA",
+                  totalCostUsdc: "10000000",
+                  totalProceedsUsdc: "18000000",
+                  realisedPnlUsdc: "8000000",
+                  realisedPnlPct: 80,
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({ ok: true, result: true }),
+        { status: 200 },
+      );
+    });
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pr:0:${WALLET}`));
+    const edit = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edit).toBeDefined();
+    const editBody = edit!.body as {
+      text: string;
+      reply_markup: {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      };
+    };
+    // Proceeds (realised total proceeds) + realised PnL both render on
+    // the refreshed card, proving the refresh re-fetches both sections.
+    expect(editBody.text).toContain("ALPHA");
+    expect(editBody.text).toContain("BETA");
+    expect(editBody.text).toContain("+$8");
+    const rows = editBody.reply_markup.inline_keyboard;
+    expect(rows.at(-2)!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer?.body.text).toBe("Refreshed");
+  });
+
+  it("pr callback toasts 'invalid refresh request' when the wallet arg is not an address", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    const h = makeBotHarness();
+    await h.run(ppCallback("pr:0:not-a-wallet"));
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer?.body.text).toBe("Invalid refresh request.");
   });
 
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {

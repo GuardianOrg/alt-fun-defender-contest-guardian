@@ -11,6 +11,7 @@ import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
+  POSITIONS_REFRESH_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
   buildPositionsPageKeyboard,
   formatBotPositionsResponse,
@@ -130,6 +131,71 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
    * so the bot survives Worker cold-starts and re-deploys without
    * needing a KV-backed page cache.
    */
+  /**
+   * Refresh callback `pr:<page>:<wallet>`. Re-fetches positions for the
+   * wallet and edits the originating message in-place so proceeds /
+   * realised PnL reflect the latest indexer state. Mirrors the buy/sell
+   * card refresh — clamping to the new page count is delegated to
+   * `renderPage` so a position closing out between renders cannot leave
+   * the user on a phantom page.
+   */
+  bot.callbackQuery(
+    new RegExp(`^${POSITIONS_REFRESH_CALLBACK_CMD}:`),
+    async (ctx) => {
+      const data = ctx.callbackQuery.data ?? "";
+      const parts = data.split(":");
+      const pageStr = parts[1];
+      const wallet = parts[2];
+      if (pageStr === undefined || wallet === undefined || !isAddress(wallet)) {
+        await ctx.answerCallbackQuery({ text: "Invalid refresh request." });
+        return;
+      }
+      const requestedPage = Number.parseInt(pageStr, 10);
+      if (!Number.isFinite(requestedPage) || requestedPage < 0) {
+        await ctx.answerCallbackQuery({ text: "Invalid refresh request." });
+        return;
+      }
+      if (!ctx.callbackQuery.message) {
+        await ctx.answerCallbackQuery({ text: "Message no longer available." });
+        return;
+      }
+
+      const page = await renderPage(ctx.env, wallet, requestedPage);
+      if ("invalid" in page || "outage" in page) {
+        await ctx.answerCallbackQuery({ text: OUTAGE });
+        return;
+      }
+
+      try {
+        await ctx.editMessageText(page.text, {
+          ...HTML_REPLY,
+          reply_markup: page.reply_markup,
+        });
+      } catch (err) {
+        const e = err as {
+          error_code?: number;
+          description?: string;
+          message?: string;
+        };
+        const desc = (e.description ?? e.message ?? "").toLowerCase();
+        const isBenign =
+          e.error_code === 400 &&
+          (desc.includes("message to edit not found") ||
+            desc.includes("message not found") ||
+            desc.includes("message is not modified"));
+        if (!isBenign) {
+          await ctx.answerCallbackQuery();
+          throw err;
+        }
+        logger.warn("editMessageText benign 400 in positions refresh", {
+          queryId: ctx.callbackQuery.id,
+          description: e.description,
+        });
+      }
+      await ctx.answerCallbackQuery({ text: "Refreshed" });
+    },
+  );
+
   bot.callbackQuery(
     new RegExp(`^${POSITIONS_PAGE_CALLBACK_CMD}:`),
     async (ctx) => {

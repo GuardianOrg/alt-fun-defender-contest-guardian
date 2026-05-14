@@ -197,12 +197,18 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // One action row + trailing Close row.
-    expect(markup.inline_keyboard).toHaveLength(2);
+    // One action row + refresh row + trailing Back/Home row.
+    expect(markup.inline_keyboard).toHaveLength(3);
     const row = markup.inline_keyboard[0]!;
     expect(row.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     expect(row[0]!.callback_data).toBe(`pb:${TOKEN}`);
     expect(row[1]!.callback_data).toBe(`ps:${TOKEN}`);
+    expect(markup.inline_keyboard.at(-2)!.map((b) => b.text)).toEqual([
+      "🔄 Refresh",
+    ]);
+    expect(markup.inline_keyboard.at(-2)![0]!.callback_data).toBe(
+      `pr:0:${WALLET}`,
+    );
     expect(markup.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual([
       "← Back",
       "🏠 Home",
@@ -292,15 +298,19 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // Multiple per-position rows + a nav row + a trailing Close row.
-    expect(markup.inline_keyboard.length).toBeGreaterThan(2);
+    // Multiple per-position rows + a nav row + a refresh row + a trailing Back/Home row.
+    expect(markup.inline_keyboard.length).toBeGreaterThan(3);
     const closeRow = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
     expect(closeRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
-    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
+    const refreshRow =
+      markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
+    expect(refreshRow.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(refreshRow[0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
+    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 3]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
     // Every non-nav row must be a Buy/Sell pair with `pb:` / `ps:` data.
-    for (let i = 0; i < markup.inline_keyboard.length - 2; i++) {
+    for (let i = 0; i < markup.inline_keyboard.length - 3; i++) {
       const row = markup.inline_keyboard[i]!;
       expect(row).toHaveLength(2);
       expect(row[0]!.text.startsWith("Buy ")).toBe(true);
@@ -315,7 +325,7 @@ describe("/positions", () => {
     const anchorMatches = sent[0]!.text.match(
       /<a href="https:\/\/t\.me\/[^"]+\?start=track_0x[0-9a-f]{40}">LT\d+<\/a>/gi,
     );
-    const positionRowCount = markup.inline_keyboard.length - 2;
+    const positionRowCount = markup.inline_keyboard.length - 3;
     expect(anchorMatches).not.toBeNull();
     expect(anchorMatches!.length).toBe(positionRowCount);
   });
