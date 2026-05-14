@@ -72,10 +72,10 @@ export function isListLiveTradeUpdate(raw: TradeBroadcast): boolean {
  *
  * If `VITE_WS_URL` isn't set (local dev without the API Worker,
  * preview builds without a WS endpoint) this is a silent no-op. The
- * `useInfiniteTokens` / `useMarketData` / `useTokenPrices` poll loops
- * still tick on their own intervals; users just won't get the sub-poll
- * live updates. Matches `useTokenLiveFeed` / `useGraduationFeed`
- * degradation behaviour.
+ * `useInfiniteTokens` / `useMarketData` poll loops still tick on their
+ * own intervals; users just won't get the sub-poll live updates.
+ * Matches `useTokenLiveFeed` / `useGraduationFeed` degradation
+ * behaviour.
  */
 export function useTokenListLiveFeed(): void {
   const queryClient = useQueryClient();
@@ -90,13 +90,11 @@ export function useTokenListLiveFeed(): void {
       // every row) pick up the new trade.
       queryClient.invalidateQueries({ queryKey: ["tokens-infinite"] });
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
-      // Refresh the per-token mcap + 24h change + 24h volume map. Both
-      // queries derive from `/api/v1/market-data` — they have distinct
-      // keys today (pre-existing duplication) so we invalidate both to
-      // keep `useTokenMarketStats` / `useTokenPrices` consumers in
-      // lockstep.
+      // Refresh the per-token mcap + 24h change + 24h volume map. Now
+      // a single query (the `useMarketData` hook absorbed the legacy
+      // `useTokenPrices` consumers) so one invalidation drives every
+      // downstream consumer.
       queryClient.invalidateQueries({ queryKey: ["market-data"] });
-      queryClient.invalidateQueries({ queryKey: ["token-prices"] });
     }, INVALIDATE_THROTTLE_MS);
 
     const unsub = ws.subscribe("trade", (data) => {

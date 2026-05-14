@@ -21,7 +21,7 @@ describe("buildTokenMarketStats", () => {
     expect(stats.change24h).toBeNull();
   });
 
-  it("prefers live mcap from useTokenPrices over backend mcap", () => {
+  it("prefers a positive live mcap input over the backend mcap fallback", () => {
     const stats = buildTokenMarketStats(
       12_345,
       {

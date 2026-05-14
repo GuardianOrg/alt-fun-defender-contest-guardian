@@ -36,6 +36,18 @@ function normaliseAddresses(addresses: readonly string[]): string[] {
  * Server caps at 200 addresses per call; consumers that need more should
  * page their callers (or open an issue — at that point a different
  * shape is probably warranted).
+ *
+ * Exposes both raw-row access (`getTokenMarketData` for `change24h` /
+ * `volume24hUsd` / `past24hPriceUsd`) and the price-shaped projections
+ * (`getPrice` / `getMcap`) the held-positions / mcap-overlay paths
+ * historically pulled off a separate `useTokenPrices(addresses)` hook.
+ * The two hooks fired the same `POST /api/v1/market-data` request with
+ * different React Query cache keys (`["market-data", …]` vs
+ * `["token-prices", …]`) — every page load doubled the upstream load
+ * and every WS-driven invalidation refetched the payload twice. Pulling
+ * both selector flavours off the single underlying query collapses that
+ * fan-out (and keeps the WS invalidation in `useTokenListLiveFeed`
+ * pointed at one cache key instead of two).
  */
 export function useMarketData(addresses: readonly string[]) {
   // `useMemo` so an inline `[...]` literal at the call site doesn't
@@ -58,17 +70,37 @@ export function useMarketData(addresses: readonly string[]) {
     enabled: normalised.length > 0,
   });
 
+  const data = query.data ?? ({} as MarketDataMap);
+
   const getTokenMarketData = (
     address: string,
   ): MarketDataEntry | undefined => {
-    return query.data?.[address.toLowerCase()];
+    return data[address.toLowerCase()];
+  };
+
+  // Price / mcap selectors mirror the legacy `useTokenPrices` contract:
+  // a missing entry OR a `null` server-side value collapses to `0` so
+  // callers (`useBalances` derives `valueUsd = amount × pricePerToken`)
+  // can multiply unconditionally. `null` is the indexer-degraded
+  // sentinel — treating it as "unknown, try again next poll" matches
+  // the dust-filter behaviour in `buildHeldTokens`, which already
+  // relies on a `0` price collapsing every row to sub-threshold and
+  // skipping the panel render until prices land.
+  const getPrice = (address: string): number => {
+    return data[address.toLowerCase()]?.priceUsd ?? 0;
+  };
+
+  const getMcap = (address: string): number => {
+    return data[address.toLowerCase()]?.mcapUsd ?? 0;
   };
 
   return {
-    data: query.data ?? ({} as MarketDataMap),
+    data,
     isLoading: query.isLoading,
     isError: query.isError,
     getTokenMarketData,
+    getPrice,
+    getMcap,
     /**
      * Wall-clock ms when TanStack last filled the query (initial fetch
      * or refetch). Live overlay hooks (`useLiveTokenVolume24h`) use this

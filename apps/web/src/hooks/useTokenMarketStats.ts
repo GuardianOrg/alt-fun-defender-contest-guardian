@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 
 import { useMarketData } from "./useMarketData";
-import { useTokenPrices } from "./useTokenPrices";
 import {
   getTokenOverride,
   subscribeTokenOverrides,
@@ -46,9 +45,13 @@ export function buildTokenMarketStats(
 }
 
 /**
- * Single-token market stats. Combines current mcap from `useTokenPrices`
- * (Ponder state + live BounceTech LT rates) with 24h change from
- * `useMarketData` (indexer-backed historical snapshots).
+ * Single-token market stats. Reads everything off the per-page
+ * `POST /api/v1/market-data` snapshot driven by `useMarketData`:
+ * `mcapUsd` (live, computed from Ponder curve state + the BounceTech
+ * LT rate), `change24h`, and `volume24hUsd`. The earlier split between
+ * `useTokenPrices` (mcap) and `useMarketData` (24h fields) fired the
+ * same upstream request twice with different React Query cache keys
+ * — collapsing them removes that duplication.
  *
  * Components should render `—` while `isLoading` and on `isError`.
  *
@@ -62,12 +65,11 @@ export function buildTokenMarketStats(
  */
 export function useTokenMarketStats(address: string | undefined): TokenMarketStats {
   const addresses = address ? [address] : [];
-  const prices = useTokenPrices(addresses);
   const marketData = useMarketData(addresses);
 
   // Dev-only mcap override — same shape as the curve-fill overlay used by
-  // `useToken`, but applied here because `mcapUsd` is sourced from
-  // `useTokenPrices` rather than the `Token` payload. The
+  // `useToken`, but applied here because `mcapUsd` is sourced from the
+  // `/market-data` payload rather than the `Token` payload. The
   // `import.meta.env.DEV` gate inside the snapshot keeps the override
   // dead-code-eliminated in production builds while the bare
   // `useSyncExternalStore` call (subscribed to a no-op listener set in
@@ -78,8 +80,7 @@ export function useTokenMarketStats(address: string | undefined): TokenMarketSta
     () => undefined,
   );
 
-  const isLoading = prices.isLoading || marketData.isLoading;
-  const isError = marketData.isError;
+  const { isLoading, isError } = marketData;
 
   if (!address) {
     return {
@@ -91,10 +92,19 @@ export function useTokenMarketStats(address: string | undefined): TokenMarketSta
     };
   }
 
-  const key = address.toLowerCase();
-  const mcap = prices.prices[key]?.mcapUsd;
   const entry = marketData.getTokenMarketData(address);
-  const stats = buildTokenMarketStats(mcap, entry, isLoading, isError);
+  // `mcapUsd` and the rest of the row come off the same backend entry,
+  // so we read both off `entry` directly. `buildTokenMarketStats`
+  // already collapses non-positive / nullish mcaps to the entry's own
+  // `mcapUsd` (effectively a no-op when the inputs match) and falls
+  // through to `null`, preserving the previous `useTokenPrices`-based
+  // semantics where a missing `priceUsd` blocked the live mcap.
+  const stats = buildTokenMarketStats(
+    entry?.mcapUsd ?? undefined,
+    entry,
+    isLoading,
+    isError,
+  );
   if (override?.mcapUsd !== undefined) {
     return { ...stats, mcapUsd: override.mcapUsd };
   }
@@ -118,17 +128,18 @@ export function useTokenMarketStatsMap(addresses: readonly string[]): {
   isLoading: boolean;
   isError: boolean;
 } {
-  const prices = useTokenPrices(addresses);
   const marketData = useMarketData(addresses);
 
-  const isLoading = prices.isLoading || marketData.isLoading;
-  const isError = marketData.isError;
+  const { isLoading, isError } = marketData;
 
   const getStats = (address: string): TokenMarketStats => {
-    const key = address.toLowerCase();
-    const priceMcap = prices.prices[key]?.mcapUsd;
     const entry = marketData.getTokenMarketData(address);
-    return buildTokenMarketStats(priceMcap, entry, isLoading, isError);
+    return buildTokenMarketStats(
+      entry?.mcapUsd ?? undefined,
+      entry,
+      isLoading,
+      isError,
+    );
   };
 
   return { getStats, isLoading, isError };
