@@ -29,10 +29,13 @@ import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { WALLET_CALLBACK } from "../keyboards/wallet-actions.js";
+import {
+  type InlineCallbackButton,
+  WALLET_CALLBACK,
+} from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
 import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
-import { backHomeMarkup } from "../lib/nav.js";
+import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
@@ -181,6 +184,36 @@ const fetchAssetBalanceExternal = async (
   return stringified === null ? null : BigInt(stringified);
 };
 
+export interface AssetBalances {
+  usdc: bigint | null;
+  hype: bigint | null;
+}
+
+/**
+ * Read USDC and HYPE balances in parallel for the asset-picker prompt.
+ * Same `conversation.external` + bigint-stringify pattern as the
+ * single-asset helper — both legs degrade to `null` independently so
+ * one RPC blip doesn't suppress the other balance from the prompt.
+ */
+const fetchBothBalancesExternal = async (
+  conversation: Conversation<AppContext, AppContext>,
+  address: string,
+): Promise<AssetBalances> => {
+  const stringified = await conversation.external((outside) =>
+    Promise.all([
+      fetchUsdcBalance(outside.env, address),
+      fetchNativeBalance(outside.env, address),
+    ]).then(([usdc, hype]) => ({
+      usdc: usdc === null ? null : usdc.toString(),
+      hype: hype === null ? null : hype.toString(),
+    })),
+  );
+  return {
+    usdc: stringified.usdc === null ? null : BigInt(stringified.usdc),
+    hype: stringified.hype === null ? null : BigInt(stringified.hype),
+  };
+};
+
 const formatBalance = (
   balance: bigint | null,
   asset: WithdrawAsset,
@@ -188,6 +221,48 @@ const formatBalance = (
   balance === null
     ? "unavailable"
     : `${formatAmount(balance, asset)} ${asset}`;
+
+/**
+ * Asset-picker callback codes. Wizard `waitForCallbackQuery` filter
+ * matches exactly these so a stray `nav:b` / `nav:h` tap falls through
+ * to the global nav handler instead of being mis-decoded as an asset
+ * pick. Kept under the same `wd*` namespace as the staged-confirm
+ * (`wdc:`) and cancel (`wdcl:`) codes so the audit surface for
+ * withdraw callbacks is a single grep.
+ */
+const WITHDRAW_ASSET_CALLBACK = {
+  usdc: "wda:usdc",
+  hype: "wda:hype",
+} as const;
+
+const ASSET_PICKER_PATTERN = /^wda:(usdc|hype)$/;
+
+const renderAssetPrompt = (balances: AssetBalances): string =>
+  [
+    "Which asset?",
+    "",
+    `You have ${formatBalance(balances.usdc, "USDC")} and ${formatBalance(balances.hype, "HYPE")}.`,
+  ].join("\n");
+
+/**
+ * USDC on the left per product spec — the most common withdraw asset
+ * sits under the thumb, mirroring the buy / sell preset ordering on the
+ * trade cards. Back/Home row is appended so a user who taps the wizard
+ * by mistake can exit without sending a stray text.
+ */
+const assetPickerKeyboard = (): InlineCallbackButton[][] => [
+  [
+    { text: "USDC", callback_data: WITHDRAW_ASSET_CALLBACK.usdc },
+    { text: "HYPE", callback_data: WITHDRAW_ASSET_CALLBACK.hype },
+  ],
+  backHomeRow(),
+];
+
+const assetFromCallback = (data: string): WithdrawAsset | null => {
+  const m = ASSET_PICKER_PATTERN.exec(data);
+  if (!m) return null;
+  return m[1] === "usdc" ? "USDC" : "HYPE";
+};
 
 const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
   const lines = [
@@ -334,34 +409,12 @@ const withdrawWizardConversation = async (
   const chatId = ctx.chat.id;
   await sweepWorkflow(conversation);
 
-  let asset: WithdrawAsset | null = null;
-  while (asset === null) {
-    const raw = await promptArg(
-      conversation,
-      ctx,
-      "Which asset? Send HYPE or USDC.",
-      true,
-    );
-    if (raw === null) {
-      await sweepWorkflow(conversation);
-      return;
-    }
-    const upper = raw.toUpperCase();
-    if (isWithdrawAsset(upper)) {
-      asset = upper;
-      break;
-    }
-    const retry = await ctx.reply(
-      withAntiPhishing("Unsupported asset. Send HYPE or USDC."),
-      { reply_markup: backHomeMarkup() },
-    );
-    await trackWorkflowMessage(conversation, retry.message_id);
-  }
-
-  // Resolve the active wallet early so the amount prompt can show the
-  // user how much of the chosen asset they actually hold. If there is no
-  // active wallet the rest of the wizard cannot proceed — bail now rather
-  // than asking for amount + destination only to reject at PIN time.
+  // Resolve the active wallet up front: the asset prompt now displays
+  // both balances inline (so the user picks the asset they actually hold
+  // without sending a text), which needs the address before any reply.
+  // If no active wallet exists the rest of the wizard cannot proceed —
+  // bail now rather than rendering an asset picker that PIN time will
+  // reject anyway.
   const active = await conversation.external((outside) =>
     buildWalletManager(outside.env).getActive(userId),
   );
@@ -370,11 +423,36 @@ const withdrawWizardConversation = async (
     await sweepWorkflow(conversation);
     return;
   }
-  const balance = await fetchAssetBalanceExternal(
+
+  const balances = await fetchBothBalancesExternal(
     conversation,
-    asset,
     active.address,
   );
+
+  const assetPromptMsg = await ctx.reply(
+    withAntiPhishing(renderAssetPrompt(balances)),
+    { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
+  );
+  await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
+
+  // Filter is exact-match on the two asset codes; `next: true` lets
+  // non-matching updates (Back / Home taps on this keyboard, and a
+  // pasted contract address that the global address-buy intercept
+  // claims — issue #821) flow through to the rest of the middleware
+  // chain instead of being silently dropped.
+  const pickCtx = await conversation.waitForCallbackQuery(
+    ASSET_PICKER_PATTERN,
+    { next: true },
+  );
+  const asset = assetFromCallback(pickCtx.callbackQuery.data ?? "");
+  if (!asset) {
+    // Pattern matched but decoding failed — shouldn't happen, but bail
+    // cleanly instead of crashing the wizard.
+    await sweepWorkflow(conversation);
+    return;
+  }
+  await pickCtx.answerCallbackQuery();
+  const balance = asset === "USDC" ? balances.usdc : balances.hype;
 
   let amountRaw: bigint | null = null;
   while (amountRaw === null) {
