@@ -60,39 +60,35 @@ describe("buildBuyTokenKeyboard", () => {
   });
 });
 
-describe("3-column layout (issue: pack buy/sell card in rows of three)", () => {
-  it("buy keyboard packs 5 presets + custom into two rows of three, then Refresh, then Back/Home", () => {
+describe("2-column layout (prevent Telegram label truncation)", () => {
+  it("buy keyboard packs 5 presets + custom into three rows of two, then Refresh, then Back/Home", () => {
     const rows = buildBuyTokenKeyboard(TOKEN, [...DEFAULT_BUY_PRESETS_USDC]);
-    expect(rows).toHaveLength(4);
-    expect(rows[0]!.map((b) => b.text)).toEqual([
-      "Buy 20 USDC",
-      "Buy 40 USDC",
-      "Buy 60 USDC",
-    ]);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy 20 USDC", "Buy 40 USDC"]);
     expect(rows[1]!.map((b) => b.text)).toEqual([
+      "Buy 60 USDC",
       "Buy 80 USDC",
-      "Buy 100 USDC",
-      "Buy X USDC",
     ]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["Buy 100 USDC", "Buy X USDC"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[4]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
-  it("sell keyboard packs 5 presets + custom into two rows of three, then Refresh, then Back/Home", () => {
+  it("sell keyboard packs 5 presets + custom into three rows of two, then Refresh, then Back/Home", () => {
     const rows = buildSellTokenKeyboard(TOKEN, [...DEFAULT_SELL_PRESETS_PCT]);
-    expect(rows).toHaveLength(4);
-    expect(rows[0]!.map((b) => b.text)).toEqual([
-      "Sell 10%",
-      "Sell 25%",
-      "Sell 50%",
-    ]);
-    expect(rows[1]!.map((b) => b.text)).toEqual([
-      "Sell 75%",
-      "Sell 100%",
-      "Sell X%",
-    ]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Sell 10%", "Sell 25%"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Sell 50%", "Sell 75%"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["Sell 100%", "Sell X%"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[4]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+  });
+
+  it("buy keyboard caps each row at 2 buttons regardless of preset amount width", () => {
+    const rows = buildBuyTokenKeyboard(TOKEN, [1000, 2500, 5000, 7500, 10000]);
+    for (const row of rows.slice(0, -2)) {
+      expect(row.length).toBeLessThanOrEqual(2);
+    }
   });
 });
 
