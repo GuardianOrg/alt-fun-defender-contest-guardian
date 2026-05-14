@@ -59,12 +59,14 @@ vi.mock("../db/client.js", () => ({
 
 const mockFetchGraduatedTokensOnchain = vi.fn();
 const mockFetchNonGraduatedTokensOnchain = vi.fn();
+const mockFetchTrendingCandidateAddresses = vi.fn();
 const mockComputeMarketDataForAddresses = vi.fn();
 const mockBuildBatchFromTokens = vi.fn();
 
 vi.mock("../lib/market-data.js", () => ({
   fetchGraduatedTokensOnchain: mockFetchGraduatedTokensOnchain,
   fetchNonGraduatedTokensOnchain: mockFetchNonGraduatedTokensOnchain,
+  fetchTrendingCandidateAddresses: mockFetchTrendingCandidateAddresses,
   computeMarketDataForAddresses: mockComputeMarketDataForAddresses,
   buildBatchFromTokens: mockBuildBatchFromTokens,
 }));
@@ -661,5 +663,97 @@ describe("GET /tokens — totalVolumeUsd enrichment", () => {
       data: Array<{ totalVolumeUsd: number | null }>;
     };
     expect(body.data[0].totalVolumeUsd).toBeNull();
+  });
+});
+
+/**
+ * Coverage for the precomputed-trending candidate path. The legacy
+ * "newest 500 tokens by createdAt DESC" candidate pool was trivially
+ * spammable — a burst of 500 zero-trade launches used to flush every
+ * real candidate out of the tab. We now pull top-K from the indexer's
+ * `tokenMetrics.baseScore` index (which is anti-spam by construction:
+ * every term is zero for tokens nobody trades), then hydrate + re-score
+ * at the API layer with the full `computeTrendingScore`.
+ */
+describe("GET /tokens?sort=trending — precomputed candidate path", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses fetchTrendingCandidateAddresses to source the candidate pool", async () => {
+    mockFetchTrendingCandidateAddresses.mockResolvedValueOnce([
+      ADDR_A.toLowerCase(),
+      ADDR_B.toLowerCase(),
+    ]);
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket() },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    expect(mockFetchTrendingCandidateAddresses).toHaveBeenCalledTimes(1);
+    // The 24h cutoff (`TRENDING_LAST_TRADE_WINDOW_SEC`) is passed as the
+    // third argument — assert it's roughly `now - 86400` so a future
+    // refactor that drops the cutoff doesn't silently re-expose dead
+    // tokens to the trending pool.
+    const call = mockFetchTrendingCandidateAddresses.mock.calls[0];
+    const passedCutoff = call?.[2] as number;
+    const nowSec = Math.floor(Date.now() / 1000);
+    expect(passedCutoff).toBeGreaterThan(nowSec - 86_400 - 5);
+    expect(passedCutoff).toBeLessThanOrEqual(nowSec - 86_400 + 5);
+  });
+
+  it("falls back to the legacy createdAt-DESC pool + marks degraded when the indexer is down", async () => {
+    // Indexer returns null → trending tab stays visible (we don't 503
+    // the home page) but we record the degradation in `dataSource` and
+    // shorten the cache TTL.
+    mockFetchTrendingCandidateAddresses.mockResolvedValueOnce(null);
+    currentDbRows.rows = [makeDbRow(ADDR_A, { ticker: "AAA" })];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: makeOnchain(ADDR_A), market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      dataSource: string;
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.dataSource).toBe("degraded");
+    expect(body.data.map((t) => t.ticker)).toEqual(["AAA"]);
+  });
+
+  it("returns an empty list when the indexer reports zero recently-traded candidates", async () => {
+    mockFetchTrendingCandidateAddresses.mockResolvedValueOnce([]);
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: unknown[] };
+    expect(body.data).toEqual([]);
+    // Should never call market-data when there's nothing to hydrate.
+    expect(mockComputeMarketDataForAddresses).not.toHaveBeenCalled();
   });
 });

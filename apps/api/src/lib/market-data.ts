@@ -348,6 +348,61 @@ export async function fetchGraduatedTokensOnchain(
  * definition, since the trigger fired), so they naturally rank first
  * under the `curveSupply asc` ordering and pass the 85% gate.
  */
+/**
+ * Top-K trending candidates by precomputed `tokenMetrics.baseScore`. Replaces
+ * the legacy "newest 500 tokens" candidate pool that was trivially spammable
+ * — a burst of 500 zero-trade launches used to flush every real candidate
+ * out of the trending tab. The indexer now maintains `baseScore` on every
+ * `Zap.Buy` / `Zap.Sell` from three cumulative anti-spam signals
+ * (`volumeUsdLifetime`, `distinctTraderCount`, `tradeCount`); spam tokens
+ * with zero trades score 0 and rank below any token with even one real trade.
+ *
+ * Returns lowercased token addresses. The route then hydrates them with
+ * the existing token metadata + on-chain state + live market data, and
+ * re-scores at read time with the full `computeTrendingScore` (which adds
+ * the time-dependent freshness / recency / dead-penalty terms that we
+ * deliberately don't precompute on the indexer side).
+ *
+ * `lastTradeAt_gt` filter screens out tokens that haven't traded inside
+ * the trending window. The dead-penalty term (`-1000`) would do the same
+ * job at the API layer, but pushing the filter into the GraphQL query
+ * lets the index skip dead rows entirely — keeps the result set tight and
+ * the response payload bounded under a viral hour.
+ *
+ * Returns `null` on indexer failure so the route can degrade gracefully
+ * (same pattern as `fetchGraduatedTokensOnchain` / `fetchNonGraduatedTokensOnchain`).
+ */
+export async function fetchTrendingCandidateAddresses(
+  ponderUrl: string | undefined,
+  limit: number,
+  /** Unix seconds — earliest `lastTradeAt` that still counts as alive. */
+  minLastTradeAtSec: number,
+): Promise<string[] | null> {
+  const queryPonder = createPonderQuery(ponderUrl);
+  const data = await queryPonder<{
+    tokenMetricss: {
+      items: Array<{ tokenAddress: string; baseScore: number }>;
+    };
+  }>(
+    `query ($limit: Int!, $minLastTradeAt: BigInt!) {
+      tokenMetricss(
+        where: { lastTradeAt_gt: $minLastTradeAt }
+        limit: $limit
+        orderBy: "baseScore"
+        orderDirection: "desc"
+      ) {
+        items {
+          tokenAddress
+          baseScore
+        }
+      }
+    }`,
+    { limit, minLastTradeAt: String(minLastTradeAtSec) },
+  );
+  if (data === null) return null;
+  return data.tokenMetricss.items.map((row) => row.tokenAddress.toLowerCase());
+}
+
 export async function fetchNonGraduatedTokensOnchain(
   ponderUrl: string | undefined,
   limit: number,

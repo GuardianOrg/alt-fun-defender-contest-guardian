@@ -12,6 +12,9 @@ import {
   globalStats,
   hourlyVolume,
   walletPosition,
+  tokenMetrics,
+  tokenHourlyMetrics,
+  tokenTrader,
 } from "ponder:schema";
 
 import { broadcastEvent, isLiveEvent } from "./broadcast.js";
@@ -19,6 +22,51 @@ import { broadcastEvent, isLiveEvent } from "./broadcast.js";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const GLOBAL_STATS_ID = "global" as const;
 const SECONDS_PER_HOUR = 3600n;
+
+/**
+ * Coefficients for the precomputed trending base-score formula. Mirror
+ * `apps/api/src/lib/token-enrich.ts` `computeTrendingScore`'s volume term
+ * (`15 × log10(...)`) so the two scoring layers stay on the same scale.
+ * The distinct-trader and trade-count terms are unique to `baseScore` —
+ * they're cumulative anti-spam signals that wouldn't fit the API's
+ * per-request 24h formula.
+ */
+const BASE_SCORE_VOLUME_COEFF = 15;
+const BASE_SCORE_DISTINCT_TRADER_COEFF = 10;
+const BASE_SCORE_TRADE_COUNT_COEFF = 5;
+
+/**
+ * Recompute the `tokenMetrics.baseScore` from the post-trade cumulative
+ * activity signals. Spam-resistant by construction — all three terms are
+ * zero for a token that has never traded, so a flood of newly-launched
+ * spam tokens stays buried below any token with even one real trade.
+ *
+ * `tokenMetrics.volumeUsdLifetime` carries `6dp` USDC; we don't bother
+ * normalising units inside the log because the coefficient stays the same
+ * across the board and the relative ordering is what matters for the
+ * top-K candidate filter the API applies on top of this.
+ */
+function computeBaseScore(
+  volumeUsdLifetime: bigint,
+  distinctTraderCount: number,
+  tradeCount: number,
+): number {
+  return (
+    BASE_SCORE_VOLUME_COEFF * Math.log10(Number(volumeUsdLifetime) + 1) +
+    BASE_SCORE_DISTINCT_TRADER_COEFF * Math.log10(distinctTraderCount + 1) +
+    BASE_SCORE_TRADE_COUNT_COEFF * Math.log10(tradeCount + 1)
+  );
+}
+
+// `updateTokenMetrics` would be the natural shape for the per-token
+// metrics maintenance below — three write blocks called from both Buy
+// and Sell handlers with `(trader, usdcAmount)` as the only side-specific
+// difference — but Ponder's `Db<typeof schema>` type isn't exported from
+// the public `ponder` module (only the schema-bound `Db` interface is in
+// `ponder/dist/types/types/db.d.ts`), so a top-level helper signature
+// can't be typed without invasive `Parameters<Parameters<...>>`
+// reflection. The block is inlined in both handlers below with the
+// `MAINTAIN_TOKEN_METRICS` marker comment — keep the two copies in sync.
 
 /**
  * Trim a token-row label and collapse blank-after-trim to `undefined`.
@@ -396,6 +444,111 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
       });
   }
 
+  // MAINTAIN_TOKEN_METRICS — per-token activity counters + hourly bucket
+  // + distinct-trader tracking, backing the precomputed trending top-K
+  // (`tokenMetrics.baseScore` index). Anti-spam by construction: all three
+  // terms in `baseScore` are zero for tokens nobody trades, so a spam burst
+  // of fresh launches stays buried below any token with even one real trade.
+  //
+  // Identical block in Zap:Sell — keep the two in sync.
+  {
+    const buyTimestamp = BigInt(event.block.timestamp);
+    const buyHourStartTm = (buyTimestamp / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+    const buyHourlyId = `${event.args.token}-${buyHourStartTm}`;
+    const buyTraderId = `${event.args.buyer}-${event.args.token}`;
+
+    // 1) Distinct-trader bump. Insert on first trade by this wallet for
+    // this token; subsequent trades by the same wallet leave the count
+    // alone. The `find` before `insert` is unavoidable — we need to know
+    // whether to bump `distinctTraderCount` below.
+    const existingTrader = await db.find(tokenTrader, { id: buyTraderId });
+    const isNewTrader = !existingTrader;
+    if (isNewTrader) {
+      await db
+        .insert(tokenTrader)
+        .values({
+          id: buyTraderId,
+          tokenAddress: event.args.token,
+          trader: event.args.buyer,
+          firstTradedAt: buyTimestamp,
+        })
+        .onConflictDoNothing();
+    }
+
+    // 2) Per-(token, hour) bucket upsert — mirrors the platform-wide
+    // `hourlyVolume` semantics for per-token 24h windowing at read time.
+    const existingTokenHourly = await db.find(tokenHourlyMetrics, {
+      id: buyHourlyId,
+    });
+    if (existingTokenHourly) {
+      await db.update(tokenHourlyMetrics, { id: buyHourlyId }).set({
+        volumeUsd: existingTokenHourly.volumeUsd + event.args.usdcIn,
+        tradeCount: existingTokenHourly.tradeCount + 1,
+      });
+    } else {
+      // `onConflictDoNothing` rather than the absolute-value
+      // `onConflictDoUpdate` the surrounding `globalStats` / `hourlyVolume`
+      // upserts use: the find-then-update path above is the only correct
+      // *accumulation* path; the conflict fallback is unreachable under
+      // Ponder's single-threaded event-loop, and `DoUpdate` with absolute
+      // values would overwrite an already-accumulated bucket with a
+      // single event's worth of volume if the impossible race ever fired
+      // (CodeRabbit feedback on PR #867).
+      await db
+        .insert(tokenHourlyMetrics)
+        .values({
+          id: buyHourlyId,
+          tokenAddress: event.args.token,
+          hourStart: buyHourStartTm,
+          volumeUsd: event.args.usdcIn,
+          tradeCount: 1,
+        })
+        .onConflictDoNothing();
+    }
+
+    // 3) Per-token aggregate. Recompute `baseScore` after the bump so the
+    // trending index reflects the latest state.
+    const existingMetrics = await db.find(tokenMetrics, {
+      tokenAddress: event.args.token,
+    });
+    if (existingMetrics) {
+      const nextVolume = existingMetrics.volumeUsdLifetime + event.args.usdcIn;
+      const nextTradeCount = existingMetrics.tradeCount + 1;
+      const nextDistinct =
+        existingMetrics.distinctTraderCount + (isNewTrader ? 1 : 0);
+      await db
+        .update(tokenMetrics, { tokenAddress: event.args.token })
+        .set({
+          volumeUsdLifetime: nextVolume,
+          tradeCount: nextTradeCount,
+          distinctTraderCount: nextDistinct,
+          lastTradeAt: buyTimestamp,
+          baseScore: computeBaseScore(nextVolume, nextDistinct, nextTradeCount),
+          updatedAt: buyTimestamp,
+        });
+    } else {
+      // First-ever trade for this token. `isNewTrader` is always true here
+      // (no prior `tokenMetrics` row → no prior `tokenTrader` row either,
+      // modulo a re-org-induced rewind we don't model).
+      // `onConflictDoNothing` for the same reason as `tokenHourlyMetrics`
+      // above — a conflict here would otherwise reset accumulated counters
+      // back to a single-event bootstrap.
+      const bootBaseScore = computeBaseScore(event.args.usdcIn, 1, 1);
+      await db
+        .insert(tokenMetrics)
+        .values({
+          tokenAddress: event.args.token,
+          volumeUsdLifetime: event.args.usdcIn,
+          tradeCount: 1,
+          distinctTraderCount: 1,
+          lastTradeAt: buyTimestamp,
+          baseScore: bootBaseScore,
+          updatedAt: buyTimestamp,
+        })
+        .onConflictDoNothing();
+    }
+  }
+
   // Real-time trade-list broadcast. The trade-feed UI uses this *instead*
   // of the `Bonding:Trade` broadcast because:
   //   1. It carries the gross USDC the user paid (matching the visible
@@ -524,6 +677,86 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
       zapTokenAmount: nextAmount,
       costBasisUsdc: nextCost,
     });
+  }
+
+  // MAINTAIN_TOKEN_METRICS — per-token activity counters + hourly bucket
+  // + distinct-trader tracking, backing the precomputed trending top-K.
+  // See Zap:Buy for the anti-spam rationale; identical block — keep in sync.
+  {
+    const sellTimestamp = BigInt(event.block.timestamp);
+    const sellHourStartTm = (sellTimestamp / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+    const sellHourlyId = `${event.args.token}-${sellHourStartTm}`;
+    const sellTraderId = `${event.args.seller}-${event.args.token}`;
+
+    const existingTrader = await db.find(tokenTrader, { id: sellTraderId });
+    const isNewTrader = !existingTrader;
+    if (isNewTrader) {
+      await db
+        .insert(tokenTrader)
+        .values({
+          id: sellTraderId,
+          tokenAddress: event.args.token,
+          trader: event.args.seller,
+          firstTradedAt: sellTimestamp,
+        })
+        .onConflictDoNothing();
+    }
+
+    const existingTokenHourly = await db.find(tokenHourlyMetrics, {
+      id: sellHourlyId,
+    });
+    if (existingTokenHourly) {
+      await db.update(tokenHourlyMetrics, { id: sellHourlyId }).set({
+        volumeUsd: existingTokenHourly.volumeUsd + event.args.usdcOut,
+        tradeCount: existingTokenHourly.tradeCount + 1,
+      });
+    } else {
+      // See Zap:Buy for the `onConflictDoNothing` rationale.
+      await db
+        .insert(tokenHourlyMetrics)
+        .values({
+          id: sellHourlyId,
+          tokenAddress: event.args.token,
+          hourStart: sellHourStartTm,
+          volumeUsd: event.args.usdcOut,
+          tradeCount: 1,
+        })
+        .onConflictDoNothing();
+    }
+
+    const existingMetrics = await db.find(tokenMetrics, {
+      tokenAddress: event.args.token,
+    });
+    if (existingMetrics) {
+      const nextVolume = existingMetrics.volumeUsdLifetime + event.args.usdcOut;
+      const nextTradeCount = existingMetrics.tradeCount + 1;
+      const nextDistinct =
+        existingMetrics.distinctTraderCount + (isNewTrader ? 1 : 0);
+      await db
+        .update(tokenMetrics, { tokenAddress: event.args.token })
+        .set({
+          volumeUsdLifetime: nextVolume,
+          tradeCount: nextTradeCount,
+          distinctTraderCount: nextDistinct,
+          lastTradeAt: sellTimestamp,
+          baseScore: computeBaseScore(nextVolume, nextDistinct, nextTradeCount),
+          updatedAt: sellTimestamp,
+        });
+    } else {
+      const bootBaseScore = computeBaseScore(event.args.usdcOut, 1, 1);
+      await db
+        .insert(tokenMetrics)
+        .values({
+          tokenAddress: event.args.token,
+          volumeUsdLifetime: event.args.usdcOut,
+          tradeCount: 1,
+          distinctTraderCount: 1,
+          lastTradeAt: sellTimestamp,
+          baseScore: bootBaseScore,
+          updatedAt: sellTimestamp,
+        })
+        .onConflictDoNothing();
+    }
   }
 
   // Trade-list broadcast — see Buy handler for rationale, including the
