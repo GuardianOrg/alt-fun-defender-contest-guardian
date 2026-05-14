@@ -381,7 +381,7 @@ const sellPresetSlotConversation = async (
     wrap(
       ctx,
       [
-        "Change the value of the sell amount button.",
+        "Change the value of the sell percent button.",
         "",
         "Send a percent between 1 and 100.",
         "",

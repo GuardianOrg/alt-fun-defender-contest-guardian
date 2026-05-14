@@ -95,13 +95,23 @@ export interface SessionData {
   workflowMessages?: { chatId: number; messageId: number }[];
 }
 
-const DEFAULT_SESSION: SessionData = {
+/**
+ * Default preset values, deep-cloned on every `initial()` call so two
+ * fresh sessions can never share an inner array reference. The session
+ * plugin's shallow `{...DEFAULT_SESSION}` spread would otherwise let an
+ * in-place mutation in one chat's handler bleed across every other
+ * session served by this Worker isolate (CodeRabbit PR #829).
+ */
+const DEFAULT_BUY_PRESETS = [20, 40, 60, 80, 100] as const;
+const DEFAULT_SELL_PRESETS = [10, 25, 50, 75, 100] as const;
+
+const buildDefaultSession = (): SessionData => ({
   slippageBps: 1000,
   defaultBuyUsdc: 20,
-  buyPresetsUsdc: [20, 40, 60, 80, 100],
-  sellPresetsPct: [10, 25, 50, 75, 100],
+  buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
+  sellPresetsPct: [...DEFAULT_SELL_PRESETS],
   degenMode: true,
-};
+});
 
 /**
  * Composite context type for the bot.
@@ -181,7 +191,7 @@ export const createBot = (
 
   bot.use(
     session<SessionData, AppContext>({
-      initial: () => ({ ...DEFAULT_SESSION }),
+      initial: () => buildDefaultSession(),
       // KvAdapter's `KVNamespace` type comes from its own pinned
       // `@cloudflare/workers-types` version, which can drift from ours.
       // Cast through unknown — the runtime surface (get/put/delete) is

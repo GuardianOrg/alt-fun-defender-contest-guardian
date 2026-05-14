@@ -842,11 +842,12 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Sell 10% / 25% / 50% / 100% — percent is encoded as the second arg
-  // of the `btsp:<addr>:<percent>` callback. Only the four preset
-  // percents are accepted; anything else is dropped as a malformed
-  // payload (would otherwise let a crafted callback bypass the
-  // keyboard's percent set).
+  // Sell N% — percent is encoded as the second arg of the
+  // `btsp:<addr>:<percent>` callback. Validated as an integer in
+  // [1, 100] (issue #818 widened this from the old fixed-preset set
+  // because the keyboard now renders from the user's customised
+  // /settings list); out-of-range or non-integer payloads are dropped
+  // as malformed so a crafted callback can't bypass the validator.
   bot.callbackQuery(/^btsp:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     const tokenAddress = parsed?.args[0];

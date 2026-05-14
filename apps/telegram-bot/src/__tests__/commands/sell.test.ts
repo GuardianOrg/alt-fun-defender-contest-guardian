@@ -274,7 +274,12 @@ describe("Sell flow (st:s button → conversation)", () => {
     await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:250`));
 
     const calls = capture(fetchSpy);
+    // CodeRabbit PR #829: also assert the callback is ACKed so a
+    // no-ACK regression (spinner stuck on the button) can't sneak
+    // past this test.
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(answer).toBeDefined();
     expect(send).toBeUndefined();
   });
 
