@@ -414,6 +414,33 @@ describe("POST /admin/set-commands", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toBe("telegram_unreachable");
   });
+
+  // Telegram surfaces API-level failures as HTTP 200 with { ok: false } —
+  // the deploy script keys on response status, so forwarding the upstream
+  // 200 unchanged would silently mark a failed publish as successful.
+  it("502s when Telegram returns HTTP 200 with { ok: false }", async () => {
+    const okResponse = () =>
+      new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+      });
+    // Every legacy-slot delete succeeds; the final setMyCommands fails
+    // at the API layer.
+    for (let i = 0; i < LEGACY_COMMAND_SLOT_PAYLOADS.length; i++) {
+      fetchSpy.mockResolvedValueOnce(okResponse());
+    }
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error_code: 400,
+          description: "Bad Request",
+        }),
+        { status: 200 },
+      ),
+    );
+    const res = await post();
+    expect(res.status).toBe(502);
+  });
 });
 
 describe("BOT_COMMANDS shape", () => {

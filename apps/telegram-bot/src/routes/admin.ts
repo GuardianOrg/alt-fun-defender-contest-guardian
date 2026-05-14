@@ -152,10 +152,20 @@ admin.get("/webhook-info", async (c) =>
  *
  * Wipes legacy scope/language slots first (see `publishCommands`) so a
  * stale entry on a non-default slot can't shadow the canonical list.
+ *
+ * Telegram signals API-level failures as HTTP 200 with `{ ok: false }`.
+ * Forwarding the upstream 200 unchanged would tell deploy scripts the
+ * publish succeeded even when nothing landed — manufacture a 502 in
+ * that case, matching the `/set-webhook` chain.
  */
 admin.post("/set-commands", async (c) => {
   const result = await publishCommands(c.env.TELEGRAM_BOT_TOKEN);
-  return Response.json(result.body, { status: result.status });
+  const status = result.ok
+    ? result.status
+    : result.status >= 400
+      ? result.status
+      : 502;
+  return Response.json(result.body, { status });
 });
 
 // Centralise Telegram-side failures so the admin routes return a deterministic
