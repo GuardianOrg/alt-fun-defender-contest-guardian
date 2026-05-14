@@ -20,6 +20,7 @@ import {
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
+import { edgeCacheableJsonHeader } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 import { zodValidator } from "../../utils/validation.js";
@@ -253,12 +254,17 @@ detailRoute.get("/:address", async (c) => {
   // a hidden token to a non-holder. We skip `cache.put` *and* set
   // private/no-store directives so neither Cloudflare's edge cache
   // (which honours `s-maxage`) nor any shared HTTP cache between
-  // origin and client retains the body. Public responses keep the
-  // short `s-maxage` (issue #586) so a hot token absorbs bursts at
-  // the edge.
+  // origin and client retains the body. Public responses use
+  // `edgeCacheableJsonHeader` (`public, max-age=0, s-maxage=ttl,
+  // stale-while-revalidate=2*ttl`) so a hot token absorbs bursts at
+  // the edge while every browser reload still revalidates — the
+  // bare `s-maxage` form left the browser free to apply heuristic
+  // caching on `Cache-Control` directives meant for shared caches
+  // only, which froze the home-page list until users cleared
+  // browsing data.
   if (cacheKey) {
     const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-    response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+    response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) {
       await cache.put(cacheKey, response.clone());
     }
