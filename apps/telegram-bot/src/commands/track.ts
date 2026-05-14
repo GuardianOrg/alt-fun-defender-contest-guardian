@@ -27,7 +27,14 @@ import {
 } from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
-import { backHomeRow, editToSubmenu, replyWithNav } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  backHomeRow,
+  editToSubmenu,
+  type MessageRef,
+  replyWithNav,
+  safeEditMessageById,
+} from "../lib/nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
   formatToken18,
@@ -229,21 +236,63 @@ const buildTrack = async (
 };
 
 /**
+ * Edit an origin bubble to one of the prompt/retry texts. Mirrors the
+ * buy/sell variant so /track's start-menu entry runs in the same bubble
+ * the user tapped, rather than dropping a fresh prompt below it.
+ */
+const editOriginToPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  origin: MessageRef,
+  text: string,
+): Promise<boolean> =>
+  conversation.external((outside) =>
+    safeEditMessageById(outside, origin, text, {
+      parse_mode: "HTML",
+      reply_markup: backHomeMarkup(),
+      link_preview_options: { is_disabled: true },
+    }),
+  );
+
+/**
  * Conversation: collect token address → render /track view. Mirrors
  * the /buy and /sell lookup flow so the prompt copy and cancel
  * semantics are identical across commands.
+ *
+ * When `origin` is provided the wizard runs inside the start-menu
+ * bubble: prompt + retry texts edit the same bubble in place, and the
+ * final text card edits it one last time. The chart photo (if any) is
+ * still sent as a separate Telegram message because edit-from-text-to-
+ * photo isn't supported in this bubble shape.
  */
 const trackLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-  });
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  let activeOrigin: MessageRef | null = origin ?? null;
+
+  if (!activeOrigin) {
+    const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
+
+  const showRetry = async (msgCtx: AppContext, text: string): Promise<void> => {
+    if (activeOrigin) {
+      const edited = await editOriginToPrompt(conversation, activeOrigin, text);
+      if (edited) return;
+      activeOrigin = null;
+    }
+    const notFound = await replyWithNav(msgCtx, text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    await trackWorkflowMessage(conversation, notFound.message_id);
+  };
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
@@ -257,11 +306,7 @@ const trackLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
-      await trackWorkflowMessage(conversation, notFound.message_id);
+      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
       continue;
     }
 
@@ -270,18 +315,48 @@ const trackLookupConversation = async (
     );
     if (!result.ok) {
       if (result.kind === "not_found") {
-        const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        });
-        await trackWorkflowMessage(conversation, notFound.message_id);
+        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
         continue;
       }
       await msgCtx.reply(API_UNAVAILABLE);
       await sweepWorkflow(conversation);
       return;
     }
-    await sendTrackReply(msgCtx, result.render);
+    if (activeOrigin) {
+      // Send the chart (if available) as a fresh message — bubble type
+      // can't change from text to photo via editMessageText — then edit
+      // the origin to show the text card.
+      if (result.render.chartPng) {
+        try {
+          await msgCtx.replyWithPhoto(
+            new InputFile(
+              result.render.chartPng,
+              `${result.render.tokenName || "chart"}.png`,
+            ),
+          );
+        } catch (err) {
+          logger.warn("track chart send failed", { err });
+        }
+      }
+      const edited = await conversation.external((outside) =>
+        safeEditMessageById(
+          outside,
+          activeOrigin as MessageRef,
+          result.render.text,
+          {
+            parse_mode: "HTML",
+            reply_markup: { inline_keyboard: result.render.keyboard },
+            link_preview_options: { is_disabled: true },
+          },
+        ),
+      );
+      if (!edited) {
+        // Origin gone — fall back to the legacy fresh-reply path.
+        await sendTrackReply(msgCtx, result.render);
+      }
+    } else {
+      await sendTrackReply(msgCtx, result.render);
+    }
     await sweepWorkflow(conversation);
     return;
   }
@@ -414,18 +489,32 @@ const handleTrackSell = async (
 
 export const registerTrackCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(trackLookupConversation, {
-      id: "track-lookup",
-      parallel: true,
-    }),
+    createConversation(
+      trackLookupConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "track-lookup", parallel: true },
+    ),
   );
 
-  // Start-menu "Track" button — enter the lookup flow directly,
-  // matching the /buy and /sell button behaviour. Replaces the
-  // earlier "type /track <contract>" hint toast.
+  // Start-menu "Track" button — edit the start bubble into the address
+  // prompt, then run the wizard in that same bubble. Falls through to
+  // the legacy reply flow when the bubble can't be edited.
   bot.callbackQuery(START_CALLBACK.track, async (ctx) => {
+    const result = await editToSubmenu(ctx, {
+      text: PROMPT_HTML,
+      parseMode: "HTML",
+      inlineKeyboard: [backHomeRow()],
+      linkPreviewDisabled: true,
+    });
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("track-lookup");
+    const origin: MessageRef | undefined =
+      ctx.chat && result.editedMessageId !== undefined
+        ? { chatId: ctx.chat.id, messageId: result.editedMessageId }
+        : undefined;
+    await ctx.conversation.enter("track-lookup", origin);
   });
 
   /**

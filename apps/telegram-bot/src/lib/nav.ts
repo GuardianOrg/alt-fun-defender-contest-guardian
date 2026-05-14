@@ -271,6 +271,41 @@ interface BenignEditError {
 }
 
 /**
+ * Identifies a previously-sent bot message by `(chatId, messageId)` so
+ * a later edit can target it without holding the ctx that produced it.
+ * Used to thread a callback-captured origin (the start-menu bubble the
+ * user tapped) through into a conversation that subsequently edits the
+ * same bubble for each step of the wizard.
+ */
+export interface MessageRef {
+  chatId: number;
+  messageId: number;
+}
+
+/**
+ * Best-effort `editMessageText` by id. Returns `true` on a clean edit,
+ * `false` when the target is gone / unchanged / unsendable (the same
+ * benign 400s `editToSubmenu` swallows), and rethrows anything else.
+ * Use from inside a `conversation.external(...)` block when the
+ * conversation needs to refresh an origin message without owning the
+ * original ctx.
+ */
+export const safeEditMessageById = async (
+  outside: AppContext,
+  ref: MessageRef,
+  text: string,
+  extra: Parameters<AppContext["api"]["editMessageText"]>[3] = {},
+): Promise<boolean> => {
+  try {
+    await outside.api.editMessageText(ref.chatId, ref.messageId, text, extra);
+    return true;
+  } catch (err) {
+    if (isBenignEditError(err)) return false;
+    throw err;
+  }
+};
+
+/**
  * Shared filter for the "edit target is gone / unchanged / unsendable"
  * 400s that Telegram returns when a button-driven edit races a user
  * who moved on (cleared chat, deleted the bot reply, tapped a stale

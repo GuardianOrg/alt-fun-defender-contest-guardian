@@ -146,18 +146,25 @@ describe("Buy flow (st:b button → conversation)", () => {
     fetchSpy.mockRestore();
   });
 
-  it("Buy button answers callback silently and sends token-address prompt", async () => {
+  it("Buy button answers callback silently and edits start menu into the token-address prompt", async () => {
     const h = makeBotHarness();
     mockTokenAndRpc(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.buy));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    // Start menu bubble is edited in place into the prompt — no fresh
+    // sendMessage should fire for the prompt itself (regression for the
+    // bug where the prompt was sent below the still-visible start menu).
     const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
 
     expect(answer!.body.show_alert).toBeFalsy();
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
+    expect(send).toBeUndefined();
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toMatch(
+      /contract address|alt\.fun|hyperevmscan/i,
+    );
   });
 
   // Every prompt that instructs the user to "Tap Home to exit" must
@@ -168,13 +175,13 @@ describe("Buy flow (st:b button → conversation)", () => {
     mockTokenAndRpc(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.buy));
 
-    const send = capture(fetchSpy).find((c) =>
-      c.url.includes("/sendMessage"),
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
     );
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/Tap Home to exit/);
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toMatch(/Tap Home to exit/);
     const kb =
-      (send!.body.reply_markup as
+      (edit!.body.reply_markup as
         | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
         | undefined)?.inline_keyboard ?? [];
     const navRow = kb.find((row) => row.some((b) => b.text === "🏠 Home"));
@@ -185,7 +192,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     ]);
   });
 
-  it("sends error message and re-prompts when input has no valid address", async () => {
+  it("re-renders the not-found retry in place (no new prompt below the bubble)", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
 
@@ -198,13 +205,17 @@ describe("Buy flow (st:b button → conversation)", () => {
     await h.run(messageUpdate("not an address at all", 10));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/Token not found|contract address/i);
+    // Retry edits the same origin bubble that already shows the prompt;
+    // no fresh reply lands below it.
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(String(edit!.body.text)).toMatch(/Token not found|contract address/i);
     // Token-not-found retry tells the user to "tap Home to exit", so it
     // must also carry the nav row.
     const kb =
-      (send!.body.reply_markup as
+      (edit!.body.reply_markup as
         | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
         | undefined)?.inline_keyboard ?? [];
     expect(
@@ -214,7 +225,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     ).toBe(true);
   });
 
-  it("accepts a valid address and shows the buy token card", async () => {
+  it("accepts a valid address and edits the origin bubble in place to the buy token card", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
 
@@ -225,15 +236,19 @@ describe("Buy flow (st:b button → conversation)", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 10));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    const text = String(send!.body.text);
-    expect(text).toContain("Test Token");
+    // The card replaces the prompt bubble in place — find the edit that
+    // carries the card text. Any earlier edit on the same call list (e.g.
+    // a benign retry edit) gets filtered out by matching on the ticker.
+    const cardEdit = calls
+      .filter((c) => c.url.includes("/editMessageText"))
+      .find((c) => String(c.body.text).includes("Test Token"));
+    expect(cardEdit).toBeDefined();
+    const text = String(cardEdit!.body.text);
     expect(text).toContain("TEST");
     // Card must show USDC balance
     expect(text).toContain("USDC");
     // Buy keyboard must be present
-    const keyboard = (send!.body.reply_markup as { inline_keyboard?: unknown[][] })
+    const keyboard = (cardEdit!.body.reply_markup as { inline_keyboard?: unknown[][] })
       ?.inline_keyboard ?? [];
     const allBtns = keyboard.flat() as Array<{ text: string }>;
     expect(allBtns.some((b) => b.text.includes("Buy 20"))).toBe(true);
@@ -242,7 +257,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(allBtns.some((b) => b.text.includes("Refresh"))).toBe(true);
   });
 
-  it("accepts an alt.fun URL with embedded address", async () => {
+  it("accepts an alt.fun URL with embedded address and edits in place", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy);
 
@@ -255,9 +270,10 @@ describe("Buy flow (st:b button → conversation)", () => {
     );
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    const text = String(send!.body.text);
-    expect(text).toContain("Test Token");
+    const cardEdit = calls
+      .filter((c) => c.url.includes("/editMessageText"))
+      .find((c) => String(c.body.text).includes("Test Token"));
+    expect(cardEdit).toBeDefined();
   });
 
   // Regression for issue #805: a slash command typed mid-lookup used to

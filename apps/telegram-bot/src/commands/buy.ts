@@ -29,7 +29,14 @@ import {
   submitBuy,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
-import { replyWithNav } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  backHomeRow,
+  editToSubmenu,
+  type MessageRef,
+  replyWithNav,
+  safeEditMessageById,
+} from "../lib/nav.js";
 import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
@@ -85,23 +92,75 @@ const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
 
 /**
+ * Edit an origin bubble to show one of the prompt/retry texts. Used by
+ * the conversation when entered with an `origin` ref so the wizard runs
+ * inside the start-menu bubble the user tapped, rather than dropping a
+ * fresh prompt below it. Returns `false` if the origin is gone — caller
+ * falls back to `replyWithNav`.
+ */
+const editOriginToPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  origin: MessageRef,
+  text: string,
+): Promise<boolean> =>
+  conversation.external((outside) =>
+    safeEditMessageById(outside, origin, text, {
+      parse_mode: "HTML",
+      reply_markup: backHomeMarkup(),
+      link_preview_options: { is_disabled: true },
+    }),
+  );
+
+/**
  * Conversation: collect token address → show buy card.
  * Loops on not-found / invalid input; aborts on API unavailability.
+ *
+ * When entered from a start-menu button tap, `origin` carries the
+ * `(chatId, messageId)` of the bubble the user tapped — the prompt was
+ * already rendered into that bubble by the callback handler via
+ * `editToSubmenu`. The conversation edits the same bubble for every
+ * subsequent step (retry on not-found, final card) so the flow runs in
+ * one stable chat bubble. With no origin (slash-command entry), falls
+ * back to the legacy `replyWithNav` flow.
  */
 const buyLookupConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   // Sweep any prompts left behind by a prior interrupted flow so the
   // user's view opens cleanly on the new lookup. Idempotent — no-op if
   // the stack is already empty.
   await sweepWorkflow(conversation);
 
-  const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-  });
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  // Origin-edit mode tracks the origin bubble lazily: it must NOT be
+  // pushed onto the workflow stack until it is repurposed as the card,
+  // since the stack is swept on completion and any premature push would
+  // delete the bubble the wizard is still running inside.
+  let activeOrigin: MessageRef | null = origin ?? null;
+
+  if (!activeOrigin) {
+    const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
+
+  const showRetry = async (msgCtx: AppContext, text: string): Promise<void> => {
+    if (activeOrigin) {
+      const edited = await editOriginToPrompt(conversation, activeOrigin, text);
+      if (edited) return;
+      // Origin was deleted (user wiped chat). Drop into fallback mode for
+      // the rest of the flow.
+      activeOrigin = null;
+    }
+    const notFound = await replyWithNav(msgCtx, text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    await trackWorkflowMessage(conversation, notFound.message_id);
+  };
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
@@ -115,11 +174,7 @@ const buyLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
-      await trackWorkflowMessage(conversation, notFound.message_id);
+      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
       continue;
     }
 
@@ -133,11 +188,7 @@ const buyLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        });
-        await trackWorkflowMessage(conversation, notFound.message_id);
+        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
@@ -167,20 +218,38 @@ const buyLookupConversation = async (
         outerCtx.session.defaultBuyUsdc,
       ),
     );
-    const cardMsg = await msgCtx.reply(cardText, {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
-      },
-      link_preview_options: { is_disabled: true },
-    });
+    const cardKeyboard = {
+      inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
+    };
+
+    let cardMessageId: number | null = null;
+    if (activeOrigin) {
+      const edited = await conversation.external((outside) =>
+        safeEditMessageById(outside, activeOrigin as MessageRef, cardText, {
+          parse_mode: "HTML",
+          reply_markup: cardKeyboard,
+          link_preview_options: { is_disabled: true },
+        }),
+      );
+      if (edited) cardMessageId = activeOrigin.messageId;
+    }
+    if (cardMessageId === null) {
+      const cardMsg = await msgCtx.reply(cardText, {
+        parse_mode: "HTML",
+        reply_markup: cardKeyboard,
+        link_preview_options: { is_disabled: true },
+      });
+      cardMessageId = cardMsg.message_id;
+    }
     // Token card is the lookup's terminal result — sweep the chain of
-    // prompts + retries above it so the user sees only the card.
+    // prompts + retries above it so the user sees only the card. The
+    // origin bubble (when used) was never pushed, so it survives the
+    // sweep and is now the card itself.
     await sweepWorkflow(conversation);
     // Push the card onto the now-empty stack so the post-trade sweep
     // in `confirmTrade` deletes it once the user's buy lands; the card's
     // mcap/balance are stale the moment the trade commits.
-    await trackWorkflowMessage(conversation, cardMsg.message_id);
+    await trackWorkflowMessage(conversation, cardMessageId);
     return;
   }
 };
@@ -472,10 +541,14 @@ const handleFixedBuy = async (
 
 export const registerBuyCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(buyLookupConversation, {
-      id: "buy-lookup",
-      parallel: true,
-    }),
+    createConversation(
+      buyLookupConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "buy-lookup", parallel: true },
+    ),
   );
   bot.use(
     createConversation(
@@ -488,13 +561,28 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     ),
   );
 
-  // Start menu "Buy" button — no toast, go directly into lookup flow
+  // Start menu "Buy" button — edit the start bubble in place to show
+  // the address prompt (and thread that bubble's id into the wizard so
+  // every step edits the same bubble) rather than dropping a fresh
+  // prompt below the still-visible start menu.
   bot.callbackQuery(START_CALLBACK.buy, async (ctx) => {
+    const result = await editToSubmenu(ctx, {
+      text: PROMPT_HTML,
+      parseMode: "HTML",
+      inlineKeyboard: [backHomeRow()],
+      linkPreviewDisabled: true,
+    });
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("buy-lookup");
+    const origin: MessageRef | undefined =
+      ctx.chat && result.editedMessageId !== undefined
+        ? { chatId: ctx.chat.id, messageId: result.editedMessageId }
+        : undefined;
+    await ctx.conversation.enter("buy-lookup", origin);
   });
 
-  // /buy command — same flow as the button
+  // /buy command — slash entry has no parent bubble to edit, so it
+  // falls through to the legacy `replyWithNav` prompt inside the
+  // conversation when no origin is passed.
   bot.command("buy", async (ctx) => {
     await ctx.conversation.enter("buy-lookup");
   });

@@ -195,11 +195,16 @@ describe("/withdraw command", () => {
     withTelegramOk(fetchSpy, balanceHandler);
     await h.run(callbackUpdate(START_CALLBACK.withdraw, 1));
 
-    const sends = captureTg(fetchSpy).filter((c) =>
-      c.url.includes("/sendMessage"),
-    );
-    const prompt = sends.find((c) =>
-      /Which asset\?/.test(c.body.text as string),
+    const calls = captureTg(fetchSpy);
+    // The asset picker is delivered by editing the originating bubble
+    // (start menu or /wallet panel) in place, so it appears as an
+    // editMessageText payload rather than a fresh sendMessage. This is
+    // the regression for the bug where /withdraw entered from the start
+    // menu dropped a fresh asset picker below the still-visible menu.
+    const prompt = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        /Which asset\?/.test(c.body.text as string),
     );
     expect(prompt).toBeDefined();
     const text = String(prompt!.body.text);

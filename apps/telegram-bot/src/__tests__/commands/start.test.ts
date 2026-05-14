@@ -373,7 +373,7 @@ describe("/start command", () => {
   });
 
   it.each([START_CALLBACK.buy, START_CALLBACK.sell, START_CALLBACK.track])(
-    "%s enters the token-lookup flow instead of showing a hint toast",
+    "%s edits the start bubble in place into the token-lookup prompt (no fresh reply, no hint toast)",
     async (cmd) => {
       const h = harnessWithRpc();
       mockBoth(fetchSpy);
@@ -381,11 +381,16 @@ describe("/start command", () => {
       const calls = capture(fetchSpy);
       const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
       const send = calls.find((c) => c.url.includes("/sendMessage"));
+      const edit = calls.find((c) => c.url.includes("/editMessageText"));
       // Silent callback query ack (no show_alert toast)
       expect(answer!.body.show_alert).toBeFalsy();
-      // Bot sends the token-address prompt message
-      expect(send).toBeDefined();
-      expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
+      // Regression: the prompt must replace the start bubble in place,
+      // not land as a fresh message below the still-visible start menu.
+      expect(send).toBeUndefined();
+      expect(edit).toBeDefined();
+      expect(String(edit!.body.text)).toMatch(
+        /contract address|alt\.fun|hyperevmscan/i,
+      );
     },
   );
 

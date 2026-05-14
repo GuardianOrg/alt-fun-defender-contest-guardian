@@ -11,6 +11,7 @@ import {
   popNavSnapshot,
   pushNavSnapshot,
   replyWithNav,
+  safeEditMessageById,
   type NavSnapshot,
   type NavStackSession,
 } from "../../lib/nav.js";
@@ -359,5 +360,78 @@ describe("editToSubmenu", () => {
       inlineKeyboard: [backHomeRow()],
     });
     expect(ctx.replyCalls).toHaveLength(1);
+  });
+});
+
+describe("safeEditMessageById", () => {
+  interface ApiEditCall {
+    chatId: number;
+    messageId: number;
+    text: string;
+    extra: Record<string, unknown>;
+  }
+  const makeOutside = (opts: { editError?: unknown } = {}): {
+    calls: ApiEditCall[];
+    outside: unknown;
+  } => {
+    const calls: ApiEditCall[] = [];
+    const outside = {
+      api: {
+        editMessageText: async (
+          chatId: number,
+          messageId: number,
+          text: string,
+          extra: Record<string, unknown>,
+        ): Promise<true> => {
+          calls.push({ chatId, messageId, text, extra });
+          if (opts.editError) throw opts.editError;
+          return true;
+        },
+      },
+    };
+    return { calls, outside };
+  };
+
+  it("returns true and forwards (chatId, messageId, text, extra) to api.editMessageText on success", async () => {
+    const { calls, outside } = makeOutside();
+    const ok = await safeEditMessageById(
+      outside as unknown as AppContext,
+      { chatId: 42, messageId: 100 },
+      "new prompt",
+      { parse_mode: "HTML" },
+    );
+    expect(ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      chatId: 42,
+      messageId: 100,
+      text: "new prompt",
+      extra: { parse_mode: "HTML" },
+    });
+  });
+
+  it("returns false (no throw) when the target is gone — message-not-found benign 400", async () => {
+    const { outside } = makeOutside({
+      editError: { error_code: 400, description: "message to edit not found" },
+    });
+    const ok = await safeEditMessageById(
+      outside as unknown as AppContext,
+      { chatId: 1, messageId: 2 },
+      "x",
+    );
+    expect(ok).toBe(false);
+  });
+
+  it("rethrows non-benign errors so callers don't silently swallow real failures", async () => {
+    const { outside } = makeOutside({
+      editError: { error_code: 403, description: "forbidden" },
+    });
+    await expect(
+      safeEditMessageById(
+        outside as unknown as AppContext,
+        { chatId: 1, messageId: 2 },
+        "x",
+      ),
+    ).rejects.toMatchObject({ error_code: 403 });
   });
 });

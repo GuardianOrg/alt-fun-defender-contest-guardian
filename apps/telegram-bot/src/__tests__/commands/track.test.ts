@@ -207,7 +207,7 @@ describe("/track command", () => {
     fetchSpy.mockRestore();
   });
 
-  it("Track start-menu button enters the lookup conversation (no hint toast)", async () => {
+  it("Track start-menu button edits the start menu in place into the lookup prompt (no hint toast)", async () => {
     const h = harness();
     mockApi(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.track));
@@ -215,9 +215,11 @@ describe("/track command", () => {
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     expect(answer!.body.show_alert).toBeFalsy();
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/contract address|alt\.fun/i);
+    expect(send).toBeUndefined();
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toMatch(/contract address|alt\.fun/i);
   });
 
   it("token-address prompt carries the [← Back] [🏠 Home] nav row", async () => {
@@ -225,13 +227,13 @@ describe("/track command", () => {
     mockApi(fetchSpy);
     await h.run(callbackUpdate(START_CALLBACK.track));
 
-    const send = capture(fetchSpy).find((c) =>
-      c.url.includes("/sendMessage"),
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
     );
-    expect(send).toBeDefined();
-    expect(String(send!.body.text)).toMatch(/Tap Home to exit/);
+    expect(edit).toBeDefined();
+    expect(String(edit!.body.text)).toMatch(/Tap Home to exit/);
     const kb =
-      (send!.body.reply_markup as
+      (edit!.body.reply_markup as
         | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
         | undefined)?.inline_keyboard ?? [];
     expect(
@@ -242,7 +244,7 @@ describe("/track command", () => {
     ).toBe(true);
   });
 
-  it("renders the track card and recent trades for a valid address", async () => {
+  it("renders the track card and recent trades for a valid address (edited in place)", async () => {
     const h = harness();
     mockApi(fetchSpy);
 
@@ -253,13 +255,14 @@ describe("/track command", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 10));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    const text = String(send!.body.text);
-    expect(text).toContain("Test Token");
+    const cardEdit = calls
+      .filter((c) => c.url.includes("/editMessageText"))
+      .find((c) => String(c.body.text).includes("Test Token"));
+    expect(cardEdit).toBeDefined();
+    const text = String(cardEdit!.body.text);
     expect(text).toContain("Recent trades");
 
-    const keyboard = (send!.body.reply_markup as {
+    const keyboard = (cardEdit!.body.reply_markup as {
       inline_keyboard?: Array<Array<{ text: string; url?: string }>>;
     })?.inline_keyboard ?? [];
     const allBtns = keyboard.flat();
@@ -294,7 +297,7 @@ describe("/track command", () => {
     expect(String(send!.body.text)).toMatch(/Enter the token contract address/i);
   });
 
-  it("re-prompts on a garbage input that contains no address", async () => {
+  it("re-prompts on a garbage input that contains no address (edited in place)", async () => {
     const h = harness();
     mockApi(fetchSpy);
 
@@ -305,8 +308,11 @@ describe("/track command", () => {
     await h.run(messageUpdate("not an address at all", 10));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(String(send!.body.text)).toMatch(/Token not found|contract address/i);
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(String(edit!.body.text)).toMatch(/Token not found|contract address/i);
   });
 
   it("aborts (not loops) with the outage copy when the token API is 503", async () => {
@@ -336,11 +342,14 @@ describe("/track command", () => {
     await h.run(messageUpdate(TOKEN_ADDR, 10));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    const text = String(send!.body.text);
-    expect(text).toContain("Test Token");
-    expect(text).toContain("No trades yet");
+    // Origin-edit path: the card lands as an editMessageText of the
+    // prompt bubble. The trades-API outage degrades gracefully into the
+    // "No trades yet" body but the card itself still renders.
+    const cardEdit = calls
+      .filter((c) => c.url.includes("/editMessageText"))
+      .find((c) => String(c.body.text).includes("Test Token"));
+    expect(cardEdit).toBeDefined();
+    expect(String(cardEdit!.body.text)).toContain("No trades yet");
   });
 
   it("Buy button on the track card replaces it in place with the buy card (no wallet needed)", async () => {
