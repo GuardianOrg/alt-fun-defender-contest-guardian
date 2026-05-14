@@ -350,7 +350,10 @@ describe("/track command", () => {
       .map((c) => String(c[0]))
       .find((u) => u.includes("/api/v1/trades/"));
     expect(tradesCall).toBeDefined();
-    expect(tradesCall).toContain("limit=5");
+    // Parse the URL so the assertion can't false-positive on `limit=50`
+    // (the indexer's hard cap) — see CodeRabbit review on #912.
+    const params = new URL(tradesCall as string).searchParams;
+    expect(params.get("limit")).toBe("5");
   });
 
   it("`/track <addr>` renders the card directly without the prompt", async () => {
