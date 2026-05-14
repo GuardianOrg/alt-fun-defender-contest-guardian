@@ -11,6 +11,7 @@ import {
   POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
+  POSITIONS_TRACK_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
@@ -364,30 +365,44 @@ describe("buildPositionsPageKeyboard", () => {
     ]);
   });
 
-  it("emits a [Buy <TICKER>] [Sell <TICKER>] row per open action", () => {
+  it("emits a [<TICKER>] track row followed by a [Buy <TICKER>] [Sell <TICKER>] row per open action", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "ALPHA" },
       { token: TOKEN_B, ticker: "BETA" },
     ]);
     const rows = kb.inline_keyboard;
-    // Two action rows + the trailing Close row.
-    expect(rows).toHaveLength(3);
-    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    // Per position: a track row + a buy/sell row → 2 positions = 4
+    // rows, plus the trailing Close row.
+    expect(rows).toHaveLength(5);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["ALPHA"]);
     expect(rows[0]![0]!.callback_data).toBe(
+      `${POSITIONS_TRACK_CALLBACK_CMD}:${TOKEN_A}`,
+    );
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    expect(rows[1]![0]!.callback_data).toBe(
       `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
     );
-    expect(rows[0]![1]!.callback_data).toBe(
+    expect(rows[1]![1]!.callback_data).toBe(
       `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
     );
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["BETA"]);
+    expect(rows[2]![0]!.callback_data).toBe(
+      `${POSITIONS_TRACK_CALLBACK_CMD}:${TOKEN_B}`,
+    );
+    expect(rows[3]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
+    expect(rows[4]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "SUPERCALIFRAGILISTIC" },
     ]);
-    const row = kb.inline_keyboard[0]!;
+    // First row is the track label; second is buy/sell.
+    const trackRow = kb.inline_keyboard[0]!;
+    expect(trackRow[0]!.text.length).toBeLessThanOrEqual(12);
+    expect(trackRow[0]!.text.endsWith("…")).toBe(true);
+    expect(trackRow[0]!.callback_data).toContain(TOKEN_A);
+    const row = kb.inline_keyboard[1]!;
     expect(row[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
     expect(row[0]!.text.endsWith("…")).toBe(true);
     // The full token address must still ride in callback_data verbatim
@@ -400,8 +415,9 @@ describe("buildPositionsPageKeyboard", () => {
       { token: TOKEN_A, ticker: "ALPHA" },
     ]);
     const rows = kb.inline_keyboard;
-    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
-    const nav = rows[1]!;
+    expect(rows[0]!.map((b) => b.text)).toEqual(["ALPHA"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    const nav = rows[2]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,

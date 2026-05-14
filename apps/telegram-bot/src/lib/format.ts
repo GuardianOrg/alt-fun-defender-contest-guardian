@@ -276,12 +276,13 @@ const chunkPositionsPages = (
 
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
 /**
- * Per-position buy/sell callback short codes (Telegram's 64-byte
- * `callback_data` ceiling is tight — `pb`/`ps` + 0x-prefixed 40-char
- * address fits with room to spare).
+ * Per-position buy/sell/track callback short codes (Telegram's 64-byte
+ * `callback_data` ceiling is tight — `pb`/`ps`/`pt` + 0x-prefixed
+ * 40-char address fits with room to spare).
  */
 export const POSITIONS_BUY_CALLBACK_CMD = "pb";
 export const POSITIONS_SELL_CALLBACK_CMD = "ps";
+export const POSITIONS_TRACK_CALLBACK_CMD = "pt";
 
 export interface InlineKeyboardButton {
   text: string;
@@ -348,6 +349,18 @@ export const buildPositionsPageKeyboard = (
   const rows: InlineKeyboardButton[][] = [];
   for (const action of openActions) {
     const label = truncateTickerForButton(action.ticker);
+    // Per-position track row — labelled with the ticker so it reads as
+    // a "name link" for the position. Tapping edits the /positions
+    // message in place into the /track view for this token.
+    rows.push([
+      {
+        text: label,
+        callback_data: encodeCallback(
+          POSITIONS_TRACK_CALLBACK_CMD,
+          action.token,
+        ),
+      },
+    ]);
     rows.push([
       {
         text: `Buy ${label}`,

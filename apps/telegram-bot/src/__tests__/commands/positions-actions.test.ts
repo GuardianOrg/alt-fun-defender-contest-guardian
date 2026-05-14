@@ -85,6 +85,19 @@ const mockActionFetch = (fetchSpy: ReturnType<typeof vi.spyOn>): void => {
         { status: 200 },
       );
     }
+    if (url.includes(`/api/v1/trades/${TOKEN}`)) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    }
+    if (url.includes(`/api/v1/chart/${TOKEN}`)) {
+      // Empty-candles → renderer short-circuits to "no image" without
+      // needing resvg-wasm to load in the node test env.
+      return new Response(
+        JSON.stringify({
+          data: { candles: [], currentRatio: 1, currentExchangeRate: 1 },
+        }),
+        { status: 200 },
+      );
+    }
     return new Response(
       JSON.stringify({ ok: true, result: true }),
       { status: 200 },
@@ -206,5 +219,125 @@ describe("positions Buy/Sell callbacks (pb / ps)", () => {
     expect(acks).toHaveLength(1);
     expect(String(acks[0]!.body.text)).toContain("private-DM only");
     expect(acks[0]!.body.show_alert).toBe(true);
+  });
+});
+
+/**
+ * Per-open-position track callback (`pt:<token>`). The ticker on each
+ * open-position row reads as a "name link" for the position — tapping
+ * it edits the /positions message in place into the /track view for
+ * that token, replacing the original prompt.
+ */
+describe("positions Track callback (pt)", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("pt:<token> replaces the /positions view in place with the track card", async () => {
+    const h = harnessWithRpc();
+    await seedActiveWallet(h);
+    mockActionFetch(fetchSpy);
+    await h.run(actionCallback(`pt:${TOKEN}`));
+    const edits = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.body.chat_id).toBe(42);
+    // The edited bubble carries the track text card — name + recent
+    // trades header. Empty-candles short-circuit the chart, so no
+    // photo is sent and the message_id stays put.
+    const text = String(edits[0]!.body.text);
+    expect(text).toContain("Test Token");
+    expect(text).toContain("Recent trades");
+    const markup = edits[0]!.body.reply_markup as {
+      inline_keyboard: { text: string; url?: string }[][];
+    };
+    const labels = markup.inline_keyboard.flat().map((b) => b.text);
+    expect(labels.some((t) => t.includes("Buy"))).toBe(true);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+    expect(labels).toContain("Open on Alt Fun");
+  });
+
+  it("acks the callback query when handling pt", async () => {
+    const h = harnessWithRpc();
+    await seedActiveWallet(h);
+    mockActionFetch(fetchSpy);
+    await h.run(actionCallback(`pt:${TOKEN}`));
+    const acks = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(acks).toHaveLength(1);
+  });
+
+  it("rejects an invalid token address with a toast", async () => {
+    const h = harnessWithRpc();
+    await seedActiveWallet(h);
+    mockActionFetch(fetchSpy);
+    await h.run(actionCallback("pt:not-a-token"));
+    const acks = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(acks).toHaveLength(1);
+    expect(String(acks[0]!.body.text)).toContain("Invalid token");
+    const edits = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edits).toHaveLength(0);
+  });
+
+  it("rejects a non-private chat with the private-DM-only alert", async () => {
+    const h = harnessWithRpc();
+    await seedActiveWallet(h);
+    mockActionFetch(fetchSpy);
+    await h.run(actionCallback(`pt:${TOKEN}`, "group"));
+    const acks = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(acks).toHaveLength(1);
+    expect(String(acks[0]!.body.text)).toContain("private-DM only");
+    expect(acks[0]!.body.show_alert).toBe(true);
+    const edits = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edits).toHaveLength(0);
+  });
+
+  it("surfaces the outage toast when the token API is unavailable", async () => {
+    const h = harnessWithRpc();
+    await seedActiveWallet(h);
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.includes(`/api/v1/tokens/${TOKEN}`)) {
+        return new Response("{}", { status: 503 });
+      }
+      return new Response(
+        JSON.stringify({ ok: true, result: true }),
+        { status: 200 },
+      );
+    });
+    await h.run(actionCallback(`pt:${TOKEN}`));
+    const acks = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(acks).toHaveLength(1);
+    expect(String(acks[0]!.body.text).toLowerCase()).toContain(
+      "temporarily unavailable",
+    );
+    const edits = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edits).toHaveLength(0);
   });
 });

@@ -12,10 +12,12 @@ import {
   POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
+  POSITIONS_TRACK_CALLBACK_CMD,
   buildPositionsPageKeyboard,
   formatBotPositionsResponse,
   renderPaginatedPage,
 } from "../lib/format.js";
+import { editToTrackCard } from "./track.js";
 import { logger } from "../lib/logger.js";
 import { editToSubmenu } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
@@ -273,6 +275,46 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
   };
   registerActionCallback(POSITIONS_BUY_CALLBACK_CMD, "buy");
   registerActionCallback(POSITIONS_SELL_CALLBACK_CMD, "sell");
+
+  /**
+   * Per-open-position track callback `pt:<token>`. Edits the /positions
+   * message in place into the /track card for the tapped token — the
+   * ticker on each open-position row reads as a "name link" that swaps
+   * the prompt for the track view. Chart photo (if any) arrives as a
+   * separate reply since Telegram can't edit a text bubble into a photo.
+   */
+  bot.callbackQuery(
+    new RegExp(`^${POSITIONS_TRACK_CALLBACK_CMD}:`),
+    async (ctx) => {
+      const data = ctx.callbackQuery.data ?? "";
+      const token = data.slice(POSITIONS_TRACK_CALLBACK_CMD.length + 1);
+      if (!isAddress(token)) {
+        await ctx.answerCallbackQuery({ text: "Invalid token." });
+        return;
+      }
+      if (ctx.chat?.type !== "private") {
+        await ctx.answerCallbackQuery({
+          text: NON_PRIVATE_CHAT_REPLY,
+          show_alert: true,
+        });
+        return;
+      }
+      try {
+        const outcome = await editToTrackCard(ctx, token);
+        if (outcome !== "ok") {
+          await ctx.answerCallbackQuery({
+            text: ACTION_TOKEN_OUTAGE,
+            show_alert: true,
+          });
+          return;
+        }
+      } catch (err) {
+        await ctx.answerCallbackQuery();
+        throw err;
+      }
+      await ctx.answerCallbackQuery();
+    },
+  );
 
   /**
    * Start-menu "Positions" button: open positions for the user's
