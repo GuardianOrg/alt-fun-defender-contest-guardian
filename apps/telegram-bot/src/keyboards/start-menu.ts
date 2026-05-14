@@ -33,7 +33,7 @@ export const buildStartMenuKeyboard = (
       text: "Buy USDC via Relay",
       url: buyUsdcUrl,
     },
-    { text: "Refresh", callback_data: START_CALLBACK.refresh },
+    { text: "🔄 Refresh", callback_data: START_CALLBACK.refresh },
   ],
   [
     { text: "Buy", callback_data: START_CALLBACK.buy },
