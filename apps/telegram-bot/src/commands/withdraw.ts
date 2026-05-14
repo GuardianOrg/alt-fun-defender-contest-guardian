@@ -381,12 +381,12 @@ const promptArg = async (
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
-  await trackWorkflowMessage(conversation, reply.message.message_id);
   const text = reply.message.text.trim();
   if (isOtherSlashCommand(text)) await haltAndForward(conversation);
   if (interceptBuy && (await tryAddressBuyIntercept(conversation, text))) {
     return null;
   }
+  await trackWorkflowMessage(conversation, reply.message.message_id);
   return text;
 };
 

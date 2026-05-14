@@ -473,11 +473,11 @@ const setPhraseConversation = async (
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   while (true) {
     const reply = await conversation.waitFor("message:text");
-    await trackWorkflowMessage(conversation, reply.message.message_id);
     const text = reply.message.text;
     const trimmed = text.trim();
     if (isOtherSlashCommand(trimmed)) await haltAndForward(conversation);
     if (await tryAddressBuyIntercept(conversation, trimmed)) return;
+    await trackWorkflowMessage(conversation, reply.message.message_id);
     if (trimmed.length === 0) {
       const retry = await ctx.reply(
         wrap(ctx, "Phrase cannot be empty. Send again."),

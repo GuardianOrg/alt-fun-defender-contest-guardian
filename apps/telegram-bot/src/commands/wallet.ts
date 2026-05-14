@@ -200,10 +200,10 @@ const renameWalletConversation = async (
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
-  await trackWorkflowMessage(conversation, reply.message.message_id);
   const label = reply.message.text.trim();
   if (isOtherSlashCommand(label)) await haltAndForward(conversation);
   if (await tryAddressBuyIntercept(conversation, label)) return;
+  await trackWorkflowMessage(conversation, reply.message.message_id);
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
       wrap(ctx,
@@ -778,10 +778,10 @@ const deleteWalletConversation = async (
   await trackWorkflowMessage(conversation, confirmPrompt.message_id);
 
   const confirmMsg = await conversation.waitFor("message:text");
-  await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
   const confirmText = confirmMsg.message.text.trim();
   if (isOtherSlashCommand(confirmText)) await haltAndForward(conversation);
   if (await tryAddressBuyIntercept(conversation, confirmText)) return;
+  await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
   if (confirmText !== "DELETE") {
     // Anything other than the exact uppercase token aborts — lowercase,
     // typo, fat-fingered emoji. The strictness is the point; this gate
