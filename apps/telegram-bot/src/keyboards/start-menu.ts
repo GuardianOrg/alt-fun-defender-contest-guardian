@@ -50,10 +50,7 @@ export const buildStartMenuKeyboard = (
   ],
   [
     { text: "Settings", callback_data: START_CALLBACK.settings },
-    { text: "Security", callback_data: START_CALLBACK.security },
-  ],
-  [
     { text: "Referral", callback_data: START_CALLBACK.referral },
-    { text: "Help", callback_data: START_CALLBACK.help },
   ],
+  [{ text: "Help", callback_data: START_CALLBACK.help }],
 ];

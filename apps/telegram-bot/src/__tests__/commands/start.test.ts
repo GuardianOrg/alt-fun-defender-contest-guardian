@@ -267,11 +267,13 @@ describe("/start command", () => {
         START_CALLBACK.wallet,
         START_CALLBACK.withdraw,
         START_CALLBACK.settings,
-        START_CALLBACK.security,
         START_CALLBACK.referral,
         START_CALLBACK.help,
       ]),
     );
+    // Security UI moved to /wallet (PIN, lock) and /settings (phrase) —
+    // no dedicated Security button on the start menu.
+    expect(allCallbacks).not.toContain(START_CALLBACK.security);
   });
 
   it("rejects /start in a non-private chat without exposing wallet state", async () => {
@@ -497,21 +499,31 @@ describe("/start command", () => {
     expect(keyboard[0]?.[0]?.url).toBe("https://override.example/funding");
   });
 
-  it("Security button sends the security panel directly without prompting the user to type /security", async () => {
+  it("start menu has no Security button — security UI moved to /wallet and /settings", async () => {
     const h = harnessWithRpc();
     mockBoth(fetchSpy);
 
-    await h.run(callbackUpdate(START_CALLBACK.security));
+    await h.run(startUpdate(7));
 
-    const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
-    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
-    // Must send the security UI as a new message, not a toast hint.
-    expect(send).toBeDefined();
-    expect(send!.body.text).toContain("Security");
-    // answerCallbackQuery must not be a show_alert hint toast.
-    expect(answer!.body.show_alert).toBeFalsy();
-    expect(answer!.body.text ?? "").not.toMatch(/\/security/);
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const keyboard = (
+      send!.body.reply_markup as {
+        inline_keyboard: { text: string; callback_data?: string }[][];
+      }
+    ).inline_keyboard;
+    const labels = keyboard.flat().map((b) => b.text);
+    expect(labels).not.toContain("Security");
+    // The last two rows are Settings/Referral and Help — pinning the
+    // exact layout per the moved-security cleanup.
+    expect(keyboard[keyboard.length - 2]?.map((b) => b.text)).toEqual([
+      "Settings",
+      "Referral",
+    ]);
+    expect(keyboard[keyboard.length - 1]?.map((b) => b.text)).toEqual([
+      "Help",
+    ]);
   });
 
   it("Wallet button sends wallet UI directly without prompting the user to type /wallet", async () => {
