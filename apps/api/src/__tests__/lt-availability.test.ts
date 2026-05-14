@@ -127,6 +127,15 @@ describe("getLiveLtAvailability", () => {
     });
 
     expect(result.liveSymbols.has("INTERNAL2L")).toBe(false);
+    // The LT is still in BounceTech's directory — the listing path keys
+    // off `directoryAddresses`, NOT `liveAddresses`, so the missing logo
+    // can't hide a creator-launched token from /tokens. See
+    // `CacheSnapshot.directoryAddresses` JSDoc.
+    expect(
+      result.directoryAddresses.has(
+        "0xbbbb0000000000000000000000000000000000bb",
+      ),
+    ).toBe(true);
   });
 
   it("treats a 200 with `text/html` (SPA shell fallback) as not-live", async () => {
@@ -162,6 +171,15 @@ describe("getLiveLtAvailability", () => {
 
     expect(result.liveSymbols.has("BRENTOIL2L")).toBe(false);
     expect(result.liveUnderlyings.has("xyz:BRENTOIL")).toBe(false);
+    // Same regression pin as the 404 case: a SPA-shell fallback means the
+    // logo PNG isn't published yet, but BounceTech still has the LT in
+    // their directory — so it stays in `directoryAddresses`, and the
+    // token listing path keeps the creator-launched token visible.
+    expect(
+      result.directoryAddresses.has(
+        "0xcccc0000000000000000000000000000000000cc",
+      ),
+    ).toBe(true);
   });
 
   it("treats a 200 with an `image/*` Content-Type as live", async () => {
@@ -372,6 +390,7 @@ describe("getCachedLtAvailability", () => {
     expect(snap.liveSymbols.size).toBe(0);
     expect(snap.liveAddresses.size).toBe(0);
     expect(snap.liveUnderlyings.size).toBe(0);
+    expect(snap.directoryAddresses.size).toBe(0);
   });
 
   it("returns a stale snapshot (fresh: false) once the TTL elapses", async () => {

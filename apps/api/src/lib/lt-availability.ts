@@ -91,6 +91,30 @@ interface CacheSnapshot {
    * with zero live LTs has no useful pair on Alt Fun, so we hide it.
    */
   liveUnderlyings: Set<string>;
+  /**
+   * Lowercased LT contract addresses present in BounceTech's
+   * `/leveraged-tokens` directory (filtered to our supported set —
+   * `filterSupportedLTs`). Populated from the directory fetch
+   * regardless of whether the per-symbol logo HEAD check succeeded,
+   * so this set distinguishes:
+   *
+   *   - "LT exists at BounceTech but they haven't uploaded a logo yet" —
+   *     `directoryAddresses` has it, `liveAddresses` doesn't. The token
+   *     listing endpoint uses this set so creator-launched tokens never
+   *     vanish just because BounceTech hasn't published the per-LT PNG
+   *     (which can lag the on-chain launch by days, and can flicker
+   *     in/out when BounceTech rolls a new SPA build whose fallback HTML
+   *     trips our `content-type !== image/*` check).
+   *
+   *   - "LT was completely removed from BounceTech's directory" —
+   *     neither set has it. Both the pair selector AND the token
+   *     listing should still hide it, since the LT is genuinely retired.
+   *
+   * The strict `liveAddresses` view (logo-uploaded) is still used by
+   * `/api/v1/assets` so the creation flow / pair selector / asset tape
+   * don't expose users to LTs BounceTech hasn't finished publishing.
+   */
+  directoryAddresses: Set<string>;
   expiresAt: number;
 }
 
@@ -110,6 +134,17 @@ export interface LtAvailability {
   liveSymbols: ReadonlySet<string>;
   /** Underlying asset names with ≥1 live LT (e.g. `HYPE`, `xyz:NVDA`). */
   liveUnderlyings: ReadonlySet<string>;
+  /**
+   * Lowercased LT addresses present in BounceTech's `/leveraged-tokens`
+   * directory (subset filtered to our supported set), regardless of whether
+   * BounceTech has uploaded the per-symbol logo PNG. Strictly a superset of
+   * `liveAddresses` while the directory fetch is fresh. The token listing
+   * uses this looser set so creator-launched tokens stay visible during the
+   * window between an LT being launched on-chain and BounceTech finishing
+   * its public publish; see the docstring on `CacheSnapshot.directoryAddresses`
+   * for the full rationale.
+   */
+  directoryAddresses: ReadonlySet<string>;
   /**
    * `true` when this snapshot was built from a successful BounceTech
    * fetch within the last TTL. `false` when we returned the in-memory
@@ -136,6 +171,7 @@ export function getCachedLtAvailability(): LtAvailability {
       liveAddresses: cache.liveAddresses,
       liveSymbols: cache.liveSymbols,
       liveUnderlyings: cache.liveUnderlyings,
+      directoryAddresses: cache.directoryAddresses,
       fresh: true,
     };
   }
@@ -145,6 +181,7 @@ export function getCachedLtAvailability(): LtAvailability {
       liveAddresses: cache.liveAddresses,
       liveSymbols: cache.liveSymbols,
       liveUnderlyings: cache.liveUnderlyings,
+      directoryAddresses: cache.directoryAddresses,
       fresh: false,
     };
   }
@@ -152,6 +189,7 @@ export function getCachedLtAvailability(): LtAvailability {
     liveAddresses: new Set<string>(),
     liveSymbols: new Set<string>(),
     liveUnderlyings: new Set<string>(),
+    directoryAddresses: new Set<string>(),
     fresh: false,
   };
 }
@@ -184,6 +222,7 @@ export async function getLiveLtAvailability(options: {
       liveAddresses: cache.liveAddresses,
       liveSymbols: cache.liveSymbols,
       liveUnderlyings: cache.liveUnderlyings,
+      directoryAddresses: cache.directoryAddresses,
       fresh: true,
     };
   }
@@ -193,6 +232,7 @@ export async function getLiveLtAvailability(options: {
     liveAddresses: snapshot.liveAddresses,
     liveSymbols: snapshot.liveSymbols,
     liveUnderlyings: snapshot.liveUnderlyings,
+    directoryAddresses: snapshot.directoryAddresses,
     fresh: true,
   };
 }
@@ -250,10 +290,23 @@ async function performRefresh(options: {
       liveAddresses: new Set(),
       liveSymbols: new Set(),
       liveUnderlyings: new Set(),
+      directoryAddresses: new Set(),
       expiresAt: Date.now() + CACHE_TTL_MS,
     };
     cache = empty;
     return empty;
+  }
+
+  // Populate the directory-membership set up front from the directory
+  // fetch — it's the looser "this LT exists in BounceTech's directory,
+  // even if they haven't uploaded a logo yet" signal. Snapshotting it
+  // before the HEAD sweep means a slow / failing logo check can't drop
+  // an LT out of this set, which is exactly what we want for the token
+  // listing path: a creator-launched token should never disappear from
+  // /tokens just because BounceTech hasn't published the per-symbol PNG.
+  const directoryAddresses = new Set<string>();
+  for (const lt of directory) {
+    directoryAddresses.add(lt.address.toLowerCase());
   }
 
   const checker = options.checkSymbolLive ?? defaultSymbolChecker;
@@ -297,6 +350,7 @@ async function performRefresh(options: {
     liveAddresses,
     liveSymbols,
     liveUnderlyings,
+    directoryAddresses,
     expiresAt: Date.now() + CACHE_TTL_MS,
   };
   cache = snapshot;

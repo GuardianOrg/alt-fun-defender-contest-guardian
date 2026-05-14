@@ -222,29 +222,52 @@ function excludedUnderlyingCondition(): SQL | undefined {
 }
 
 /**
- * Drop tokens whose backing LT isn't currently live on BounceTech's UI
- * (issue #621). BounceTech publishes LTs to chain + their indexing API
- * the moment they spin them up, often days before they go live publicly,
- * so we'd otherwise list tokens backed by half-tested LTs. The signal is
- * "did BounceTech publish the per-LT logo at
- * `bounce.tech/leveraged-tokens/<symbol>.png`?" — see
- * `lib/lt-availability.ts` for the cache + HEAD-check.
+ * Drop tokens whose backing LT is no longer present in BounceTech's
+ * `/leveraged-tokens` directory. Originally added in issue #621 to keep
+ * tokens backed by half-tested LTs (in the indexing API but no logo yet)
+ * out of the home-page list; the filter has since been narrowed to the
+ * directory-membership signal so that creator-launched tokens stay
+ * visible while BounceTech catches up on the per-LT logo upload. See the
+ * docstring on `LtAvailability.directoryAddresses` in
+ * `lib/lt-availability.ts` for the full asymmetry rationale (the stricter
+ * `liveAddresses` view still gates `/api/v1/assets`, so the pair selector
+ * doesn't expose users to creating against not-yet-public LTs).
  *
- * When the live-LT signal is unavailable (BounceTech CDN down during the
- * very first request after a cold start, before any refresh succeeded)
- * we fall back to "show everything" — the alternative would blank the
- * home page during transient BounceTech outages, which is a worse failure
- * mode than a brief listing of yet-to-be-published LTs.
+ * When the directory signal is unavailable (BounceTech indexing API down
+ * during the very first request after a cold start, before any refresh
+ * succeeded) we fall back to "show everything" — the alternative would
+ * blank the home page during transient BounceTech outages, which is a
+ * worse failure mode than a brief listing of yet-to-be-published LTs.
  */
 function filterByLiveLt(
   rows: DbToken[],
   availability: LtAvailability | null,
 ): DbToken[] {
   if (availability === null || !availability.fresh) return rows;
-  if (availability.liveAddresses.size === 0) return rows;
+  if (availability.directoryAddresses.size === 0) return rows;
   return rows.filter((row) =>
-    availability.liveAddresses.has(row.ltPair.toLowerCase()),
+    availability.directoryAddresses.has(row.ltPair.toLowerCase()),
   );
+}
+
+/**
+ * Normalise a snapshot's address set into the checksummed form Postgres
+ * stores. Drops anything that doesn't parse as a 20-byte hex address so
+ * a single malformed entry coming back from BounceTech's directory can't
+ * throw out of `getAddress` and 500 the whole request. Mirrors the
+ * `isAddress` → `getAddress` guard used by `lib/admin-allowlist.ts`,
+ * `lib/market-data.ts`, and the moderation routes — keeps the
+ * external-data-trust boundary consistent across the codebase.
+ */
+function checksumDirectoryAddresses(
+  directoryAddresses: ReadonlySet<string>,
+): `0x${string}`[] {
+  const out: `0x${string}`[] = [];
+  for (const addr of directoryAddresses) {
+    if (!isAddress(addr)) continue;
+    out.push(getAddress(addr));
+  }
+  return out;
 }
 
 const listRoute = new Hono<{ Bindings: AppBindings }>();
@@ -643,10 +666,11 @@ listRoute.get("/", async (c) => {
   // ---------- DB-first path: everything else ----------
 
   // Pull the live-LT availability snapshot before building the SQL — when
-  // it's fresh we push the `lt_pair IN (...)` filter into the WHERE clause
-  // so pagination math (`LIMIT`/`OFFSET`) lines up with the visible
-  // window. Doing this in memory after the DB query would produce short
-  // pages whenever a slice contained any non-live tokens. See
+  // it's fresh we push an `lt_pair IN (...)` filter into the WHERE clause
+  // (directory-membership only — see the `filterByLiveLt` JSDoc) so
+  // pagination math (`LIMIT`/`OFFSET`) lines up with the visible window.
+  // Doing this in memory after the DB query would produce short pages
+  // whenever a slice contained any LT that BounceTech retired. See
   // `lib/lt-availability.ts` for the cache + HEAD-check semantics and the
   // fail-open rationale.
   const availability = await getLiveLtAvailability().catch(() => null);
@@ -664,14 +688,29 @@ listRoute.get("/", async (c) => {
   if (leverage !== undefined) conditions.push(eq(tokens.leverage, leverage));
   if (creator) conditions.push(eq(tokens.creator, creator));
   if (createdAfter) conditions.push(gt(tokens.createdAt, createdAfter));
-  if (availability && availability.fresh && availability.liveAddresses.size > 0) {
+  if (
+    availability &&
+    availability.fresh &&
+    availability.directoryAddresses.size > 0
+  ) {
     // `tokens.ltPair` is stored checksummed (see `lib/token-registration.ts`,
-    // which runs every insert through `getAddress`). The live snapshot is
-    // lowercased — checksum each entry for the SQL `IN (...)` comparison.
-    const checksummedLive = Array.from(availability.liveAddresses).map(
-      (addr) => getAddress(addr),
+    // which runs every insert through `getAddress`). The directory snapshot
+    // is lowercased — checksum each entry (via `isAddress` guard, so a
+    // malformed BounceTech entry can't throw out of `getAddress` and 500
+    // the response) for the SQL `IN (...)` comparison. Listing uses
+    // `directoryAddresses` (rather than the stricter `liveAddresses`) so
+    // a token whose LT is provisioned at BounceTech but hasn't yet had its
+    // logo PNG published doesn't disappear from /tokens — see the comment
+    // thread on this hook in `filterByLiveLt`. Only push the clause when
+    // there's at least one valid address left: drizzle's `inArray()` won't
+    // accept an empty array (Postgres `NOT IN ()` is a syntax error and the
+    // empty `IN ()` would just be dead weight on the planner).
+    const checksummedDirectory = checksumDirectoryAddresses(
+      availability.directoryAddresses,
     );
-    conditions.push(inArray(tokens.ltPair, checksummedLive));
+    if (checksummedDirectory.length > 0) {
+      conditions.push(inArray(tokens.ltPair, checksummedDirectory));
+    }
   }
 
   const sortColumn =
@@ -851,19 +890,23 @@ listRoute.get("/search", async (c) => {
     conditions.push(ilike(tokens.address, `${q}%`));
   }
 
-  // Mirror the listing endpoint's "hide tokens whose LT isn't live on
-  // BounceTech's UI" filter (issue #621) — search results otherwise leak
-  // exactly the tokens we just hid everywhere else. Fail-open on degraded
-  // availability for the same reason as the list path.
+  // Mirror the listing endpoint's directory-membership filter — search
+  // results otherwise leak tokens whose backing LT BounceTech has retired
+  // (originally issue #621; relaxed from logo-presence to directory
+  // membership so creator-launched tokens stay searchable while
+  // BounceTech catches up on logo uploads — see `filterByLiveLt` JSDoc).
+  // Fail-open on degraded availability for the same reason as the list
+  // path, and skip the clause entirely if `checksumDirectoryAddresses`
+  // filtered every entry out (malformed directory payload) so a 500 from
+  // `inArray([])` / `getAddress("not-an-address")` can't take down search.
   const availability = await getLiveLtAvailability().catch(() => null);
+  const checksummedDirectory =
+    availability && availability.fresh && availability.directoryAddresses.size > 0
+      ? checksumDirectoryAddresses(availability.directoryAddresses)
+      : [];
   const liveLtFilter: SQL | undefined =
-    availability && availability.fresh && availability.liveAddresses.size > 0
-      ? inArray(
-          tokens.ltPair,
-          Array.from(availability.liveAddresses).map((addr) =>
-            getAddress(addr),
-          ),
-        )
+    checksummedDirectory.length > 0
+      ? inArray(tokens.ltPair, checksummedDirectory)
       : undefined;
 
   // Same `EXCLUDED_UNDERLYING_ASSETS` filter as the list path (issue

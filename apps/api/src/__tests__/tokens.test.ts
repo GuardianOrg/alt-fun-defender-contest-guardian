@@ -84,6 +84,7 @@ vi.mock("../lib/lt-availability.js", () => ({
     liveAddresses: new Set<string>(),
     liveSymbols: new Set<string>(),
     liveUnderlyings: new Set<string>(),
+    directoryAddresses: new Set<string>(),
     fresh: false,
   })),
   _resetLtAvailabilityCache: vi.fn(),
