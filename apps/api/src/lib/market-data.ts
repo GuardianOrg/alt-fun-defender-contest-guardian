@@ -245,14 +245,22 @@ export async function fetchTokensOnchainByAddresses(
   }
 }
 
-// `GRADUATING_CURVE_SUPPLY_THRESHOLD` was previously used to surface tokens
-// in the final 10% of curve fill as "graduating". With the contract's
-// two-phase graduation flow, "graduating" now exclusively means
-// `pendingGraduation: true` — the contract-frozen ~1-2 minute window between
-// phase 1 (`Bonding.TokenGraduating`) and phase 2 (`finalizeGraduation` →
-// `TokenGraduated`). The supply heuristic was retired with the introduction
-// of the keeper. The GRADUATING tab shows only tokens currently in this
-// window; "close to graduation" tokens surface in TRENDING / NEW instead.
+// The GRADUATING tab is a *progress* surface, not a *contract-state*
+// surface: it lists every non-graduated token whose enriched
+// `curveFilled` (USD-headline progress, see `lib/token-enrich.ts`) is
+// `≥ GRADUATING_TAB_MIN_CURVE_FILLED` percent. Sorted by
+// `curveFilled desc`. The "contract-frozen" state — phase 1 has fired,
+// `finalizeGraduation` is pending — remains modeled by the per-token
+// `pendingGraduation` flag and the `status === "graduating"` field, which
+// drive the GRADUATING pill + trade-panel overlay. The two concepts are
+// deliberately decoupled: a token at 92% curveFilled but not yet
+// contract-frozen belongs in the tab (it's close to graduating) but
+// does not show the pill or block trades.
+//
+// We drive the tab off Ponder rather than the Postgres `status` column
+// because that column is never flipped by the API (the indexer is source
+// of truth for `pendingGraduation` / `graduated`), and because curveFilled
+// is a derived quantity that lives in this layer.
 
 /**
  * Fetch graduated tokens ordered by `graduatedAt desc`, paginated. Used by
@@ -304,14 +312,30 @@ export async function fetchGraduatedTokensOnchain(
 }
 
 /**
- * Fetch tokens currently in the contract-frozen graduating window —
- * `pendingGraduation === true` (phase 1 has fired, `finalizeGraduation`
- * hasn't yet). Ordered by `pendingGraduationAt asc` so the longest-pending
- * tokens (which the keeper might be struggling to finalize) surface first.
- * Typically a small set — the keeper finalizes within 1-2 cron cycles, so
- * this list is usually empty or has 1-2 entries at peak times.
+ * Fetch a candidate pool of non-graduated tokens ordered by
+ * `curveSupply asc` — i.e. closest-to-sold-out first. Used by the
+ * GRADUATING tab: the route enriches each candidate, computes
+ * `curveFilled`, filters to `≥ GRADUATING_TAB_MIN_CURVE_FILLED`, and
+ * sorts by `curveFilled desc` before paginating.
+ *
+ * Sort rationale: `curveFilled` is USD-denominated (`realLt × rate /
+ * threshold × 100`) and we can't compute it inside the Ponder query —
+ * Ponder doesn't have the LT exchange rate. `supplyFilled` (driven
+ * purely by `curveSupply`) is a strong proxy: under the constant-product
+ * AMM with the production `VIRTUAL_LIQUIDITY_USD : graduationThresholdUsd`
+ * ratio, supply-% leads USD-% throughout most of the curve, so the
+ * highest-supplyFilled tokens contain the highest-curveFilled set with
+ * room to spare. Picking the closest-to-sold-out slice as the candidate
+ * pool keeps the per-request work bounded (see `STATUS_POOL_SIZE` in
+ * the route handler) without missing graduating-tab candidates.
+ *
+ * `pendingGraduation: true` tokens (phase 1 has fired) are included by
+ * the `graduated: false` filter — their `curveSupply` reflects the
+ * threshold-crossing buy's post-trade state (≥85% supplyFilled by
+ * definition, since the trigger fired), so they naturally rank first
+ * under the `curveSupply asc` ordering and pass the 85% gate.
  */
-export async function fetchGraduatingTokensOnchain(
+export async function fetchNonGraduatedTokensOnchain(
   ponderUrl: string | undefined,
   limit: number,
   offset: number,
@@ -322,10 +346,10 @@ export async function fetchGraduatingTokensOnchain(
   }>(
     `query ($limit: Int!, $offset: Int!) {
       tokens(
-        where: { pendingGraduation: true, graduated: false }
+        where: { graduated: false }
         limit: $limit
         offset: $offset
-        orderBy: "pendingGraduationAt"
+        orderBy: "curveSupply"
         orderDirection: "asc"
       ) {
         items {

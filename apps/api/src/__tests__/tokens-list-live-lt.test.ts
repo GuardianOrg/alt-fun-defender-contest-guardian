@@ -87,7 +87,7 @@ vi.mock("../lib/protocol-config.js", () => ({
 }));
 vi.mock("../lib/market-data.js", () => ({
   fetchGraduatedTokensOnchain: vi.fn(),
-  fetchGraduatingTokensOnchain: vi.fn(),
+  fetchNonGraduatedTokensOnchain: vi.fn(),
   computeMarketDataForAddresses: vi.fn(async () => ({
     ok: true,
     data: { tokens: [], market: {} },

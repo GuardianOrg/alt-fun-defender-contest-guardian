@@ -96,13 +96,13 @@ vi.mock("../lib/protocol-config.js", () => ({
 }));
 
 const mockFetchGraduatedTokensOnchain = vi.fn();
-const mockFetchGraduatingTokensOnchain = vi.fn();
+const mockFetchNonGraduatedTokensOnchain = vi.fn();
 const mockComputeMarketDataForAddresses = vi.fn();
 const mockBuildBatchFromTokens = vi.fn();
 
 vi.mock("../lib/market-data.js", () => ({
   fetchGraduatedTokensOnchain: mockFetchGraduatedTokensOnchain,
-  fetchGraduatingTokensOnchain: mockFetchGraduatingTokensOnchain,
+  fetchNonGraduatedTokensOnchain: mockFetchNonGraduatedTokensOnchain,
   computeMarketDataForAddresses: mockComputeMarketDataForAddresses,
   buildBatchFromTokens: mockBuildBatchFromTokens,
 }));

@@ -58,13 +58,13 @@ vi.mock("../db/client.js", () => ({
 // functions is covered in `market-data.test.ts`.
 
 const mockFetchGraduatedTokensOnchain = vi.fn();
-const mockFetchGraduatingTokensOnchain = vi.fn();
+const mockFetchNonGraduatedTokensOnchain = vi.fn();
 const mockComputeMarketDataForAddresses = vi.fn();
 const mockBuildBatchFromTokens = vi.fn();
 
 vi.mock("../lib/market-data.js", () => ({
   fetchGraduatedTokensOnchain: mockFetchGraduatedTokensOnchain,
-  fetchGraduatingTokensOnchain: mockFetchGraduatingTokensOnchain,
+  fetchNonGraduatedTokensOnchain: mockFetchNonGraduatedTokensOnchain,
   computeMarketDataForAddresses: mockComputeMarketDataForAddresses,
   buildBatchFromTokens: mockBuildBatchFromTokens,
 }));
@@ -354,34 +354,126 @@ describe("GET /tokens?status=graduating", () => {
     vi.clearAllMocks();
   });
 
-  it("preserves Ponder's curveSupply-asc (closest-to-graduation first) ordering", async () => {
-    // Ponder gives us tokens ordered by curveSupply asc (fullest first).
+  // Helper: convert a desired `supplyFilled` percent into the virtual
+  // reserve0 string the indexer would persist. Inverse of
+  // `computeCurveFilled` — given `supplyFilled = (CURVE_ALLOCATION −
+  // realRemaining) / CURVE_ALLOCATION × 100`, we recover
+  // `curveSupply = realRemaining + LP_RESERVE_RAW`.
+  //
+  // `CURVE_ALLOCATION = 750M × 1e18`, `LP_RESERVE_RAW = 250M × 1e18`.
+  function curveSupplyForSupplyFilled(pct: number): string {
+    const CURVE_ALLOCATION = 750_000_000n * 10n ** 18n;
+    const LP_RESERVE_RAW = 250_000_000n * 10n ** 18n;
+    const soldBps = BigInt(Math.round(pct * 100));
+    const sold = (CURVE_ALLOCATION * soldBps) / 10_000n;
+    const realRemaining = CURVE_ALLOCATION - sold;
+    return (realRemaining + LP_RESERVE_RAW).toString();
+  }
+
+  // Market stub with `ltExchangeRate: null` so
+  // `computeCurveFilledBreakdown` falls back to the supply-only
+  // `curveFilled` path. That gives us a closed-form mapping from the
+  // mocked `curveSupply` to the enriched `curveFilled`, which is what
+  // the tab filters + sorts on — so assertions on threshold + ordering
+  // stay legible without faking USD math.
+  const noLtRate: Partial<MarketDataItem> = { ltExchangeRate: null };
+
+  it("includes only tokens with curveFilled >= 85% and sorts them desc", async () => {
+    // Four candidates spanning the gate: above (95, 90, 85) and below
+    // (80, 50). The 80% / 50% rows must be filtered out; the rest must
+    // come back in 95 → 90 → 85 order regardless of how Ponder / the DB
+    // mock ordered them.
     const onchainA = makeOnchain(ADDR_A, {
-      curveSupply: "260000000000000000000000000",
+      curveSupply: curveSupplyForSupplyFilled(95),
     });
     const onchainB = makeOnchain(ADDR_B, {
-      curveSupply: "280000000000000000000000000",
+      curveSupply: curveSupplyForSupplyFilled(90),
     });
     const onchainC = makeOnchain(ADDR_C, {
-      curveSupply: "320000000000000000000000000",
+      curveSupply: curveSupplyForSupplyFilled(85),
     });
-    mockFetchGraduatingTokensOnchain.mockResolvedValueOnce([
+    const ADDR_D = "0x4444444444444444444444444444444444444444";
+    const ADDR_E = "0x5555555555555555555555555555555555555555";
+    const onchainD = makeOnchain(ADDR_D, {
+      curveSupply: curveSupplyForSupplyFilled(80),
+    });
+    const onchainE = makeOnchain(ADDR_E, {
+      curveSupply: curveSupplyForSupplyFilled(50),
+    });
+    mockFetchNonGraduatedTokensOnchain.mockResolvedValueOnce([
       onchainA,
       onchainB,
       onchainC,
+      onchainD,
+      onchainE,
     ]);
 
+    // Order intentionally scrambled to confirm the route sorts on
+    // curveFilled, not on the order the DB happened to return rows in.
     currentDbRows.rows = [
-      makeDbRow(ADDR_B, { ticker: "BBB" }),
       makeDbRow(ADDR_C, { ticker: "CCC" }),
       makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_E, { ticker: "EEE" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_D, { ticker: "DDD" }),
     ];
 
     mockBuildBatchFromTokens.mockResolvedValueOnce(
       marketBatchOk([
-        { address: ADDR_A, onchain: onchainA, market: makeMarket() },
-        { address: ADDR_B, onchain: onchainB, market: makeMarket() },
-        { address: ADDR_C, onchain: onchainC, market: makeMarket() },
+        { address: ADDR_A, onchain: onchainA, market: makeMarket(noLtRate) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket(noLtRate) },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket(noLtRate) },
+        { address: ADDR_D, onchain: onchainD, market: makeMarket(noLtRate) },
+        { address: ADDR_E, onchain: onchainE, market: makeMarket(noLtRate) },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?status=graduating",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ ticker: string; curveFilled: number }>;
+    };
+    expect(body.data.map((t) => t.ticker)).toEqual(["AAA", "BBB", "CCC"]);
+    expect(body.data.map((t) => Math.round(t.curveFilled))).toEqual([
+      95, 90, 85,
+    ]);
+  });
+
+  it("breaks ties on curveFilled by mcap desc", async () => {
+    // Two tokens at exactly the same curveFilled (90%) but different
+    // mcaps. Higher mcap must come first — mirrors the trending sort's
+    // tie-break so quiet tokens don't leapfrog priced ones on identical
+    // progress.
+    const onchainHigh = makeOnchain(ADDR_A, {
+      curveSupply: curveSupplyForSupplyFilled(90),
+    });
+    const onchainLow = makeOnchain(ADDR_B, {
+      curveSupply: curveSupplyForSupplyFilled(90),
+    });
+    mockFetchNonGraduatedTokensOnchain.mockResolvedValueOnce([
+      onchainHigh,
+      onchainLow,
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "LOW_MCAP" }),
+      makeDbRow(ADDR_A, { ticker: "HIGH_MCAP" }),
+    ];
+    mockBuildBatchFromTokens.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: ADDR_A,
+          onchain: onchainHigh,
+          market: makeMarket({ ...noLtRate, mcapUsd: 10_000_000 }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainLow,
+          market: makeMarket({ ...noLtRate, mcapUsd: 1_000 }),
+        },
       ]),
     );
 
@@ -394,11 +486,104 @@ describe("GET /tokens?status=graduating", () => {
     const body = (await res.json()) as {
       data: Array<{ ticker: string }>;
     };
-    expect(body.data.map((t) => t.ticker)).toEqual(["AAA", "BBB", "CCC"]);
+    expect(body.data.map((t) => t.ticker)).toEqual([
+      "HIGH_MCAP",
+      "LOW_MCAP",
+    ]);
+  });
+
+  it("drops graduated tokens defensively even if they slipped past the Ponder filter", async () => {
+    // The Ponder query is `graduated: false` so this is a belt-and-
+    // braces case (e.g. a token that finalised between the fetch and
+    // the enrich, or a stale Ponder reply). Either way the GRADUATING
+    // tab must NEVER surface a graduated token — that's the GRADUATED
+    // tab's job.
+    const onchainGraduated = makeOnchain(ADDR_A, {
+      curveSupply: curveSupplyForSupplyFilled(99),
+      graduated: true,
+      graduatedAt: "1700000000",
+    });
+    const onchainCurve = makeOnchain(ADDR_B, {
+      curveSupply: curveSupplyForSupplyFilled(90),
+    });
+    mockFetchNonGraduatedTokensOnchain.mockResolvedValueOnce([
+      onchainGraduated,
+      onchainCurve,
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "GRADUATED" }),
+      makeDbRow(ADDR_B, { ticker: "CURVE" }),
+    ];
+    mockBuildBatchFromTokens.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: ADDR_A,
+          onchain: onchainGraduated,
+          market: makeMarket(noLtRate),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainCurve,
+          market: makeMarket(noLtRate),
+        },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?status=graduating",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.data.map((t) => t.ticker)).toEqual(["CURVE"]);
+  });
+
+  it("falls back to supplyFilled when BounceTech is degraded so the tab still renders", async () => {
+    // `buildBatchFromTokens` returns `ok: false` when the BounceTech
+    // dependency is unreachable. The route must still render the tab
+    // — `curveFilled` falls back to supplyFilled, which is enough to
+    // evaluate the 85% gate for the overwhelming majority of tokens.
+    // Worse failure mode would be blanking the tab during a
+    // BounceTech blip.
+    const onchainA = makeOnchain(ADDR_A, {
+      curveSupply: curveSupplyForSupplyFilled(92),
+    });
+    const onchainB = makeOnchain(ADDR_B, {
+      curveSupply: curveSupplyForSupplyFilled(70),
+    });
+    mockFetchNonGraduatedTokensOnchain.mockResolvedValueOnce([
+      onchainA,
+      onchainB,
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+    ];
+    mockBuildBatchFromTokens.mockResolvedValueOnce({
+      ok: false,
+      error: "BounceTech API unavailable",
+      code: 503,
+    } satisfies MarketDataBatchResult);
+
+    const res = await createApp().request(
+      "/tokens?status=graduating",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      dataSource: string;
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.dataSource).toBe("degraded");
+    expect(body.data.map((t) => t.ticker)).toEqual(["AAA"]);
   });
 
   it("returns 503 when the indexer is unreachable", async () => {
-    mockFetchGraduatingTokensOnchain.mockResolvedValueOnce(null);
+    mockFetchNonGraduatedTokensOnchain.mockResolvedValueOnce(null);
 
     const res = await createApp().request(
       "/tokens?status=graduating",
@@ -406,6 +591,19 @@ describe("GET /tokens?status=graduating", () => {
       makeEnv(),
     );
     expect(res.status).toBe(503);
+  });
+
+  it("returns an empty list when Ponder reports zero non-graduated tokens", async () => {
+    mockFetchNonGraduatedTokensOnchain.mockResolvedValueOnce([]);
+
+    const res = await createApp().request(
+      "/tokens?status=graduating",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: unknown[] };
+    expect(body.data).toEqual([]);
   });
 });
 
