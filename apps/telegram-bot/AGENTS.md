@@ -403,7 +403,7 @@ Output (single Telegram message):
   - Chart image (24h candles from `GET /api/v1/chart/:address?timeframe=1d`)
     sent via sendPhoto with the merged caption + keyboard below.
   - Caption (HTML): token card (name, mcap, curve fill, leverage tag,
-    24h price change) followed by recent trades (up to 20 from
+    24h price change) followed by recent trades (up to 5 from
     `GET /api/v1/trades/:address`, automatically trimmed to fit
     Telegram's 1024-char photo-caption budget).
   - Buttons: [Buy →] [Sell →] [Open on Alt Fun]
@@ -416,7 +416,7 @@ keyboard rides on the same message). When the body overflows the
 sheds trade rows from the tail until it fits — the card and chart are
 the headline, dropping a few stale trades is acceptable. If the chart
 fetch fails (timeout, empty candles, render error) `sendTrackReply`
-falls back to a text-only `sendMessage` with the full 20-trade body, so
+falls back to a text-only `sendMessage` with the full 5-trade body, so
 no /track invocation is ever silent. The start-menu wizard variant
 edits the prompt bubble in place when the chart is absent and deletes
 the bubble before sending the merged photo when the chart renders

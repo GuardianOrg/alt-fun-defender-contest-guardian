@@ -189,11 +189,11 @@ describe("renderTrackBody (pure)", () => {
     expect(html).toContain("No trades yet");
   });
 
-  it("caps the trade list at 20 rows even when more are returned", () => {
+  it("caps the trade list at 5 rows even when more are returned", () => {
     const many = Array.from({ length: 50 }, (_, i) => makeTrade(i + 1, i % 2 === 0));
     const html = renderTrackBody(token, many, 1_700_000_000);
     const rowCount = (html.match(/(🟢 BUY|🔴 SELL)/g) ?? []).length;
-    expect(rowCount).toBe(20);
+    expect(rowCount).toBe(5);
   });
 
   it("formats buy and sell sides with distinct markers", () => {
@@ -221,7 +221,7 @@ describe("renderTrackCaption (pure)", () => {
       .length;
 
   it("fits the full body inside Telegram's photo-caption budget", () => {
-    // 50 trades is well over the 20-row cap; the caption builder must
+    // 50 trades is well over the 5-row cap; the caption builder must
     // shed rows until the visible char count is <= 1024 so sendPhoto
     // won't 400 on the merged track message.
     const many = Array.from({ length: 50 }, (_, i) =>
@@ -338,6 +338,19 @@ describe("/track command", () => {
     expect(allBtns.some((b) => b.text.includes("Sell"))).toBe(true);
     const altFun = allBtns.find((b) => b.text.includes("Open on Alt Fun"));
     expect(altFun?.url).toBe(`https://alt.fun/token/${TOKEN_ADDR}`);
+  });
+
+  it("requests only 5 recent trades from the API", async () => {
+    const h = harness();
+    mockApi(fetchSpy);
+
+    await h.run(messageUpdate(`/track ${TOKEN_ADDR}`, 30));
+
+    const tradesCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .map((c) => String(c[0]))
+      .find((u) => u.includes("/api/v1/trades/"));
+    expect(tradesCall).toBeDefined();
+    expect(tradesCall).toContain("limit=5");
   });
 
   it("`/track <addr>` renders the card directly without the prompt", async () => {
