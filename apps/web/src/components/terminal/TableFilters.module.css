@@ -71,9 +71,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* `position` + `top` / `left` / `right` are all set by inline `style`
+ * from `FilterPopover` — the popover uses `position: fixed` anchored
+ * to the trigger's `getBoundingClientRect()` so it escapes the rail's
+ * `overflow-x: auto` clip on narrow viewports (see the JSDoc on
+ * `FilterPopover`). The CSS rule here owns chrome only: dimensions,
+ * stacking, background, border. The legacy `.popoverLeft` /
+ * `.popoverRight` direction-anchor classes are gone — alignment now
+ * flows through the same inline style as the rest of the position.
+ */
 .popover {
-  position: absolute;
-  top: calc(100% + 0.4rem);
   z-index: 50;
   min-width: 14rem;
   max-height: 22rem;
@@ -83,14 +90,6 @@
   background: var(--bg-2);
   border: 1px solid var(--border-2);
   border-radius: 3px;
-}
-
-.popoverLeft {
-  left: 0;
-}
-
-.popoverRight {
-  right: 0;
 }
 
 .popoverHeader {
@@ -172,14 +171,6 @@
   display: inline-flex;
 }
 
-.allDot {
-  width: 1.6rem;
-  height: 1.6rem;
-  border-radius: 9999px;
-  border: 1px dashed var(--border-2);
-  flex-shrink: 0;
-}
-
 .directionDot {
   width: 0.8rem;
   height: 0.8rem;
@@ -250,8 +241,32 @@
   outline-offset: 2px;
 }
 
+/* Below 1240px the rail wraps below the lifecycle tabs (see the matching
+ * media query in `CommandBar.module.css`). The inline `margin-left:
+ * auto` no longer applies because the rail is now a row of its own,
+ * so drop it and let the rail align flush-left with the rest of the
+ * bar's content. `overflow-x: auto` (mirroring `.tabs` in
+ * `CommandBar.module.css`) lets the triggers scroll sideways on
+ * viewports too narrow to fit them in a single row, with the
+ * scrollbar suppressed so the look stays consistent with the tabs
+ * band above.
+ *
+ * The popover that drops below each trigger doesn't get clipped by
+ * this overflow box even though `overflow-x: auto` forces
+ * `overflow-y` to also compute to `auto` (CSS spec rule): the
+ * popover is rendered with `position: fixed` and live-anchored to
+ * the trigger via `getBoundingClientRect()` in `FilterPopover`, so
+ * it escapes the rail's containing block via the viewport.
+ */
 @media (max-width: 1239px) {
   .rail {
+    margin-left: 0;
+    padding: 0.8rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .rail::-webkit-scrollbar {
     display: none;
   }
 }

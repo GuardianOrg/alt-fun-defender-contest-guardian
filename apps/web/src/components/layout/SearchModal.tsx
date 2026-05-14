@@ -75,7 +75,7 @@ export default function SearchModal() {
         <input
           ref={inputRef}
           className={styles.searchInput}
-          placeholder="Search tokens, tickers…"
+          placeholder="Search for tokens…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
@@ -117,9 +117,7 @@ export default function SearchModal() {
                   stats={getStats(t.address)}
                   onClick={() => goToToken(t.address)}
                   highlighted={highlightedIndex === recentOffset + i}
-                  onMouseEnter={() =>
-                    setHighlightedIndex(recentOffset + i)
-                  }
+                  onMouseEnter={() => setHighlightedIndex(recentOffset + i)}
                 />
               ))}
             </div>
