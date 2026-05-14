@@ -308,11 +308,16 @@ describe("/positions", () => {
       expect(row[0]!.callback_data.startsWith("pb:0x")).toBe(true);
       expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
     }
-    // Tickers on every open-position line render as anchors pointing
-    // at the bot's `?start=track_<addr>` deeplink.
-    expect(sent[0]!.text).toMatch(
-      /<a href="https:\/\/t\.me\/[^"]+\?start=track_0x[0-9a-f]{40}">LT\d+<\/a>/i,
+    // Every open-position line must render its ticker as its own
+    // `?start=track_<addr>` anchor — count anchors against the number
+    // of per-position keyboard rows on this page so a regression that
+    // links only the first ticker would fail loudly.
+    const anchorMatches = sent[0]!.text.match(
+      /<a href="https:\/\/t\.me\/[^"]+\?start=track_0x[0-9a-f]{40}">LT\d+<\/a>/gi,
     );
+    const positionRowCount = markup.inline_keyboard.length - 2;
+    expect(anchorMatches).not.toBeNull();
+    expect(anchorMatches!.length).toBe(positionRowCount);
   });
 
   it("replies with a degraded-data message when the API returns 503", async () => {

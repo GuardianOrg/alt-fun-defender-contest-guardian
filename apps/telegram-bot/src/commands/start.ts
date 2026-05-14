@@ -234,7 +234,19 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
         });
       }
       if (actionParam.action === "track") {
-        await replyWithTrackCard(ctx, actionParam.token);
+        // Surface a friendly reply on each `replyWithTrackCard` failure
+        // mode — silently dropping the deeplink leaves the user on a
+        // blank /start with no idea why their tap did nothing.
+        const outcome = await replyWithTrackCard(ctx, actionParam.token);
+        if (outcome === "not_found") {
+          await ctx.reply(
+            "Token not found — make sure the address is correct.",
+          );
+        } else if (outcome === "unavailable") {
+          await ctx.reply(
+            "Data temporarily unavailable — try again in a moment.",
+          );
+        }
       } else {
         await replyWithActionCard(
           ctx,
