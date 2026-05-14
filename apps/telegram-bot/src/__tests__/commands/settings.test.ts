@@ -337,6 +337,36 @@ describe("/settings command", () => {
       expect(session.defaultBuyUsdc).toBe(50);
     });
 
+    it("edits the origin Buy Settings menu in place after the new value is saved", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeBuyPresetSlot(0)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("$50", 3));
+
+      const calls = capture(fetchSpy);
+      // Refreshed panel lands as an edit on the original menu
+      // (message_id 100, set by callbackUpdate), not a fresh
+      // sendMessage that would leave the stale slot list sitting
+      // above the wizard's output.
+      const editOnOrigin = calls.find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          (c.body as { message_id?: number }).message_id === 100 &&
+          String(c.body.text).includes("Buy Settings") &&
+          String(c.body.text).includes("50 USDC"),
+      );
+      expect(editOnOrigin).toBeDefined();
+      const stalePost = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          String(c.body.text).includes("Buy Settings") &&
+          String(c.body.text).includes("50 USDC"),
+      );
+      expect(stalePost).toBeUndefined();
+    });
+
     it("editing a non-zero slot leaves defaultBuyUsdc alone", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(encodeBuyPresetSlot(2)));
@@ -419,6 +449,32 @@ describe("/settings command", () => {
 
       const session = await readSession(h);
       expect(session.sellPresetsPct).toEqual([10, 25, 50, 60, 100]);
+    });
+
+    it("edits the origin Sell Settings menu in place after the new value is saved", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(encodeSellPresetSlot(3)));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("60%", 3));
+
+      const calls = capture(fetchSpy);
+      const editOnOrigin = calls.find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          (c.body as { message_id?: number }).message_id === 100 &&
+          String(c.body.text).includes("Sell Settings") &&
+          String(c.body.text).includes("60%"),
+      );
+      expect(editOnOrigin).toBeDefined();
+      const stalePost = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          String(c.body.text).includes("Sell Settings") &&
+          String(c.body.text).includes("60%"),
+      );
+      expect(stalePost).toBeUndefined();
     });
 
     it("rejects out-of-range percents and stays in the wizard", async () => {

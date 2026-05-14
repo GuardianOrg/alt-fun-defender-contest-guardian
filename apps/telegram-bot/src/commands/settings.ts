@@ -264,16 +264,72 @@ const customSlippageConversation = async (
 };
 
 /**
+ * Origin reference to the Buy / Sell Settings menu message the user
+ * tapped a slot button on. Captured at callback time and threaded
+ * through the slot wizard so the conversation can edit that same
+ * message in place after the new value is saved — sending a fresh
+ * panel below would leave the stale slot values visible above it.
+ */
+interface OriginMessageRef {
+  chatId: number;
+  messageId: number;
+}
+
+/**
+ * Same benign-error swallow as `safeEditMessageText` above. Used from
+ * inside conversations via `conversation.external` to refresh the
+ * origin menu in place; returns `true` only when the edit landed so
+ * callers can fall back to `ctx.reply` when the original message is
+ * gone (deleted, > 48h, or "not modified").
+ */
+const safeEditMessage = async (
+  outside: AppContext,
+  origin: OriginMessageRef,
+  text: string,
+  extra: Parameters<AppContext["api"]["editMessageText"]>[3] = {},
+): Promise<boolean> => {
+  try {
+    await outside.api.editMessageText(
+      origin.chatId,
+      origin.messageId,
+      text,
+      extra,
+    );
+    return true;
+  } catch (err) {
+    const e = err as {
+      error_code?: number;
+      description?: string;
+      message?: string;
+    };
+    const desc = (e.description ?? e.message ?? "").toLowerCase();
+    const isBenign =
+      e.error_code === 400 &&
+      (desc.includes("message to edit not found") ||
+        desc.includes("message not found") ||
+        desc.includes("message is not modified"));
+    if (isBenign) return false;
+    throw err;
+  }
+};
+
+/**
  * Conversation: edit one slot of the buy-preset list (issue #818).
  * `slotIdx` is the 0-based slot the user tapped. Stores the parsed
  * amount in `session.buyPresetsUsdc[slotIdx]` and, if `slotIdx === 0`,
  * mirrors it into `session.defaultBuyUsdc` so callsites still reading
  * the legacy field don't drift from slot 0.
+ *
+ * `origin` is the Buy Settings menu message the user tapped from; the
+ * conversation edits it in place after saving so the panel above the
+ * wizard reflects the new value rather than leaving the stale list
+ * visible alongside a freshly-sent panel below.
  */
 const buyPresetSlotConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   slotIdx: number,
+  origin?: OriginMessageRef,
 ): Promise<void> => {
   if (!Number.isInteger(slotIdx) || slotIdx < 0 || slotIdx >= BUY_PRESETS_LENGTH) {
     return;
@@ -352,12 +408,22 @@ const buyPresetSlotConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
-    const state = await conversation.external((outside) =>
-      renderBuyState(outside),
-    );
-    await ctx.reply(wrap(ctx, state.text), {
-      reply_markup: state.reply_markup,
-    });
+    const edited = origin
+      ? await conversation.external(async (outside) => {
+          const state = renderBuyState(outside);
+          return safeEditMessage(outside, origin, wrap(outside, state.text), {
+            reply_markup: state.reply_markup,
+          });
+        })
+      : false;
+    if (!edited) {
+      const state = await conversation.external((outside) =>
+        renderBuyState(outside),
+      );
+      await ctx.reply(wrap(ctx, state.text), {
+        reply_markup: state.reply_markup,
+      });
+    }
     await sweepWorkflow(conversation);
     return;
   }
@@ -365,12 +431,16 @@ const buyPresetSlotConversation = async (
 
 /**
  * Conversation: edit one slot of the sell-preset percent list.
- * Accepts integer percents in [1, 100].
+ * Accepts integer percents in [1, 100]. `origin` is the Sell Settings
+ * menu message — edited in place after save so the stale preset list
+ * above the wizard prompt doesn't linger alongside a freshly-sent
+ * updated panel.
  */
 const sellPresetSlotConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   slotIdx: number,
+  origin?: OriginMessageRef,
 ): Promise<void> => {
   if (
     !Number.isInteger(slotIdx) ||
@@ -431,12 +501,22 @@ const sellPresetSlotConversation = async (
       await sweepWorkflow(conversation);
       return;
     }
-    const state = await conversation.external((outside) =>
-      renderSellState(outside),
-    );
-    await ctx.reply(wrap(ctx, state.text), {
-      reply_markup: state.reply_markup,
-    });
+    const edited = origin
+      ? await conversation.external(async (outside) => {
+          const state = renderSellState(outside);
+          return safeEditMessage(outside, origin, wrap(outside, state.text), {
+            reply_markup: state.reply_markup,
+          });
+        })
+      : false;
+    if (!edited) {
+      const state = await conversation.external((outside) =>
+        renderSellState(outside),
+      );
+      await ctx.reply(wrap(ctx, state.text), {
+        reply_markup: state.reply_markup,
+      });
+    }
     await sweepWorkflow(conversation);
     return;
   }
@@ -580,8 +660,17 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
         await ctx.answerCallbackQuery();
         return;
       }
+      // Capture the Buy Settings menu the tap originated from so the
+      // wizard can edit it in place when it ends — sending a fresh
+      // panel below would leave the stale slot row visible above.
+      const origin = ctx.callbackQuery.message
+        ? {
+            chatId: ctx.callbackQuery.message.chat.id,
+            messageId: ctx.callbackQuery.message.message_id,
+          }
+        : undefined;
       await ctx.answerCallbackQuery();
-      await ctx.conversation.enter("settings-buy-preset-slot", idx);
+      await ctx.conversation.enter("settings-buy-preset-slot", idx, origin);
     },
   );
 
@@ -598,8 +687,14 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
         await ctx.answerCallbackQuery();
         return;
       }
+      const origin = ctx.callbackQuery.message
+        ? {
+            chatId: ctx.callbackQuery.message.chat.id,
+            messageId: ctx.callbackQuery.message.message_id,
+          }
+        : undefined;
       await ctx.answerCallbackQuery();
-      await ctx.conversation.enter("settings-sell-preset-slot", idx);
+      await ctx.conversation.enter("settings-sell-preset-slot", idx, origin);
     },
   );
 
