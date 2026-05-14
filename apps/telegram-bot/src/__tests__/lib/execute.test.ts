@@ -21,6 +21,7 @@ import {
   pushWorkflowMessage,
 } from "../../lib/workflow-stack.js";
 import * as trade from "../../lib/trade.js";
+import * as startCommand from "../../commands/start.js";
 import { MemoryKV } from "../helpers/bot.js";
 import type { AppContext, SessionData } from "../../bot.js";
 import { WalletManager } from "../../lib/wallet.js";
@@ -1131,5 +1132,203 @@ describe("runWithTxStatusUpdates", () => {
     expect(edits).toHaveLength(2);
     expect(edits[0]!.text).toContain("Tx sending");
     expect(edits[1]!.text).toMatch(/Transaction failed/);
+  });
+});
+
+describe("runWithTxStatusUpdates post-trade /start prompt", () => {
+  const buildStatusCtx = (): {
+    ctx: AppContext;
+    edits: Array<{ chatId: number; messageId: number; text: string }>;
+  } => {
+    const edits: Array<{ chatId: number; messageId: number; text: string }> =
+      [];
+    const ctx = {
+      session: { workflowMessages: [] } as Partial<SessionData>,
+      api: {
+        editMessageText: vi.fn(
+          async (chatId: number, messageId: number, text: string) => {
+            edits.push({ chatId, messageId, text });
+            return true;
+          },
+        ),
+      },
+    } as unknown as AppContext;
+    return { ctx, edits };
+  };
+
+  let startSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    startSpy = vi
+      .spyOn(startCommand, "sendStartPromptAfterTrade")
+      .mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    startSpy.mockRestore();
+  });
+
+  it("fires sendStartPromptAfterTrade with the target chatId after a successful trade", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: true,
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+          quotedOut: 1n,
+          minOut: 1n,
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith(ctx, 42);
+  });
+
+  it("also fires after a successful sell so users can chain into the next action", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 99, messageId: 200 },
+      side: "sell",
+      description: "Selling 1.5 TICK",
+      run: async () => ({
+        kind: "executed",
+        side: "sell",
+        ticker: "TICK",
+        result: {
+          ok: true,
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+          quotedOut: 12_000_000n,
+          minOut: 12_000_000n,
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith(ctx, 99);
+  });
+
+  it("does NOT fire on a reverted trade (user may want to retry from the originating card)", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: false,
+          kind: "reverted",
+          reason: "SlippageExceeded",
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire on a pending receipt-timeout outcome (tx still in mempool)", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: false,
+          kind: "pending",
+          reason: "WaitForTransactionReceiptTimeoutError",
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire on an expired outcome (no trade was submitted)", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({ kind: "expired" }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire when run() throws (terminal failure path)", async () => {
+    const { ctx } = buildStatusCtx();
+    await expect(
+      runWithTxStatusUpdates({
+        ctx,
+        target: { api: ctx.api, chatId: 42, messageId: 99 },
+        side: "buy",
+        description: "Buying $20.00 USDC of TICK",
+        run: async () => {
+          throw new Error("rpc exploded");
+        },
+        pendingDelayMs: 60_000,
+      }),
+    ).rejects.toThrow();
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendStartPromptAfterTrade", () => {
+  it("is a no-op when chatId is undefined", async () => {
+    const sendMessage = vi.fn();
+    const ctx = {
+      api: { sendMessage },
+    } as unknown as AppContext;
+    await startCommand.sendStartPromptAfterTrade(ctx, undefined);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when buildStartSnapshot returns null (no active wallet)", async () => {
+    const sendMessage = vi.fn();
+    const ctx = {
+      // No `from` → buildStartSnapshot short-circuits to null before
+      // any wallet / RPC lookup, so the send never fires.
+      api: { sendMessage },
+    } as unknown as AppContext;
+    await startCommand.sendStartPromptAfterTrade(ctx, 42);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("swallows downstream errors so a flaky start render cannot mask the receipt above it", async () => {
+    // ctx.from is set, but env is missing → buildStartSnapshot's
+    // WalletManager construction throws on the undefined master key.
+    // The helper must catch and return cleanly; the receipt edit above
+    // it is the load-bearing surface and must not be undone by a
+    // follow-up exception bubbling out of post-trade work.
+    const sendMessage = vi.fn();
+    const ctx = {
+      from: { id: 7, is_bot: false, first_name: "Ada" },
+      env: {},
+      api: { sendMessage },
+    } as unknown as AppContext;
+    await expect(
+      startCommand.sendStartPromptAfterTrade(ctx, 42),
+    ).resolves.toBeUndefined();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

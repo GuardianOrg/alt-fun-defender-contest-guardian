@@ -101,6 +101,39 @@ const renderStart = async (
 });
 
 /**
+ * Send a fresh /start view as a new chat message after a successful
+ * trade so the user has the home menu directly under the receipt
+ * without having to retype `/start`. Best-effort: returns silently when
+ * the snapshot can't be built (no active wallet, RPC degraded) or when
+ * Telegram rejects the send. The receipt above is the load-bearing
+ * surface; the start prompt is purely a navigation convenience.
+ *
+ * Uses `api.sendMessage` against the explicit `chatId` rather than
+ * `ctx.reply` so the post-trade caller in `runWithTxStatusUpdates` can
+ * fire it without depending on `ctx.chat` (the only chat ref available
+ * at that point is the edit target's chatId).
+ */
+export const sendStartPromptAfterTrade = async (
+  ctx: AppContext,
+  chatId: number | undefined,
+): Promise<void> => {
+  if (chatId === undefined) return;
+  try {
+    const snap = await buildStartSnapshot(ctx);
+    if (!snap) return;
+    await ctx.api.sendMessage(chatId, snap.text, {
+      parse_mode: snap.parseMode,
+      reply_markup: { inline_keyboard: snap.keyboard },
+      link_preview_options: snap.linkPreviewDisabled
+        ? { is_disabled: true }
+        : undefined,
+    });
+  } catch (err) {
+    logger.debug("post-trade start prompt failed", { err });
+  }
+};
+
+/**
  * Build the /start snapshot for the nav system without sending or
  * editing any message. Used by `lib/nav.ts` to handle Home and the
  * empty-stack Back fallback — both must restore the same view a fresh
