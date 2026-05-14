@@ -35,7 +35,7 @@ const hyperEvmClient = createPublicClient({
   transport: http(rpcUrl),
 });
 
-interface RawBalance {
+export interface RawBalance {
   address: string;
   name: string;
   ticker: string;
@@ -53,6 +53,69 @@ interface RawBalance {
   isHidden: boolean;
 }
 
+/**
+ * Minimum USD value a position must clear to render in the "My
+ * Positions" panel. Anything below this is dust — typically a
+ * leftover sliver from a token the user has effectively fully sold.
+ * The threshold runs unconditionally (i.e. it is NOT gated on a
+ * "prices loaded" flag): when prices haven't arrived yet,
+ * `getPrice` returns `0`, every `valueUsd` collapses to `0`, and
+ * the filter cleanly excludes every row. Leaking unpriced rows
+ * through during the prices-loading window caused the bug where
+ * dust positions flashed as `$0` + `—` before disappearing into
+ * "No positions yet" once the prices payload landed. The consumer's
+ * skeleton path already keys off the hook's combined `isLoading`
+ * (which folds in `pricesLoading`), so the loading state is
+ * covered without us needing to surface ghost rows.
+ */
+export const MIN_DISPLAY_VALUE_USD = 0.1;
+
+/**
+ * Pure builder for the `HeldToken[]` list rendered by the balances UI.
+ * Extracted from {@link useBalances} so the dust-filter contract is
+ * exercisable in unit tests without standing up React Query / viem /
+ * Privy. Kept named (rather than inlined) so the regression test for
+ * the `$0 ghosts → No positions yet` flash (the prices-loading bug)
+ * stays close to the production code path.
+ */
+export function buildHeldTokens(
+  rawBalances: readonly RawBalance[],
+  getPrice: (address: string) => number,
+  getTokenMarketData: (
+    address: string,
+  ) => { change24h?: number | null } | undefined,
+): HeldToken[] {
+  return rawBalances
+    .map((b) => {
+      const amount = parseFloat(formatUnits(b.balance, 18));
+      const pricePerToken = getPrice(b.address);
+      const marketEntry = getTokenMarketData(b.address);
+      return {
+        address: b.address,
+        name: b.name,
+        ticker: b.ticker,
+        emoji: "",
+        image: resolveImageUrl(b.imageUrl),
+        ltName: `${b.ltPair} ${b.leverage}×`,
+        status: "active" as const,
+        amount,
+        valueUsd: amount * pricePerToken,
+        change24h: marketEntry?.change24h ?? null,
+        isHidden: b.isHidden,
+      };
+    })
+    .filter((t) => t.valueUsd >= MIN_DISPLAY_VALUE_USD);
+}
+
+/**
+ * Indexer-backed balances path. Reads Ponder's `tokenBalances` index
+ * (wallet-scoped) and normalises the rows into the shared {@link
+ * RawBalance} shape. Currently used both as the fallback when the
+ * chain multicall throws AND as the source of truth for hidden-token
+ * positions (see {@link mergeHiddenFromApi}) — the chain path can't
+ * surface hidden tokens because they're filtered out of the public
+ * catalogue.
+ */
 async function fetchRawBalancesFromApi(
   walletAddress: string,
 ): Promise<RawBalance[]> {
@@ -69,6 +132,15 @@ async function fetchRawBalancesFromApi(
   }));
 }
 
+/**
+ * Primary balances path: walk every public-catalogue token and probe
+ * the wallet's `balanceOf` via a chunked viem multicall. Authoritative
+ * because the chain is the source of truth and works regardless of
+ * indexer health. See the inline comment for the chunk-size rationale
+ * — HyperEVM small blocks cap multicalls at ~2M gas, so we batch in
+ * 250-token chunks to stay well under the ceiling on a fully-grown
+ * catalogue.
+ */
 async function fetchRawBalancesFromChain(
   walletAddress: string,
 ): Promise<RawBalance[]> {
@@ -170,6 +242,23 @@ async function mergeHiddenFromApi(args: {
   return [...args.chainBalances, ...hiddenExtras];
 }
 
+/**
+ * React Query-backed hook powering the "MY POSITIONS" panel and the
+ * Earnings / Profile balances tabs. Joins three upstream sources:
+ *
+ *   1. The on-chain `balanceOf` multicall (primary; authoritative
+ *      regardless of indexer health).
+ *   2. The wallet-scoped `/balances` API call (fills in hidden
+ *      positions the chain path can't surface — see {@link
+ *      mergeHiddenFromApi}).
+ *   3. The token-price + market-data caches via {@link useTokenPrices}
+ *      / {@link useMarketData}.
+ *
+ * Returns a `HeldToken[]` already filtered through the dust threshold
+ * (see {@link buildHeldTokens}) plus a `totalValue` rollup and a
+ * combined `isLoading` flag that folds both queries so consumers can
+ * drive a single skeleton state.
+ */
 export function useBalances() {
   const { address } = useWallet();
   const { getPrice, isLoading: pricesLoading } = useTokenPrices();
@@ -210,28 +299,7 @@ export function useBalances() {
     enabled: !!address,
   });
 
-  const MIN_DISPLAY_VALUE_USD = 0.1;
-
-  const tokens: HeldToken[] = (query.data ?? [])
-    .map((b) => {
-      const amount = parseFloat(formatUnits(b.balance, 18));
-      const pricePerToken = getPrice(b.address);
-      const marketEntry = getTokenMarketData(b.address);
-      return {
-        address: b.address,
-        name: b.name,
-        ticker: b.ticker,
-        emoji: "",
-        image: resolveImageUrl(b.imageUrl),
-        ltName: `${b.ltPair} ${b.leverage}×`,
-        status: "active" as const,
-        amount,
-        valueUsd: amount * pricePerToken,
-        change24h: marketEntry?.change24h ?? null,
-        isHidden: b.isHidden,
-      };
-    })
-    .filter((t) => pricesLoading || t.valueUsd >= MIN_DISPLAY_VALUE_USD);
+  const tokens = buildHeldTokens(query.data ?? [], getPrice, getTokenMarketData);
 
   const totalValue = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
 
