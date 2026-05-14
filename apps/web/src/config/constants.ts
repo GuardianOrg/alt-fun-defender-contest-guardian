@@ -1,13 +1,13 @@
 export const FEES = {
   /**
-   * 0.5% on every buy — split 0.4% protocol / 0.1% creator. Charged at the
-   * `Zap` layer in USDC, accrued into `FeeVault`. Applies on
-   * both the bonding curve and post-graduation HyperSwap paths. See also
+   * 0.5% on every buy — split 0.335% protocol / 0.165% creator. Charged at
+   * the `Zap` layer in USDC, accrued into `FeeVault`. Applies on both the
+   * bonding curve and post-graduation HyperSwap paths. See also
    * `apps/web/src/services/tradeRouter.ts`.
    */
   curveBuy: 0.005,
   /**
-   * 0.5% on every sell — split 0.4% protocol / 0.1% creator. Same router
+   * 0.5% on every sell — split 0.335% protocol / 0.165% creator. Same router
    * layer, same USDC vault as `curveBuy` — the "curve" prefix is retained
    * for UI continuity but the fee now covers post-grad trades too.
    */
@@ -18,26 +18,29 @@ export const FEES = {
    * Independent of our router-level fee.
    */
   ltRedemption: 0.003,
-  /** Protocol share of the 0.5% fee (0.4% of trade notional). */
-  protocolSplit: 0.004,
-  /** Creator share of the 0.5% fee (0.1% of trade notional). */
-  creatorSplit: 0.001,
+  /** Protocol share of the 0.5% fee (0.335% of trade notional). */
+  protocolSplit: 0.00335,
+  /** Creator share of the 0.5% fee (0.165% of trade notional). */
+  creatorSplit: 0.00165,
 } as const;
 
 /**
- * Creator's share of the total Alt Fun trading fee (currently 20% — i.e.
- * 0.1% creator out of the 0.5% total). Used in user-facing copy that frames
- * the creator cut as a percentage of fees rather than of trade notional.
+ * Creator's share of the total Alt Fun trading fee (currently 33% — i.e.
+ * 0.165% creator out of the 0.5% total). Used in user-facing copy that
+ * frames the creator cut as a percentage of fees rather than of trade
+ * notional.
  *
  * Derived so the displayed % stays in lock-step with `FEES` if the split
  * is ever rebalanced. Guarded against a zero-total split (would otherwise
  * render `Infinity%` in copy if a future config sets both shares to 0)
- * and rounded to 2dp so non-clean ratios stay display-friendly.
+ * and rounded to the nearest whole percent so non-clean ratios (the
+ * 33% split is `0.165 / 0.5 = 33%` exactly, but a future tweak that
+ * landed on, say, 32.8% should still render as a clean "33%" in copy).
  */
 const TOTAL_FEE_SPLIT = FEES.creatorSplit + FEES.protocolSplit;
 export const CREATOR_FEE_SHARE_PCT =
   TOTAL_FEE_SPLIT > 0
-    ? Number(((FEES.creatorSplit / TOTAL_FEE_SPLIT) * 100).toFixed(2))
+    ? Math.round((FEES.creatorSplit / TOTAL_FEE_SPLIT) * 100)
     : 0;
 
 /**
