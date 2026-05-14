@@ -266,13 +266,20 @@ describe("Sell flow (st:s button → conversation)", () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { tokenBalance: 100_000n * 10n ** 18n });
 
-    // 33 isn't in the preset set; handler must silently ACK without
-    // surfacing a confirm card (otherwise a crafted callback could
-    // bypass the keyboard's percent set).
-    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:33`));
+    // Issue #818 widened the accepted set from {10,25,50,100} to any
+    // integer percent in [1, 100] because the keyboard now renders from
+    // the user's customised /settings list. The defence remaining here
+    // is the 1–100 range check itself — out-of-range or non-integer
+    // payloads must still silently ACK without surfacing a confirm card.
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:250`));
 
     const calls = capture(fetchSpy);
+    // CodeRabbit PR #829: also assert the callback is ACKed so a
+    // no-ACK regression (spinner stuck on the button) can't sneak
+    // past this test.
+    const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(answer).toBeDefined();
     expect(send).toBeUndefined();
   });
 

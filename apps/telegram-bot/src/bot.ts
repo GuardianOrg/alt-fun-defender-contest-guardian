@@ -34,6 +34,20 @@ import type { Env } from "./lib/types.js";
 export interface SessionData {
   slippageBps: number;
   defaultBuyUsdc: number;
+  /**
+   * 5-slot customizable buy preset amounts in USDC (issue #818). Older
+   * sessions written before this field landed have it undefined; the
+   * `normaliseBuyPresets` helper in `keyboards/buy-sell-token.ts` lifts
+   * the legacy `defaultBuyUsdc` into slot 0 and fills the rest with
+   * defaults.
+   */
+  buyPresetsUsdc?: number[];
+  /**
+   * 5-slot customizable sell preset percentages (issue #818). Older
+   * sessions have it undefined; `normaliseSellPresets` falls back to
+   * the default `[10, 25, 50, 75, 100]`.
+   */
+  sellPresetsPct?: number[];
   antiPhishingPhrase?: string;
   degenMode: boolean;
   /**
@@ -81,11 +95,23 @@ export interface SessionData {
   workflowMessages?: { chatId: number; messageId: number }[];
 }
 
-const DEFAULT_SESSION: SessionData = {
+/**
+ * Default preset values, deep-cloned on every `initial()` call so two
+ * fresh sessions can never share an inner array reference. The session
+ * plugin's shallow `{...DEFAULT_SESSION}` spread would otherwise let an
+ * in-place mutation in one chat's handler bleed across every other
+ * session served by this Worker isolate (CodeRabbit PR #829).
+ */
+const DEFAULT_BUY_PRESETS = [20, 40, 60, 80, 100] as const;
+const DEFAULT_SELL_PRESETS = [10, 25, 50, 75, 100] as const;
+
+const buildDefaultSession = (): SessionData => ({
   slippageBps: 1000,
   defaultBuyUsdc: 20,
+  buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
+  sellPresetsPct: [...DEFAULT_SELL_PRESETS],
   degenMode: true,
-};
+});
 
 /**
  * Composite context type for the bot.
@@ -165,7 +191,7 @@ export const createBot = (
 
   bot.use(
     session<SessionData, AppContext>({
-      initial: () => ({ ...DEFAULT_SESSION }),
+      initial: () => buildDefaultSession(),
       // KvAdapter's `KVNamespace` type comes from its own pinned
       // `@cloudflare/workers-types` version, which can drift from ours.
       // Cast through unknown — the runtime surface (get/put/delete) is

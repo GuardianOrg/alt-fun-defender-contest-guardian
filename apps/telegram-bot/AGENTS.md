@@ -274,7 +274,7 @@ Output:
   - Static chart image (24h candles, rendered via lib/chart.ts from GET /api/v1/chart/:address, sent as Telegram photo)
   - Token card caption (name, ticker, mcap, curve fill %, 24h change, leverage boost indicator)
   - Risk summary (leverage level, vol decay warning if 5x LT)
-  - Quick-amount buttons: `$<defaultBuyUsdc>` | `$100` | Custom (first button reads `session.defaultBuyUsdc`, default `$20`)
+  - Quick-amount buttons: 5 user-customisable preset amounts (default `$20 / $40 / $60 / $80 / $100`, configurable in `/settings → Buy Settings`) + `Buy X USDC` (custom) + `Refresh`. Issue #818. Each preset embeds its USDC amount in the callback payload (`btp:<addr>:<amount>`) so a stale card always buys the amount the user sees on the button.
   - Confirm button (if confirmations enabled in /settings)
   - **No fee summary anywhere in the buy flow.** The line "Bot fee 0.5% + Alt Fun fee 0.5%" was removed from the menu, the staging confirm, and the post-tx receipt (issue #801). `/help fees` is the single canonical surface for fee disclosure and carries the full referrer-aware breakdown.
 
@@ -312,7 +312,7 @@ Token card format mirrors the web UI: name · ticker · mcap · curve-fill bar �
 
 Slippage default: from `/settings` (default 10%). Priority fee default: from `/settings`.
 
-**Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. The first quick-amount button reads `session.defaultBuyUsdc` (default `$20`, floored at `MIN_USDC_BUY_AMOUNT` defensively at click time). Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
+**Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. Each of the 5 preset buttons reads from `session.buyPresetsUsdc` (default `[20, 40, 60, 80, 100]`), each slot floored at `MIN_USDC_BUY_AMOUNT` and capped at `$10,000`. Slot 0 is also mirrored into the legacy `session.defaultBuyUsdc` field for callsites that still read the single-amount default. Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
 
 ### /sell
 
@@ -325,7 +325,7 @@ Input:
 Output:
   - Position summary (token amount, cost basis from /api/v1/bot/positions)
   - Estimated USDC out from simulation (post all fees: Alt Fun 0.5% + HyperSwap LP fee post-grad + bot 0.5%)
-  - Quick-sell buttons: 10% | 25% | 50% | 100% | Sell X% (custom-percent prompt, integer 1–100)
+  - Quick-sell buttons: 5 user-customisable preset percents (default `10% / 25% / 50% / 75% / 100%`, configurable in `/settings → Sell Settings`) + `Sell X%` (custom-percent prompt, integer 1–100) + `Refresh`. Issue #818.
   - Confirm button (if confirmations enabled)
   - **No fee summary anywhere in the sell flow.** Same as `/buy` — fees are not displayed on the menu, staging confirm, or receipt. `/help fees` is the single canonical surface (issue #801).
 
@@ -428,7 +428,8 @@ Network fee: estimate via `eth_estimateGas` before prompting. Show fee in USDC e
 | Setting | Default | Description |
 |---|---|---|
 | Slippage | 10% (1000 bps) | Applied to buy/sell. Stored as `session.slippageBps` and read by `lib/execute.ts` on every confirm. Presets `5% / 10% / 15% / 20%` surface as one-tap buttons; the [Custom %] button opens a wizard capped at 50% (any higher would trip `lib/trade.ts`'s `slippageBps ≤ 10_000` guard). LT-backed curves move fast enough on the underlying alone that 1% slippage was tripping legitimate trades — the 10% default keeps the golden path through. |
-| Default buy amount | `$20 USDC` | Stored as `session.defaultBuyUsdc`. The [Default buy: $N] button opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. **Consumed at click time by the first button on the `/buy` card** (`Buy $N USDC` — see `keyboards/buy-sell-token.ts`); the handler resolves the value from the live session at the moment the user taps, so a /settings change applies immediately even on a stale card. The `/sell` card is percent-of-balance and does not consume this setting. |
+| Buy preset amounts | `[20, 40, 60, 80, 100]` USDC | 5-slot list stored as `session.buyPresetsUsdc` (issue #818). The [Buy Settings] entry button on `/settings` opens a sub-menu of pencil-prefixed slot buttons (`✏️ N USDC`); tapping a slot opens a wizard floored at `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` and capped at `$10,000`. Wizard rounds to whole USDC — sub-dollar precision is button-label noise. **Each slot drives one button on the `/buy` card** (`Buy N USDC`); the amount is embedded directly in the callback (`btp:<addr>:<amount>`) so the displayed value is always what executes. Slot 0 is mirrored into the legacy `session.defaultBuyUsdc` so single-amount callsites stay in sync. |
+| Sell preset percents | `[10, 25, 50, 75, 100]`% | 5-slot list stored as `session.sellPresetsPct` (issue #818). [Sell Settings] sub-menu lets the user customise each slot — wizard accepts integer percents in `[1, 100]`. Each slot renders one button on the `/sell` card (`Sell N%`), with the percent embedded in the callback (`btsp:<addr>:<percent>`). |
 | Degen mode | On | One-tap toggle. Stored as `session.degenMode`. **Default on for new accounts** — the bot is targeted at active traders who want to skip the confirm tap, so the friction-free path is the default; users who want the confirm card flip it off in /settings. When on, `/buy` and `/sell` skip the inline [Confirm] / [Cancel] keyboard and submit the trade as soon as the quick-amount button is tapped (or the custom-amount wizard completes). Slippage bound, referrer attribution, and `BotFeeRouter` routing are identical to the confirm path — only the user-facing confirm step is removed. **Buffer-capped sells still require an explicit confirm tap regardless of degen mode** per the AGENTS.md "Buffer-limited sells must be user-visible" constraint. PIN gates stay active regardless of degen mode — toggling this never bypasses authentication. |
 
 State lives entirely on the grammY session (KV-backed under `session:<userId>`) — same store every other setting on this bot uses. No new KV namespace, no new endpoints.
@@ -872,13 +873,15 @@ src/
 - No claim/withdraw/payout button anywhere in the screen
 
 **`commands/settings.test.ts`**
-- Status view renders the default trio (`Slippage: 10%` / `Default buy: $20 USDC` / `Degen mode: on`) on a brand-new account, with the [• 10% •] preset marked among the `5% / 10% / 15% / 20%` row (Custom % wizard capped at 50% per the `slippageBps ≤ 10_000` guard) and an `Anti-phishing phrase lives in /security` pointer
-- `/settings` in a group chat is rejected with the "private-DM only" copy and never leaks slippage / buy-amount state into the group transcript
+- Status view renders `Slippage: 10%` / `Degen mode: on` on a brand-new account, with the [• 10% •] preset marked among the `5% / 10% / 15% / 20%` row (Custom % wizard capped at 50% per the `slippageBps ≤ 10_000` guard) and the [Buy Settings] / [Sell Settings] entry buttons
+- `/settings` in a group chat is rejected with the "private-DM only" copy and never leaks slippage / preset state into the group transcript
 - Tapping a preset slippage button (`set:slip<bps>`) persists the new `slippageBps` on the session and the panel edit reflects the new value
 - A malformed `set:slip…` callback payload (no integer) is a no-op — session unchanged, no crash
 - Degen-mode toggle flips `session.degenMode` off on the first tap (starting from the on-by-default state) and back on on the second; both branches surface the matching toast
 - Custom-slippage wizard accepts decimal percent input (e.g. `2.5` → `250` bps), capped at 50% (`100` rejected with "capped at 50%" copy), rejects non-numeric input, and `/cancel` exits without touching the session
-- Default-buy wizard rounds to whole USDC (`$75.4` → `75`), floors at `MIN_USDC_BUY_AMOUNT` (a `5` USDC entry is rejected with the minimum-buy copy and the session is unchanged)
+- [Buy Settings] sub-menu renders one `✏️ N USDC` button per slot (5 slots); editing slot 0 persists into `session.buyPresetsUsdc[0]` and mirrors into `session.defaultBuyUsdc`; editing a non-zero slot leaves `defaultBuyUsdc` alone; entries below `MIN_USDC_BUY_AMOUNT` are rejected with the minimum-buy copy and the session is unchanged
+- [Sell Settings] sub-menu renders one `✏️ N%` button per slot (5 slots); editing any slot persists into `session.sellPresetsPct[idx]`; entries outside `[1, 100]` are rejected and the session is unchanged
+- [← Back] returns the sub-menu to the main /settings panel without re-sending the message
 
 **`api.test.ts`**
 - All methods return typed responses matching `apps/api` schema

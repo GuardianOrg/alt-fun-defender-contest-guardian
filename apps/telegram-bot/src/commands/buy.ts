@@ -8,7 +8,9 @@ import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
-  normaliseDefaultBuyUsdc,
+  isBuyPresetAmount,
+  MAX_BUY_PRESET_USDC,
+  normaliseBuyPresets,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
@@ -163,15 +165,16 @@ const buyLookupConversation = async (
         : null;
 
     const cardText = renderBuyTokenCardText(token, usdcBalance);
-    const defaultBuyUsdc = normaliseDefaultBuyUsdc(
-      await conversation.external(
-        (outerCtx) => outerCtx.session.defaultBuyUsdc,
+    const buyPresets = await conversation.external((outerCtx) =>
+      normaliseBuyPresets(
+        outerCtx.session.buyPresetsUsdc,
+        outerCtx.session.defaultBuyUsdc,
       ),
     );
     const cardMsg = await msgCtx.reply(cardText, {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: buildBuyTokenKeyboard(token.address, defaultBuyUsdc),
+        inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
       },
       link_preview_options: { is_disabled: true },
     });
@@ -357,7 +360,10 @@ const handleBuyRefresh = async (
     reply_markup: {
       inline_keyboard: buildBuyTokenKeyboard(
         tokenAddress,
-        normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+        normaliseBuyPresets(
+          ctx.session.buyPresetsUsdc,
+          ctx.session.defaultBuyUsdc,
+        ),
       ),
     },
     link_preview_options: { is_disabled: true },
@@ -511,35 +517,28 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Buy <defaultBuyUsdc> USDC — resolves the amount from the live
-  // session value at click time so /settings changes apply even on a
-  // stale card. Same `normaliseDefaultBuyUsdc` used by the keyboard
-  // label, so the rendered button and the executed amount are
-  // guaranteed equal.
-  bot.callbackQuery(/^btd:/, async (ctx) => {
+  // Buy <amount> USDC — preset slot. The keyboard encodes the amount
+  // directly in the callback payload (`btp:<addr>:<amount>`) so a stale
+  // card always buys the amount the user sees on the button, even if
+  // they have edited a different /settings slot since the card was sent.
+  // `isBuyPresetAmount` defends against tampered payloads bypassing the
+  // min/max bounds enforced by the /settings wizard.
+  bot.callbackQuery(/^btp:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
-    if (!parsed?.args[0]) {
+    const tokenAddress = parsed?.args[0];
+    const amountRaw = parsed?.args[1];
+    if (!tokenAddress || !amountRaw) {
       await ctx.answerCallbackQuery();
       return;
     }
-    const amount = normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc);
-    await handleFixedBuy(ctx, parsed.args[0], amount).catch(async (err) => {
-      logger.error("buy default handler failed", { err });
-      await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
-        .catch(() => {});
-    });
-  });
-
-  // Buy 100 USDC
-  bot.callbackQuery(/^bt100:/, async (ctx) => {
-    const parsed = parseCallback(ctx.callbackQuery.data);
-    if (!parsed?.args[0]) {
+    const amount = Number(amountRaw);
+    if (!isBuyPresetAmount(amount)) {
       await ctx.answerCallbackQuery();
       return;
     }
-    await handleFixedBuy(ctx, parsed.args[0], 100).catch(async (err) => {
-      logger.error("buy 100 handler failed", { err });
+    const clamped = Math.min(Math.max(amount, MIN_USDC_BUY_AMOUNT), MAX_BUY_PRESET_USDC);
+    await handleFixedBuy(ctx, tokenAddress, clamped).catch(async (err) => {
+      logger.error("buy preset handler failed", { err, amount: clamped });
       await ctx
         .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
         .catch(() => {});

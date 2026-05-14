@@ -8,9 +8,8 @@ import { MIN_USDC_SELL_AMOUNT } from "@launchpad/shared";
 import type { AppContext } from "../bot.js";
 import {
   buildSellTokenKeyboard,
-  isSellPercentPreset,
-  SELL_PERCENT_PRESETS,
-  type SellPercentPreset,
+  isSellPercent,
+  normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { extractTokenAddress, fetchToken } from "../lib/api.js";
@@ -380,10 +379,13 @@ const sellLookupConversation = async (
         : null;
 
     const cardText = renderSellTokenCardText(token, tokenBalance);
+    const sellPresets = await conversation.external((outerCtx) =>
+      normaliseSellPresets(outerCtx.session.sellPresetsPct),
+    );
     const cardMsg = await msgCtx.reply(cardText, {
       parse_mode: "HTML",
       reply_markup: {
-        inline_keyboard: buildSellTokenKeyboard(token.address),
+        inline_keyboard: buildSellTokenKeyboard(token.address, sellPresets),
       },
       link_preview_options: { is_disabled: true },
     });
@@ -637,7 +639,10 @@ const handleSellRefresh = async (
   await safeEditMessageText(ctx, cardText, {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(tokenAddress),
+      inline_keyboard: buildSellTokenKeyboard(
+        tokenAddress,
+        normaliseSellPresets(ctx.session.sellPresetsPct),
+      ),
     },
     link_preview_options: { is_disabled: true },
   });
@@ -651,7 +656,7 @@ const handleSellRefresh = async (
 const handlePercentSell = async (
   ctx: AppContext,
   tokenAddress: string,
-  percent: SellPercentPreset,
+  percent: number,
 ): Promise<void> => {
   if (!ctx.from) {
     await ctx.answerCallbackQuery();
@@ -837,11 +842,12 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Sell 10% / 25% / 50% / 100% — percent is encoded as the second arg
-  // of the `btsp:<addr>:<percent>` callback. Only the four preset
-  // percents are accepted; anything else is dropped as a malformed
-  // payload (would otherwise let a crafted callback bypass the
-  // keyboard's percent set).
+  // Sell N% — percent is encoded as the second arg of the
+  // `btsp:<addr>:<percent>` callback. Validated as an integer in
+  // [1, 100] (issue #818 widened this from the old fixed-preset set
+  // because the keyboard now renders from the user's customised
+  // /settings list); out-of-range or non-integer payloads are dropped
+  // as malformed so a crafted callback can't bypass the validator.
   bot.callbackQuery(/^btsp:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     const tokenAddress = parsed?.args[0];
@@ -851,7 +857,7 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const percent = Number(percentRaw);
-    if (!isSellPercentPreset(percent)) {
+    if (!isSellPercent(percent)) {
       await ctx.answerCallbackQuery();
       return;
     }
@@ -881,5 +887,3 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
   });
 };
 
-// Re-export for tests so they can iterate the canonical preset list.
-export { SELL_PERCENT_PRESETS };

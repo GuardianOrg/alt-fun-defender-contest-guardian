@@ -4,7 +4,8 @@ import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
   buildSellTokenKeyboard,
-  normaliseDefaultBuyUsdc,
+  normaliseBuyPresets,
+  normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { fetchToken } from "./api.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "./rpc.js";
@@ -45,7 +46,10 @@ export const replyWithActionCard = async (
       reply_markup: {
         inline_keyboard: buildBuyTokenKeyboard(
           token,
-          normaliseDefaultBuyUsdc(ctx.session.defaultBuyUsdc),
+          normaliseBuyPresets(
+            ctx.session.buyPresetsUsdc,
+            ctx.session.defaultBuyUsdc,
+          ),
         ),
       },
       link_preview_options: { is_disabled: true },
@@ -55,7 +59,10 @@ export const replyWithActionCard = async (
   await ctx.reply(renderSellTokenCardText(tokenResult.data, balance), {
     parse_mode: "HTML",
     reply_markup: {
-      inline_keyboard: buildSellTokenKeyboard(token),
+      inline_keyboard: buildSellTokenKeyboard(
+        token,
+        normaliseSellPresets(ctx.session.sellPresetsPct),
+      ),
     },
     link_preview_options: { is_disabled: true },
   });
