@@ -7,6 +7,12 @@ import {
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
+import { logger } from "../lib/logger.js";
+import {
+  backHomeRow,
+  pushNavSnapshot,
+  snapshotFromCallback,
+} from "../lib/nav.js";
 
 const escapeHtml = (s: string): string =>
   s
@@ -261,13 +267,75 @@ const sendHelp = async (
   });
 };
 
+interface BenignEditError {
+  error_code?: number;
+  description?: string;
+  message?: string;
+}
+
+const isBenignEditError = (err: unknown): boolean => {
+  const e = err as BenignEditError;
+  if (e.error_code !== 400) return false;
+  const desc = (e.description ?? e.message ?? "").toLowerCase();
+  return (
+    desc.includes("message to edit not found") ||
+    desc.includes("message not found") ||
+    desc.includes("message is not modified") ||
+    desc.includes("message can't be edited")
+  );
+};
+
+/**
+ * Replace the `/start` menu message with the help overview in place
+ * (`editMessageText`), falling back to a fresh `ctx.reply` when the
+ * original message can no longer be edited (deleted by user, aged out,
+ * media caption). Pushes the current `/start` view onto the nav stack
+ * first so the Back button restores the welcome screen.
+ */
+const showHelpFromCallback = async (ctx: AppContext): Promise<void> => {
+  const parent = snapshotFromCallback(ctx);
+  if (parent) pushNavSnapshot(ctx.session, parent);
+  const text = renderHelp(undefined, ctxAntiPhishingPhrase(ctx));
+  const reply_markup = { inline_keyboard: [backHomeRow()] };
+  const link_preview_options = { is_disabled: true } as const;
+  try {
+    await ctx.editMessageText(text, {
+      parse_mode: "HTML",
+      reply_markup,
+      link_preview_options,
+    });
+    return;
+  } catch (err) {
+    if (!isBenignEditError(err)) {
+      logger.warn("help: editMessageText failed, falling back to reply", {
+        err,
+      });
+    }
+  }
+  // Edit path failed. Best-effort delete the original so we don't
+  // leave the user staring at the stale /start view, then send the
+  // help screen as a new message.
+  try {
+    await ctx.deleteMessage();
+  } catch (err) {
+    if (!isBenignEditError(err)) {
+      logger.debug("help: deleteMessage fallback failed", { err });
+    }
+  }
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup,
+    link_preview_options,
+  });
+};
+
 export const registerHelpCommand = (bot: Bot<AppContext>): void => {
   bot.command("help", async (ctx) => {
     await sendHelp(ctx, ctx.match);
   });
 
   bot.callbackQuery(START_CALLBACK.help, async (ctx) => {
+    await showHelpFromCallback(ctx);
     await ctx.answerCallbackQuery();
-    await sendHelp(ctx, undefined);
   });
 };

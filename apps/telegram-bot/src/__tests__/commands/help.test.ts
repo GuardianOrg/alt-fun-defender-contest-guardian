@@ -4,6 +4,7 @@ import { makeBotHarness, withTelegramOk } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
 import { renderHelp } from "../../commands/help.js";
 import { ANTI_PHISHING_HEADER } from "../../lib/anti-phishing.js";
+import { NAV_CALLBACK } from "../../lib/nav.js";
 
 interface TgCall {
   url: string;
@@ -41,7 +42,16 @@ const helpUpdate = (text: string, updateId = 1) => {
   };
 };
 
-const callbackUpdate = (data: string, updateId = 2) => ({
+const callbackUpdate = (
+  data: string,
+  updateId = 2,
+  message: {
+    text?: string;
+    reply_markup?: {
+      inline_keyboard: { text: string; callback_data?: string; url?: string }[][];
+    };
+  } = {},
+) => ({
   update_id: updateId,
   callback_query: {
     id: `cbq-${updateId}`,
@@ -51,6 +61,7 @@ const callbackUpdate = (data: string, updateId = 2) => ({
       message_id: 100,
       date: 0,
       chat: { id: 42, type: "private" as const },
+      ...message,
     },
     data,
   },
@@ -164,18 +175,107 @@ describe("/help command", () => {
     expect(send!.body.text).not.toContain("CortisolBot Help");
   });
 
-  it("handles the start-menu Help button (st:h) with the overview", async () => {
+  it("replaces the /start menu message in place with the help overview and a Back/Home nav row", async () => {
     const h = makeBotHarness();
     await h.run(callbackUpdate(START_CALLBACK.help));
 
     const calls = capture(fetchSpy);
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
-    // Silent ack — the help body is delivered as a new message rather
-    // than a 200-char alert toast.
+
+    // Silent ack — the help body is now delivered via editMessageText
+    // (in-place replace) rather than a brand-new ctx.reply.
     expect(answer).toBeDefined();
     expect(answer!.body.show_alert).toBeFalsy();
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    expect(edit!.body.text).toContain("CortisolBot Help");
+    expect(edit!.body.parse_mode).toBe("HTML");
+    expect(edit!.body.link_preview_options).toEqual({ is_disabled: true });
+
+    // Final inline_keyboard row must be [← Back] [🏠 Home] so the user
+    // can navigate back to /start without re-typing the command.
+    const keyboard = (
+      edit!.body.reply_markup as {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      }
+    ).inline_keyboard;
+    const lastRow = keyboard[keyboard.length - 1]!;
+    expect(lastRow.map((b) => b.callback_data)).toEqual([
+      NAV_CALLBACK.back,
+      NAV_CALLBACK.home,
+    ]);
+    expect(lastRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+  });
+
+  it("pushes the /start snapshot onto the nav stack so Back can restore it", async () => {
+    const h = makeBotHarness();
+    const startMessage = {
+      text: "Welcome to CortisolBot — your wallet address: 0xabc",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Buy", callback_data: "st:b" }],
+        ],
+      },
+    };
+
+    await h.run(callbackUpdate(START_CALLBACK.help, 2, startMessage));
+
+    // Session is keyed by userId (7) and persisted to KV via the
+    // grammY session middleware. Read it back to confirm the snapshot
+    // landed on `navStack` — that's the only contract the Back handler
+    // (already tested in nav.test.ts) consumes.
+    const raw = (await h.kv.get("session:7")) as string | null;
+    expect(raw).toBeTruthy();
+    const session = JSON.parse(raw!) as {
+      navStack?: { text: string; keyboard: unknown[][] }[];
+    };
+    expect(session.navStack).toBeDefined();
+    expect(session.navStack!.length).toBe(1);
+    expect(session.navStack![0]!.text).toBe(startMessage.text);
+  });
+
+  it("falls back to delete+reply when the original /start message can no longer be edited", async () => {
+    const h = makeBotHarness();
+    // Telegram returns a benign 400 for editMessageText (message gone).
+    // Our handler should swallow the edit failure, best-effort delete
+    // the stale message, and recreate the help screen via sendMessage.
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/editMessageText")) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error_code: 400,
+            description: "Bad Request: message to edit not found",
+          }),
+          { status: 400 },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true, result: true }), {
+        status: 200,
+      });
+    });
+
+    await h.run(callbackUpdate(START_CALLBACK.help));
+
+    const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
+    const del = calls.find((c) => c.url.includes("/deleteMessage"));
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(edit).toBeDefined();
+    expect(del).toBeDefined();
     expect(send).toBeDefined();
     expect(send!.body.text).toContain("CortisolBot Help");
+    const keyboard = (
+      send!.body.reply_markup as {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      }
+    ).inline_keyboard;
+    expect(keyboard[keyboard.length - 1]!.map((b) => b.callback_data)).toEqual([
+      NAV_CALLBACK.back,
+      NAV_CALLBACK.home,
+    ]);
   });
 });
