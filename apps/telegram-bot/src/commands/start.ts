@@ -264,6 +264,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
         await writeProfile(ctx.env.WALLET_KV, userId, {
           createdAt: Date.now(),
           referrer: null,
+          referralIdentityWallet: address.toLowerCase() as Address,
         });
       }
       if (actionParam.action === "track") {
@@ -311,6 +312,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       await writeProfile(ctx.env.WALLET_KV, userId, {
         createdAt: Date.now(),
         referrer,
+        referralIdentityWallet: address.toLowerCase() as Address,
       });
     }
 

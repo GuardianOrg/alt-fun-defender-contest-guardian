@@ -25,6 +25,7 @@ import {
 import { backHomeMarkup, backHomeRow, editToSubmenu } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
+import { getReferralIdentityWallet } from "../lib/onboarding.js";
 import { PinManager } from "../lib/pin.js";
 import { WalletManager } from "../lib/wallet.js";
 import {
@@ -182,9 +183,11 @@ const buildKeyboard = (): ReferralView["reply_markup"] => ({
 });
 
 /**
- * Build the referral view for the user's active wallet. Returns a
- * discriminated union so callers can render the appropriate response
- * for each failure mode without juggling sentinel strings.
+ * Build the referral view for the user's stable referral-identity
+ * wallet (NOT their currently-active wallet — see
+ * `getReferralIdentityWallet`). Returns a discriminated union so
+ * callers can render the appropriate response for each failure mode
+ * without juggling sentinel strings.
  */
 const buildView = async (
   env: AppContext["env"],
@@ -196,15 +199,15 @@ const buildView = async (
   | { ok: false; kind: "no_wallet" | "outage" }
 > => {
   const wm = buildManager(env);
-  const active = await wm.getActive(userId);
-  if (!active) return { ok: false, kind: "no_wallet" };
+  const identity = await getReferralIdentityWallet(env, wm, userId);
+  if (!identity) return { ok: false, kind: "no_wallet" };
 
-  const stats = await fetchBotReferralStats(env, active.address);
+  const stats = await fetchBotReferralStats(env, identity);
   if (!stats.ok) {
     // `invalid_address` is unreachable here — the address comes from
-    // our own wallet manager — but treat it as an outage on the off
-    // chance the api regresses, rather than surfacing a confusing
-    // "Invalid wallet" message to the user.
+    // our own wallet manager / persisted profile — but treat it as an
+    // outage on the off chance the api regresses, rather than
+    // surfacing a confusing "Invalid wallet" message to the user.
     logger.warn("fetchBotReferralStats failed", {
       userId,
       kind: stats.kind,
@@ -433,10 +436,19 @@ const changeRewardsWalletConversation = async (
   const chatId = ctx.chat.id;
   await sweepWorkflow(conversation);
 
-  const active = await conversation.external((outside) =>
-    buildManager(outside.env).getActive(userId),
+  // KV key for the rewards-wallet record is the user's stable
+  // referral-identity wallet, not their current active wallet —
+  // otherwise the user could switch active wallet mid-flow and have
+  // the change land against a different KV entry than `/referral`
+  // displays. See `getReferralIdentityWallet`.
+  const identity = await conversation.external((outside) =>
+    getReferralIdentityWallet(
+      outside.env,
+      buildManager(outside.env),
+      userId,
+    ),
   );
-  if (!active) {
+  if (!identity) {
     await ctx.reply(NO_WALLET_REPLY);
     await sweepWorkflow(conversation);
     return;
@@ -538,7 +550,7 @@ const changeRewardsWalletConversation = async (
   }
 
   const result = await conversation.external((outside) =>
-    setBotRewardsWallet(outside.env, active.address, newRewardsWallet),
+    setBotRewardsWallet(outside.env, identity, newRewardsWallet),
   );
   if (!result.ok) {
     await ctx.reply(
