@@ -15,7 +15,6 @@ export const START_CALLBACK = {
   wallet: "st:w",
   withdraw: "st:wd",
   settings: "st:set",
-  security: "st:sec",
   referral: "st:ref",
   help: "st:h",
 } as const;

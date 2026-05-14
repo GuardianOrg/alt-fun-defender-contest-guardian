@@ -273,7 +273,7 @@ describe("/start command", () => {
     );
     // Security UI moved to /wallet (PIN, lock) and /settings (phrase) —
     // no dedicated Security button on the start menu.
-    expect(allCallbacks).not.toContain(START_CALLBACK.security);
+    expect(allCallbacks.some((c) => c.includes("sec"))).toBe(false);
   });
 
   it("rejects /start in a non-private chat without exposing wallet state", async () => {

@@ -14,7 +14,6 @@ import { registerBuyCommand } from "./commands/buy.js";
 import { registerHelpCommand } from "./commands/help.js";
 import { registerPositionsCommand } from "./commands/positions.js";
 import { registerReferralCommand } from "./commands/referral.js";
-import { registerSecurityCommand } from "./commands/security.js";
 import { registerSellCommand } from "./commands/sell.js";
 import { registerSettingsCommand } from "./commands/settings.js";
 import { buildStartSnapshot, registerStartCommand } from "./commands/start.js";
@@ -24,7 +23,7 @@ import { registerWithdrawCommand } from "./commands/withdraw.js";
 import type { Env } from "./lib/types.js";
 
 /**
- * Per-user persistent settings written via `/settings` and `/security`.
+ * Per-user persistent settings written via `/settings` and `/wallet`.
  * Lives in `WALLET_KV` alongside wallet records (different key prefix);
  * grammY's session plugin handles read-on-update + write-on-reply.
  *
@@ -256,7 +255,6 @@ export const createBot = (
   registerSellCommand(bot);
   registerPositionsCommand(bot);
   registerReferralCommand(bot);
-  registerSecurityCommand(bot);
   registerSettingsCommand(bot);
   registerTrackCommand(bot);
   registerWalletCommand(bot);
