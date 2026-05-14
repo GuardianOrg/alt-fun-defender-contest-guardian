@@ -64,6 +64,7 @@ function formatWsTrade(raw: TradeBroadcast): Trade | null {
 export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
+  let unsubReconnect: (() => void) | null = null;
   const seenIds = new Set<string>();
 
   if (ws) {
@@ -152,10 +153,24 @@ export function subscribeFeed(cb: (trade: Trade) => void): () => void {
   };
   schedulePoll();
 
+  // Re-poll immediately when the WS reconnects (e.g. after a tab wake,
+  // captive-portal blip, NAT eviction). The regular 15s cadence would
+  // otherwise leave the feed stale for up to a full cycle before live
+  // events resume, and any trades broadcast WHILE the socket was
+  // wedged are visible only via REST until then. Issue #824. Triggers
+  // the existing `poll` helper rather than a bespoke fetch so the
+  // dedupe set + name-cache plumbing stays in one place.
+  if (ws) {
+    unsubReconnect = ws.onReconnect(() => {
+      void poll();
+    });
+  }
+
   return () => {
     cancelled = true;
     if (pollTimer) clearTimeout(pollTimer);
     unsubWs?.();
+    unsubReconnect?.();
   };
 }
 
@@ -165,6 +180,7 @@ export function subscribeTokenTrades(
 ): () => void {
   const ws = getWebSocketClient();
   let unsubWs: (() => void) | null = null;
+  let unsubReconnect: (() => void) | null = null;
   const seenIds = new Set<string>();
 
   const normalizedAddress = address.toLowerCase();
@@ -241,9 +257,19 @@ export function subscribeTokenTrades(
   };
   schedulePoll();
 
+  // Re-poll on WS reconnect so the per-token tab catches any trades
+  // that fired while the socket was wedged. Same rationale as
+  // `subscribeFeed` above (issue #824).
+  if (ws) {
+    unsubReconnect = ws.onReconnect(() => {
+      void poll();
+    });
+  }
+
   return () => {
     cancelled = true;
     if (timer) clearTimeout(timer);
     unsubWs?.();
+    unsubReconnect?.();
   };
 }

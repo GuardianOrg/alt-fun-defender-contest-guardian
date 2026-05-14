@@ -41,6 +41,95 @@ const TOKEN_NAME_RETRY_INTERVAL_MS = 5000;
 const TRADES_PAGE_SIZE = 50;
 
 /**
+ * Split a trade id `${txHash}-${logIndex}` into its parts. Returns a
+ * null `logIndex` when the suffix isn't a finite integer so the
+ * comparator below can fall back to a lexical compare instead of
+ * silently treating malformed ids as `0` (which would collapse every
+ * malformed row onto the same sort key).
+ *
+ * Indexer ids always have exactly one `-` between the 32-byte txHash
+ * and the integer log index (see `apps/indexer/src/bonding.ts` —
+ * `${event.transaction.hash}-${event.log.logIndex}`); txHashes are
+ * lower-case hex without dashes so `lastIndexOf("-")` is the txHash /
+ * logIndex split point.
+ */
+function parseTradeId(id: string): { txHash: string; logIndex: number | null } {
+  const cut = id.lastIndexOf("-");
+  if (cut === -1) return { txHash: id, logIndex: null };
+  const txHash = id.slice(0, cut);
+  const raw = id.slice(cut + 1);
+  const parsed = Number(raw);
+  return {
+    txHash,
+    logIndex: Number.isInteger(parsed) ? parsed : null,
+  };
+}
+
+/**
+ * Stable comparator for the trade-feed display order — newest first.
+ *
+ * Primary key is the on-chain `timestamp` (block timestamp, ISO-8601),
+ * secondary key is the trade `id` which encodes `${txHash}-${logIndex}`
+ * so two trades in the same block deterministically resolve by log
+ * index — later log indices come first, mirroring the descending order
+ * Ponder uses internally.
+ *
+ * Why we sort instead of relying on insertion order (issue #824): live
+ * trades arrive via the WS push path and historical batches arrive via
+ * the REST poll + `loadMore` path; under heavy trading the two streams
+ * interleave such that prepending unconditionally lands an older REST
+ * row above a newer WS row (e.g. when the initial REST poll resolves
+ * AFTER a WS broadcast for a fresher trade has already been prepended).
+ * The visible symptom was rows out of chronological order, which read
+ * as "gaps" in the feed — sorting on every mutation pins the invariant
+ * cheaply (n ≤ a few hundred in practice) and means no future caller
+ * has to reason about which path inserted what when.
+ */
+export function compareTradesByTimestampDesc(a: Trade, b: Trade): number {
+  const aMs = Date.parse(a.timestamp);
+  const bMs = Date.parse(b.timestamp);
+  // `Date.parse` returns NaN on malformed input. Treat NaN as the
+  // smallest value (push to the bottom) so a corrupted row can't
+  // throw off the rest of the list's order.
+  const aValid = Number.isFinite(aMs);
+  const bValid = Number.isFinite(bMs);
+  if (aValid && bValid && aMs !== bMs) return bMs - aMs;
+  if (aValid !== bValid) return aValid ? -1 : 1;
+  if (a.id === b.id) return 0;
+  // Same-block / same-timestamp tiebreaker: parse the trailing log
+  // index numerically when both ids share a txHash, so trades 10 and
+  // 2 in the same tx sort 10-before-2 (a plain lexical compare on the
+  // full id would sort `0xhash-10` *after* `0xhash-2` because `1 < 2`
+  // string-wise). Falls back to a lexical compare for cross-tx ids /
+  // malformed suffixes so a degraded payload can never throw the
+  // comparator into an inconsistent state.
+  const aParsed = parseTradeId(a.id);
+  const bParsed = parseTradeId(b.id);
+  if (
+    aParsed.txHash === bParsed.txHash &&
+    aParsed.logIndex !== null &&
+    bParsed.logIndex !== null &&
+    aParsed.logIndex !== bParsed.logIndex
+  ) {
+    return bParsed.logIndex - aParsed.logIndex;
+  }
+  return a.id > b.id ? -1 : 1;
+}
+
+/**
+ * Returns a new array sorted newest-first. Always allocates so callers
+ * can use the result directly in a `setState` updater without worrying
+ * about identity-stability — React's reconciler keys on `t.id` so the
+ * row-level DOM is preserved across re-orders.
+ */
+export function sortTradesByTimestampDesc(trades: Trade[]): Trade[] {
+  // Native `Array#sort` is stable since ES2019, so a re-sort of an
+  // already-sorted array is effectively a single linear scan in V8 —
+  // cheap even with the upper-bound `trades` array we keep.
+  return trades.slice().sort(compareTradesByTimestampDesc);
+}
+
+/**
  * Replace `tokenName` on every trade whose `tokenAddress` matches
  * `lowercasedAddress`. Returns the same array reference when nothing
  * changed so React can skip the re-render. Used by both `useTradeFeed`
@@ -142,7 +231,12 @@ export function useTradeFeed(): UseTradeFeedResult {
       // on a re-invoked updater (StrictMode / batched updates).
       if (seenIdsRef.current.has(trade.id)) return;
       seenIdsRef.current.add(trade.id);
-      setTrades((prev) => [trade, ...prev]);
+      // Sort after insert so chronologically-out-of-order arrivals (a
+      // late initial-poll batch landing on top of an earlier-arrived WS
+      // row, or a paginated `loadMore` row whose timestamp falls inside
+      // the WS-prepended head) end up in the correct visual slot. See
+      // `compareTradesByTimestampDesc` JSDoc + issue #824.
+      setTrades((prev) => sortTradesByTimestampDesc([trade, ...prev]));
       // First trade arrived — drop the loading flag immediately so the
       // real row renders without a stale skeleton flash.
       setIsLoading(false);
@@ -240,7 +334,12 @@ export function useTradeFeed(): UseTradeFeedResult {
           fresh.push(mapped);
         }
         if (fresh.length > 0) {
-          setTrades((prev) => [...prev, ...fresh]);
+          // Sort the merged window so a paginated batch whose newest
+          // row is fresher than the oldest WS-prepended row (race
+          // window when many live trades land mid-`loadMore`) still
+          // ends up in the right slot. See issue #824 +
+          // `compareTradesByTimestampDesc` JSDoc.
+          setTrades((prev) => sortTradesByTimestampDesc([...prev, ...fresh]));
         }
         // Short page is the canonical "end of list" signal — same
         // contract `useInfiniteTokens` uses against `/api/v1/tokens`.
@@ -303,7 +402,14 @@ export function useTokenTrades(
     );
 
     const unsub = tradeService.subscribeTokenTrades(address, (trade) => {
-      setTrades((prev) => [trade, ...prev].slice(0, maxItems));
+      // Sort + cap on every arrival — same chronological-correctness
+      // story as `useTradeFeed` (issue #824). The `slice(0, maxItems)`
+      // cap runs AFTER the sort so the oldest rows that fall off the
+      // tab are always the chronologically-oldest, not whichever ones
+      // happened to land last in insertion order.
+      setTrades((prev) =>
+        sortTradesByTimestampDesc([trade, ...prev]).slice(0, maxItems),
+      );
       // First trade arrived — drop the loading flag immediately so the real
       // row renders without a stale skeleton flash.
       setIsLoading(false);
@@ -321,7 +427,9 @@ export function useTokenTrades(
     const unsubMock = import.meta.env.DEV
       ? subscribeMockTrades((trade) => {
           if (trade.tokenAddress.toLowerCase() !== normalized) return;
-          setTrades((prev) => [trade, ...prev].slice(0, maxItems));
+          setTrades((prev) =>
+            sortTradesByTimestampDesc([trade, ...prev]).slice(0, maxItems),
+          );
           setIsLoading(false);
           if (timeoutRef.current) {
             clearTimeout(timeoutRef.current);
