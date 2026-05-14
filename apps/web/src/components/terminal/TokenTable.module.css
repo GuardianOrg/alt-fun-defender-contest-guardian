@@ -105,3 +105,20 @@
   letter-spacing: 0.1em;
 }
 
+/* `position: sticky; left: 0` keeps the message anchored to the
+ * viewport's left edge — `.tableInner` is wider than the viewport
+ * on narrow screens and scrolls horizontally. */
+.emptyState {
+  position: sticky;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3.2rem 1.6rem;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--txt-3);
+  text-align: center;
+}
+
