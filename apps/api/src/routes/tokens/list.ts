@@ -30,6 +30,7 @@ import {
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
 import { isBoostedToken } from "../../lib/trending-tuning.js";
+import { edgeCacheableJsonHeader } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
@@ -374,7 +375,7 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
       if (cache) await cache.put(cacheKey, empty.clone());
       return empty;
     }
@@ -435,7 +436,7 @@ listRoute.get("/", async (c) => {
 
     if (paged.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
       if (cache) await cache.put(cacheKey, empty.clone());
       return empty;
     }
@@ -479,7 +480,7 @@ listRoute.get("/", async (c) => {
       formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
     );
     const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-    response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+    response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) await cache.put(cacheKey, response.clone());
     return response;
   }
@@ -516,7 +517,7 @@ listRoute.get("/", async (c) => {
 
     if (onchainPage.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
       if (cache) await cache.put(cacheKey, empty.clone());
       return empty;
     }
@@ -579,7 +580,7 @@ listRoute.get("/", async (c) => {
 
     if (candidatesDb.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
-      empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+      empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
       if (cache) await cache.put(cacheKey, empty.clone());
       return empty;
     }
@@ -658,7 +659,7 @@ listRoute.get("/", async (c) => {
       formatSuccess(paged, marketResult.ok ? "live" : "degraded"),
     );
     const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-    response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+    response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) await cache.put(cacheKey, response.clone());
     return response;
   }
@@ -787,7 +788,7 @@ listRoute.get("/", async (c) => {
 
   if (dbTokens.length === 0) {
     const empty = c.json(formatSuccess([], "live"));
-    empty.headers.set("Cache-Control", `s-maxage=${LIST_CACHE_TTL_SECONDS}`);
+    empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
     if (cache) {
       await cache.put(cacheKey, empty.clone());
     }
@@ -856,7 +857,7 @@ listRoute.get("/", async (c) => {
     formatSuccess(enriched, isLive ? "live" : "degraded"),
   );
   const ttl = isLive ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
-  response.headers.set("Cache-Control", `s-maxage=${ttl}`);
+  response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
   if (cache) {
     await cache.put(cacheKey, response.clone());
   }
