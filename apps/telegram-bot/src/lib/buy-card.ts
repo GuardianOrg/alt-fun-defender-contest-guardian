@@ -1,9 +1,11 @@
+import type { Bot } from "grammy";
+
 import type { AppContext } from "../bot.js";
 import {
   buildBuyTokenKeyboard,
   normaliseBuyPresets,
 } from "../keyboards/buy-sell-token.js";
-import { fetchToken } from "./api.js";
+import { extractTokenAddress, fetchToken } from "./api.js";
 import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
 import { WalletManager } from "./wallet.js";
@@ -70,5 +72,27 @@ export const showBuyCardForAddress = async (
       inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
     },
     link_preview_options: { is_disabled: true },
+  });
+};
+
+/**
+ * Bare-text address intercept: outside any active conversation and any
+ * slash command, a private-DM message that contains a contract address
+ * pivots to the buy card. Issue #821.
+ *
+ * Private-DM only — the buy card surfaces the active wallet's USDC
+ * balance, which must never auto-render into a group transcript.
+ * Conversations plugin and `bot.command(...)` handlers run first; this
+ * is the tail of the middleware chain so it only fires for plain text
+ * outside any other matched flow.
+ */
+export const registerAddressBuyIntercept = (bot: Bot<AppContext>): void => {
+  bot.on("message:text", async (ctx) => {
+    if (ctx.chat?.type !== "private") return;
+    const text = ctx.message.text.trim();
+    if (text.startsWith("/")) return;
+    const addr = extractTokenAddress(text);
+    if (!addr) return;
+    await showBuyCardForAddress(ctx, addr);
   });
 };

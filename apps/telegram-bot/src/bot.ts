@@ -7,8 +7,7 @@ import {
 } from "@grammyjs/conversations";
 import { Bot, type Context, session, type SessionFlavor } from "grammy";
 
-import { extractTokenAddress } from "./lib/api.js";
-import { showBuyCardForAddress } from "./lib/buy-card.js";
+import { registerAddressBuyIntercept } from "./lib/buy-card.js";
 import { registerCloseCallback } from "./lib/close.js";
 import { logger } from "./lib/logger.js";
 import { registerBuyCommand } from "./commands/buy.js";
@@ -244,23 +243,10 @@ export const createBot = (
   registerWalletCommand(bot);
   registerWithdrawCommand(bot);
 
-  // Bare-text fallback: outside any active conversation (the conversations
-  // plugin already consumes updates while one is running) and outside any
-  // slash command (handled above), a plain message that contains a
-  // contract address pivots to the buy card. Issue #821 — pasting an
-  // address anywhere in the bot should land the user on the buy menu.
-  //
-  // Private-DM only: the buy card surfaces the active wallet's USDC
-  // balance, which must never leak into a group. Bot must not auto-react
-  // to addresses pasted in groups (CodeRabbit PR #830).
-  bot.on("message:text", async (ctx) => {
-    if (ctx.chat?.type !== "private") return;
-    const text = ctx.message.text.trim();
-    if (text.startsWith("/")) return;
-    const addr = extractTokenAddress(text);
-    if (!addr) return;
-    await showBuyCardForAddress(ctx, addr);
-  });
+  // Tail of the middleware chain — conversations plugin and command
+  // handlers run first, so this only fires for plain text outside any
+  // other matched flow. See `registerAddressBuyIntercept`.
+  registerAddressBuyIntercept(bot);
 
   bot.catch((err) => {
     // Logged + swallowed so a bug in any handler can't propagate
