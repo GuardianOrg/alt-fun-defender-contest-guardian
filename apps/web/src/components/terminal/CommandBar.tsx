@@ -1,6 +1,7 @@
 import { useDispatch, useSelector } from "react-redux";
 
 import styles from "./CommandBar.module.css";
+import TableFilters from "./TableFilters";
 import { selectActiveFilter, setActiveFilter } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 
@@ -13,11 +14,7 @@ const TABS: { label: string; filter: TokenFilter }[] = [
   { label: "GRADUATED", filter: "graduated" },
 ];
 
-interface Props {
-  tokenCount: number;
-}
-
-export default function CommandBar({ tokenCount }: Props) {
+export default function CommandBar() {
   const activeFilter = useSelector(selectActiveFilter);
   const dispatch = useDispatch();
 
@@ -47,10 +44,7 @@ export default function CommandBar({ tokenCount }: Props) {
           </button>
         ))}
       </div>
-      <div className={styles.liveSection}>
-        <div className={styles.liveDot} />
-        <span className={styles.liveText}>{tokenCount} tokens live</span>
-      </div>
+      <TableFilters />
     </div>
   );
 }

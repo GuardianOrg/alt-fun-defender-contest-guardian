@@ -3,9 +3,37 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 
 import { subscribeMockTokens } from "../dev/mockFeed";
-import { tokenService, TOKENS_PAGE_SIZE } from "../services/tokenService";
+import {
+  tokenService,
+  TOKENS_PAGE_SIZE,
+  type TokenTableFiltersInput,
+} from "../services/tokenService";
 
 import type { Token, TokenFilter } from "../services/types";
+
+/**
+ * Stable cache key for a `TokenTableFiltersInput` — strips `undefined`
+ * fields so `{ underlying: "HYPE", leverage: undefined }` keys the same
+ * as `{ underlying: "HYPE" }`. Keeps TanStack Query from spinning up a
+ * fresh fetch every time the caller passes a new object literal that's
+ * semantically identical.
+ */
+function tableFiltersKey(filters: TokenTableFiltersInput | undefined): {
+  underlying?: string;
+  leverage?: number;
+  direction?: "long" | "short";
+} {
+  if (!filters) return {};
+  const out: {
+    underlying?: string;
+    leverage?: number;
+    direction?: "long" | "short";
+  } = {};
+  if (filters.underlying !== undefined) out.underlying = filters.underlying;
+  if (filters.leverage !== undefined) out.leverage = filters.leverage;
+  if (filters.direction !== undefined) out.direction = filters.direction;
+  return out;
+}
 
 /**
  * Token list for the home page + search modal. The server handles all
@@ -14,10 +42,13 @@ import type { Token, TokenFilter } from "../services/types";
  * size (previously, sorting client-side over a 100-token window would
  * silently drop out-of-window trending tokens).
  */
-export function useTokens(filter?: TokenFilter) {
+export function useTokens(
+  filter?: TokenFilter,
+  tableFilters?: TokenTableFiltersInput,
+) {
   return useQuery({
-    queryKey: ["tokens", filter],
-    queryFn: () => tokenService.getTokens(filter),
+    queryKey: ["tokens", filter, tableFiltersKey(tableFilters)],
+    queryFn: () => tokenService.getTokens(filter, tableFilters),
     refetchInterval: 10_000,
   });
 }
@@ -32,12 +63,25 @@ export function useTokens(filter?: TokenFilter) {
  *
  * Returns a `tokens` array flattened across all fetched pages so
  * callers don't have to re-flatten on every render.
+ *
+ * `tableFilters` are forwarded to the API and participate in the
+ * cache key so flipping a facet (e.g. Market: HYPE) triggers a fresh
+ * paginated walk rather than re-using the unfiltered cache.
  */
-export function useInfiniteTokens(filter?: TokenFilter) {
+export function useInfiniteTokens(
+  filter?: TokenFilter,
+  tableFilters?: TokenTableFiltersInput,
+) {
+  const filtersKey = tableFiltersKey(tableFilters);
   const query = useInfiniteQuery({
-    queryKey: ["tokens-infinite", filter],
+    queryKey: ["tokens-infinite", filter, filtersKey],
     queryFn: ({ pageParam }) =>
-      tokenService.getTokensPage(filter, pageParam, TOKENS_PAGE_SIZE),
+      tokenService.getTokensPage(
+        filter,
+        pageParam,
+        TOKENS_PAGE_SIZE,
+        tableFilters,
+      ),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
       // Short page ⇒ exhausted. Matches the server's pagination
@@ -65,12 +109,28 @@ export function useInfiniteTokens(filter?: TokenFilter) {
   const tokens = useMemo(() => {
     const fromQuery = query.data?.pages.flat() ?? [];
     if (mockTokens.length === 0) return fromQuery;
+    // Dev mock tokens bypass the API, so the server-side filters never
+    // touch them. Apply the same predicates client-side so a mock HYPE
+    // 2× Long row doesn't pollute a "Market: BTC" view in dev.
+    const filteredMocks = mockTokens.filter((t) => {
+      if (filtersKey.underlying && t.underlying !== filtersKey.underlying) {
+        return false;
+      }
+      if (filtersKey.leverage !== undefined && t.leverage !== filtersKey.leverage) {
+        return false;
+      }
+      if (filtersKey.direction && t.direction !== filtersKey.direction) {
+        return false;
+      }
+      return true;
+    });
+    if (filteredMocks.length === 0) return fromQuery;
     // De-duplicate by address — a real API response that happens to
     // include a mock-shaped address (the random hex is statistically
     // unique, but make the merge robust to refetch overlap anyway).
     const seen = new Set<string>();
     const merged: Token[] = [];
-    for (const t of mockTokens) {
+    for (const t of filteredMocks) {
       const key = t.address.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
@@ -83,7 +143,13 @@ export function useInfiniteTokens(filter?: TokenFilter) {
       merged.push(t);
     }
     return merged;
-  }, [query.data, mockTokens]);
+  }, [
+    query.data,
+    mockTokens,
+    filtersKey.underlying,
+    filtersKey.leverage,
+    filtersKey.direction,
+  ]);
 
   return { ...query, tokens };
 }

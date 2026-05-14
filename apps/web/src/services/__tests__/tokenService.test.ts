@@ -149,4 +149,38 @@ describe("getTokensPage", () => {
       tokenService.getTokensPage("trending", 0, TOKENS_PAGE_SIZE),
     ).rejects.toThrow("boom");
   });
+
+  it("forwards underlying/leverage/direction facets as query params", async () => {
+    await tokenService.getTokensPage("trending", 0, TOKENS_PAGE_SIZE, {
+      underlying: "HYPE",
+      leverage: 3,
+      direction: "short",
+    });
+
+    const url = lastUrl();
+    expect(url.searchParams.get("sort")).toBe("trending");
+    expect(url.searchParams.get("underlying")).toBe("HYPE");
+    expect(url.searchParams.get("leverage")).toBe("3");
+    expect(url.searchParams.get("direction")).toBe("short");
+  });
+
+  it("omits unset facet params so the cache key stays minimal", async () => {
+    await tokenService.getTokensPage("new", 0, TOKENS_PAGE_SIZE, {
+      direction: "long",
+    });
+
+    const url = lastUrl();
+    expect(url.searchParams.get("direction")).toBe("long");
+    expect(url.searchParams.has("underlying")).toBe(false);
+    expect(url.searchParams.has("leverage")).toBe(false);
+  });
+
+  it("ignores an empty facets object", async () => {
+    await tokenService.getTokensPage("trending", 0, TOKENS_PAGE_SIZE, {});
+
+    const url = lastUrl();
+    expect(url.searchParams.has("underlying")).toBe(false);
+    expect(url.searchParams.has("leverage")).toBe(false);
+    expect(url.searchParams.has("direction")).toBe(false);
+  });
 });

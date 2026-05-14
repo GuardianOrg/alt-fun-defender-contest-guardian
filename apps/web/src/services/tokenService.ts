@@ -125,8 +125,24 @@ function buildSocialLinks(api: ApiToken): Token["socialLinks"] {
   };
 }
 
+/**
+ * Optional pair-level filters layered on top of the tab `TokenFilter`. Maps
+ * 1:1 onto the API's `?underlying=…&leverage=…&direction=…` query params —
+ * server-side filtering keeps pagination + sorting honest (a client-side
+ * filter would let "TRENDING + Market: HYPE" silently drop rows that should
+ * have been pulled from a deeper offset).
+ */
+export interface TokenTableFiltersInput {
+  underlying?: string;
+  leverage?: number;
+  direction?: Direction;
+}
+
 export interface ITokenService {
-  getTokens(filter?: TokenFilter): Promise<Token[]>;
+  getTokens(
+    filter?: TokenFilter,
+    tableFilters?: TokenTableFiltersInput,
+  ): Promise<Token[]>;
   /**
    * Paginated variant for the home-page infinite-scroll list. Returns a
    * single page exactly as the API serves it (no client-side filtering
@@ -137,6 +153,7 @@ export interface ITokenService {
     filter: TokenFilter | undefined,
     offset: number,
     limit: number,
+    tableFilters?: TokenTableFiltersInput,
   ): Promise<Token[]>;
   /**
    * Look up a single token by address.
@@ -163,32 +180,51 @@ export interface ITokenService {
 export const TOKENS_PAGE_SIZE = 30;
 
 /**
- * Map a client-side `TokenFilter` to the right server-side query params.
- * All filtering + sorting for the landing-page tabs is now done by the
- * API — the client doesn't reorder or sub-filter the returned list.
+ * Map a client-side `TokenFilter` + optional pair-level facets to the right
+ * server-side query params. All filtering + sorting for the landing-page
+ * tabs is done by the API — the client doesn't reorder or sub-filter the
+ * returned list.
  */
 function filterToApiOptions(
   filter: TokenFilter | undefined,
+  tableFilters: TokenTableFiltersInput = {},
 ): FetchTokensOptions {
-  switch (filter) {
-    case undefined:
-    case "trending":
-      return { sort: "trending" };
-    case "new":
-      // Default API sort is `createdAt desc` — exactly what NEW wants.
-      return {};
-    case "graduating":
-      return { status: "graduating" };
-    case "graduated":
-      return { status: "graduated" };
+  const base: FetchTokensOptions = (() => {
+    switch (filter) {
+      case undefined:
+      case "trending":
+        return { sort: "trending" };
+      case "new":
+        // Default API sort is `createdAt desc` — exactly what NEW wants.
+        return {};
+      case "graduating":
+        return { status: "graduating" };
+      case "graduated":
+        return { status: "graduated" };
+    }
+  })();
+  // Spread the user-selected facets in, dropping `undefined` values so the
+  // query string stays minimal (`fetchTokens` only serialises set params).
+  if (tableFilters.underlying !== undefined) {
+    base.underlying = tableFilters.underlying;
   }
+  if (tableFilters.leverage !== undefined) {
+    base.leverage = tableFilters.leverage;
+  }
+  if (tableFilters.direction !== undefined) {
+    base.direction = tableFilters.direction;
+  }
+  return base;
 }
 
-async function liveGetTokens(filter?: TokenFilter): Promise<Token[]> {
+async function liveGetTokens(
+  filter?: TokenFilter,
+  tableFilters?: TokenTableFiltersInput,
+): Promise<Token[]> {
   const apiTokens = await fetchTokens(
     100,
     0,
-    filterToApiOptions(filter),
+    filterToApiOptions(filter, tableFilters),
   ).catch((): ApiToken[] => []);
   if (apiTokens.length === 0) return [];
   return apiTokens.map(fromApiToken);
@@ -198,12 +234,17 @@ async function liveGetTokensPage(
   filter: TokenFilter | undefined,
   offset: number,
   limit: number,
+  tableFilters?: TokenTableFiltersInput,
 ): Promise<Token[]> {
   // No catch-and-swallow here (unlike `liveGetTokens`) — the infinite-scroll
   // caller relies on a thrown error to mark the page as failed and surface
   // a retry path through TanStack Query, rather than silently returning an
   // empty page which would falsely terminate pagination.
-  const apiTokens = await fetchTokens(limit, offset, filterToApiOptions(filter));
+  const apiTokens = await fetchTokens(
+    limit,
+    offset,
+    filterToApiOptions(filter, tableFilters),
+  );
   return apiTokens.map(fromApiToken);
 }
 

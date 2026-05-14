@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 
 import TokenRow from "./TokenRow";
 import TokenRowSkeleton from "./TokenRowSkeleton";
@@ -8,7 +8,11 @@ import styles from "./TokenTable.module.css";
 import { useFlashOnNew } from "../../hooks/useFlashOnNew";
 import { useTokenListLiveFeed } from "../../hooks/useTokenListLiveFeed";
 import { useInfiniteTokens } from "../../hooks/useTokens";
-import { selectActiveFilter } from "../../state/uiSlice";
+import {
+  clearTokenFilters,
+  selectActiveFilter,
+  selectTokenFilters,
+} from "../../state/uiSlice";
 
 import type { Token, TokenFilter } from "../../services/types";
 
@@ -57,9 +61,15 @@ const INITIAL_SKELETON_ROW_COUNT = 8;
 const PAGE_SKELETON_ROW_COUNT = 3;
 
 export default function TokenTable() {
+  const dispatch = useDispatch();
   const activeFilter = useSelector(selectActiveFilter);
+  const tableFilters = useSelector(selectTokenFilters);
+  const hasActiveTableFilters =
+    tableFilters.underlying !== undefined ||
+    tableFilters.leverage !== undefined ||
+    tableFilters.direction !== undefined;
   const { tokens, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
-    useInfiniteTokens(activeFilter);
+    useInfiniteTokens(activeFilter, tableFilters);
   // Keep the row-level mcap / 24h change / progress bar live as trades
   // land on-chain — throttled invalidation of the catalogue +
   // market-data queries off the global `trade` WS channel. See issue
@@ -118,14 +128,20 @@ export default function TokenTable() {
   // off and `tokens.length` carries the catalogue. After that, the
   // sentinel + "Loading more…" indicator handle pagination feedback.
   const showInitialSkeletons = isLoading && tokens.length === 0;
-  // Once the initial fetch resolves with zero rows we surface a
-  // per-tab empty-state line instead of leaving the table area blank
-  // (a blank table head reads as "still loading" rather than "no
-  // results"). Gated on `!isLoading` so the empty copy never flashes
-  // during the first request — the skeleton branch above owns that
-  // window — and only when `tokens.length === 0` so it can never
-  // overlap with real rows during a background refetch.
+  // Once the initial fetch resolves with zero rows we surface an
+  // empty-state line instead of leaving the table area blank (a blank
+  // table head reads as "still loading" rather than "no results").
+  // Two flavours: with active facet filters, we show a "clear filters"
+  // affordance so the user can recover from an over-narrow query;
+  // without facets, we show the per-tab phrasing keyed off
+  // `activeFilter`. Both branches are gated on `!isLoading` so the
+  // empty copy never flashes during the first request — the skeleton
+  // branch above owns that window — and only when `tokens.length === 0`
+  // so they can never overlap with real rows during a background
+  // refetch.
   const showEmptyState = !isLoading && tokens.length === 0;
+  const showFilteredEmpty = showEmptyState && hasActiveTableFilters;
+  const showTabEmpty = showEmptyState && !hasActiveTableFilters;
 
   return (
     <div className={styles.wrapper}>
@@ -140,7 +156,23 @@ export default function TokenTable() {
               Array.from({ length: INITIAL_SKELETON_ROW_COUNT }, (_, i) => (
                 <TokenRowSkeleton key={i} />
               ))
-            ) : showEmptyState ? (
+            ) : showFilteredEmpty ? (
+              <div className={styles.emptyState} role="status">
+                <div className={styles.emptyStateTitle}>
+                  No tokens match your filters
+                </div>
+                <div className={styles.emptyStateSubtitle}>
+                  Try widening the market, leverage, or direction.
+                </div>
+                <button
+                  type="button"
+                  className={styles.emptyStateClear}
+                  onClick={() => dispatch(clearTokenFilters())}
+                >
+                  Clear filters
+                </button>
+              </div>
+            ) : showTabEmpty ? (
               <div className={styles.emptyState} role="status">
                 {EMPTY_STATE_MESSAGES[activeFilter]}
               </div>

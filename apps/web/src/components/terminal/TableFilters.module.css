@@ -1,0 +1,257 @@
+.rail {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  padding: 0.4rem 1.2rem 0.4rem 0.4rem;
+  flex-shrink: 0;
+}
+
+.triggerWrap {
+  position: relative;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2.4rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--txt-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.trigger:hover,
+.triggerOpen {
+  color: var(--txt);
+  border-color: var(--border-2);
+  background: var(--bg-3);
+}
+
+.triggerActive {
+  color: var(--mint);
+  border-color: var(--border-2);
+  background: var(--mint-bg);
+}
+
+.triggerActive:hover,
+.triggerActive.triggerOpen {
+  color: var(--mint-hover);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+.triggerLabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--txt-4);
+}
+
+.triggerActive .triggerLabel {
+  color: var(--mint-dim);
+}
+
+.triggerValue {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  z-index: 50;
+  min-width: 14rem;
+  max-height: 22rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+}
+
+.popoverLeft {
+  left: 0;
+}
+
+.popoverRight {
+  right: 0;
+}
+
+.popoverHeader {
+  padding: 0.4rem 0.8rem;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--txt-4);
+  font-family: var(--font-mono);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.optionList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.4rem 0.8rem;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--txt-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.option:hover {
+  background: var(--bg-3);
+  color: var(--txt);
+}
+
+.option:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: -2px;
+}
+
+.optionSelected {
+  color: var(--mint);
+  background: var(--mint-bg);
+}
+
+.optionSelected:hover {
+  color: var(--mint-hover);
+  background: var(--mint-bg);
+}
+
+.optionContent {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.optionIcon {
+  flex-shrink: 0;
+}
+
+.optionCheck {
+  color: var(--mint);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+
+.allDot {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 9999px;
+  border: 1px dashed var(--border-2);
+  flex-shrink: 0;
+}
+
+.directionDot {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  margin-left: 0.4rem;
+  margin-right: 0.4rem;
+}
+
+.dotMint {
+  background: var(--mint);
+  box-shadow: var(--shadow-mint-glow);
+}
+
+.dotRed {
+  background: var(--red);
+  box-shadow: var(--shadow-red-glow);
+}
+
+.leverageBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.4rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: inherit;
+}
+
+.optionSelected .leverageBadge {
+  border-color: var(--border-2);
+  background: var(--mint-bg);
+}
+
+.clearButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2.4rem;
+  padding: 0 0.8rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--txt-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.clearButton:hover {
+  color: var(--mint);
+  background: var(--mint-bg);
+  border-color: var(--border-2);
+}
+
+.clearButton:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1239px) {
+  .rail {
+    display: none;
+  }
+}

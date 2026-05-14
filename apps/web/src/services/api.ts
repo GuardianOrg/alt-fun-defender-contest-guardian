@@ -149,6 +149,16 @@ export interface FetchTokensOptions {
    * matches the caller's actual blast radius, not the global catalogue.
    */
   creator?: string;
+  /**
+   * Pair-level filter facets. Forwarded to the API's `?underlying=` /
+   * `?leverage=` / `?direction=` query params so filtering happens
+   * server-side — keeping pagination honest. The API validates each
+   * value: an unknown `underlying` returns an empty page rather than
+   * 400-ing, and `leverage` is constrained to `2|3|5`.
+   */
+  underlying?: string;
+  leverage?: number;
+  direction?: "long" | "short";
 }
 
 export function fetchTokens(
@@ -163,6 +173,11 @@ export function fetchTokens(
   if (options.sort) params.set("sort", options.sort);
   if (options.status) params.set("status", options.status);
   if (options.creator) params.set("creator", options.creator);
+  if (options.underlying) params.set("underlying", options.underlying);
+  if (options.leverage !== undefined) {
+    params.set("leverage", String(options.leverage));
+  }
+  if (options.direction) params.set("direction", options.direction);
   return apiFetch(`/api/v1/tokens?${params.toString()}`);
 }
 
