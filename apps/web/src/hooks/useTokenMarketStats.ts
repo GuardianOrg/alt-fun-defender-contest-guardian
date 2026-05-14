@@ -1,5 +1,11 @@
+import { useSyncExternalStore } from "react";
+
 import { useMarketData } from "./useMarketData";
 import { useTokenPrices } from "./useTokenPrices";
+import {
+  getTokenOverride,
+  subscribeTokenOverrides,
+} from "../dev/devTokenOverrides";
 
 import type { MarketDataEntry } from "../services/api";
 
@@ -59,6 +65,19 @@ export function useTokenMarketStats(address: string | undefined): TokenMarketSta
   const prices = useTokenPrices(addresses);
   const marketData = useMarketData(addresses);
 
+  // Dev-only mcap override — same shape as the curve-fill overlay used by
+  // `useToken`, but applied here because `mcapUsd` is sourced from
+  // `useTokenPrices` rather than the `Token` payload. The
+  // `import.meta.env.DEV` gate inside the snapshot keeps the override
+  // dead-code-eliminated in production builds while the bare
+  // `useSyncExternalStore` call (subscribed to a no-op listener set in
+  // prod) stays cheap.
+  const override = useSyncExternalStore(
+    subscribeTokenOverrides,
+    () => (import.meta.env.DEV ? getTokenOverride(address) : undefined),
+    () => undefined,
+  );
+
   const isLoading = prices.isLoading || marketData.isLoading;
   const isError = marketData.isError;
 
@@ -75,7 +94,11 @@ export function useTokenMarketStats(address: string | undefined): TokenMarketSta
   const key = address.toLowerCase();
   const mcap = prices.prices[key]?.mcapUsd;
   const entry = marketData.getTokenMarketData(address);
-  return buildTokenMarketStats(mcap, entry, isLoading, isError);
+  const stats = buildTokenMarketStats(mcap, entry, isLoading, isError);
+  if (override?.mcapUsd !== undefined) {
+    return { ...stats, mcapUsd: override.mcapUsd };
+  }
+  return stats;
 }
 
 /**

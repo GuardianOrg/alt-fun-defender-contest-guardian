@@ -11,6 +11,7 @@ import {
 } from "../../dev/devTokenOverrides";
 import { emitMockToken, emitMockTrade } from "../../dev/mockFeed";
 import { useToken } from "../../hooks/useToken";
+import { useTokenMarketStats } from "../../hooks/useTokenMarketStats";
 import { useTokens } from "../../hooks/useTokens";
 import { useTradeFeed } from "../../hooks/useTradeFeed";
 import { cn } from "../../utils/format";
@@ -24,6 +25,16 @@ import type { Token, TokenStatus, Trade } from "../../services/types";
 // QAing the fill-driven glow + graduation transition by hand.
 const TRADE_CURVE_BUMP_MIN = 3;
 const TRADE_CURVE_BUMP_RANGE = 4;
+
+// Random multiplier range for the "pump mcap" button. A 6–18% bump per
+// click gives a few clearly perceptible jumps before the rolling-number
+// animation flattens out around an order of magnitude up — comfortable
+// for QAing both small and large tween distances by hand. Cold-start
+// (no API mcap yet) seeds at a fixed $25K so the first click has
+// somewhere to count up *from*.
+const MCAP_PUMP_PCT_MIN = 0.06;
+const MCAP_PUMP_PCT_RANGE = 0.12;
+const MCAP_PUMP_COLD_START_USD = 25_000;
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: TokenStatus; label: string }> = [
   { value: "active", label: "Active" },
@@ -85,6 +96,11 @@ export default function DevSimulator() {
   // including any prior bumps. `useToken` no-ops on `undefined`, so
   // it's safe to call unconditionally above the route check.
   const { data: token } = useToken(tokenAddress);
+  // Live mcap (already overlay-merged via the override store) — the
+  // baseline for the next "pump mcap" bump so repeated clicks compound
+  // on top of the displayed value rather than resetting to a fresh
+  // delta off the API mcap each time. Mirrors the curve-fill bump model.
+  const { mcapUsd } = useTokenMarketStats(tokenAddress);
 
   const simulateTrades = (count: number) => {
     if (trades.length === 0) {
@@ -159,6 +175,24 @@ export default function DevSimulator() {
     setTokenOverride(tokenAddress, {
       curveFilledPercent: Math.min(100, baseFill + bump),
     });
+  };
+
+  /**
+   * Drive the chart's rolling-mcap animation by bumping the override
+   * upward by a small random percentage on top of whatever the page is
+   * currently showing — overlay first, then the live mcap from
+   * `useTokenMarketStats` (which already includes any prior overlay).
+   * If the API hasn't resolved a mcap yet (degraded or fresh launch),
+   * seed from {@link MCAP_PUMP_COLD_START_USD} so the first click still
+   * has a value to count up *from* rather than tweening from `null`.
+   */
+  const pumpMcap = () => {
+    if (!tokenAddress) return;
+    const base =
+      override?.mcapUsd ??
+      (mcapUsd && mcapUsd > 0 ? mcapUsd : MCAP_PUMP_COLD_START_USD);
+    const factor = 1 + MCAP_PUMP_PCT_MIN + Math.random() * MCAP_PUMP_PCT_RANGE;
+    setTokenOverride(tokenAddress, { mcapUsd: base * factor });
   };
 
   if (!import.meta.env.DEV) return null;
@@ -320,6 +354,38 @@ export default function DevSimulator() {
                     onClick={simulateTokenTrade}
                   >
                     +1 trade
+                  </button>
+                  {/* "pump mcap" — bumps the mcap override by a small
+                   * random percentage on top of the current value so
+                   * the chart's rolling-number animation visibly ticks
+                   * up. Independent of the curve / status overrides
+                   * (and the progress bar) — useful for QAing the
+                   * mcap glow + tween in isolation, including past
+                   * graduation. */}
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onClick={pumpMcap}
+                    title="Bump market cap by ~6–18% to trigger the rolling animation"
+                  >
+                    pump mcap
+                  </button>
+                </div>
+              )}
+              {/* Show the pump button on its own row when graduated —
+               * the trade/curve buttons disappear above but the mcap
+               * tween is still meaningful (and arguably more so, since
+               * post-graduation tokens trade on HyperSwap and the mcap
+               * is the dominant signal on the page). */}
+              {isGraduatedOverride && (
+                <div className={styles.row}>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    onClick={pumpMcap}
+                    title="Bump market cap by ~6–18% to trigger the rolling animation"
+                  >
+                    pump mcap
                   </button>
                 </div>
               )}

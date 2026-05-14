@@ -8,11 +8,8 @@ import {
   CHART_INTERVAL_LABELS,
   CHART_INTERVAL_SECONDS,
 } from "../../services/api";
-import {
-  cn,
-  formatMcapUsdOrDash,
-  formatPercent,
-} from "../../utils/format";
+import { cn, formatMcapUsd, formatPercent } from "../../utils/format";
+import RollingNumber from "../shared/RollingNumber";
 import SegmentedButton from "../shared/SegmentedButton";
 
 import type {
@@ -203,7 +200,12 @@ export default function Chart({ address, token }: Props) {
         </span>
         <div className={styles.mcapOverlay} aria-label="Market cap">
           <span className={styles.mcapLabel}>Market cap</span>
-          <span className={styles.mcapValue}>{formatMcapUsdOrDash(mcapUsd)}</span>
+          <RollingNumber
+            className={styles.mcapValue}
+            value={mcapUsd}
+            format={formatMcapUsd}
+            trend="up"
+          />
           {change24h !== null && (
             <span
               className={cn(
