@@ -136,6 +136,30 @@ describe("POST /market-data { addresses } — input validation", () => {
     }
     const res = await postMarketData(tooMany);
     expect(res.status).toBe(400);
+    // Assert the specific cap message — without it the test would also
+    // pass if the route 400'd for an unrelated reason (e.g. one of the
+    // synthesised addresses failed checksum validation), masking a
+    // regression in the cap-vs-format ordering.
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("200");
+  });
+
+  it("returns 400 for a JSON `null` body (no addresses field to read)", async () => {
+    // Regression coverage: `c.req.json()` parses a literal `null` body
+    // as valid JSON, but the route's `body.addresses` access would
+    // throw on it without an explicit null/non-object guard, surfacing
+    // as a 500 instead of the user-visible 400 we want. CodeRabbit
+    // feedback on PR #872.
+    const res = await createApp().request(
+      "/market-data",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      },
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
   });
 });
 

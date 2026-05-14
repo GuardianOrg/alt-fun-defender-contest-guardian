@@ -45,14 +45,24 @@ const marketData = new Hono<{ Bindings: AppBindings }>();
  * absent from the map and the client treats their fields as unknown.
  */
 marketData.post("/", async (c) => {
-  let body: { addresses?: unknown };
+  let body: unknown;
   try {
-    body = (await c.req.json()) as typeof body;
+    body = await c.req.json();
   } catch {
     return c.json(formatError("Invalid JSON body"), 400);
   }
 
-  const raw = body.addresses;
+  // Defensive null/non-object guard — `c.req.json()` happily parses a
+  // literal `null` (or a bare number / string) as valid JSON, but
+  // `body.addresses` would then throw `TypeError: Cannot read
+  // properties of null` and surface as a 500 instead of the
+  // user-visible 400 we want for malformed input. CodeRabbit feedback
+  // on PR #872.
+  if (typeof body !== "object" || body === null) {
+    return c.json(formatError("Invalid JSON body"), 400);
+  }
+
+  const raw = (body as { addresses?: unknown }).addresses;
   if (!Array.isArray(raw)) {
     return c.json(formatError("`addresses` must be an array"), 400);
   }
