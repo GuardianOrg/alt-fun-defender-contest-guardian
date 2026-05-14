@@ -366,33 +366,56 @@ describe("loadReferrer", () => {
       MASTER_KEY: ZERO_MASTER_KEY,
     } as unknown as AppContext["env"]);
 
-  it("returns ZERO_ADDRESS when no referrer is recorded", async () => {
+  const writeProfile = async (
+    kv: MemoryKV,
+    userId: number,
+    referrer: string | null,
+  ): Promise<void> => {
+    await kv.put(
+      `profile:${userId}`,
+      JSON.stringify({ createdAt: 1, referrer }),
+    );
+  };
+
+  it("returns ZERO_ADDRESS when no profile is recorded", async () => {
     const kv = new MemoryKV();
     const ref = await loadReferrer(env(kv), 7);
     expect(ref).toBe(ZERO);
   });
 
-  it("returns the stored wallet when one is recorded", async () => {
+  it("returns ZERO_ADDRESS when profile.referrer is null", async () => {
     const kv = new MemoryKV();
-    const wallet = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+    await writeProfile(kv, 7, null);
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(ZERO);
+  });
+
+  it("returns the referrer stored on the profile", async () => {
+    const kv = new MemoryKV();
+    const wallet = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    await writeProfile(kv, 7, wallet);
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(wallet);
+  });
+
+  it("coerces a malformed profile JSON to ZERO_ADDRESS", async () => {
+    const kv = new MemoryKV();
+    await kv.put("profile:7", "not-json");
+    const ref = await loadReferrer(env(kv), 7);
+    expect(ref).toBe(ZERO);
+  });
+
+  it("ignores a stale orphan referrer:<id> KV key (regression for #BUG)", async () => {
+    // Earlier code wrote/read a `referrer:<id>` key that no production
+    // call site populated, so every trade silently passed ZERO_ADDRESS
+    // to BotFeeRouter and `referrerStats` never accrued. The current
+    // path reads from `profile:<id>` only — assert the orphan key has
+    // no effect.
+    const kv = new MemoryKV();
+    const wallet = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     await kv.put("referrer:7", wallet);
     const ref = await loadReferrer(env(kv), 7);
-    expect(ref).toBe(wallet);
-  });
-
-  it("coerces a malformed KV value to ZERO_ADDRESS", async () => {
-    const kv = new MemoryKV();
-    await kv.put("referrer:7", "not-an-address");
-    const ref = await loadReferrer(env(kv), 7);
     expect(ref).toBe(ZERO);
-  });
-
-  it("trims whitespace before validating", async () => {
-    const kv = new MemoryKV();
-    const wallet = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
-    await kv.put("referrer:7", `  ${wallet}  `);
-    const ref = await loadReferrer(env(kv), 7);
-    expect(ref).toBe(wallet);
   });
 });
 
@@ -417,8 +440,11 @@ describe("confirmTrade referrer propagation", () => {
       minOut: 1n,
     });
     const { ctx, kv } = await fakeCtx();
-    const referrer = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
-    await kv.put("referrer:7", referrer);
+    const referrer = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    await kv.put(
+      "profile:7",
+      JSON.stringify({ createdAt: 1, referrer }),
+    );
     const { nonce } = stageBuy({
       ctx,
       token: TOKEN,
@@ -431,7 +457,7 @@ describe("confirmTrade referrer propagation", () => {
     expect(call[1].referrer).toBe(referrer);
   });
 
-  it("falls back to ZERO_ADDRESS when no referrer KV entry exists", async () => {
+  it("falls back to ZERO_ADDRESS when no referrer is stored on the profile", async () => {
     execBuySpy.mockResolvedValue({
       ok: true,
       txHash: "0xabc",
@@ -582,8 +608,11 @@ describe("submitBuy / submitSell (degen-mode entry)", () => {
       minOut: 1n,
     });
     const { ctx, kv } = await fakeCtx();
-    const referrer = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
-    await kv.put("referrer:7", referrer);
+    const referrer = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    await kv.put(
+      "profile:7",
+      JSON.stringify({ createdAt: 1, referrer }),
+    );
     await submitBuy({
       ctx,
       token: TOKEN,
