@@ -1112,4 +1112,24 @@ describe("runWithTxStatusUpdates", () => {
     expect(edits).toHaveLength(2);
     expect(edits[1]!.text).toMatch(/expired/i);
   });
+
+  it("posts a terminal failure bubble and rethrows when run() rejects", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    const boom = new Error("rpc exploded");
+    await expect(
+      runWithTxStatusUpdates({
+        ctx,
+        target: { api: ctx.api, chatId: 5, messageId: 99 },
+        side: "buy",
+        description: "Buying $20.00 USDC of TICK",
+        run: async () => {
+          throw boom;
+        },
+        pendingDelayMs: 60_000,
+      }),
+    ).rejects.toBe(boom);
+    expect(edits).toHaveLength(2);
+    expect(edits[0]!.text).toContain("Tx sending");
+    expect(edits[1]!.text).toMatch(/Transaction failed/);
+  });
 });

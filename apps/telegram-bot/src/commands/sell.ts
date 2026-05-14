@@ -656,6 +656,22 @@ const runPercentSell = async (
             }),
         }),
       );
+    } else {
+      // No resolvable chat id (rare — inline-mode / channel post).
+      // Submit the trade directly and reply with the receipt rather
+      // than leaving the user on a status prompt that never updates.
+      const outcome = await conversation.external((outerCtx) =>
+        submitSell({
+          ctx: outerCtx,
+          token: token.address,
+          ticker: token.ticker,
+          tokenRaw: effectiveTokenRaw,
+        }),
+      );
+      await msgCtx.reply(renderConfirmReply(outcome), {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
     }
     return;
   }

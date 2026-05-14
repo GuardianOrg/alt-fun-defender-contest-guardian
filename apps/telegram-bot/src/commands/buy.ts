@@ -389,6 +389,23 @@ const buyCustomConversation = async (
               }),
           }),
         );
+      } else {
+        // No resolvable chat id (rare — inline-mode / channel post).
+        // Still submit the trade and reply with the receipt; without
+        // this fallback the user would be left staring at the "Tx
+        // sending" prompt with no follow-up.
+        const outcome = await conversation.external((outerCtx) =>
+          submitBuy({
+            ctx: outerCtx,
+            token: token.address,
+            ticker: token.ticker,
+            usdcRaw,
+          }),
+        );
+        await msgCtx.reply(renderConfirmReply(outcome), {
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+        });
       }
       await sweepWorkflow(conversation);
       return;

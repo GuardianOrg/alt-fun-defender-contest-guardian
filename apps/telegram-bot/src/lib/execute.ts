@@ -428,9 +428,12 @@ export const runWithTxStatusUpdates = async (
     );
   }, delay);
 
-  let outcome: ConfirmOutcome;
+  let outcome: ConfirmOutcome | null = null;
+  let runError: unknown = undefined;
   try {
     outcome = await args.run();
+  } catch (err) {
+    runError = err;
   } finally {
     state.settled = true;
     clearTimeout(pendingTimer);
@@ -442,6 +445,18 @@ export const runWithTxStatusUpdates = async (
     await state.pendingEdit.catch(() => {});
   }
 
-  await safeEditStatus(args.target, renderConfirmReply(outcome));
-  return outcome;
+  if (outcome !== null) {
+    await safeEditStatus(args.target, renderConfirmReply(outcome));
+    return outcome;
+  }
+
+  // `run()` rejected. Without a terminal edit the user would be stuck
+  // on "Tx sending" / "Tx pending" forever — surface a generic failure
+  // bubble, then rethrow so upstream loggers / sentry handlers see the
+  // original error.
+  await safeEditStatus(
+    args.target,
+    "❌ Transaction failed — please try again in a moment.",
+  );
+  throw runError;
 };
