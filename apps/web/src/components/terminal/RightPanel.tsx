@@ -287,90 +287,101 @@ export default function RightPanel() {
           ) : trades.length === 0 ? (
             <div className={styles.emptyRow}>No recent trades yet</div>
           ) : (
-            <>
-              {trades.map((t) => {
-                const isBuy = t.side === "BUY";
-                const flashing = flashingTradeIds.has(t.id);
-                return (
-                  <div
-                    key={t.id}
-                    className={cn(styles.tradeRow, flashing && styles.flash)}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
-                    onClick={() => navigate(tokenPath(t.tokenAddress))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        navigate(tokenPath(t.tokenAddress));
-                      }
-                    }}
-                  >
-                    <div className={styles.tradeInfo}>
-                      <div className={styles.tradeNameRow}>
-                        <span className={styles.tradeName}>{t.tokenName}</span>
-                        <span className={styles.tradeTime}>
-                          {formatTimeAgo(t.timestamp)}
-                        </span>
-                      </div>
-                      <div className={styles.tradeWalletRow}>
-                        <span className={styles.tradeWallet}>
-                          {t.walletAddress}
-                        </span>
-                        <CopyAddressButton
-                          address={t.walletAddressFull}
-                          className={styles.tradeCopyBtn}
-                        />
-                      </div>
-                    </div>
-                    <span
-                      className={cn(
-                        styles.tradeAmount,
-                        isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
-                      )}
-                    >
-                      {isBuy ? "+" : "-"}$
-                      {Math.round(t.amountUsd).toLocaleString()}
-                    </span>
-                  </div>
-                );
-              })}
-              {hasMore && (
+            trades.map((t) => {
+              const isBuy = t.side === "BUY";
+              const flashing = flashingTradeIds.has(t.id);
+              return (
                 <div
-                  ref={sentinelRef}
-                  className={styles.sentinel}
-                  aria-hidden="true"
-                />
-              )}
-              {isFetchingMore && (
-                <div role="status" aria-live="polite" aria-label="Loading more trades">
-                  {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
-                    <div
-                      key={`page-skel-${i}`}
-                      className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
-                      aria-hidden="true"
-                    >
-                      <div className={styles.tradeInfo}>
-                        <div className={styles.tradeNameRow}>
-                          <Skeleton width="6rem" height="11px" />
-                          <Skeleton
-                            width="2.5rem"
-                            height="10px"
-                            className={styles.tradeSkeletonTime}
-                          />
-                        </div>
-                        <Skeleton
-                          width="5rem"
-                          height="10px"
-                          className={styles.tradeSkeletonWallet}
-                        />
-                      </div>
-                      <Skeleton width="3rem" height="12px" />
+                  key={t.id}
+                  className={cn(styles.tradeRow, flashing && styles.flash)}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`${isBuy ? "Buy" : "Sell"} ${t.tokenName} — $${Math.round(t.amountUsd).toLocaleString()} — ${t.timestamp}`}
+                  onClick={() => navigate(tokenPath(t.tokenAddress))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(tokenPath(t.tokenAddress));
+                    }
+                  }}
+                >
+                  <div className={styles.tradeInfo}>
+                    <div className={styles.tradeNameRow}>
+                      <span className={styles.tradeName}>{t.tokenName}</span>
+                      <span className={styles.tradeTime}>
+                        {formatTimeAgo(t.timestamp)}
+                      </span>
                     </div>
-                  ))}
+                    <div className={styles.tradeWalletRow}>
+                      <span className={styles.tradeWallet}>
+                        {t.walletAddress}
+                      </span>
+                      <CopyAddressButton
+                        address={t.walletAddressFull}
+                        className={styles.tradeCopyBtn}
+                      />
+                    </div>
+                  </div>
+                  <span
+                    className={cn(
+                      styles.tradeAmount,
+                      isBuy ? styles.tradeAmountBuy : styles.tradeAmountSell,
+                    )}
+                  >
+                    {isBuy ? "+" : "-"}$
+                    {Math.round(t.amountUsd).toLocaleString()}
+                  </span>
                 </div>
-              )}
-            </>
+              );
+            })
+          )}
+          {/* Sentinel + page-skeletons sit OUTSIDE the data conditional so
+           * the sentinel is in the DOM from first mount (issue #841).
+           * Previously it lived inside the `trades.length > 0` branch,
+           * which meant on initial render — when `showTradeSkeletons`
+           * was true — the sentinel didn't exist yet, the
+           * `IntersectionObserver` effect bailed (`sentinel === null`),
+           * and the effect's deps (`hasMore`, `isFetchingMore`, stable
+           * `loadMore`) never re-fired to re-attach once trades arrived.
+           * Net effect: pagination silently dead. Mirrors the structure
+           * `TokenTable` uses. `loadMore` itself guards against a fire
+           * with zero loaded trades, so an observer trigger during the
+           * brief skeleton window (sentinel above the fold) is a no-op
+           * rather than a redundant page-zero refetch. */}
+          {hasMore && (
+            <div
+              ref={sentinelRef}
+              className={styles.sentinel}
+              aria-hidden="true"
+            />
+          )}
+          {isFetchingMore && (
+            <div role="status" aria-live="polite" aria-label="Loading more trades">
+              {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
+                <div
+                  key={`page-skel-${i}`}
+                  className={cn(styles.tradeRow, styles.tradeSkeletonRow)}
+                  aria-hidden="true"
+                >
+                  <div className={styles.tradeInfo}>
+                    <div className={styles.tradeNameRow}>
+                      <Skeleton width="6rem" height="11px" />
+                      <Skeleton
+                        width="2.5rem"
+                        height="10px"
+                        className={styles.tradeSkeletonTime}
+                      />
+                    </div>
+                    <Skeleton
+                      width="5rem"
+                      height="10px"
+                      className={styles.tradeSkeletonWallet}
+                    />
+                  </div>
+                  <Skeleton width="3rem" height="12px" />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>

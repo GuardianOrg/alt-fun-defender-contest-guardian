@@ -202,6 +202,16 @@ export function useTradeFeed(): UseTradeFeedResult {
 
   const loadMore = useCallback(() => {
     if (isFetchingMoreRef.current || !hasMoreRef.current) return;
+    // Skip pagination while the initial REST poll inside `tradeFeed.ts
+    // → subscribeFeed` hasn't yet delivered the first page. Without
+    // this guard, an `IntersectionObserver` triggering against a
+    // sentinel that's visible above the initial-skeleton placeholders
+    // (sentinel renders from first mount now — see RightPanel issue
+    // #841) would call `fetchRouterTradesGlobal(50, 0)` and duplicate
+    // the work the live-feed poll is already doing. `seenIdsRef` would
+    // dedupe the rows, so this is a correctness-safe optimisation, not
+    // a safety net.
+    if (tradesRef.current.length === 0) return;
     isFetchingMoreRef.current = true;
     setIsFetchingMore(true);
     // Server-side `offset` is "skip this many newest trades". Using the
