@@ -30,7 +30,7 @@ import {
   submitBuy,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
-import { backHomeMarkup } from "../lib/nav.js";
+import { replyWithNav } from "../lib/nav.js";
 import { MAX_USDC_AMOUNT, parseUserAmount } from "../lib/parse-number.js";
 import { fetchUsdcBalance } from "../lib/rpc.js";
 import { renderBuyTokenCardText, formatUsdc6 } from "../lib/token-card.js";
@@ -98,10 +98,9 @@ const buyLookupConversation = async (
   // the stack is already empty.
   await sweepWorkflow(conversation);
 
-  const promptMsg = await ctx.reply(PROMPT_HTML, {
+  const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
-    reply_markup: backHomeMarkup(),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -122,10 +121,9 @@ const buyLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: backHomeMarkup(),
       });
       await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
@@ -141,10 +139,9 @@ const buyLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
-          reply_markup: backHomeMarkup(),
         });
         await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
@@ -205,9 +202,9 @@ const buyCustomConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await ctx.reply(
+  const promptMsg = await replyWithNav(
+    ctx,
     `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nTap Home to exit.`,
-    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -229,17 +226,17 @@ const buyCustomConversation = async (
 
     const amount = parseUserAmount(text, { max: MAX_USDC_AMOUNT });
     if (amount === null) {
-      const retry = await msgCtx.reply(
+      const retry = await replyWithNav(
+        msgCtx,
         `Please enter a valid number (e.g. 50). Minimum is $${MIN_USDC_BUY_AMOUNT}.`,
-        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (amount < MIN_USDC_BUY_AMOUNT) {
-      const retry = await msgCtx.reply(
+      const retry = await replyWithNav(
+        msgCtx,
         `Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC. Enter a larger amount.`,
-        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -265,9 +262,9 @@ const buyCustomConversation = async (
     // Null means RPC failed — don't treat as zero, which would produce
     // a false "insufficient balance" rejection for a working wallet.
     if (usdcBalance === null) {
-      const retry = await msgCtx.reply(
+      const retry = await replyWithNav(
+        msgCtx,
         `Unable to verify your USDC balance — please try again.`,
-        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -276,11 +273,11 @@ const buyCustomConversation = async (
     const totalNeeded = amount * (1 + COMBINED_FEE_RATE);
 
     if (usdcAvailable < totalNeeded) {
-      const retry = await msgCtx.reply(
+      const retry = await replyWithNav(
+        msgCtx,
         `Insufficient USDC balance.\n` +
           `You need $${totalNeeded.toFixed(2)} (amount + fees) but have ${formatUsdc6(usdcBalance)}.\n\n` +
           `Enter a smaller amount, or tap Home to exit.`,
-        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;

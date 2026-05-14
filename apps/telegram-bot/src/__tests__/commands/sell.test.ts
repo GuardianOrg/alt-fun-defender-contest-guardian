@@ -168,6 +168,29 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(send!.body.text)).toMatch(/contract address|alt\.fun|hyperevmscan/i);
   });
 
+  it("token-address prompt carries the [← Back] [🏠 Home] nav row", async () => {
+    const h = makeBotHarness();
+    mockTokenAndRpc(fetchSpy);
+    await h.run(callbackUpdate(START_CALLBACK.sell));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toMatch(/Tap Home to exit/);
+    const kb =
+      (send!.body.reply_markup as
+        | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
+        | undefined)?.inline_keyboard ?? [];
+    expect(
+      kb.some(
+        (row) =>
+          row.some((b) => b.callback_data === "nav:h") &&
+          row.some((b) => b.callback_data === "nav:b"),
+      ),
+    ).toBe(true);
+  });
+
   it("shows token card with token balance and sell buttons", async () => {
     const h = await harnessWithWallet();
     // 50k tokens × $0.001 = $50 holding

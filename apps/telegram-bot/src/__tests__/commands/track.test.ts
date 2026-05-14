@@ -220,6 +220,28 @@ describe("/track command", () => {
     expect(String(send!.body.text)).toMatch(/contract address|alt\.fun/i);
   });
 
+  it("token-address prompt carries the [← Back] [🏠 Home] nav row", async () => {
+    const h = harness();
+    mockApi(fetchSpy);
+    await h.run(callbackUpdate(START_CALLBACK.track));
+
+    const send = capture(fetchSpy).find((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    expect(send).toBeDefined();
+    expect(String(send!.body.text)).toMatch(/Tap Home to exit/);
+    const kb =
+      (send!.body.reply_markup as
+        | { inline_keyboard?: Array<Array<{ text: string; callback_data?: string }>> }
+        | undefined)?.inline_keyboard ?? [];
+    expect(
+      kb.some((row) =>
+        row.some((b) => b.callback_data === "nav:h") &&
+        row.some((b) => b.callback_data === "nav:b"),
+      ),
+    ).toBe(true);
+  });
+
   it("renders the track card and recent trades for a valid address", async () => {
     const h = harness();
     mockApi(fetchSpy);

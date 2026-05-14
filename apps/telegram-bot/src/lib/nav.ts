@@ -52,6 +52,29 @@ export const backHomeMarkup = (): { inline_keyboard: InlineKeyboard } => ({
   inline_keyboard: [backHomeRow()],
 });
 
+/**
+ * `ctx.reply` wrapper for wizard prompts: auto-attaches the
+ * `[← Back] [🏠 Home]` row when the caller doesn't supply its own
+ * `reply_markup`. Use this for every text-input prompt inside a
+ * conversation so the user always has a visible exit on the message
+ * they're being asked to respond to — sprinkling `backHomeMarkup()`
+ * by hand at each call site is easy to forget.
+ *
+ * Terminal replies ("Cancelled.", success toasts, error notices that
+ * end the flow) should keep calling `ctx.reply` directly — they don't
+ * need the nav row and would just clutter the chat.
+ */
+export const replyWithNav = async (
+  ctx: AppContext,
+  text: string,
+  extra: Parameters<AppContext["reply"]>[1] = {},
+): ReturnType<AppContext["reply"]> => {
+  return ctx.reply(text, {
+    ...extra,
+    reply_markup: extra.reply_markup ?? backHomeMarkup(),
+  });
+};
+
 /** Maximum nav-stack depth held per session. Older snapshots fall off
  * the bottom — Telegram's 64KB session blob and KV's per-key write
  * cost both prefer this stay tight. */

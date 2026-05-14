@@ -27,7 +27,7 @@ import {
   submitSell,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
-import { backHomeMarkup } from "../lib/nav.js";
+import { replyWithNav } from "../lib/nav.js";
 import { fetchErc20Balance, fetchLtBaseAssetBalance } from "../lib/rpc.js";
 import {
   estimateHoldingUsdc,
@@ -312,10 +312,9 @@ const sellLookupConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await ctx.reply(PROMPT_HTML, {
+  const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
-    reply_markup: backHomeMarkup(),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -336,10 +335,9 @@ const sellLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
-        reply_markup: backHomeMarkup(),
       });
       await trackWorkflowMessage(conversation, notFound.message_id);
       continue;
@@ -355,10 +353,9 @@ const sellLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
-          reply_markup: backHomeMarkup(),
         });
         await trackWorkflowMessage(conversation, notFound.message_id);
         continue;
@@ -428,9 +425,9 @@ const sellCustomConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await ctx.reply(
+  const promptMsg = await replyWithNav(
+    ctx,
     "Enter a percent of your position to sell (1–100):\n\nTap Home to exit.",
-    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -452,9 +449,9 @@ const sellCustomConversation = async (
 
     const percent = parsePercentInput(text);
     if (percent === null) {
-      const retry = await msgCtx.reply(
+      const retry = await replyWithNav(
+        msgCtx,
         "Please enter a whole number between 1 and 100 (e.g. 35).",
-        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -542,9 +539,9 @@ const runPercentSell = async (
     return;
   }
   if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
-    await msgCtx.reply(
+    await replyWithNav(
+      msgCtx,
       `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum. Increase the percent or tap Home to exit.`,
-      { reply_markup: backHomeMarkup() },
     );
     return;
   }

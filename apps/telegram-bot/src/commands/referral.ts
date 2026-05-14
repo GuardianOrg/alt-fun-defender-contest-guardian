@@ -314,6 +314,7 @@ const runPinGate = async (
       wrap(ctx,
         "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
       ),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
     let candidate: string | null = null;
@@ -334,6 +335,7 @@ const runPinGate = async (
           wrap(ctx,
             "PIN must be exactly 6 digits. Send again.",
           ),
+          { reply_markup: backHomeMarkup() },
         );
         await trackWorkflowMessage(conversation, retry.message_id);
         continue;
@@ -342,6 +344,7 @@ const runPinGate = async (
     }
     const confirmAsk = await ctx.reply(
       wrap(ctx, "Confirm — send the same 6 digits again."),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, confirmAsk.message_id);
     while (true) {
@@ -361,6 +364,7 @@ const runPinGate = async (
           wrap(ctx,
             "PINs do not match. Send the confirmation PIN again.",
           ),
+          { reply_markup: backHomeMarkup() },
         );
         await trackWorkflowMessage(conversation, retry.message_id);
         continue;
@@ -378,6 +382,7 @@ const runPinGate = async (
     wrap(ctx,
       "Send your 6-digit PIN to authorise the rewards-wallet change.",
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
@@ -420,6 +425,7 @@ const runPinGate = async (
       wrap(ctx,
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -462,6 +468,7 @@ const changeRewardsWalletConversation = async (
   const warningMsg = await ctx.reply(warningText, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
+    reply_markup: backHomeMarkup(),
   });
   await trackWorkflowMessage(conversation, warningMsg.message_id);
 
@@ -482,6 +489,7 @@ const changeRewardsWalletConversation = async (
         wrap(ctx,
           "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
