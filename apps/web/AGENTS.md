@@ -38,7 +38,6 @@ A few things that look button-shaped but **are not** in this taxonomy and are do
 
 - The **modal close badge** (`shared/Modal`) — close affordance for every modal, a small `×` glyph in a kbd-styled square, not an `IconButton`. See [Modals & overlays](#modals--overlays-mandatory).
 - **Clickable list rows** (`TokenRow`, position rows, trade-feed rows, search results) — these are full-row affordances, styled per-component with a `bg-3` hover. Do not migrate these to `Button` / `Chip`.
-- **The `LANDING_OVERLAY` page CTA** — landing-page hero element, allowed to break the standard CTA visual since it's not in the dense-panel context.
 
 Do not invent a new variant of any primitive without updating this table at the same time.
 

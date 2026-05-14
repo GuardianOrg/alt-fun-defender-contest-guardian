@@ -1,5 +1,5 @@
 import styles from "./Header.module.css";
-import WaveBackground from "../landing/WaveBackground";
+import WaveBackground from "../effects/WaveBackground";
 
 export default function Header() {
   return (

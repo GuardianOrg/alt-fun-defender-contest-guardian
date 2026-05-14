@@ -2,10 +2,6 @@ import { useEffect, useState } from "react";
 
 import styles from "./PrimerModal.module.css";
 import AltFunLogo from "../../assets/AltFunLogo/AltFunLogo";
-import {
-  LANDING_BYPASS_EVENT,
-  LANDING_BYPASS_KEY,
-} from "../landing/LandingOverlay";
 import Button from "../shared/Button";
 import Modal from "../shared/Modal";
 
@@ -30,15 +26,6 @@ const readPrimerSeen = (): boolean => {
   }
 };
 
-const readLandingBypassed = (): boolean => {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(LANDING_BYPASS_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
-
 const markPrimerSeen = () => {
   try {
     window.localStorage.setItem(PRIMER_KEY, "1");
@@ -51,27 +38,14 @@ const markPrimerSeen = () => {
  * One-time welcome card explaining alt.fun's core mechanic to new users.
  *
  * Visibility rules:
- *   - Only shown after the user has cleared the pre-launch landing gate
- *     (`LANDING_BYPASS_KEY === "1"`). Since `LandingOverlay` now gates the
- *     entire provider tree, this component only mounts after the gate has
- *     been cleared in the first place — but we keep the check defensively
- *     so the primer never appears behind the landing wireframe.
  *   - Only shown once per browser (`altfun-primer-seen === "1"` after the
  *     user clicks Continue / closes the modal).
- *   - Listens for the `LANDING_BYPASS_EVENT` window event so the primer
- *     can flip on the moment `LandingOverlay` accepts the secret in the
- *     same tab (storage events only fire across tabs).
  */
 export default function PrimerModal() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    const evaluate = () => {
-      if (readLandingBypassed() && !readPrimerSeen()) setOpen(true);
-    };
-    evaluate();
-    window.addEventListener(LANDING_BYPASS_EVENT, evaluate);
-    return () => window.removeEventListener(LANDING_BYPASS_EVENT, evaluate);
+    if (!readPrimerSeen()) setOpen(true);
   }, []);
 
   if (!open) return null;

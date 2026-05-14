@@ -12,7 +12,6 @@ import {
 import styles from "./App.module.css";
 import { CREATE_ROUTE, HOME_ROUTE, PROFILE_ROUTE, TOKEN_ROUTE } from "./routes";
 import CreateView from "../components/create/CreateView";
-import LandingOverlay from "../components/landing/LandingOverlay";
 import AssetTape from "../components/layout/AssetTape";
 import DegradedBanner from "../components/layout/DegradedBanner";
 import EarningsPanel from "../components/layout/EarningsPanel";
@@ -130,45 +129,38 @@ if (!privyAppId) {
 // MetaMask/Rabby/etc. are detected purely via EIP-6963 window events, so they
 // keep working on every platform without any prompt.
 
-// `LandingOverlay` wraps the entire provider tree so that, while the
-// pre-launch gate is up, none of the app actually mounts — no router, no
-// Privy/Wagmi, no Redux. A casual visitor can't reach the app via Inspect-
-// Element + delete-node because the app isn't in the DOM (or in memory) to
-// begin with. Once the user clears the gate the children mount fresh.
 const App = () => {
   return (
     <ErrorBoundary>
-      <LandingOverlay>
-        <ReduxProvider store={store}>
-          <PrivyProvider
-            appId={privyAppId}
-            config={{
-              defaultChain: hyperEVM,
-              supportedChains: [hyperEVM],
-              appearance: {
-                theme: "dark",
-                accentColor: "#00ff88",
-                walletChainType: "ethereum-only",
+      <ReduxProvider store={store}>
+        <PrivyProvider
+          appId={privyAppId}
+          config={{
+            defaultChain: hyperEVM,
+            supportedChains: [hyperEVM],
+            appearance: {
+              theme: "dark",
+              accentColor: "#00ff88",
+              walletChainType: "ethereum-only",
+            },
+            loginMethods: ["wallet"],
+            externalWallets: {
+              coinbaseWallet: {
+                config: { preference: { options: "eoaOnly" } },
               },
-              loginMethods: ["wallet"],
-              externalWallets: {
-                coinbaseWallet: {
-                  config: { preference: { options: "eoaOnly" } },
-                },
-                walletConnect: { enabled: false },
-              },
-            }}
-          >
-            <QueryClientProvider client={queryClient}>
-              <WagmiProvider config={wagmiConfig}>
-                <ToastProvider>
-                  <RouterProvider router={router} />
-                </ToastProvider>
-              </WagmiProvider>
-            </QueryClientProvider>
-          </PrivyProvider>
-        </ReduxProvider>
-      </LandingOverlay>
+              walletConnect: { enabled: false },
+            },
+          }}
+        >
+          <QueryClientProvider client={queryClient}>
+            <WagmiProvider config={wagmiConfig}>
+              <ToastProvider>
+                <RouterProvider router={router} />
+              </ToastProvider>
+            </WagmiProvider>
+          </QueryClientProvider>
+        </PrivyProvider>
+      </ReduxProvider>
     </ErrorBoundary>
   );
 };
