@@ -13,6 +13,7 @@
  */
 
 import type { AppContext } from "../bot.js";
+import { sendStartPromptAfterTrade } from "../commands/start.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
@@ -447,6 +448,21 @@ export const runWithTxStatusUpdates = async (
 
   if (outcome !== null) {
     await safeEditStatus(args.target, renderConfirmReply(outcome));
+    // After a receipt-confirmed success the post-trade sweep inside
+    // `confirmTrade` deletes the originating token-detail card and
+    // staging prompt, leaving the receipt as the only visible bubble.
+    // Drop a fresh /start view directly underneath so the user has the
+    // home menu inline and can chain into the next buy/sell/positions
+    // without retyping `/start`. Only fires on `result.ok` — a pending
+    // or reverted outcome leaves the user's originating card in place
+    // so they can retry from it, and a duplicate home prompt below
+    // would just clutter that path.
+    if (
+      outcome.kind === "executed" &&
+      outcome.result.ok
+    ) {
+      await sendStartPromptAfterTrade(args.ctx, args.target.chatId);
+    }
     return outcome;
   }
 
