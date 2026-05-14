@@ -267,6 +267,116 @@ export const hourlyVolume = onchainTable("hourly_volume", (t) => ({
 }));
 
 /**
+ * Per-token aggregate row updated incrementally on every `Zap:Buy` / `Zap:Sell`
+ * event. Powers the trending tab in O(log N) regardless of catalogue size —
+ * `GET /api/v1/tokens?sort=trending` selects the top-K candidates by
+ * `baseScore` index, then re-scores them at the API layer with windowed inputs
+ * (`change24h`, `volume24hUsd`, freshness/recency/dead time terms). Replaces
+ * the legacy "newest 500 tokens, score in memory" candidate pool that was
+ * trivially spammable.
+ *
+ * Anti-spam by construction: `baseScore` is a log-scale function of three
+ * pure-activity signals, all zero for a token nobody trades:
+ *
+ *   baseScore = 15·log10(volumeUsdLifetime + 1)
+ *             + 10·log10(distinctTraderCount + 1)
+ *             +  5·log10(tradeCount + 1)
+ *
+ * Mass token creation alone does not move the needle — a spam burst of 500
+ * zero-trade tokens scores 0 each and ranks below any token that has had
+ * even one real trade.
+ *
+ * The score is deliberately a *candidate filter*, not the user-visible
+ * ranking. The API re-applies the full `computeTrendingScore` at read time
+ * on the top-K hydrated set so freshness, recency, and the dead-token
+ * penalty still apply (those are time-dependent and can't be precomputed
+ * cheaply). LT-rate drift is intentionally *not* a baseScore input — the
+ * 1Hz LtTicker cadence would fan out one DB write per LT-backed token per
+ * tick, defeating the point of the precompute.
+ */
+export const tokenMetrics = onchainTable("token_metrics", (t) => ({
+  tokenAddress: t.hex().primaryKey(),
+  /**
+   * Cumulative gross USDC routed through `Zap` for this token, 6dp. Mirrors
+   * `token.volumeUsd` but co-located on the metrics row for cache/index
+   * locality. Both columns are kept in lockstep by the same write.
+   */
+  volumeUsdLifetime: t.bigint().notNull().default(0n),
+  /** Cumulative count of `Zap.Buy` + `Zap.Sell` events on this token. */
+  tradeCount: t.integer().notNull().default(0),
+  /**
+   * Count of distinct wallets that have ever traded this token via Zap.
+   * Maintained via the `tokenTrader` side-table — a wallet's first trade
+   * inserts a row + bumps this counter; subsequent trades by the same wallet
+   * are no-ops here. Used as the primary anti-spam term in `baseScore`
+   * (self-trading bots can inflate `tradeCount` but not `distinctTraderCount`).
+   */
+  distinctTraderCount: t.integer().notNull().default(0),
+  /** Unix seconds of the most recent `Zap.Buy` / `Zap.Sell`. */
+  lastTradeAt: t.bigint(),
+  /**
+   * Precomputed trade-driven trending score. See file docstring for the
+   * formula. The `baseScoreIdx` lets `?sort=trending` answer top-K with a
+   * single ORDER BY + LIMIT regardless of catalogue size.
+   */
+  baseScore: t.real().notNull().default(0),
+  updatedAt: t.bigint().notNull(),
+}), (table) => ({
+  baseScoreIdx: index().on(table.baseScore),
+  lastTradeAtIdx: index().on(table.lastTradeAt),
+}));
+
+/**
+ * Per-(token, hour-start) volume + trade-count bucket — the per-token mirror
+ * of the platform-wide `hourlyVolume` table. The API sums the last 24 rows
+ * per token to derive exact 24h volume / trade count without scanning the
+ * `routerTrade` table.
+ *
+ * Storage scales as O(active-tokens × hours-active) = O(N) per day worst
+ * case (one bucket per token per active hour). At 100K tokens with 24
+ * active hours/day that's 2.4M new rows/day — small for Postgres given
+ * the `(tokenAddress, hourStart)` index.
+ *
+ * Id shape is `${tokenAddress}-${hourStart}` for upsert keying. We don't
+ * use `(tokenAddress, hourStart)` as a composite PK because Ponder's
+ * `db.update`/`db.find` APIs expect a single primary-key field.
+ */
+export const tokenHourlyMetrics = onchainTable("token_hourly_metrics", (t) => ({
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  hourStart: t.bigint().notNull(),
+  volumeUsd: t.bigint().notNull().default(0n),
+  tradeCount: t.integer().notNull().default(0),
+}), (table) => ({
+  tokenHourIdx: index().on(table.tokenAddress, table.hourStart),
+}));
+
+/**
+ * Membership table backing `tokenMetrics.distinctTraderCount`. One row per
+ * `(token, trader)` pair, inserted the first time a wallet trades that
+ * token via Zap. Subsequent trades by the same wallet on the same token
+ * are no-ops here.
+ *
+ * Kept separate from `tokenMetrics` so the bump-on-first-trade pattern is
+ * a single `find`+`insert` rather than re-reading a (potentially large)
+ * `traders` array column. Storage is bounded by the platform's lifetime
+ * distinct (token, wallet) pairs.
+ *
+ * Id shape mirrors `walletPosition` / `walletBotPosition`: `${trader}-${tokenAddress}`
+ * lower-cased by Ponder's hex type. The `tokenIdx` is for any future
+ * "list the wallets that have traded this token" debugging query — not
+ * read by the API yet.
+ */
+export const tokenTrader = onchainTable("token_trader", (t) => ({
+  id: t.text().primaryKey(),
+  tokenAddress: t.hex().notNull(),
+  trader: t.hex().notNull(),
+  firstTradedAt: t.bigint().notNull(),
+}), (table) => ({
+  tokenIdx: index().on(table.tokenAddress),
+}));
+
+/**
  * Per-(wallet, token) Zap-derived position state. Tracks cumulative net buys
  * minus sells (for proportional cost-basis math) and the running USDC cost
  * basis. Read by `/api/v1/portfolio` so cost basis no longer requires

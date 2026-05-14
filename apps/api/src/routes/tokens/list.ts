@@ -15,6 +15,7 @@ import {
   computeMarketDataForAddresses,
   fetchGraduatedTokensOnchain,
   fetchNonGraduatedTokensOnchain,
+  fetchTrendingCandidateAddresses,
   type MarketDataItem,
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
@@ -41,12 +42,22 @@ const LIST_CACHE_TTL_SECONDS = 5;
 // bursts so an outage doesn't amplify into load on the already-struggling
 // dependency, while still recovering within ~1s once it comes back.
 const DEGRADED_CACHE_TTL_SECONDS = 1;
-// Cap on how many tokens we'll enrich + score in a single trending
-// request. The path is O(N) in BounceTech / Ponder calls, so we don't
-// want it to grow unboundedly with the catalogue. When we outgrow this,
-// the right fix is a precomputed score column refreshed by a cron — not a
-// bigger cap.
+// How many candidate addresses to pull from the indexer's precomputed
+// `tokenMetrics.baseScore` index before re-scoring at the API layer. The
+// candidate filter is anti-spam by construction (every term in `baseScore`
+// is zero for tokens nobody trades, so spam launches stay below any
+// real-activity token), so the pool size is bounded for performance, not
+// for spam-resistance — 500 is enough to surface the page-100 trending slot
+// with margin while keeping the re-score O(500) per cache miss.
 const TRENDING_POOL_SIZE = 500;
+// Trending candidates must have traded within this window. Mirrors the
+// dead-token-penalty cutoff in `computeTrendingScore` (24h) — the rest of
+// the penalty math (≥ 7d old AND no trade in 24h → −1000) is applied at
+// re-score time on the hydrated slice. Pushing the 24h filter into the
+// indexer query keeps the response payload tight and lets the
+// `tokenMetrics.lastTradeAtIdx` index skip dead rows entirely on a viral
+// hour.
+const TRENDING_LAST_TRADE_WINDOW_SEC = 86_400;
 // Upper bound on how many graduated / graduating tokens we'll fetch from
 // Ponder for the status=graduated|graduating tabs. Same reasoning as
 // TRENDING_POOL_SIZE — bounded work per request, falls back to a cron-
@@ -669,26 +680,71 @@ listRoute.get("/", async (c) => {
     tokens.createdAt;
 
   // Trending needs a full-batch score/filter pass, so we can't push
-  // ORDER BY to Postgres. Pull the most recently launched
-  // `TRENDING_POOL_SIZE` tokens matching the filters, enrich, then sort +
-  // slice to the requested page in memory. "Most recent" is the right
-  // candidate window because the view is dominated by recent activity —
-  // a token that hasn't been touched in months is ~never moving.
+  // ORDER BY into Postgres. Two-stage approach:
+  //
+  //   1. Fetch the top-`TRENDING_POOL_SIZE` candidate addresses from the
+  //      indexer's precomputed `tokenMetrics.baseScore` index. The score
+  //      is anti-spam by construction (zero for tokens nobody trades), so
+  //      a flood of spam launches can no longer flush real candidates out
+  //      of the pool — the regression mode the legacy "newest 500 by
+  //      `createdAt DESC`" candidate selector had.
+  //   2. Hydrate from Postgres with the user's filters applied
+  //      (`status`, `underlying`, `direction`, etc.), enrich + re-score
+  //      with the full `computeTrendingScore` (which adds the
+  //      time-dependent freshness / recency / dead-penalty terms that we
+  //      deliberately don't precompute), then sort + slice the page.
+  //
+  // Failure mode: if the indexer is unreachable we fall back to the
+  // legacy "newest 500" candidate pool and mark the response degraded.
+  // This preserves trending visibility during Ponder outages at the cost
+  // of temporary spam-vulnerability — strictly better than a 503 on the
+  // home-page tab.
   const isScoredSort = sort === "trending";
-  const dbTokens = isScoredSort
-    ? await db
+  let trendingDegraded = false;
+  let dbTokens: DbToken[];
+  if (isScoredSort) {
+    const nowSecForCandidates = Math.floor(Date.now() / 1000);
+    const candidates = await fetchTrendingCandidateAddresses(
+      c.env.PONDER_URL,
+      TRENDING_POOL_SIZE,
+      nowSecForCandidates - TRENDING_LAST_TRADE_WINDOW_SEC,
+    );
+    if (candidates !== null) {
+      if (candidates.length === 0) {
+        // Indexer is up but no tokens have traded in the last 24h —
+        // legitimately-empty trending tab. Skip the DB roundtrip.
+        dbTokens = [];
+      } else {
+        // `tokens.address` is stored checksummed (`getAddress(...)` at
+        // insert time in `lib/token-registration.ts`); the indexer
+        // returns lowercased — checksum each for the SQL `IN (...)`.
+        const checksummed = candidates.map((addr) => getAddress(addr));
+        dbTokens = await db
+          .select()
+          .from(tokens)
+          .where(and(...conditions, inArray(tokens.address, checksummed)));
+      }
+    } else {
+      // Indexer down — fall back to the legacy createdAt-DESC candidate
+      // pool so the tab keeps rendering. Tagged `dataSource: "degraded"`
+      // below; the brief spam-vulnerability is preferable to a 503.
+      trendingDegraded = true;
+      dbTokens = await db
         .select()
         .from(tokens)
         .where(and(...conditions))
         .orderBy(desc(tokens.createdAt))
-        .limit(TRENDING_POOL_SIZE)
-    : await db
-        .select()
-        .from(tokens)
-        .where(and(...conditions))
-        .orderBy(dir(sortColumn))
-        .limit(limit)
-        .offset(offset);
+        .limit(TRENDING_POOL_SIZE);
+    }
+  } else {
+    dbTokens = await db
+      .select()
+      .from(tokens)
+      .where(and(...conditions))
+      .orderBy(dir(sortColumn))
+      .limit(limit)
+      .offset(offset);
+  }
 
   if (dbTokens.length === 0) {
     const empty = c.json(formatSuccess([], "live"));
@@ -757,10 +813,11 @@ listRoute.get("/", async (c) => {
     enriched = scored.slice(offset, offset + limit).map((s) => s.token);
   }
 
+  const isLive = marketResult.ok && !trendingDegraded;
   const response = c.json(
-    formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
+    formatSuccess(enriched, isLive ? "live" : "degraded"),
   );
-  const ttl = marketResult.ok ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
+  const ttl = isLive ? LIST_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
   response.headers.set("Cache-Control", `s-maxage=${ttl}`);
   if (cache) {
     await cache.put(cacheKey, response.clone());
