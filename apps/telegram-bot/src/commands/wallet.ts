@@ -202,6 +202,7 @@ const renameWalletConversation = async (
   const reply = await conversation.waitFor("message:text");
   await trackWorkflowMessage(conversation, reply.message.message_id);
   const label = reply.message.text.trim();
+  if (isOtherSlashCommand(label)) await haltAndForward(conversation);
   if (await tryAddressBuyIntercept(conversation, label)) return;
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
@@ -779,6 +780,7 @@ const deleteWalletConversation = async (
   const confirmMsg = await conversation.waitFor("message:text");
   await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
   const confirmText = confirmMsg.message.text.trim();
+  if (isOtherSlashCommand(confirmText)) await haltAndForward(conversation);
   if (await tryAddressBuyIntercept(conversation, confirmText)) return;
   if (confirmText !== "DELETE") {
     // Anything other than the exact uppercase token aborts — lowercase,

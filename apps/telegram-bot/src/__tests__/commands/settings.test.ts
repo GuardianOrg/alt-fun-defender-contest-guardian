@@ -322,6 +322,17 @@ describe("/settings command", () => {
       await h.run(textUpdate("/positions", 3));
 
       expect((await readSession(h)).slippageBps).toBe(1000);
+      // The wizard's numeric-retry copy must NOT fire — proves the slash
+      // halted the conversation rather than the prompt rejecting
+      // "/positions" as an invalid number and looping the user.
+      const calls = capture(fetchSpy);
+      expect(
+        calls.some(
+          (c) =>
+            c.url.includes("/sendMessage") &&
+            /positive number/i.test(String(c.body.text)),
+        ),
+      ).toBe(false);
     });
   });
 
