@@ -25,7 +25,7 @@ contract BotFeeRouter is ReentrancyGuard {
     /// @notice Identifies the deployed parameter set. Bumped on every
     ///         redeploy so off-chain bots / indexers can pin to a known
     ///         fee + skim configuration without ABI introspection.
-    string public constant VERSION = "1.0.0";
+    string public constant VERSION = "1.0.1";
 
     uint256 public constant BPS_DENOM = 10_000;
     /// @notice Flat bot fee on USDC notional (buy gross + sell gross).
@@ -105,10 +105,13 @@ contract BotFeeRouter is ReentrancyGuard {
         bytes32 r,
         bytes32 s
     ) external nonReentrant returns (uint256 tokensOut) {
-        // Permit allowance against THIS router, then pull. Permit failure
-        // (front-run, non-permit token) is fatal here — the bot only takes
-        // this branch when permit signing succeeded off-chain.
-        IERC20Permit(address(usdc)).permit(msg.sender, address(this), usdcAmount, deadline, v, r, s);
+        // try/catch defuses the standard permit-front-run grief: an attacker
+        // copies the sig from the mempool and lands it first, consuming the
+        // nonce. The allowance is set either way, so the follow-on
+        // `safeTransferFrom` still succeeds. A genuinely bad permit reverts
+        // at the transfer with insufficient allowance. Same pattern as
+        // `Zap._tryPermit`.
+        try IERC20Permit(address(usdc)).permit(msg.sender, address(this), usdcAmount, deadline, v, r, s) {} catch {}
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         return _buy(token, usdcAmount, minTokensOut, referrer);
     }
@@ -180,7 +183,8 @@ contract BotFeeRouter is ReentrancyGuard {
         bytes32 r,
         bytes32 s
     ) external nonReentrant returns (uint256 usdcOut) {
-        IERC20Permit(token).permit(msg.sender, address(this), tokenAmount, deadline, v, r, s);
+        // See `buyWithBotFeePermit` for the front-run rationale.
+        try IERC20Permit(token).permit(msg.sender, address(this), tokenAmount, deadline, v, r, s) {} catch {}
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokenAmount);
         return _sell(token, tokenAmount, minUsdcOut, referrer);
     }

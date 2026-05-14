@@ -112,7 +112,7 @@ contract BotFeeRouterTest is DeployHelper {
     }
 
     function test_constants_match_spec() public view {
-        assertEq(router.VERSION(), "1.0.0", "deployed parameter set");
+        assertEq(router.VERSION(), "1.0.1", "deployed parameter set");
         assertEq(router.BOT_FEE_BPS(), 50, "0.5% bot fee");
         assertEq(router.REFERRER_SHARE_BPS(), 2000, "20% referrer share");
         assertEq(router.BPS_DENOM(), 10_000);
@@ -360,6 +360,55 @@ contract BotFeeRouterTest is DeployHelper {
             router.sellWithBotFeePermit(tokenAddr, tokensOwned, 0, address(0), block.timestamp + 1 hours, v, r, s);
 
         assertGt(usdcOut, 0);
+    }
+
+    /// @notice Regression: an attacker who copies the permit sig from the
+    ///         mempool and lands it first consumes the nonce — but the
+    ///         allowance is set. The router's `try/catch` must let the
+    ///         legitimate tx's follow-on `safeTransferFrom` succeed
+    ///         instead of reverting on the now-stale permit. Without the
+    ///         try/catch this test reverts inside the second `permit` call.
+    function test_buyWithBotFeePermit_frontRunNonceConsumed_stillSucceeds() public {
+        address tokenAddr = _launchTokenSeeded();
+        uint256 amount = 100 ether;
+        usdc.mint(signer.addr, amount);
+
+        (uint8 v, bytes32 r, bytes32 s) =
+            _signUsdcPermit(signer.addr, signer.privateKey, address(router), amount, block.timestamp + 1 hours);
+
+        // Attacker lifts the sig and lands `permit` first, consuming the
+        // nonce and setting the allowance against the router.
+        IERC20Permit(address(usdc)).permit(signer.addr, address(router), amount, block.timestamp + 1 hours, v, r, s);
+
+        vm.prank(signer.addr);
+        uint256 tokensOut =
+            router.buyWithBotFeePermit(tokenAddr, amount, 0, address(0), block.timestamp + 1 hours, v, r, s);
+
+        assertGt(tokensOut, 0, "buy completes despite consumed nonce");
+        assertEq(IERC20(tokenAddr).balanceOf(signer.addr), tokensOut);
+    }
+
+    /// @notice Sell-side equivalent of the buy permit-front-run regression.
+    function test_sellWithBotFeePermit_frontRunNonceConsumed_stillSucceeds() public {
+        address tokenAddr = _launchTokenSeeded();
+        uint256 buyUsdc = 200 ether;
+        usdc.mint(signer.addr, buyUsdc);
+        vm.startPrank(signer.addr);
+        usdc.approve(address(router), buyUsdc);
+        uint256 tokensOwned = router.buyWithBotFee(tokenAddr, buyUsdc, 0, address(0));
+        vm.stopPrank();
+
+        (uint8 v, bytes32 r, bytes32 s) = _signTokenPermit(
+            tokenAddr, signer.addr, signer.privateKey, address(router), tokensOwned, block.timestamp + 1 hours
+        );
+
+        IERC20Permit(tokenAddr).permit(signer.addr, address(router), tokensOwned, block.timestamp + 1 hours, v, r, s);
+
+        vm.prank(signer.addr);
+        uint256 usdcOut =
+            router.sellWithBotFeePermit(tokenAddr, tokensOwned, 0, address(0), block.timestamp + 1 hours, v, r, s);
+
+        assertGt(usdcOut, 0, "sell completes despite consumed nonce");
     }
 
     // ─── Reentrancy / sanity ─────────────────────────────────────────────
