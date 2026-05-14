@@ -29,7 +29,7 @@ import type {
 /**
  * Direct-SQL replacements for the Ponder GraphQL fetchers that used to back
  * every user-facing read on the API. Ponder still owns the *writes* — the
- * indexer process keeps `ponder_prod.*` up to date on every chain event — but
+ * indexer process keeps `ponder_views.*` up to date on every chain event — but
  * the API now reads from those tables directly via Drizzle on the existing
  * Neon connection. This eliminates the GraphQL hop entirely:
  *
@@ -288,7 +288,7 @@ export async function fetchHistoricalCurveSnapshots(
         curve_supply::text AS curve_supply,
         lt_reserve::text AS lt_reserve,
         timestamp::text AS timestamp
-      FROM ponder_prod.token_snapshot
+      FROM ponder_views.token_snapshot
       WHERE token_address = ANY(${lowered}::text[])
         AND timestamp <= ${cutoffSec}::numeric
       ORDER BY token_address, timestamp DESC
@@ -556,8 +556,8 @@ export async function fetchPortfolioPositions(
         b.token_address     AS token_address,
         b.balance::text     AS balance,
         COALESCE(p.cost_basis_usdc, 0)::text AS cost_basis_usdc
-      FROM ponder_prod.token_balance b
-      LEFT JOIN ponder_prod.wallet_position p
+      FROM ponder_views.token_balance b
+      LEFT JOIN ponder_views.wallet_position p
         ON p.wallet = b.wallet AND p.token_address = b.token_address
       WHERE b.wallet = ${lowered}
         AND b.balance > 0

@@ -14,10 +14,10 @@ const SECONDS_PER_HOUR = 3600;
  * Platform-wide stats. Two cheap reads replace the old "paginate every token
  * + every 24h trade" approach (issue #397):
  *
- *   1. `ponder_prod.global_stats` singleton — token counts and lifetime
+ *   1. `ponder_views.global_stats` singleton — token counts and lifetime
  *      volume, kept in lockstep on every TokenLaunched / TokenGraduated /
  *      Zap.Buy / Zap.Sell by the indexer.
- *   2. `ponder_prod.hourly_volume` — one row per hour-start, summed across
+ *   2. `ponder_views.hourly_volume` — one row per hour-start, summed across
  *      the last 25 buckets by Postgres so `volume24h` falls out of a
  *      bounded-cost aggregation.
  *

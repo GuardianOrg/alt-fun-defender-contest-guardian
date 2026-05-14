@@ -89,7 +89,7 @@ interface RawTrade {
 /**
  * Enrich a list of `router_trade` rows with the corresponding token's
  * display labels (`tokenSymbol` / `tokenName`) by issuing a single
- * `SELECT … WHERE address IN (...)` against `ponder_prod.token` for the
+ * `SELECT … WHERE address IN (...)` against `ponder_views.token` for the
  * unique addresses in the batch.
  *
  * Failure-mode: when the label fetch fails, the trades are returned with

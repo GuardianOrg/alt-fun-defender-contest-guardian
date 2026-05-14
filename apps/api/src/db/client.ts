@@ -8,13 +8,18 @@ import * as indexerSchema from "./indexer-schema.js";
  * Combined Drizzle schema covering both:
  *
  *   - The API's own `public.*` tables (`tokens`, `api_keys`, …).
- *   - The indexer's `ponder_prod.*` tables exposed read-only via the
+ *   - The indexer's `ponder_views.*` views exposed read-only via the
  *     handles in `indexer-schema.ts`.
  *
  * They live in the same Neon database, so a single Drizzle instance can
  * address both. Drizzle scopes each query by the table object the caller
  * imports — the API tables resolve to `public.*` and the indexer ones to
- * `ponder_prod.*` (via `pgSchema(...)` in `indexer-schema.ts`).
+ * `ponder_views.*` (via `pgSchema(...)` in `indexer-schema.ts`).
+ *
+ * `ponder_views` is the stable views layer; the underlying tables live in
+ * a per-deploy schema (`$RAILWAY_DEPLOYMENT_ID`) that flips on every
+ * indexer redeploy. See `apps/api/src/db/indexer-schema.ts` for the full
+ * lifecycle.
  *
  * This is the foundation for the "read direct from Postgres" migration off
  * the Ponder GraphQL hop. See `lib/indexer-reads.ts` for the typed read

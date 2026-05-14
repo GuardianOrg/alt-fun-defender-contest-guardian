@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "start": "ponder start --hostname 0.0.0.0",
+    "start": "ponder start --hostname 0.0.0.0 --schema=$RAILWAY_DEPLOYMENT_ID --views-schema=ponder_views",
     "serve": "ponder serve",
     "codegen": "ponder codegen",
     "typecheck": "tsc --noEmit",

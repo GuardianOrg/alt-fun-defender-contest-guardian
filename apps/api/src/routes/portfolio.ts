@@ -12,8 +12,8 @@ const portfolio = new Hono<{ Bindings: AppBindings }>();
 
 /**
  * Wallet positions. Now sourced via a direct SQL LEFT JOIN between the
- * indexer's `ponder_prod.token_balance` (one row per ERC-20 Transfer,
- * including non-Zap activity) and `ponder_prod.wallet_position` (Zap-only
+ * indexer's `ponder_views.token_balance` (one row per ERC-20 Transfer,
+ * including non-Zap activity) and `ponder_views.wallet_position` (Zap-only
  * cost basis). One Postgres round-trip on the same Neon connection the API
  * already uses — replaces the legacy two-GraphQL-query Ponder hit and the
  * "paginate up to 20K trades" implementation before that (issue #397).

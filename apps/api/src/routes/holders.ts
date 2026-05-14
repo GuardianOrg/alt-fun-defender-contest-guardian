@@ -26,7 +26,7 @@ const holders = new Hono<{ Bindings: AppBindings }>();
 
 /**
  * Holder list for a given token. Sourced from the indexer's
- * `ponder_prod.token_balance` table (updated on every `Transfer`) so direct
+ * `ponder_views.token_balance` table (updated on every `Transfer`) so direct
  * ERC-20 transfers, post-graduation HyperSwap swaps that don't go through
  * Zap, and any future protocol integrators are all reflected — the previous
  * implementation reconstructed balances from `routerTrades` only and

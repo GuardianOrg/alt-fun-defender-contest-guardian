@@ -163,7 +163,7 @@ export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
  * Addresses not present in the indexer's `token` table are simply omitted
  * from the result.
  *
- * Reads `ponder_prod.token` directly — see `lib/indexer-reads.ts` for the
+ * Reads `ponder_views.token` directly — see `lib/indexer-reads.ts` for the
  * underlying SQL. The legacy GraphQL paginator this used to fan out to is
  * gone; every read is a single Postgres round-trip.
  */
@@ -195,7 +195,7 @@ export async function fetchTokensOnchainByAddresses(
  * Fetch graduated tokens ordered by `graduatedAt desc`, paginated. Used by
  * the GRADUATED tab: Postgres' `status` column on `public.tokens` is never
  * flipped to "graduated" (the indexer is source of truth), so we drive the
- * list off `ponder_prod.token` and batch-lookup the metadata rows from the
+ * list off `ponder_views.token` and batch-lookup the metadata rows from the
  * API's own DB.
  */
 export async function fetchGraduatedTokensOnchain(
@@ -280,7 +280,7 @@ export interface RouterTradeActivity {
  * (lowercased). Used to power the trending score's volume + recency terms,
  * and to expose `volume24hUsd` / `lastTradeAt` on the token list response.
  *
- * Implemented as a single `SUM ... GROUP BY` against `ponder_prod.router_trade`
+ * Implemented as a single `SUM ... GROUP BY` against `ponder_views.router_trade`
  * (see `indexer-reads.ts → fetchRouterTradeActivity`). There's no truncation
  * case anymore — Postgres aggregates the full window in one shot — so the
  * `null` return now strictly means "the underlying read threw". Tokens with
@@ -311,7 +311,7 @@ export async function fetchTokenOnchain(
  * "everything failed" one.
  *
  * Replaces the legacy aliased-GraphQL batching with a single
- * `DISTINCT ON (token_address)` scan against `ponder_prod.token_snapshot`.
+ * `DISTINCT ON (token_address)` scan against `ponder_views.token_snapshot`.
  */
 export async function fetchHistoricalCurveSnapshots(
   databaseUrl: string,

@@ -8,26 +8,31 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Drizzle handles for the indexer-owned tables that live in the
- * `ponder_prod` Postgres schema (see `apps/indexer/ponder.schema.ts` for the
+ * Drizzle handles for the indexer-owned objects that live in the
+ * `ponder_views` Postgres schema (see `apps/indexer/ponder.schema.ts` for the
  * canonical write-side definitions, and the Ponder runtime for how those
  * map to columns here).
  *
  * **Read-only from this side.** Ponder is the source of truth for every
  * column below — it writes them on chain events and handles reorg-aware
  * versioning internally. The API queries the finalized tables (NOT the
- * `_reorg__*` shadows in the same schema) so we always observe the same
- * "current finalized state" surface the GraphQL layer used to expose, just
- * without the GraphQL hop.
+ * `_reorg__*` shadows) so we always observe the same "current finalized
+ * state" surface the GraphQL layer used to expose, just without the
+ * GraphQL hop.
  *
- * The Postgres schema name is hardcoded to `ponder_prod` to match the
- * production deployment. If/when we add a non-prod indexer schema (preview
- * branches, staging), surface it as an env var and parameterise here.
+ * **`ponder_views` is a stable views layer, not where data lives.** Each
+ * indexer deploy writes its tables into a per-deploy Postgres schema
+ * (`--schema=$RAILWAY_DEPLOYMENT_ID`) and Ponder's `db create-views`
+ * step (auto-run when the new deployment hits `/ready`) drops + recreates
+ * `ponder_views.<table>` as `SELECT * FROM <deploy_id>.<table>`. The API
+ * keeps reading the same `ponder_views.*` names while the underlying
+ * tables transparently flip on every deploy — see `apps/indexer/AGENTS.md`
+ * → *Hosting* for the full lifecycle.
  */
-const ponderSchema = pgSchema("ponder_prod");
+const ponderSchema = pgSchema("ponder_views");
 
 /**
- * `ponder_prod.token` — one row per launched Alt Fun token, updated on
+ * `ponder_views.token` — one row per launched Alt Fun token, updated on
  * `Bonding.TokenLaunched` / `Bonding.Trade` / `Bonding.TokenGraduating` /
  * `Bonding.TokenGraduated` / `Zap.Buy` / `Zap.Sell` / `FeeVault.FeeAccrued`
  * (and the HyperSwap `Sync` mirror post-graduation).
@@ -65,7 +70,7 @@ export const indexerToken = ponderSchema.table(
 );
 
 /**
- * `ponder_prod.router_trade` — USDC-denominated trades emitted from the
+ * `ponder_views.router_trade` — USDC-denominated trades emitted from the
  * `Zap` router. Covers both curve and post-graduation activity (Zap is the
  * only user-facing entry point in either phase). Surfaced verbatim by the
  * `/trades` API and consumed in aggregate by the `/tokens` list for the
@@ -91,7 +96,7 @@ export const indexerRouterTrade = ponderSchema.table(
 );
 
 /**
- * `ponder_prod.token_balance` — per-(wallet, token) live balance, updated on
+ * `ponder_views.token_balance` — per-(wallet, token) live balance, updated on
  * every ERC-20 `Transfer`. The `id` column is the composite `${wallet}-${tokenAddress}`
  * key Ponder uses internally; callers should match on `(wallet, tokenAddress)`
  * rather than reconstructing the id.
@@ -111,7 +116,7 @@ export const indexerTokenBalance = ponderSchema.table(
 );
 
 /**
- * `ponder_prod.wallet_position` — Zap-only running cost basis per
+ * `ponder_views.wallet_position` — Zap-only running cost basis per
  * (wallet, token). Independent from `token_balance`: this only tracks
  * Zap-mediated buys/sells (so a wallet that received tokens via direct
  * Transfer correctly shows a positive balance with zero cost basis).
@@ -129,7 +134,7 @@ export const indexerWalletPosition = ponderSchema.table(
 );
 
 /**
- * `ponder_prod.token_snapshot` — post-trade curve state, written on every
+ * `ponder_views.token_snapshot` — post-trade curve state, written on every
  * `Bonding.Trade` (and on `HyperSwapPair.Sync` post-graduation). Used to
  * reconstruct a token's curve ratio at a past timestamp for 24h-change deltas.
  * The `(token_address, timestamp)` composite index is the read shape — see
@@ -154,7 +159,7 @@ export const indexerTokenSnapshot = ponderSchema.table(
 );
 
 /**
- * `ponder_prod.global_stats` — singleton row keyed `"global"` with
+ * `ponder_views.global_stats` — singleton row keyed `"global"` with
  * platform-wide counters (`/api/v1/stats`). Bumped on every TokenLaunched /
  * TokenGraduated / Zap.Buy / Zap.Sell in lockstep with the per-token
  * counters on `indexerToken`.
@@ -168,7 +173,7 @@ export const indexerGlobalStats = ponderSchema.table("global_stats", {
 });
 
 /**
- * `ponder_prod.hourly_volume` — one row per hour-start Unix timestamp
+ * `ponder_views.hourly_volume` — one row per hour-start Unix timestamp
  * (`floor(ts / 3600) * 3600`). Used by `/api/v1/stats` to derive 24h volume
  * from a bounded 25-row scan (the extra bucket gives the rolling window a
  * full 24h regardless of where in the hour the request lands).
@@ -179,7 +184,7 @@ export const indexerHourlyVolume = ponderSchema.table("hourly_volume", {
 });
 
 /**
- * `ponder_prod.token_metrics` — per-token derived counters maintained by
+ * `ponder_views.token_metrics` — per-token derived counters maintained by
  * the indexer (lifetime volume / trade count / distinct traders / last
  * trade timestamp / a precomputed base trending score). Not currently
  * consumed by the API list route — the trending sort still computes the
