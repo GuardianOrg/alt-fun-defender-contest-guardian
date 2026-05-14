@@ -89,3 +89,24 @@
   border-radius: 9999px;
 }
 
+/* Below 1240px the inline filter rail won't fit on the same row as the
+ * lifecycle tabs without crowding the primary navigation. Stack the bar
+ * into two sub-bands instead: tabs on top, the filter rail (rendered
+ * directly underneath via `TableFilters.module.css`'s matching media
+ * query) on the bottom. Both bands sit inside the same `tableSection`
+ * frame so the bottom border on `.bar` still bounds the wrapped pair
+ * as one block — we drop the inter-band gap and let the tabs row's
+ * own bottom border (added below) act as the divider so the visual
+ * read is "two compact rows" rather than "two floating chips of UI".
+ */
+@media (max-width: 1239px) {
+  .bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .tabs {
+    border-bottom: 1px solid var(--border);
+  }
+}

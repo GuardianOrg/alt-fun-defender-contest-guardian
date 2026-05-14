@@ -50,6 +50,12 @@ type Query {
   globalStatss(where: globalStatsFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): globalStatsPage!
   hourlyVolume(hourStart: BigInt!): hourlyVolume
   hourlyVolumes(where: hourlyVolumeFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): hourlyVolumePage!
+  tokenMetrics(tokenAddress: String!): tokenMetrics
+  tokenMetricss(where: tokenMetricsFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenMetricsPage!
+  tokenHourlyMetrics(id: String!): tokenHourlyMetrics
+  tokenHourlyMetricss(where: tokenHourlyMetricsFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenHourlyMetricsPage!
+  tokenTrader(id: String!): tokenTrader
+  tokenTraders(where: tokenTraderFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): tokenTraderPage!
   walletPosition(id: String!): walletPosition
   walletPositions(where: walletPositionFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): walletPositionPage!
   botRouterTrade(id: String!): botRouterTrade
@@ -1298,6 +1304,216 @@ input hourlyVolumeFilter {
   volumeUsd_lt: BigInt
   volumeUsd_gte: BigInt
   volumeUsd_lte: BigInt
+}
+
+type tokenMetrics {
+  tokenAddress: String!
+  volumeUsdLifetime: BigInt!
+  tradeCount: Int!
+  distinctTraderCount: Int!
+  lastTradeAt: BigInt
+  baseScore: Float!
+  updatedAt: BigInt!
+}
+
+type tokenMetricsPage {
+  items: [tokenMetrics!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input tokenMetricsFilter {
+  AND: [tokenMetricsFilter]
+  OR: [tokenMetricsFilter]
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  volumeUsdLifetime: BigInt
+  volumeUsdLifetime_not: BigInt
+  volumeUsdLifetime_in: [BigInt]
+  volumeUsdLifetime_not_in: [BigInt]
+  volumeUsdLifetime_gt: BigInt
+  volumeUsdLifetime_lt: BigInt
+  volumeUsdLifetime_gte: BigInt
+  volumeUsdLifetime_lte: BigInt
+  tradeCount: Int
+  tradeCount_not: Int
+  tradeCount_in: [Int]
+  tradeCount_not_in: [Int]
+  tradeCount_gt: Int
+  tradeCount_lt: Int
+  tradeCount_gte: Int
+  tradeCount_lte: Int
+  distinctTraderCount: Int
+  distinctTraderCount_not: Int
+  distinctTraderCount_in: [Int]
+  distinctTraderCount_not_in: [Int]
+  distinctTraderCount_gt: Int
+  distinctTraderCount_lt: Int
+  distinctTraderCount_gte: Int
+  distinctTraderCount_lte: Int
+  lastTradeAt: BigInt
+  lastTradeAt_not: BigInt
+  lastTradeAt_in: [BigInt]
+  lastTradeAt_not_in: [BigInt]
+  lastTradeAt_gt: BigInt
+  lastTradeAt_lt: BigInt
+  lastTradeAt_gte: BigInt
+  lastTradeAt_lte: BigInt
+  baseScore: Float
+  baseScore_not: Float
+  baseScore_in: [Float]
+  baseScore_not_in: [Float]
+  baseScore_gt: Float
+  baseScore_lt: Float
+  baseScore_gte: Float
+  baseScore_lte: Float
+  updatedAt: BigInt
+  updatedAt_not: BigInt
+  updatedAt_in: [BigInt]
+  updatedAt_not_in: [BigInt]
+  updatedAt_gt: BigInt
+  updatedAt_lt: BigInt
+  updatedAt_gte: BigInt
+  updatedAt_lte: BigInt
+}
+
+type tokenHourlyMetrics {
+  id: String!
+  tokenAddress: String!
+  hourStart: BigInt!
+  volumeUsd: BigInt!
+  tradeCount: Int!
+}
+
+type tokenHourlyMetricsPage {
+  items: [tokenHourlyMetrics!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input tokenHourlyMetricsFilter {
+  AND: [tokenHourlyMetricsFilter]
+  OR: [tokenHourlyMetricsFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  hourStart: BigInt
+  hourStart_not: BigInt
+  hourStart_in: [BigInt]
+  hourStart_not_in: [BigInt]
+  hourStart_gt: BigInt
+  hourStart_lt: BigInt
+  hourStart_gte: BigInt
+  hourStart_lte: BigInt
+  volumeUsd: BigInt
+  volumeUsd_not: BigInt
+  volumeUsd_in: [BigInt]
+  volumeUsd_not_in: [BigInt]
+  volumeUsd_gt: BigInt
+  volumeUsd_lt: BigInt
+  volumeUsd_gte: BigInt
+  volumeUsd_lte: BigInt
+  tradeCount: Int
+  tradeCount_not: Int
+  tradeCount_in: [Int]
+  tradeCount_not_in: [Int]
+  tradeCount_gt: Int
+  tradeCount_lt: Int
+  tradeCount_gte: Int
+  tradeCount_lte: Int
+}
+
+type tokenTrader {
+  id: String!
+  tokenAddress: String!
+  trader: String!
+  firstTradedAt: BigInt!
+}
+
+type tokenTraderPage {
+  items: [tokenTrader!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+input tokenTraderFilter {
+  AND: [tokenTraderFilter]
+  OR: [tokenTraderFilter]
+  id: String
+  id_not: String
+  id_in: [String]
+  id_not_in: [String]
+  id_contains: String
+  id_not_contains: String
+  id_starts_with: String
+  id_ends_with: String
+  id_not_starts_with: String
+  id_not_ends_with: String
+  id_contains_nocase: String
+  id_not_contains_nocase: String
+  id_starts_with_nocase: String
+  id_ends_with_nocase: String
+  id_not_starts_with_nocase: String
+  id_not_ends_with_nocase: String
+  tokenAddress: String
+  tokenAddress_not: String
+  tokenAddress_in: [String]
+  tokenAddress_not_in: [String]
+  tokenAddress_contains: String
+  tokenAddress_not_contains: String
+  tokenAddress_starts_with: String
+  tokenAddress_ends_with: String
+  tokenAddress_not_starts_with: String
+  tokenAddress_not_ends_with: String
+  trader: String
+  trader_not: String
+  trader_in: [String]
+  trader_not_in: [String]
+  trader_contains: String
+  trader_not_contains: String
+  trader_starts_with: String
+  trader_ends_with: String
+  trader_not_starts_with: String
+  trader_not_ends_with: String
+  firstTradedAt: BigInt
+  firstTradedAt_not: BigInt
+  firstTradedAt_in: [BigInt]
+  firstTradedAt_not_in: [BigInt]
+  firstTradedAt_gt: BigInt
+  firstTradedAt_lt: BigInt
+  firstTradedAt_gte: BigInt
+  firstTradedAt_lte: BigInt
 }
 
 type walletPosition {

@@ -14,7 +14,7 @@ test.describe("Search", () => {
 
     // Search input should be visible
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).toBeVisible();
 
     // Modal should show trending section
@@ -25,7 +25,7 @@ test.describe("Search", () => {
     await page.keyboard.press("Control+k");
 
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).toBeVisible();
   });
 
@@ -35,40 +35,38 @@ test.describe("Search", () => {
     await page.locator("text=Search tokens…").click();
 
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).toBeVisible();
   });
 
   test("closes search modal with Escape key", async ({ page }) => {
     await page.keyboard.press("Meta+k");
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).toBeVisible();
 
     await page.keyboard.press("Escape");
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).not.toBeVisible();
   });
 
   test("closes search modal by clicking esc badge", async ({ page }) => {
     await page.keyboard.press("Meta+k");
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).toBeVisible();
 
     await page.locator("text=esc").click();
     await expect(
-      page.locator('input[placeholder="Search tokens, tickers…"]'),
+      page.locator('input[placeholder="Search for tokens…"]'),
     ).not.toBeVisible();
   });
 
   test("can type a search query", async ({ page }) => {
     await page.keyboard.press("Meta+k");
 
-    const searchInput = page.locator(
-      'input[placeholder="Search tokens, tickers…"]',
-    );
+    const searchInput = page.locator('input[placeholder="Search for tokens…"]');
     await searchInput.fill("HYPE");
 
     await expect(searchInput).toHaveValue("HYPE");
@@ -90,9 +88,7 @@ test.describe("Search", () => {
   }) => {
     await page.keyboard.press("Meta+k");
 
-    const searchInput = page.locator(
-      'input[placeholder="Search tokens, tickers…"]',
-    );
+    const searchInput = page.locator('input[placeholder="Search for tokens…"]');
     await expect(searchInput).toBeFocused();
 
     await searchInput.pressSequentially("HYPE", { delay: 60 });
@@ -113,14 +109,10 @@ test.describe("Search", () => {
     await page.keyboard.press("Meta+k");
 
     await expect(page.locator("text=RECENTLY VIEWED")).toBeVisible();
-    await expect(
-      page.locator("text=No recently viewed tokens"),
-    ).toBeVisible();
+    await expect(page.locator("text=No recently viewed tokens")).toBeVisible();
   });
 
-  test("clicking a search result navigates to token page", async ({
-    page,
-  }) => {
+  test("clicking a search result navigates to token page", async ({ page }) => {
     await page.keyboard.press("Meta+k");
 
     // If trending tokens are visible, click one

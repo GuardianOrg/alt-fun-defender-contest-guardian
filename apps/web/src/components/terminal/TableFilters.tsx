@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 
 import { getAssetDisplayName } from "@launchpad/shared";
 import { useDispatch, useSelector } from "react-redux";
@@ -75,6 +75,11 @@ interface PopoverProps {
   children: ReactNode;
 }
 
+/** Gap between the anchor's bottom edge and the popover's top edge, in px.
+ *  Mirrors the legacy `top: calc(100% + 0.4rem)` rule that lived in the
+ *  CSS module when the popover was still absolutely positioned. */
+const POPOVER_OFFSET_PX = 4;
+
 /**
  * Anchored popover used by all three filter triggers. Mirrors the
  * lightweight pattern from `DocsMenu` / `SettingsPopup`: outside-click +
@@ -82,6 +87,17 @@ interface PopoverProps {
  * clicks inside the trigger wrapper so a second click on the same trigger
  * cleanly closes the popover (without racing the document `mousedown`
  * that would otherwise re-open it on the trailing click event).
+ *
+ * Positioning is `position: fixed` driven by the anchor's
+ * `getBoundingClientRect()`, NOT `position: absolute` against the
+ * trigger wrap. The absolutely-positioned version got vertically
+ * clipped whenever the rail scrolled sideways on narrow viewports:
+ * the rail's `overflow-x: auto` forces `overflow-y` to compute to
+ * `auto` too (CSS spec rule — the two axes can't disagree on
+ * visibility), so anything dropping below the rail's bottom edge
+ * gets cut off. Fixed positioning escapes the rail's overflow box
+ * via the viewport, and a scroll-capture listener keeps the popover
+ * glued to the trigger as the rail or the page scrolls.
  */
 function FilterPopover({
   anchorRef,
@@ -89,10 +105,60 @@ function FilterPopover({
   align = "left",
   children,
 }: PopoverProps) {
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<CSSProperties | null>(null);
+
+  // `useLayoutEffect` so the first paint already has correct coords —
+  // a one-frame jump from (0, 0) to the anchor's location otherwise
+  // shows up as a visible flicker on open. Capture-phase `scroll`
+  // listener catches scrolls on any element in the document
+  // (including the rail's own overflow scroll on narrow viewports),
+  // not just the window — so the popover follows the trigger when
+  // the user side-scrolls the filter rail under it.
+  useLayoutEffect(() => {
+    const update = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      if (align === "right") {
+        setPosition({
+          position: "fixed",
+          top: rect.bottom + POPOVER_OFFSET_PX,
+          right: Math.max(window.innerWidth - rect.right, 0),
+        });
+      } else {
+        setPosition({
+          position: "fixed",
+          top: rect.bottom + POPOVER_OFFSET_PX,
+          left: Math.max(rect.left, 0),
+        });
+      }
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [anchorRef, align]);
+
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // Two-way contain check: the popover is now `position: fixed`
+      // and lives outside the trigger's clipping box, but it's still
+      // a DOM descendant of the same `.triggerWrap` (since we don't
+      // portal). The `anchor.contains` check already covers clicks
+      // on the popover via the trigger-wrap relationship, but the
+      // `popoverRef` check is kept as a defensive belt — if a future
+      // refactor portals this out of the trigger wrap, the popover-
+      // click path still won't accidentally close itself.
       const anchor = anchorRef.current;
-      if (anchor && !anchor.contains(e.target as Node)) onClose();
+      const popover = popoverRef.current;
+      if (anchor?.contains(target)) return;
+      if (popover?.contains(target)) return;
+      onClose();
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -105,12 +171,16 @@ function FilterPopover({
     };
   }, [anchorRef, onClose]);
 
+  // Suppress the first paint until `useLayoutEffect` has measured the
+  // anchor — otherwise the popover briefly flashes at the viewport's
+  // top-left before snapping to the correct coordinates.
+  if (!position) return null;
+
   return (
     <div
-      className={cn(
-        styles.popover,
-        align === "right" ? styles.popoverRight : styles.popoverLeft,
-      )}
+      ref={popoverRef}
+      className={styles.popover}
+      style={position}
       role="menu"
     >
       {children}
@@ -189,12 +259,14 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
  * server-side (the API supports `?underlying=` / `?leverage=` /
  * `?direction=` directly — see `apps/api/src/routes/tokens/list.ts`).
  *
- * Hidden below `1240px` (same breakpoint the live counter used). On those
- * narrower viewports the `CommandBar` tabs already overflow-scroll, so
- * compressing the filter rail down would crowd out the primary
- * navigation. Filtering on mobile is tracked as a follow-up — for now
- * the API endpoints are filter-aware so a future bottom-sheet variant
- * can drop in without backend work.
+ * Below `1240px` the rail wraps onto its own row directly under the
+ * lifecycle tabs (see the matching media queries in
+ * `CommandBar.module.css` and `TableFilters.module.css`). On those
+ * narrower viewports the rail and tabs would crowd each other on a
+ * single line, so the bar collapses into two sub-bands inside the
+ * same `tableSection` frame — tabs on top, filter rail underneath,
+ * with horizontal overflow scroll on each so the affordances never
+ * disappear entirely on phone-width viewports.
  */
 export default function TableFilters() {
   const dispatch = useDispatch();
@@ -269,7 +341,6 @@ export default function TableFilters() {
                 selected={filters.underlying === undefined}
                 onClick={() => handleSelectUnderlying(undefined)}
               >
-                <span className={styles.allDot} aria-hidden="true" />
                 <span>All markets</span>
               </OptionRow>
               {visibleAssets.map((a) => (
@@ -308,7 +379,6 @@ export default function TableFilters() {
                 selected={filters.leverage === undefined}
                 onClick={() => handleSelectLeverage(undefined)}
               >
-                <span className={styles.allDot} aria-hidden="true" />
                 <span>All leverages</span>
               </OptionRow>
               {LEVERAGE_OPTIONS.map((l) => (
@@ -340,18 +410,13 @@ export default function TableFilters() {
           onClick={() => toggle("direction")}
         />
         {open === "direction" && (
-          <FilterPopover
-            anchorRef={directionRef}
-            onClose={closeAll}
-            align="right"
-          >
+          <FilterPopover anchorRef={directionRef} onClose={closeAll}>
             <div className={styles.popoverHeader}>Direction</div>
             <div className={styles.optionList}>
               <OptionRow
                 selected={filters.direction === undefined}
                 onClick={() => handleSelectDirection(undefined)}
               >
-                <span className={styles.allDot} aria-hidden="true" />
                 <span>Both directions</span>
               </OptionRow>
               <OptionRow
