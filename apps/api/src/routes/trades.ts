@@ -15,13 +15,37 @@ import type {
  * Trade endpoints are polled hard by the frontend — the global feed at
  * 15s when the WS is connected (3s otherwise) and per-token at 15/5s —
  * so they're the single biggest contributor to the per-IP rate-limit
- * draw for shared-WiFi users (issue #549). The data is also the most
- * cache-friendly of all the read paths: a few seconds of staleness on
- * "latest trades" is invisible because the live WS push hands the row
- * to the UI before the next REST poll even fires. 5s mirrors the
- * `/tokens` list TTL.
+ * draw for shared-WiFi users (issue #549). Historical pages
+ * (`offset > 0`) are stable — once a trade lands at position 50+ it
+ * never moves or disappears — so caching them is a pure win and absorbs
+ * the bulk of shared-IP polling traffic.
+ *
+ * The "live tail" (`offset === 0`) is treated separately by
+ * `shouldBypassCache` below: we deliberately skip the cache for it
+ * because the WS broadcast races the Ponder GraphQL checkpoint. The
+ * indexer's Zap event handler fires the broadcast HTTP POST inside the
+ * same tx that inserts the `routerTrade` row, then returns; Ponder
+ * commits the tx (and exposes the row via GraphQL) afterwards. The WS
+ * message therefore reaches the client *before* the trade is queryable,
+ * so any `offset=0` request served from a cache that was populated
+ * immediately before the trade landed returns a stale window — the row
+ * the user just saw flash in the feed is missing on the next refresh.
+ * Skipping cache for `offset=0` closes that race.
  */
 const TRADES_CACHE_TTL_SECONDS = 5;
+
+/**
+ * Whether the request should bypass the edge cache. The live-tail
+ * (`offset === 0`) page is fetched on every poll + every page refresh
+ * and is exactly where the WS-vs-GraphQL-checkpoint race produces
+ * user-visible staleness ("my trade flashed in the feed, then
+ * disappeared on refresh"). Historical pages (`offset > 0`) are
+ * append-only — they describe rows that are already deep in history —
+ * so they remain cached at `TRADES_CACHE_TTL_SECONDS`.
+ */
+function shouldBypassCache(offset: number): boolean {
+  return offset === 0;
+}
 
 const trades = new Hono<{ Bindings: AppBindings }>();
 
@@ -141,7 +165,8 @@ trades.get("/", async (c) => {
   // `useInfiniteTokens` paginates `/api/v1/tokens`.
   const offset = offsetParam ?? 0;
 
-  const cache = getCache();
+  const bypassCache = shouldBypassCache(offset);
+  const cache = bypassCache ? undefined : getCache();
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -179,7 +204,19 @@ trades.get("/", async (c) => {
   const enriched = await enrichTradesWithTokenLabels(items, c.env.PONDER_URL);
 
   const response = c.json(formatSuccess(enriched));
-  response.headers.set("Cache-Control", `s-maxage=${TRADES_CACHE_TTL_SECONDS}`);
+  // The bypass header is the full "don't cache anywhere" directive so
+  // (a) any CDN / corporate proxy in the path holds nothing, and (b) the
+  // browser doesn't apply its heuristic cache to a refresh-driven fetch.
+  // Without `max-age=0` a browser is free to fast-forward back/forward
+  // navigation from its memory cache and re-introduce the same stale
+  // window we're closing at the edge. See `routes/tokens/detail.ts` for
+  // the mirror pattern on the holder-aware bypass.
+  response.headers.set(
+    "Cache-Control",
+    bypassCache
+      ? "private, no-store, max-age=0, s-maxage=0"
+      : `s-maxage=${TRADES_CACHE_TTL_SECONDS}`,
+  );
   if (cache) {
     await cache.put(cacheKey, response.clone());
   }
@@ -345,7 +382,8 @@ trades.get("/:address", async (c) => {
   const limit = Math.min(limitParam ?? 50, 100);
   const offset = offsetParam ?? 0;
 
-  const cache = getCache();
+  const bypassCache = shouldBypassCache(offset);
+  const cache = bypassCache ? undefined : getCache();
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -384,7 +422,14 @@ trades.get("/:address", async (c) => {
   const enriched = await enrichTradesWithTokenLabels(items, c.env.PONDER_URL);
 
   const response = c.json(formatSuccess(enriched));
-  response.headers.set("Cache-Control", `s-maxage=${TRADES_CACHE_TTL_SECONDS}`);
+  // See the global `trades.get("/")` handler for why the live tail
+  // emits the full "don't cache anywhere" directive.
+  response.headers.set(
+    "Cache-Control",
+    bypassCache
+      ? "private, no-store, max-age=0, s-maxage=0"
+      : `s-maxage=${TRADES_CACHE_TTL_SECONDS}`,
+  );
   if (cache) {
     await cache.put(cacheKey, response.clone());
   }

@@ -400,4 +400,96 @@ describe("GET /trades", () => {
     const variables = firstCall[1] as { limit: number; offset: number };
     expect(variables.offset).toBe(0);
   });
+
+  // Repro for the "buy popped up in the feed, then disappeared on refresh"
+  // report. The Ponder event handler fires the WS `broadcastEvent` HTTP
+  // POST inside the same tx that inserts the `routerTrade` row, then
+  // returns; Ponder commits the tx (and exposes the row via GraphQL)
+  // afterwards. The WS message reaches the client *before* the trade is
+  // queryable, so any `offset=0` request served from a cache populated
+  // immediately before the trade lands returns a stale window — exactly
+  // the symptom reported. Caching `offset=0` would re-introduce that
+  // race, so the response header must explicitly opt out at every cache
+  // layer between Ponder and the user's browser.
+  it("disables all caching for the live tail (offset=0)", async () => {
+    mockPonderQuery
+      .mockResolvedValueOnce({ routerTrades: { items: [] } })
+      .mockResolvedValueOnce({ tokens: { items: [] } });
+
+    const app = createApp();
+    const res = await app.request("/trades?limit=50&offset=0", {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    const cacheControl = res.headers.get("Cache-Control") ?? "";
+    // `s-maxage=0` covers the CF edge cache (`caches.default`) and any
+    // downstream CDN / corporate proxy. `max-age=0` covers the browser's
+    // own memory cache — important because a back-forward navigation
+    // can otherwise replay the stale response without round-tripping.
+    // `no-store` is the belt-and-braces directive that disables every
+    // intermediate cache regardless of the other knobs.
+    expect(cacheControl).toMatch(/s-maxage=0/);
+    expect(cacheControl).toMatch(/max-age=0/);
+    expect(cacheControl).toMatch(/no-store/);
+  });
+
+  // Historical pages (`offset > 0`) describe rows already at position
+  // 50+ in the feed — they never change once written, so caching them is
+  // the right thing to absorb the bulk of shared-IP polling load.
+  it("keeps the historical pages (offset>0) cached at s-maxage=5", async () => {
+    mockPonderQuery
+      .mockResolvedValueOnce({ routerTrades: { items: [] } })
+      .mockResolvedValueOnce({ tokens: { items: [] } });
+
+    const app = createApp();
+    const res = await app.request("/trades?limit=50&offset=50", {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("s-maxage=5");
+  });
+});
+
+describe("GET /trades/:address cache bypass", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Same WS-vs-GraphQL race as the global feed: the per-token live tab
+  // (`useTokenTrades` → `subscribeTokenTrades` → REST poll fallback) hits
+  // `offset=0` on the same endpoint; without the bypass, a refresh of the
+  // token detail page would silently miss the trade that just flashed in
+  // the tab.
+  it("disables all caching for the live tail (offset=0)", async () => {
+    mockPonderQuery
+      .mockResolvedValueOnce({ routerTrades: { items: [] } })
+      .mockResolvedValueOnce({ tokens: { items: [] } });
+
+    const app = createApp();
+    const res = await app.request(
+      `/trades/${VALID_ADDRESS}?limit=30&offset=0`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    const cacheControl = res.headers.get("Cache-Control") ?? "";
+    expect(cacheControl).toMatch(/s-maxage=0/);
+    expect(cacheControl).toMatch(/max-age=0/);
+    expect(cacheControl).toMatch(/no-store/);
+  });
+
+  it("keeps the historical pages (offset>0) cached at s-maxage=5", async () => {
+    mockPonderQuery
+      .mockResolvedValueOnce({ routerTrades: { items: [] } })
+      .mockResolvedValueOnce({ tokens: { items: [] } });
+
+    const app = createApp();
+    const res = await app.request(
+      `/trades/${VALID_ADDRESS}?limit=30&offset=30`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("s-maxage=5");
+  });
 });
