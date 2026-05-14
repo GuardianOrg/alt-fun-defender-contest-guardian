@@ -11,6 +11,11 @@ import TradePanelBufferWarning from "./TradePanelBufferWarning";
 import TradePanelInput from "./TradePanelInput";
 import TradePanelQuote from "./TradePanelQuote";
 import { hyperEVM } from "../../config/chains";
+import {
+  RELAY_BRIDGE_HYPE_URL,
+  RELAY_BRIDGE_USDC_URL,
+  openRelayBridge,
+} from "../../config/relay";
 import { erc20Abi } from "../../contracts/abis";
 import { ADDRESSES, USDC_DECIMALS } from "../../contracts/addresses";
 import { useIsGeoBlocked } from "../../hooks/useIsGeoBlocked";
@@ -20,7 +25,11 @@ import { useReferral } from "../../hooks/useReferral";
 import { useSlippage } from "../../hooks/useSlippage";
 import { useTradeRouter } from "../../hooks/useTradeRouter";
 import { useWallet } from "../../hooks/useWallet";
-import { formatTokenAmount, formatUsd, shortenAddress } from "../../utils/format";
+import {
+  formatTokenAmount,
+  formatUsd,
+  shortenAddress,
+} from "../../utils/format";
 import Button from "../shared/Button";
 import IconButton from "../shared/IconButton";
 import SegmentedButton from "../shared/SegmentedButton";
@@ -28,11 +37,24 @@ import { buildTxAction, useToast } from "../shared/toast-context";
 
 import type { Token } from "../../services/types";
 
-const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const rpcUrl =
+  import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 const hyperEvmClient = createPublicClient({
   chain: hyperEVM,
   transport: http(rpcUrl),
 });
+
+// "Low balance" thresholds for the contextual bridge / get-gas CTAs.
+// USDC: anything below the platform-wide minimum buy means the user can't
+// place any meaningful trade without bridging more in, so we surface the
+// bridge button proactively (not just on `insufficientUsdc` for a typed
+// amount).
+// HYPE: 0.005 HYPE (~$0.25 at $50/HYPE) covers ~20 trade-flow txs at
+// typical HyperEVM gas prices (~0.5 gwei × ~500k gas per Zap.buy with
+// approval). Below that we nudge the user to top up gas before their
+// next signed tx fails with "insufficient funds for intrinsic gas".
+const LOW_USDC_THRESHOLD = MIN_USDC_BUY_AMOUNT;
+const LOW_HYPE_THRESHOLD_WEI = parseUnits("0.005", 18);
 
 interface Props {
   token: Token;
@@ -85,6 +107,12 @@ export default function TradePanel({ token }: Props) {
   // user's USDC balance so the buy-side insufficient-funds check works
   // regardless of which mode the panel is currently in.
   const [usdcBalance, setUsdcBalance] = useState<string | null>(null);
+  // Native HYPE balance — drives the contextual "GET GAS" CTA. Stored as
+  // wei so the threshold compare is an exact bigint < bigint check (no
+  // float drift on tiny balances). `null` while the read is in flight or
+  // the user is disconnected, which suppresses the CTA until we have a
+  // real number to compare against.
+  const [hypeBalanceWei, setHypeBalanceWei] = useState<bigint | null>(null);
 
   const { address } = useAccount();
   const { isConnected, connect } = useWallet();
@@ -96,15 +124,12 @@ export default function TradePanel({ token }: Props) {
   // the tx confirms. Held in a ref so the captured values don't get clobbered
   // by the post-confirm reset (`setAmount("")`, quote teardown) before the
   // toast effect runs.
-  const pendingTradeRef = useRef<
-    | {
-        mode: "buy" | "sell";
-        tokenAmount: number;
-        usdcAmount: number;
-        ticker: string;
-      }
-    | null
-  >(null);
+  const pendingTradeRef = useRef<{
+    mode: "buy" | "sell";
+    tokenAmount: number;
+    usdcAmount: number;
+    ticker: string;
+  } | null>(null);
 
   const amtNum = parseFloat(amount) || 0;
 
@@ -119,13 +144,21 @@ export default function TradePanel({ token }: Props) {
     slippage,
   });
 
-  const usdcAmount = mode === "buy"
-    ? amtNum
-    : (sellQuote ? sellQuote.usdcOut : 0);
+  const usdcAmount =
+    mode === "buy" ? amtNum : sellQuote ? sellQuote.usdcOut : 0;
 
-  const belowMinimum = amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_BUY_AMOUNT;
-  const sellBelowMinimum = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.usdcOut < MIN_USDC_SELL_AMOUNT;
-  const sellExceedsBuffer = amtNum > 0 && mode === "sell" && sellQuote != null && sellQuote.exceedsBuffer;
+  const belowMinimum =
+    amtNum > 0 && mode === "buy" && usdcAmount < MIN_USDC_BUY_AMOUNT;
+  const sellBelowMinimum =
+    amtNum > 0 &&
+    mode === "sell" &&
+    sellQuote != null &&
+    sellQuote.usdcOut < MIN_USDC_SELL_AMOUNT;
+  const sellExceedsBuffer =
+    amtNum > 0 &&
+    mode === "sell" &&
+    sellQuote != null &&
+    sellQuote.exceedsBuffer;
   // Insufficient USDC for buys. Only flag once the balance has loaded so we
   // don't disable the button during the initial fetch (or for users who
   // haven't connected — the wallet-connect CTA path takes priority).
@@ -137,11 +170,44 @@ export default function TradePanel({ token }: Props) {
     usdcBalanceNum !== null &&
     amtNum > usdcBalanceNum;
 
+  // Bridge-USDC CTA: surfaced in buy mode whenever the wallet either can't
+  // meet the platform minimum buy at all, or can't cover the amount the
+  // user just typed. Suppressed in sell mode (no USDC needed to exit) and
+  // while balances are still loading. The link points at relay.link with
+  // HyperEVM as the destination chain and USDC as the receive currency, so
+  // a user can bridge in from any source chain in a single hop.
+  const showBridgeUsdc =
+    isConnected &&
+    mode === "buy" &&
+    usdcBalanceNum !== null &&
+    (usdcBalanceNum < LOW_USDC_THRESHOLD || insufficientUsdc);
+
+  // Get-Gas CTA: surfaced (in either trade mode) when the wallet's native
+  // HYPE balance is below the gas-floor threshold. Hidden whenever the
+  // bridge-USDC CTA is showing — they share the same vertical slot above
+  // the BUY/SELL button and the USDC ask is the more pressing of the two
+  // (no point topping up gas to send a buy you can't fund).
+  const showGetGas =
+    isConnected &&
+    hypeBalanceWei !== null &&
+    hypeBalanceWei < LOW_HYPE_THRESHOLD_WEI &&
+    !showBridgeUsdc;
+
   const loadBalance = useCallback(async () => {
     if (!address) {
       setUsdcBalance(null);
+      setHypeBalanceWei(null);
       return;
     }
+    // Native HYPE — fed into the "GET GAS" CTA. Fired in parallel with the
+    // USDC read (no `await` join needed here since each call updates its
+    // own state slice independently). Wallet-side gas estimation will catch
+    // a truly empty balance at signing time; this read just lets us prompt
+    // the user to top up *before* they hit that wall.
+    hyperEvmClient
+      .getBalance({ address })
+      .then((wei) => setHypeBalanceWei(wei))
+      .catch(() => setHypeBalanceWei(null));
     // Always fetch USDC balance — the insufficient-funds guard must work in
     // both modes regardless of which balance `maxBalance` is currently
     // pointing at. In buy mode `maxBalance` IS the USDC balance, so we
@@ -238,7 +304,9 @@ export default function TradePanel({ token }: Props) {
     } else {
       const parsed = parseUnits(amount, 18);
       const tokenAmountWei =
-        maxBalanceWei !== null && parsed > maxBalanceWei ? maxBalanceWei : parsed;
+        maxBalanceWei !== null && parsed > maxBalanceWei
+          ? maxBalanceWei
+          : parsed;
       pendingTradeRef.current = {
         mode: "sell",
         tokenAmount: parseFloat(formatUnits(tokenAmountWei, 18)),
@@ -270,7 +338,8 @@ export default function TradePanel({ token }: Props) {
     }
   }, [step, txHash, reset, loadBalance, pushToast]);
 
-  const isBusy = step === "approving" || step === "signing" || step === "executing";
+  const isBusy =
+    step === "approving" || step === "signing" || step === "executing";
 
   const buyDisabledByPause = isMintPaused && mode === "buy";
   const buyDisabledByGeo = isGeoBlocked && mode === "buy";
@@ -335,7 +404,8 @@ export default function TradePanel({ token }: Props) {
   const buttonLabel = () => {
     if (!isConnected) return "CONNECT WALLET";
     if (step === "signing") return "SIGN IN WALLET…";
-    if (step === "approving") return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
+    if (step === "approving")
+      return mode === "sell" ? "APPROVING TOKEN…" : "APPROVING USDC…";
     if (step === "executing") return mode === "buy" ? "BUYING…" : "SELLING…";
     if (step === "confirmed") return "CONFIRMED";
     if (step === "error") return "RETRY";
@@ -360,7 +430,8 @@ export default function TradePanel({ token }: Props) {
             No buys or sells allowed during this period.
           </div>
           <div className={styles.graduatingHint}>
-            Usually under 2 minutes — please wait while liquidity is seeded on HyperSwap.
+            Usually under 2 minutes — please wait while liquidity is seeded on
+            HyperSwap.
           </div>
         </div>
         <CreatorBadge token={token} />
@@ -448,9 +519,9 @@ export default function TradePanel({ token }: Props) {
           >
             <div className={styles.pausedBannerTitle}>Buys disabled</div>
             <div className={styles.pausedBannerBody}>
-              {token.ticker} has been removed from public listings for
-              violating our policies. You can still sell your remaining
-              balance — buys are permanently disabled.
+              {token.ticker} has been removed from public listings for violating
+              our policies. You can still sell your remaining balance — buys are
+              permanently disabled.
             </div>
           </div>
         )}
@@ -462,9 +533,9 @@ export default function TradePanel({ token }: Props) {
           <div className={styles.pausedBanner} role="status">
             <div className={styles.pausedBannerTitle}>Buys paused</div>
             <div className={styles.pausedBannerBody}>
-              BounceTech has paused minting on {token.ltName}, so new buys
-              would revert on-chain. Sells still work as normal — your
-              tokens can be redeemed for USDC any time.
+              BounceTech has paused minting on {token.ltName}, so new buys would
+              revert on-chain. Sells still work as normal — your tokens can be
+              redeemed for USDC any time.
             </div>
             <a
               className={styles.pausedBannerLink}
@@ -593,6 +664,32 @@ export default function TradePanel({ token }: Props) {
               </svg>
             </a>
           </div>
+        )}
+
+        {/* Bridge / get-gas CTA. Sits directly above the BUY/SELL primary
+            so the actionable next step is immediately adjacent to the
+            (now-disabled) trade button. Suppressed mid-tx and right after
+            a confirm so the success box / busy state isn't visually
+            competing with a "go bridge instead" prompt. The two cases are
+            mutually exclusive (`showGetGas` requires `!showBridgeUsdc`),
+            so at most one renders. */}
+        {!isBusy && step !== "confirmed" && showBridgeUsdc && (
+          <Button
+            variant="secondary"
+            fullWidth
+            onClick={() => openRelayBridge(RELAY_BRIDGE_USDC_URL)}
+          >
+            BRIDGE USDC
+          </Button>
+        )}
+        {!isBusy && step !== "confirmed" && showGetGas && (
+          <Button
+            variant="secondary"
+            fullWidth
+            onClick={() => openRelayBridge(RELAY_BRIDGE_HYPE_URL)}
+          >
+            GET GAS
+          </Button>
         )}
 
         <Button

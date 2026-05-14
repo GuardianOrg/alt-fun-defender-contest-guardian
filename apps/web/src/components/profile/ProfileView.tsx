@@ -3,6 +3,7 @@ import type { KeyboardEvent } from "react";
 
 import { useNavigate } from "react-router";
 
+import ManageWalletTab from "./ManageWalletTab";
 import styles from "./ProfileView.module.css";
 import TransferOwnershipTab from "./TransferOwnershipTab";
 import { CREATE_PATH, HOME_ROUTE, tokenPath } from "../../app/routes";
@@ -23,12 +24,13 @@ import Skeleton from "../shared/Skeleton";
 
 import type { CreatedToken, HeldToken } from "../../services/types";
 
-type ProfileTab = "balances" | "rewards" | "transfer";
+type ProfileTab = "balances" | "wallet" | "rewards" | "transfer";
 
 const TABS: { label: string; tab: ProfileTab }[] = [
   { label: "BALANCES", tab: "balances" },
   { label: "CREATOR REWARDS", tab: "rewards" },
   { label: "TRANSFER OWNERSHIP", tab: "transfer" },
+  { label: "MANAGE WALLET", tab: "wallet" },
 ];
 
 /**
@@ -317,12 +319,14 @@ export default function ProfileView() {
         className={cn(
           styles.content,
           ((activeTab === "balances" && heldTokens.length > 0) ||
+            (activeTab === "wallet" && isConnected) ||
             (activeTab === "rewards" && hasCreatedTokens) ||
             (activeTab === "transfer" && hasCreatedTokens)) &&
             styles.contentFlush,
         )}
       >
         {activeTab === "balances" && renderBalances()}
+        {activeTab === "wallet" && <ManageWalletTab />}
         {activeTab === "rewards" && renderRewards()}
         {activeTab === "transfer" && (
           <TransferOwnershipTab
