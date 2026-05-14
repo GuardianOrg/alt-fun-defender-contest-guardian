@@ -227,6 +227,38 @@ describe("/settings command", () => {
   });
 
   describe("custom slippage wizard", () => {
+    // The wizard prompt mentions "Tap Home to exit". Without the nav
+    // row on the prompt itself, the user is told to tap a button that
+    // isn't on the message they're reading.
+    it("prompt carries the [← Back] [🏠 Home] nav row", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.slipCustom));
+
+      const prompt = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /Tap Home to exit/.test(c.body.text as string),
+      );
+      expect(prompt).toBeDefined();
+      const kb =
+        (prompt!.body.reply_markup as
+          | {
+              inline_keyboard?: Array<
+                Array<{ text: string; callback_data?: string }>
+              >;
+            }
+          | undefined)?.inline_keyboard ?? [];
+      expect(
+        kb.some((row) =>
+          row.some(
+            (b) => b.text === "🏠 Home" && b.callback_data === "nav:h",
+          ) && row.some(
+            (b) => b.text === "← Back" && b.callback_data === "nav:b",
+          ),
+        ),
+      ).toBe(true);
+    });
+
     it("accepts a valid percent and stores it as bps", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SETTINGS_CALLBACK.slipCustom));

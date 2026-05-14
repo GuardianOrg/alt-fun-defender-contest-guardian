@@ -3,13 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_NAV_STACK,
   NAV_CALLBACK,
+  backHomeMarkup,
   backHomeRow,
   clearNavStack,
   popNavSnapshot,
   pushNavSnapshot,
+  replyWithNav,
   type NavSnapshot,
   type NavStackSession,
 } from "../../lib/nav.js";
+import type { AppContext } from "../../bot.js";
 
 const sampleSnap = (label: string): NavSnapshot => ({
   text: `screen ${label}`,
@@ -36,6 +39,73 @@ describe("backHomeRow", () => {
     for (const b of backHomeRow()) {
       expect(b.callback_data.length).toBeLessThanOrEqual(64);
     }
+  });
+});
+
+describe("backHomeMarkup", () => {
+  it("wraps backHomeRow in a single-row inline_keyboard reply_markup", () => {
+    const markup = backHomeMarkup();
+    expect(markup).toEqual({ inline_keyboard: [backHomeRow()] });
+    expect(markup.inline_keyboard).toHaveLength(1);
+    expect(markup.inline_keyboard[0]).toHaveLength(2);
+  });
+});
+
+describe("replyWithNav", () => {
+  it("defaults reply_markup to backHomeMarkup() when caller passes no extras", async () => {
+    const replies: Array<{ text: string; extra: unknown }> = [];
+    const ctx = {
+      reply: async (text: string, extra: unknown) => {
+        replies.push({ text, extra });
+        return { message_id: 1 };
+      },
+    } as unknown as AppContext;
+
+    await replyWithNav(ctx, "prompt");
+
+    expect(replies).toHaveLength(1);
+    expect((replies[0]!.extra as { reply_markup: unknown }).reply_markup).toEqual(
+      backHomeMarkup(),
+    );
+  });
+
+  it("respects a caller-supplied reply_markup instead of overriding it", async () => {
+    const replies: Array<{ text: string; extra: unknown }> = [];
+    const ctx = {
+      reply: async (text: string, extra: unknown) => {
+        replies.push({ text, extra });
+        return { message_id: 1 };
+      },
+    } as unknown as AppContext;
+
+    const custom = { inline_keyboard: [[{ text: "X", callback_data: "x" }]] };
+    await replyWithNav(ctx, "prompt", { reply_markup: custom });
+
+    expect((replies[0]!.extra as { reply_markup: unknown }).reply_markup).toBe(
+      custom,
+    );
+  });
+
+  it("forwards parse_mode and link_preview_options unchanged", async () => {
+    const replies: Array<{ extra: unknown }> = [];
+    const ctx = {
+      reply: async (_text: string, extra: unknown) => {
+        replies.push({ extra });
+        return { message_id: 1 };
+      },
+    } as unknown as AppContext;
+
+    await replyWithNav(ctx, "prompt", {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+
+    const extra = replies[0]!.extra as {
+      parse_mode: string;
+      link_preview_options: { is_disabled: boolean };
+    };
+    expect(extra.parse_mode).toBe("HTML");
+    expect(extra.link_preview_options).toEqual({ is_disabled: true });
   });
 });
 

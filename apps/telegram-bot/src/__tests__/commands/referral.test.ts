@@ -460,6 +460,23 @@ describe("Change rewards wallet wizard", () => {
     expect(send!.body.text).toContain(
       "Send the new rewards wallet address",
     );
+    // The warning is a wizard prompt — must carry Back/Home so the user
+    // can exit without typing /cancel.
+    const kb =
+      (send!.body.reply_markup as
+        | {
+            inline_keyboard?: Array<
+              Array<{ text: string; callback_data?: string }>
+            >;
+          }
+        | undefined)?.inline_keyboard ?? [];
+    expect(
+      kb.some(
+        (row) =>
+          row.some((b) => b.callback_data === "nav:h") &&
+          row.some((b) => b.callback_data === "nav:b"),
+      ),
+    ).toBe(true);
   });
 
   it("rejects a non-address input and keeps the wizard open", async () => {

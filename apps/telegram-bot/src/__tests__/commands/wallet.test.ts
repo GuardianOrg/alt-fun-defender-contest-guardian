@@ -518,6 +518,23 @@ describe("/wallet command", () => {
       );
       expect(prompt).toBeDefined();
       expect(await walletManager(h).listWallets(7)).toHaveLength(0);
+      // Prompt copy says "Tap Home to exit" — the nav row must be on the
+      // prompt message itself, not just on the parent menu.
+      const kb =
+        (prompt!.body.reply_markup as
+          | {
+              inline_keyboard?: Array<
+                Array<{ text: string; callback_data?: string }>
+              >;
+            }
+          | undefined)?.inline_keyboard ?? [];
+      expect(
+        kb.some(
+          (row) =>
+            row.some((b) => b.callback_data === "nav:h") &&
+            row.some((b) => b.callback_data === "nav:b"),
+        ),
+      ).toBe(true);
     });
 
     it("persists the wallet on a valid key, sweeps the user message, and toasts the truncated address", async () => {

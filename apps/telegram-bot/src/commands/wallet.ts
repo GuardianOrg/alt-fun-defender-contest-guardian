@@ -24,7 +24,11 @@ import {
   parsePrivateKey,
   type StoredWallet,
 } from "../lib/wallet.js";
-import { pushNavSnapshot, snapshotFromCallback } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  pushNavSnapshot,
+  snapshotFromCallback,
+} from "../lib/nav.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -188,6 +192,7 @@ const renameWalletConversation = async (
   await sweepWorkflow(conversation);
   const promptMsg = await ctx.reply(
     wrap(ctx, "Send the new label for this wallet (max 32 chars)."),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
@@ -310,6 +315,7 @@ const runPinSetFlow = async (
     wrap(ctx,
       "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
 
@@ -331,6 +337,7 @@ const runPinSetFlow = async (
         wrap(ctx,
           "PIN must be exactly 6 digits. Send again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -340,6 +347,7 @@ const runPinSetFlow = async (
 
   const confirmAsk = await ctx.reply(
     wrap(ctx, "Confirm — send the same 6 digits again."),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
 
@@ -360,6 +368,7 @@ const runPinSetFlow = async (
         wrap(ctx,
           "PINs do not match. Send the confirmation PIN again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -374,6 +383,7 @@ const runPinSetFlow = async (
     wrap(ctx,
       `PIN set. Send it once more to authorise the ${actionLabel}.`,
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, finalAsk.message_id);
   return true;
@@ -398,6 +408,7 @@ const runPinVerifyFlow = async (
       wrap(ctx,
         `Send your 6-digit PIN to authorise the ${actionLabel}.`,
       ),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
   }
@@ -443,6 +454,7 @@ const runPinVerifyFlow = async (
       wrap(ctx,
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -602,6 +614,7 @@ const importWalletConversation = async (
         "Tap Home to exit.",
       ].join("\n"),
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
 
@@ -632,6 +645,7 @@ const importWalletConversation = async (
         wrap(ctx,
           "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -666,6 +680,7 @@ const importWalletConversation = async (
         wrap(ctx,
           "That private key is invalid. Paste it again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -774,6 +789,7 @@ const deleteWalletConversation = async (
     wrap(ctx,
       `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or tap Home to exit.`,
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmPrompt.message_id);
 

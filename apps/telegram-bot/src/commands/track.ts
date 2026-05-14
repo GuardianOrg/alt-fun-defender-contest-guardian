@@ -28,7 +28,7 @@ import {
 } from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
-import { backHomeRow } from "../lib/nav.js";
+import { backHomeRow, replyWithNav } from "../lib/nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
   formatToken18,
@@ -240,7 +240,7 @@ const trackLookupConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await ctx.reply(PROMPT_HTML, {
+  const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
@@ -263,7 +263,7 @@ const trackLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+      const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
@@ -276,7 +276,7 @@ const trackLookupConversation = async (
     );
     if (!result.ok) {
       if (result.kind === "not_found") {
-        const notFound = await msgCtx.reply(TOKEN_NOT_FOUND_HTML, {
+        const notFound = await replyWithNav(msgCtx, TOKEN_NOT_FOUND_HTML, {
           parse_mode: "HTML",
           link_preview_options: { is_disabled: true },
         });

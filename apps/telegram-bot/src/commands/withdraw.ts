@@ -32,6 +32,7 @@ import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { WALLET_CALLBACK } from "../keyboards/wallet-actions.js";
 import { withAntiPhishing } from "../lib/anti-phishing.js";
 import { tryAddressBuyIntercept } from "../lib/conversation-commands.js";
+import { backHomeMarkup } from "../lib/nav.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
@@ -244,6 +245,7 @@ const verifyPinForWithdraw = async (
     withAntiPhishing(
       "Send your 6-digit PIN to authorise the withdraw.",
     ),
+    { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
@@ -282,6 +284,7 @@ const verifyPinForWithdraw = async (
       withAntiPhishing(
         `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
       ),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -299,7 +302,9 @@ const promptArg = async (
   prompt: string,
   interceptBuy = false,
 ): Promise<string | null> => {
-  const promptMsg = await ctx.reply(withAntiPhishing(prompt));
+  const promptMsg = await ctx.reply(withAntiPhishing(prompt), {
+    reply_markup: backHomeMarkup(),
+  });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
   await trackWorkflowMessage(conversation, reply.message.message_id);
@@ -348,6 +353,7 @@ const withdrawWizardConversation = async (
     }
     const retry = await ctx.reply(
       withAntiPhishing("Unsupported asset. Send HYPE or USDC."),
+      { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -388,6 +394,7 @@ const withdrawWizardConversation = async (
         withAntiPhishing(
           "Invalid amount — must be a positive decimal within the asset's precision. Send again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -412,6 +419,7 @@ const withdrawWizardConversation = async (
         withAntiPhishing(
           "Invalid address — must be 0x followed by 40 hex characters. Send again.",
         ),
+        { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
