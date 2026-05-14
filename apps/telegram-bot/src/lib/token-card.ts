@@ -212,14 +212,11 @@ export const renderTrackTokenCardText = (token: TokenInfo): string => {
     renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
+    `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
     `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
     `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
+    `📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`,
   ];
-  if (token.ltChange24h !== null) {
-    lines.push(`⚡ <b>LT 24h:</b> ${formatPct(token.ltChange24h)}`);
-  }
-  lines.push(`💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`);
-  lines.push(`📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`);
   if (token.status !== "graduated") {
     lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
   }

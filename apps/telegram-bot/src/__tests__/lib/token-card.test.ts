@@ -103,6 +103,25 @@ describe("renderTrackTokenCardText", () => {
       text.indexOf("View on Explorer"),
     );
   });
+
+  it("orders fields Market Cap → Price → 24h Change → 24h Volume and omits LT 24h", () => {
+    const text = renderTrackTokenCardText(baseToken());
+    expect(text).not.toContain("LT 24h");
+    const mcapIdx = text.indexOf("Market Cap");
+    const priceIdx = text.indexOf("Price:");
+    const changeIdx = text.indexOf("24h Change");
+    const volumeIdx = text.indexOf("24h Volume");
+    expect(mcapIdx).toBeGreaterThan(-1);
+    expect(priceIdx).toBeGreaterThan(mcapIdx);
+    expect(changeIdx).toBeGreaterThan(priceIdx);
+    expect(volumeIdx).toBeGreaterThan(changeIdx);
+  });
+
+  it("still omits LT 24h even when ltChange24h is present (matches buy/sell cards)", () => {
+    const text = renderTrackTokenCardText(baseToken({ ltChange24h: 8.4 }));
+    expect(text).not.toContain("LT 24h");
+    expect(text).not.toContain("+8.40%");
+  });
 });
 
 describe("header LT symbol (issue #820)", () => {
