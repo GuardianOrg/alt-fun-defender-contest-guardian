@@ -93,6 +93,19 @@ export const registerAddressBuyIntercept = (bot: Bot<AppContext>): void => {
     if (text.startsWith("/")) return;
     const addr = extractTokenAddress(text);
     if (!addr) return;
+    // Sweep the user's pasted address before the card lands — the
+    // address is redundant once the token card is on screen and would
+    // otherwise sit above it as visual clutter. Mirrors the conversation
+    // intercept path, where `tryAddressBuyIntercept`'s `sweepWorkflow`
+    // already wipes the user's reply via the workflow stack. Best-
+    // effort: Telegram returns 400 if the message is already gone, and
+    // we'd rather still ship the card than abort on a transient
+    // deleteMessage failure.
+    try {
+      await ctx.deleteMessage();
+    } catch {
+      // Already gone / outside 48h window / no rights — fall through.
+    }
     await showBuyCardForAddress(ctx, addr);
   });
 };
