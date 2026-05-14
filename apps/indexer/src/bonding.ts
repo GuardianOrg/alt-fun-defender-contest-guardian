@@ -486,6 +486,14 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
         tradeCount: existingTokenHourly.tradeCount + 1,
       });
     } else {
+      // `onConflictDoNothing` rather than the absolute-value
+      // `onConflictDoUpdate` the surrounding `globalStats` / `hourlyVolume`
+      // upserts use: the find-then-update path above is the only correct
+      // *accumulation* path; the conflict fallback is unreachable under
+      // Ponder's single-threaded event-loop, and `DoUpdate` with absolute
+      // values would overwrite an already-accumulated bucket with a
+      // single event's worth of volume if the impossible race ever fired
+      // (CodeRabbit feedback on PR #867).
       await db
         .insert(tokenHourlyMetrics)
         .values({
@@ -495,10 +503,7 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
           volumeUsd: event.args.usdcIn,
           tradeCount: 1,
         })
-        .onConflictDoUpdate({
-          volumeUsd: event.args.usdcIn,
-          tradeCount: 1,
-        });
+        .onConflictDoNothing();
     }
 
     // 3) Per-token aggregate. Recompute `baseScore` after the bump so the
@@ -525,6 +530,9 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
       // First-ever trade for this token. `isNewTrader` is always true here
       // (no prior `tokenMetrics` row → no prior `tokenTrader` row either,
       // modulo a re-org-induced rewind we don't model).
+      // `onConflictDoNothing` for the same reason as `tokenHourlyMetrics`
+      // above — a conflict here would otherwise reset accumulated counters
+      // back to a single-event bootstrap.
       const bootBaseScore = computeBaseScore(event.args.usdcIn, 1, 1);
       await db
         .insert(tokenMetrics)
@@ -537,14 +545,7 @@ ponder.on("Zap:Buy", async ({ event, context }) => {
           baseScore: bootBaseScore,
           updatedAt: buyTimestamp,
         })
-        .onConflictDoUpdate({
-          volumeUsdLifetime: event.args.usdcIn,
-          tradeCount: 1,
-          distinctTraderCount: 1,
-          lastTradeAt: buyTimestamp,
-          baseScore: bootBaseScore,
-          updatedAt: buyTimestamp,
-        });
+        .onConflictDoNothing();
     }
   }
 
@@ -710,6 +711,7 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
         tradeCount: existingTokenHourly.tradeCount + 1,
       });
     } else {
+      // See Zap:Buy for the `onConflictDoNothing` rationale.
       await db
         .insert(tokenHourlyMetrics)
         .values({
@@ -719,10 +721,7 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
           volumeUsd: event.args.usdcOut,
           tradeCount: 1,
         })
-        .onConflictDoUpdate({
-          volumeUsd: event.args.usdcOut,
-          tradeCount: 1,
-        });
+        .onConflictDoNothing();
     }
 
     const existingMetrics = await db.find(tokenMetrics, {
@@ -756,14 +755,7 @@ ponder.on("Zap:Sell", async ({ event, context }) => {
           baseScore: bootBaseScore,
           updatedAt: sellTimestamp,
         })
-        .onConflictDoUpdate({
-          volumeUsdLifetime: event.args.usdcOut,
-          tradeCount: 1,
-          distinctTraderCount: 1,
-          lastTradeAt: sellTimestamp,
-          baseScore: bootBaseScore,
-          updatedAt: sellTimestamp,
-        });
+        .onConflictDoNothing();
     }
   }
 
