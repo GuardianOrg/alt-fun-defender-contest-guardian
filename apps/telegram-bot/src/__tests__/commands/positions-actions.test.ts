@@ -112,35 +112,44 @@ describe("positions Buy/Sell callbacks (pb / ps)", () => {
     fetchSpy.mockRestore();
   });
 
-  it("pb:<token> replies with a buy card in the same chat", async () => {
+  it("pb:<token> replaces the /positions view in place with the buy card", async () => {
     const h = harnessWithRpc();
     await seedActiveWallet(h);
     mockActionFetch(fetchSpy);
     await h.run(actionCallback(`pb:${TOKEN}`));
+    const edits = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
     const sends = collectCalls(fetchSpy).filter((c) =>
       c.url.includes("/sendMessage"),
     );
-    expect(sends).toHaveLength(1);
-    expect(sends[0]!.body.chat_id).toBe(42);
-    const markup = sends[0]!.body.reply_markup as {
+    expect(edits).toHaveLength(1);
+    expect(sends).toHaveLength(0);
+    expect(edits[0]!.body.chat_id).toBe(42);
+    const markup = edits[0]!.body.reply_markup as {
       inline_keyboard: { text: string }[][];
     };
     const labels = markup.inline_keyboard.flat().map((b) => b.text);
-    // Quick-buy amount buttons prove `replyWithActionCard` routed to
-    // the buy-card keyboard rather than something else.
+    // Quick-buy amount buttons prove `editToActionCard` routed to the
+    // buy-card keyboard. Edit-in-place preserves the /positions view
+    // on the same chat bubble so Back returns there cleanly.
     expect(labels.some((t) => t.includes("Buy 20"))).toBe(true);
   });
 
-  it("ps:<token> replies with a sell card in the same chat", async () => {
+  it("ps:<token> replaces the /positions view in place with the sell card", async () => {
     const h = harnessWithRpc();
     await seedActiveWallet(h);
     mockActionFetch(fetchSpy);
     await h.run(actionCallback(`ps:${TOKEN}`));
+    const edits = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
     const sends = collectCalls(fetchSpy).filter((c) =>
       c.url.includes("/sendMessage"),
     );
-    expect(sends).toHaveLength(1);
-    const markup = sends[0]!.body.reply_markup as {
+    expect(edits).toHaveLength(1);
+    expect(sends).toHaveLength(0);
+    const markup = edits[0]!.body.reply_markup as {
       inline_keyboard: { text: string }[][];
     };
     const labels = markup.inline_keyboard.flat().map((b) => b.text);

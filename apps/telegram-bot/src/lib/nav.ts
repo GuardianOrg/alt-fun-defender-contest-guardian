@@ -178,13 +178,106 @@ export const snapshotFromCallback = (ctx: AppContext): NavSnapshot | null => {
  * depend on lib, not the other way round). */
 export type StartRenderer = (ctx: AppContext) => Promise<NavSnapshot | null>;
 
+/**
+ * View payload for `editToSubmenu`. Matches the shape of the snapshots
+ * stored in the nav stack, but framed in terms of the
+ * `editMessageText` / `ctx.reply` API the caller is targeting (raw
+ * `reply_markup` shape rather than the nav-stack's `keyboard` field).
+ */
+export interface SubmenuView {
+  text: string;
+  parseMode?: "HTML" | "MarkdownV2";
+  inlineKeyboard: InlineKeyboard;
+  linkPreviewDisabled?: boolean;
+}
+
+/**
+ * Standard "start-menu button tap" navigation: edit the current
+ * message into a sub-screen and push the previous (start) view onto
+ * the nav stack so [← Back] / [🏠 Home] can restore it. Falls back to
+ * a fresh `ctx.reply` when the original message can no longer be
+ * edited (user cleared the chat, message aged out, photo caption).
+ *
+ * Every `START_CALLBACK.*` handler that navigates from /start into a
+ * sub-screen (wallet, settings, positions, referral, help, …) should
+ * go through this helper rather than calling `ctx.reply` directly —
+ * `ctx.reply` would leave the stale /start view above the new screen
+ * and never pushes onto `navStack`, so Back has nothing to restore.
+ *
+ * The sub-screen's keyboard must end with `backHomeRow()` (or be a
+ * keyboard that already includes it via a builder) — without that row
+ * the user has no way to navigate back out, since /start was the
+ * entry point.
+ */
+/**
+ * Result of a submenu render. `editedMessageId` is the message the
+ * user is now looking at — the original (edited in place) on the
+ * happy path, or the freshly-sent reply id when we fell back. Callers
+ * that track the rendered message on a workflow stack (e.g. the
+ * post-trade sweep) must read this rather than reusing
+ * `ctx.callbackQuery.message.message_id`, which still points at the
+ * deleted parent in the fallback branch.
+ */
+export interface SubmenuResult {
+  editedMessageId: number | undefined;
+}
+
+export const editToSubmenu = async (
+  ctx: AppContext,
+  view: SubmenuView,
+): Promise<SubmenuResult> => {
+  const parent = snapshotFromCallback(ctx);
+  if (parent) pushNavSnapshot(ctx.session, parent);
+  const reply_markup = { inline_keyboard: view.inlineKeyboard };
+  const link_preview_options = view.linkPreviewDisabled
+    ? ({ is_disabled: true } as const)
+    : undefined;
+  try {
+    await ctx.editMessageText(view.text, {
+      parse_mode: view.parseMode,
+      reply_markup,
+      link_preview_options,
+    });
+    return { editedMessageId: ctx.callbackQuery?.message?.message_id };
+  } catch (err) {
+    if (!isBenignEditError(err)) {
+      logger.warn("editToSubmenu: editMessageText failed, falling back", {
+        err,
+      });
+    }
+  }
+  // Edit path failed. Best-effort delete the original so the user
+  // isn't left staring at the stale parent view above the new screen,
+  // then send the sub-screen as a fresh reply.
+  try {
+    await ctx.deleteMessage();
+  } catch (err) {
+    if (!isBenignEditError(err)) {
+      logger.debug("editToSubmenu: deleteMessage fallback failed", { err });
+    }
+  }
+  const sent = await ctx.reply(view.text, {
+    parse_mode: view.parseMode,
+    reply_markup,
+    link_preview_options,
+  });
+  return { editedMessageId: sent.message_id };
+};
+
 interface BenignEditError {
   error_code?: number;
   description?: string;
   message?: string;
 }
 
-const isBenignEditError = (err: unknown): boolean => {
+/**
+ * Shared filter for the "edit target is gone / unchanged / unsendable"
+ * 400s that Telegram returns when a button-driven edit races a user
+ * who moved on (cleared chat, deleted the bot reply, tapped a stale
+ * button twice). Every start-menu callback that edits a message in
+ * place uses this so the fallback path is identical across commands.
+ */
+export const isBenignEditError = (err: unknown): boolean => {
   const e = err as BenignEditError;
   if (e.error_code !== 400) return false;
   const desc = (e.description ?? e.message ?? "").toLowerCase();

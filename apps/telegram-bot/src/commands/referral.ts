@@ -22,7 +22,7 @@ import {
   haltAndForward,
   isOtherSlashCommand,
 } from "../lib/conversation-commands.js";
-import { backHomeMarkup, backHomeRow } from "../lib/nav.js";
+import { backHomeMarkup, backHomeRow, editToSubmenu } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { PinManager } from "../lib/pin.js";
@@ -593,8 +593,26 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const result = await buildView(
+      ctx.env,
+      ctx.from.id,
+      ctx.from.username,
+      ctx.session.antiPhishingPhrase,
+    );
+    if (!result.ok) {
+      await ctx.answerCallbackQuery({
+        text: result.kind === "no_wallet" ? NO_WALLET_REPLY : OUTAGE_REPLY,
+        show_alert: true,
+      });
+      return;
+    }
+    await editToSubmenu(ctx, {
+      text: result.view.text,
+      parseMode: "HTML",
+      inlineKeyboard: result.view.reply_markup.inline_keyboard,
+      linkPreviewDisabled: true,
+    });
     await ctx.answerCallbackQuery();
-    await sendReferral(ctx, ctx.from.id, ctx.from.username);
   });
 
   bot.callbackQuery(REFERRAL_CALLBACK.changeRewardsWallet, async (ctx) => {

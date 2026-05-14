@@ -27,7 +27,7 @@ import {
 } from "../lib/conversation-commands.js";
 import { buildTrackChartPng } from "../lib/chart.js";
 import { logger } from "../lib/logger.js";
-import { backHomeRow, replyWithNav } from "../lib/nav.js";
+import { backHomeRow, editToSubmenu, replyWithNav } from "../lib/nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "../lib/rpc.js";
 import {
   formatToken18,
@@ -352,26 +352,28 @@ const handleTrackBuy = async (
     });
     return;
   }
+  // Replace the /track card in place with the buy card so Back lands
+  // the user back on the /track view via the snapshot pushed below.
+  const result = await editToSubmenu(ctx, {
+    text: renderBuyTokenCardText(tokenResult.data, usdcBalance),
+    parseMode: "HTML",
+    inlineKeyboard: buildBuyTokenKeyboard(
+      tokenAddress,
+      normaliseBuyPresets(
+        ctx.session.buyPresetsUsdc,
+        ctx.session.defaultBuyUsdc,
+      ),
+    ),
+    linkPreviewDisabled: true,
+  });
   await ctx.answerCallbackQuery();
-  const cardMsg = await ctx.reply(
-    renderBuyTokenCardText(tokenResult.data, usdcBalance),
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildBuyTokenKeyboard(
-          tokenAddress,
-          normaliseBuyPresets(
-            ctx.session.buyPresetsUsdc,
-            ctx.session.defaultBuyUsdc,
-          ),
-        ),
-      },
-      link_preview_options: { is_disabled: true },
-    },
-  );
-  // Track the card so the post-trade sweep clears it once a buy lands.
-  if (ctx.chat) {
-    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  // Track the rendered card so the post-trade sweep clears it once a
+  // buy lands. Read the id `editToSubmenu` returned — on the happy
+  // path that's the original (edited) message, but on the benign-400
+  // fallback the original was deleted and the id now points at the
+  // fresh reply.
+  if (ctx.chat && result.editedMessageId !== undefined) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, result.editedMessageId);
   }
 };
 
@@ -395,22 +397,18 @@ const handleTrackSell = async (
     });
     return;
   }
+  const result = await editToSubmenu(ctx, {
+    text: renderSellTokenCardText(tokenResult.data, tokenBalance),
+    parseMode: "HTML",
+    inlineKeyboard: buildSellTokenKeyboard(
+      tokenAddress,
+      normaliseSellPresets(ctx.session.sellPresetsPct),
+    ),
+    linkPreviewDisabled: true,
+  });
   await ctx.answerCallbackQuery();
-  const cardMsg = await ctx.reply(
-    renderSellTokenCardText(tokenResult.data, tokenBalance),
-    {
-      parse_mode: "HTML",
-      reply_markup: {
-        inline_keyboard: buildSellTokenKeyboard(
-          tokenAddress,
-          normaliseSellPresets(ctx.session.sellPresetsPct),
-        ),
-      },
-      link_preview_options: { is_disabled: true },
-    },
-  );
-  if (ctx.chat) {
-    pushWorkflowMessage(ctx.session, ctx.chat.id, cardMsg.message_id);
+  if (ctx.chat && result.editedMessageId !== undefined) {
+    pushWorkflowMessage(ctx.session, ctx.chat.id, result.editedMessageId);
   }
 };
 

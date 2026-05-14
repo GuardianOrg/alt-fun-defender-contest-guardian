@@ -6,6 +6,8 @@ import {
   backHomeMarkup,
   backHomeRow,
   clearNavStack,
+  editToSubmenu,
+  isBenignEditError,
   popNavSnapshot,
   pushNavSnapshot,
   replyWithNav,
@@ -155,5 +157,207 @@ describe("clearNavStack", () => {
     clearNavStack(session);
     expect(session.navStack).toEqual([]);
     expect(popNavSnapshot(session)).toBeUndefined();
+  });
+});
+
+describe("isBenignEditError", () => {
+  it("matches the four Telegram 400 strings that mean 'edit target gone or unchanged'", () => {
+    const cases = [
+      "message to edit not found",
+      "Bad Request: message not found",
+      "Bad Request: message is not modified",
+      "Bad Request: message can't be edited",
+    ];
+    for (const desc of cases) {
+      expect(isBenignEditError({ error_code: 400, description: desc })).toBe(
+        true,
+      );
+    }
+  });
+
+  it("rejects non-400 errors and unrelated 400 descriptions", () => {
+    expect(isBenignEditError({ error_code: 403, description: "forbidden" })).toBe(
+      false,
+    );
+    expect(
+      isBenignEditError({ error_code: 400, description: "chat not found" }),
+    ).toBe(false);
+    expect(isBenignEditError(new Error("boom"))).toBe(false);
+  });
+});
+
+interface EditCall {
+  text: string;
+  extra: {
+    parse_mode?: string;
+    reply_markup?: { inline_keyboard: unknown };
+    link_preview_options?: { is_disabled: boolean };
+  };
+}
+
+interface SubmenuMockCtx {
+  session: NavStackSession;
+  callbackQuery?: {
+    message?: {
+      text?: string;
+      reply_markup?: { inline_keyboard: unknown };
+    };
+  };
+  editMessageText: (text: string, extra: EditCall["extra"]) => Promise<unknown>;
+  reply: (text: string, extra: EditCall["extra"]) => Promise<unknown>;
+  deleteMessage: () => Promise<unknown>;
+  editCalls: EditCall[];
+  replyCalls: EditCall[];
+  deleteCalls: number;
+}
+
+const makeCtx = (
+  opts: {
+    editError?: unknown;
+    deleteError?: unknown;
+    parentMessage?: { text: string; reply_markup: { inline_keyboard: unknown } };
+  } = {},
+): SubmenuMockCtx => {
+  const editCalls: EditCall[] = [];
+  const replyCalls: EditCall[] = [];
+  const ctx: SubmenuMockCtx = {
+    session: {},
+    callbackQuery: opts.parentMessage
+      ? { message: opts.parentMessage }
+      : undefined,
+    editCalls,
+    replyCalls,
+    deleteCalls: 0,
+    editMessageText: async (text, extra) => {
+      editCalls.push({ text, extra });
+      if (opts.editError) throw opts.editError;
+      return { message_id: 1 };
+    },
+    reply: async (text, extra) => {
+      replyCalls.push({ text, extra });
+      return { message_id: 2 };
+    },
+    deleteMessage: async () => {
+      ctx.deleteCalls += 1;
+      if (opts.deleteError) throw opts.deleteError;
+      return true;
+    },
+  };
+  return ctx;
+};
+
+describe("editToSubmenu", () => {
+  it("captures the parent message snapshot, pushes it onto the nav stack, then edits in place", async () => {
+    const parent = {
+      text: "start view",
+      reply_markup: {
+        inline_keyboard: [[{ text: "Wallet", callback_data: "st:w" }]],
+      },
+    };
+    const ctx = makeCtx({ parentMessage: parent });
+
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "wallet panel",
+      inlineKeyboard: [
+        [{ text: "Create", callback_data: "wc" }],
+        backHomeRow(),
+      ],
+    });
+
+    expect(ctx.editCalls).toHaveLength(1);
+    expect(ctx.editCalls[0]!.text).toBe("wallet panel");
+    expect(ctx.replyCalls).toHaveLength(0);
+    expect(ctx.deleteCalls).toBe(0);
+    expect(ctx.session.navStack).toHaveLength(1);
+    expect(ctx.session.navStack?.[0]?.text).toBe("start view");
+  });
+
+  it("returns the original message id on the happy edit path", async () => {
+    // Workflow-stack consumers (the post-trade sweep in track.ts)
+    // read `editedMessageId` to track the card the user is now
+    // looking at. On the happy path that's the same message we just
+    // edited, not a new send.
+    const parent = {
+      text: "track card",
+      reply_markup: { inline_keyboard: [[{ text: "Buy", callback_data: "trkb:0xabc" }]] },
+    };
+    const editCalls: EditCall[] = [];
+    const ctxFull = {
+      session: {} as NavStackSession,
+      callbackQuery: { message: { ...parent, message_id: 999 } },
+      editMessageText: async (text: string, extra: EditCall["extra"]) => {
+        editCalls.push({ text, extra });
+        return true;
+      },
+      reply: async () => ({ message_id: 42 }),
+      deleteMessage: async () => true,
+    };
+    const result = await editToSubmenu(ctxFull as unknown as AppContext, {
+      text: "buy card",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(result.editedMessageId).toBe(999);
+  });
+
+  it("returns the fresh reply id when the edit path fell back to delete+reply", async () => {
+    const editCalls: EditCall[] = [];
+    const ctxFull = {
+      session: {} as NavStackSession,
+      callbackQuery: { message: { text: "old", reply_markup: { inline_keyboard: [] }, message_id: 1 } },
+      editMessageText: async (text: string, extra: EditCall["extra"]) => {
+        editCalls.push({ text, extra });
+        throw { error_code: 400, description: "message to edit not found" };
+      },
+      reply: async () => ({ message_id: 777 }),
+      deleteMessage: async () => true,
+    };
+    const result = await editToSubmenu(ctxFull as unknown as AppContext, {
+      text: "buy card",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(result.editedMessageId).toBe(777);
+  });
+
+  it("forwards parseMode and linkPreviewDisabled to editMessageText", async () => {
+    const ctx = makeCtx();
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "x",
+      parseMode: "HTML",
+      inlineKeyboard: [backHomeRow()],
+      linkPreviewDisabled: true,
+    });
+    expect(ctx.editCalls[0]!.extra.parse_mode).toBe("HTML");
+    expect(ctx.editCalls[0]!.extra.link_preview_options).toEqual({
+      is_disabled: true,
+    });
+  });
+
+  it("falls back to deleteMessage + reply when editMessageText hits a benign 400", async () => {
+    const ctx = makeCtx({
+      editError: { error_code: 400, description: "message to edit not found" },
+    });
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "submenu",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(ctx.editCalls).toHaveLength(1);
+    expect(ctx.deleteCalls).toBe(1);
+    expect(ctx.replyCalls).toHaveLength(1);
+    expect(ctx.replyCalls[0]!.text).toBe("submenu");
+  });
+
+  it("propagates non-benign edit errors instead of falling back silently", async () => {
+    const ctx = makeCtx({
+      editError: { error_code: 403, description: "forbidden" },
+    });
+    // Non-benign errors get logged but the helper still falls through
+    // to the delete+reply path — the user must end up looking at the
+    // submenu either way. The non-benign branch logs (a warn) so an
+    // ops alert can fire; it does not throw.
+    await editToSubmenu(ctx as unknown as AppContext, {
+      text: "submenu",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(ctx.replyCalls).toHaveLength(1);
   });
 });

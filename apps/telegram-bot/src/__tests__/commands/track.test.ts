@@ -343,15 +343,19 @@ describe("/track command", () => {
     expect(text).toContain("No trades yet");
   });
 
-  it("Buy button on the track card sends a buy token card (no wallet needed)", async () => {
+  it("Buy button on the track card replaces it in place with the buy card (no wallet needed)", async () => {
     const h = harness();
     mockApi(fetchSpy);
     await h.run(callbackUpdate(`trkb:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    const keyboard = (send!.body.reply_markup as {
+    // Edit-in-place via editToActionCard / editToSubmenu — Back from
+    // the buy card pops the pushed /track snapshot.
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    const keyboard = (edit!.body.reply_markup as {
       inline_keyboard?: Array<Array<{ text: string }>>;
     })?.inline_keyboard ?? [];
     const allBtns = keyboard.flat();
@@ -405,15 +409,17 @@ describe("/track command", () => {
     chartResolver?.();
   }, 10_000);
 
-  it("Sell button on the track card sends a sell token card", async () => {
+  it("Sell button on the track card replaces it in place with the sell card", async () => {
     const h = harness();
     mockApi(fetchSpy);
     await h.run(callbackUpdate(`trks:${TOKEN_ADDR}`));
 
     const calls = capture(fetchSpy);
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     const send = calls.find((c) => c.url.includes("/sendMessage"));
-    expect(send).toBeDefined();
-    const keyboard = (send!.body.reply_markup as {
+    expect(edit).toBeDefined();
+    expect(send).toBeUndefined();
+    const keyboard = (edit!.body.reply_markup as {
       inline_keyboard?: Array<Array<{ text: string }>>;
     })?.inline_keyboard ?? [];
     const allBtns = keyboard.flat();

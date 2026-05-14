@@ -3,7 +3,10 @@ import type { Address } from "viem";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import { replyWithActionCard } from "../lib/action-card.js";
+import {
+  ACTION_TOKEN_OUTAGE,
+  editToActionCard,
+} from "../lib/action-card.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_BUY_CALLBACK_CMD,
@@ -14,6 +17,7 @@ import {
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
+import { editToSubmenu } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
 
 const USAGE = "Usage: /positions <wallet_address>";
@@ -236,8 +240,35 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         });
         return;
       }
+      // Replace the /positions message in place with the buy/sell card
+      // so Back lands the user back on the positions list via the
+      // snapshot pushed inside `editToActionCard`. Token-fetch outage
+      // surfaces as a toast — leaving the positions view intact is the
+      // friendliest fallback.
+      //
+      // The try/catch wraps the edit so a non-benign Telegram failure
+      // (e.g. 403 user blocked the bot) still acks the callback before
+      // bubbling — without the ack the client spinner hangs until
+      // Telegram's 30s timeout.
+      try {
+        const ok = await editToActionCard(
+          ctx,
+          active.address,
+          action,
+          token as Address,
+        );
+        if (!ok) {
+          await ctx.answerCallbackQuery({
+            text: ACTION_TOKEN_OUTAGE,
+            show_alert: true,
+          });
+          return;
+        }
+      } catch (err) {
+        await ctx.answerCallbackQuery();
+        throw err;
+      }
       await ctx.answerCallbackQuery();
-      await replyWithActionCard(ctx, active.address, action, token as Address);
     });
   };
   registerActionCallback(POSITIONS_BUY_CALLBACK_CMD, "buy");
@@ -272,18 +303,30 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const page = await renderPage(ctx.env, active.address, 0);
-    await ctx.answerCallbackQuery();
     if ("invalid" in page) {
-      await ctx.reply(INVALID_ADDRESS);
+      // Outage / invalid states surface as toasts rather than editing
+      // the /start view into an error screen — the user keeps the
+      // welcome card and can retry.
+      await ctx.answerCallbackQuery({ text: INVALID_ADDRESS, show_alert: true });
       return;
     }
     if ("outage" in page) {
-      await ctx.reply(OUTAGE);
+      await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
       return;
     }
-    await ctx.reply(page.text, {
-      ...HTML_REPLY,
-      reply_markup: page.reply_markup,
-    });
+    try {
+      await editToSubmenu(ctx, {
+        text: page.text,
+        parseMode: "HTML",
+        inlineKeyboard: page.reply_markup.inline_keyboard,
+        linkPreviewDisabled: true,
+      });
+    } catch (err) {
+      // Ack before rethrow so the client spinner unwinds even when
+      // the edit / fallback reply errors non-benignly.
+      await ctx.answerCallbackQuery();
+      throw err;
+    }
+    await ctx.answerCallbackQuery();
   });
 };
