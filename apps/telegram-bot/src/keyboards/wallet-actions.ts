@@ -57,7 +57,20 @@ export interface WalletSecurityStatus {
   pinResetPending: boolean;
   pinResetReady: boolean;
   withdrawLockEnabled: boolean;
+  /**
+   * `disableRequestedAt` is set and the 24h cooldown has NOT elapsed.
+   * Panel surfaces the cancel button; the final disable cannot fire
+   * yet (SecurityState re-checks the clock at write time).
+   */
   withdrawDisablePending: boolean;
+  /**
+   * `disableRequestedAt` is set and the 24h cooldown HAS elapsed.
+   * Panel surfaces a [Complete disable] + [Cancel disable] row so the
+   * user can land the disable or back out — without this, a refreshed
+   * panel after 24h still only renders the cancel button and the user
+   * is wedged in pending forever.
+   */
+  withdrawDisableReady: boolean;
 }
 
 const truncateAddress = (addr: string): string =>
@@ -92,7 +105,26 @@ export const buildWalletMainKeyboard = (
     ]);
   }
   rows.push(buildPinRow(security));
-  if (hasActive) {
+  if (security.withdrawDisableReady) {
+    // Ready state takes a dedicated row so the [Complete disable] +
+    // [Cancel disable] pair fits without crowding the Withdraw button
+    // onto a single 3-button row that overflows on narrow clients.
+    if (hasActive) {
+      rows.push([
+        { text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw },
+      ]);
+    }
+    rows.push([
+      {
+        text: "🟠 Complete disable",
+        callback_data: WALLET_CALLBACK.lockDisable,
+      },
+      {
+        text: "Cancel disable",
+        callback_data: WALLET_CALLBACK.lockCancelDisable,
+      },
+    ]);
+  } else if (hasActive) {
     rows.push([
       { text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw },
       buildLockButton(security),
@@ -141,7 +173,9 @@ const buildPinRow = (
 /**
  * Withdrawal-lock toggle button. The leading 🟢 / 🔴 indicator
  * replaces the old "Enable" / "Disable" word so the on/off state is
- * legible at a glance next to the Withdraw button.
+ * legible at a glance next to the Withdraw button. The ready-to-
+ * complete branch is handled in the parent layout via a two-button
+ * row, not here — this helper only emits the single-button cases.
  */
 const buildLockButton = (
   security: WalletSecurityStatus,

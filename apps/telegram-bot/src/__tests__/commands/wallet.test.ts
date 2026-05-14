@@ -845,6 +845,27 @@ describe("/wallet command", () => {
       );
     });
 
+    it("stale Set PIN button is rejected when a PIN already exists (no overwrite)", async () => {
+      // Old /wallet messages can keep a "Set PIN" button alive; firing
+      // it after a PIN is set must NOT enter the set wizard, or the
+      // user could overwrite the PIN without the current-PIN check.
+      const h = makeBotHarness();
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+      const hashBefore = await h.kv.get("pin:7:hash");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinSet));
+      const answer = capture(fetchSpy).find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(answer).toBeDefined();
+      expect(answer!.body.show_alert).toBe(true);
+      expect(answer!.body.text).toContain("PIN already set");
+
+      const hashAfter = await h.kv.get("pin:7:hash");
+      expect(hashAfter).toBe(hashBefore);
+    });
+
     it("Set PIN wizard set+confirm stores a bcrypt hash (not plaintext)", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(WALLET_CALLBACK.pinSet));
@@ -892,20 +913,69 @@ describe("/wallet command", () => {
       expect(lock.disableRequestedAt).not.toBeNull();
     });
 
-    it("Disable after the 24h cooldown elapsed actually clears the lock", async () => {
+    it("Disable after the 24h cooldown elapsed surfaces a [Complete disable] button that actually clears the lock", async () => {
+      // Real two-step UI path: first tap creates the pending request,
+      // we then advance the clock by writing an old `disableRequestedAt`,
+      // re-render /wallet (the panel now exposes [Complete disable]),
+      // and tap that. Skipping the panel re-render would mask a bug
+      // where the post-cooldown panel still only renders Cancel.
       const h = makeBotHarness();
-      const oldRequestedAt =
-        Date.now() - (WITHDRAW_LOCK_DISABLE_COOLDOWN_MS + 1000);
+      const sec = buildSec(h);
+      await sec.enableWithdrawLock(7);
+
+      // Step 1: user requests disable. Panel transitions to pending.
+      await h.run(callbackUpdate(WALLET_CALLBACK.lockDisable));
+      let lock = await sec.getWithdrawLock(7);
+      expect(lock.disableRequestedAt).not.toBeNull();
+      const pendingCallbacks = (
+        capture(fetchSpy)
+          .find((c) => c.url.includes("/editMessageText"))!
+          .body.reply_markup as {
+          inline_keyboard: { text: string; callback_data?: string }[][];
+        }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.callback_data)
+        .filter((d): d is string => d !== undefined);
+      expect(pendingCallbacks).toContain(WALLET_CALLBACK.lockCancelDisable);
+
+      // Step 2: fast-forward by stamping an old requestedAt directly.
       await h.kv.put(
         "security:7:withdraw-lock",
-        JSON.stringify({ enabled: true, disableRequestedAt: oldRequestedAt }),
+        JSON.stringify({
+          enabled: true,
+          disableRequestedAt:
+            Date.now() - (WITHDRAW_LOCK_DISABLE_COOLDOWN_MS + 1000),
+        }),
       );
+
+      // Step 3: re-render /wallet. Panel should now show [Complete disable].
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(walletUpdate(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      const readyButtons = (
+        send!.body.reply_markup as {
+          inline_keyboard: { text: string; callback_data?: string }[][];
+        }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.text);
+      expect(readyButtons).toContain("🟠 Complete disable");
+      expect(send!.body.text).toContain("disable ready");
+
+      // Step 4: tap the [Complete disable] button. Lock actually clears.
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
       await h.run(callbackUpdate(WALLET_CALLBACK.lockDisable));
       const answer = capture(fetchSpy).find((c) =>
         c.url.includes("/answerCallbackQuery"),
       );
       expect(answer!.body.text).toContain("Withdrawal lock disabled");
-      expect((await buildSec(h).getWithdrawLock(7)).enabled).toBe(false);
+      lock = await sec.getWithdrawLock(7);
+      expect(lock.enabled).toBe(false);
     });
 
     it("Reset PIN records a pending request and the panel reflects it", async () => {

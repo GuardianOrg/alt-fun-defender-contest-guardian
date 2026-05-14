@@ -146,6 +146,10 @@ const renderSecurityStatusLines = (
   }
   if (!security.withdrawLockEnabled) {
     lines.push("• Withdrawal lock: off");
+  } else if (security.withdrawDisableReady) {
+    lines.push(
+      "• Withdrawal lock: on (disable ready — tap [Complete disable] to clear)",
+    );
   } else if (security.withdrawDisablePending) {
     lines.push(
       "• Withdrawal lock: on (disable pending — 24h cooldown in progress)",
@@ -220,12 +224,20 @@ const readSecurityStatus = async (
     pin.getResetStatus(userId),
     sec.getWithdrawLock(userId),
   ]);
+  // The 24h cooldown is re-checked at write time inside SecurityState,
+  // so this view-time split is purely about which button the panel
+  // surfaces — the action it triggers stays atomic against the clock.
+  const cooldownElapsed =
+    lock.disableRequestedAt !== null &&
+    Date.now() >= lock.disableRequestedAt + WITHDRAW_LOCK_DISABLE_COOLDOWN_MS;
   const status: WalletSecurityStatus = {
     pinSet,
     pinResetPending: reset.kind === "pending",
     pinResetReady: reset.kind === "ready",
     withdrawLockEnabled: lock.enabled,
-    withdrawDisablePending: lock.disableRequestedAt !== null,
+    withdrawDisablePending:
+      lock.disableRequestedAt !== null && !cooldownElapsed,
+    withdrawDisableReady: cooldownElapsed,
   };
   const resetReadyAt =
     reset.kind === "pending" || reset.kind === "ready"
@@ -1334,6 +1346,17 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    // Guard against a stale "Set PIN" button on an old /wallet message
+    // re-firing after a PIN already exists — without this, tapping the
+    // stale button would overwrite the PIN without the current-PIN
+    // check or the 24h reset flow.
+    if (await buildPinManager(ctx.env).isPinSet(ctx.from.id)) {
+      await ctx.answerCallbackQuery({
+        text: "PIN already set. Use Change PIN or Reset PIN.",
+        show_alert: true,
+      });
+      return;
+    }
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("wallet-set-pin");
   });

@@ -83,10 +83,13 @@ describe("/security command (redirect)", () => {
     const calls = capture(fetchSpy);
     const send = calls.find((c) => c.url.includes("/sendMessage"));
     const answer = calls.find((c) => c.url.includes("/answerCallbackQuery"));
+    const edit = calls.find((c) => c.url.includes("/editMessageText"));
     expect(send).toBeDefined();
     expect(send!.body.text).toContain("/wallet");
     expect(answer).toBeDefined();
     expect(answer!.body.show_alert).toBeFalsy();
+    // The "fresh message" promise — no editMessageText must fire.
+    expect(edit).toBeUndefined();
   });
 
   it("rejects /security in a group chat without leaking redirect details", async () => {
@@ -102,6 +105,13 @@ describe("/security command (redirect)", () => {
     const send = capture(fetchSpy).find((c) =>
       c.url.includes("/sendMessage"),
     );
-    expect(send!.body.text).toContain("private-DM only");
+    expect(send).toBeDefined();
+    const text = send!.body.text as string;
+    expect(text).toContain("private-DM only");
+    // Group-chat rejection must not surface the redirect targets
+    // either — they would leak the user's command intent into the
+    // group transcript.
+    expect(text).not.toContain("/wallet");
+    expect(text).not.toContain("/settings");
   });
 });

@@ -42,7 +42,9 @@ export const registerSecurityCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
+      // Plain reply — wrapping would leak the user's anti-phishing
+      // phrase into the group transcript. Mirrors /settings.
+      await ctx.reply(NON_PRIVATE_CHAT_REPLY);
       return;
     }
     await sendRedirect(ctx);
