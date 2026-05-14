@@ -60,7 +60,7 @@ export const TOKEN_SUPPLY = 1_000_000_000;
  * `apps/api/src/lib/token-registration.ts` `validateImageUrl`), so
  * other clients reading the chain are free to apply their own default.
  */
-export const DEFAULT_TOKEN_IMAGE = "/default-token-image.jpg";
+export const DEFAULT_TOKEN_IMAGE = "/default-token-image.png";
 
 /**
  * Quick-select chips in the trade-settings popup. Fractional (`0.02 = 2%`)
@@ -93,4 +93,7 @@ export {
   SUPPORTED_UNDERLYING_ASSETS as UNDERLYING_ASSETS,
   SUPPORTED_LEVERAGES as LEVERAGE_OPTIONS,
 } from "@launchpad/shared";
-export type { SupportedAsset as UnderlyingAsset, SupportedLeverage as Leverage } from "@launchpad/shared";
+export type {
+  SupportedAsset as UnderlyingAsset,
+  SupportedLeverage as Leverage,
+} from "@launchpad/shared";

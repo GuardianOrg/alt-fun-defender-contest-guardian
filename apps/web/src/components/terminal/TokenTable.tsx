@@ -76,20 +76,20 @@ export default function TokenTable() {
   // #710 and the JSDoc on `useTokenListLiveFeed`.
   useTokenListLiveFeed();
 
-  // Highlight newly arrived tokens for ~2s — only on the NEW tab,
-  // where the list IS sorted by recency and a fresh arrival
-  // legitimately lands at the top. On the other tabs we pass
-  // `enabled: false`, which makes the hook silently record every
-  // token it sees as "already known" and clear its session anchor.
-  // The result: a token that slid into the catalogue while the user
-  // was looking at TRENDING does NOT retroactively flash the moment
-  // they switch to NEW — only tokens that arrive WHILE the user is
-  // actively viewing NEW light up. The internal timestamp gate
-  // additionally filters out the initial page, scrolled-in
-  // pagination, and any older row that resurfaces in a refetch.
+  // Highlight newly arrived tokens for ~2s on every tab. The earlier
+  // version gated this with `enabled: activeFilter === "new"` on the
+  // theory that a fresh arrival only "legitimately lands at the top"
+  // on NEW — on TRENDING / TOP a brand-new token usually drops in deep
+  // or not at all, so a flash near the top of those lists could read
+  // as noise. We've decided that's a worthwhile trade for the consistent
+  // "this row is live" signal across tabs, and the hook's internal
+  // timestamp gate is enough on its own: it still filters out the
+  // initial page, scrolled-in pagination, and any older row that
+  // resurfaces in a refetch, so only tokens whose `createdAt` post-
+  // dates the moment the user opened the table can ever flash —
+  // regardless of which tab they're viewing.
   const flashingIds = useFlashOnNew(tokens, getTokenId, {
     getTimestamp: getTokenTimestamp,
-    enabled: activeFilter === "new",
   });
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
