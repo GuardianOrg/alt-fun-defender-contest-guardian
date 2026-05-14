@@ -20,6 +20,7 @@
   position: sticky;
   top: 0;
   z-index: 1;
+  padding: 0.8rem 0;
 }
 
 .tradesHeaderRow {
@@ -34,7 +35,7 @@
 .thLeft {
   text-align: left;
   font-weight: 400;
-  padding: 0.4rem 1.2rem;
+  padding: 0.8rem 1.2rem;
   white-space: nowrap;
 }
 
@@ -336,7 +337,6 @@
    * `visible` value as `auto`. */
   overflow-x: auto;
   overflow-y: auto;
-  padding-top: 4px;
 }
 
 .tabError {
