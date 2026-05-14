@@ -281,15 +281,6 @@ describe("editToSubmenu", () => {
       text: "track card",
       reply_markup: { inline_keyboard: [[{ text: "Buy", callback_data: "trkb:0xabc" }]] },
     };
-    const ctx = {
-      ...makeCtx({ parentMessage: parent }),
-      callbackQuery: {
-        message: { ...parent, message_id: 999 },
-      },
-    } as unknown as Parameters<typeof makeCtx>[0] & {
-      callbackQuery: { message: { message_id: number } };
-    };
-    // Re-create the mock with a known message_id on the callback msg.
     const editCalls: EditCall[] = [];
     const ctxFull = {
       session: {} as NavStackSession,
