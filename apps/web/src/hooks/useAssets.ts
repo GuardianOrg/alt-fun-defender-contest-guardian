@@ -71,13 +71,6 @@ export function useAssetCandles(asset: UnderlyingAsset) {
   });
 }
 
-export function usePlatformStats() {
-  return useQuery({
-    queryKey: ["platformStats"],
-    queryFn: () => assetService.getPlatformStats(),
-  });
-}
-
 export function usePairFilters() {
   return useQuery({
     queryKey: ["pairFilters"],

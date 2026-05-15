@@ -6,11 +6,10 @@ import {
   getHyperliquidDex,
 } from "@launchpad/shared";
 
-import { API_BASE, fetchLiveMarkets, fetchTokens } from "./api";
-import { fetchPonderTokens } from "./ponder";
+import { fetchLiveMarkets, fetchTokens } from "./api";
 import { COLORS } from "../config/colors";
 
-import type { Asset, PairFilter, PlatformStats } from "./types";
+import type { Asset, PairFilter } from "./types";
 
 /**
  * Markets / live tape / pair selector all read from this list. It mirrors
@@ -169,7 +168,6 @@ export async function fetchAssetCandles(
 
 export interface IAssetService {
   getAssets(): Promise<Asset[]>;
-  getPlatformStats(): Promise<PlatformStats>;
   getPairFilters(): Promise<PairFilter[]>;
 }
 
@@ -215,45 +213,6 @@ const liveAssetService: IAssetService = {
         change24h: 0,
         priceChange24h: 0,
       }));
-    }
-  },
-
-  async getPlatformStats() {
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/stats`);
-      const json = (await res.json()) as { data?: { tokensLive: number; tokensGraduated: number; volume24h: string } };
-      const stats = json.data;
-      if (!stats) throw new Error("No stats");
-
-      const volume = Number(stats.volume24h) / 1e6;
-      return {
-        tokensLive: stats.tokensLive,
-        graduating: 0,
-        volume24h: volume >= 1000 ? `$${(volume / 1000).toFixed(1)}K` : `$${volume.toFixed(0)}`,
-        graduatedToday: 0,
-        totalRaised: "—",
-      };
-    } catch {
-      try {
-        const tokens = await fetchPonderTokens(200);
-        const graduating = tokens.filter((t) => !t.graduated);
-
-        return {
-          tokensLive: tokens.length,
-          graduating: graduating.length,
-          volume24h: "—",
-          graduatedToday: 0,
-          totalRaised: "—",
-        };
-      } catch {
-        return {
-          tokensLive: 0,
-          graduating: 0,
-          volume24h: "—",
-          graduatedToday: 0,
-          totalRaised: "—",
-        };
-      }
     }
   },
 

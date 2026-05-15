@@ -98,14 +98,6 @@ export interface Holder {
   isCreator: boolean;
 }
 
-export interface PlatformStats {
-  tokensLive: number;
-  graduating: number;
-  volume24h: string;
-  graduatedToday: number;
-  totalRaised: string;
-}
-
 export interface PairFilter {
   asset: UnderlyingAsset;
   direction: Direction;
