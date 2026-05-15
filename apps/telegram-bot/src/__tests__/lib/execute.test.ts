@@ -270,6 +270,7 @@ describe("renderConfirmReply", () => {
   it("renders a success tx link with the ticker", () => {
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -288,12 +289,54 @@ describe("renderConfirmReply", () => {
     expect(reply).not.toContain("Alt Fun fee 0.75%");
   });
 
+  it("shows the token address and a clickable ticker linking to the alt.fun tracking page", () => {
+    // The confirmed receipt must expose the contract address (for
+    // copy-paste) and make the ticker a tap target that opens the
+    // canonical tracking page. The receipt bubble itself is preserved
+    // by the caller (see runWithTxStatusUpdates) so the user does not
+    // lose this link when the bot drops the follow-up start prompt.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      token: TOKEN,
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(reply).toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
+    expect(reply).toContain(`<code>${TOKEN}</code>`);
+  });
+
+  it("renders the same token + tracking-link footer on a sell receipt", () => {
+    const reply = renderConfirmReply({
+      kind: "executed",
+      token: TOKEN,
+      side: "sell",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(reply).toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
+    expect(reply).toContain(`<code>${TOKEN}</code>`);
+  });
+
   it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
     // Confirm reply now surfaces the actual on-chain amount decoded
     // from the BotRouterTrade log, formatted via formatToken18 against
     // the user-supplied ticker. Pre-fix the user saw only the tx hash.
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -317,6 +360,7 @@ describe("renderConfirmReply", () => {
     // (the user-facing currency on the sell side).
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TEST",
       result: {
@@ -339,6 +383,7 @@ describe("renderConfirmReply", () => {
     // misleading "Received" line built from the pre-trade quote.
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TEST",
       result: {
@@ -356,6 +401,7 @@ describe("renderConfirmReply", () => {
   it("renders the mapped error copy on failure", () => {
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -374,6 +420,7 @@ describe("renderConfirmReply", () => {
     // check explorer" semantics the reviewer asked for.
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -965,6 +1012,7 @@ describe("runWithTxStatusUpdates", () => {
       // Resolve immediately so the pending timer never fires.
       run: async () => ({
         kind: "executed",
+        token: TOKEN,
         side: "buy",
         ticker: "TICK",
         result: {
@@ -1000,6 +1048,7 @@ describe("runWithTxStatusUpdates", () => {
         await tradePromise;
         return {
           kind: "executed",
+          token: TOKEN,
           side: "sell",
           ticker: "TICK",
           result: {
@@ -1040,6 +1089,7 @@ describe("runWithTxStatusUpdates", () => {
         stackAtRun = getWorkflowMessages(ctx.session);
         return {
           kind: "executed",
+          token: TOKEN,
           side: "buy",
           ticker: "TICK",
           result: {
@@ -1081,6 +1131,7 @@ describe("runWithTxStatusUpdates", () => {
         await new Promise((r) => setTimeout(r, 20));
         return {
           kind: "executed",
+          token: TOKEN,
           side: "buy",
           ticker: "TICK",
           result: {
@@ -1176,6 +1227,7 @@ describe("runWithTxStatusUpdates post-trade /start prompt", () => {
       description: "Buying $20.00 USDC of TICK",
       run: async () => ({
         kind: "executed",
+        token: TOKEN,
         side: "buy",
         ticker: "TICK",
         result: {
@@ -1201,6 +1253,7 @@ describe("runWithTxStatusUpdates post-trade /start prompt", () => {
       description: "Selling 1.5 TICK",
       run: async () => ({
         kind: "executed",
+        token: TOKEN,
         side: "sell",
         ticker: "TICK",
         result: {
@@ -1226,6 +1279,7 @@ describe("runWithTxStatusUpdates post-trade /start prompt", () => {
       description: "Buying $20.00 USDC of TICK",
       run: async () => ({
         kind: "executed",
+        token: TOKEN,
         side: "buy",
         ticker: "TICK",
         result: {
@@ -1248,6 +1302,7 @@ describe("runWithTxStatusUpdates post-trade /start prompt", () => {
       description: "Buying $20.00 USDC of TICK",
       run: async () => ({
         kind: "executed",
+        token: TOKEN,
         side: "buy",
         ticker: "TICK",
         result: {

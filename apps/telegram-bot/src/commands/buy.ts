@@ -30,7 +30,9 @@ import {
   runWithTxStatusUpdates,
   stageBuy,
   submitBuy,
+  trackingPageUrl,
 } from "../lib/execute.js";
+import { escapeHtml } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import {
   backHomeMarkup,
@@ -416,12 +418,16 @@ const buyCustomConversation = async (
           usdcRaw,
         }),
     );
+    const tickerSafe = escapeHtml(token.ticker);
+    const tokenSafe = escapeHtml(token.address);
     const stagingMsg = await msgCtx.reply(
-      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`,
+      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+        `Token: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
       {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+        link_preview_options: { is_disabled: true },
       },
     );
     await sweepWorkflow(conversation);
@@ -585,12 +591,16 @@ const handleFixedBuy = async (
     ticker: tokenResult.data.ticker,
     usdcRaw,
   });
+  const tickerSafe = escapeHtml(tokenResult.data.ticker);
+  const tokenSafe = escapeHtml(tokenResult.data.address);
   const stagingMsg = await ctx.reply(
-    `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.`,
+    `✅ <b>Ready to buy $${amountUsdc} USDC of ${tickerSafe}</b>\n\n` +
+      `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+      `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
     {
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+      link_preview_options: { is_disabled: true },
     },
   );
   trackForPostTradeSweep(ctx, stagingMsg.message_id);
