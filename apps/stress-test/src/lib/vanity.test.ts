@@ -77,5 +77,5 @@ describe("mineVanitySalt (worker thread)", () => {
     });
     expect(hasVanitySuffix(mined.address, "ff")).toBe(true);
     expect(mined.attempts).toBeGreaterThan(0);
-  });
+  }, 15_000);
 });

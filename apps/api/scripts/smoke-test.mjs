@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { neon } from "@neondatabase/serverless";
 
 const PORT = 8799;
 const BASE_URL = `http://localhost:${PORT}`;
@@ -51,6 +52,25 @@ if (!databaseUrl) {
   console.log("DATABASE_URL is unset or empty — skipping API smoke test");
   process.exit(0);
 }
+
+const sql = neon(databaseUrl);
+
+async function hasStableIndexerBalanceViews() {
+  try {
+    const rows = await sql`
+      SELECT table_name
+      FROM information_schema.views
+      WHERE table_schema = 'ponder_views'
+        AND table_name IN ('token_balance', 'wallet_position')
+    `;
+    const names = new Set(rows.map((row) => String(row.table_name)));
+    return names.has("token_balance") && names.has("wallet_position");
+  } catch {
+    return true;
+  }
+}
+
+const hasStableIndexerBalanceViewsPromise = hasStableIndexerBalanceViews();
 
 let passed = 0;
 let failed = 0;
@@ -108,6 +128,9 @@ async function fetchJson(path) {
 // ─── Test definitions ────────────────────────────────────────────────
 
 async function runTests() {
+  const hasStableIndexerBalanceViews =
+    await hasStableIndexerBalanceViewsPromise;
+
   console.log("\n--- Worker runtime ---\n");
 
   await test("GET / responds with success", async () => {
@@ -308,6 +331,9 @@ async function runTests() {
   });
 
   await test("GET /api/v1/holders/:address serves from Postgres without Ponder", async () => {
+    if (!hasStableIndexerBalanceViews) {
+      skip("ponder_views.token_balance or ponder_views.wallet_position is absent");
+    }
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -319,6 +345,9 @@ async function runTests() {
   });
 
   await test("GET /api/v1/portfolio/:wallet serves from Postgres without Ponder", async () => {
+    if (!hasStableIndexerBalanceViews) {
+      skip("ponder_views.token_balance or ponder_views.wallet_position is absent");
+    }
     // Use the zero address as a sentinel wallet — every running indexer
     // has zero rows for it, so we get a stable empty-positions response
     // without needing to discover a real holder.

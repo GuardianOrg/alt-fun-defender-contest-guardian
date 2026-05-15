@@ -42,7 +42,7 @@ interface WorkerMessage {
  */
 export function mineVanitySalt(params: MineParams): Promise<MinedSalt> {
   return new Promise<MinedSalt>((resolve, reject) => {
-    const workerUrl = new URL("./vanity-worker.ts", import.meta.url);
+    const workerUrl = new URL("./vanity-worker.mjs", import.meta.url);
     const worker = new Worker(workerUrl, { workerData: params });
 
     // `settled` collapses the three event listeners into one
