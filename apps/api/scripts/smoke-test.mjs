@@ -85,6 +85,13 @@ let indexerViewAvailability = {
   walletPosition: true,
 };
 
+function describeMissingIndexerViews() {
+  const missing = [];
+  if (!indexerViewAvailability.tokenBalance) missing.push("ponder_views.token_balance");
+  if (!indexerViewAvailability.walletPosition) missing.push("ponder_views.wallet_position");
+  return missing.join(", ");
+}
+
 class SkipTest extends Error {
   constructor(reason) {
     super(reason);
@@ -338,7 +345,7 @@ async function runTests() {
 
   await test("GET /api/v1/holders/:address serves from Postgres without Ponder", async () => {
     if (!indexerViewAvailability.tokenBalance) {
-      skip("staging DB is missing ponder_views.token_balance");
+      skip(`staging DB is missing ${describeMissingIndexerViews()}`);
     }
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
@@ -352,7 +359,7 @@ async function runTests() {
 
   await test("GET /api/v1/portfolio/:wallet serves from Postgres without Ponder", async () => {
     if (!indexerViewAvailability.tokenBalance || !indexerViewAvailability.walletPosition) {
-      skip("staging DB is missing ponder_views.token_balance and/or ponder_views.wallet_position");
+      skip(`staging DB is missing ${describeMissingIndexerViews()}`);
     }
     // Use the zero address as a sentinel wallet — every running indexer
     // has zero rows for it, so we get a stable empty-positions response
