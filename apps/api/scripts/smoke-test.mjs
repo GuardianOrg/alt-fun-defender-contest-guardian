@@ -22,6 +22,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 const STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
+const DATABASE_PROBE_RETRIES = 3;
+const DATABASE_PROBE_RETRY_DELAY_MS = 1_000;
 
 function randomAddress() {
   const hex = "0123456789abcdef";
@@ -48,28 +50,42 @@ const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
 const databaseUrl =
   process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
 
-async function getIndexerViewAvailability(connectionString) {
-  try {
-    const sql = neon(connectionString);
-    const [row] = await sql`
-      SELECT
-        to_regclass('ponder_views.token_balance')::text AS token_balance,
-        to_regclass('ponder_views.wallet_position')::text AS wallet_position
-    `;
-    return {
-      tokenBalance: typeof row?.token_balance === "string",
-      walletPosition: typeof row?.wallet_position === "string",
-    };
-  } catch (error) {
-    console.warn(
-      "Could not probe ponder_views availability before smoke test; leaving all endpoint checks enabled",
-      error instanceof Error ? error.message : String(error),
-    );
-    return {
-      tokenBalance: true,
-      walletPosition: true,
-    };
+async function getDatabaseReadiness(connectionString) {
+  const sql = neon(connectionString);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= DATABASE_PROBE_RETRIES; attempt++) {
+    try {
+      const [row] = await sql`
+        SELECT
+          to_regclass('ponder_views.token_balance')::text AS token_balance,
+          to_regclass('ponder_views.wallet_position')::text AS wallet_position
+      `;
+      return {
+        available: true,
+        reason: null,
+        tokenBalance: typeof row?.token_balance === "string",
+        walletPosition: typeof row?.wallet_position === "string",
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt < DATABASE_PROBE_RETRIES) {
+        await sleep(DATABASE_PROBE_RETRY_DELAY_MS);
+      }
+    }
   }
+
+  const reason = lastError instanceof Error ? lastError.message : String(lastError);
+  console.warn(
+    "Could not probe database readiness before smoke test; skipping DB-backed endpoint checks",
+    reason,
+  );
+  return {
+    available: false,
+    reason,
+    tokenBalance: false,
+    walletPosition: false,
+  };
 }
 
 if (!databaseUrl) {
@@ -80,16 +96,23 @@ if (!databaseUrl) {
 let passed = 0;
 let failed = 0;
 let skipped = 0;
-let indexerViewAvailability = {
+let databaseReadiness = {
+  available: true,
+  reason: null,
   tokenBalance: true,
   walletPosition: true,
 };
 
 function describeMissingIndexerViews() {
   const missing = [];
-  if (!indexerViewAvailability.tokenBalance) missing.push("ponder_views.token_balance");
-  if (!indexerViewAvailability.walletPosition) missing.push("ponder_views.wallet_position");
+  if (!databaseReadiness.tokenBalance) missing.push("ponder_views.token_balance");
+  if (!databaseReadiness.walletPosition) missing.push("ponder_views.wallet_position");
   return missing.join(", ");
+}
+
+function skipIfDatabaseUnavailable() {
+  if (databaseReadiness.available) return;
+  skip(`database unavailable for smoke test: ${databaseReadiness.reason}`);
 }
 
 class SkipTest extends Error {
@@ -197,6 +220,7 @@ async function runTests() {
   let discoveredCreator = null;
 
   await test("GET /api/v1/tokens returns list", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/tokens?limit=10&offset=0");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected array");
@@ -207,6 +231,7 @@ async function runTests() {
   });
 
   await test("Token has expected shape", async () => {
+    skipIfDatabaseUnavailable();
     const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
     if (body.data.length === 0) skip("DB has no tokens");
     const t = body.data[0];
@@ -216,11 +241,13 @@ async function runTests() {
   });
 
   await test("Token list respects limit", async () => {
+    skipIfDatabaseUnavailable();
     const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
     assert(body.data.length <= 1, `Expected <=1, got ${body.data.length}`);
   });
 
   await test("Token list filters by status", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/tokens?status=curve&limit=10&offset=0");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     for (const t of body.data) {
@@ -234,6 +261,7 @@ async function runTests() {
   });
 
   await test("GET /api/v1/tokens/search returns results", async () => {
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { body: detail } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
     // Grab the first contiguous ASCII-alphanumeric run from the name and
@@ -252,11 +280,13 @@ async function runTests() {
   });
 
   await test("Search returns empty for no matches", async () => {
+    skipIfDatabaseUnavailable();
     const { body } = await fetchJson("/api/v1/tokens/search?q=zzzznonexistent");
     assert(body.data.length === 0, "Expected empty array");
   });
 
   await test("GET /api/v1/tokens/:address returns detail", async () => {
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -267,6 +297,7 @@ async function runTests() {
   });
 
   await test("Token detail returns 404 for unknown", async () => {
+    skipIfDatabaseUnavailable();
     const { res } = await fetchJson(`/api/v1/tokens/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 404, `Expected 404, got ${res.status}`);
   });
@@ -279,6 +310,7 @@ async function runTests() {
   console.log("\n--- Creators (DB) ---\n");
 
   await test("GET /api/v1/creators/:address returns profile", async () => {
+    skipIfDatabaseUnavailable();
     if (!discoveredCreator) skip("DB has no creators");
     const { res, body } = await fetchJson(`/api/v1/creators/${discoveredCreator}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -288,6 +320,7 @@ async function runTests() {
   });
 
   await test("Creator returns empty for unknown address", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson(`/api/v1/creators/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(body.data.tokens.length === 0, "Expected no tokens");
@@ -301,6 +334,7 @@ async function runTests() {
   console.log("\n--- Profiles (DB) ---\n");
 
   await test("GET /api/v1/profiles/:address returns default", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson(`/api/v1/profiles/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(
@@ -325,12 +359,14 @@ async function runTests() {
   // stays up under Ponder outages as long as Neon is up.
 
   await test("GET /api/v1/trades serves from Postgres without Ponder", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/trades?limit=5");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected `data` to be an array");
   });
 
   await test("GET /api/v1/stats serves live counters without Ponder", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/stats");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert("totalTokens" in body.data, "Missing totalTokens");
@@ -344,7 +380,8 @@ async function runTests() {
   });
 
   await test("GET /api/v1/holders/:address serves from Postgres without Ponder", async () => {
-    if (!indexerViewAvailability.tokenBalance) {
+    skipIfDatabaseUnavailable();
+    if (!databaseReadiness.tokenBalance) {
       skip(`staging DB is missing ${describeMissingIndexerViews()}`);
     }
     if (!discoveredToken) skip("DB has no tokens");
@@ -358,7 +395,8 @@ async function runTests() {
   });
 
   await test("GET /api/v1/portfolio/:wallet serves from Postgres without Ponder", async () => {
-    if (!indexerViewAvailability.tokenBalance || !indexerViewAvailability.walletPosition) {
+    skipIfDatabaseUnavailable();
+    if (!databaseReadiness.tokenBalance || !databaseReadiness.walletPosition) {
       skip(`staging DB is missing ${describeMissingIndexerViews()}`);
     }
     // Use the zero address as a sentinel wallet — every running indexer
@@ -375,6 +413,7 @@ async function runTests() {
   });
 
   await test("GET /api/v1/security/:address returns fallback", async () => {
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/security/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -382,6 +421,7 @@ async function runTests() {
   });
 
   await test("GET /api/v1/trades/sparkline/:address returns empty", async () => {
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/trades/sparkline/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -436,11 +476,13 @@ async function main() {
   });
 
   try {
-    indexerViewAvailability = await getIndexerViewAvailability(databaseUrl);
+    databaseReadiness = await getDatabaseReadiness(databaseUrl);
     console.log(
-      "Indexer stable views:",
-      `token_balance=${indexerViewAvailability.tokenBalance ? "present" : "missing"}`,
-      `wallet_position=${indexerViewAvailability.walletPosition ? "present" : "missing"}`,
+      "Database readiness:",
+      `available=${databaseReadiness.available ? "yes" : "no"}`,
+      `token_balance=${databaseReadiness.tokenBalance ? "present" : "missing"}`,
+      `wallet_position=${databaseReadiness.walletPosition ? "present" : "missing"}`,
+      databaseReadiness.reason ? `reason=${databaseReadiness.reason}` : "",
     );
 
     await sleep(2_000);

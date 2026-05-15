@@ -262,6 +262,7 @@ describe("renderConfirmReply", () => {
       kind: "executed",
       side: "buy",
       ticker: "TEST",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -286,6 +287,7 @@ describe("renderConfirmReply", () => {
       kind: "executed",
       side: "buy",
       ticker: "TEST",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -309,6 +311,7 @@ describe("renderConfirmReply", () => {
       kind: "executed",
       side: "sell",
       ticker: "TEST",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -331,6 +334,7 @@ describe("renderConfirmReply", () => {
       kind: "executed",
       side: "sell",
       ticker: "TEST",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -348,6 +352,7 @@ describe("renderConfirmReply", () => {
       kind: "executed",
       side: "buy",
       ticker: "TEST",
+      token: TOKEN,
       result: {
         ok: false,
         kind: "reverted",
@@ -366,6 +371,7 @@ describe("renderConfirmReply", () => {
       kind: "executed",
       side: "buy",
       ticker: "TEST",
+      token: TOKEN,
       result: {
         ok: false,
         kind: "pending",
