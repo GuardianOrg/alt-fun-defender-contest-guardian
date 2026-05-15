@@ -280,6 +280,34 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
 };
 
 /**
+ * Reply with the rendered confirm message and, on receipt-confirmed
+ * success, drop a fresh `/start` view directly below it. Mirrors the
+ * post-success behaviour in `runWithTxStatusUpdates` for the fallback
+ * paths (`cnf:` expired/replayed, degen-mode without a callback message
+ * ref, conversation degen without a resolvable chat id) where no status
+ * bubble is being edited in place. Without this, those paths would emit
+ * the receipt but skip the home-menu drop, leaving sells in particular
+ * without a chained next-action surface (issue: post-trade home prompt
+ * symmetric on sells).
+ */
+export const replyConfirmedTradeAndPromptStart = async (
+  ctx: AppContext,
+  outcome: ConfirmOutcome,
+): Promise<void> => {
+  await ctx.reply(renderConfirmReply(outcome), {
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  });
+  if (
+    outcome.kind === "executed" &&
+    outcome.result.ok &&
+    ctx.chat
+  ) {
+    await sendStartPromptAfterTrade(ctx, ctx.chat.id);
+  }
+};
+
+/**
  * Degen-mode entry point: stage the intent and immediately confirm it in
  * the same call, skipping the inline `[Confirm]` / `[Cancel]` keyboard.
  *
