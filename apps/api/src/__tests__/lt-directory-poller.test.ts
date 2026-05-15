@@ -278,6 +278,37 @@ describe("LtDirectoryPoller alarm", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
+  it("emits a structured warn log on an empty helper response so the condition shows up in real-time logs", async () => {
+    const { ctx, pendingInits } = createState();
+    stubHelperReturn([]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const poller = await buildPoller(ctx, pendingInits, makeEnv());
+    await poller.alarm();
+
+    const events = logSpy.mock.calls
+      .map(([msg]) => {
+        try {
+          return JSON.parse(msg as string) as {
+            level?: string;
+            event?: string;
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is { level: string; event: string } => e !== null);
+    expect(
+      events.some(
+        (e) =>
+          e.event === "lt_directory_poller_empty_response" &&
+          e.level === "warn",
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
+
   it("bumps pollSequence monotonically across successful ticks", async () => {
     const { ctx, pendingInits } = createState();
     stubHelperReturn([

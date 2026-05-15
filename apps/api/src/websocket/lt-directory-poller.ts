@@ -196,7 +196,14 @@ export class LtDirectoryPoller extends DurableObject<AppBindings> {
         // Empty response is either an upstream regression or a fresh
         // helper deployment with no LTs registered yet. Don't clobber
         // the existing rows — leave readers on the last good snapshot.
+        // Emit a structured warn alongside the heartbeat-state update so
+        // an empty payload surfaces in real-time logs instead of only
+        // through the 30-minute heartbeat tick. CodeRabbit feedback on
+        // PR #947.
         this.heartbeat.lastError = "empty_directory_response";
+        this.log("warn", "lt_directory_poller_empty_response", {
+          tickCount: this.heartbeat.tickCount,
+        });
         return;
       }
 
