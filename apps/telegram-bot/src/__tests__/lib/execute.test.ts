@@ -1385,7 +1385,6 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       token: TOKEN,
       side: "sell",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -1407,7 +1406,6 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       token: TOKEN,
       side: "buy",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -1426,7 +1424,6 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       token: TOKEN,
       side: "sell",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: false,
         kind: "reverted",
@@ -1449,7 +1446,6 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       token: TOKEN,
       side: "sell",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
