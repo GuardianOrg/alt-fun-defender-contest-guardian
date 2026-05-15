@@ -28,7 +28,6 @@ import security from "./routes/security.js";
 import profiles from "./routes/profiles.js";
 import moderation from "./routes/moderation.js";
 import chart from "./routes/chart.js";
-import chartV2 from "./routes/chart-v2.js";
 import marketData from "./routes/market-data.js";
 import health from "./routes/health.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
@@ -172,13 +171,6 @@ app.route("/api/v1/security", security);
 app.route("/api/v1/profiles", profiles);
 app.route("/api/v1/moderation", moderation);
 app.route("/api/v1/chart", chart);
-// `/api/v1/chart-v2` is a side-by-side companion that serves the same
-// payload as `/api/v1/chart` but reads from `ponder_views.*` directly
-// over Drizzle/Neon instead of the legacy Ponder GraphQL hop. A
-// follow-up PR will compare the two responses on prod traffic and then
-// cut `/api/v1/chart` over (and retire this mount). See
-// `routes/chart-v2.ts` for the route-level rationale.
-app.route("/api/v1/chart-v2", chartV2);
 app.route("/api/v1/market-data", marketData);
 
 app.post("/api/v1/webhook/indexer", async (c) => {
