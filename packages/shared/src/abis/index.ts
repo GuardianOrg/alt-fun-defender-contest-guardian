@@ -9,3 +9,4 @@ export { FeeVaultAbi } from "./FeeVault.js";
 export { BotFeeRouterAbi } from "./BotFeeRouter.js";
 export { UniswapV2PairAbi } from "./UniswapV2Pair.js";
 export { LeveragedTokenAbi } from "./LeveragedToken.js";
+export { LeveragedTokenHelperAbi } from "./LeveragedTokenHelper.js";

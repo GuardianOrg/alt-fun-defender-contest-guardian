@@ -61,6 +61,7 @@ const VALID_WS_CHANNELS: ReadonlySet<string> = new Set([
 
 export { WebSocketDO, WsIpLimiter };
 export { LtTicker } from "./websocket/lt-ticker.js";
+export { LtDirectoryPoller } from "./websocket/lt-directory-poller.js";
 
 const app = new Hono<{ Bindings: AppBindings }>();
 
@@ -76,6 +77,7 @@ app.use("*", prettyJSON());
  * manually. Cost is a single DO fetch per cold start.
  */
 let ltTickerTouched = false;
+let ltDirectoryPollerTouched = false;
 app.use("*", async (c, next) => {
   if (!ltTickerTouched) {
     ltTickerTouched = true;
@@ -84,6 +86,24 @@ app.use("*", async (c, next) => {
     c.executionCtx.waitUntil(
       stub.fetch("https://internal/ensure").catch(() => {
         ltTickerTouched = false;
+      }),
+    );
+  }
+  if (!ltDirectoryPollerTouched) {
+    // Same self-kickstart pattern as `LtTicker` above. In prod the cron
+    // hook in `scheduled` is the authoritative restart path; in dev /
+    // local-wrangler the cron doesn't fire, so we lean on user traffic
+    // to wake the poller. The DO's constructor already self-schedules
+    // its alarm — `/ensure` is just a "make sure the constructor ran"
+    // hammer that re-arms the alarm if one isn't queued.
+    ltDirectoryPollerTouched = true;
+    const id = c.env.LT_DIRECTORY_POLLER_DO.idFromName(
+      "lt-directory-poller",
+    );
+    const stub = c.env.LT_DIRECTORY_POLLER_DO.get(id);
+    c.executionCtx.waitUntil(
+      stub.fetch("https://internal/ensure").catch(() => {
+        ltDirectoryPollerTouched = false;
       }),
     );
   }
@@ -354,6 +374,29 @@ export default {
           JSON.stringify({
             level: "error",
             event: "lt_ticker_kickstart_failed",
+            error: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      }),
+    );
+
+    // Same idempotent kickstart for `LtDirectoryPoller`. Lives next to
+    // the `lt_ticker_kickstart` ensure so the two singleton DOs are
+    // re-armed in lockstep on every cron tick (defence in depth — the
+    // DO constructor already self-schedules, this is the
+    // belt-and-braces path for evictions + cold deploys).
+    const directoryPollerId = env.LT_DIRECTORY_POLLER_DO.idFromName(
+      "lt-directory-poller",
+    );
+    const directoryPollerStub =
+      env.LT_DIRECTORY_POLLER_DO.get(directoryPollerId);
+    ctx.waitUntil(
+      directoryPollerStub.fetch("https://internal/ensure").catch((err) => {
+        console.log(
+          JSON.stringify({
+            level: "error",
+            event: "lt_directory_poller_kickstart_failed",
             error: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

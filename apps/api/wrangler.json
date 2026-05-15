@@ -33,6 +33,10 @@
       {
         "name": "WS_IP_LIMITER_DO",
         "class_name": "WsIpLimiter"
+      },
+      {
+        "name": "LT_DIRECTORY_POLLER_DO",
+        "class_name": "LtDirectoryPoller"
       }
     ]
   },
@@ -48,6 +52,10 @@
     {
       "tag": "v3",
       "new_classes": ["WsIpLimiter"]
+    },
+    {
+      "tag": "v4",
+      "new_classes": ["LtDirectoryPoller"]
     }
   ],
   "triggers": {

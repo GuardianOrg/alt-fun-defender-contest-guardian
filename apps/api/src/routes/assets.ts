@@ -7,6 +7,7 @@ import {
 } from "@launchpad/shared";
 
 import { getLiveLtAvailability } from "../lib/lt-availability.js";
+import { readLtDirectory } from "../lib/lt-directory-reads.js";
 import formatSuccess from "../utils/format-success.js";
 
 import type { AppBindings } from "../lib/types.js";
@@ -129,6 +130,42 @@ assets.get("/", async (c) => {
           : SUPPORTED_UNDERLYING_ASSETS.filter((s) => liveUnderlyings.has(s)),
     }),
   );
+});
+
+/**
+ * Full BounceTech LT directory, sourced from the `lt_directory`
+ * Postgres mirror kept fresh by `LtDirectoryPoller`. Returns every row
+ * the poller has ever seen — no `filterSupportedLTs`, no live-on-UI
+ * filter. Mirrors the shape of the legacy
+ * `GET ${BOUNCE_INDEXING_API}/leveraged-tokens` upstream payload
+ * (`{ data: [...] }` envelope wrapped in `formatSuccess`) so a future
+ * client cutover is a pure source swap.
+ *
+ * Provided additively for end-to-end verification ahead of switching
+ * existing consumers (frontend `useLeveragedTokens`, API `fetchLiveLtRates`,
+ * etc.) off the upstream HTTP fan-out. See the follow-up GitHub issue
+ * tracking the parity check.
+ *
+ * Edge-cacheable: the underlying directory rarely changes and the
+ * mirror is itself a cache, so a 15s `s-maxage` plus `stale-while-
+ * revalidate` is safe and absorbs concurrent users at the CF edge.
+ */
+assets.get("/leveraged-tokens", async (c) => {
+  const directory = await readLtDirectory(c.env.DATABASE_URL);
+  if (directory === null) {
+    // DB unavailable. Surface an empty list rather than failing the
+    // request: the verification flow that wraps this endpoint needs
+    // to distinguish "mirror is degraded" from "mirror is wired up but
+    // empty", which it does by reading the response envelope's status
+    // field (`degraded` vs `success`).
+    return c.json(formatSuccess({ data: [] }, "degraded"));
+  }
+  const response = c.json(formatSuccess({ data: directory }));
+  response.headers.set(
+    "Cache-Control",
+    "public, s-maxage=15, stale-while-revalidate=60",
+  );
+  return response;
 });
 
 export default assets;

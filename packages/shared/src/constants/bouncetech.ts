@@ -1,6 +1,23 @@
 export const BOUNCE_INDEXING_API = "https://indexing.bounce.tech" as const;
 
 /**
+ * On-chain `LeveragedTokenHelper` contract on HyperEVM. Read-only view-
+ * helper that returns the full BounceTech LT directory (`address`,
+ * `targetAsset`, `targetLeverage`, `isLong`, `exchangeRate`, `mintPaused`,
+ * `baseAssetBalance`, `totalAssets`, …) in one batched call.
+ *
+ * Source of truth for Alt Fun's `LtDirectoryPoller` Durable Object
+ * (`apps/api/src/websocket/lt-directory-poller.ts`), which keeps the
+ * `lt_directory` Postgres table fresh on a 30s alarm cadence. This is the
+ * additive plumbing for replacing reliance on
+ * `${BOUNCE_INDEXING_API}/leveraged-tokens` — the cutover from HTTP to
+ * the on-chain helper is deliberately deferred until parity is verified
+ * (see the follow-up GitHub issue for the verification plan).
+ */
+export const LEVERAGED_TOKEN_HELPER_ADDRESS =
+  "0x69028FFb4e18c068fC65917ca7152c29e4B38B01" as const;
+
+/**
  * Public BounceTech web app. We use it as a "is this LT live on BounceTech's
  * own UI?" oracle: BounceTech ships a per-LT logo at
  * `${BOUNCE_UI_BASE_URL}/leveraged-tokens/<symbol>.png` once they decide an

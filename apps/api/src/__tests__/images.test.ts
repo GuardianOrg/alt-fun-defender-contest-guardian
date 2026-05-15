@@ -125,6 +125,7 @@ function makeEnv(overrides: Partial<AppBindings> = {}): AppBindings {
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
     LT_TICKER_DO: {} as DurableObjectNamespace,
+    LT_DIRECTORY_POLLER_DO: {} as DurableObjectNamespace,
     ...overrides,
   };
 }
