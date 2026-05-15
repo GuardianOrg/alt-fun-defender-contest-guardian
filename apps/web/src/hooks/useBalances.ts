@@ -1,14 +1,12 @@
 import { useMemo } from "react";
 
 import { useQuery } from "@tanstack/react-query";
-import { createPublicClient, formatUnits, http } from "viem";
+import { formatUnits } from "viem";
 
 import { useMarketData } from "./useMarketData";
 import { useWallet } from "./useWallet";
-import { hyperEVM } from "../config/chains";
 import { DEFAULT_TOKEN_IMAGE } from "../config/constants";
-import { erc20Abi } from "../contracts/abis";
-import { API_BASE, fetchAllTokens, fetchBalances } from "../services/api";
+import { API_BASE, fetchBalances } from "../services/api";
 
 import type { HeldToken } from "../services/types";
 
@@ -23,12 +21,6 @@ function resolveImageUrl(raw: string | undefined): string {
   if (!raw) return DEFAULT_TOKEN_IMAGE;
   return new URL(raw, API_BASE).toString();
 }
-
-const rpcUrl = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
-const hyperEvmClient = createPublicClient({
-  chain: hyperEVM,
-  transport: http(rpcUrl),
-});
 
 export interface RawBalance {
   address: string;
@@ -93,8 +85,8 @@ export function buildHeldTokens(
 }
 
 /**
- * Primary path: read the wallet's positions from the indexer-backed
- * `/api/v1/balances/:wallet` route. The route is wallet-scoped via Ponder
+ * Read the wallet's positions from the indexer-backed
+ * `/api/v1/balances/:wallet` route. Wallet-scoped via Ponder
  * (`tokenBalances where wallet=…, balance_gt: 0`), joins token metadata
  * server-side, and includes admin-hidden tokens for holders so they can
  * sell out (issue #712). One HTTP call regardless of catalogue size.
@@ -116,62 +108,11 @@ async function fetchRawBalancesFromApi(
 }
 
 /**
- * Fallback when the API/indexer is unavailable: walk every public-catalogue
- * token and probe `balanceOf` via a chunked viem multicall. Chunked at 250
- * tokens because HyperEVM small blocks cap multicalls at ~2M gas and a
- * fully-grown catalogue in one tx will revert with `out of gas`. Hidden
- * tokens aren't in `fetchAllTokens`, so they won't surface during a
- * fallback — acceptable given this only fires while the API is down.
- */
-async function fetchRawBalancesFromChain(
-  walletAddress: string,
-): Promise<RawBalance[]> {
-  const tokens = await fetchAllTokens();
-  if (tokens.length === 0) {
-    throw new Error("Token catalogue unavailable");
-  }
-
-  const MULTICALL_CHUNK_SIZE = 250;
-  const balances: RawBalance[] = [];
-  for (let start = 0; start < tokens.length; start += MULTICALL_CHUNK_SIZE) {
-    const tokenChunk = tokens.slice(start, start + MULTICALL_CHUNK_SIZE);
-    const chunkResults = await hyperEvmClient.multicall({
-      contracts: tokenChunk.map((token) => ({
-        address: token.address as `0x${string}`,
-        abi: erc20Abi,
-        functionName: "balanceOf" as const,
-        args: [walletAddress as `0x${string}`],
-      })),
-      allowFailure: true,
-    });
-    for (let i = 0; i < chunkResults.length; i++) {
-      const result = chunkResults[i];
-      const token = tokenChunk[i];
-      if (result.status !== "success") continue;
-      const balance = result.result as bigint;
-      if (balance <= 0n) continue;
-      balances.push({
-        address: token.address,
-        name: token.name,
-        ticker: token.ticker,
-        ltPair: token.ltPair,
-        leverage: token.leverage,
-        balance,
-        imageUrl: token.imageUrl,
-        isHidden: false,
-      });
-    }
-  }
-  return balances;
-}
-
-/**
  * React Query-backed hook powering the "MY POSITIONS" panel and the
  * Earnings / Profile balances tabs. Joins the indexer-backed `/balances`
  * read with the market-data cache (one query drives both the per-token
  * `priceUsd` lookup the dust filter reads via `getPrice` and the
- * `change24h` row column). On API failure, falls back to a chunked
- * `balanceOf` multicall against the full catalogue.
+ * `change24h` row column).
  */
 export function useBalances() {
   const { address } = useWallet();
@@ -182,8 +123,12 @@ export function useBalances() {
       if (!address) throw new Error("Address required");
       try {
         return await fetchRawBalancesFromApi(address);
-      } catch {
-        return fetchRawBalancesFromChain(address);
+      } catch (error) {
+        // Re-throw so React Query parks the query in `error` state and
+        // applies its retry policy. Swallowing here would surface as a
+        // permanent "No positions yet" with no error UI and no retries.
+        console.error("Failed to fetch balances from API", error);
+        throw error;
       }
     },
     enabled: !!address,
@@ -199,7 +144,11 @@ export function useBalances() {
     isLoading: marketLoading,
   } = useMarketData(heldAddresses);
 
-  const tokens = buildHeldTokens(query.data ?? [], getPrice, getTokenMarketData);
+  const tokens = buildHeldTokens(
+    query.data ?? [],
+    getPrice,
+    getTokenMarketData,
+  );
 
   const totalValue = tokens.reduce((sum, t) => sum + t.valueUsd, 0);
 
