@@ -1,6 +1,5 @@
 import { ponder } from "ponder:registry";
 import {
-  swap,
   pairReserve,
   hyperswapPairIndex,
   token,
@@ -9,25 +8,16 @@ import {
 
 import { broadcastEvent, isLiveEvent } from "./broadcast.js";
 
-ponder.on("HyperSwapPair:Swap", async ({ event, context }) => {
-  const { db } = context;
-  await db
-    .insert(swap)
-    .values({
-      id: `${event.transaction.hash}-${event.log.logIndex}`,
-      pairAddress: event.log.address,
-      sender: event.args.sender,
-      to: event.args.to,
-      amount0In: event.args.amount0In,
-      amount1In: event.args.amount1In,
-      amount0Out: event.args.amount0Out,
-      amount1Out: event.args.amount1Out,
-      blockNumber: BigInt(event.block.number),
-      timestamp: BigInt(event.block.timestamp),
-    })
-    .onConflictDoNothing();
-});
-
+/**
+ * The `HyperSwapPair` source intentionally has only **one** indexing function
+ * (`Sync`) — see the doc comment below the handler for the why. Adding a
+ * second `ponder.on("HyperSwapPair:...")` handler would silently break
+ * post-graduation indexing for every newly-graduated token until repaired by
+ * hand. If you need per-swap data, derive it from `Zap:Buy` / `Zap:Sell` (the
+ * router-level events) or compute it from `Sync` reserve deltas — do not
+ * subscribe `HyperSwapPair:Swap`. The lock is enforced at runtime by
+ * `apps/indexer/test/single-handler-per-factory.test.ts`.
+ */
 ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
   const { db } = context;
   const pairAddr = event.log.address;
@@ -71,6 +61,19 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
   // so `token.curveSupply` / `token.ltReserve` carried over from the
   // last `Bonding.Trade` are already correct until the first user trade
   // on HyperSwap fires the next Sync.
+  //
+  // Why this is the only `HyperSwapPair:*` handler: Ponder 0.16's
+  // real-time sync has a known bug where a factory source registered
+  // for ≥2 events causes `factories` (in `sync-realtime/index.js`) to
+  // contain the same factory object twice, and `filterBlockEventData`'s
+  // self-deletion branch (`blockChildAddresses.get(factory).delete(...)`)
+  // erases the freshly-extracted child address on the second pass —
+  // every new pair registered post-deploy is silently dropped from
+  // `ponder_sync.factory_addresses`. Historical sync dedupes by
+  // `factory.id`; real-time does not. Keeping `Sync` as the single
+  // handler avoids the bug; per-swap data comes from `Zap:Buy` /
+  // `Zap:Sell` instead. See PR description for the full root-cause
+  // walkthrough.
   const idx = await db.find(hyperswapPairIndex, { pairAddress: pairAddr });
   if (!idx) return;
 

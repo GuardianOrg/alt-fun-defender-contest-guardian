@@ -418,6 +418,21 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.75%");
   });
 
+  it("buy confirmation shows token address and a ticker linking to the alt.fun tracking page", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n });
+
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const text = String(send!.body.text);
+    expect(text).toContain(`<code>${TOKEN_ADDR}</code>`);
+    expect(text).toContain(
+      `<a href="https://alt.fun/token/${TOKEN_ADDR}">TEST</a>`,
+    );
+  });
+
   it("Degen mode: Buy default skips the Confirm keyboard and submits immediately", async () => {
     const h = await harnessWithWallet();
     // Seed degen-mode = true on the user's session. The session adapter
@@ -453,15 +468,22 @@ describe("Buy flow (st:b button → conversation)", () => {
       );
       expect(confirmCard).toBeUndefined();
 
-      // The reply chain renders the tx receipt instead. Fee summary
-      // lives only in /help fees per issue #801 — never on the buy
-      // menu and never on the receipt.
-      const receipt = sends.find((s) =>
-        String(s.body.text).includes("Buy confirmed"),
-      );
-      expect(receipt).toBeDefined();
-      expect(String(receipt!.body.text)).not.toContain("Bot fee 0.5%");
-      expect(String(receipt!.body.text)).not.toContain("Alt Fun fee 0.75%");
+      // The reply chain renders the tx receipt instead. In degen mode
+      // the receipt now lands by editing the buy card in-place through
+      // the Tx-status phases, so look at both /sendMessage and
+      // /editMessageText. Fee summary lives only in /help fees per
+      // issue #801 — never on the buy menu and never on the receipt.
+      const allTexts = calls
+        .filter(
+          (c) =>
+            c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText"),
+        )
+        .map((c) => String(c.body.text));
+      const receiptText = allTexts.find((t) => t.includes("Buy confirmed"));
+      expect(receiptText).toBeDefined();
+      expect(receiptText!).not.toContain("Bot fee 0.5%");
+      expect(receiptText!).not.toContain("Alt Fun fee 0.75%");
 
       // No sendMessage carries a `cnf:` callback button.
       const hasConfirmButton = sends.some((s) => {

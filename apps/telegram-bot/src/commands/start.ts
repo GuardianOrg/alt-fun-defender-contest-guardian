@@ -6,6 +6,7 @@ import {
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
 import { replyWithActionCard } from "../lib/action-card.js";
+import { replyWithTrackCard } from "./track.js";
 import {
   ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
@@ -98,6 +99,39 @@ const renderStart = async (
   // button's host on mobile, pushing the keyboard off-screen.
   link_preview_options: { is_disabled: true },
 });
+
+/**
+ * Send a fresh /start view as a new chat message after a successful
+ * trade so the user has the home menu directly under the receipt
+ * without having to retype `/start`. Best-effort: returns silently when
+ * the snapshot can't be built (no active wallet, RPC degraded) or when
+ * Telegram rejects the send. The receipt above is the load-bearing
+ * surface; the start prompt is purely a navigation convenience.
+ *
+ * Uses `api.sendMessage` against the explicit `chatId` rather than
+ * `ctx.reply` so the post-trade caller in `runWithTxStatusUpdates` can
+ * fire it without depending on `ctx.chat` (the only chat ref available
+ * at that point is the edit target's chatId).
+ */
+export const sendStartPromptAfterTrade = async (
+  ctx: AppContext,
+  chatId: number | undefined,
+): Promise<void> => {
+  if (chatId === undefined) return;
+  try {
+    const snap = await buildStartSnapshot(ctx);
+    if (!snap) return;
+    await ctx.api.sendMessage(chatId, snap.text, {
+      parse_mode: snap.parseMode,
+      reply_markup: { inline_keyboard: snap.keyboard },
+      link_preview_options: snap.linkPreviewDisabled
+        ? { is_disabled: true }
+        : undefined,
+    });
+  } catch (err) {
+    logger.debug("post-trade start prompt failed", { err });
+  }
+};
 
 /**
  * Build the /start snapshot for the nav system without sending or
@@ -218,25 +252,43 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     const rawParam = typeof ctx.match === "string" ? ctx.match : undefined;
     const actionParam = parseActionStartParam(rawParam);
     if (actionParam !== null) {
-      // Deeplink from `/positions` inline `Buy` / `Sell` anchor — skip
-      // the welcome screen and route straight to the matching trade
-      // card. First-start callers still get the wallet+profile created
-      // above; we just don't re-render the welcome message on top of
-      // the action card. No referrer is captured from action payloads
-      // (those carry a token address, not a referral handle).
+      // Deeplink from `/positions` inline `Buy` / `Sell` / `Track`
+      // anchor — skip the welcome screen and route straight to the
+      // matching card. First-start callers still get the wallet +
+      // profile created above; we just don't re-render the welcome
+      // message on top of the action card. No referrer is captured
+      // from action payloads (those carry a token address, not a
+      // referral handle).
       if (isFirstStart) {
         await writeDefaultRewardsWallet(ctx.env, address as Address);
         await writeProfile(ctx.env.WALLET_KV, userId, {
           createdAt: Date.now(),
           referrer: null,
+          referralIdentityWallet: address.toLowerCase() as Address,
         });
       }
-      await replyWithActionCard(
-        ctx,
-        address,
-        actionParam.action,
-        actionParam.token,
-      );
+      if (actionParam.action === "track") {
+        // Surface a friendly reply on each `replyWithTrackCard` failure
+        // mode — silently dropping the deeplink leaves the user on a
+        // blank /start with no idea why their tap did nothing.
+        const outcome = await replyWithTrackCard(ctx, actionParam.token);
+        if (outcome === "not_found") {
+          await ctx.reply(
+            "Token not found — make sure the address is correct.",
+          );
+        } else if (outcome === "unavailable") {
+          await ctx.reply(
+            "Data temporarily unavailable — try again in a moment.",
+          );
+        }
+      } else {
+        await replyWithActionCard(
+          ctx,
+          address,
+          actionParam.action,
+          actionParam.token,
+        );
+      }
       return;
     }
 
@@ -260,6 +312,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       await writeProfile(ctx.env.WALLET_KV, userId, {
         createdAt: Date.now(),
         referrer,
+        referralIdentityWallet: address.toLowerCase() as Address,
       });
     }
 
