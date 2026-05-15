@@ -115,12 +115,26 @@ const harnessWithWallet = async (): Promise<BotTestHarness> => {
   return h;
 };
 
+// The final card may land via either `sendMessage` (no placeholder
+// shipped, or edit fell back) or `editMessageText` (the placeholder
+// was upgraded in place after the upstream fetches resolved). Both
+// carry the same `text` + `reply_markup` shape, so callers can grep
+// for "Test Token" on whichever leg actually shipped the body.
 const findCardSend = (calls: TgCall[]): TgCall | undefined =>
+  calls.find(
+    (c) =>
+      (c.url.includes("/sendMessage") ||
+        c.url.includes("/editMessageText")) &&
+      typeof c.body.text === "string" &&
+      String(c.body.text).includes("Test Token"),
+  );
+
+const findLoadingSend = (calls: TgCall[]): TgCall | undefined =>
   calls.find(
     (c) =>
       c.url.includes("/sendMessage") &&
       typeof c.body.text === "string" &&
-      String(c.body.text).includes("Test Token"),
+      String(c.body.text).includes("Loading"),
   );
 
 describe("Address → buy menu intercept (issue #821)", () => {
@@ -387,5 +401,136 @@ describe("Address → buy menu intercept (issue #821)", () => {
     const card = findCardSend(capture(fetchSpy));
     expect(card).toBeDefined();
     expect(String(card!.body.text)).toContain("TEST");
+  });
+
+  it("ships a Loading placeholder before the card lands, then edits it in place", async () => {
+    const h = await harnessWithWallet();
+    // Inline mock so `sendMessage` returns a real Message with a
+    // numeric `message_id` — without that, the placeholder pointer is
+    // `undefined`, the in-place edit path is skipped, and the card
+    // arrives via a second sendMessage (the production-degraded
+    // fallback). This test guards the production behaviour, so we have
+    // to feed the bot the same Message shape Telegram ships.
+    let nextMessageId = 7000;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/sendMessage")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: nextMessageId++,
+                date: 0,
+                chat: { id: CHAT_ID, type: "private" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000_000n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return tokenResponse();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(messageUpdate(TOKEN_ADDR, 30));
+
+    const calls = capture(fetchSpy);
+    const loading = findLoadingSend(calls);
+    expect(loading).toBeDefined();
+    // The shortened address is part of the placeholder copy so the user
+    // can verify the bot picked up the address they pasted, not a
+    // neighbouring token's address from a multi-line paste.
+    expect(String(loading!.body.text)).toContain(
+      `${TOKEN_ADDR.slice(0, 6)}…${TOKEN_ADDR.slice(-4)}`,
+    );
+
+    // The card must arrive via `editMessageText` against the same
+    // message that carried the placeholder — that's the whole point of
+    // the loading state. A second `sendMessage` carrying the card body
+    // means the user briefly saw "Loading…" then it scrolled out from
+    // under them, defeating the UX fix.
+    const cardEdit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        typeof c.body.text === "string" &&
+        String(c.body.text).includes("Test Token"),
+    );
+    expect(cardEdit).toBeDefined();
+
+    const loadingSendIdx = calls.findIndex((c) => c === loading);
+    const cardEditIdx = calls.findIndex((c) => c === cardEdit);
+    expect(loadingSendIdx).toBeLessThan(cardEditIdx);
+
+    // Exactly one bot-originated `sendMessage` lands in the chat — the
+    // loading placeholder. The card edit reuses that message slot
+    // rather than sending a fresh one.
+    const botSends = calls.filter((c) => c.url.includes("/sendMessage"));
+    expect(botSends).toHaveLength(1);
+  });
+
+  it("token-not-found surfaces inside the placeholder via editMessageText (no second message)", async () => {
+    const h = await harnessWithWallet();
+    let nextMessageId = 8000;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/sendMessage")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: nextMessageId++,
+                date: 0,
+                chat: { id: CHAT_ID, type: "private" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(messageUpdate(TOKEN_ADDR, 31));
+
+    const calls = capture(fetchSpy);
+    expect(findLoadingSend(calls)).toBeDefined();
+    const errorEdit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        typeof c.body.text === "string" &&
+        String(c.body.text).includes("Token not found"),
+    );
+    expect(errorEdit).toBeDefined();
   });
 });

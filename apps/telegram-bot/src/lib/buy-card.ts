@@ -1,5 +1,5 @@
 import type { Bot } from "grammy";
-import type { Message } from "grammy/types";
+import type { InlineKeyboardMarkup, Message } from "grammy/types";
 
 import type { AppContext } from "../bot.js";
 import {
@@ -10,6 +10,12 @@ import { extractTokenAddress, fetchToken } from "./api.js";
 import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
 import { WalletManager } from "./wallet.js";
+
+const shortAddress = (addr: string): string =>
+  addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
+
+const buildLoadingText = (addr: string): string =>
+  `⏳ Loading <code>${shortAddress(addr)}</code>…`;
 
 const TOKEN_NOT_FOUND_HTML =
   "❌ <b>Token not found.</b>\n\n" +
@@ -62,15 +68,66 @@ const rememberBuyCardMessage = (ctx: AppContext, sent: Message): void => {
 };
 
 /**
+ * Edit the loading placeholder in place with the final card text +
+ * keyboard. Falls back to a fresh `ctx.reply` when the placeholder
+ * doesn't carry a numeric `message_id` (test stubs that echo
+ * `result: true`) or when Telegram rejects the edit (rate-limit, racing
+ * delete, stale id). The fallback re-tracks the new message via
+ * `rememberBuyCardMessage` so subsequent intercepts still replace the
+ * card they actually see.
+ */
+const finaliseBuyCard = async (
+  ctx: AppContext,
+  placeholder: Message,
+  text: string,
+  options: {
+    reply_markup?: InlineKeyboardMarkup;
+    link_preview_options?: { is_disabled: boolean };
+  } = {},
+): Promise<void> => {
+  const chatId = ctx.chat?.id;
+  const messageId = placeholder.message_id;
+  if (chatId !== undefined && typeof messageId === "number") {
+    try {
+      await ctx.api.editMessageText(chatId, messageId, text, {
+        parse_mode: "HTML",
+        ...options,
+      });
+      return;
+    } catch {
+      // Edit failed — drop the (now stale) placeholder pointer and fall
+      // through to a fresh send so the user still sees the card.
+      const byChat = ctx.session.lastBuyCardMessageByChat;
+      if (byChat) delete byChat[String(chatId)];
+    }
+  }
+  const sent = await ctx.reply(text, {
+    parse_mode: "HTML",
+    ...options,
+  });
+  rememberBuyCardMessage(ctx, sent);
+};
+
+/**
  * Fetch the token and the user's active-wallet USDC balance, then reply
  * with the canonical buy card (same text + keyboard as the `/buy` lookup
  * flow). Used by the address-intercept paths so a contract address
  * pasted at any prompt — or as a bare message outside any flow — lands
  * the user on the buy menu without retyping or re-running `/buy`.
  *
- * On any failure the helper surfaces the same user-facing copy the buy
- * lookup conversation does (token-not-found vs. api-unavailable), so the
- * pivot looks identical to a normal `/buy` lookup.
+ * Ships a `⏳ Loading 0x1234…abcd…` placeholder before the upstream
+ * fetches (`fetchToken` + `fetchUsdcBalance`) so the user sees an
+ * immediate response in the slot the prior buy card occupied, then
+ * edits the placeholder in place with the final card (or error copy)
+ * once the data lands. Without this, the user's pasted address is
+ * deleted instantly but the new card takes a beat to arrive, leaving
+ * the chat momentarily blank with no signal that the paste was
+ * accepted.
+ *
+ * On any failure the placeholder is edited to the same user-facing
+ * copy the buy lookup conversation surfaces (token-not-found vs.
+ * api-unavailable), so the pivot looks identical to a normal `/buy`
+ * lookup.
  *
  * Replaces (delete + send) any prior intercept message in this chat so
  * the second paste in a row swaps the card in place instead of stacking
@@ -80,22 +137,25 @@ export const showBuyCardForAddress = async (
   ctx: AppContext,
   address: string,
 ): Promise<void> => {
+  await replacePreviousBuyCard(ctx);
+  const placeholder = await ctx.reply(buildLoadingText(address), {
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  });
+  rememberBuyCardMessage(ctx, placeholder);
+
   const tokenResult = await fetchToken(ctx.env, address);
   if (!tokenResult.ok) {
-    await replacePreviousBuyCard(ctx);
     if (
       tokenResult.kind === "not_found" ||
       tokenResult.kind === "invalid_address"
     ) {
-      const sent = await ctx.reply(TOKEN_NOT_FOUND_HTML, {
-        parse_mode: "HTML",
+      await finaliseBuyCard(ctx, placeholder, TOKEN_NOT_FOUND_HTML, {
         link_preview_options: { is_disabled: true },
       });
-      rememberBuyCardMessage(ctx, sent);
       return;
     }
-    const sent = await ctx.reply(API_UNAVAILABLE);
-    rememberBuyCardMessage(ctx, sent);
+    await finaliseBuyCard(ctx, placeholder, API_UNAVAILABLE);
     return;
   }
 
@@ -115,15 +175,12 @@ export const showBuyCardForAddress = async (
     ctx.session.buyPresetsUsdc,
     ctx.session.defaultBuyUsdc,
   );
-  await replacePreviousBuyCard(ctx);
-  const sent = await ctx.reply(cardText, {
-    parse_mode: "HTML",
+  await finaliseBuyCard(ctx, placeholder, cardText, {
     reply_markup: {
       inline_keyboard: buildBuyTokenKeyboard(token.address, buyPresets),
     },
     link_preview_options: { is_disabled: true },
   });
-  rememberBuyCardMessage(ctx, sent);
 };
 
 /**
