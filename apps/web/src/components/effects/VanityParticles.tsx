@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import Particles, { initParticlesEngine } from "@tsparticles/react";
+import { Particles, initParticlesEngine } from "@tsparticles/react";
 
 import styles from "./VanityEffect.module.css";
 
