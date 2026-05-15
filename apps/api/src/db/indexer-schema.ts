@@ -92,6 +92,15 @@ export const indexerRouterTrade = ponderSchema.table(
     index("router_trade_token_address_index").on(table.tokenAddress),
     index("router_trade_trader_index").on(table.trader),
     index("router_trade_timestamp_index").on(table.timestamp),
+    // Composite for `fetchRouterTradeActivity` — `WHERE token_address
+    // IN (...) AND timestamp >= cutoff GROUP BY token_address`. See
+    // the matching definition in `apps/indexer/ponder.schema.ts`;
+    // both must stay in lockstep so a Ponder redeploy doesn't drop
+    // the index.
+    index("router_trade_token_address_timestamp_index").on(
+      table.tokenAddress,
+      table.timestamp,
+    ),
   ],
 );
 

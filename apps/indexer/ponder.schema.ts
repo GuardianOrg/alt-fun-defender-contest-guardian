@@ -97,6 +97,14 @@ export const routerTrade = onchainTable("router_trade", (t) => ({
   tokenIdx: index().on(table.tokenAddress),
   traderIdx: index().on(table.trader),
   timestampIdx: index().on(table.timestamp),
+  // Composite for the API's `fetchRouterTradeActivity` aggregate
+  // (`WHERE token_address IN (…) AND timestamp >= cutoff GROUP BY
+  // token_address`). pg_stat_statements showed this query family at
+  // ~32% of total DB time when the system was under load — the
+  // single-column `tokenIdx` was forcing bitmap-or-seq scans on
+  // larger IN lists. The composite lets each address's window slice
+  // resolve as a single tight index range scan.
+  tokenTimestampIdx: index().on(table.tokenAddress, table.timestamp),
 }));
 
 export const graduation = onchainTable("graduation", (t) => ({
