@@ -6,6 +6,7 @@ import {
   gt,
   gte,
   inArray,
+  lt,
   notInArray,
   sql,
 } from "drizzle-orm";
@@ -17,6 +18,7 @@ import {
   indexerToken,
   indexerTokenBalance,
   indexerTokenHourlyMetrics,
+  indexerTokenSnapshot,
 } from "../db/indexer-schema.js";
 
 import type { Database } from "../db/client.js";
@@ -836,6 +838,152 @@ export async function checkIndexerHealth(db: Database): Promise<boolean> {
   } catch (error) {
     logIndexerReadFailure("indexer_reads.checkIndexerHealth_failed", error);
     return false;
+  }
+}
+
+/**
+ * Column subset of `ponder_views.token` needed to anchor the chart route:
+ *
+ *   - `k` — `reserve0 × reserve1` at `Pair.mint`. Drives the launch-anchor
+ *     ratio inside `buildRatioTimeline` (`k / TOTAL_SUPPLY` is the virtual
+ *     LT reserve at launch).
+ *   - `ltToken` — fallback for the BounceTech LT address when the API's own
+ *     `tokens.ltPair` row is missing (token created but registration backfill
+ *     hasn't landed yet).
+ *   - `graduated` / `graduatedAt` — present on the legacy GraphQL shape and
+ *     surfaced here for parity even though the chart route doesn't currently
+ *     branch on either field. Keeps a future "graduated-only chart styling"
+ *     change a one-line read instead of a schema migration.
+ *   - `timestamp` — block timestamp of `TokenLaunched`. Used as the floor for
+ *     the chart's history window so we don't request pre-launch ratios.
+ *
+ * Return contract mirrors `fetchTokenOnchain`:
+ *
+ *   - `null`     → row genuinely doesn't exist (token not indexed yet)
+ *   - `"unavailable"` → caught error (treat as 503-eligible)
+ *
+ * Lets the caller distinguish "404 because the indexer hasn't seen this
+ * token" from "503 because the indexer DB is unreachable" without colour-
+ * blinding on `null`. CodeRabbit feedback on PR #898 keeps this convention
+ * consistent across the chart-context + portfolio + token-lookup helpers.
+ */
+export interface ChartTokenContext {
+  k: string;
+  ltToken: string;
+  graduated: boolean;
+  graduatedAt: string | null;
+  timestamp: string;
+}
+
+export async function fetchTokenChartContext(
+  db: Database,
+  address: string,
+): Promise<ChartTokenContext | null | "unavailable"> {
+  try {
+    const rows = await db
+      .select({
+        k: indexerToken.k,
+        ltToken: indexerToken.ltToken,
+        graduated: indexerToken.graduated,
+        graduatedAt: indexerToken.graduatedAt,
+        timestamp: indexerToken.timestamp,
+      })
+      .from(indexerToken)
+      .where(eq(indexerToken.address, address.toLowerCase()))
+      .limit(1);
+    if (rows.length === 0) return null;
+    const [row] = rows;
+    return {
+      k: row.k,
+      ltToken: row.ltToken,
+      graduated: row.graduated,
+      graduatedAt: row.graduatedAt,
+      timestamp: row.timestamp,
+    };
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokenChartContext_failed",
+      error,
+      { address: address.toLowerCase() },
+    );
+    return "unavailable";
+  }
+}
+
+/** Row shape returned by `fetchTokenChartSnapshots`. Mirrors the legacy `PonderTokenSnapshot`. */
+export interface ChartTokenSnapshotRow {
+  curveSupply: string;
+  ltReserve: string;
+  timestamp: string;
+}
+
+/**
+ * Single-token tokenSnapshot window for the chart route. Replaces the legacy
+ * GraphQL pair of (paginated in-window query + standalone pre-window anchor
+ * query) with a single Postgres round-trip per phase, executed in parallel.
+ *
+ * Returns the anchor first (if any) followed by every in-window snapshot
+ * ordered `asc(timestamp)` — matches the array shape `buildRatioTimeline`
+ * already expects. Anchor presence is purely an existence question: a token
+ * launched inside the window legitimately has no pre-window snapshot, and
+ * the launch anchor inside `buildRatioTimeline` is the right baseline.
+ *
+ * Truncation is impossible here — Postgres returns every row in one shot,
+ * unlike the legacy paginator's `MAX_PAGES × 1000` cap. Callers that used to
+ * branch on `truncated: true` (and 503 the response) no longer need that
+ * branch when reading via this helper.
+ */
+export async function fetchTokenChartSnapshots(
+  db: Database,
+  tokenAddress: string,
+  fromSec: number,
+): Promise<ChartTokenSnapshotRow[] | null> {
+  const lowered = tokenAddress.toLowerCase();
+  const fromSecStr = String(fromSec);
+  try {
+    const [anchorRows, windowRows] = await Promise.all([
+      db
+        .select({
+          curveSupply: indexerTokenSnapshot.curveSupply,
+          ltReserve: indexerTokenSnapshot.ltReserve,
+          timestamp: indexerTokenSnapshot.timestamp,
+        })
+        .from(indexerTokenSnapshot)
+        .where(
+          and(
+            eq(indexerTokenSnapshot.tokenAddress, lowered),
+            lt(indexerTokenSnapshot.timestamp, fromSecStr),
+          ),
+        )
+        .orderBy(desc(indexerTokenSnapshot.timestamp))
+        .limit(1),
+      db
+        .select({
+          curveSupply: indexerTokenSnapshot.curveSupply,
+          ltReserve: indexerTokenSnapshot.ltReserve,
+          timestamp: indexerTokenSnapshot.timestamp,
+        })
+        .from(indexerTokenSnapshot)
+        .where(
+          and(
+            eq(indexerTokenSnapshot.tokenAddress, lowered),
+            gte(indexerTokenSnapshot.timestamp, fromSecStr),
+          ),
+        )
+        .orderBy(asc(indexerTokenSnapshot.timestamp)),
+    ]);
+    return [...anchorRows, ...windowRows].map((r) => ({
+      curveSupply: r.curveSupply,
+      ltReserve: r.ltReserve,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokenChartSnapshots_failed",
+      error,
+      { tokenAddress: lowered, fromSec },
+    );
+    return null;
   }
 }
 
