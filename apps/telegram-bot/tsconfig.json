@@ -1,4 +1,9 @@
 {
   "extends": "@launchpad/config/typescript/node",
+  "compilerOptions": {
+    "paths": {
+      "@launchpad/shared": ["../../packages/shared/src"]
+    }
+  },
   "include": ["src", "worker-configuration.d.ts"]
 }
