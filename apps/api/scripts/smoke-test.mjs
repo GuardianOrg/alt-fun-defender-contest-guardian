@@ -172,7 +172,6 @@ async function runTests() {
     if (res.status >= 500) {
       dbBackedRoutesAvailable = false;
       skip(`DB-backed token endpoints unavailable (status ${res.status})`);
-      return;
     }
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected array");
@@ -332,7 +331,6 @@ async function runTests() {
     if (res.status >= 500) {
       indexerSqlRoutesAvailable = false;
       skip(`Direct-SQL indexer routes unavailable (status ${res.status})`);
-      return;
     }
     assert(res.status === 200, `Expected 200, got ${res.status}`);
   });
