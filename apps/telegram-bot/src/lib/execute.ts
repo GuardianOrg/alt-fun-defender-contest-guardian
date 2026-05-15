@@ -45,7 +45,7 @@ export const CONFIRM_WINDOW_MS = 60_000;
  * the /track flow link out to).
  */
 export const trackingPageUrl = (token: string): string =>
-  `https://alt.fun/token/${token}`;
+  `https://alt.fun/token/${encodeURIComponent(token)}`;
 
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
@@ -272,6 +272,13 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
     const verb = side === "buy" ? "Buy" : "Sell";
+    // Ticker is user-controlled on launch and the address comes off the
+    // session intent — escape both before interpolating into the
+    // parse_mode="HTML" payload so a stray `<` cannot break Telegram
+    // rendering. Addresses are conventionally 0x-hex but escaping is
+    // free insurance.
+    const tickerSafe = escapeHtml(ticker);
+    const tokenSafe = escapeHtml(token);
     // Show the on-chain amount the user actually received, decoded from
     // the BotRouterTrade event. For buys that's tokens; for sells it's
     // the net USDC (gross `usdcAmount` minus the router's `botFee`
@@ -282,7 +289,7 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // pre-trade estimate as "received" would mislead.
     let receivedLine = "";
     if (side === "buy" && result.actualTokensOut !== undefined) {
-      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${ticker}\n`;
+      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${tickerSafe}\n`;
     } else if (side === "sell" && result.actualUsdcOut !== undefined) {
       receivedLine = `Received: $${formatUsdc(result.actualUsdcOut.toString())} USDC\n`;
     }
@@ -294,10 +301,10 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // the post-trade workflow sweep before submitting the trade.
     const trackingUrl = trackingPageUrl(token);
     return (
-      `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
+      `✅ <b>${verb} confirmed for ${tickerSafe}</b>\n\n` +
       `${receivedLine}` +
       `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>\n` +
-      `Token: <a href="${trackingUrl}">${ticker}</a> <code>${token}</code>`
+      `Token: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`
     );
   }
   // `pending` is not a failure — the tx is in the mempool and may still
