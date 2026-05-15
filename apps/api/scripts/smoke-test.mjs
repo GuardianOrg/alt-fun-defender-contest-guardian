@@ -194,6 +194,10 @@ async function runTests() {
   await test("Token list respects limit", async () => {
     if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
     const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
+    if (probedTokenList.length > 1) {
+      assert(body.data.length === 1, `Expected exactly 1, got ${body.data.length}`);
+      return;
+    }
     assert(body.data.length <= 1, `Expected <=1, got ${body.data.length}`);
   });
 
