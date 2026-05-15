@@ -426,6 +426,262 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
   });
 });
 
+/**
+ * Cloudflare's `caches.default` exposes `match` / `put` against a
+ * keyed-by-URL+method store. The fake below records calls and stores
+ * the response body keyed by the synthetic GET URL the route builds
+ * from the canonicalised address set — enough surface to assert the
+ * cold-write → warm-read pipeline, key canonicalisation, and per-TTL
+ * branch (live vs degraded) without spinning up a real Workers
+ * runtime.
+ */
+type FakeCache = {
+  match: ReturnType<typeof vi.fn>;
+  put: ReturnType<typeof vi.fn>;
+  store: Map<string, Response>;
+};
+
+function createFakeCache(): FakeCache {
+  const store = new Map<string, Response>();
+  const match = vi.fn(async (key: Request) => {
+    const hit = store.get(key.url);
+    return hit ? hit.clone() : undefined;
+  });
+  const put = vi.fn(async (key: Request, value: Response) => {
+    store.set(key.url, value);
+  });
+  return { match, put, store };
+}
+
+function mockHappyMarketDataPipeline(opts: {
+  address: string;
+  ltToken: string;
+  ltExchangeRate?: string;
+  pastLtRate?: string;
+}) {
+  mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+    {
+      address: opts.address,
+      ltToken: opts.ltToken,
+      k: "1000000000000000000000000000000000000000000000000",
+      curveSupply: "1000000000000000000000000",
+      ltReserve: "200000000000000000000",
+      pendingGraduation: false,
+      pendingGraduationAt: null,
+      graduated: false,
+      graduatedAt: null,
+      bondingPair: null,
+      hyperswapPair: null,
+      organicUsdcRaised: "0",
+      volumeUsd: "0",
+      creatorFeesUsd: "0",
+      protocolFeesUsd: "0",
+      timestamp: "1700000000",
+    },
+  ]);
+  mockBounceLtResponse({
+    [opts.ltToken]: opts.ltExchangeRate ?? "2000000000000000000",
+  });
+  mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+  mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
+  mockNeonQuery.mockResolvedValueOnce([
+    {
+      token_address: opts.ltToken,
+      exchange_rate: opts.pastLtRate ?? "1000000000000000000",
+    },
+  ]);
+}
+
+describe("POST /market-data — server-side cache (issue #928)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.stubGlobal("caches", undefined);
+  });
+
+  it("(a) cold call writes the response into the edge cache", async () => {
+    const cache = createFakeCache();
+    vi.stubGlobal("caches", { default: cache });
+
+    mockHappyMarketDataPipeline({ address: TOKEN_A, ltToken: LT_A });
+
+    const res = await postMarketData([TOKEN_A]);
+    expect(res.status).toBe(200);
+    expect(cache.match).toHaveBeenCalledTimes(1);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+    expect(cache.store.size).toBe(1);
+
+    // Pipeline ran once on the cold path — exactly one fan-out.
+    expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
+  });
+
+  it("(b) warm call returns the cached response without re-running the pipeline", async () => {
+    const cache = createFakeCache();
+    vi.stubGlobal("caches", { default: cache });
+
+    mockHappyMarketDataPipeline({ address: TOKEN_A, ltToken: LT_A });
+
+    const first = await postMarketData([TOKEN_A]);
+    const firstBody = await first.json();
+    expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
+
+    // Second call must hit the cache verbatim — no further fan-out, no
+    // BounceTech fetch, no Neon roundtrip. The body must be byte-identical
+    // to the cold response.
+    const second = await postMarketData([TOKEN_A]);
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+
+    expect(secondBody).toEqual(firstBody);
+    expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockNeonQuery).toHaveBeenCalledTimes(1);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+    expect(cache.match).toHaveBeenCalledTimes(2);
+  });
+
+  it("(c) different orderings / casings / dupes of the same set hit the same cache key", async () => {
+    const cache = createFakeCache();
+    vi.stubGlobal("caches", { default: cache });
+
+    // Use two addresses so the canonicalisation actually has something
+    // to sort. `TOKEN_B` is a second valid EIP-55 checksum.
+    const TOKEN_B = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
+      },
+    ]);
+    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
+    mockNeonQuery.mockResolvedValueOnce([
+      { token_address: LT_A, exchange_rate: "1000000000000000000" },
+    ]);
+
+    // First call: `[A, B]` in checksummed form.
+    const first = await postMarketData([TOKEN_A, TOKEN_B]);
+    expect(first.status).toBe(200);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+
+    // Second call: reversed order, lowercased, with a duplicate. Must
+    // resolve to the same cache slot — no second compute fan-out, no
+    // second `cache.put`.
+    const second = await postMarketData([
+      TOKEN_B.toLowerCase(),
+      TOKEN_A.toLowerCase(),
+      TOKEN_B.toLowerCase(),
+    ]);
+    expect(second.status).toBe(200);
+
+    expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
+    expect(cache.put).toHaveBeenCalledTimes(1);
+    expect(cache.store.size).toBe(1);
+    expect(cache.match).toHaveBeenCalledTimes(2);
+  });
+
+  it("(d) different address sets land in different cache slots", async () => {
+    const cache = createFakeCache();
+    vi.stubGlobal("caches", { default: cache });
+
+    const TOKEN_B = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
+    // Two distinct cold calls — one per address — each must miss the
+    // cache, run the pipeline, and write its own slot.
+    mockHappyMarketDataPipeline({ address: TOKEN_A, ltToken: LT_A });
+    const first = await postMarketData([TOKEN_A]);
+    expect(first.status).toBe(200);
+
+    mockHappyMarketDataPipeline({ address: TOKEN_B, ltToken: LT_A });
+    const second = await postMarketData([TOKEN_B]);
+    expect(second.status).toBe(200);
+
+    expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(2);
+    expect(cache.put).toHaveBeenCalledTimes(2);
+    expect(cache.store.size).toBe(2);
+  });
+
+  it("(e) degraded responses set the shorter (1s) TTL", async () => {
+    const cache = createFakeCache();
+    vi.stubGlobal("caches", { default: cache });
+
+    // Triggers the degraded path: BounceTech snapshot DB rejects, so
+    // `change24h` collapses to null and `dataSource` flips to
+    // `"degraded"` — see the existing degraded test at the top of this
+    // file for the exact mock shape this exercises.
+    mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
+      {
+        address: TOKEN_A,
+        ltToken: LT_A,
+        k: "1000000000000000000000000000000000000000000000000",
+        curveSupply: "1000000000000000000000000",
+        ltReserve: "200000000000000000000",
+        pendingGraduation: false,
+        pendingGraduationAt: null,
+        graduated: false,
+        graduatedAt: null,
+        bondingPair: null,
+        hyperswapPair: null,
+        organicUsdcRaised: "0",
+        volumeUsd: "0",
+        creatorFeesUsd: "0",
+        protocolFeesUsd: "0",
+        timestamp: "1700000000",
+      },
+    ]);
+    mockBounceLtResponse({ [LT_A]: "2000000000000000000" });
+    mockFetchHistoricalCurveSnapshots.mockResolvedValueOnce(new Map());
+    mockFetchRouterTradeActivity.mockResolvedValueOnce(new Map());
+    mockNeonQuery.mockRejectedValueOnce(new Error("db down"));
+
+    const res = await postMarketData([TOKEN_A]);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string };
+    expect(body.dataSource).toBe("degraded");
+
+    const cacheControl = res.headers.get("Cache-Control") ?? "";
+    expect(cacheControl).toContain("s-maxage=1");
+    expect(cacheControl).not.toContain("s-maxage=3");
+  });
+
+  it("empty `addresses[]` short-circuit is not cached", async () => {
+    const cache = createFakeCache();
+    vi.stubGlobal("caches", { default: cache });
+
+    const res = await postMarketData([]);
+    expect(res.status).toBe(200);
+    expect(cache.match).not.toHaveBeenCalled();
+    expect(cache.put).not.toHaveBeenCalled();
+    expect(cache.store.size).toBe(0);
+  });
+
+  it("falls through to live compute when the cache binding is missing (worker dev / unit tests)", async () => {
+    // No `caches` global — module-level stub in this file already does
+    // this, but we set it again here so future readers see the intent.
+    vi.stubGlobal("caches", undefined);
+
+    mockHappyMarketDataPipeline({ address: TOKEN_A, ltToken: LT_A });
+
+    const res = await postMarketData([TOKEN_A]);
+    expect(res.status).toBe(200);
+    expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("GET /market-data/:address", () => {
   beforeEach(() => {
     vi.resetAllMocks();
