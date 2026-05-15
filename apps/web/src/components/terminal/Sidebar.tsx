@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 
 import styles from "./Sidebar.module.css";
 import { CREATE_PATH } from "../../app/routes";
-import { useAssets, usePlatformStats } from "../../hooks/useAssets";
+import { useAssets} from "../../hooks/useAssets";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 import Button from "../shared/Button";
@@ -20,7 +20,6 @@ export default function Sidebar() {
   // failure, while `data` would stay `undefined` for the lifetime of a
   // failed fetch.
   const { data: assets, isLoading: assetsLoading } = useAssets();
-  usePlatformStats();
 
   return (
     <div className={styles.sidebar}>
