@@ -1,17 +1,19 @@
 import { Hono } from "hono";
 import { getAddress, isAddress } from "viem";
 import { neon } from "@neondatabase/serverless";
+import { eq } from "drizzle-orm";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
-import {
-  createPonderQuery,
-  createPonderPaginatedQuery,
-} from "../lib/ponder-client.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import {
+  checkIndexerHealth,
+  fetchTokenChartContext,
+  fetchTokenChartSnapshots,
+} from "../lib/indexer-reads.js";
 
+import type { ChartTokenSnapshotRow } from "../lib/indexer-reads.js";
 import type { AppBindings } from "../lib/types.js";
 
 export const VALID_TIMEFRAMES = ["1d", "5d", "1m"] as const;
@@ -58,20 +60,6 @@ export const MAX_CANDLES = 500;
 // (see `sampleSec` below) regardless of how far back the token launched.
 export const MAX_HISTORY_CANDLES = 1_500;
 
-interface PonderTokenSnapshot {
-  curveSupply: string;
-  ltReserve: string;
-  timestamp: string;
-}
-
-interface PonderTokenInfo {
-  k: string;
-  ltToken: string;
-  graduated: boolean;
-  graduatedAt: string | null;
-  timestamp: string;
-}
-
 export interface RatioSnapshot {
   timestamp: number;
   ratio: number;
@@ -110,7 +98,7 @@ function bigintRatio(numerator: bigint, denominator: bigint): number {
 export function buildRatioTimeline(
   k: bigint,
   launchTimestamp: number,
-  snapshots: PonderTokenSnapshot[],
+  snapshots: ChartTokenSnapshotRow[],
 ): RatioSnapshot[] {
   // `k` from `Pair.mint` is `reserve0 × reserve1` with NO fixed-point
   // factor (`packages/contracts/src/Pair.sol`), so the launch-time virtual
@@ -309,6 +297,44 @@ export function buildPriceTimeline(
   return out;
 }
 
+/**
+ * Candle snapshot for a token. Reads the chart's two source streams
+ * directly from Postgres:
+ *
+ *   - `ponder_views.token` for the launch context (`k`, `ltToken`,
+ *     `timestamp`) — needed to seed the ratio timeline anchor.
+ *   - `ponder_views.token_snapshot` for the per-trade curve state
+ *     (`curveSupply`, `ltReserve`, `timestamp`). The same table is
+ *     written on every `Bonding.Trade` (curve phase) and every
+ *     `HyperSwapPair.Sync` (post-graduation), so one query covers both
+ *     phases with no special-casing.
+ *   - BounceTech's `token_snapshots_v1` for the LT-rate stream
+ *     (`generate_series` × `LATERAL` forward-fill).
+ *
+ * Predecessor design (retired by [issue]/PR cut-over): the chart route
+ * resolved the same data via the Ponder GraphQL hop:
+ *
+ *   1. Up-front Ponder health probe (`{ __typename }`).
+ *   2. Per-token `token { k, ltToken, graduated, graduatedAt, timestamp }`.
+ *   3. Paginated `tokenSnapshots(where: { tokenAddress, timestamp_gte: … })`
+ *      capped at `MAX_PAGES × 1000 = 20,000` rows — anything wider returned
+ *      a 503 "Trade history too large to build accurate chart", which the
+ *      frontend swallowed as an empty canvas.
+ *   4. Standalone pre-window anchor `tokenSnapshots(timestamp_lt: …, limit: 1)`.
+ *
+ * The cut-over replaces all four with two helpers in `lib/indexer-reads.ts`
+ * (`fetchTokenChartContext` + `fetchTokenChartSnapshots`) and the existing
+ * `checkIndexerHealth` probe. The 20K row cap is gone — Postgres returns
+ * every row in one shot, no `truncated` branch needed. Direct-Postgres
+ * latency is bounded by the BounceTech `generate_series` query (which is
+ * unchanged — that side was already direct SQL); the GraphQL hop overhead
+ * disappears from cold paths, where the legacy route's tail latency could
+ * stretch past 25 seconds when the Ponder Node process was cold or
+ * saturated.
+ *
+ * Side-by-side parity (139/140 byte-identical responses; 1 transient live
+ * data drift) was verified on prod before this cut-over.
+ */
 const chart = new Hono<{ Bindings: AppBindings }>();
 
 chart.get("/:address", async (c) => {
@@ -384,34 +410,31 @@ chart.get("/:address", async (c) => {
   const sampleSec = Math.max(1, Math.ceil(candleSec / 3));
 
   const db = createDb(c.env.DATABASE_URL);
-  const queryPonder = createPonderQuery(c.env.PONDER_URL);
 
-  // These three calls have no real interdependency for the common case (DB
-  // token row exists). Only the rare `tokenInfo?.ltToken` fallback below cares
-  // about ordering, so fan them out in parallel and reconcile afterwards —
-  // shaves ~2 round-trips off the chart's wall-clock latency. See issue #485.
-  const [dbTokenResult, healthCheck, ponderToken] = await Promise.all([
+  // Fan out the three indexer-side reads (DB token row, indexer health
+  // probe, chart context) in parallel — only the rare `tokenInfo?.ltToken`
+  // fallback below cares about ordering. Shaves ~2 round-trips off the
+  // chart's wall-clock latency. See issue #485 for the original parallel
+  // fan-out rationale; the helpers behind it changed from Ponder GraphQL
+  // to direct-Postgres in the cut-over.
+  const [dbTokenResult, indexerHealthy, chartContext] = await Promise.all([
     db
       .select({ ltPair: tokens.ltPair })
       .from(tokens)
       .where(eq(tokens.address, getAddress(rawAddress)))
       .limit(1),
-    queryPonder<{ __typename: string }>("{ __typename }"),
-    queryPonder<{ token: PonderTokenInfo | null }>(
-      `query ($address: String!) {
-        token(address: $address) {
-          k
-          ltToken
-          graduated
-          graduatedAt
-          timestamp
-        }
-      }`,
-      { address },
-    ),
+    checkIndexerHealth(db),
+    fetchTokenChartContext(db, address),
   ]);
 
-  if (healthCheck === null) {
+  if (!indexerHealthy) {
+    return c.json(
+      formatError("Indexer unavailable — chart data cannot be loaded"),
+      503,
+    );
+  }
+
+  if (chartContext === "unavailable") {
     return c.json(
       formatError("Indexer unavailable — chart data cannot be loaded"),
       503,
@@ -420,8 +443,7 @@ chart.get("/:address", async (c) => {
 
   const [dbToken] = dbTokenResult;
 
-  const tokenInfo = ponderToken?.token;
-  const ltAddress = dbToken?.ltPair ?? tokenInfo?.ltToken;
+  const ltAddress = dbToken?.ltPair ?? chartContext?.ltToken;
 
   if (!ltAddress) {
     return c.json(
@@ -430,9 +452,9 @@ chart.get("/:address", async (c) => {
     );
   }
 
-  const k = tokenInfo?.k ? BigInt(tokenInfo.k) : null;
-  const launchTimestamp = tokenInfo?.timestamp
-    ? Number(tokenInfo.timestamp)
+  const k = chartContext?.k ? BigInt(chartContext.k) : null;
+  const launchTimestamp = chartContext?.timestamp
+    ? Number(chartContext.timestamp)
     : 0;
 
   const nowSec = Math.floor(Date.now() / 1000);
@@ -461,7 +483,7 @@ chart.get("/:address", async (c) => {
   }
   const btSql = neon(c.env.BOUNCETECH_DATABASE_URL);
 
-  const [ltRows, snapshotsResult] = await Promise.all([
+  const [ltRows, snapshotItems] = await Promise.all([
     btSql`
       SELECT
         extract(epoch from s.t)::bigint AS ts,
@@ -481,87 +503,7 @@ chart.get("/:address", async (c) => {
       ) t
       ORDER BY s.t
     ` as unknown as Promise<LtSnapshotRow[]>,
-    // Pulls from `tokenSnapshot`, which is written on every `Bonding.Trade`
-    // (curve phase) AND every `HyperSwapPair.Sync` (post-graduation). One
-    // query covers both phases so a graduated token's chart keeps moving
-    // with HyperSwap reserve changes — see `apps/indexer/src/hyperswap.ts`.
-    //
-    // Filters by `timestamp_gte: fromSec` so we only paginate the slice the
-    // chart actually consumes — without this, mature tokens with months of
-    // trade history fan out to up to `MAX_PAGES × PAGE_SIZE` (20K) sequential
-    // GraphQL rows even when the visible window is the last hour. The
-    // anchor-before-window query that runs in parallel preserves the ratio
-    // baseline so the first in-window LT-rate sample still has a price to
-    // multiply against (no phantom green candle at `fromSec`).
-    (async () => {
-      const queryPonderAll = createPonderPaginatedQuery(c.env.PONDER_URL);
-      const [windowResult, anchor] = await Promise.all([
-        queryPonderAll<PonderTokenSnapshot>(
-          `query ($address: String!, $fromSec: BigInt!, $limit: Int!, $offset: Int!) {
-            tokenSnapshots(
-              where: { tokenAddress: $address, timestamp_gte: $fromSec }
-              limit: $limit
-              offset: $offset
-              orderBy: "timestamp"
-              orderDirection: "asc"
-            ) {
-              items {
-                curveSupply
-                ltReserve
-                timestamp
-              }
-            }
-          }`,
-          "tokenSnapshots",
-          { address, fromSec: String(fromSec) },
-        ),
-        queryPonder<{
-          tokenSnapshots: { items: PonderTokenSnapshot[] } | null;
-        }>(
-          `query ($address: String!, $fromSec: BigInt!) {
-            tokenSnapshots(
-              where: { tokenAddress: $address, timestamp_lt: $fromSec }
-              orderBy: "timestamp"
-              orderDirection: "desc"
-              limit: 1
-            ) {
-              items {
-                curveSupply
-                ltReserve
-                timestamp
-              }
-            }
-          }`,
-          { address, fromSec: String(fromSec) },
-        ),
-      ]);
-
-      // Distinguish the three anchor outcomes:
-      //   (a) `anchor === null` → `queryPonder` returned null (transient
-      //       Ponder failure mid-request, after the up-front health check
-      //       passed). Silently falling back to "no prior snapshot" would
-      //       recreate the phantom-opening-candle bug this query exists to
-      //       prevent — a token with real trades between launch and
-      //       `fromSec` would price the early window against the launch
-      //       anchor instead of its most recent pre-window snapshot. Bubble
-      //       it up as `truncated` so the existing 503 handler signals
-      //       degraded indexer data instead of rendering a wrong chart.
-      //   (b) `anchor.tokenSnapshots.items === []` → genuinely no snapshot
-      //       before `fromSec` (e.g. token launched inside the window or
-      //       has had zero indexed trades pre-window). Safe to proceed —
-      //       the launch anchor inside `buildRatioTimeline` is the right
-      //       baseline.
-      //   (c) `anchor.tokenSnapshots.items.length > 0` → prepend the single
-      //       pre-window snapshot so the timeline has a ratio at `fromSec`.
-      if (anchor === null) {
-        return { items: windowResult.items, truncated: true };
-      }
-      const anchorItems = anchor.tokenSnapshots?.items ?? [];
-      return {
-        items: [...anchorItems, ...windowResult.items],
-        truncated: windowResult.truncated,
-      };
-    })(),
+    fetchTokenChartSnapshots(db, address, fromSec),
   ]);
 
   if (ltRows.length === 0) {
@@ -574,19 +516,22 @@ chart.get("/:address", async (c) => {
     );
   }
 
-  if (snapshotsResult.truncated) {
+  // `fetchTokenChartSnapshots` returns `null` only on caught error (the
+  // indexer DB became unreachable between the up-front health probe and
+  // this query). Bubble it up as 503 so the client retries instead of
+  // rendering against an empty ratio timeline.
+  if (snapshotItems === null) {
     return c.json(
-      formatError("Trade history too large to build accurate chart"),
+      formatError("Indexer unavailable — chart data cannot be loaded"),
       503,
     );
   }
 
-  const snapshots = snapshotsResult.items;
   const ratioTimeline =
     k && k > 0n
-      ? buildRatioTimeline(k, launchTimestamp, snapshots)
-      : snapshots.length > 0
-        ? buildRatioTimeline(0n, launchTimestamp, snapshots).slice(1)
+      ? buildRatioTimeline(k, launchTimestamp, snapshotItems)
+      : snapshotItems.length > 0
+        ? buildRatioTimeline(0n, launchTimestamp, snapshotItems).slice(1)
         : [];
 
   if (ratioTimeline.length === 0) {
