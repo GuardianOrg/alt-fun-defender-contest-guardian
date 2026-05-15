@@ -328,7 +328,7 @@
  * screens. */
 .tabContent {
   flex: 1 1 0;
-  min-height: 160px;
+  min-height: 400px;
   /* Both axes scroll: vertical for long lists, horizontal so the
    * trades / holders `<table>` (content-sized columns, all cells
    * `nowrap`) can spill past the panel on narrow viewports instead
