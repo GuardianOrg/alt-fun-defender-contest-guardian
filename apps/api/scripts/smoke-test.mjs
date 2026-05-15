@@ -165,16 +165,18 @@ async function runTests() {
   // Discover a real token dynamically so tests aren't coupled to seeded data
   let discoveredToken = null;
   let discoveredCreator = null;
+  let probedTokenList = null;
   let dbBackedRoutesAvailable = true;
 
   await test("Probe DB-backed token endpoints", async () => {
-    const { res, body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
+    const { res, body } = await fetchJson("/api/v1/tokens?limit=10&offset=0");
     if (res.status >= 500) {
       dbBackedRoutesAvailable = false;
       skip(`DB-backed token endpoints unavailable (status ${res.status})`);
     }
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected array");
+    probedTokenList = body.data;
     if (body.data.length >= 1) {
       discoveredToken = body.data[0].address;
       discoveredCreator = body.data[0].creator;
@@ -183,13 +185,7 @@ async function runTests() {
 
   await test("GET /api/v1/tokens returns list", async () => {
     if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    const { res, body } = await fetchJson("/api/v1/tokens?limit=10&offset=0");
-    assert(res.status === 200, `Expected 200, got ${res.status}`);
-    assert(Array.isArray(body.data), "Expected array");
-    if (body.data.length >= 1) {
-      discoveredToken = body.data[0].address;
-      discoveredCreator = body.data[0].creator;
-    }
+    assert(Array.isArray(probedTokenList), "Expected array");
   });
 
   await test("Token has expected shape", async () => {
