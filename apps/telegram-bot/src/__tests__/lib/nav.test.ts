@@ -352,7 +352,7 @@ describe("editToSubmenu", () => {
       editError: { error_code: 403, description: "forbidden" },
     });
     // Non-benign errors get logged but the helper still falls through
-    // to the delete+reply path — the user must end up looking at the
+    // to the reply+delete path — the user must end up looking at the
     // submenu either way. The non-benign branch logs (a warn) so an
     // ops alert can fire; it does not throw.
     await editToSubmenu(ctx as unknown as AppContext, {
@@ -360,6 +360,68 @@ describe("editToSubmenu", () => {
       inlineKeyboard: [backHomeRow()],
     });
     expect(ctx.replyCalls).toHaveLength(1);
+  });
+
+  it("sends the reply BEFORE deleting the parent in the fallback path", async () => {
+    // Regression: the old order was delete-then-reply, which left the
+    // user staring at an empty chat when the delete succeeded but the
+    // reply threw (transient Telegram 5xx, network blip). The "/track
+    // start-menu button" bug surfaced exactly this race. Reversing
+    // the order guarantees the user always sees the new view — at
+    // worst they briefly see both bubbles if the delete fails after.
+    const order: ("reply" | "delete")[] = [];
+    const ctxFull = {
+      session: {} as NavStackSession,
+      callbackQuery: {
+        message: { text: "old", reply_markup: { inline_keyboard: [] } },
+      },
+      editMessageText: async () => {
+        throw { error_code: 400, description: "message to edit not found" };
+      },
+      reply: async () => {
+        order.push("reply");
+        return { message_id: 7 };
+      },
+      deleteMessage: async () => {
+        order.push("delete");
+        return true;
+      },
+    };
+    await editToSubmenu(ctxFull as unknown as AppContext, {
+      text: "submenu",
+      inlineKeyboard: [backHomeRow()],
+    });
+    expect(order).toEqual(["reply", "delete"]);
+  });
+
+  it("does not delete the parent when the fallback reply throws", async () => {
+    // If reply fails, the parent is the only UI the user still sees.
+    // Deleting it would leave the chat blank — strictly worse than
+    // leaving the stale parent in place.
+    let deleteCalled = false;
+    const ctxFull = {
+      session: {} as NavStackSession,
+      callbackQuery: {
+        message: { text: "old", reply_markup: { inline_keyboard: [] } },
+      },
+      editMessageText: async () => {
+        throw { error_code: 400, description: "message to edit not found" };
+      },
+      reply: async () => {
+        throw new Error("network blip");
+      },
+      deleteMessage: async () => {
+        deleteCalled = true;
+        return true;
+      },
+    };
+    await expect(
+      editToSubmenu(ctxFull as unknown as AppContext, {
+        text: "submenu",
+        inlineKeyboard: [backHomeRow()],
+      }),
+    ).rejects.toThrow("network blip");
+    expect(deleteCalled).toBe(false);
   });
 });
 

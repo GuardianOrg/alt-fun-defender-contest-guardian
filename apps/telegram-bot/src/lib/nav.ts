@@ -246,9 +246,17 @@ export const editToSubmenu = async (
       });
     }
   }
-  // Edit path failed. Best-effort delete the original so the user
-  // isn't left staring at the stale parent view above the new screen,
-  // then send the sub-screen as a fresh reply.
+  // Edit path failed. Send the sub-screen as a fresh reply FIRST so
+  // the user is guaranteed to see the new view, then best-effort
+  // delete the stale parent. Doing the delete first risks the
+  // "prompt disappears but the new view never appears" race when the
+  // delete succeeds but the reply throws (transient Telegram 5xx,
+  // network blip) — see issue: /track start-menu button.
+  const sent = await ctx.reply(view.text, {
+    parse_mode: view.parseMode,
+    reply_markup,
+    link_preview_options,
+  });
   try {
     await ctx.deleteMessage();
   } catch (err) {
@@ -256,11 +264,6 @@ export const editToSubmenu = async (
       logger.debug("editToSubmenu: deleteMessage fallback failed", { err });
     }
   }
-  const sent = await ctx.reply(view.text, {
-    parse_mode: view.parseMode,
-    reply_markup,
-    link_preview_options,
-  });
   return { editedMessageId: sent.message_id };
 };
 
