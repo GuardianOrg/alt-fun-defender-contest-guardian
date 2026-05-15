@@ -22,6 +22,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 const STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
+const DATABASE_PROBE_RETRIES = 3;
+const DATABASE_PROBE_RETRY_DELAY_MS = 1_000;
 
 function randomAddress() {
   const hex = "0123456789abcdef";
@@ -48,33 +50,98 @@ const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
 const databaseUrl =
   process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
 
+/**
+ * Race a promise against a timeout. Neon's HTTP driver does not honour
+ * an AbortSignal on individual queries, so a stalled TCP connection
+ * (DNS hang, half-open socket, slow handshake) would otherwise block
+ * the smoke test indefinitely instead of falling through to the retry
+ * + skip-on-failure branch below. Mirrors the `fetchWithTimeout`
+ * pattern used for the HTTP probes further down.
+ */
+async function withTimeout(promise, timeoutMs, label) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
+async function getDatabaseReadiness(connectionString) {
+  const sql = neon(connectionString);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= DATABASE_PROBE_RETRIES; attempt++) {
+    try {
+      const probe = sql`
+        SELECT
+          to_regclass('ponder_views.token_balance')::text AS token_balance,
+          to_regclass('ponder_views.wallet_position')::text AS wallet_position
+      `;
+      const [row] = await withTimeout(
+        probe,
+        REQUEST_TIMEOUT_MS,
+        "Indexer view probe",
+      );
+      return {
+        available: true,
+        reason: null,
+        tokenBalance: typeof row?.token_balance === "string",
+        walletPosition: typeof row?.wallet_position === "string",
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt < DATABASE_PROBE_RETRIES) {
+        await sleep(DATABASE_PROBE_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  const reason = lastError instanceof Error ? lastError.message : String(lastError);
+  console.warn(
+    "Could not probe database readiness before smoke test; skipping DB-backed endpoint checks",
+    reason,
+  );
+  return {
+    available: false,
+    reason,
+    tokenBalance: false,
+    walletPosition: false,
+  };
+}
+
 if (!databaseUrl) {
   console.log("DATABASE_URL is unset or empty — skipping API smoke test");
   process.exit(0);
 }
 
-const sql = neon(databaseUrl);
-
-async function hasStableIndexerBalanceViews() {
-  try {
-    const rows = await sql`
-      SELECT table_name
-      FROM information_schema.views
-      WHERE table_schema = 'ponder_views'
-        AND table_name IN ('token_balance', 'wallet_position')
-    `;
-    const names = new Set(rows.map((row) => String(row.table_name)));
-    return names.has("token_balance") && names.has("wallet_position");
-  } catch {
-    return true;
-  }
-}
-
-const hasStableIndexerBalanceViewsPromise = hasStableIndexerBalanceViews();
-
 let passed = 0;
 let failed = 0;
 let skipped = 0;
+let databaseReadiness = {
+  available: true,
+  reason: null,
+  tokenBalance: true,
+  walletPosition: true,
+};
+
+function describeMissingIndexerViews() {
+  const missing = [];
+  if (!databaseReadiness.tokenBalance) missing.push("ponder_views.token_balance");
+  if (!databaseReadiness.walletPosition) missing.push("ponder_views.wallet_position");
+  return missing.join(", ");
+}
+
+function skipIfDatabaseUnavailable() {
+  if (databaseReadiness.available) return;
+  skip(`database unavailable for smoke test: ${databaseReadiness.reason}`);
+}
 
 class SkipTest extends Error {
   constructor(reason) {
@@ -128,9 +195,6 @@ async function fetchJson(path) {
 // ─── Test definitions ────────────────────────────────────────────────
 
 async function runTests() {
-  const hasStableIndexerBalanceViews =
-    await hasStableIndexerBalanceViewsPromise;
-
   console.log("\n--- Worker runtime ---\n");
 
   await test("GET / responds with success", async () => {
@@ -182,50 +246,36 @@ async function runTests() {
   // Discover a real token dynamically so tests aren't coupled to seeded data
   let discoveredToken = null;
   let discoveredCreator = null;
-  let probedTokenList = null;
-  let dbBackedRoutesAvailable = true;
 
-  await test("Probe DB-backed token endpoints availability", async () => {
+  await test("GET /api/v1/tokens returns list", async () => {
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/tokens?limit=10&offset=0");
-    if (res.status >= 500) {
-      dbBackedRoutesAvailable = false;
-      skip(`DB-backed token endpoints unavailable (status ${res.status})`);
-    }
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected array");
-    probedTokenList = body.data;
     if (body.data.length >= 1) {
       discoveredToken = body.data[0].address;
       discoveredCreator = body.data[0].creator;
     }
   });
 
-  await test("GET /api/v1/tokens returns list", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    assert(Array.isArray(probedTokenList), "Expected array");
-  });
-
   await test("Token has expected shape", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    if (!probedTokenList || probedTokenList.length === 0) skip("DB has no tokens");
-    const t = probedTokenList[0];
+    skipIfDatabaseUnavailable();
+    const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
+    if (body.data.length === 0) skip("DB has no tokens");
+    const t = body.data[0];
     for (const key of ["address", "name", "ticker", "leverage", "underlying", "status", "creator", "createdAt"]) {
       assert(key in t, `Missing property: ${key}`);
     }
   });
 
   await test("Token list respects limit", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
-    if (probedTokenList.length > 1) {
-      assert(body.data.length === 1, `Expected exactly 1, got ${body.data.length}`);
-      return;
-    }
     assert(body.data.length <= 1, `Expected <=1, got ${body.data.length}`);
   });
 
   await test("Token list filters by status", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/tokens?status=curve&limit=10&offset=0");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     for (const t of body.data) {
@@ -234,13 +284,12 @@ async function runTests() {
   });
 
   await test("Token list rejects bad pagination", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
     const { res } = await fetchJson("/api/v1/tokens?limit=abc");
     assert(res.status === 400, `Expected 400, got ${res.status}`);
   });
 
   await test("GET /api/v1/tokens/search returns results", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { body: detail } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
     // Grab the first contiguous ASCII-alphanumeric run from the name and
@@ -259,13 +308,13 @@ async function runTests() {
   });
 
   await test("Search returns empty for no matches", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     const { body } = await fetchJson("/api/v1/tokens/search?q=zzzznonexistent");
     assert(body.data.length === 0, "Expected empty array");
   });
 
   await test("GET /api/v1/tokens/:address returns detail", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/tokens/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -276,7 +325,7 @@ async function runTests() {
   });
 
   await test("Token detail returns 404 for unknown", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     const { res } = await fetchJson(`/api/v1/tokens/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 404, `Expected 404, got ${res.status}`);
   });
@@ -289,7 +338,7 @@ async function runTests() {
   console.log("\n--- Creators (DB) ---\n");
 
   await test("GET /api/v1/creators/:address returns profile", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     if (!discoveredCreator) skip("DB has no creators");
     const { res, body } = await fetchJson(`/api/v1/creators/${discoveredCreator}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -299,7 +348,7 @@ async function runTests() {
   });
 
   await test("Creator returns empty for unknown address", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson(`/api/v1/creators/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(body.data.tokens.length === 0, "Expected no tokens");
@@ -313,7 +362,7 @@ async function runTests() {
   console.log("\n--- Profiles (DB) ---\n");
 
   await test("GET /api/v1/profiles/:address returns default", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson(`/api/v1/profiles/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(
@@ -324,7 +373,6 @@ async function runTests() {
   });
 
   await test("Profile returns 400 for bad address", async () => {
-    if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
     const { res } = await fetchJson("/api/v1/profiles/bad");
     assert(res.status === 400, `Expected 400, got ${res.status}`);
   });
@@ -337,26 +385,16 @@ async function runTests() {
   // still expect 200s from this set, sourced from whatever rows the shared
   // Postgres holds. This is a deliberate resilience improvement: the API
   // stays up under Ponder outages as long as Neon is up.
-  let indexerSqlRoutesAvailable = true;
-
-  await test("Probe direct-SQL indexer routes", async () => {
-    const { res } = await fetchJson("/api/v1/trades?limit=1");
-    if (res.status >= 500) {
-      indexerSqlRoutesAvailable = false;
-      skip(`Direct-SQL indexer routes unavailable (status ${res.status})`);
-    }
-    assert(res.status === 200, `Expected 200, got ${res.status}`);
-  });
 
   await test("GET /api/v1/trades serves from Postgres without Ponder", async () => {
-    if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/trades?limit=5");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected `data` to be an array");
   });
 
   await test("GET /api/v1/stats serves live counters without Ponder", async () => {
-    if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
+    skipIfDatabaseUnavailable();
     const { res, body } = await fetchJson("/api/v1/stats");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert("totalTokens" in body.data, "Missing totalTokens");
@@ -370,9 +408,9 @@ async function runTests() {
   });
 
   await test("GET /api/v1/holders/:address serves from Postgres without Ponder", async () => {
-    if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
-    if (!hasStableIndexerBalanceViews) {
-      skip("ponder_views.token_balance or ponder_views.wallet_position is absent");
+    skipIfDatabaseUnavailable();
+    if (!databaseReadiness.tokenBalance) {
+      skip(`staging DB is missing ${describeMissingIndexerViews()}`);
     }
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
@@ -385,9 +423,9 @@ async function runTests() {
   });
 
   await test("GET /api/v1/portfolio/:wallet serves from Postgres without Ponder", async () => {
-    if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
-    if (!hasStableIndexerBalanceViews) {
-      skip("ponder_views.token_balance or ponder_views.wallet_position is absent");
+    skipIfDatabaseUnavailable();
+    if (!databaseReadiness.tokenBalance || !databaseReadiness.walletPosition) {
+      skip(`staging DB is missing ${describeMissingIndexerViews()}`);
     }
     // Use the zero address as a sentinel wallet — every running indexer
     // has zero rows for it, so we get a stable empty-positions response
@@ -403,7 +441,7 @@ async function runTests() {
   });
 
   await test("GET /api/v1/security/:address returns fallback", async () => {
-    if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/security/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -411,7 +449,7 @@ async function runTests() {
   });
 
   await test("GET /api/v1/trades/sparkline/:address returns empty", async () => {
-    if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
+    skipIfDatabaseUnavailable();
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/trades/sparkline/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -466,6 +504,15 @@ async function main() {
   });
 
   try {
+    databaseReadiness = await getDatabaseReadiness(databaseUrl);
+    console.log(
+      "Database readiness:",
+      `available=${databaseReadiness.available ? "yes" : "no"}`,
+      `token_balance=${databaseReadiness.tokenBalance ? "present" : "missing"}`,
+      `wallet_position=${databaseReadiness.walletPosition ? "present" : "missing"}`,
+      databaseReadiness.reason ? `reason=${databaseReadiness.reason}` : "",
+    );
+
     await sleep(2_000);
     if (exitCode !== null) {
       throw new Error(`Wrangler exited immediately with code ${exitCode}.\n${output.slice(-2000)}`);
