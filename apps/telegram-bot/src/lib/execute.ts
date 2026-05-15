@@ -146,7 +146,13 @@ export const confirmKeyboard = (
 export type ConfirmOutcome =
   | { kind: "expired" }
   | { kind: "no_wallet" }
-  | { kind: "executed"; result: ExecutionResult; ticker: string; side: "buy" | "sell" };
+  | {
+      kind: "executed";
+      result: ExecutionResult;
+      ticker: string;
+      side: "buy" | "sell";
+      token?: string;
+    };
 
 export const confirmTrade = async (
   ctx: AppContext,
@@ -224,7 +230,13 @@ export const confirmTrade = async (
     }
   }
 
-  return { kind: "executed", result, ticker: intent.ticker, side: intent.side };
+  return {
+    kind: "executed",
+    result,
+    ticker: intent.ticker,
+    side: intent.side,
+    token: intent.token,
+  };
 };
 
 /**
