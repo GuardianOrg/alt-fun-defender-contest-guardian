@@ -50,17 +50,45 @@ const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
 const databaseUrl =
   process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
 
+/**
+ * Race a promise against a timeout. Neon's HTTP driver does not honour
+ * an AbortSignal on individual queries, so a stalled TCP connection
+ * (DNS hang, half-open socket, slow handshake) would otherwise block
+ * the smoke test indefinitely instead of falling through to the retry
+ * + skip-on-failure branch below. Mirrors the `fetchWithTimeout`
+ * pattern used for the HTTP probes further down.
+ */
+async function withTimeout(promise, timeoutMs, label) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
 async function getDatabaseReadiness(connectionString) {
   const sql = neon(connectionString);
   let lastError = null;
 
   for (let attempt = 1; attempt <= DATABASE_PROBE_RETRIES; attempt++) {
     try {
-      const [row] = await sql`
+      const probe = sql`
         SELECT
           to_regclass('ponder_views.token_balance')::text AS token_balance,
           to_regclass('ponder_views.wallet_position')::text AS wallet_position
       `;
+      const [row] = await withTimeout(
+        probe,
+        REQUEST_TIMEOUT_MS,
+        "Indexer view probe",
+      );
       return {
         available: true,
         reason: null,
