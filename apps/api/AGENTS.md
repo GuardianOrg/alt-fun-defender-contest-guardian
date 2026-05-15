@@ -99,7 +99,7 @@ The "virtual vs real" conversion above is curve-only. `computeCurveFilledBreakdo
 
 ### Chart route post-graduation
 
-`GET /api/v1/chart/:address` builds the ratio timeline from the `tokenSnapshot` table — written by both `Bonding:Trade` (curve) and `HyperSwapPair:Sync` (post-grad). One direct-Postgres query (`fetchTokenChartSnapshots` in `lib/indexer-reads.ts`) covers both phases with no truncation cap; no special-casing needed in the route handler. The `currentRatio` returned alongside the candles is the latest snapshot's `ltReserve / curveSupply`, which the frontend folds with the live LT rate from the `price` WS channel to keep the in-progress candle moving. See `apps/indexer/AGENTS.md → Post-graduation reserve mirror` for the source-of-truth side.
+`GET /api/v1/chart/:address` builds the ratio timeline from the `tokenSnapshot` table — written by both `Bonding:Trade` (bonding curve) and `HyperSwapPair:Sync` (post-graduation). One direct-Postgres query (`fetchTokenChartSnapshots` in `lib/indexer-reads.ts`) covers both phases with no truncation cap; no special-casing needed in the route handler. The `currentRatio` returned alongside the candles is the latest snapshot's `ltReserve / curveSupply`, which the frontend folds with the live LT rate from the `price` WS channel to keep the in-progress candle moving. See `apps/indexer/AGENTS.md → Post-graduation reserve mirror` for the source-of-truth side.
 
 ## Image moderation (token-logo uploads)
 
