@@ -165,7 +165,7 @@ export type ConfirmOutcome =
       result: ExecutionResult;
       ticker: string;
       side: "buy" | "sell";
-      token?: string;
+      token: string;
     };
 
 export const confirmTrade = async (
@@ -278,7 +278,7 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // rendering. Addresses are conventionally 0x-hex but escaping is
     // free insurance.
     const tickerSafe = escapeHtml(ticker);
-    const tokenSafe = token ? escapeHtml(token) : undefined;
+    const tokenSafe = escapeHtml(token);
     // Show the on-chain amount the user actually received, decoded from
     // the BotRouterTrade event. For buys that's tokens; for sells it's
     // the net USDC (gross `usdcAmount` minus the router's `botFee`
@@ -299,15 +299,12 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // The receipt bubble itself is deliberately preserved by the
     // caller — see `runWithTxStatusUpdates`, which detaches it from
     // the post-trade workflow sweep before submitting the trade.
-    const tokenLine =
-      token && tokenSafe
-        ? `\nToken: <a href="${trackingPageUrl(token)}">${tickerSafe}</a> <code>${tokenSafe}</code>`
-        : "";
+    const trackingUrl = trackingPageUrl(token);
     return (
       `✅ <b>${verb} confirmed for ${tickerSafe}</b>\n\n` +
       `${receivedLine}` +
-      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>` +
-      tokenLine
+      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>\n` +
+      `Token: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`
     );
   }
   // `pending` is not a failure — the tx is in the mempool and may still
