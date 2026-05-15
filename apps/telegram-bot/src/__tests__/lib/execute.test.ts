@@ -1382,9 +1382,9 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx, replies } = buildReplyCtx();
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -1403,9 +1403,9 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx } = buildReplyCtx();
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -1421,9 +1421,9 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx } = buildReplyCtx();
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: false,
         kind: "reverted",
@@ -1443,9 +1443,9 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx } = buildReplyCtx({ chat: undefined as unknown as AppContext["chat"] });
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TICK",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
