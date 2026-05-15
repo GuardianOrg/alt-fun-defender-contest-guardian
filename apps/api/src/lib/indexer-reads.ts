@@ -284,6 +284,14 @@ export async function fetchHistoricalCurveSnapshots(
     // patterns aren't symmetric. Discovered by the smoke test on the
     // sibling `fetchPortfolioPositions` after the original cast hid the
     // shape mismatch at type-check time.
+    // `id DESC` is the same `(timestamp, id)` tiebreak `fetchTokenChartSnapshots`
+    // and `fetchRouterTrades` already pin — `tokenSnapshot.timestamp` is
+    // `block.timestamp` at second resolution and ties on multi-trade blocks
+    // (and on a curve `Bonding.Trade` + post-grad `HyperSwapPair.Sync` in the
+    // same block). Without it, `DISTINCT ON (token_address)` picks an
+    // arbitrary tied row at the 24h cutoff and `change24h` wobbles across
+    // requests. Lock the secondary sort to the indexer's primary key
+    // (`${txHash}-${logIndex}`) so the historical reference is deterministic.
     const queryResult = await db.execute(sql`
       SELECT DISTINCT ON (token_address)
         token_address,
@@ -293,7 +301,7 @@ export async function fetchHistoricalCurveSnapshots(
       FROM ponder_views.token_snapshot
       WHERE token_address = ANY(${lowered}::text[])
         AND timestamp <= ${cutoffSec}::numeric
-      ORDER BY token_address, timestamp DESC
+      ORDER BY token_address, timestamp DESC, id DESC
     `);
     const rows = queryResult.rows as unknown as Array<{
       token_address: string;
