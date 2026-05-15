@@ -162,7 +162,7 @@ async function runTests() {
   let probedTokenList = null;
   let dbBackedRoutesAvailable = true;
 
-  await test("Probe DB-backed token endpoints", async () => {
+  await test("Probe DB-backed token endpoints availability", async () => {
     const { res, body } = await fetchJson("/api/v1/tokens?limit=10&offset=0");
     if (res.status >= 500) {
       dbBackedRoutesAvailable = false;
@@ -193,7 +193,8 @@ async function runTests() {
 
   await test("Token list respects limit", async () => {
     if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    assert(probedTokenList.length <= 10, `Expected <=10, got ${probedTokenList.length}`);
+    const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
+    assert(body.data.length <= 1, `Expected <=1, got ${body.data.length}`);
   });
 
   await test("Token list filters by status", async () => {
