@@ -390,43 +390,77 @@ describe("GET /trades", () => {
     expect(opts.offset).toBe(0);
   });
 
-  // Repro for the "buy popped up in the feed, then disappeared on refresh"
-  // report. The indexer fires the WS broadcast inside the same tx that
-  // inserts the `router_trade` row, then commits; the WS message reaches
-  // the client *before* the trade is queryable. A cached `offset=0`
-  // response from immediately before the trade landed would re-introduce
-  // that race, so the route opts the live tail out at every cache layer.
-  it("disables all caching for the live tail (offset=0)", async () => {
+  // Issue #929: the previous policy bypassed the cache entirely for
+  // `offset=0` to avoid the WS-vs-commit race ("trade flashed in the
+  // feed, then disappeared on refresh"). That sent every 3–15s poll to
+  // origin and produced ~5s p50 from Neon-compute contention. The new
+  // policy keeps the live tail cacheable at a short edge TTL so a single
+  // origin run absorbs the polling fan-in per Cloudflare POP — the
+  // residual ~1s overlap window is handled by the web client's WS dedupe
+  // (`tradeFeed.ts → formatWsTrade`).
+  it("caches the live tail (offset=0) at the short edge TTL", async () => {
     mockFetchRouterTrades.mockResolvedValueOnce([]);
 
     const app = createApp();
     const res = await app.request("/trades?limit=50&offset=0", {}, makeEnv());
 
     expect(res.status).toBe(200);
-    const cacheControl = res.headers.get("Cache-Control") ?? "";
-    expect(cacheControl).toMatch(/s-maxage=0/);
-    expect(cacheControl).toMatch(/max-age=0/);
-    expect(cacheControl).toMatch(/no-store/);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
   });
 
-  it("keeps the historical pages (offset>0) cached at s-maxage=5", async () => {
+  it("caches the historical pages (offset>0) at the longer TTL", async () => {
     mockFetchRouterTrades.mockResolvedValueOnce([]);
 
     const app = createApp();
     const res = await app.request("/trades?limit=50&offset=50", {}, makeEnv());
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("Cache-Control")).toBe("s-maxage=5");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=5, stale-while-revalidate=10",
+    );
+  });
+
+  it("writes the live tail (offset=0) to the edge cache and serves the next hit without re-fetching", async () => {
+    const cacheStore = new Map<string, Response>();
+    const match = vi.fn(async (req: Request) => {
+      const stored = cacheStore.get(req.url);
+      return stored ? stored.clone() : undefined;
+    });
+    const put = vi.fn(async (req: Request, res: Response) => {
+      cacheStore.set(req.url, res.clone());
+    });
+    vi.stubGlobal("caches", { default: { match, put } });
+    try {
+      mockFetchRouterTrades.mockResolvedValueOnce([]);
+      const app = createApp();
+
+      const first = await app.request("/trades?limit=50&offset=0", {}, makeEnv());
+      expect(first.status).toBe(200);
+      expect(put).toHaveBeenCalledTimes(1);
+
+      const second = await app.request("/trades?limit=50&offset=0", {}, makeEnv());
+      expect(second.status).toBe(200);
+      // The second request must be served from the edge cache — the
+      // indexer-read mock was primed with `mockResolvedValueOnce` so a
+      // second origin call would resolve to `undefined` and the response
+      // would 500. The cache hit is the only path that keeps it at 200.
+      expect(mockFetchRouterTrades).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
-describe("GET /trades/:address cache bypass", () => {
+describe("GET /trades/:address cache headers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  // Same WS-vs-checkpoint race as the global feed.
-  it("disables all caching for the live tail (offset=0)", async () => {
+  // Same WS-vs-checkpoint race as the global feed, same remediation —
+  // see the `/trades` live-tail test above and issue #929.
+  it("caches the live tail (offset=0) at the short edge TTL", async () => {
     mockFetchRouterTrades.mockResolvedValueOnce([]);
 
     const app = createApp();
@@ -437,13 +471,12 @@ describe("GET /trades/:address cache bypass", () => {
     );
 
     expect(res.status).toBe(200);
-    const cacheControl = res.headers.get("Cache-Control") ?? "";
-    expect(cacheControl).toMatch(/s-maxage=0/);
-    expect(cacheControl).toMatch(/max-age=0/);
-    expect(cacheControl).toMatch(/no-store/);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
   });
 
-  it("keeps the historical pages (offset>0) cached at s-maxage=5", async () => {
+  it("caches the historical pages (offset>0) at the longer TTL", async () => {
     mockFetchRouterTrades.mockResolvedValueOnce([]);
 
     const app = createApp();
@@ -454,6 +487,42 @@ describe("GET /trades/:address cache bypass", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(res.headers.get("Cache-Control")).toBe("s-maxage=5");
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=5, stale-while-revalidate=10",
+    );
+  });
+
+  it("writes the live tail (offset=0) to the edge cache and serves the next hit without re-fetching", async () => {
+    const cacheStore = new Map<string, Response>();
+    const match = vi.fn(async (req: Request) => {
+      const stored = cacheStore.get(req.url);
+      return stored ? stored.clone() : undefined;
+    });
+    const put = vi.fn(async (req: Request, res: Response) => {
+      cacheStore.set(req.url, res.clone());
+    });
+    vi.stubGlobal("caches", { default: { match, put } });
+    try {
+      mockFetchRouterTrades.mockResolvedValueOnce([]);
+      const app = createApp();
+
+      const first = await app.request(
+        `/trades/${VALID_ADDRESS}?limit=30&offset=0`,
+        {},
+        makeEnv(),
+      );
+      expect(first.status).toBe(200);
+      expect(put).toHaveBeenCalledTimes(1);
+
+      const second = await app.request(
+        `/trades/${VALID_ADDRESS}?limit=30&offset=0`,
+        {},
+        makeEnv(),
+      );
+      expect(second.status).toBe(200);
+      expect(mockFetchRouterTrades).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { isAddress } from "viem";
 
 import { createDb } from "../db/client.js";
+import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
 import {
@@ -17,36 +18,48 @@ import type { ApiTradeWithLabels } from "./../lib/ponder-types.js";
  * Trade endpoints are polled hard by the frontend — the global feed at 15s
  * when the WS is connected (3s otherwise) and per-token at 15/5s — so
  * they're the single biggest contributor to the per-IP rate-limit draw for
- * shared-WiFi users (issue #549). Historical pages (`offset > 0`) are stable
- * — once a trade lands at position 50+ it never moves or disappears — so
- * caching them is a pure win and absorbs the bulk of shared-IP polling
- * traffic.
+ * shared-WiFi users (issue #549). Historical pages (`offset > 0`) are
+ * stable — once a trade lands at position 50+ it never moves or disappears
+ * — so caching them is a pure win and absorbs the bulk of shared-IP
+ * polling traffic.
  *
- * The "live tail" (`offset === 0`) is treated separately by
- * `shouldBypassCache` below: we deliberately skip the cache for it because
- * the WS broadcast races the indexer's transaction commit. The indexer's
- * Zap event handler fires the broadcast HTTP POST inside the same tx that
- * inserts the `router_trade` row, then returns; the indexer commits the tx
- * (and exposes the row via the read path) afterwards. The WS message
- * therefore reaches the client *before* the trade is queryable, so any
- * `offset=0` request served from a cache that was populated immediately
- * before the trade landed returns a stale window — the row the user just
- * saw flash in the feed is missing on the next refresh. Skipping cache for
- * `offset=0` closes that race.
+ * The "live tail" (`offset === 0`) is fetched on every WS-driven poll and
+ * is where the WS-vs-read-checkpoint race produces user-visible staleness
+ * ("my trade flashed in the feed, then disappeared on refresh"). The
+ * indexer's Zap event handler fires the broadcast HTTP POST inside the
+ * same tx that inserts the `router_trade` row, then returns; the indexer
+ * commits the tx (and exposes the row via the read path) afterwards. The
+ * WS message therefore reaches the client *before* the trade is queryable,
+ * so a cached `offset=0` response populated immediately before the trade
+ * landed returns a stale window — the row the user just saw flash in the
+ * feed is missing on the next refresh.
+ *
+ * That race is real, but a full cache bypass (the previous policy) is too
+ * aggressive. With every poll hitting origin and each request doing two
+ * sequential Neon HTTPS round-trips, p50 on `/api/v1/trades` ran ~5s in
+ * production while local `EXPLAIN ANALYZE` shows both queries are <10ms —
+ * the latency was almost entirely Neon-compute contention from the
+ * uncached fan-in (issue #929). A short edge TTL absorbs >95% of the
+ * polling load and shrinks the WS-vs-commit race window to at most
+ * `TRADES_LIVE_TAIL_TTL_SECONDS`. The web client already dedupes WS-
+ * delivered trades against the cached state (`tradeFeed.ts`'s
+ * `formatWsTrade`), so the residual overlap window is handled cleanly
+ * client-side; the worst-case "trade flashes then disappears for ~1s" is
+ * the same window users already accept on every other polled surface.
  */
-const TRADES_CACHE_TTL_SECONDS = 5;
+const TRADES_LIVE_TAIL_TTL_SECONDS = 1;
+const TRADES_HISTORICAL_TTL_SECONDS = 5;
 
 /**
- * Whether the request should bypass the edge cache. The live-tail
- * (`offset === 0`) page is fetched on every poll + every page refresh and is
- * exactly where the WS-vs-read-checkpoint race produces user-visible
- * staleness ("my trade flashed in the feed, then disappeared on refresh").
- * Historical pages (`offset > 0`) are append-only — they describe rows that
- * are already deep in history — so they remain cached at
- * `TRADES_CACHE_TTL_SECONDS`.
+ * TTL applied to the trades-list response for a given `offset`. The live
+ * tail (`offset === 0`) uses a short window so the WS-vs-commit race
+ * closes within a single poll cycle; historical pages are append-only and
+ * stay at the longer historical TTL.
  */
-function shouldBypassCache(offset: number): boolean {
-  return offset === 0;
+function ttlForOffset(offset: number): number {
+  return offset === 0
+    ? TRADES_LIVE_TAIL_TTL_SECONDS
+    : TRADES_HISTORICAL_TTL_SECONDS;
 }
 
 const trades = new Hono<{ Bindings: AppBindings }>();
@@ -130,8 +143,7 @@ trades.get("/", async (c) => {
   // through history (issue #807).
   const offset = offsetParam ?? 0;
 
-  const bypassCache = shouldBypassCache(offset);
-  const cache = bypassCache ? undefined : getCache();
+  const cache = getCache();
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -151,14 +163,9 @@ trades.get("/", async (c) => {
   const enriched = await enrichTradesWithTokenLabels(rows, db);
 
   const response = c.json(formatSuccess(enriched));
-  // See the global `trades.get("/")` handler for why the live tail emits
-  // the full "don't cache anywhere" directive — closes the WS-vs-commit
-  // race for the same reason `offset=0` is bypassed on the cache read.
   response.headers.set(
     "Cache-Control",
-    bypassCache
-      ? "private, no-store, max-age=0, s-maxage=0"
-      : `s-maxage=${TRADES_CACHE_TTL_SECONDS}`,
+    edgeCacheableJsonHeader(ttlForOffset(offset)),
   );
   if (cache) {
     await cache.put(cacheKey, response.clone());
@@ -333,8 +340,7 @@ trades.get("/:address", async (c) => {
   const limit = Math.min(limitParam ?? 50, 100);
   const offset = offsetParam ?? 0;
 
-  const bypassCache = shouldBypassCache(offset);
-  const cache = bypassCache ? undefined : getCache();
+  const cache = getCache();
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -360,9 +366,7 @@ trades.get("/:address", async (c) => {
   const response = c.json(formatSuccess(enriched));
   response.headers.set(
     "Cache-Control",
-    bypassCache
-      ? "private, no-store, max-age=0, s-maxage=0"
-      : `s-maxage=${TRADES_CACHE_TTL_SECONDS}`,
+    edgeCacheableJsonHeader(ttlForOffset(offset)),
   );
   if (cache) {
     await cache.put(cacheKey, response.clone());
