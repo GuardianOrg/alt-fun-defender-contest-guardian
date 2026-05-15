@@ -197,8 +197,11 @@ const fetchPositions = async (
     // Zap sell, HyperSwap swap) leaves the router counter stale at the last
     // bot-trade state. We drop phantom rows (router balance > 0, chain
     // balance = 0) and clamp displayed balance to `min(routerBalance,
-    // chainBalance)` for partial-disposal cases so PnL never quotes against
-    // tokens the wallet doesn't actually hold.
+    // chainBalance)` for partial-disposal cases. The cost basis and stored
+    // value snapshot are rescaled by the same `chainBalance / routerBalance`
+    // ratio in the open-position loop below, so a position partially
+    // disposed off-router keeps a meaningful per-token PnL instead of
+    // surfacing the displaced cost as a phantom loss on the remainder.
     //
     // The lookup is scoped to the token addresses we actually have positions
     // for — a wallet that holds many non-bot tokens would otherwise crowd the
@@ -262,30 +265,46 @@ const fetchPositions = async (
         if (chainBalance > 0n) {
           const balance =
             chainBalance < routerBalance ? chainBalance : routerBalance;
-          // Rescale the indexer's stored snapshot value to the clamped
-          // balance so the value/PnL stays consistent with the displayed
-          // amount even when the live-mark refresh below fails.
+          // Rescale the indexer's stored snapshot value AND the cost basis
+          // to the clamped balance so PnL stays meaningful when the user
+          // disposed some of the position off-router (direct ERC-20
+          // Transfer, web-app Zap sell, HyperSwap swap). Without rescaling
+          // the cost basis, a user who bought N tokens via the bot and
+          // sold N/2 elsewhere would see the remaining N/2 quoted against
+          // the original full cost — surfacing a phantom -50% PnL on a
+          // position whose per-token cost is actually unchanged. Under
+          // the same average-cost convention the indexer's own sell
+          // handler already uses (`walletBotPosition.costBasisUsdc *=
+          // remaining / prevBalance`), rescaling here is the read-side
+          // equivalent for disposals that bypassed the router. The
+          // sibling rescale on value keeps the value/PnL self-consistent
+          // when the live-mark refresh below fails.
           const snapshotValue = BigInt(item.currentValueUsdc);
+          const snapshotCost = BigInt(item.costBasisUsdc);
           const rescaledValue =
             balance === routerBalance
               ? snapshotValue
               : (snapshotValue * balance) / routerBalance;
+          const rescaledCost =
+            balance === routerBalance
+              ? snapshotCost
+              : (snapshotCost * balance) / routerBalance;
           open.push({
             token: item.token,
             ticker: item.ticker,
             balance: balance.toString(),
-            costBasisUsdc: item.costBasisUsdc,
+            costBasisUsdc: rescaledCost.toString(),
             // Placeholders — overridden below with a live mark when the
             // current price is known. Falls back to the rescaled
             // indexer-stored value when the price lookup fails.
             currentValueUsdc: rescaledValue.toString(),
             unrealisedPnlUsdc: signedDiff(
               rescaledValue.toString(),
-              item.costBasisUsdc,
+              rescaledCost.toString(),
             ),
             unrealisedPnlPct: pctOrNull(
-              rescaledValue - BigInt(item.costBasisUsdc),
-              BigInt(item.costBasisUsdc),
+              rescaledValue - rescaledCost,
+              rescaledCost,
             ),
           });
         }

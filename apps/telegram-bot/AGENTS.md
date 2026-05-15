@@ -312,6 +312,8 @@ Token card format mirrors the web UI: name · ticker · mcap · curve-fill bar �
 
 Slippage default: from `/settings` (default 10%). Priority fee default: from `/settings`.
 
+**Post-trade `/start` prompt.** Once a buy lands receipt-confirmed (`runWithTxStatusUpdates` → `executed` + `result.ok`), the bot drops a fresh `/start` view (welcome card + main-menu keyboard) as a new message directly below the receipt via `sendStartPromptAfterTrade` in `commands/start.ts`. This is the inverse of the workflow-stack sweep that runs in the same outcome: the sweep clears the originating token-detail card and "Ready to buy…" prompt, and the start prompt re-seats the user on the home menu so they can chain into the next action without retyping `/start`. The helper is best-effort — it never undoes the receipt above it on failure. Does NOT fire on `pending` / `reverted` / `expired` outcomes because those outcomes leave the originating card in place for retry and a second home menu below would just clutter that path. Symmetric on sells (issue: post-trade home prompt).
+
 **Minimum buy: `MIN_USDC_BUY_AMOUNT` from `@launchpad/shared` (currently $20 USDC)** — enforced client-side before tx construction. Note this is the **gross** USDC amount the user spends, not the net after bot fee — the existing constant is correct because the post-bot-fee amount forwarded to Zap is `usdcAmount × 0.995`, still well above BounceTech's $10 LT floor for $20 in. Import the constant; do not hardcode. Each of the 5 preset buttons reads from `session.buyPresetsUsdc` (default `[20, 40, 60, 80, 100]`), each slot floored at `MIN_USDC_BUY_AMOUNT` and capped at `$10,000`. Slot 0 is also mirrored into the legacy `session.defaultBuyUsdc` field for callsites that still read the single-amount default. Surface error: `` md`Minimum buy is $${MIN_USDC_BUY_AMOUNT} USDC` ``.
 
 ### /sell
@@ -352,6 +354,8 @@ Effects:
 ```
 
 Buffer-limited sells: if `redeem(sellAmount) > baseAssetBalance()`, surface: "Buffer low — max sell now is ~$X. Sell in chunks; buffer replenishes in ~10s." Never silently cap — require user to confirm the reduced amount.
+
+Receipt-confirmed sells also trigger the post-trade `/start` prompt (see `/buy` → *Post-trade `/start` prompt*). Same `runWithTxStatusUpdates` → `sendStartPromptAfterTrade` plumbing; same gating on `result.ok`.
 
 **Minimum sell: `MIN_USDC_SELL_AMOUNT` from `@launchpad/shared` (currently $12 USDC of estimated proceeds)** — checked against `quotedUsdcOut` from the simulation (post-bot-fee, the user-facing number), not against the input token amount or the gross Zap output. Surface error: `` md`Minimum sell is $${MIN_USDC_SELL_AMOUNT} USDC` ``.
 
@@ -399,12 +403,28 @@ Stale-data guarantee: indexed numbers may lag the chain by up to one block. The 
 
 ```
 Input:  contract address (token only — wallet tracking is deferred)
-Output:
-  - Token card: name, mcap, curve fill, leverage tag, 24h price change
-  - Recent trades on this token (last 20 from GET /api/v1/trades/:address)
-  - Static chart image (24h candles from `GET /api/v1/chart/:address?timeframe=1d`)
+Output (single Telegram message):
+  - Chart image (24h candles from `GET /api/v1/chart/:address?timeframe=1d`)
+    sent via sendPhoto with the merged caption + keyboard below.
+  - Caption (HTML): token card (name, mcap, curve fill, leverage tag,
+    24h price change) followed by recent trades (up to 5 from
+    `GET /api/v1/trades/:address`, automatically trimmed to fit
+    Telegram's 1024-char photo-caption budget).
   - Buttons: [Buy →] [Sell →] [Open on Alt Fun]
 ```
+
+**Single-message render.** Chart and token detail are bundled into one
+`sendPhoto` call (`render.caption` carries the card + trades, the inline
+keyboard rides on the same message). When the body overflows the
+1024-char caption budget, `renderTrackCaption` in `commands/track.ts`
+sheds trade rows from the tail until it fits — the card and chart are
+the headline, dropping a few stale trades is acceptable. If the chart
+fetch fails (timeout, empty candles, render error) `sendTrackReply`
+falls back to a text-only `sendMessage` with the full 5-trade body, so
+no /track invocation is ever silent. The start-menu wizard variant
+edits the prompt bubble in place when the chart is absent and deletes
+the bubble before sending the merged photo when the chart renders
+(Telegram doesn't allow editing a text bubble into a photo bubble).
 
 v1 is info-only — no alert subscriptions. Persistent price / graduation alerts are **deferred** (require `apps/api` alert endpoint and a keeper, neither of which exist).
 

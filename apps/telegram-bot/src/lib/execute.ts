@@ -13,12 +13,17 @@
  */
 
 import type { AppContext } from "../bot.js";
+import { sendStartPromptAfterTrade } from "../commands/start.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
+import { isBenignEditError } from "./nav.js";
 import { readProfile } from "./onboarding.js";
 import { formatUsdc } from "./format.js";
-import { formatToken18 } from "./token-card.js";
-import { clearWorkflowMessages } from "./workflow-stack.js";
+import { formatToken18, formatUsdc6 } from "./token-card.js";
+import {
+  clearWorkflowMessages,
+  removeWorkflowMessage,
+} from "./workflow-stack.js";
 import {
   executeBuy,
   executeSell,
@@ -32,6 +37,15 @@ import { WalletManager } from "./wallet.js";
 
 /** How long a staged trade intent stays valid before the Confirm becomes a no-op. */
 export const CONFIRM_WINDOW_MS = 60_000;
+
+/**
+ * Canonical alt.fun token tracking page for a given contract address.
+ * Used to make the ticker on every trade prompt/receipt a clickable
+ * link that opens the live token page (same surface the web app and
+ * the /track flow link out to).
+ */
+export const trackingPageUrl = (token: string): string =>
+  `https://alt.fun/token/${encodeURIComponent(token)}`;
 
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
@@ -251,13 +265,20 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   if (outcome.kind === "no_wallet") {
     return "No active wallet — run /wallet to set one up.";
   }
-  const { result, ticker, side } = outcome;
+  const { result, ticker, side, token } = outcome;
   if (result.ok) {
     // Receipt-confirmed success — `executeBuy` / `executeSell` only flip
     // `ok` to true after waitForTransactionReceipt returns status=success,
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
     const verb = side === "buy" ? "Buy" : "Sell";
+    // Ticker is user-controlled on launch and the address comes off the
+    // session intent — escape both before interpolating into the
+    // parse_mode="HTML" payload so a stray `<` cannot break Telegram
+    // rendering. Addresses are conventionally 0x-hex but escaping is
+    // free insurance.
+    const tickerSafe = escapeHtml(ticker);
+    const tokenSafe = token ? escapeHtml(token) : undefined;
     // Show the on-chain amount the user actually received, decoded from
     // the BotRouterTrade event. For buys that's tokens; for sells it's
     // the net USDC (gross `usdcAmount` minus the router's `botFee`
@@ -268,14 +289,25 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     // pre-trade estimate as "received" would mislead.
     let receivedLine = "";
     if (side === "buy" && result.actualTokensOut !== undefined) {
-      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${ticker}\n`;
+      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${tickerSafe}\n`;
     } else if (side === "sell" && result.actualUsdcOut !== undefined) {
       receivedLine = `Received: $${formatUsdc(result.actualUsdcOut.toString())} USDC\n`;
     }
+    // The ticker on the Token line is the clickable jump to the live
+    // alt.fun tracking page; the bare contract address sits next to it
+    // so the user has both a tap target and a copyable identifier.
+    // The receipt bubble itself is deliberately preserved by the
+    // caller — see `runWithTxStatusUpdates`, which detaches it from
+    // the post-trade workflow sweep before submitting the trade.
+    const tokenLine =
+      token && tokenSafe
+        ? `\nToken: <a href="${trackingPageUrl(token)}">${tickerSafe}</a> <code>${tokenSafe}</code>`
+        : "";
     return (
-      `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
+      `✅ <b>${verb} confirmed for ${tickerSafe}</b>\n\n` +
       `${receivedLine}` +
-      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
+      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>` +
+      tokenLine
     );
   }
   // `pending` is not a failure — the tx is in the mempool and may still
@@ -284,6 +316,34 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   // no tx ever landed.
   const prefix = result.kind === "pending" ? "⏳" : "❌";
   return `${prefix} ${renderExecutionError(result)}`;
+};
+
+/**
+ * Reply with the rendered confirm message and, on receipt-confirmed
+ * success, drop a fresh `/start` view directly below it. Mirrors the
+ * post-success behaviour in `runWithTxStatusUpdates` for the fallback
+ * paths (`cnf:` expired/replayed, degen-mode without a callback message
+ * ref, conversation degen without a resolvable chat id) where no status
+ * bubble is being edited in place. Without this, those paths would emit
+ * the receipt but skip the home-menu drop, leaving sells in particular
+ * without a chained next-action surface (issue: post-trade home prompt
+ * symmetric on sells).
+ */
+export const replyConfirmedTradeAndPromptStart = async (
+  ctx: AppContext,
+  outcome: ConfirmOutcome,
+): Promise<void> => {
+  await ctx.reply(renderConfirmReply(outcome), {
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  });
+  if (
+    outcome.kind === "executed" &&
+    outcome.result.ok &&
+    ctx.chat
+  ) {
+    await sendStartPromptAfterTrade(ctx, ctx.chat.id);
+  }
 };
 
 /**
@@ -317,4 +377,169 @@ export const cancelTrade = (ctx: AppContext, nonce: string): boolean => {
   if (!intent || intent.nonce !== nonce) return false;
   ctx.session.pendingTrade = undefined;
   return true;
+};
+
+/**
+ * Delay before the `Tx sending` prompt is replaced with the `Tx pending`
+ * copy. 20s is long enough that the receipt for a normal HyperEVM block
+ * lands first (sub-second blocks; the bulk of the latency is RPC
+ * confirmation polling), and short enough that a slow node has updated
+ * the user before they wonder if the bot has hung. AGENTS.md cap on
+ * receipt-wait is `RECEIPT_TIMEOUT_MS` inside `trade.ts`; the pending
+ * copy here is purely advisory until that timeout fires.
+ */
+export const TX_PENDING_DELAY_MS = 20_000;
+
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/**
+ * Human-readable description of a staged trade, used to label the
+ * Tx-status prompts as the trade progresses through `sending` →
+ * `pending` → `result`. For buys we render USDC notional; for sells we
+ * render the raw token amount being sold (the user is the seller; the
+ * "currency" they are sending is the token itself). Ticker is escaped
+ * because token tickers are user-controlled on launch.
+ */
+export const describeTradeForStatus = (
+  side: "buy" | "sell",
+  ticker: string,
+  amountRaw: bigint,
+): string => {
+  const ticker_ = escapeHtml(ticker);
+  if (side === "buy") {
+    return `Buying ${formatUsdc6(amountRaw)} USDC of ${ticker_}`;
+  }
+  return `Selling ${formatToken18(amountRaw)} ${ticker_}`;
+};
+
+export const renderTxSendingText = (description: string): string =>
+  `⏳ <b>Tx sending</b>\n${description}`;
+
+export const renderTxPendingText = (description: string): string =>
+  `⏳ <b>Tx pending</b>\n${description}\n\n` +
+  `Still waiting for the network to confirm — this may take another moment.`;
+
+interface TxStatusEditTarget {
+  api: AppContext["api"];
+  chatId: number;
+  messageId: number;
+}
+
+const safeEditStatus = async (
+  target: TxStatusEditTarget,
+  text: string,
+): Promise<void> => {
+  try {
+    await target.api.editMessageText(target.chatId, target.messageId, text, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+  } catch (err) {
+    if (isBenignEditError(err)) return;
+    logger.debug("tx status edit failed", { err });
+  }
+};
+
+export interface RunWithStatusArgs {
+  ctx: AppContext;
+  /** Bubble to edit through sending → pending → result phases. */
+  target: TxStatusEditTarget;
+  side: "buy" | "sell";
+  /** Pre-formatted "Buying $X USDC of TICKER" / "Selling X TICKER". */
+  description: string;
+  /** Trade execution to run while the status bubble is shown. */
+  run: () => Promise<ConfirmOutcome>;
+  /**
+   * Override for the `Tx pending` delay. Tests inject `0` to assert the
+   * pending edit deterministically without waiting on a real timer.
+   */
+  pendingDelayMs?: number;
+}
+
+/**
+ * Drive a single status bubble through `Tx sending` → `Tx pending` (after
+ * 20s) → result. Returns the underlying `ConfirmOutcome` so callers can
+ * still inspect the trade state. Detaches the target bubble from the
+ * workflow stack before `run()` so the post-trade sweep inside
+ * `confirmTrade` (which deletes every tracked transient on receipt-
+ * confirmed success) does not delete the bubble we are about to replace
+ * with the final receipt.
+ */
+export const runWithTxStatusUpdates = async (
+  args: RunWithStatusArgs,
+): Promise<ConfirmOutcome> => {
+  const delay = args.pendingDelayMs ?? TX_PENDING_DELAY_MS;
+
+  // Phase 1: render "Tx sending" into the target bubble.
+  await safeEditStatus(args.target, renderTxSendingText(args.description));
+
+  // Detach so the post-trade sweep leaves this bubble for our final edit.
+  removeWorkflowMessage(
+    args.ctx.session,
+    args.target.chatId,
+    args.target.messageId,
+  );
+
+  // Wrap mutable state in an object so TS does not narrow the field's
+  // type along the linear control-flow path it sees outside the
+  // setTimeout closure.
+  const state: { settled: boolean; pendingEdit: Promise<void> | null } = {
+    settled: false,
+    pendingEdit: null,
+  };
+  const pendingTimer = setTimeout(() => {
+    if (state.settled) return;
+    state.pendingEdit = safeEditStatus(
+      args.target,
+      renderTxPendingText(args.description),
+    );
+  }, delay);
+
+  let outcome: ConfirmOutcome | null = null;
+  let runError: unknown = undefined;
+  try {
+    outcome = await args.run();
+  } catch (err) {
+    runError = err;
+  } finally {
+    state.settled = true;
+    clearTimeout(pendingTimer);
+  }
+
+  // Drain any in-flight pending edit so it cannot land after the final
+  // edit and overwrite the receipt with a stale "still pending" view.
+  if (state.pendingEdit !== null) {
+    await state.pendingEdit.catch(() => {});
+  }
+
+  if (outcome !== null) {
+    await safeEditStatus(args.target, renderConfirmReply(outcome));
+    // After a receipt-confirmed success the post-trade sweep inside
+    // `confirmTrade` deletes the originating token-detail card and
+    // staging prompt, leaving the receipt as the only visible bubble.
+    // Drop a fresh /start view directly underneath so the user has the
+    // home menu inline and can chain into the next buy/sell/positions
+    // without retyping `/start`. Only fires on `result.ok` — a pending
+    // or reverted outcome leaves the user's originating card in place
+    // so they can retry from it, and a duplicate home prompt below
+    // would just clutter that path.
+    if (
+      outcome.kind === "executed" &&
+      outcome.result.ok
+    ) {
+      await sendStartPromptAfterTrade(args.ctx, args.target.chatId);
+    }
+    return outcome;
+  }
+
+  // `run()` rejected. Without a terminal edit the user would be stuck
+  // on "Tx sending" / "Tx pending" forever — surface a generic failure
+  // bubble, then rethrow so upstream loggers / sentry handlers see the
+  // original error.
+  await safeEditStatus(
+    args.target,
+    "❌ Transaction failed — please try again in a moment.",
+  );
+  throw runError;
 };

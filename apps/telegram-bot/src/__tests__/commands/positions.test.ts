@@ -148,7 +148,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toBe("No open positions for this wallet.");
   });
 
-  it("renders a single open position with ticker, balance, cost, value, PnL, and a per-position [Buy] / [Sell] callback row", async () => {
+  it("renders a single open position with ticker as a track deeplink, balance, cost, value, PnL, and a [Buy] / [Sell] callback row", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions/")) {
@@ -193,21 +193,34 @@ describe("/positions", () => {
     // card lands inline in the same chat.
     expect(text).not.toContain("?start=buy_");
     expect(text).not.toContain("?start=sell_");
-    expect(text).not.toContain("t.me/");
     const markup = sent[0]!.reply_markup as {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // One action row + trailing Close row.
-    expect(markup.inline_keyboard).toHaveLength(2);
+    // One action row + refresh row + trailing Back/Home row.
+    expect(markup.inline_keyboard).toHaveLength(3);
     const row = markup.inline_keyboard[0]!;
     expect(row.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     expect(row[0]!.callback_data).toBe(`pb:${TOKEN}`);
     expect(row[1]!.callback_data).toBe(`ps:${TOKEN}`);
+    expect(markup.inline_keyboard.at(-2)!.map((b) => b.text)).toEqual([
+      "🔄 Refresh",
+    ]);
+    expect(markup.inline_keyboard.at(-2)![0]!.callback_data).toBe(
+      `pr:0:${WALLET}`,
+    );
     expect(markup.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual([
       "← Back",
       "🏠 Home",
     ]);
+    // The ticker on the open-position line renders as an inline
+    // anchor pointing at the bot's own `?start=track_<addr>` deeplink
+    // — tap returns to the bot chat and fires the /track card.
+    expect(text).toMatch(
+      new RegExp(
+        `<a href="https://t\\.me/[^"]+\\?start=track_${TOKEN}">ALPHA</a>`,
+      ),
+    );
   });
 
   it("renders both Open and Realised sections when both have rows", async () => {
@@ -285,15 +298,19 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // Multiple per-position rows + a nav row + a trailing Close row.
-    expect(markup.inline_keyboard.length).toBeGreaterThan(2);
+    // Multiple per-position rows + a nav row + a refresh row + a trailing Back/Home row.
+    expect(markup.inline_keyboard.length).toBeGreaterThan(3);
     const closeRow = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
     expect(closeRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
-    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
+    const refreshRow =
+      markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
+    expect(refreshRow.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(refreshRow[0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
+    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 3]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
     // Every non-nav row must be a Buy/Sell pair with `pb:` / `ps:` data.
-    for (let i = 0; i < markup.inline_keyboard.length - 2; i++) {
+    for (let i = 0; i < markup.inline_keyboard.length - 3; i++) {
       const row = markup.inline_keyboard[i]!;
       expect(row).toHaveLength(2);
       expect(row[0]!.text.startsWith("Buy ")).toBe(true);
@@ -301,6 +318,16 @@ describe("/positions", () => {
       expect(row[0]!.callback_data.startsWith("pb:0x")).toBe(true);
       expect(row[1]!.callback_data.startsWith("ps:0x")).toBe(true);
     }
+    // Every open-position line must render its ticker as its own
+    // `?start=track_<addr>` anchor — count anchors against the number
+    // of per-position keyboard rows on this page so a regression that
+    // links only the first ticker would fail loudly.
+    const anchorMatches = sent[0]!.text.match(
+      /<a href="https:\/\/t\.me\/[^"]+\?start=track_0x[0-9a-f]{40}">LT\d+<\/a>/gi,
+    );
+    const positionRowCount = markup.inline_keyboard.length - 3;
+    expect(anchorMatches).not.toBeNull();
+    expect(anchorMatches!.length).toBe(positionRowCount);
   });
 
   it("replies with a degraded-data message when the API returns 503", async () => {
