@@ -1,29 +1,58 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, integer, numeric, varchar, index } from "drizzle-orm/pg-core";
 
-export const tokens = pgTable("tokens", {
-  address: varchar("address", { length: 42 }).primaryKey(),
-  name: text("name").notNull(),
-  ticker: varchar("ticker", { length: 10 }).notNull(),
-  description: text("description").notNull().default(""),
-  imageUrl: text("image_url").notNull().default(""),
-  ltPair: varchar("lt_pair", { length: 42 }).notNull(),
-  ltDirection: varchar("lt_direction", { length: 5 }).notNull(),
-  leverage: integer("leverage").notNull(),
-  // Width sized for `xyz:BRENTOIL` (12 chars) plus headroom for new
-  // BounceTech LT additions. The on-chain `targetAsset` keeps its full
-  // namespaced symbol (e.g. `xyz:SP500`) so this column round-trips it
-  // verbatim — display surfaces strip the `xyz:` prefix at render time.
-  underlying: varchar("underlying", { length: 24 }).notNull().default("HYPE"),
-  status: varchar("status", { length: 20 }).notNull().default("curve"),
-  graduatedAt: timestamp("graduated_at"),
-  poolAddress: varchar("pool_address", { length: 42 }),
-  twitterUrl: text("twitter_url").notNull().default(""),
-  telegramUrl: text("telegram_url").notNull().default(""),
-  websiteUrl: text("website_url").notNull().default(""),
-  creator: varchar("creator", { length: 42 }).notNull(),
-  isHidden: boolean("is_hidden").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const tokens = pgTable(
+  "tokens",
+  {
+    address: varchar("address", { length: 42 }).primaryKey(),
+    name: text("name").notNull(),
+    ticker: varchar("ticker", { length: 10 }).notNull(),
+    description: text("description").notNull().default(""),
+    imageUrl: text("image_url").notNull().default(""),
+    ltPair: varchar("lt_pair", { length: 42 }).notNull(),
+    ltDirection: varchar("lt_direction", { length: 5 }).notNull(),
+    leverage: integer("leverage").notNull(),
+    // Width sized for `xyz:BRENTOIL` (12 chars) plus headroom for new
+    // BounceTech LT additions. The on-chain `targetAsset` keeps its full
+    // namespaced symbol (e.g. `xyz:SP500`) so this column round-trips it
+    // verbatim — display surfaces strip the `xyz:` prefix at render time.
+    underlying: varchar("underlying", { length: 24 }).notNull().default("HYPE"),
+    status: varchar("status", { length: 20 }).notNull().default("curve"),
+    graduatedAt: timestamp("graduated_at"),
+    poolAddress: varchar("pool_address", { length: 42 }),
+    twitterUrl: text("twitter_url").notNull().default(""),
+    telegramUrl: text("telegram_url").notNull().default(""),
+    websiteUrl: text("website_url").notNull().default(""),
+    creator: varchar("creator", { length: 42 }).notNull(),
+    isHidden: boolean("is_hidden").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  // Indexes were added after the system started seeing thundering-herd
+  // /tokens traffic on shared-IP networks (issue: 5.4M sequential scans
+  // observed on this 614-row table in pg_stat_user_tables since last
+  // reset). At today's row count the seq scans run in <1ms so the
+  // indexes are mostly future-proofing — but the partial index on
+  // `(is_hidden=false, created_at DESC)` matches the default-sort path
+  // exactly and pays back today on cold cache misses. Mirror in DB via
+  // the Neon `prepare_database_migration` flow (see
+  // `.cursor/rules/migrations.mdc`); this declaration is the typed view.
+  (table) => [
+    index("tokens_visible_created_at_idx")
+      .on(table.createdAt.desc())
+      .where(sql`${table.isHidden} = false`),
+    index("tokens_creator_idx").on(table.creator),
+    index("tokens_underlying_idx").on(table.underlying),
+    index("tokens_lt_pair_idx").on(table.ltPair),
+    index("tokens_status_idx").on(table.status),
+    // Trigram GIN indexes back the `/search` ILIKE `%q%` queries; without
+    // them every keystroke seq-scans the table. Requires `pg_trgm`.
+    index("tokens_name_trgm_idx").using("gin", sql`${table.name} gin_trgm_ops`),
+    index("tokens_ticker_trgm_idx").using(
+      "gin",
+      sql`${table.ticker} gin_trgm_ops`,
+    ),
+  ],
+);
 
 export const apiKeys = pgTable("api_keys", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
