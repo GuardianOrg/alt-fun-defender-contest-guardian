@@ -284,6 +284,14 @@ export async function fetchHistoricalCurveSnapshots(
     // patterns aren't symmetric. Discovered by the smoke test on the
     // sibling `fetchPortfolioPositions` after the original cast hid the
     // shape mismatch at type-check time.
+    // `id DESC` is the same `(timestamp, id)` tiebreak `fetchTokenChartSnapshots`
+    // and `fetchRouterTrades` already pin — `tokenSnapshot.timestamp` is
+    // `block.timestamp` at second resolution and ties on multi-trade blocks
+    // (and on a curve `Bonding.Trade` + post-grad `HyperSwapPair.Sync` in the
+    // same block). Without it, `DISTINCT ON (token_address)` picks an
+    // arbitrary tied row at the 24h cutoff and `change24h` wobbles across
+    // requests. Lock the secondary sort to the indexer's primary key
+    // (`${txHash}-${logIndex}`) so the historical reference is deterministic.
     const queryResult = await db.execute(sql`
       SELECT DISTINCT ON (token_address)
         token_address,
@@ -293,7 +301,7 @@ export async function fetchHistoricalCurveSnapshots(
       FROM ponder_views.token_snapshot
       WHERE token_address = ANY(${lowered}::text[])
         AND timestamp <= ${cutoffSec}::numeric
-      ORDER BY token_address, timestamp DESC
+      ORDER BY token_address, timestamp DESC, id DESC
     `);
     const rows = queryResult.rows as unknown as Array<{
       token_address: string;
@@ -923,10 +931,27 @@ export interface ChartTokenSnapshotRow {
  * query) with a single Postgres round-trip per phase, executed in parallel.
  *
  * Returns the anchor first (if any) followed by every in-window snapshot
- * ordered `asc(timestamp)` — matches the array shape `buildRatioTimeline`
- * already expects. Anchor presence is purely an existence question: a token
- * launched inside the window legitimately has no pre-window snapshot, and
- * the launch anchor inside `buildRatioTimeline` is the right baseline.
+ * ordered `(timestamp asc, id asc)` — matches the array shape
+ * `buildRatioTimeline` already expects. Anchor presence is purely an
+ * existence question: a token launched inside the window legitimately has no
+ * pre-window snapshot, and the launch anchor inside `buildRatioTimeline` is
+ * the right baseline.
+ *
+ * Why the `id` tiebreak: `tokenSnapshot.timestamp` is `block.timestamp` at
+ * second resolution and is NOT unique — a single block can carry multiple
+ * `Bonding.Trade` events (or a Bonding.Trade plus a HyperSwapPair.Sync
+ * post-grad), all stamped with the identical Unix-second value. Ordering by
+ * timestamp alone leaves the relative order of those rows to Postgres'
+ * physical heap order, which (a) isn't stable across `VACUUM` / `CLUSTER` /
+ * deploy schema swaps and (b) doesn't necessarily match the order the
+ * legacy Ponder GraphQL paginator returned (id-keyed). Inside
+ * `buildPriceTimeline` the *last* same-timestamp ratio entry wins for any
+ * event at or after that timestamp, so a flipped order produces different
+ * intra-bucket OHLC `high` / `low` / `close` values. Adding `asc(id)` as
+ * the secondary sort locks the ordering to the indexer's globally-unique
+ * primary key (`${txHash}-${logIndex}`), which is the same effective order
+ * the legacy GraphQL path produced. Mirrors the fix `fetchRouterTrades`
+ * already applies (`(timestamp, id)` composite sort).
  *
  * Truncation is impossible here — Postgres returns every row in one shot,
  * unlike the legacy paginator's `MAX_PAGES × 1000` cap. Callers that used to
@@ -955,7 +980,10 @@ export async function fetchTokenChartSnapshots(
             lt(indexerTokenSnapshot.timestamp, fromSecStr),
           ),
         )
-        .orderBy(desc(indexerTokenSnapshot.timestamp))
+        .orderBy(
+          desc(indexerTokenSnapshot.timestamp),
+          desc(indexerTokenSnapshot.id),
+        )
         .limit(1),
       db
         .select({
@@ -970,7 +998,10 @@ export async function fetchTokenChartSnapshots(
             gte(indexerTokenSnapshot.timestamp, fromSecStr),
           ),
         )
-        .orderBy(asc(indexerTokenSnapshot.timestamp)),
+        .orderBy(
+          asc(indexerTokenSnapshot.timestamp),
+          asc(indexerTokenSnapshot.id),
+        ),
     ]);
     return [...anchorRows, ...windowRows].map((r) => ({
       curveSupply: r.curveSupply,
