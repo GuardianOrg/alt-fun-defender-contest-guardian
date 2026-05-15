@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
 import { useParams } from "react-router";
 
 import AdminPanel from "./AdminPanel";
@@ -13,7 +14,6 @@ import TokenInfoStripSkeleton from "./TokenInfoStripSkeleton";
 import TradePanel from "./TradePanel";
 import TradePanelSkeleton from "./TradePanelSkeleton";
 import { useGraduationFeed } from "../../hooks/useGraduationFeed";
-import { useGraduationThreshold } from "../../hooks/useGraduationThreshold";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { useTrackRecentlyViewed } from "../../hooks/useRecentlyViewed";
 import { useToken } from "../../hooks/useToken";
@@ -41,10 +41,6 @@ export default function TokenDetailView() {
   useEffect(() => {
     if (!isMobile && tradeModalOpen) setTradeModalOpen(false);
   }, [isMobile, tradeModalOpen]);
-  // Live owner-tunable threshold; fall back to the compile-time default
-  // while the RPC read is in flight so the curve strip never flashes "$0".
-  const { data: graduationThresholdUsd, fallback: thresholdFallback } =
-    useGraduationThreshold();
   useTrackRecentlyViewed(token?.address);
   // Auto-transition Curve → Graduating → Graduated when the indexer fires
   // a `graduation` WS event for this token.
@@ -184,7 +180,7 @@ export default function TokenDetailView() {
             ) : (
               <>
                 <span className={styles.curveThreshold}>
-                  {formatUsd(graduationThresholdUsd ?? thresholdFallback)}
+                  {formatUsd(DEFAULT_GRADUATION_THRESHOLD_USD)}
                 </span>
                 {token.status === "graduating" && (
                   <span className={styles.graduatingBadge}>graduating</span>

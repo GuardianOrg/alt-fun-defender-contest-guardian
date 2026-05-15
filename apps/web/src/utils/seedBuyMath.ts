@@ -1,3 +1,5 @@
+import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
+
 /**
  * Bonding curve math for seed buy estimation.
  *
@@ -40,18 +42,16 @@ export interface SeedBuyStats {
  *   tokensOut    = totalSupply × usdcAfterFee / (virtualLiquidity + usdcAfterFee)
  *                  (then clamped to curveSupply — on-chain `Router.buy` caps at real balance)
  *   supplyPct    = tokensOut / totalSupply × 100
- *   curveFilled  = usdcAfterFee / graduationThreshold × 100
+ *   curveFilled  = usdcAfterFee / DEFAULT_GRADUATION_THRESHOLD_USD × 100
  *
- * `graduationThresholdUsd` is the live `Bonding.graduationThresholdUsd`
- * (read via `useGraduationThreshold`). It's set once at proxy initialisation
- * and immutable thereafter — pass the hook's `fallback` while loading so
- * the preview renders something sensible instead of `Infinity` (which
- * would surface as `0%` in the UI but NaN-poison any downstream math).
+ * The graduation threshold is fixed at `DEFAULT_GRADUATION_THRESHOLD_USD`
+ * ($9000) — set once at `Bonding` proxy initialisation, no on-chain setter.
+ * Tracking it as a compile-time constant rather than a live RPC read means
+ * the preview is rendered synchronously and is impossible to leave blank
+ * on a cold cache. If the value is ever changed via UUPS upgrade, bump
+ * the shared constant in lockstep.
  */
-export function seedBuyStats(
-  usdcAmount: number,
-  graduationThresholdUsd: number,
-): SeedBuyStats {
+export function seedBuyStats(usdcAmount: number): SeedBuyStats {
   if (!Number.isFinite(usdcAmount) || usdcAmount <= 0) {
     return { tokensReceived: 0, supplyPct: 0, curveFilled: 0 };
   }
@@ -61,10 +61,7 @@ export function seedBuyStats(
     (TOTAL_SUPPLY * usdcAfterFee) / (VIRTUAL_LIQUIDITY_USD + usdcAfterFee);
   const tokensReceived = Math.min(rawTokens, CURVE_SUPPLY);
   const supplyPct = (tokensReceived / TOTAL_SUPPLY) * 100;
-  const curveFilled =
-    graduationThresholdUsd > 0
-      ? (usdcAfterFee / graduationThresholdUsd) * 100
-      : 0;
+  const curveFilled = (usdcAfterFee / DEFAULT_GRADUATION_THRESHOLD_USD) * 100;
 
   return { tokensReceived, supplyPct, curveFilled };
 }

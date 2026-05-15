@@ -1,3 +1,4 @@
+import { DEFAULT_GRADUATION_THRESHOLD_USD } from "@launchpad/shared";
 import { describe, it, expect } from "vitest";
 
 import {
@@ -6,7 +7,6 @@ import {
   usdcForSupplyPct,
 } from "./seedBuyMath";
 
-const THRESHOLD = 9_000;
 const BUY_FEE = 0.0075; // 0.75% — must match seedBuyMath.ts BUY_FEE_BPS
 
 /// Closed-form inverse of `seedBuyStats` for `supplyPct → usdcAmount`,
@@ -22,14 +22,14 @@ function expectedUsdcForSupplyPct(pct: number): number {
 
 describe("seedBuyStats", () => {
   it("returns zeros for zero input", () => {
-    const stats = seedBuyStats(0, THRESHOLD);
+    const stats = seedBuyStats(0);
     expect(stats.tokensReceived).toBe(0);
     expect(stats.supplyPct).toBe(0);
     expect(stats.curveFilled).toBe(0);
   });
 
   it("returns zeros for negative input", () => {
-    const stats = seedBuyStats(-10, THRESHOLD);
+    const stats = seedBuyStats(-10);
     expect(stats.tokensReceived).toBe(0);
     expect(stats.supplyPct).toBe(0);
     expect(stats.curveFilled).toBe(0);
@@ -53,9 +53,10 @@ describe("seedBuyStats", () => {
       (1_000_000_000 * usdcAfterFee) /
       (VIRTUAL_LIQUIDITY_USD + usdcAfterFee);
     const expectedSupplyPct = (expectedTokens / 1_000_000_000) * 100;
-    const expectedCurveFilled = (usdcAfterFee / THRESHOLD) * 100;
+    const expectedCurveFilled =
+      (usdcAfterFee / DEFAULT_GRADUATION_THRESHOLD_USD) * 100;
 
-    const stats = seedBuyStats(usdcIn, THRESHOLD);
+    const stats = seedBuyStats(usdcIn);
     expect(stats.tokensReceived).toBeCloseTo(expectedTokens, -2);
     expect(stats.supplyPct).toBeCloseTo(expectedSupplyPct, 4);
     expect(stats.curveFilled).toBeCloseTo(expectedCurveFilled, 4);
@@ -64,7 +65,7 @@ describe("seedBuyStats", () => {
   it("round-trips with usdcForSupplyPct", () => {
     for (const pct of [0.5, 1, 2, 3, 5, 10, 25, 50]) {
       const usdc = usdcForSupplyPct(pct);
-      const stats = seedBuyStats(usdc, THRESHOLD);
+      const stats = seedBuyStats(usdc);
       expect(stats.supplyPct).toBeCloseTo(pct, 6);
     }
   });
@@ -73,29 +74,16 @@ describe("seedBuyStats", () => {
     // The uncapped parabola approaches 100% (TOTAL_SUPPLY) asymptotically, but the
     // on-chain `Router.buy` caps `tokensOut` at the pair's real balance (CURVE_SUPPLY),
     // so the UI mirrors that.
-    const stats = seedBuyStats(1_000_000, THRESHOLD);
+    const stats = seedBuyStats(1_000_000);
     expect(stats.supplyPct).toBeLessThanOrEqual(75);
     expect(stats.supplyPct).toBeGreaterThan(74);
   });
 
-  it("curve filled is proportional to after-fee USDC vs graduation threshold", () => {
-    const stats = seedBuyStats(THRESHOLD / (1 - BUY_FEE), THRESHOLD); // after fee = $THRESHOLD
+  it("curve filled hits 100% when after-fee USDC equals the graduation threshold", () => {
+    const stats = seedBuyStats(
+      DEFAULT_GRADUATION_THRESHOLD_USD / (1 - BUY_FEE),
+    );
     expect(stats.curveFilled).toBeCloseTo(100, 4);
-  });
-
-  it("scales curve-filled with a tuned graduation threshold", () => {
-    // Doubling the threshold halves curve-filled for the same buy.
-    const baseline = seedBuyStats(100, THRESHOLD);
-    const doubled = seedBuyStats(100, THRESHOLD * 2);
-    expect(doubled.curveFilled).toBeCloseTo(baseline.curveFilled / 2, 6);
-    // Token-side math is unaffected (independent of threshold).
-    expect(doubled.tokensReceived).toBeCloseTo(baseline.tokensReceived, 6);
-    expect(doubled.supplyPct).toBeCloseTo(baseline.supplyPct, 6);
-  });
-
-  it("returns 0 curve-filled when threshold is 0 (defensive)", () => {
-    const stats = seedBuyStats(100, 0);
-    expect(stats.curveFilled).toBe(0);
   });
 });
 
