@@ -59,14 +59,14 @@ vi.mock("../db/client.js", () => ({
 
 const mockFetchGraduatedTokensOnchain = vi.fn();
 const mockFetchNonGraduatedTokensOnchain = vi.fn();
-const mockFetchTrendingCandidateAddresses = vi.fn();
+const mockFetchTrendingCandidatesByVolume = vi.fn();
 const mockComputeMarketDataForAddresses = vi.fn();
 const mockBuildBatchFromTokens = vi.fn();
 
 vi.mock("../lib/market-data.js", () => ({
   fetchGraduatedTokensOnchain: mockFetchGraduatedTokensOnchain,
   fetchNonGraduatedTokensOnchain: mockFetchNonGraduatedTokensOnchain,
-  fetchTrendingCandidateAddresses: mockFetchTrendingCandidateAddresses,
+  fetchTrendingCandidatesByVolume: mockFetchTrendingCandidatesByVolume,
   computeMarketDataForAddresses: mockComputeMarketDataForAddresses,
   buildBatchFromTokens: mockBuildBatchFromTokens,
 }));
@@ -668,27 +668,34 @@ describe("GET /tokens — totalVolumeUsd enrichment", () => {
 });
 
 /**
- * Coverage for the precomputed-trending candidate path. The legacy
- * "newest 500 tokens by createdAt DESC" candidate pool was trivially
- * spammable — a burst of 500 zero-trade launches used to flush every
- * real candidate out of the tab. We now pull top-K from the indexer's
- * `tokenMetrics.baseScore` index (which is anti-spam by construction:
- * every term is zero for tokens nobody trades), then hydrate + re-score
- * at the API layer with the full `computeTrendingScore`.
+ * Coverage for the volume-based trending candidate path. The trending
+ * tab is a pure `ORDER BY SUM(volume_usd) DESC` against the per-token
+ * hourly bucket table — no precomputed score, no boost, no freshness /
+ * recency / dead-token heuristics. The candidate query IS the ranking.
+ * These tests cover the happy path (ranking preserved across hydration),
+ * the indexer-down fallback (createdAt-DESC + dataSource=degraded), the
+ * empty-result short-circuit, and the cutoff math (≥ 24 full buckets
+ * regardless of where in the hour the request lands).
  */
-describe("GET /tokens?sort=trending — precomputed candidate path", () => {
+describe("GET /tokens?sort=trending — volume-based candidate path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("uses fetchTrendingCandidateAddresses to source the candidate pool", async () => {
-    mockFetchTrendingCandidateAddresses.mockResolvedValueOnce([
-      ADDR_A.toLowerCase(),
-      ADDR_B.toLowerCase(),
+  it("sorts hydrated rows by the 24h volume the candidate query returned (not by DB order)", async () => {
+    // Candidate query returns (B=5000 USD, A=1000 USD, C=100 USD) —
+    // the API must surface tokens in that order regardless of how
+    // Postgres returned the hydrated rows.
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 1_000 },
+      { tokenAddress: ADDR_C.toLowerCase(), volume24hUsd: 100 },
     ]);
     const onchainA = makeOnchain(ADDR_A);
     const onchainB = makeOnchain(ADDR_B);
+    const onchainC = makeOnchain(ADDR_C);
     currentDbRows.rows = [
+      makeDbRow(ADDR_C, { ticker: "CCC" }),
       makeDbRow(ADDR_A, { ticker: "AAA" }),
       makeDbRow(ADDR_B, { ticker: "BBB" }),
     ];
@@ -696,6 +703,7 @@ describe("GET /tokens?sort=trending — precomputed candidate path", () => {
       marketBatchOk([
         { address: ADDR_A, onchain: onchainA, market: makeMarket() },
         { address: ADDR_B, onchain: onchainB, market: makeMarket() },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket() },
       ]),
     );
 
@@ -705,23 +713,74 @@ describe("GET /tokens?sort=trending — precomputed candidate path", () => {
       makeEnv(),
     );
     expect(res.status).toBe(200);
-    expect(mockFetchTrendingCandidateAddresses).toHaveBeenCalledTimes(1);
-    // The 24h cutoff (`TRENDING_LAST_TRADE_WINDOW_SEC`) is passed as the
-    // third argument — assert it's roughly `now - 86400` so a future
-    // refactor that drops the cutoff doesn't silently re-expose dead
-    // tokens to the trending pool.
-    const call = mockFetchTrendingCandidateAddresses.mock.calls[0];
-    const passedCutoff = call?.[2] as number;
-    const nowSec = Math.floor(Date.now() / 1000);
-    expect(passedCutoff).toBeGreaterThan(nowSec - 86_400 - 5);
-    expect(passedCutoff).toBeLessThanOrEqual(nowSec - 86_400 + 5);
+    const body = (await res.json()) as {
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "AAA", "CCC"]);
   });
 
-  it("falls back to the legacy createdAt-DESC pool + marks degraded when the indexer is down", async () => {
+  it("passes a 24h cutoff aligned to the current hour-start", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
+    await createApp().request("/tokens?sort=trending", {}, makeEnv());
+
+    expect(mockFetchTrendingCandidatesByVolume).toHaveBeenCalledTimes(1);
+    const call = mockFetchTrendingCandidatesByVolume.mock.calls[0];
+    const passedCutoff = call?.[2] as number;
+    // Cutoff = current-hour-start − 86_400. The current hour-start is
+    // `floor(now / 3600) * 3600`, so for any `now` the cutoff sits
+    // exactly on an hour boundary in [now − 90_000, now − 86_400].
+    const nowSec = Math.floor(Date.now() / 1000);
+    expect(passedCutoff % 3600).toBe(0);
+    expect(passedCutoff).toBeGreaterThanOrEqual(nowSec - 86_400 - 3600);
+    expect(passedCutoff).toBeLessThanOrEqual(nowSec - 86_400);
+  });
+
+  it("breaks volume ties on mcap desc so quiet tokens can't leapfrog priced ones", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 1_000 },
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 1_000 },
+    ]);
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "LOW_MCAP" }),
+      makeDbRow(ADDR_B, { ticker: "HIGH_MCAP" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: ADDR_A,
+          onchain: onchainA,
+          market: makeMarket({ mcapUsd: 1_000 }),
+        },
+        {
+          address: ADDR_B,
+          onchain: onchainB,
+          market: makeMarket({ mcapUsd: 10_000_000 }),
+        },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.data.map((t) => t.ticker)).toEqual([
+      "HIGH_MCAP",
+      "LOW_MCAP",
+    ]);
+  });
+
+  it("falls back to a createdAt-DESC pool + marks degraded when the indexer is down", async () => {
     // Indexer returns null → trending tab stays visible (we don't 503
     // the home page) but we record the degradation in `dataSource` and
     // shorten the cache TTL.
-    mockFetchTrendingCandidateAddresses.mockResolvedValueOnce(null);
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce(null);
     currentDbRows.rows = [makeDbRow(ADDR_A, { ticker: "AAA" })];
     mockComputeMarketDataForAddresses.mockResolvedValueOnce(
       marketBatchOk([
@@ -743,8 +802,8 @@ describe("GET /tokens?sort=trending — precomputed candidate path", () => {
     expect(body.data.map((t) => t.ticker)).toEqual(["AAA"]);
   });
 
-  it("returns an empty list when the indexer reports zero recently-traded candidates", async () => {
-    mockFetchTrendingCandidateAddresses.mockResolvedValueOnce([]);
+  it("returns an empty list when the indexer reports zero recent trades", async () => {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
 
     const res = await createApp().request(
       "/tokens?sort=trending",
@@ -756,5 +815,25 @@ describe("GET /tokens?sort=trending — precomputed candidate path", () => {
     expect(body.data).toEqual([]);
     // Should never call market-data when there's nothing to hydrate.
     expect(mockComputeMarketDataForAddresses).not.toHaveBeenCalled();
+  });
+
+  it("preserves dataSource=degraded on an empty fallback page when the indexer is down", async () => {
+    // Indexer returns null → fallback to createdAt-DESC slice → DB
+    // happens to return zero rows (everything hidden/excluded). The
+    // short-circuit empty-response branch must still tag the response
+    // as degraded so the edge cache doesn't pin the wrong status for a
+    // full `LIST_CACHE_TTL_SECONDS` window.
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce(null);
+    currentDbRows.rows = [];
+
+    const res = await createApp().request(
+      "/tokens?sort=trending",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { dataSource: string; data: unknown[] };
+    expect(body.data).toEqual([]);
+    expect(body.dataSource).toBe("degraded");
   });
 });

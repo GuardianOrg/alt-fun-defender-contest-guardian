@@ -15,7 +15,7 @@ import {
   computeMarketDataForAddresses,
   fetchGraduatedTokensOnchain,
   fetchNonGraduatedTokensOnchain,
-  fetchTrendingCandidateAddresses,
+  fetchTrendingCandidatesByVolume,
   type MarketDataItem,
   type PonderTokenOnchain,
 } from "../../lib/market-data.js";
@@ -24,12 +24,10 @@ import {
   computeCurveFilled,
   computeCurveFilledBreakdown,
   computeStatus,
-  computeTrendingScore,
   usdcRawToUsd,
   type DbToken,
   type EnrichedToken,
 } from "../../lib/token-enrich.js";
-import { isBoostedToken } from "../../lib/trending-tuning.js";
 import { edgeCacheableJsonHeader } from "../../utils/cache-control.js";
 import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
@@ -43,22 +41,22 @@ const LIST_CACHE_TTL_SECONDS = 5;
 // bursts so an outage doesn't amplify into load on the already-struggling
 // dependency, while still recovering within ~1s once it comes back.
 const DEGRADED_CACHE_TTL_SECONDS = 1;
-// How many candidate addresses to pull from the indexer's precomputed
-// `tokenMetrics.baseScore` index before re-scoring at the API layer. The
-// candidate filter is anti-spam by construction (every term in `baseScore`
-// is zero for tokens nobody trades, so spam launches stay below any
-// real-activity token), so the pool size is bounded for performance, not
-// for spam-resistance — 500 is enough to surface the page-100 trending slot
-// with margin while keeping the re-score O(500) per cache miss.
+// How many candidate addresses to pull from the indexer's
+// `token_hourly_metrics` 24h-volume aggregate. Trending is a pure
+// `ORDER BY SUM(volume_usd) DESC LIMIT K` against the per-token hourly
+// bucket table — anti-spam by construction (a token nobody trades has no
+// rows in the window), so the pool size is bounded purely for response
+// payload / pagination depth. 500 is enough to back the page-100 slot
+// with margin and matches the budget the GRADUATING / GRADUATED tabs use.
 const TRENDING_POOL_SIZE = 500;
-// Trending candidates must have traded within this window. Mirrors the
-// dead-token-penalty cutoff in `computeTrendingScore` (24h) — the rest of
-// the penalty math (≥ 7d old AND no trade in 24h → −1000) is applied at
-// re-score time on the hydrated slice. Pushing the 24h filter into the
-// indexer query keeps the response payload tight and lets the
-// `tokenMetrics.lastTradeAtIdx` index skip dead rows entirely on a viral
-// hour.
-const TRENDING_LAST_TRADE_WINDOW_SEC = 86_400;
+// Trending sums hourly buckets back to this cutoff. Mirrors the
+// platform-wide /stats scan: we round down to the current hour-start
+// before subtracting 24h so the window is always at least 24h wide
+// regardless of where in the hour the request lands (matches
+// `fetchPlatformStats` semantics — the extra bucket gives the rolling
+// window full coverage).
+const TRENDING_WINDOW_SEC = 86_400;
+const SECONDS_PER_HOUR = 3_600;
 // Upper bound on how many graduated / graduating tokens we'll fetch from
 // Ponder for the status=graduated|graduating tabs. Same reasoning as
 // TRENDING_POOL_SIZE — bounded work per request, falls back to a cron-
@@ -719,55 +717,70 @@ listRoute.get("/", async (c) => {
     sort === "name" ? tokens.name :
     tokens.createdAt;
 
-  // Trending needs a full-batch score/filter pass, so we can't push
-  // ORDER BY into Postgres. Two-stage approach:
+  // Trending = pure rolling 24h gross USDC volume. Single-stage flow:
   //
-  //   1. Fetch the top-`TRENDING_POOL_SIZE` candidate addresses from the
-  //      indexer's precomputed `tokenMetrics.baseScore` index. The score
-  //      is anti-spam by construction (zero for tokens nobody trades), so
-  //      a flood of spam launches can no longer flush real candidates out
-  //      of the pool — the regression mode the legacy "newest 500 by
-  //      `createdAt DESC`" candidate selector had.
-  //   2. Hydrate from Postgres with the user's filters applied
-  //      (`status`, `underlying`, `direction`, etc.), enrich + re-score
-  //      with the full `computeTrendingScore` (which adds the
-  //      time-dependent freshness / recency / dead-penalty terms that we
-  //      deliberately don't precompute), then sort + slice the page.
+  //   1. Sum the `token_hourly_metrics` buckets over the last 24h per
+  //      token, `ORDER BY SUM(volume_usd) DESC LIMIT POOL`. The ranking
+  //      IS the candidate list — no per-request re-score, no precomputed
+  //      score column, no boost system. Anti-spam by construction: a
+  //      token nobody trades simply has no rows in the window and so
+  //      never appears in the ranking.
+  //   2. Hydrate the matching rows from Postgres with the user's filters
+  //      applied (`status`, `underlying`, `direction`, etc.) and preserve
+  //      the volume ordering through pagination (tie-break on mcap).
   //
-  // Failure mode: if the indexer is unreachable we fall back to the
-  // legacy "newest 500" candidate pool and mark the response degraded.
-  // This preserves trending visibility during Ponder outages at the cost
-  // of temporary spam-vulnerability — strictly better than a 503 on the
-  // home-page tab.
+  // Failure mode: if the indexer is unreachable we fall back to a
+  // createdAt-DESC slice so the tab keeps rendering. Tagged `dataSource:
+  // "degraded"` below; the brief loss of volume ordering is preferable
+  // to a 503 on the home-page tab.
   const isScoredSort = sort === "trending";
   let trendingDegraded = false;
+  // Map from lowercased address → 24h volume (USD). Populated for the
+  // happy path so the final sort can use the same numbers the candidate
+  // query ranked on — keeps the API-visible ordering an exact mirror of
+  // the SQL `ORDER BY` (and means the response never re-disagrees with
+  // itself if a few of the hydrated `volume24hUsd` values come back null
+  // due to a transient indexer aggregation failure on the second query).
+  let trendingVolumeByAddress: Map<string, number> | null = null;
   let dbTokens: DbToken[];
   if (isScoredSort) {
     const nowSecForCandidates = Math.floor(Date.now() / 1000);
-    const candidates = await fetchTrendingCandidateAddresses(
+    // Round down to the current hour-start before subtracting the
+    // window so we always include at least 24 full buckets — same
+    // semantics as `fetchPlatformStats`. The extra (current) hour
+    // guarantees the window is ≥24h regardless of where in the hour
+    // the request lands.
+    const currentHourStart =
+      Math.floor(nowSecForCandidates / SECONDS_PER_HOUR) * SECONDS_PER_HOUR;
+    const cutoffHourStart = currentHourStart - TRENDING_WINDOW_SEC;
+    const candidates = await fetchTrendingCandidatesByVolume(
       c.env.DATABASE_URL,
       TRENDING_POOL_SIZE,
-      nowSecForCandidates - TRENDING_LAST_TRADE_WINDOW_SEC,
+      cutoffHourStart,
     );
     if (candidates !== null) {
       if (candidates.length === 0) {
         // Indexer is up but no tokens have traded in the last 24h —
         // legitimately-empty trending tab. Skip the DB roundtrip.
         dbTokens = [];
+        trendingVolumeByAddress = new Map();
       } else {
         // `tokens.address` is stored checksummed (`getAddress(...)` at
         // insert time in `lib/token-registration.ts`); the indexer
         // returns lowercased — checksum each for the SQL `IN (...)`.
-        const checksummed = candidates.map((addr) => getAddress(addr));
+        const checksummed = candidates.map((c) => getAddress(c.tokenAddress));
         dbTokens = await db
           .select()
           .from(tokens)
           .where(and(...conditions, inArray(tokens.address, checksummed)));
+        trendingVolumeByAddress = new Map(
+          candidates.map((c) => [c.tokenAddress, c.volume24hUsd]),
+        );
       }
     } else {
       // Indexer down — fall back to the legacy createdAt-DESC candidate
       // pool so the tab keeps rendering. Tagged `dataSource: "degraded"`
-      // below; the brief spam-vulnerability is preferable to a 503.
+      // below; the brief loss of volume ordering is preferable to a 503.
       trendingDegraded = true;
       dbTokens = await db
         .select()
@@ -787,8 +800,20 @@ listRoute.get("/", async (c) => {
   }
 
   if (dbTokens.length === 0) {
-    const empty = c.json(formatSuccess([], "live"));
-    empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
+    // `trendingDegraded` propagates through the empty-rows short-circuit
+    // so a trending tab that's empty *because the candidate query
+    // failed* (indexer down → createdAt-DESC fallback returned no
+    // hidden/excluded rows) is still tagged `dataSource: "degraded"` and
+    // gets the shorter cache TTL. Without this guard the response would
+    // claim `"live"` and the edge would cache the wrong status for a
+    // full `LIST_CACHE_TTL_SECONDS` window. CodeRabbit feedback on
+    // PR #946.
+    const emptyIsLive = !trendingDegraded;
+    const empty = c.json(formatSuccess([], emptyIsLive ? "live" : "degraded"));
+    const emptyTtl = emptyIsLive
+      ? LIST_CACHE_TTL_SECONDS
+      : DEGRADED_CACHE_TTL_SECONDS;
+    empty.headers.set("Cache-Control", edgeCacheableJsonHeader(emptyTtl));
     if (cache) {
       await cache.put(cacheKey, empty.clone());
     }
@@ -826,30 +851,38 @@ listRoute.get("/", async (c) => {
   );
 
   if (sort === "trending") {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const scored = enriched.map((t) => {
-      const createdAtSec = Math.floor(new Date(t.createdAt).getTime() / 1000);
-      const lastTradeAtSec = t.lastTradeAt
-        ? Math.floor(new Date(t.lastTradeAt).getTime() / 1000)
-        : null;
-      const score = computeTrendingScore({
-        change24h: t.change24h,
-        volume24hUsd: t.volume24hUsd,
-        mcapUsd: t.mcapUsd,
-        createdAtSec,
-        lastTradeAtSec,
-        nowSec,
-        isBoosted: isBoostedToken(t.address),
-      });
-      return { token: t, score };
-    });
-    // Primary: score desc. Tie-break: mcap desc (treats unknown/null as 0
-    // so quiet tokens don't leapfrog priced ones on ties).
-    scored.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return (b.token.mcapUsd ?? 0) - (a.token.mcapUsd ?? 0);
-    });
-    enriched = scored.slice(offset, offset + limit).map((s) => s.token);
+    // Primary: 24h volume desc, sourced from the same `SUM(volume_usd)`
+    // the candidate query ranked on (`trendingVolumeByAddress`). Falls
+    // back to the row's own `volume24hUsd` when the candidate map is
+    // unavailable — that's the `trendingDegraded` createdAt-DESC fallback
+    // path, where preserving *some* volume signal is still better than
+    // arbitrary `createdAt` order.
+    //
+    // Tie-break on mcap desc so quiet tokens don't leapfrog priced ones
+    // at equal volume (treats unknown/null as 0 — matches the
+    // GRADUATING-tab tie-break for consistency). The tie-break is
+    // best-effort over the candidate pool: mcap depends on BounceTech +
+    // curve state and can't be expressed in SQL, so the indexer-side
+    // candidate query truncates the pool by `(volume desc, address asc)`
+    // first (deterministic) and the mcap reorder happens here. Volume
+    // collisions across 500+ tokens at 6dp-USDC precision are
+    // vanishingly improbable in practice, so the mcap reorder is the
+    // effective tie-break for any realistic input. CodeRabbit feedback
+    // on PR #946.
+    const volumeFor = (t: EnrichedToken): number => {
+      const addr = t.address.toLowerCase();
+      const mapped = trendingVolumeByAddress?.get(addr);
+      if (mapped !== undefined) return mapped;
+      return t.volume24hUsd ?? 0;
+    };
+    enriched = [...enriched]
+      .sort((a, b) => {
+        const va = volumeFor(a);
+        const vb = volumeFor(b);
+        if (vb !== va) return vb - va;
+        return (b.mcapUsd ?? 0) - (a.mcapUsd ?? 0);
+      })
+      .slice(offset, offset + limit);
   }
 
   const isLive = marketResult.ok && !trendingDegraded;

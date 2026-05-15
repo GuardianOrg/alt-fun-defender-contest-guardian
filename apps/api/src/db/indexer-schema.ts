@@ -193,19 +193,33 @@ export const indexerHourlyVolume = ponderSchema.table("hourly_volume", {
 });
 
 /**
- * `ponder_views.token_metrics` — per-token derived counters maintained by
- * the indexer (lifetime volume / trade count / distinct traders / last
- * trade timestamp / a precomputed base trending score). Not currently
- * consumed by the API list route — the trending sort still computes the
- * score on the fly — but exposed here so it's available without a second
- * schema edit when we move trending to a fully precomputed score.
+ * `ponder_views.token_hourly_metrics` — per-(token, hour-start) gross USDC
+ * bucket. Sole backing store for the trending tab and per-token 24h
+ * volume: the API sums the last 24 rows per token at read time
+ * (`SUM(volume_usd) WHERE hour_start >= now - 24h GROUP BY token_address
+ * ORDER BY total DESC LIMIT K`) to derive the rolling 24h figure that
+ * powers `?sort=trending` and the `volume24hUsd` column, with no
+ * precomputed score / cron / boost flow on top.
+ *
+ * `(token_address, hour_start)` is indexed for the GROUP BY's per-token
+ * range scan; `hour_start` alone is indexed so the 24h cutoff can prune
+ * old rows before the aggregate. See `apps/indexer/ponder.schema.ts` for
+ * the canonical write-side definition and accumulation semantics.
  */
-export const indexerTokenMetrics = ponderSchema.table("token_metrics", {
-  tokenAddress: text("token_address").primaryKey(),
-  volumeUsdLifetime: numeric("volume_usd_lifetime").notNull().default("0"),
-  tradeCount: integer("trade_count").notNull().default(0),
-  distinctTraderCount: integer("distinct_trader_count").notNull().default(0),
-  lastTradeAt: numeric("last_trade_at"),
-  baseScore: numeric("base_score").notNull().default("0"),
-  updatedAt: numeric("updated_at").notNull(),
-});
+export const indexerTokenHourlyMetrics = ponderSchema.table(
+  "token_hourly_metrics",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    hourStart: numeric("hour_start").notNull(),
+    volumeUsd: numeric("volume_usd").notNull().default("0"),
+    tradeCount: integer("trade_count").notNull().default(0),
+  },
+  (table) => [
+    index("token_hourly_metrics_token_hour_index").on(
+      table.tokenAddress,
+      table.hourStart,
+    ),
+    index("token_hourly_metrics_hour_start_index").on(table.hourStart),
+  ],
+);

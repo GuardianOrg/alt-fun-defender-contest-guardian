@@ -101,12 +101,12 @@ const mockFetchNonGraduatedTokensOnchain = vi.fn();
 const mockComputeMarketDataForAddresses = vi.fn();
 const mockBuildBatchFromTokens = vi.fn();
 
-const mockFetchTrendingCandidateAddresses = vi.fn();
+const mockFetchTrendingCandidatesByVolume = vi.fn();
 
 vi.mock("../lib/market-data.js", () => ({
   fetchGraduatedTokensOnchain: mockFetchGraduatedTokensOnchain,
   fetchNonGraduatedTokensOnchain: mockFetchNonGraduatedTokensOnchain,
-  fetchTrendingCandidateAddresses: mockFetchTrendingCandidateAddresses,
+  fetchTrendingCandidatesByVolume: mockFetchTrendingCandidatesByVolume,
   computeMarketDataForAddresses: mockComputeMarketDataForAddresses,
   buildBatchFromTokens: mockBuildBatchFromTokens,
 }));

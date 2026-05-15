@@ -56,7 +56,7 @@ vi.mock("../lib/indexer-reads.js", () => ({
   fetchTokensOnchainByAddresses: async () => [],
   fetchGraduatedTokensOnchain: async () => [],
   fetchNonGraduatedTokensOnchain: async () => [],
-  fetchTrendingCandidateAddresses: async () => [],
+  fetchTrendingCandidatesByVolume: async () => [],
 }));
 
 // --- BounceTech DB mock ---

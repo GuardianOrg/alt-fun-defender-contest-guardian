@@ -40,10 +40,10 @@ function tableFiltersKey(filters: TokenTableFiltersInput | undefined): {
  * first occurrence's position. The infinite-scroll list concatenates
  * page results without coordination, so when the API's trending pool
  * shifts between a page-N and page-(N+1) fetch — a real possibility on
- * the trending sort, where a 500-candidate pool is re-scored every
- * request and the indexer's `tokenMetrics.baseScore` index can move
- * tokens across page boundaries as fresh trades land — the same token
- * can land in two pages and render as a visible duplicate row
+ * the trending sort, where the rolling 24h volume ranking on the
+ * indexer's `token_hourly_metrics` table can move tokens across page
+ * boundaries as fresh trades land (closing/opening hour buckets) — the
+ * same token can land in two pages and render as a visible duplicate row
  * (issue #877). Same address normalisation as the rest of the codebase
  * (lowercase) so a mixed-case API response can't sneak two copies past
  * the dedupe.

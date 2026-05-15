@@ -11,9 +11,7 @@ import {
   hourlyVolume,
   walletPosition,
   tokenBalance,
-  tokenMetrics,
   tokenHourlyMetrics,
-  tokenTrader,
 } from "../ponder.schema";
 
 await import("../src/bonding");
@@ -1274,180 +1272,22 @@ describe("Token:Transfer (tokenBalance bookkeeping)", () => {
 });
 
 /**
- * Per-token precomputed trending metrics — written incrementally on every
- * `Zap.Buy` / `Zap.Sell`. The shape backs `?sort=trending` answering in
- * O(log N) regardless of catalogue size (the API takes top-K candidates
- * by `tokenMetrics.baseScore` and re-applies the full trending formula
- * on the hydrated slice).
+ * Per-(token, hour) bucket maintenance — sole backing store for the
+ * trending tab and per-token 24h volume. Written incrementally on every
+ * `Zap.Buy` / `Zap.Sell`; the API sums the last 24 rows per token at
+ * read time to derive the rolling 24h figure that drives
+ * `?sort=trending` (no precomputed score, no cron, no boost).
  *
  * The block lives inline in both Zap:Buy and Zap:Sell (see the
- * `MAINTAIN_TOKEN_METRICS` markers in `bonding.ts`); the assertions here
- * cover the happy path on both sides plus the first-trade bootstrap.
+ * `MAINTAIN_TOKEN_HOURLY` markers in `bonding.ts`); the assertions here
+ * cover the bootstrap-first-bucket case plus the accumulate-into-existing
+ * case across mixed Buy/Sell trades.
  */
-describe("tokenMetrics + tokenHourlyMetrics + tokenTrader (trending precompute)", () => {
+describe("tokenHourlyMetrics (per-token 24h volume buckets)", () => {
   let db: ReturnType<typeof createMockDb>;
 
   beforeEach(() => {
     db = createMockDb();
-  });
-
-  it("bootstraps tokenMetrics on the first-ever Zap:Buy for a token", async () => {
-    db._setFindResult(token, { address: "0xtoken1" }, {
-      address: "0xtoken1",
-      organicUsdcRaised: 0n,
-      volumeUsd: 0n,
-    });
-
-    const handler = getHandler("Zap:Buy");
-    await handler({
-      event: createMockEvent({
-        args: {
-          token: "0xtoken1",
-          buyer: "0xbuyer",
-          usdcIn: 1_000_000n,
-          tokensOut: 5_000n,
-        },
-        blockTimestamp: 1_700_000_000n,
-      }),
-      context: { db },
-    });
-
-    const metricsInsert = db._insertCalls.find((c) => c.table === tokenMetrics);
-    expect(metricsInsert).toBeDefined();
-    const vals = metricsInsert!.values as {
-      tokenAddress: string;
-      volumeUsdLifetime: bigint;
-      tradeCount: number;
-      distinctTraderCount: number;
-      lastTradeAt: bigint;
-      baseScore: number;
-      updatedAt: bigint;
-    };
-    expect(vals.tokenAddress).toBe("0xtoken1");
-    expect(vals.volumeUsdLifetime).toBe(1_000_000n);
-    expect(vals.tradeCount).toBe(1);
-    expect(vals.distinctTraderCount).toBe(1);
-    expect(vals.lastTradeAt).toBe(1_700_000_000n);
-    // baseScore = 15·log10(1e6+1) + 10·log10(2) + 5·log10(2)
-    //           ≈ 15·6 + 10·0.301 + 5·0.301 = ~94.5
-    expect(vals.baseScore).toBeGreaterThan(90);
-    expect(vals.baseScore).toBeLessThan(100);
-  });
-
-  it("bumps existing tokenMetrics on subsequent Zap:Buy from a NEW trader", async () => {
-    db._setFindResult(token, { address: "0xtoken1" }, {
-      address: "0xtoken1",
-      organicUsdcRaised: 0n,
-      volumeUsd: 0n,
-    });
-    db._setFindResult(tokenMetrics, { tokenAddress: "0xtoken1" }, {
-      volumeUsdLifetime: 500_000n,
-      tradeCount: 3,
-      distinctTraderCount: 2,
-    });
-    // `tokenTrader` row for the new buyer is absent — first time seeing them.
-
-    const handler = getHandler("Zap:Buy");
-    await handler({
-      event: createMockEvent({
-        args: {
-          token: "0xtoken1",
-          buyer: "0xnewbuyer",
-          usdcIn: 200_000n,
-          tokensOut: 1_000n,
-        },
-        blockTimestamp: 1_700_100_000n,
-      }),
-      context: { db },
-    });
-
-    const metricsUpdate = db._updateCalls.find((c) => c.table === tokenMetrics);
-    expect(metricsUpdate).toBeDefined();
-    expect(metricsUpdate!.key).toEqual({ tokenAddress: "0xtoken1" });
-    const vals = metricsUpdate!.values as {
-      volumeUsdLifetime: bigint;
-      tradeCount: number;
-      distinctTraderCount: number;
-      lastTradeAt: bigint;
-    };
-    expect(vals.volumeUsdLifetime).toBe(700_000n);
-    expect(vals.tradeCount).toBe(4);
-    expect(vals.distinctTraderCount).toBe(3); // bumped — new trader
-    expect(vals.lastTradeAt).toBe(1_700_100_000n);
-  });
-
-  it("does NOT bump distinctTraderCount when the same trader re-trades the same token", async () => {
-    db._setFindResult(token, { address: "0xtoken1" }, {
-      address: "0xtoken1",
-      organicUsdcRaised: 0n,
-      volumeUsd: 0n,
-    });
-    db._setFindResult(tokenMetrics, { tokenAddress: "0xtoken1" }, {
-      volumeUsdLifetime: 500_000n,
-      tradeCount: 3,
-      distinctTraderCount: 2,
-    });
-    // Trader already has a `tokenTrader` row — repeat customer.
-    db._setFindResult(tokenTrader, { id: "0xbuyer-0xtoken1" }, {
-      tokenAddress: "0xtoken1",
-      trader: "0xbuyer",
-      firstTradedAt: 1_700_000_000n,
-    });
-
-    const handler = getHandler("Zap:Buy");
-    await handler({
-      event: createMockEvent({
-        args: {
-          token: "0xtoken1",
-          buyer: "0xbuyer",
-          usdcIn: 200_000n,
-          tokensOut: 1_000n,
-        },
-        blockTimestamp: 1_700_100_000n,
-      }),
-      context: { db },
-    });
-
-    const metricsUpdate = db._updateCalls.find((c) => c.table === tokenMetrics);
-    const vals = metricsUpdate!.values as { distinctTraderCount: number };
-    expect(vals.distinctTraderCount).toBe(2); // unchanged
-
-    // And we don't insert a duplicate `tokenTrader` row.
-    expect(
-      db._insertCalls.find((c) => c.table === tokenTrader),
-    ).toBeUndefined();
-  });
-
-  it("creates a tokenTrader row on first trade by a new (token, trader) pair", async () => {
-    db._setFindResult(token, { address: "0xtoken1" }, {
-      address: "0xtoken1",
-      organicUsdcRaised: 0n,
-      volumeUsd: 0n,
-    });
-
-    const handler = getHandler("Zap:Buy");
-    await handler({
-      event: createMockEvent({
-        args: {
-          token: "0xtoken1",
-          buyer: "0xfirstbuyer",
-          usdcIn: 50n,
-          tokensOut: 1n,
-        },
-        blockTimestamp: 1_700_000_000n,
-      }),
-      context: { db },
-    });
-
-    const traderInsert = db._insertCalls.find((c) => c.table === tokenTrader);
-    expect(traderInsert).toBeDefined();
-    expect(traderInsert!.values).toEqual({
-      id: "0xfirstbuyer-0xtoken1",
-      tokenAddress: "0xtoken1",
-      trader: "0xfirstbuyer",
-      firstTradedAt: 1_700_000_000n,
-    });
-    expect(traderInsert!.conflict).toBe("doNothing");
   });
 
   it("creates a tokenHourlyMetrics bucket keyed by (tokenAddress, hour-start) on the first trade in that hour", async () => {
@@ -1517,25 +1357,15 @@ describe("tokenMetrics + tokenHourlyMetrics + tokenTrader (trending precompute)"
     expect(update!.values).toEqual({ volumeUsd: 125n, tradeCount: 2 });
   });
 
-  it("Zap:Sell bumps tokenMetrics with the gross sell USDC (mirrors Buy semantics)", async () => {
+  it("Zap:Sell adds to the per-token hourly bucket with the gross sell USDC", async () => {
     db._setFindResult(token, { address: "0xtoken1" }, {
       address: "0xtoken1",
       organicUsdcRaised: 1_000_000n,
       volumeUsd: 1_000_000n,
     });
-    db._setFindResult(tokenMetrics, { tokenAddress: "0xtoken1" }, {
-      volumeUsdLifetime: 1_000_000n,
-      tradeCount: 1,
-      distinctTraderCount: 1,
-    });
-    // Seller is also the original buyer — same `tokenTrader` row exists.
-    db._setFindResult(tokenTrader, { id: "0xseller-0xtoken1" }, {
-      tokenAddress: "0xtoken1",
-      trader: "0xseller",
-      firstTradedAt: 1_700_000_000n,
-    });
 
     const handler = getHandler("Zap:Sell");
+    // 1_700_200_000 / 3600 = 472_277.78… → floor 472_277 → ×3600 = 1_700_197_200
     await handler({
       event: createMockEvent({
         args: {
@@ -1549,51 +1379,17 @@ describe("tokenMetrics + tokenHourlyMetrics + tokenTrader (trending precompute)"
       context: { db },
     });
 
-    const metricsUpdate = db._updateCalls.find((c) => c.table === tokenMetrics);
-    const vals = metricsUpdate!.values as {
-      volumeUsdLifetime: bigint;
-      tradeCount: number;
-      distinctTraderCount: number;
-    };
-    // Cumulative volume = prior 1_000_000 + sell 50_000 = 1_050_000
-    expect(vals.volumeUsdLifetime).toBe(1_050_000n);
-    expect(vals.tradeCount).toBe(2);
-    // Seller was already a known trader for this token → no bump.
-    expect(vals.distinctTraderCount).toBe(1);
-  });
-
-  it("baseScore is monotonic non-decreasing as activity accumulates", async () => {
-    db._setFindResult(token, { address: "0xtoken1" }, {
-      address: "0xtoken1",
-      organicUsdcRaised: 0n,
-      volumeUsd: 0n,
+    const insert = db._insertCalls.find(
+      (c) => c.table === tokenHourlyMetrics,
+    );
+    expect(insert).toBeDefined();
+    expect(insert!.values).toEqual({
+      id: "0xtoken1-1700197200",
+      tokenAddress: "0xtoken1",
+      hourStart: 1_700_197_200n,
+      volumeUsd: 50_000n,
+      tradeCount: 1,
     });
-    db._setFindResult(tokenMetrics, { tokenAddress: "0xtoken1" }, {
-      volumeUsdLifetime: 500_000n,
-      tradeCount: 3,
-      distinctTraderCount: 2,
-    });
-
-    const handler = getHandler("Zap:Buy");
-    await handler({
-      event: createMockEvent({
-        args: {
-          token: "0xtoken1",
-          buyer: "0xnewbuyer",
-          usdcIn: 500_000n,
-          tokensOut: 1_000n,
-        },
-        blockTimestamp: 1_700_300_000n,
-      }),
-      context: { db },
-    });
-
-    const update = db._updateCalls.find((c) => c.table === tokenMetrics);
-    const vals = update!.values as { baseScore: number };
-    // Pre-trade baseScore ≈ 15·log10(500_000+1) + 10·log10(3) + 5·log10(4)
-    //                    ≈ 15·5.7 + 10·0.48 + 5·0.6 = ~93.4
-    // Post-trade baseScore ≈ 15·log10(1_000_000+1) + 10·log10(4) + 5·log10(5)
-    //                     ≈ 15·6 + 10·0.6 + 5·0.7 = ~99.5
-    expect(vals.baseScore).toBeGreaterThan(95);
+    expect(insert!.conflict).toBe("doNothing");
   });
 });

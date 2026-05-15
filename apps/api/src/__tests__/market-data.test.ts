@@ -21,7 +21,7 @@ vi.mock("../lib/indexer-reads.js", () => ({
   // `vi.mock`'s factory.
   fetchGraduatedTokensOnchain: vi.fn(),
   fetchNonGraduatedTokensOnchain: vi.fn(),
-  fetchTrendingCandidateAddresses: vi.fn(),
+  fetchTrendingCandidatesByVolume: vi.fn(),
 }));
 
 vi.mock("../db/client.js", () => ({

@@ -16,7 +16,7 @@ import {
   indexerRouterTrade,
   indexerToken,
   indexerTokenBalance,
-  indexerTokenMetrics,
+  indexerTokenHourlyMetrics,
 } from "../db/indexer-schema.js";
 
 import type { Database } from "../db/client.js";
@@ -741,36 +741,77 @@ export async function fetchTokenPairAddresses(
   }
 }
 
+/** Resolved (address, 24h volume) pair for the trending pool. */
+export interface TrendingVolumeCandidate {
+  /** Lowercased token address. */
+  tokenAddress: string;
+  /** Gross USDC routed through `Zap` for this token in the last 24h, USD float. */
+  volume24hUsd: number;
+}
+
 /**
- * Top-K trending candidate token addresses, ranked by the indexer-side
- * `base_score` column. The route then re-scores at read time using the full
- * `computeTrendingScore` (which mixes in the time-dependent freshness /
- * recency / dead-penalty terms we deliberately don't precompute server-side).
+ * Top-K trending candidate token addresses, ranked by **rolling 24h gross
+ * USDC volume**. Pure-volume trending sort: the candidate fetch IS the
+ * ranking — there's no per-request re-score on top, no precomputed
+ * `base_score` column, no boost system, no freshness/recency/dead-token
+ * heuristics. Sole backing store is `token_hourly_metrics` (hour-bucketed
+ * gross USDC per token), summed over the last 24h.
  *
- * `minLastTradeAtSec` is the dead-token cutoff — applied here so the index
- * skips fully-dead rows entirely. With the `tokenMetrics` row count bounded
- * by the catalogue size and `base_score` being a precomputed column, this
- * query is O(matching-rows) with a btree-sort cost — fast even on a cold
- * cache.
+ * `cutoffHourStartSec` is the earliest `hour_start` to include — callers
+ * pass `floor((now - 86400) / 3600) * 3600` to get a "trailing 24h"
+ * window that's always at least 24h wide regardless of where in the hour
+ * the request lands (matches the platform-wide `hourlyVolume` scan
+ * semantics in `fetchPlatformStats`).
+ *
+ * Tokens with zero recent activity are absent from the result — the
+ * `HAVING SUM(volume_usd) > 0` is implicit in the `GROUP BY` (a token
+ * with no bucket rows in the window contributes nothing to the result).
+ * The 24h cutoff + `(token_address, hour_start)` index keep this O(active
+ * tokens × ≤25 buckets) — cheap even on a cold cache, no truncation case.
+ *
+ * Tie-breaking: the secondary `ORDER BY token_address ASC` makes the
+ * truncated candidate set deterministic across requests. The route layer
+ * then applies the documented `volume desc, mcap desc` tie-break over
+ * the hydrated pool — that's intentionally best-effort because mcap
+ * depends on the BounceTech LT rate × curve price and can't be expressed
+ * in SQL here. Collisions on 6dp-USDC `SUM(volume_usd)` across 500+
+ * tokens are vanishingly improbable in practice (each gross-USDC trade
+ * tail adds entropy), so the deterministic SQL sort + best-effort mcap
+ * tie-break is the right cost/correctness trade. CodeRabbit feedback on
+ * PR #946.
  */
-export async function fetchTrendingCandidateAddresses(
+export async function fetchTrendingCandidatesByVolume(
   db: Database,
   limit: number,
-  minLastTradeAtSec: number,
-): Promise<string[] | null> {
+  cutoffHourStartSec: number,
+): Promise<TrendingVolumeCandidate[] | null> {
   try {
-    const rows = await db
-      .select({ tokenAddress: indexerTokenMetrics.tokenAddress })
-      .from(indexerTokenMetrics)
-      .where(gt(indexerTokenMetrics.lastTradeAt, String(minLastTradeAtSec)))
-      .orderBy(desc(indexerTokenMetrics.baseScore))
-      .limit(limit);
-    return rows.map((r) => r.tokenAddress.toLowerCase());
+    const rows = (await db
+      .select({
+        tokenAddress: indexerTokenHourlyMetrics.tokenAddress,
+        volumeRaw: sql<string>`SUM(${indexerTokenHourlyMetrics.volumeUsd})::text`,
+      })
+      .from(indexerTokenHourlyMetrics)
+      .where(
+        gte(indexerTokenHourlyMetrics.hourStart, String(cutoffHourStartSec)),
+      )
+      .groupBy(indexerTokenHourlyMetrics.tokenAddress)
+      .orderBy(
+        sql`SUM(${indexerTokenHourlyMetrics.volumeUsd}) DESC`,
+        asc(indexerTokenHourlyMetrics.tokenAddress),
+      )
+      .limit(limit)) as Array<{ tokenAddress: string; volumeRaw: string }>;
+    return rows.map((r) => ({
+      tokenAddress: r.tokenAddress.toLowerCase(),
+      // USDC is 6dp on-chain; convert to USD here so the route can ship
+      // the value verbatim and sort by it without re-parsing the bigint.
+      volume24hUsd: Number(BigInt(r.volumeRaw)) / 1e6,
+    }));
   } catch (error) {
     logIndexerReadFailure(
-      "indexer_reads.fetchTrendingCandidateAddresses_failed",
+      "indexer_reads.fetchTrendingCandidatesByVolume_failed",
       error,
-      { limit, minLastTradeAtSec },
+      { limit, cutoffHourStartSec },
     );
     return null;
   }

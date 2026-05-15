@@ -10,7 +10,8 @@ import {
   fetchRouterTradeActivity as readRouterTradeActivity,
   fetchTokenOnchain as readTokenOnchain,
   fetchTokensOnchainByAddresses as readTokensOnchainByAddresses,
-  fetchTrendingCandidateAddresses as readTrendingCandidateAddresses,
+  fetchTrendingCandidatesByVolume as readTrendingCandidatesByVolume,
+  type TrendingVolumeCandidate,
 } from "./indexer-reads.js";
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
@@ -293,30 +294,33 @@ export async function fetchGraduatedTokensOnchain(
  * under the `curveSupply asc` ordering and pass the 85% gate.
  */
 /**
- * Top-K trending candidates by precomputed `tokenMetrics.baseScore`. Replaces
- * the legacy "newest 500 tokens" candidate pool that was trivially spammable
- * — a burst of 500 zero-trade launches used to flush every real candidate
- * out of the trending tab. The indexer maintains `baseScore` on every
- * `Zap.Buy` / `Zap.Sell` from three cumulative anti-spam signals; spam
- * tokens with zero trades score 0 and rank below any token with even one
- * real trade.
+ * Top-K trending candidates ranked by **rolling 24h gross USDC volume**.
+ * Sole source of truth for the trending tab — there's no per-request
+ * re-score on top, no precomputed score column, no boost system. Powered
+ * by `ponder_views.token_hourly_metrics` (one row per (token, hour) bucket;
+ * see `indexer-reads.ts → fetchTrendingCandidatesByVolume`).
  *
- * Returns lowercased token addresses. The route hydrates them with the
- * existing token metadata + on-chain state + live market data, then
- * re-scores at read time with the full `computeTrendingScore`.
+ * `cutoffHourStartSec` is the earliest `hour_start` to include — callers
+ * pass `floor((now - 86400) / 3600) * 3600` for a trailing 24h window.
+ *
+ * Returns `(lowercased address, 24h volume in USD)` pairs ordered by
+ * volume desc. The route hydrates the slice with token metadata + on-chain
+ * state + live market data, then preserves the volume ordering through
+ * pagination (tie-break on mcap).
  */
-export async function fetchTrendingCandidateAddresses(
+export async function fetchTrendingCandidatesByVolume(
   databaseUrl: string,
   limit: number,
-  /** Unix seconds — earliest `lastTradeAt` that still counts as alive. */
-  minLastTradeAtSec: number,
-): Promise<string[] | null> {
-  return readTrendingCandidateAddresses(
+  cutoffHourStartSec: number,
+): Promise<TrendingVolumeCandidate[] | null> {
+  return readTrendingCandidatesByVolume(
     createDb(databaseUrl),
     limit,
-    minLastTradeAtSec,
+    cutoffHourStartSec,
   );
 }
+
+export type { TrendingVolumeCandidate };
 
 /**
  * Page of non-graduated tokens ordered by `curveSupply asc` (closest to
