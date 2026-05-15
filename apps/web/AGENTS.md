@@ -4,11 +4,11 @@ React 19, Vite, TypeScript, CSS Modules. Dark terminal aesthetic (Courier New, m
 
 ## Pages
 
-| Route | Description |
-|---|---|
-| `/` | Homepage — asset sidebar, LONG/SHORT token tables, trade/graduation feed |
-| `/token/:address` | Token detail — chart, trade panel, trades/holders |
-| `/create` | Create token — pair selector, token details, seed buy, preview |
+| Route             | Description                                                              |
+| ----------------- | ------------------------------------------------------------------------ |
+| `/`               | Homepage — asset sidebar, LONG/SHORT token tables, trade/graduation feed |
+| `/token/:address` | Token detail — chart, trade panel, trades/holders                        |
+| `/create`         | Create token — pair selector, token details, seed buy, preview           |
 
 Plus: search modal (Cmd+K), profile panel (right drawer), bridge modal (LI.FI).
 
@@ -24,13 +24,13 @@ Plus: search modal (Cmd+K), profile panel (right drawer), bridge modal (LI.FI).
 
 Every button-shaped element on the page goes through one of five shared primitives in `src/components/shared/`. Per-component CSS is allowed only for sizing overrides (`height`, `padding`) — never to redeclare hover, active, focus, border, or background. If an existing primitive doesn't fit, add a variant to the primitive (and add a comment in the PR), don't roll a new bespoke button.
 
-| Use case | Primitive | Hover behaviour |
-|---|---|---|
-| Solid call-to-action (LAUNCH, Connect Wallet, Share) | [`Button`](src/components/shared/Button.tsx) | Filled bg shifts to `--mint-hover` (or variant equivalent) |
-| Small data pill — value + optional icon (CA address, wallet address, footer CA, click-to-copy chips) | [`Chip`](src/components/shared/Chip.tsx) | Border becomes `--mint`, bg tints `--mint-bg`, color goes to `--txt` |
-| Square icon-only trigger (gear, close, inline copy) | [`IconButton`](src/components/shared/IconButton.tsx) | Color goes to `--mint`, border becomes `--border-2`, bg tints `--mint-bg` |
-| Quick-pick toggle chip in a horizontal row (25/50/75/MAX, seed-buy %, slippage %) | [`PresetChip`](src/components/shared/PresetChip.tsx) | Border `--border` → `--border-2`, color `--txt-3` → `--txt` |
-| Segment of a mutually-exclusive control (BUY/SELL, tab bars, interval / timeframe / unit pickers) | [`SegmentedButton`](src/components/shared/SegmentedButton.tsx) | Color `--txt-3` → `--txt`, faint white-overlay bg; active state uses tone (`mint`/`red`/`neutral`) plus optional 2px bottom indicator |
+| Use case                                                                                             | Primitive                                                      | Hover behaviour                                                                                                                       |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Solid call-to-action (LAUNCH, Connect Wallet, Share)                                                 | [`Button`](src/components/shared/Button.tsx)                   | Filled bg shifts to `--mint-hover` (or variant equivalent)                                                                            |
+| Small data pill — value + optional icon (CA address, wallet address, footer CA, click-to-copy chips) | [`Chip`](src/components/shared/Chip.tsx)                       | Border becomes `--mint`, bg tints `--mint-bg`, color goes to `--txt`                                                                  |
+| Square icon-only trigger (gear, close, inline copy)                                                  | [`IconButton`](src/components/shared/IconButton.tsx)           | Color goes to `--mint`, border becomes `--border-2`, bg tints `--mint-bg`                                                             |
+| Quick-pick toggle chip in a horizontal row (25/50/75/MAX, seed-buy %, slippage %)                    | [`PresetChip`](src/components/shared/PresetChip.tsx)           | Border `--border` → `--border-2`, color `--txt-3` → `--txt`                                                                           |
+| Segment of a mutually-exclusive control (BUY/SELL, tab bars, interval / timeframe / unit pickers)    | [`SegmentedButton`](src/components/shared/SegmentedButton.tsx) | Color `--txt-3` → `--txt`, faint white-overlay bg; active state uses tone (`mint`/`red`/`neutral`) plus optional 2px bottom indicator |
 
 For the recurring "copy this wallet address" affordance specifically, use the shared [`CopyAddressButton`](src/components/shared/CopyAddressButton.tsx) wrapper rather than re-rolling `IconButton` + `useCopyState` + the copy/check SVG pair. It guarantees every copy-address surface (profile row, recent-trades feed, trades table, …) shares the same look, hit target, post-copy confirmation window, and `aria-label` format.
 
@@ -60,7 +60,7 @@ Every graduation progress bar is a two-segment render powered by the API's `curv
 
 - `organicFilled` (0–100, nullable): curve-fill % from real USDC buys, as a percent of the USD graduation threshold.
 - `leverageBoost` (0–100, never negative): curve-fill % from LT price appreciation, derived from the gap between `realLt × currentRate` and the net organic USDC raised (buys − sells, floored at 0).
-- `curveFilled` (= `organicFilled + leverageBoost`) is USD-denominated: `realLt × rate / graduationThresholdUsd × 100`, where `graduationThresholdUsd` is set once at `Bonding.initialize` and read live via RPC. The bar tracks dollars raised, not the supply-side AMM lead — see `apps/api/AGENTS.md` on why.
+- `curveFilled` (= `organicFilled + leverageBoost`) is USD-denominated: `realLt × rate / graduationThresholdUsd × 100`, where `graduationThresholdUsd` is a 9000 USDC const value. The bar tracks dollars raised, not the supply-side AMM lead — see `apps/api/AGENTS.md` on why.
 
 **Rendering rules (see `TokenRow.tsx`, `TokenDetailView.tsx`, `Chart.tsx`):**
 
