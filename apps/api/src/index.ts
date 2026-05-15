@@ -5,7 +5,6 @@ import { swaggerUI } from "@hono/swagger-ui";
 
 import formatSuccess from "./utils/format-success.js";
 import formatError from "./utils/format-error.js";
-import { checkPonderHealth } from "./lib/ponder-client.js";
 import { runAutoGraduationBuyer } from "./lib/auto-graduation-buyer.js";
 import { runGraduationKeeper } from "./lib/graduation-keeper.js";
 import { refreshLiveLtAvailability } from "./lib/lt-availability.js";
@@ -30,6 +29,7 @@ import profiles from "./routes/profiles.js";
 import moderation from "./routes/moderation.js";
 import chart from "./routes/chart.js";
 import marketData from "./routes/market-data.js";
+import health from "./routes/health.js";
 import { apiKeyAuth } from "./middleware/api-key-auth.js";
 import { corsMiddleware } from "./middleware/cors.js";
 import { serveFromEdgeCache } from "./middleware/edge-cache.js";
@@ -91,16 +91,11 @@ app.use("*", async (c, next) => {
 });
 
 app.get("/", (c) => c.json(formatSuccess("Alt Fun API")));
-app.get("/health", async (c) => {
-  const ponderHealthy = await checkPonderHealth(c.env.PONDER_URL);
-  return c.json(formatSuccess({
-    status: ponderHealthy ? "healthy" : "degraded",
-    services: {
-      api: true,
-      ponder: ponderHealthy,
-    },
-  }));
-});
+// `/health` is mounted as its own router so the probe is unit-testable in
+// isolation without standing up the full Worker (DOs, websocket setup,
+// cron handler, etc.). The implementation lives in `routes/health.ts`;
+// see issue #931 for the migration off the legacy Ponder GraphQL probe.
+app.route("/health", health);
 
 app.get("/api/docs/openapi.json", (c) => c.json(openApiSpec));
 app.get(
