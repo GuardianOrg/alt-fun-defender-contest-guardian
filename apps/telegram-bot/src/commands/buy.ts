@@ -25,8 +25,8 @@ import {
   confirmKeyboard,
   confirmTrade,
   describeTradeForStatus,
-  renderConfirmReply,
   renderTxSendingText,
+  replyConfirmedTradeAndPromptStart,
   runWithTxStatusUpdates,
   stageBuy,
   submitBuy,
@@ -402,10 +402,7 @@ const buyCustomConversation = async (
             usdcRaw,
           }),
         );
-        await msgCtx.reply(renderConfirmReply(outcome), {
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        });
+        await replyConfirmedTradeAndPromptStart(msgCtx, outcome);
       }
       await sweepWorkflow(conversation);
       return;
@@ -578,10 +575,7 @@ const handleFixedBuy = async (
       ticker: tokenResult.data.ticker,
       usdcRaw,
     });
-    await ctx.reply(renderConfirmReply(outcome), {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
+    await replyConfirmedTradeAndPromptStart(ctx, outcome);
     return;
   }
   await ctx.answerCallbackQuery();
@@ -758,10 +752,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       // back to the legacy reply path so the user still gets an error
       // or receipt instead of nothing.
       const outcome = await confirmTrade(ctx, nonce);
-      await ctx.reply(renderConfirmReply(outcome), {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
+      await replyConfirmedTradeAndPromptStart(ctx, outcome);
     } catch (err) {
       logger.error("trade confirm failed", { err });
       await ctx.reply(

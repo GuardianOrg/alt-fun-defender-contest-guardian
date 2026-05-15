@@ -22,8 +22,8 @@ import {
 import {
   confirmKeyboard,
   describeTradeForStatus,
-  renderConfirmReply,
   renderTxSendingText,
+  replyConfirmedTradeAndPromptStart,
   runWithTxStatusUpdates,
   stageSell,
   submitSell,
@@ -668,10 +668,7 @@ const runPercentSell = async (
           tokenRaw: effectiveTokenRaw,
         }),
       );
-      await msgCtx.reply(renderConfirmReply(outcome), {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
+      await replyConfirmedTradeAndPromptStart(msgCtx, outcome);
     }
     return;
   }
@@ -883,10 +880,7 @@ const handlePercentSell = async (
       ticker: token.ticker,
       tokenRaw: effectiveTokenRaw,
     });
-    await ctx.reply(renderConfirmReply(outcome), {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
+    await replyConfirmedTradeAndPromptStart(ctx, outcome);
     return;
   }
   await ctx.answerCallbackQuery();

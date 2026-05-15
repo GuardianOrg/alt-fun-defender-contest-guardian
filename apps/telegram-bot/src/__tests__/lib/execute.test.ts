@@ -10,6 +10,7 @@ import {
   renderConfirmReply,
   renderTxPendingText,
   renderTxSendingText,
+  replyConfirmedTradeAndPromptStart,
   runWithTxStatusUpdates,
   stageBuy,
   stageSell,
@@ -1289,6 +1290,111 @@ describe("runWithTxStatusUpdates post-trade /start prompt", () => {
         pendingDelayMs: 60_000,
       }),
     ).rejects.toThrow();
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("replyConfirmedTradeAndPromptStart", () => {
+  const buildReplyCtx = (
+    overrides: Partial<AppContext> = {},
+  ): {
+    ctx: AppContext;
+    replies: Array<{ text: string; extra: unknown }>;
+  } => {
+    const replies: Array<{ text: string; extra: unknown }> = [];
+    const ctx = {
+      chat: { id: 99, type: "private" as const },
+      reply: vi.fn(async (text: string, extra: unknown) => {
+        replies.push({ text, extra });
+        return { message_id: 1 };
+      }),
+      ...overrides,
+    } as unknown as AppContext;
+    return { ctx, replies };
+  };
+
+  let startSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    startSpy = vi
+      .spyOn(startCommand, "sendStartPromptAfterTrade")
+      .mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    startSpy.mockRestore();
+  });
+
+  it("fires the start prompt after a receipt-confirmed sell (defensive symmetry with buy)", async () => {
+    const { ctx, replies } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      side: "sell",
+      ticker: "TICK",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 12_000_000n,
+        minOut: 12_000_000n,
+      },
+    });
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.text).toContain("Sell confirmed for TICK");
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith(ctx, 99);
+  });
+
+  it("fires the start prompt after a receipt-confirmed buy", async () => {
+    const { ctx } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      side: "buy",
+      ticker: "TICK",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT fire the start prompt on a reverted outcome", async () => {
+    const { ctx } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      side: "sell",
+      ticker: "TICK",
+      result: {
+        ok: false,
+        kind: "reverted",
+        reason: "SlippageExceeded",
+      },
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the start prompt on an expired outcome", async () => {
+    const { ctx } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, { kind: "expired" });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the start prompt when ctx.chat is missing", async () => {
+    const { ctx } = buildReplyCtx({ chat: undefined as unknown as AppContext["chat"] });
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      side: "sell",
+      ticker: "TICK",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
     expect(startSpy).not.toHaveBeenCalled();
   });
 });
