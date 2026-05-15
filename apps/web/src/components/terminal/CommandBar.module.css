@@ -99,7 +99,7 @@
  * own bottom border (added below) act as the divider so the visual
  * read is "two compact rows" rather than "two floating chips of UI".
  */
-@media (max-width: 1239px) {
+@media (max-width: 1380px) {
   .bar {
     flex-direction: column;
     align-items: stretch;
