@@ -273,7 +273,6 @@ describe("renderConfirmReply", () => {
       token: TOKEN,
       side: "buy",
       ticker: "TEST",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -340,7 +339,6 @@ describe("renderConfirmReply", () => {
       token: TOKEN,
       side: "buy",
       ticker: "TEST",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -365,7 +363,6 @@ describe("renderConfirmReply", () => {
       token: TOKEN,
       side: "sell",
       ticker: "TEST",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -389,7 +386,6 @@ describe("renderConfirmReply", () => {
       token: TOKEN,
       side: "sell",
       ticker: "TEST",
-      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -408,7 +404,6 @@ describe("renderConfirmReply", () => {
       token: TOKEN,
       side: "buy",
       ticker: "TEST",
-      token: TOKEN,
       result: {
         ok: false,
         kind: "reverted",
@@ -428,7 +423,6 @@ describe("renderConfirmReply", () => {
       token: TOKEN,
       side: "buy",
       ticker: "TEST",
-      token: TOKEN,
       result: {
         ok: false,
         kind: "pending",
@@ -1390,6 +1384,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       kind: "executed",
       side: "sell",
       ticker: "TICK",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -1410,6 +1405,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       kind: "executed",
       side: "buy",
       ticker: "TICK",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
@@ -1427,6 +1423,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       kind: "executed",
       side: "sell",
       ticker: "TICK",
+      token: TOKEN,
       result: {
         ok: false,
         kind: "reverted",
@@ -1448,6 +1445,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
       kind: "executed",
       side: "sell",
       ticker: "TICK",
+      token: TOKEN,
       result: {
         ok: true,
         txHash:
