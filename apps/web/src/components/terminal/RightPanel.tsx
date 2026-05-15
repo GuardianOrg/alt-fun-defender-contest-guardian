@@ -43,6 +43,16 @@ const TRADE_SKELETON_COUNT = 12;
 const PAGE_SKELETON_ROW_COUNT = 3;
 const POSITION_LIMIT = 5;
 const SKELETON_ROW_COUNT = 3;
+// Cap on how many "graduating soon" rows we render. The
+// `?status=graduating` endpoint returns every non-graduated token at
+// `≥ 85%` curveFilled (sorted `curveFilled desc`), which can grow into
+// the dozens during a viral hour. The right column has no internal
+// scroll for this section (`flex-shrink: 0` — see RightPanel.module.css)
+// so an unbounded list would push MY POSITIONS / RECENT TRADES off
+// screen. Top-5 keeps the panel a compact "closest-to-graduation"
+// highlight — anyone who wants the full set can click the GRADUATING
+// tab in the main table.
+const GRADUATING_SOON_LIMIT = 5;
 
 /**
  * Render a single MY-POSITIONS row. Visually mirrors the MARKETS asset rows
@@ -147,7 +157,25 @@ export default function RightPanel() {
     hasMore,
     loadMore,
   } = useTradeFeed();
-  const { data: tokens } = useTokens();
+  // Pull the "graduating soon" list straight from the focused
+  // `/api/v1/tokens?status=graduating` endpoint rather than fetching
+  // the top-100 trending catalogue and filtering it client-side. The
+  // old shape ran a redundant `useTokens()` query with a different
+  // queryKey (`["tokens", undefined, {}]`) than the home table's
+  // `useInfiniteTokens` (`["tokens-infinite", …]`) — every 10s poll
+  // and every WS-driven invalidation fired *both* requests against
+  // `/api/v1/tokens`, just to surface the small ≥85%-filled set the
+  // server can return directly. The status filter is also a more
+  // accurate match for the panel's "GRADUATING SOON" header: the
+  // previous `t.status === "graduating"` filter only matched the
+  // ~60–120s on-chain frozen window, which left the panel empty
+  // almost all the time and silently missed any frozen-window token
+  // that fell outside the trending top-100.
+  //
+  // The shared `["tokens"]` invalidation in `useTokenListLiveFeed`
+  // is a prefix matcher, so this query keeps receiving WS-driven
+  // refreshes alongside the infinite list with no extra wiring.
+  const { data: graduatingTokens } = useTokens("graduating");
   const { isConnected } = useWallet();
   const { tokens: heldTokens, isLoading: balancesLoading } = useBalances();
   const navigate = useNavigate();
@@ -167,7 +195,13 @@ export default function RightPanel() {
     .sort((a, b) => b.valueUsd - a.valueUsd)
     .slice(0, POSITION_LIMIT);
 
-  const graduating = tokens?.filter((t) => t.status === "graduating") ?? [];
+  // No client-side `t.status === "graduating"` filter here: the API
+  // already returns the right set (non-graduated, `curveFilled ≥ 85%`,
+  // sorted `curveFilled desc`). Slicing happens AFTER the API filter
+  // so the top entries are always the closest-to-graduation tokens
+  // regardless of how many tokens are currently in flight.
+  const graduating =
+    graduatingTokens?.slice(0, GRADUATING_SOON_LIMIT) ?? [];
   const handleNavigate = (address: string) => navigate(tokenPath(address));
   // Gate skeletons + `aria-busy` behind the transient loading flag so an
   // empty / disconnected feed surfaces as an empty state once the timeout

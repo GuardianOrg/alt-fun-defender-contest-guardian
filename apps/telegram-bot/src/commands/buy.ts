@@ -24,10 +24,15 @@ import {
   cancelTrade,
   confirmKeyboard,
   confirmTrade,
-  renderConfirmReply,
+  describeTradeForStatus,
+  renderTxSendingText,
+  replyConfirmedTradeAndPromptStart,
+  runWithTxStatusUpdates,
   stageBuy,
   submitBuy,
+  trackingPageUrl,
 } from "../lib/execute.js";
+import { escapeHtml } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import {
   backHomeMarkup,
@@ -356,22 +361,51 @@ const buyCustomConversation = async (
       (outerCtx): boolean => outerCtx.session.degenMode,
     );
     if (degenMode) {
-      await msgCtx.reply(
-        `⚡ <b>Degen mode — submitting $${amount.toFixed(2)} USDC buy of ${token.ticker}…</b>`,
-        { parse_mode: "HTML" },
+      const description = describeTradeForStatus(
+        "buy",
+        token.ticker,
+        usdcRaw,
       );
-      const outcome = await conversation.external((outerCtx) =>
-        submitBuy({
-          ctx: outerCtx,
-          token: token.address,
-          ticker: token.ticker,
-          usdcRaw,
-        }),
-      );
-      await msgCtx.reply(renderConfirmReply(outcome), {
+      const statusMsg = await msgCtx.reply(renderTxSendingText(description), {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
+      const chatId = msgCtx.chat?.id;
+      if (chatId !== undefined) {
+        await conversation.external((outerCtx) =>
+          runWithTxStatusUpdates({
+            ctx: outerCtx,
+            target: {
+              api: outerCtx.api,
+              chatId,
+              messageId: statusMsg.message_id,
+            },
+            side: "buy",
+            description,
+            run: () =>
+              submitBuy({
+                ctx: outerCtx,
+                token: token.address,
+                ticker: token.ticker,
+                usdcRaw,
+              }),
+          }),
+        );
+      } else {
+        // No resolvable chat id (rare — inline-mode / channel post).
+        // Still submit the trade and reply with the receipt; without
+        // this fallback the user would be left staring at the "Tx
+        // sending" prompt with no follow-up.
+        const outcome = await conversation.external((outerCtx) =>
+          submitBuy({
+            ctx: outerCtx,
+            token: token.address,
+            ticker: token.ticker,
+            usdcRaw,
+          }),
+        );
+        await replyConfirmedTradeAndPromptStart(msgCtx, outcome);
+      }
       await sweepWorkflow(conversation);
       return;
     }
@@ -384,12 +418,16 @@ const buyCustomConversation = async (
           usdcRaw,
         }),
     );
+    const tickerSafe = escapeHtml(token.ticker);
+    const tokenSafe = escapeHtml(token.address);
     const stagingMsg = await msgCtx.reply(
-      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`,
+      `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
+        `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+        `Token: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
       {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+        link_preview_options: { is_disabled: true },
       },
     );
     await sweepWorkflow(conversation);
@@ -509,16 +547,41 @@ const handleFixedBuy = async (
   }
   if (ctx.session.degenMode) {
     await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    const cbMsg = ctx.callbackQuery?.message;
+    if (cbMsg) {
+      await runWithTxStatusUpdates({
+        ctx,
+        target: {
+          api: ctx.api,
+          chatId: cbMsg.chat.id,
+          messageId: cbMsg.message_id,
+        },
+        side: "buy",
+        description: describeTradeForStatus(
+          "buy",
+          tokenResult.data.ticker,
+          usdcRaw,
+        ),
+        run: () =>
+          submitBuy({
+            ctx,
+            token: tokenResult.data.address,
+            ticker: tokenResult.data.ticker,
+            usdcRaw,
+          }),
+      });
+      return;
+    }
+    // Fallback for the rare case the callback has no parent message ref
+    // (inline-mode invocation, ancient client). Preserves the pre-status
+    // flow rather than dropping the trade.
     const outcome = await submitBuy({
       ctx,
       token: tokenResult.data.address,
       ticker: tokenResult.data.ticker,
       usdcRaw,
     });
-    await ctx.reply(renderConfirmReply(outcome), {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-    });
+    await replyConfirmedTradeAndPromptStart(ctx, outcome);
     return;
   }
   await ctx.answerCallbackQuery();
@@ -528,12 +591,16 @@ const handleFixedBuy = async (
     ticker: tokenResult.data.ticker,
     usdcRaw,
   });
+  const tickerSafe = escapeHtml(tokenResult.data.ticker);
+  const tokenSafe = escapeHtml(tokenResult.data.address);
   const stagingMsg = await ctx.reply(
-    `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.`,
+    `✅ <b>Ready to buy $${amountUsdc} USDC of ${tickerSafe}</b>\n\n` +
+      `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+      `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
     {
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+      link_preview_options: { is_disabled: true },
     },
   );
   trackForPostTradeSweep(ctx, stagingMsg.message_id);
@@ -663,12 +730,39 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     await ctx.answerCallbackQuery({ text: "Submitting…" });
+    // Snapshot the staged intent before `confirmTrade` clears it — we
+    // need side / ticker / amount to render the Tx-status copy.
+    const intent = ctx.session.pendingTrade;
+    const cbMsg = ctx.callbackQuery.message;
+    const canStream =
+      intent !== undefined &&
+      intent.nonce === nonce &&
+      intent.expiresAt >= Date.now() &&
+      cbMsg !== undefined;
     try {
+      if (canStream && intent && cbMsg) {
+        await runWithTxStatusUpdates({
+          ctx,
+          target: {
+            api: ctx.api,
+            chatId: cbMsg.chat.id,
+            messageId: cbMsg.message_id,
+          },
+          side: intent.side,
+          description: describeTradeForStatus(
+            intent.side,
+            intent.ticker,
+            BigInt(intent.amountRaw),
+          ),
+          run: () => confirmTrade(ctx, nonce),
+        });
+        return;
+      }
+      // Expired / replayed / inline-mode without a message ref — fall
+      // back to the legacy reply path so the user still gets an error
+      // or receipt instead of nothing.
       const outcome = await confirmTrade(ctx, nonce);
-      await ctx.reply(renderConfirmReply(outcome), {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-      });
+      await replyConfirmedTradeAndPromptStart(ctx, outcome);
     } catch (err) {
       logger.error("trade confirm failed", { err });
       await ctx.reply(

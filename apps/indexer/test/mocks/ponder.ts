@@ -23,6 +23,17 @@ export function getHandler(eventName: string): Handler {
   return handler;
 }
 
+/**
+ * List the names of every handler currently registered on the mock ponder.
+ * Used by `single-handler-per-factory.test.ts` to lock the invariant that
+ * factory-backed sources have exactly one indexing function — see that test
+ * for the why (Ponder 0.16 real-time sync drops factory child addresses
+ * when the factory is registered for ≥2 events).
+ */
+export function listHandlerNames(): string[] {
+  return [...handlers.keys()];
+}
+
 /** Clear all registered handlers between test files. */
 export function clearHandlers(): void {
   handlers.clear();
