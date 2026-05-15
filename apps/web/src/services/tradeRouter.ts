@@ -1,11 +1,7 @@
-import {
-  BondingAbi,
-  FactoryAbi,
-  LeveragedTokenAbi,
-} from "@launchpad/shared";
+import { BondingAbi, FactoryAbi, LeveragedTokenAbi } from "@launchpad/shared";
 import { createPublicClient, formatUnits, http, parseUnits } from "viem";
 
-
+import { getWebSocketClient } from "./websocket";
 import { FEES } from "../config/constants";
 import { UniswapV2FactoryAbi } from "../contracts/abis";
 import { ADDRESSES } from "../contracts/addresses";
@@ -68,13 +64,19 @@ const HyperswapPairAbi = [
 const HYPERSWAP_FEE_BPS = 30; // 0.30% — UniswapV2-style "fee on input"
 const BPS_DENOM = 10_000;
 
-const HYPER_EVM_RPC = import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
+const HYPER_EVM_RPC =
+  import.meta.env.VITE_RPC_URL || "https://rpc.hyperliquid.xyz/evm";
 
 const publicClient = createPublicClient({
   transport: http(HYPER_EVM_RPC),
 });
 
-export type TransactionStep = "idle" | "approving" | "signing" | "confirmed" | "error";
+export type TransactionStep =
+  | "idle"
+  | "approving"
+  | "signing"
+  | "confirmed"
+  | "error";
 export type TxStep = TransactionStep | "executing";
 /// `uploading` covers the multi-second OpenAI moderation + R2 write that
 /// happens before any wallet popup. Without it the create-token button
@@ -134,7 +136,10 @@ export interface SellQuote {
 }
 
 export interface ITradeRouterService {
-  getQuoteBuy(curveAddress: string, usdcAmount: number): Promise<BuyQuote | null>;
+  getQuoteBuy(
+    curveAddress: string,
+    usdcAmount: number,
+  ): Promise<BuyQuote | null>;
   /**
    * @param slippage Fractional slippage tolerance (e.g. `0.02` = 2%). Used as
    *   the safety headroom on the LT idle-buffer cap so `maxSellableTokens`
@@ -227,9 +232,7 @@ async function getPairContext(
   // console; the outer try/catch in `getQuoteBuy` / `getQuoteSell` still
   // collapses it to `null` for the UI ("no estimate"), but a developer
   // looking at the network tab will see the real cause.
-  if (
-    hyperswapPair === "0x0000000000000000000000000000000000000000"
-  ) {
+  if (hyperswapPair === "0x0000000000000000000000000000000000000000") {
     throw new Error(
       `HyperSwap pair missing for graduated token ${tokenAddress} ` +
         `(factory=${ADDRESSES.hyperswapFactory}, lt=${ltAddress}). ` +
@@ -240,8 +243,7 @@ async function getPairContext(
   // V2 sorts pair tokens by ascending address at creation time (cf.
   // `IUniswapV2Library.sortTokens`); cache the comparison so callers can
   // map reserves without re-fetching `token0()`.
-  const tokenIsToken0 =
-    tokenAddress.toLowerCase() < ltAddress.toLowerCase();
+  const tokenIsToken0 = tokenAddress.toLowerCase() < ltAddress.toLowerCase();
 
   return {
     pairAddress: hyperswapPair,
@@ -251,12 +253,131 @@ async function getPairContext(
   };
 }
 
+/**
+ * Pre-graduation TTL for cached `PairContext` promises. Bonding-curve tokens
+ * theoretically only flip `isGraduated` once — when `Bonding.finalizeGraduation`
+ * lands on-chain — and the WS graduation channel evicts the affected token
+ * synchronously when that happens. The TTL is the safety net for the cases
+ * the WS path can't cover: tab was offline, packet was dropped between the
+ * indexer DO and this client, the API edge cache returned a stale shard,
+ * or the user's network just hiccuped at the wrong instant. 60s is well
+ * inside the freshness budget any quote consumer cares about (the panel
+ * itself re-quotes at WS cadence, ~1s) but bounds worst-case "missed
+ * graduation" recovery so the panel can't get permanently stuck pricing
+ * against an empty curve pair after the LT reserve has drained into
+ * HyperSwap. Post-grad entries skip the timer entirely — `isGraduated`
+ * is a one-way flag, so once we've cached `graduated: true` no further
+ * lifecycle change can invalidate the resolved `(pairAddress, ltAddress,
+ * tokenIsToken0)` triple.
+ */
+const PAIR_CONTEXT_PRE_GRAD_TTL_MS = 60_000;
+
+/**
+ * Per-token cache for `getPairContext`. The three reads it performs —
+ * `Factory.pairFor`, `Factory.ltFor`, `Bonding.isGraduated` (plus the
+ * post-grad `HyperswapFactory.getPair`) — return values that are
+ * effectively immutable across a token's life, with one exception: the
+ * graduation flip. By memoising the promise per address we avoid issuing
+ * the same RPC trio on every `getQuoteBuy` / `getQuoteSell`, which the
+ * trade panel calls on every keystroke (debounced) and on every `trade` /
+ * `price` WS tick (~1Hz). Concretely this cuts a buy quote from 8 → 5
+ * eth_calls and a sell from 6 → 3 — the largest single line item in the
+ * client's RPC budget.
+ *
+ * Storing the in-flight `Promise` (rather than the resolved `PairContext`)
+ * also dedupes concurrent callers: e.g. RightPanel's "GRADUATING SOON"
+ * prefetch and TradePanel's quote on the same token now share one set of
+ * reads instead of racing two parallel triples.
+ */
+const pairContextCache = new Map<string, Promise<PairContext>>();
+let graduationFeedInstalled = false;
+
+/**
+ * Lazily subscribe to the global `graduation` WS channel so phase-2
+ * graduations evict their cached pair context. Wildcard subscription
+ * (no `token` param) attaches to the API's `graduation:__all__` shard,
+ * which `broadcastToChannel` fans every per-token graduation event into
+ * (cf. `apps/api/src/lib/broadcast.ts`). One subscription covers every
+ * token in the catalogue — graduations are rare (a handful per peak
+ * day), so the bandwidth cost is negligible compared to the quote-RPC
+ * savings.
+ *
+ * Lazy install (rather than module-load) keeps the import side-effect
+ * free for tests and SSR contexts that import this module without ever
+ * quoting a trade. The first cache lookup wires up the listener; once
+ * installed it stays for the app's lifetime (no unsub path — there's
+ * no scenario in which we'd want to stop receiving graduation evicts).
+ */
+function installGraduationFeedOnce(): void {
+  if (graduationFeedInstalled) return;
+  graduationFeedInstalled = true;
+  const ws = getWebSocketClient();
+  if (!ws) return; // dev/preview without VITE_WS_URL — TTL alone covers us.
+
+  ws.subscribe("graduation", (data) => {
+    if (data === null || typeof data !== "object") return;
+    const raw = data as { phase?: string; tokenAddress?: string };
+    // Phase 1 ("graduating") fires inline on the threshold-crossing buy
+    // but `Bonding.isGraduated` stays `false` — trades remain on the
+    // curve until `finalizeGraduation` lands. Evicting on phase 1 would
+    // force a useless re-resolve that returns the same pre-grad context.
+    // Phase 2 ("graduated") is the actual flip we care about: HyperSwap
+    // pair has been seeded, `isGraduated` is now `true`, and the next
+    // quote needs the post-grad context.
+    if (raw.phase !== "graduated") return;
+    if (typeof raw.tokenAddress !== "string") return;
+    pairContextCache.delete(raw.tokenAddress.toLowerCase());
+  });
+}
+
+function getPairContextCached(
+  tokenAddress: `0x${string}`,
+): Promise<PairContext> {
+  installGraduationFeedOnce();
+  const key = tokenAddress.toLowerCase();
+  const hit = pairContextCache.get(key);
+  if (hit) return hit;
+
+  const promise = getPairContext(tokenAddress);
+  pairContextCache.set(key, promise);
+
+  // Identity-checked eviction in both branches below: a graduation
+  // event during the in-flight resolve would `delete(key)` and a
+  // subsequent caller would re-populate the slot with a fresh promise.
+  // Guarding on `cache.get(key) === promise` ensures the original
+  // promise's settlement can only ever evict ITSELF — never a younger
+  // entry that happens to share the same key.
+  promise.then(
+    (ctx) => {
+      if (!ctx.graduated) {
+        setTimeout(() => {
+          if (pairContextCache.get(key) === promise) {
+            pairContextCache.delete(key);
+          }
+        }, PAIR_CONTEXT_PRE_GRAD_TTL_MS);
+      }
+      // Post-grad: cache forever (one-way flag, immutable triple).
+    },
+    () => {
+      // Failed resolve (RPC outage, missing HyperSwap pair, malformed
+      // factory address). Evict immediately so a transient outage
+      // doesn't poison the cache for the full TTL window — the next
+      // quote retries from scratch with fresh reads.
+      if (pairContextCache.get(key) === promise) {
+        pairContextCache.delete(key);
+      }
+    },
+  );
+
+  return promise;
+}
+
 const liveTradeRouter: ITradeRouterService = {
   async getQuoteBuy(curveAddress, usdcAmount) {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
-        await getPairContext(tokenAddr);
+        await getPairContextCached(tokenAddr);
 
       // Curve path also needs `k` and `tokenBalance` so we can run
       // `Router._computeBuy`'s xy=k math entirely in JS (see below). On the
@@ -269,7 +390,13 @@ const liveTradeRouter: ITradeRouterService = {
       // `canGraduate(token)` to true — supply or USD trigger, whichever
       // fires first). Without this the FE would over-quote tokens on a
       // buy that crosses the threshold.
-      const [reserves, exchangeRate, kRaw, tokenBalanceRaw, ltUntilGraduationRaw] = await Promise.all([
+      const [
+        reserves,
+        exchangeRate,
+        kRaw,
+        tokenBalanceRaw,
+        ltUntilGraduationRaw,
+      ] = await Promise.all([
         graduated
           ? (publicClient.readContract({
               address: pairAddress,
@@ -339,7 +466,8 @@ const liveTradeRouter: ITradeRouterService = {
 
       if (graduated) {
         // Post-grad: HyperSwap V2 0.30% fee on input.
-        const effectiveLtIn = (ltIn * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM;
+        const effectiveLtIn =
+          (ltIn * (BPS_DENOM - HYPERSWAP_FEE_BPS)) / BPS_DENOM;
         tokensOut =
           ltReserveFloat > 0
             ? (tokenReserveFloat * effectiveLtIn) /
@@ -425,7 +553,9 @@ const liveTradeRouter: ITradeRouterService = {
       // netUsdc`, equivalent to `actualFee = grossConsumed - usdcUsed`
       // where `grossConsumed = usdcUsed / (1 - bps)`. Computing the fee as
       // `usdcUsed * bps` would understate it (fee on net, not gross).
-      const grossConsumed = capped ? usdcUsed / (1 - FEES.curveBuy) : usdcAmount;
+      const grossConsumed = capped
+        ? usdcUsed / (1 - FEES.curveBuy)
+        : usdcAmount;
       const cappedCurveFee = capped ? grossConsumed - usdcUsed : curveFee;
 
       // Adaptive precision: small buys on high-supply tokens can produce
@@ -464,7 +594,7 @@ const liveTradeRouter: ITradeRouterService = {
     try {
       const tokenAddr = curveAddress as `0x${string}`;
       const { pairAddress, ltAddress, graduated, tokenIsToken0 } =
-        await getPairContext(tokenAddr);
+        await getPairContextCached(tokenAddr);
 
       const [reserves, exchangeRate, baseAssetBal] = await Promise.all([
         graduated
@@ -520,9 +650,7 @@ const liveTradeRouter: ITradeRouterService = {
       const totalFee = curveFee + ltRedemptionFee;
       const netUsdc = grossUsdc - totalFee;
       const priceImpact =
-        tokenReserveFloat > 0
-          ? (tokenAmount / tokenReserveFloat) * 100
-          : 0;
+        tokenReserveFloat > 0 ? (tokenAmount / tokenReserveFloat) * 100 : 0;
 
       // Apply the user's slippage tolerance as headroom on the LT idle buffer.
       // The on-chain `redeem()` consumes USDC from `baseAssetBalance()` at the
