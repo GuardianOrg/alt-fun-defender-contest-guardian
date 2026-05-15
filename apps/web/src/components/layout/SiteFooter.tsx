@@ -7,6 +7,7 @@ import DevSimulator from "../dev/DevSimulator";
 const X_URL = "https://x.com/altdotfun";
 const TELEGRAM_URL = "https://t.me/altdotfun";
 const DOCS_URL = "https://docs.alt.fun";
+const GITHUB_URL = "https://github.com/alt-fun";
 
 const ChevronDownIcon = () => (
   <svg
@@ -41,13 +42,19 @@ const GitBookIcon = () => (
   </svg>
 );
 
+const GitHubIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M12 .5C5.648.5.5 5.648.5 12c0 5.082 3.292 9.387 7.86 10.91.575.106.785-.25.785-.554 0-.273-.01-.998-.016-1.96-3.197.694-3.872-1.541-3.872-1.541-.523-1.328-1.278-1.682-1.278-1.682-1.044-.714.08-.7.08-.7 1.155.082 1.763 1.187 1.763 1.187 1.027 1.76 2.694 1.252 3.351.957.103-.744.402-1.253.731-1.541-2.553-.29-5.238-1.277-5.238-5.685 0-1.256.45-2.283 1.186-3.088-.119-.291-.514-1.46.112-3.045 0 0 .967-.31 3.17 1.18a11.02 11.02 0 0 1 2.886-.388c.979.005 1.965.132 2.886.388 2.202-1.49 3.168-1.18 3.168-1.18.628 1.585.233 2.754.114 3.045.74.805 1.184 1.832 1.184 3.088 0 4.42-2.69 5.392-5.252 5.676.413.355.78 1.057.78 2.132 0 1.54-.014 2.78-.014 3.158 0 .306.208.665.79.552C20.213 21.384 23.5 17.082 23.5 12 23.5 5.648 18.352.5 12 .5z" />
+  </svg>
+);
+
 /**
  * Thin global footer rendered as the last flex child of the app layout.
  * Two groups keep the row scannable in a tight space:
  *   - Left: a single "Documents" dropdown trigger that consolidates
  *     Whitepaper / Audit Report / Terms / Privacy / DMCA into one popover
  *     to reduce footer noise. See `DocsMenu` for the menu contents.
- *   - Right: GitBook (docs) + X + Telegram (icon-only socials)
+ *   - Right: GitBook (docs) + GitHub (source) + X + Telegram (icon-only socials)
  * Sticky at the bottom of the viewport on every route — see
  * `SiteFooter.module.css` for the layout/positioning rationale.
  */
@@ -92,6 +99,16 @@ export default function SiteFooter() {
           title="Docs"
         >
           <GitBookIcon />
+        </a>
+        <a
+          className={styles.iconLink}
+          href={GITHUB_URL}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Visit alt.fun on GitHub"
+          title="GitHub"
+        >
+          <GitHubIcon />
         </a>
         <a
           className={styles.iconLink}
