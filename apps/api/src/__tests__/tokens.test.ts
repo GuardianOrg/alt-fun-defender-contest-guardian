@@ -123,6 +123,7 @@ vi.mock("../lib/lt-availability.js", () => ({
 // Import route after mocks
 const { default: tokensRoute } = await import("../routes/tokens/index.js");
 const { _resetLtCache } = await import("../lib/token-registration.js");
+const { _resetLiveLtRatesCache } = await import("../lib/market-data.js");
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
@@ -243,6 +244,8 @@ describe("POST /tokens — address-only registration", () => {
     // subsequent `mockBounceTechLtList(...)` queue unconsumed and making
     // assertions order-dependent.
     _resetLtCache();
+    // Same story for the live LT-rate cache (`fetchLiveLtRates`, 5s TTL).
+    _resetLiveLtRatesCache();
     // Default: row doesn't exist yet, registration succeeds.
     mockSelectWhere.mockReturnValue({ limit: vi.fn().mockResolvedValue([]) });
   });
@@ -810,6 +813,13 @@ describe("GET /tokens/:address — token lookup with Ponder", () => {
     // Reset fetch so that any unconsumed `mockImplementationOnce` queued by
     // POST-block tests (e.g. `mockBounceTechLtList`) doesn't leak here.
     mockFetch.mockReset();
+    // `fetchLiveLtRates` keeps a per-isolate Map<lt, rate> cache (5s TTL +
+    // Promise lock) — without resetting it between tests, the first one
+    // to call the live LT API pins the rate for every subsequent test in
+    // this describe block, and `mockBounceLtResponse({ ... })` setups
+    // become silent no-ops. Symptom: curveFilled / mcap assertions
+    // collapse to half (or any other multiple of) their expected value.
+    _resetLiveLtRatesCache();
   });
 
   it("returns 400 for invalid address", async () => {
@@ -1295,6 +1305,7 @@ describe("GET /tokens/:address — hidden-token holder bypass (issue #712)", () 
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
+    _resetLiveLtRatesCache();
   });
 
   function stubVisibleLensMiss(hiddenRow: Record<string, unknown> | null) {
@@ -1450,6 +1461,7 @@ describe("GET /tokens/:address — hidden-token holder bypass (issue #712)", () 
 describe("GET /tokens — list tokens", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetLiveLtRatesCache();
   });
 
   it("returns 400 for invalid pagination parameters", async () => {
