@@ -38,6 +38,7 @@ vi.stubGlobal("fetch", mockFetch);
 vi.stubGlobal("caches", undefined);
 
 const { default: marketDataRoute } = await import("../routes/market-data.js");
+const { _resetLiveLtRatesCache } = await import("../lib/market-data.js");
 
 function createApp() {
   const app = new Hono<{ Bindings: AppBindings }>();
@@ -105,6 +106,7 @@ function postMarketData(addresses: string[]) {
 describe("POST /market-data { addresses } — input validation", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetLiveLtRatesCache();
   });
 
   it("returns 400 on a non-JSON body", async () => {
@@ -186,6 +188,7 @@ describe("POST /market-data { addresses } — input validation", () => {
 describe("POST /market-data { addresses } — happy + degraded paths", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetLiveLtRatesCache();
   });
 
   it("returns 503 when BounceTech API (live LT rates) is unreachable", async () => {
@@ -495,6 +498,7 @@ function mockHappyMarketDataPipeline(opts: {
 describe("POST /market-data — server-side cache (issue #928)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetLiveLtRatesCache();
     vi.stubGlobal("caches", undefined);
   });
 
@@ -685,6 +689,7 @@ describe("POST /market-data — server-side cache (issue #928)", () => {
 describe("GET /market-data/:address", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    _resetLiveLtRatesCache();
   });
 
   it("returns 400 for invalid address", async () => {
