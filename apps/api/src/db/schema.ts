@@ -80,6 +80,58 @@ export const moderationLogs = pgTable("moderation_logs", {
   index("moderation_logs_decision_idx").on(table.decision),
 ]);
 
+/**
+ * BounceTech leveraged-token directory mirror. Populated by the
+ * `LtDirectoryPoller` Durable Object on a 30s alarm cadence (see
+ * `apps/api/src/websocket/lt-directory-poller.ts`). The poller reads
+ * `LeveragedTokenHelper.getLeveragedTokens()` over RPC for the
+ * dynamic fields (`exchangeRate`, `mintPaused`, `baseAssetBalance`,
+ * `totalAssets`) and falls back to a one-shot `name`/`symbol`/`decimals`
+ * ERC-20 multicall for newly-discovered LT addresses.
+ *
+ * NOTE: This is the *additive* landing of the mirror. No existing
+ * consumer reads from this table yet — the cutover from
+ * `${BOUNCE_INDEXING_API}/leveraged-tokens` to the mirror lives in a
+ * separate change behind a parity-verification follow-up.
+ *
+ * `address` is stored checksummed (matching every other address column
+ * in this file). `targetAsset` keeps the on-chain namespacing
+ * (e.g. `xyz:NVDA`) so client surfaces can strip the prefix at render
+ * time without touching the source row.
+ *
+ * `lastSeenAt` is bumped on every successful poll that includes this LT.
+ * `pollSequence` is a monotonically-increasing counter (bumped per
+ * successful poll, *shared* across rows in that poll).
+ */
+export const ltDirectory = pgTable("lt_directory", {
+  address: varchar("address", { length: 42 }).primaryKey(),
+  symbol: text("symbol").notNull(),
+  name: text("name").notNull(),
+  targetAsset: text("target_asset").notNull(),
+  targetLeverage: integer("target_leverage").notNull(),
+  isLong: boolean("is_long").notNull(),
+  decimals: integer("decimals").notNull().default(18),
+  // `numeric(78,0)` holds the full 2^256 range that BounceTech's
+  // `uint256 exchangeRate` could in principle return. Drizzle's
+  // `numeric` maps to Postgres' arbitrary-precision NUMERIC, so we
+  // round-trip the value as a decimal string and let consumers parse.
+  exchangeRate: numeric("exchange_rate", { precision: 78, scale: 0 })
+    .notNull()
+    .default("0"),
+  mintPaused: boolean("mint_paused").notNull().default(false),
+  baseAssetBalance: numeric("base_asset_balance", { precision: 78, scale: 0 })
+    .notNull()
+    .default("0"),
+  totalAssets: numeric("total_assets", { precision: 78, scale: 0 })
+    .notNull()
+    .default("0"),
+  pollSequence: integer("poll_sequence").notNull().default(0),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("lt_directory_last_seen_at_idx").on(table.lastSeenAt),
+]);
+
 export const userProfiles = pgTable("user_profiles", {
   address: varchar("address", { length: 42 }).primaryKey(),
   displayName: text("display_name"),

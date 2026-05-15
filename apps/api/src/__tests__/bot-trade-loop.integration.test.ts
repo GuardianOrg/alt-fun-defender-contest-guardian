@@ -56,6 +56,7 @@ const makeEnv = (kv: KVNamespace | null = null): AppBindings =>
     WEBSOCKET_DO: {} as DurableObjectNamespace,
     WS_IP_LIMITER_DO: {} as DurableObjectNamespace,
     LT_TICKER_DO: {} as DurableObjectNamespace,
+    LT_DIRECTORY_POLLER_DO: {} as DurableObjectNamespace,
     WALLET_KV: kv ?? undefined,
   }) as AppBindings;
 

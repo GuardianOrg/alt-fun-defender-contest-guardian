@@ -61,6 +61,7 @@ const VALID_WS_CHANNELS: ReadonlySet<string> = new Set([
 
 export { WebSocketDO, WsIpLimiter };
 export { LtTicker } from "./websocket/lt-ticker.js";
+export { LtDirectoryPoller } from "./websocket/lt-directory-poller.js";
 
 const app = new Hono<{ Bindings: AppBindings }>();
 
@@ -76,6 +77,7 @@ app.use("*", prettyJSON());
  * manually. Cost is a single DO fetch per cold start.
  */
 let ltTickerTouched = false;
+let ltDirectoryPollerTouched = false;
 app.use("*", async (c, next) => {
   if (!ltTickerTouched) {
     ltTickerTouched = true;
@@ -85,6 +87,35 @@ app.use("*", async (c, next) => {
       stub.fetch("https://internal/ensure").catch(() => {
         ltTickerTouched = false;
       }),
+    );
+  }
+  if (!ltDirectoryPollerTouched) {
+    // Same self-kickstart pattern as `LtTicker` above. In prod the cron
+    // hook in `scheduled` is the authoritative restart path; in dev /
+    // local-wrangler the cron doesn't fire, so we lean on user traffic
+    // to wake the poller. The DO's constructor already self-schedules
+    // its alarm — `/ensure` is just a "make sure the constructor ran"
+    // hammer that re-arms the alarm if one isn't queued.
+    ltDirectoryPollerTouched = true;
+    const id = c.env.LT_DIRECTORY_POLLER_DO.idFromName(
+      "lt-directory-poller",
+    );
+    const stub = c.env.LT_DIRECTORY_POLLER_DO.get(id);
+    // `fetch().catch()` only fires on network-level rejection. A 4xx/5xx
+    // response resolves, so without an explicit `response.ok` check the
+    // touched flag would stay `true` and suppress retries in this
+    // isolate until a fresh cold start. Treat non-2xx the same as a
+    // throw so the next request re-kickstarts the DO. CodeRabbit
+    // feedback on PR #947.
+    c.executionCtx.waitUntil(
+      stub
+        .fetch("https://internal/ensure")
+        .then((response) => {
+          if (!response.ok) ltDirectoryPollerTouched = false;
+        })
+        .catch(() => {
+          ltDirectoryPollerTouched = false;
+        }),
     );
   }
   await next();
@@ -359,6 +390,42 @@ export default {
           }),
         );
       }),
+    );
+
+    // Same idempotent kickstart for `LtDirectoryPoller`. Lives next to
+    // the `lt_ticker_kickstart` ensure so the two singleton DOs are
+    // re-armed in lockstep on every cron tick (defence in depth — the
+    // DO constructor already self-schedules, this is the
+    // belt-and-braces path for evictions + cold deploys).
+    const directoryPollerId = env.LT_DIRECTORY_POLLER_DO.idFromName(
+      "lt-directory-poller",
+    );
+    const directoryPollerStub =
+      env.LT_DIRECTORY_POLLER_DO.get(directoryPollerId);
+    // Inspect the resolved Response so non-2xx kickstarts log alongside
+    // network-level rejections — otherwise a `/ensure` that returns 500
+    // would silently no-op the cron heartbeat. CodeRabbit feedback on
+    // PR #947.
+    ctx.waitUntil(
+      directoryPollerStub
+        .fetch("https://internal/ensure")
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(
+              `LtDirectoryPoller /ensure returned HTTP ${response.status}`,
+            );
+          }
+        })
+        .catch((err) => {
+          console.log(
+            JSON.stringify({
+              level: "error",
+              event: "lt_directory_poller_kickstart_failed",
+              error: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        }),
     );
 
     ctx.waitUntil(

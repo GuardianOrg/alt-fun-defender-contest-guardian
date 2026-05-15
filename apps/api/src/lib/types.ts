@@ -26,6 +26,20 @@ export interface AppBindings {
   WS_IP_LIMITER_DO: DurableObjectNamespace;
   LT_TICKER_DO: DurableObjectNamespace;
   /**
+   * Global `LtDirectoryPoller` instance (single shard, addressed via
+   * `idFromName("lt-directory-poller")`). Owns the periodic refresh of
+   * the `lt_directory` Postgres table by reading
+   * `LeveragedTokenHelper.getLeveragedTokens()` on a 30s alarm cadence.
+   * Touched once per Worker isolate (via `/ensure`) and once per cron
+   * tick — both are idempotent. See
+   * `apps/api/src/websocket/lt-directory-poller.ts`.
+   *
+   * No production consumer reads from the mirror yet; cutover from
+   * the HTTP fan-out is deferred to a follow-up PR after parity is
+   * verified end-to-end.
+   */
+  LT_DIRECTORY_POLLER_DO: DurableObjectNamespace;
+  /**
    * OpenAI API key (`sk-...`) used by `lib/image-moderation.ts` to call the
    * `omni-moderation-latest` endpoint on every token-image upload. The
    * endpoint is free per OpenAI's pricing page, but a key is still required
