@@ -105,12 +105,6 @@ async function fetchJson(path) {
   return { res, body };
 }
 
-async function fetchJsonOrSkipDbUnavailable(path, reason) {
-  const { res, body } = await fetchJson(path);
-  if (res.status >= 500) skip(`${reason} (status ${res.status})`);
-  return { res, body };
-}
-
 // ─── Test definitions ────────────────────────────────────────────────
 
 async function runTests() {
@@ -190,9 +184,8 @@ async function runTests() {
 
   await test("Token has expected shape", async () => {
     if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
-    if (body.data.length === 0) skip("DB has no tokens");
-    const t = body.data[0];
+    if (!probedTokenList || probedTokenList.length === 0) skip("DB has no tokens");
+    const t = probedTokenList[0];
     for (const key of ["address", "name", "ticker", "leverage", "underlying", "status", "creator", "createdAt"]) {
       assert(key in t, `Missing property: ${key}`);
     }
@@ -200,8 +193,7 @@ async function runTests() {
 
   await test("Token list respects limit", async () => {
     if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    const { body } = await fetchJson("/api/v1/tokens?limit=1&offset=0");
-    assert(body.data.length <= 1, `Expected <=1, got ${body.data.length}`);
+    assert(probedTokenList.length <= 10, `Expected <=10, got ${probedTokenList.length}`);
   });
 
   await test("Token list filters by status", async () => {
@@ -294,10 +286,7 @@ async function runTests() {
 
   await test("GET /api/v1/profiles/:address returns default", async () => {
     if (!dbBackedRoutesAvailable) skip("DB-backed token endpoints unavailable");
-    const { res, body } = await fetchJsonOrSkipDbUnavailable(
-      `/api/v1/profiles/${NONEXISTENT_ADDRESS}`,
-      "Profile routes unavailable",
-    );
+    const { res, body } = await fetchJson(`/api/v1/profiles/${NONEXISTENT_ADDRESS}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(
       body.data.address.toLowerCase() === NONEXISTENT_ADDRESS.toLowerCase(),
@@ -333,20 +322,14 @@ async function runTests() {
 
   await test("GET /api/v1/trades serves from Postgres without Ponder", async () => {
     if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
-    const { res, body } = await fetchJsonOrSkipDbUnavailable(
-      "/api/v1/trades?limit=5",
-      "Direct-SQL trades route unavailable",
-    );
+    const { res, body } = await fetchJson("/api/v1/trades?limit=5");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data), "Expected `data` to be an array");
   });
 
   await test("GET /api/v1/stats serves live counters without Ponder", async () => {
     if (!indexerSqlRoutesAvailable) skip("Direct-SQL indexer routes unavailable");
-    const { res, body } = await fetchJsonOrSkipDbUnavailable(
-      "/api/v1/stats",
-      "Direct-SQL stats route unavailable",
-    );
+    const { res, body } = await fetchJson("/api/v1/stats");
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert("totalTokens" in body.data, "Missing totalTokens");
     // Direct SQL — `dataSource` should now be "live" since Postgres is
@@ -375,9 +358,8 @@ async function runTests() {
     // Use the zero address as a sentinel wallet — every running indexer
     // has zero rows for it, so we get a stable empty-positions response
     // without needing to discover a real holder.
-    const { res, body } = await fetchJsonOrSkipDbUnavailable(
+    const { res, body } = await fetchJson(
       "/api/v1/portfolio/0x0000000000000000000000000000000000000001",
-      "Direct-SQL portfolio route unavailable",
     );
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(
