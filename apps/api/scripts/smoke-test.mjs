@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { neon } from "@neondatabase/serverless";
 
 const PORT = 8799;
 const BASE_URL = `http://localhost:${PORT}`;
@@ -47,6 +48,30 @@ const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
 const databaseUrl =
   process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
 
+async function getIndexerViewAvailability(connectionString) {
+  try {
+    const sql = neon(connectionString);
+    const [row] = await sql`
+      SELECT
+        to_regclass('ponder_views.token_balance')::text AS token_balance,
+        to_regclass('ponder_views.wallet_position')::text AS wallet_position
+    `;
+    return {
+      tokenBalance: typeof row?.token_balance === "string",
+      walletPosition: typeof row?.wallet_position === "string",
+    };
+  } catch (error) {
+    console.warn(
+      "Could not probe ponder_views availability before smoke test; leaving all endpoint checks enabled",
+      error instanceof Error ? error.message : String(error),
+    );
+    return {
+      tokenBalance: true,
+      walletPosition: true,
+    };
+  }
+}
+
 if (!databaseUrl) {
   console.log("DATABASE_URL is unset or empty — skipping API smoke test");
   process.exit(0);
@@ -55,6 +80,10 @@ if (!databaseUrl) {
 let passed = 0;
 let failed = 0;
 let skipped = 0;
+let indexerViewAvailability = {
+  tokenBalance: true,
+  walletPosition: true,
+};
 
 class SkipTest extends Error {
   constructor(reason) {
@@ -308,6 +337,9 @@ async function runTests() {
   });
 
   await test("GET /api/v1/holders/:address serves from Postgres without Ponder", async () => {
+    if (!indexerViewAvailability.tokenBalance) {
+      skip("staging DB is missing ponder_views.token_balance");
+    }
     if (!discoveredToken) skip("DB has no tokens");
     const { res, body } = await fetchJson(`/api/v1/holders/${discoveredToken}`);
     assert(res.status === 200, `Expected 200, got ${res.status}`);
@@ -319,6 +351,9 @@ async function runTests() {
   });
 
   await test("GET /api/v1/portfolio/:wallet serves from Postgres without Ponder", async () => {
+    if (!indexerViewAvailability.tokenBalance || !indexerViewAvailability.walletPosition) {
+      skip("staging DB is missing ponder_views.token_balance and/or ponder_views.wallet_position");
+    }
     // Use the zero address as a sentinel wallet — every running indexer
     // has zero rows for it, so we get a stable empty-positions response
     // without needing to discover a real holder.
@@ -394,6 +429,13 @@ async function main() {
   });
 
   try {
+    indexerViewAvailability = await getIndexerViewAvailability(databaseUrl);
+    console.log(
+      "Indexer stable views:",
+      `token_balance=${indexerViewAvailability.tokenBalance ? "present" : "missing"}`,
+      `wallet_position=${indexerViewAvailability.walletPosition ? "present" : "missing"}`,
+    );
+
     await sleep(2_000);
     if (exitCode !== null) {
       throw new Error(`Wrangler exited immediately with code ${exitCode}.\n${output.slice(-2000)}`);
