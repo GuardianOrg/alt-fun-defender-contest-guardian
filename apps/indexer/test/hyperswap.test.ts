@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { getHandler } from "./mocks/ponder";
 import { createMockDb, createMockEvent } from "./mocks/db";
 import {
-  swap,
   pairReserve,
   hyperswapPairIndex,
   token,
@@ -11,90 +10,6 @@ import {
 
 // Importing the module registers handlers on the mock ponder object
 await import("../src/hyperswap");
-
-describe("HyperSwapPair:Swap", () => {
-  let db: ReturnType<typeof createMockDb>;
-
-  beforeEach(() => {
-    db = createMockDb();
-  });
-
-  it("inserts a swap record with correct fields", async () => {
-    const handler = getHandler("HyperSwapPair:Swap");
-    const event = createMockEvent({
-      args: {
-        sender: "0xsender1",
-        to: "0xreceiver1",
-        amount0In: 1000n,
-        amount1In: 0n,
-        amount0Out: 0n,
-        amount1Out: 500n,
-      },
-      txHash: "0xswaptx",
-      logIndex: 2,
-      logAddress: "0xpairABC",
-      blockNumber: 300n,
-      blockTimestamp: 1700200000n,
-    });
-
-    await handler({ event, context: { db } });
-
-    expect(db._insertCalls).toHaveLength(1);
-    const call = db._insertCalls[0];
-    expect(call.table).toBe(swap);
-    expect(call.values).toEqual({
-      id: "0xswaptx-2",
-      pairAddress: "0xpairABC",
-      sender: "0xsender1",
-      to: "0xreceiver1",
-      amount0In: 1000n,
-      amount1In: 0n,
-      amount0Out: 0n,
-      amount1Out: 500n,
-      blockNumber: 300n,
-      timestamp: 1700200000n,
-    });
-  });
-
-  it("uses onConflictDoNothing for replay safety", async () => {
-    const handler = getHandler("HyperSwapPair:Swap");
-    const event = createMockEvent({
-      args: {
-        sender: "0xs",
-        to: "0xr",
-        amount0In: 1n,
-        amount1In: 2n,
-        amount0Out: 3n,
-        amount1Out: 4n,
-      },
-    });
-
-    await handler({ event, context: { db } });
-
-    expect(db._insertCalls[0].conflict).toBe("doNothing");
-  });
-
-  it("uses log.transactionHash and log.logIndex for ID", async () => {
-    const handler = getHandler("HyperSwapPair:Swap");
-    const event = createMockEvent({
-      args: {
-        sender: "0xs",
-        to: "0xr",
-        amount0In: 0n,
-        amount1In: 0n,
-        amount0Out: 0n,
-        amount1Out: 0n,
-      },
-      txHash: "0xuniquetx",
-      logIndex: 99,
-    });
-
-    await handler({ event, context: { db } });
-
-    const values = db._insertCalls[0].values as Record<string, unknown>;
-    expect(values.id).toBe("0xuniquetx-99");
-  });
-});
 
 describe("HyperSwapPair:Sync", () => {
   let db: ReturnType<typeof createMockDb>;

@@ -93,10 +93,11 @@ const SMOKE_QUERIES = [
     name: "feeClaims",
     query: `{ feeClaims(limit: 1) { items { id claimer amount } totalCount } }`,
   },
-  {
-    name: "swaps",
-    query: `{ swaps(limit: 1) { items { id pairAddress sender to } totalCount } }`,
-  },
+  // Note: there is no `swaps` collection. We deliberately do NOT subscribe to
+  // `HyperSwapPair:Swap` — see `apps/indexer/AGENTS.md` *One handler per
+  // factory source* and `apps/indexer/test/single-handler-per-factory.test.ts`
+  // for why. The `pairReserve` collection (populated by the `Sync` handler) is
+  // the post-graduation reserve source-of-truth.
   {
     name: "pairReserves",
     query: `{ pairReserves(limit: 1) { items { pairAddress reserve0 reserve1 } totalCount } }`,
