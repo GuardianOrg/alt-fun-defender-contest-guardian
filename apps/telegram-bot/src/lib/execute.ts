@@ -38,6 +38,15 @@ import { WalletManager } from "./wallet.js";
 /** How long a staged trade intent stays valid before the Confirm becomes a no-op. */
 export const CONFIRM_WINDOW_MS = 60_000;
 
+/**
+ * Canonical alt.fun token tracking page for a given contract address.
+ * Used to make the ticker on every trade prompt/receipt a clickable
+ * link that opens the live token page (same surface the web app and
+ * the /track flow link out to).
+ */
+export const trackingPageUrl = (token: string): string =>
+  `https://alt.fun/token/${token}`;
+
 const ZERO_ADDRESS: Hex = "0x0000000000000000000000000000000000000000";
 
 const HEX_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -151,7 +160,13 @@ export const confirmKeyboard = (
 export type ConfirmOutcome =
   | { kind: "expired" }
   | { kind: "no_wallet" }
-  | { kind: "executed"; result: ExecutionResult; ticker: string; side: "buy" | "sell" };
+  | {
+      kind: "executed";
+      result: ExecutionResult;
+      ticker: string;
+      side: "buy" | "sell";
+      token: string;
+    };
 
 export const confirmTrade = async (
   ctx: AppContext,
@@ -229,7 +244,13 @@ export const confirmTrade = async (
     }
   }
 
-  return { kind: "executed", result, ticker: intent.ticker, side: intent.side };
+  return {
+    kind: "executed",
+    result,
+    ticker: intent.ticker,
+    side: intent.side,
+    token: intent.token,
+  };
 };
 
 /**
@@ -244,7 +265,7 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   if (outcome.kind === "no_wallet") {
     return "No active wallet — run /wallet to set one up.";
   }
-  const { result, ticker, side } = outcome;
+  const { result, ticker, side, token } = outcome;
   if (result.ok) {
     // Receipt-confirmed success — `executeBuy` / `executeSell` only flip
     // `ok` to true after waitForTransactionReceipt returns status=success,
@@ -265,10 +286,18 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     } else if (side === "sell" && result.actualUsdcOut !== undefined) {
       receivedLine = `Received: $${formatUsdc(result.actualUsdcOut.toString())} USDC\n`;
     }
+    // The ticker on the Token line is the clickable jump to the live
+    // alt.fun tracking page; the bare contract address sits next to it
+    // so the user has both a tap target and a copyable identifier.
+    // The receipt bubble itself is deliberately preserved by the
+    // caller — see `runWithTxStatusUpdates`, which detaches it from
+    // the post-trade workflow sweep before submitting the trade.
+    const trackingUrl = trackingPageUrl(token);
     return (
       `✅ <b>${verb} confirmed for ${ticker}</b>\n\n` +
       `${receivedLine}` +
-      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
+      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>\n` +
+      `Token: <a href="${trackingUrl}">${ticker}</a> <code>${token}</code>`
     );
   }
   // `pending` is not a failure — the tx is in the mempool and may still

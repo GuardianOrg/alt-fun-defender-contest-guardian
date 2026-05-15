@@ -27,6 +27,7 @@ import {
   runWithTxStatusUpdates,
   stageSell,
   submitSell,
+  trackingPageUrl,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -685,17 +686,20 @@ const runPercentSell = async (
         tokenRaw: effectiveTokenRaw,
       }),
   );
+  const tokenLine =
+    `\n\nToken: <a href="${trackingPageUrl(token.address)}">${token.ticker}</a> <code>${token.address}</code>`;
   const header =
     buffer.kind === "capped"
       ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
         `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
         `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
+        `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
       : `✅ <b>Ready to sell ${percent}% of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`;
+        `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
   const stagingMsg = await msgCtx.reply(header, {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+    link_preview_options: { is_disabled: true },
   });
   // Staging prompt is stale once the trade lands — push so the
   // post-trade sweep clears it alongside the originating card.
@@ -897,18 +901,21 @@ const handlePercentSell = async (
     tokenRaw: effectiveTokenRaw,
   });
   const allOf = percent === 100 ? ` all ${formatToken18(tokenBalance)}` : "";
+  const tokenLine =
+    `\n\nToken: <a href="${trackingPageUrl(token.address)}">${token.ticker}</a> <code>${token.address}</code>`;
   const header =
     buffer.kind === "capped"
       ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
         `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
         `Selling ${formatToken18(effectiveTokenRaw)} of ${formatToken18(tokenBalance)} ${token.ticker}. ` +
         `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.`
+        `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
       : `✅ <b>Ready to sell ${percent}%${allOf} of ${token.ticker} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`;
+        `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
   const stagingMsg = await ctx.reply(header, {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+    link_preview_options: { is_disabled: true },
   });
   trackForPostTradeSweep(ctx, stagingMsg.message_id);
 };

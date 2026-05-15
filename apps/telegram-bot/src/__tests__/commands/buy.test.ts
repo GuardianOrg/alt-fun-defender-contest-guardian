@@ -418,6 +418,21 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(send!.body.text)).not.toContain("Alt Fun fee 0.75%");
   });
 
+  it("buy confirmation shows token address and a ticker linking to the alt.fun tracking page", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n });
+
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
+
+    const calls = capture(fetchSpy);
+    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const text = String(send!.body.text);
+    expect(text).toContain(`<code>${TOKEN_ADDR}</code>`);
+    expect(text).toContain(
+      `<a href="https://alt.fun/token/${TOKEN_ADDR}">TEST</a>`,
+    );
+  });
+
   it("Degen mode: Buy default skips the Confirm keyboard and submits immediately", async () => {
     const h = await harnessWithWallet();
     // Seed degen-mode = true on the user's session. The session adapter

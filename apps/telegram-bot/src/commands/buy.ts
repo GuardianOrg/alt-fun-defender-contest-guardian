@@ -30,6 +30,7 @@ import {
   runWithTxStatusUpdates,
   stageBuy,
   submitBuy,
+  trackingPageUrl,
 } from "../lib/execute.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -421,10 +422,12 @@ const buyCustomConversation = async (
     );
     const stagingMsg = await msgCtx.reply(
       `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${token.ticker}</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.`,
+        `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+        `Token: <a href="${trackingPageUrl(token.address)}">${token.ticker}</a> <code>${token.address}</code>`,
       {
         parse_mode: "HTML",
         reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+        link_preview_options: { is_disabled: true },
       },
     );
     await sweepWorkflow(conversation);
@@ -593,10 +596,12 @@ const handleFixedBuy = async (
   });
   const stagingMsg = await ctx.reply(
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tokenResult.data.ticker}</b>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.`,
+      `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+      `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tokenResult.data.ticker}</a> <code>${tokenResult.data.address}</code>`,
     {
       parse_mode: "HTML",
       reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+      link_preview_options: { is_disabled: true },
     },
   );
   trackForPostTradeSweep(ctx, stagingMsg.message_id);
