@@ -14,16 +14,16 @@ import { eq } from "drizzle-orm";
 
 import type { AppBindings } from "../lib/types.js";
 
-const VALID_TIMEFRAMES = ["1d", "5d", "1m"] as const;
-type Timeframe = (typeof VALID_TIMEFRAMES)[number];
+export const VALID_TIMEFRAMES = ["1d", "5d", "1m"] as const;
+export type Timeframe = (typeof VALID_TIMEFRAMES)[number];
 
-const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
+export const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
   "1d": 86_400,
   "5d": 432_000,
   "1m": 2_592_000,
 };
 
-const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
+export const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
   "1d": 300,
   "5d": 1_800,
   "1m": 14_400,
@@ -32,7 +32,7 @@ const DEFAULT_CANDLE_SECONDS: Record<Timeframe, number> = {
 // Allowed candle-width values (seconds) for interval-mode requests.
 // Must stay in sync with CHART_INTERVAL_SECONDS in
 // `apps/web/src/services/api.ts`.
-const VALID_INTERVAL_SECONDS = new Set<number>([
+export const VALID_INTERVAL_SECONDS = new Set<number>([
   5, // 5s
   15, // 15s
   30, // 30s
@@ -47,8 +47,8 @@ const VALID_INTERVAL_SECONDS = new Set<number>([
   86_400, // 1D
 ]);
 
-const MIN_CANDLE_SECONDS = 5;
-const MAX_CANDLES = 500;
+export const MIN_CANDLE_SECONDS = 5;
+export const MAX_CANDLES = 500;
 
 // Maximum number of historical candles the API will hydrate per request.
 // The frontend defaults its visible viewport to a much smaller window (120
@@ -56,7 +56,7 @@ const MAX_CANDLES = 500;
 // loads everything below so users can zoom/scroll left without re-fetching.
 // Caps the LT-rate `generate_series` row count at `MAX_HISTORY_CANDLES × 3`
 // (see `sampleSec` below) regardless of how far back the token launched.
-const MAX_HISTORY_CANDLES = 1_500;
+export const MAX_HISTORY_CANDLES = 1_500;
 
 interface PonderTokenSnapshot {
   curveSupply: string;
@@ -72,12 +72,12 @@ interface PonderTokenInfo {
   timestamp: string;
 }
 
-interface RatioSnapshot {
+export interface RatioSnapshot {
   timestamp: number;
   ratio: number;
 }
 
-interface Candle {
+export interface Candle {
   time: number;
   open: number;
   high: number;
@@ -85,7 +85,7 @@ interface Candle {
   close: number;
 }
 
-interface LtSnapshotRow {
+export interface LtSnapshotRow {
   ts: string;
   exchange_rate: string;
 }
@@ -99,7 +99,7 @@ interface LtSnapshotRow {
  * undershoot the launch price by ~78% and produce a phantom green candle on
  * fresh tokens.
  */
-const CURVE_RESERVE0_AT_LAUNCH = 1_000_000_000n * 10n ** 18n;
+export const CURVE_RESERVE0_AT_LAUNCH = 1_000_000_000n * 10n ** 18n;
 const RATIO_PRECISION = 10n ** 18n;
 
 function bigintRatio(numerator: bigint, denominator: bigint): number {
@@ -107,7 +107,7 @@ function bigintRatio(numerator: bigint, denominator: bigint): number {
   return Number((numerator * RATIO_PRECISION) / denominator) / 1e18;
 }
 
-function buildRatioTimeline(
+export function buildRatioTimeline(
   k: bigint,
   launchTimestamp: number,
   snapshots: PonderTokenSnapshot[],
@@ -138,7 +138,7 @@ function buildRatioTimeline(
   return out;
 }
 
-function buildCandles(
+export function buildCandles(
   prices: { ts: number; price: number }[],
   candleSec: number,
 ): Candle[] {
