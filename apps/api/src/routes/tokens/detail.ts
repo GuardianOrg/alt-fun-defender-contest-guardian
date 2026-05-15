@@ -181,16 +181,21 @@ detailRoute.get("/:address", async (c) => {
 
   const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
   const cache = cachesObj?.default;
-  // Wallet-aware responses can't share a cache slot with public ones
-  // (one would leak the other). Skip the edge cache entirely when a
-  // wallet param is present; public lookups continue to be cached as
-  // before. The single RPC `balanceOf` is sub-100ms and only fires on
-  // wallet-bearing requests, so this is a fair trade.
-  const cacheKey =
-    wallet === null
-      ? new Request(new URL(c.req.url).toString(), { method: "GET" })
-      : null;
-  if (cache && cacheKey) {
+  // Cache key strips `?wallet=` so a wallet-bearing request for a
+  // *public* token shares a slot with the anonymous version — the
+  // response shape is wallet-agnostic for the public lens (the wallet
+  // param only ever influences the hidden-token holder bypass below).
+  // Pre-#930 we skipped the cache entirely whenever any wallet was
+  // present, which sent every signed-in user to origin on a route that
+  // was already running at p99 ≈ 10s. Hidden-token holder responses
+  // are still uncached — see the `isHiddenBypass` branch at the end of
+  // this handler — so the bypass invariant from issues #712 / #586
+  // (hidden bodies never enter `caches.default`, never get a positive
+  // `s-maxage`) holds.
+  const cacheUrl = new URL(c.req.url);
+  cacheUrl.searchParams.delete("wallet");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+  if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) return cached;
   }
@@ -208,6 +213,13 @@ detailRoute.get("/:address", async (c) => {
     .where(and(eq(tokens.address, address), eq(tokens.isHidden, false)))
     .limit(1);
 
+  // `isHiddenBypass` is the only signal that flips this response into
+  // the per-wallet, must-not-be-cached branch — it's deliberately scoped
+  // to *successful* hidden-token holder bypasses (hidden row exists AND
+  // the supplied wallet's `balanceOf` is non-zero). A wallet-bearing
+  // request that resolves through the public lens, or that ends in a
+  // 404, follows the cacheable path identically to an anonymous one.
+  let isHiddenBypass = false;
   if (!dbToken && wallet) {
     const [hiddenRow] = await db
       .select()
@@ -222,6 +234,7 @@ detailRoute.get("/:address", async (c) => {
       });
       if (holds) {
         dbToken = hiddenRow;
+        isHiddenBypass = true;
       }
     }
   }
@@ -248,31 +261,34 @@ detailRoute.get("/:address", async (c) => {
     ),
   );
 
-  // Wallet-aware responses (hidden-token bypass for holders) MUST NOT
-  // be cached anywhere: they're per-wallet by definition and any
-  // intermediary that re-served one to a different caller would leak
-  // a hidden token to a non-holder. We skip `cache.put` *and* set
-  // private/no-store directives so neither Cloudflare's edge cache
-  // (which honours `s-maxage`) nor any shared HTTP cache between
-  // origin and client retains the body. Public responses use
-  // `edgeCacheableJsonHeader` (`public, max-age=0, s-maxage=ttl,
-  // stale-while-revalidate=2*ttl`) so a hot token absorbs bursts at
-  // the edge while every browser reload still revalidates — the
+  // Hidden-token holder bypass responses MUST NOT be cached anywhere:
+  // they're per-wallet by definition and any intermediary that re-served
+  // one to a different caller would leak a hidden token to a non-holder.
+  // We skip `cache.put` *and* set `private, no-store, max-age=0,
+  // s-maxage=0` so neither Cloudflare's edge cache (which honours
+  // `s-maxage`) nor any shared HTTP cache between origin and client
+  // retains the body.
+  //
+  // Every other response path — public-lens hits whether or not a
+  // wallet was supplied — uses `edgeCacheableJsonHeader` (`public,
+  // max-age=0, s-maxage=ttl, stale-while-revalidate=2*ttl`). The
+  // `max-age=0` keeps the browser revalidating on every reload (the
   // bare `s-maxage` form left the browser free to apply heuristic
   // caching on `Cache-Control` directives meant for shared caches
-  // only, which froze the home-page list until users cleared
-  // browsing data.
-  if (cacheKey) {
+  // only, which used to freeze the home-page list until users cleared
+  // browsing data); the `s-maxage` lets a hot token absorb bursts at
+  // the edge.
+  if (isHiddenBypass) {
+    response.headers.set(
+      "Cache-Control",
+      "private, no-store, max-age=0, s-maxage=0",
+    );
+  } else {
     const ttl = marketResult.ok ? DETAIL_CACHE_TTL_SECONDS : DEGRADED_CACHE_TTL_SECONDS;
     response.headers.set("Cache-Control", edgeCacheableJsonHeader(ttl));
     if (cache) {
       await cache.put(cacheKey, response.clone());
     }
-  } else {
-    response.headers.set(
-      "Cache-Control",
-      "private, no-store, max-age=0, s-maxage=0",
-    );
   }
 
   return response;
