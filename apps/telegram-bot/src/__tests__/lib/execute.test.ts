@@ -1061,9 +1061,9 @@ describe("runWithTxStatusUpdates", () => {
       // Fire pending edit immediately.
       pendingDelayMs: 0,
     });
-    // Let the macrotask queue drain so the 0ms setTimeout fires before
-    // we resolve the trade.
-    await new Promise((r) => setTimeout(r, 5));
+    // Wait for the pending edit to land before resolving the trade so
+    // the assertion below does not race the timer on a busy CI runner.
+    await vi.waitFor(() => expect(edits).toHaveLength(2));
     release!();
     const outcome = await runPromise;
     expect(outcome.kind).toBe("executed");
@@ -1382,6 +1382,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx, replies } = buildReplyCtx();
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TICK",
       result: {
@@ -1402,6 +1403,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx } = buildReplyCtx();
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TICK",
       result: {
@@ -1419,6 +1421,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx } = buildReplyCtx();
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TICK",
       result: {
@@ -1440,6 +1443,7 @@ describe("replyConfirmedTradeAndPromptStart", () => {
     const { ctx } = buildReplyCtx({ chat: undefined as unknown as AppContext["chat"] });
     await replyConfirmedTradeAndPromptStart(ctx, {
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TICK",
       result: {
