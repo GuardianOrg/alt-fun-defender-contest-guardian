@@ -5,14 +5,24 @@ import {
   cancelTrade,
   confirmKeyboard,
   confirmTrade,
+  describeTradeForStatus,
   loadReferrer,
   renderConfirmReply,
+  renderTxPendingText,
+  renderTxSendingText,
+  replyConfirmedTradeAndPromptStart,
+  runWithTxStatusUpdates,
   stageBuy,
   stageSell,
   submitBuy,
   submitSell,
 } from "../../lib/execute.js";
+import {
+  getWorkflowMessages,
+  pushWorkflowMessage,
+} from "../../lib/workflow-stack.js";
 import * as trade from "../../lib/trade.js";
+import * as startCommand from "../../commands/start.js";
 import { MemoryKV } from "../helpers/bot.js";
 import type { AppContext, SessionData } from "../../bot.js";
 import { WalletManager } from "../../lib/wallet.js";
@@ -260,6 +270,7 @@ describe("renderConfirmReply", () => {
   it("renders a success tx link with the ticker", () => {
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -278,12 +289,54 @@ describe("renderConfirmReply", () => {
     expect(reply).not.toContain("Alt Fun fee 0.75%");
   });
 
+  it("shows the token address and a clickable ticker linking to the alt.fun tracking page", () => {
+    // The confirmed receipt must expose the contract address (for
+    // copy-paste) and make the ticker a tap target that opens the
+    // canonical tracking page. The receipt bubble itself is preserved
+    // by the caller (see runWithTxStatusUpdates) so the user does not
+    // lose this link when the bot drops the follow-up start prompt.
+    const reply = renderConfirmReply({
+      kind: "executed",
+      token: TOKEN,
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(reply).toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
+    expect(reply).toContain(`<code>${TOKEN}</code>`);
+  });
+
+  it("renders the same token + tracking-link footer on a sell receipt", () => {
+    const reply = renderConfirmReply({
+      kind: "executed",
+      token: TOKEN,
+      side: "sell",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(reply).toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
+    expect(reply).toContain(`<code>${TOKEN}</code>`);
+  });
+
   it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
     // Confirm reply now surfaces the actual on-chain amount decoded
     // from the BotRouterTrade log, formatted via formatToken18 against
     // the user-supplied ticker. Pre-fix the user saw only the tx hash.
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -307,6 +360,7 @@ describe("renderConfirmReply", () => {
     // (the user-facing currency on the sell side).
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TEST",
       result: {
@@ -329,6 +383,7 @@ describe("renderConfirmReply", () => {
     // misleading "Received" line built from the pre-trade quote.
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "sell",
       ticker: "TEST",
       result: {
@@ -346,6 +401,7 @@ describe("renderConfirmReply", () => {
   it("renders the mapped error copy on failure", () => {
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -364,6 +420,7 @@ describe("renderConfirmReply", () => {
     // check explorer" semantics the reviewer asked for.
     const reply = renderConfirmReply({
       kind: "executed",
+      token: TOKEN,
       side: "buy",
       ticker: "TEST",
       result: {
@@ -882,5 +939,561 @@ describe("cancelTrade", () => {
     });
     expect(cancelTrade(ctx, "wrong")).toBe(false);
     expect(ctx.session.pendingTrade).toBeDefined();
+  });
+});
+
+describe("describeTradeForStatus", () => {
+  it("renders a buy as 'Buying $X USDC of TICKER'", () => {
+    const text = describeTradeForStatus("buy", "TICK", 50_000_000n);
+    expect(text).toBe("Buying $50.00 USDC of TICK");
+  });
+
+  it("renders a sell as 'Selling X TICKER' with the formatted token amount", () => {
+    // 1.5 tokens raw = 1.5 * 1e18.
+    const text = describeTradeForStatus(
+      "sell",
+      "TICK",
+      15n * 10n ** 17n,
+    );
+    expect(text).toContain("Selling");
+    expect(text).toContain("TICK");
+    expect(text).toMatch(/Selling 1\.5\s*TICK/);
+  });
+
+  it("HTML-escapes user-controlled ticker characters", () => {
+    const text = describeTradeForStatus("buy", "<bad>", 20_000_000n);
+    expect(text).toContain("&lt;bad&gt;");
+    expect(text).not.toContain("<bad>");
+  });
+});
+
+describe("renderTxSendingText / renderTxPendingText", () => {
+  it("renderTxSendingText leads with the sending marker and the description", () => {
+    const text = renderTxSendingText("Buying $20.00 USDC of TICK");
+    expect(text).toContain("Tx sending");
+    expect(text).toContain("Buying $20.00 USDC of TICK");
+  });
+
+  it("renderTxPendingText leads with the pending marker and the description", () => {
+    const text = renderTxPendingText("Buying $20.00 USDC of TICK");
+    expect(text).toContain("Tx pending");
+    expect(text).toContain("Buying $20.00 USDC of TICK");
+  });
+});
+
+describe("runWithTxStatusUpdates", () => {
+  const buildStatusCtx = (): {
+    ctx: AppContext;
+    edits: Array<{ chatId: number; messageId: number; text: string }>;
+  } => {
+    const edits: Array<{ chatId: number; messageId: number; text: string }> =
+      [];
+    const ctx = {
+      session: { workflowMessages: [] } as Partial<SessionData>,
+      api: {
+        editMessageText: vi.fn(
+          async (chatId: number, messageId: number, text: string) => {
+            edits.push({ chatId, messageId, text });
+            return true;
+          },
+        ),
+      },
+    } as unknown as AppContext;
+    return { ctx, edits };
+  };
+
+  it("edits the target through Tx sending → result on the happy path", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    const outcome = await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      // Resolve immediately so the pending timer never fires.
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: true,
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+          quotedOut: 1n,
+          minOut: 1n,
+        },
+      }),
+      // Long delay so the pending edit cannot race the immediate resolution.
+      pendingDelayMs: 60_000,
+    });
+    expect(outcome.kind).toBe("executed");
+    expect(edits).toHaveLength(2);
+    expect(edits[0]!.text).toContain("Tx sending");
+    expect(edits[0]!.text).toContain("Buying $20.00 USDC of TICK");
+    expect(edits[1]!.text).toContain("Buy confirmed for TICK");
+  });
+
+  it("inserts a Tx pending edit when run() takes longer than the pending delay", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    let release: (() => void) | null = null;
+    const tradePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runPromise = runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "sell",
+      description: "Selling 1.5 TICK",
+      run: async () => {
+        await tradePromise;
+        return {
+          kind: "executed",
+          token: TOKEN,
+          side: "sell",
+          ticker: "TICK",
+          result: {
+            ok: false,
+            kind: "reverted",
+            reason: "SlippageExceeded",
+          },
+        };
+      },
+      // Fire pending edit immediately.
+      pendingDelayMs: 0,
+    });
+    // Wait for the pending edit to land before resolving the trade so
+    // the assertion below does not race the timer on a busy CI runner.
+    await vi.waitFor(() => expect(edits).toHaveLength(2));
+    release!();
+    const outcome = await runPromise;
+    expect(outcome.kind).toBe("executed");
+    // Expect three edits: Tx sending → Tx pending → final.
+    expect(edits.map((e) => e.text)).toEqual([
+      expect.stringContaining("Tx sending"),
+      expect.stringContaining("Tx pending"),
+      expect.stringMatching(/Price moved/),
+    ]);
+  });
+
+  it("detaches the target from the workflow stack before run() executes", async () => {
+    const { ctx } = buildStatusCtx();
+    pushWorkflowMessage(ctx.session, 5, 99);
+    pushWorkflowMessage(ctx.session, 5, 100);
+    let stackAtRun: ReturnType<typeof getWorkflowMessages> | null = null;
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => {
+        stackAtRun = getWorkflowMessages(ctx.session);
+        return {
+          kind: "executed",
+          token: TOKEN,
+          side: "buy",
+          ticker: "TICK",
+          result: {
+            ok: true,
+            txHash:
+              "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+            quotedOut: 1n,
+            minOut: 1n,
+          },
+        };
+      },
+      pendingDelayMs: 60_000,
+    });
+    expect(stackAtRun).toEqual([{ chatId: 5, messageId: 100 }]);
+  });
+
+  it("drains the pending edit before the final edit so the receipt wins", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    // Slow down each editMessageText so the pending edit is in-flight
+    // when the final edit is scheduled. Without the drain, the final
+    // edit could land before the pending one and the user would be left
+    // staring at a stale "Tx pending" message.
+    (ctx.api.editMessageText as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementation(
+        async (chatId: number, messageId: number, text: string) => {
+          await new Promise((r) => setTimeout(r, 15));
+          edits.push({ chatId, messageId, text });
+          return true;
+        },
+      );
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => {
+        // Give the pending timer time to fire while the first edit is
+        // still mid-flight.
+        await new Promise((r) => setTimeout(r, 20));
+        return {
+          kind: "executed",
+          token: TOKEN,
+          side: "buy",
+          ticker: "TICK",
+          result: {
+            ok: true,
+            txHash:
+              "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+            quotedOut: 1n,
+            minOut: 1n,
+          },
+        };
+      },
+      pendingDelayMs: 0,
+    });
+    const texts = edits.map((e) => e.text);
+    const pendingIdx = texts.findIndex((t) => t.includes("Tx pending"));
+    const finalIdx = texts.findIndex((t) => t.includes("Buy confirmed"));
+    expect(pendingIdx).toBeGreaterThanOrEqual(0);
+    expect(finalIdx).toBeGreaterThan(pendingIdx);
+  });
+
+  it("still renders a final edit even if run() fails to produce a successful outcome", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({ kind: "expired" }),
+      pendingDelayMs: 60_000,
+    });
+    expect(edits).toHaveLength(2);
+    expect(edits[1]!.text).toMatch(/expired/i);
+  });
+
+  it("posts a terminal failure bubble and rethrows when run() rejects", async () => {
+    const { ctx, edits } = buildStatusCtx();
+    const boom = new Error("rpc exploded");
+    await expect(
+      runWithTxStatusUpdates({
+        ctx,
+        target: { api: ctx.api, chatId: 5, messageId: 99 },
+        side: "buy",
+        description: "Buying $20.00 USDC of TICK",
+        run: async () => {
+          throw boom;
+        },
+        pendingDelayMs: 60_000,
+      }),
+    ).rejects.toBe(boom);
+    expect(edits).toHaveLength(2);
+    expect(edits[0]!.text).toContain("Tx sending");
+    expect(edits[1]!.text).toMatch(/Transaction failed/);
+  });
+});
+
+describe("runWithTxStatusUpdates post-trade /start prompt", () => {
+  const buildStatusCtx = (): {
+    ctx: AppContext;
+    edits: Array<{ chatId: number; messageId: number; text: string }>;
+  } => {
+    const edits: Array<{ chatId: number; messageId: number; text: string }> =
+      [];
+    const ctx = {
+      session: { workflowMessages: [] } as Partial<SessionData>,
+      api: {
+        editMessageText: vi.fn(
+          async (chatId: number, messageId: number, text: string) => {
+            edits.push({ chatId, messageId, text });
+            return true;
+          },
+        ),
+      },
+    } as unknown as AppContext;
+    return { ctx, edits };
+  };
+
+  let startSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    startSpy = vi
+      .spyOn(startCommand, "sendStartPromptAfterTrade")
+      .mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    startSpy.mockRestore();
+  });
+
+  it("fires sendStartPromptAfterTrade with the target chatId after a successful trade", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: true,
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+          quotedOut: 1n,
+          minOut: 1n,
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith(ctx, 42);
+  });
+
+  it("also fires after a successful sell so users can chain into the next action", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 99, messageId: 200 },
+      side: "sell",
+      description: "Selling 1.5 TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "sell",
+        ticker: "TICK",
+        result: {
+          ok: true,
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+          quotedOut: 12_000_000n,
+          minOut: 12_000_000n,
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith(ctx, 99);
+  });
+
+  it("does NOT fire on a reverted trade (user may want to retry from the originating card)", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: false,
+          kind: "reverted",
+          reason: "SlippageExceeded",
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire on a pending receipt-timeout outcome (tx still in mempool)", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: false,
+          kind: "pending",
+          reason: "WaitForTransactionReceiptTimeoutError",
+          txHash:
+            "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire on an expired outcome (no trade was submitted)", async () => {
+    const { ctx } = buildStatusCtx();
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 42, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({ kind: "expired" }),
+      pendingDelayMs: 60_000,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire when run() throws (terminal failure path)", async () => {
+    const { ctx } = buildStatusCtx();
+    await expect(
+      runWithTxStatusUpdates({
+        ctx,
+        target: { api: ctx.api, chatId: 42, messageId: 99 },
+        side: "buy",
+        description: "Buying $20.00 USDC of TICK",
+        run: async () => {
+          throw new Error("rpc exploded");
+        },
+        pendingDelayMs: 60_000,
+      }),
+    ).rejects.toThrow();
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("replyConfirmedTradeAndPromptStart", () => {
+  const buildReplyCtx = (
+    overrides: Partial<AppContext> = {},
+  ): {
+    ctx: AppContext;
+    replies: Array<{ text: string; extra: unknown }>;
+  } => {
+    const replies: Array<{ text: string; extra: unknown }> = [];
+    const ctx = {
+      chat: { id: 99, type: "private" as const },
+      reply: vi.fn(async (text: string, extra: unknown) => {
+        replies.push({ text, extra });
+        return { message_id: 1 };
+      }),
+      ...overrides,
+    } as unknown as AppContext;
+    return { ctx, replies };
+  };
+
+  let startSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    startSpy = vi
+      .spyOn(startCommand, "sendStartPromptAfterTrade")
+      .mockResolvedValue(undefined);
+  });
+  afterEach(() => {
+    startSpy.mockRestore();
+  });
+
+  it("fires the start prompt after a receipt-confirmed sell (defensive symmetry with buy)", async () => {
+    const { ctx, replies } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      token: TOKEN,
+      side: "sell",
+      ticker: "TICK",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 12_000_000n,
+        minOut: 12_000_000n,
+      },
+    });
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.text).toContain("Sell confirmed for TICK");
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith(ctx, 99);
+  });
+
+  it("fires the start prompt after a receipt-confirmed buy", async () => {
+    const { ctx } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      token: TOKEN,
+      side: "buy",
+      ticker: "TICK",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(startSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT fire the start prompt on a reverted outcome", async () => {
+    const { ctx } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      token: TOKEN,
+      side: "sell",
+      ticker: "TICK",
+      result: {
+        ok: false,
+        kind: "reverted",
+        reason: "SlippageExceeded",
+      },
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the start prompt on an expired outcome", async () => {
+    const { ctx } = buildReplyCtx();
+    await replyConfirmedTradeAndPromptStart(ctx, { kind: "expired" });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  it("does NOT fire the start prompt when ctx.chat is missing", async () => {
+    const { ctx } = buildReplyCtx({ chat: undefined as unknown as AppContext["chat"] });
+    await replyConfirmedTradeAndPromptStart(ctx, {
+      kind: "executed",
+      token: TOKEN,
+      side: "sell",
+      ticker: "TICK",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1n,
+        minOut: 1n,
+      },
+    });
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendStartPromptAfterTrade", () => {
+  it("is a no-op when chatId is undefined", async () => {
+    const sendMessage = vi.fn();
+    const ctx = {
+      api: { sendMessage },
+    } as unknown as AppContext;
+    await startCommand.sendStartPromptAfterTrade(ctx, undefined);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op when buildStartSnapshot returns null (no active wallet)", async () => {
+    const sendMessage = vi.fn();
+    const ctx = {
+      // No `from` → buildStartSnapshot short-circuits to null before
+      // any wallet / RPC lookup, so the send never fires.
+      api: { sendMessage },
+    } as unknown as AppContext;
+    await startCommand.sendStartPromptAfterTrade(ctx, 42);
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("swallows downstream errors so a flaky start render cannot mask the receipt above it", async () => {
+    // ctx.from is set, but env is missing → buildStartSnapshot's
+    // WalletManager construction throws on the undefined master key.
+    // The helper must catch and return cleanly; the receipt edit above
+    // it is the load-bearing surface and must not be undone by a
+    // follow-up exception bubbling out of post-trade work.
+    const sendMessage = vi.fn();
+    const ctx = {
+      from: { id: 7, is_bot: false, first_name: "Ada" },
+      env: {},
+      api: { sendMessage },
+    } as unknown as AppContext;
+    await expect(
+      startCommand.sendStartPromptAfterTrade(ctx, 42),
+    ).resolves.toBeUndefined();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

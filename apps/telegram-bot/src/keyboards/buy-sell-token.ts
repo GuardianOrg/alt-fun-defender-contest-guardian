@@ -121,18 +121,21 @@ export const ALL_SELL_TOKEN_CMDS = new Set<string>(
 type Button = { text: string; callback_data: string };
 
 /**
- * Pack preset buttons + the custom-X button into rows of three. With the
- * default 5 presets this yields `[p0 p1 p2] [p3 p4 X]`; for other counts
- * X drops onto its own row when the last preset row is already full.
+ * Pack preset buttons + the custom-X button into rows of two. With the
+ * default 5 presets this yields `[p0 p1] [p2 p3] [p4 X]`. Two columns
+ * (not three) so Telegram clients never truncate labels like
+ * `Buy 1000 USDC` to `Buy...SDC` on narrower screens — the row width is
+ * split across two buttons instead of three, giving each label enough
+ * room for the full amount.
  */
-const packRowsOfThree = (
+const packRowsOfTwo = (
   presetButtons: Button[],
   customButton: Button,
 ): Button[][] => {
   const buttons = [...presetButtons, customButton];
   const rows: Button[][] = [];
-  for (let i = 0; i < buttons.length; i += 3) {
-    rows.push(buttons.slice(i, i + 3));
+  for (let i = 0; i < buttons.length; i += 2) {
+    rows.push(buttons.slice(i, i + 2));
   }
   return rows;
 };
@@ -167,7 +170,7 @@ export const buildBuyTokenKeyboard = (
   tokenAddress: string,
   buyPresetsUsdc: readonly number[],
 ): InlineKeyboard => [
-  ...packRowsOfThree(presetButtonsBuy(tokenAddress, buyPresetsUsdc), {
+  ...packRowsOfTwo(presetButtonsBuy(tokenAddress, buyPresetsUsdc), {
     text: "Buy X USDC",
     callback_data: encodeCallback(BUY_TOKEN_CMD.buyCustom, tokenAddress),
   }),
@@ -184,7 +187,7 @@ export const buildSellTokenKeyboard = (
   tokenAddress: string,
   sellPresetsPct: readonly number[],
 ): InlineKeyboard => [
-  ...packRowsOfThree(presetButtonsSell(tokenAddress, sellPresetsPct), {
+  ...packRowsOfTwo(presetButtonsSell(tokenAddress, sellPresetsPct), {
     text: "Sell X%",
     callback_data: encodeCallback(
       SELL_TOKEN_CMD.sellCustomPercent,

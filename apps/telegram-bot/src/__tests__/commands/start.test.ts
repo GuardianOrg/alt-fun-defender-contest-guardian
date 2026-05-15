@@ -815,6 +815,28 @@ describe("/start referral onboarding", () => {
     expect(rewardsPost).toBeDefined();
   });
 
+  it("first /start pins the referral-identity wallet on the profile", async () => {
+    // The address /start mints is the user's identity wallet for
+    // every future /referral and every inbound `ref_<userId>` click —
+    // independent of how many wallets they later import or which
+    // becomes active. Persisting it here is what makes the identity
+    // immutable.
+    const h = harness();
+    mockAll();
+
+    await h.run(startUpdate(7));
+
+    const wallet = (await walletManager(h).getActive(7))!;
+    const raw = (await h.kv.get("profile:7")) as string | null;
+    expect(raw).not.toBeNull();
+    const parsed = JSON.parse(raw!) as {
+      referralIdentityWallet?: string;
+    };
+    expect(parsed.referralIdentityWallet?.toLowerCase()).toBe(
+      wallet.address.toLowerCase(),
+    );
+  });
+
   it("records username → userId mapping on every /start when the user has a Telegram username", async () => {
     const h = harness();
     mockAll();
@@ -997,6 +1019,54 @@ describe("/start referral onboarding", () => {
       wallet.address.toLowerCase(),
     );
   });
+
+  it("ref_<userId> resolves via referrer's identity wallet, ignoring later setActive flips", async () => {
+    // Lifetime attribution is the whole point of the referrer slot:
+    // a sharer who imports a second wallet AFTER handing out their
+    // link must not silently fork their referrer identity onto the
+    // new wallet for every fresh click. This pins the resolution to
+    // `profile.referralIdentityWallet`, which is set once at first
+    // /start and immutable thereafter.
+    const h = harness();
+    const wm = walletManager(h);
+    const identityWallet = await wm.createWallet(42, "identity");
+    const switchedWallet = await wm.createWallet(42, "later");
+    await wm.setActive(42, switchedWallet.id);
+    // Profile written exactly the way the post-fix first /start
+    // writes it — identity pinned to the original wallet even though
+    // the active wallet has since changed.
+    await h.kv.put(
+      "profile:42",
+      JSON.stringify({
+        createdAt: 1_700_000_000_000,
+        referrer: null,
+        referralIdentityWallet: identityWallet.address.toLowerCase(),
+      }),
+    );
+
+    // API responds for the identity wallet only; a stray lookup
+    // against the active wallet would hit the 404 branch and the new
+    // user's referrer would resolve to null.
+    mockAll({
+      referralStatsByWallet: {
+        [identityWallet.address.toLowerCase()]: {
+          rewardsWallet: identityWallet.address.toLowerCase(),
+        },
+      },
+    });
+
+    await h.run(startUpdate(7, "private", { param: "ref_42" }));
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer?.toLowerCase()).toBe(
+      identityWallet.address.toLowerCase(),
+    );
+    // The currently-active wallet must NOT show up — proves the
+    // resolver did not fall back to `getActive`.
+    expect(profile!.referrer?.toLowerCase()).not.toBe(
+      switchedWallet.address.toLowerCase(),
+    );
+  });
 });
 
 /**
@@ -1006,7 +1076,7 @@ describe("/start referral onboarding", () => {
  * screen and reply with a fresh buy/sell card pre-loaded for the
  * selected token.
  */
-describe("/start action deeplink (buy_/sell_)", () => {
+describe("/start action deeplink (buy_/sell_/track_)", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   const TOKEN = "0xaaaa000000000000000000000000000000000000";
@@ -1119,6 +1189,90 @@ describe("/start action deeplink (buy_/sell_)", () => {
     const allButtons = markup!.inline_keyboard.flat();
     expect(allButtons.some((b) => b.text === "Sell 100%")).toBe(true);
     expect(sent[0]!.text).not.toContain("Welcome to");
+  });
+
+  it("track_<addr> deeplink replies with the track card (token + trades + Buy/Sell + Open on Alt Fun) and skips the welcome screen", async () => {
+    const h = harnessWithRpc();
+    // The track route also fetches /trades and /chart — extend the
+    // shared action-fetch mock to cover both with empty payloads so
+    // the chart renderer short-circuits without resvg-wasm.
+    withTelegramOk(fetchSpy, async (input, init) => {
+      const url = String(input);
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://api.test.local")) {
+        if (
+          url.endsWith("/rewards-wallet") &&
+          (init?.method ?? "GET") === "POST"
+        ) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as {
+            rewardsWallet?: string;
+          };
+          return new Response(
+            JSON.stringify({
+              data: { rewardsWallet: (body.rewardsWallet ?? "").toLowerCase() },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes(`/api/v1/tokens/${TOKEN}`)) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                address: TOKEN,
+                name: "Test Token",
+                ticker: "ALPHA",
+                priceUsd: 0.05,
+                mcapUsd: 50_000,
+                change24h: 12.5,
+                ltChange24h: null,
+                volume24hUsd: 1000,
+                curveFilled: 0.42,
+                status: "curve",
+                ltPair: null,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.includes(`/api/v1/trades/${TOKEN}`)) {
+          return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        }
+        if (url.includes(`/api/v1/chart/${TOKEN}`)) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                candles: [],
+                currentRatio: 1,
+                currentExchangeRate: 1,
+              },
+            }),
+            { status: 200 },
+          );
+        }
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    await h.run(startUpdate(7, "private", { param: `track_${TOKEN}` }));
+    const sent = sentBodies();
+    expect(sent).toHaveLength(1);
+    const text = sent[0]!.text;
+    expect(text).toContain("Test Token");
+    expect(text).toContain("Recent trades");
+    // Welcome message would carry the address as a tap-to-copy block.
+    expect(text).not.toContain("Welcome to");
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; url?: string }[][] }
+      | undefined;
+    const labels =
+      markup?.inline_keyboard.flat().map((b) => b.text) ?? [];
+    expect(labels.some((t) => t.includes("Buy"))).toBe(true);
+    expect(labels.some((t) => t.includes("Sell"))).toBe(true);
+    expect(labels).toContain("Open on Alt Fun");
   });
 
   it("falls back to the welcome screen for a malformed action payload", async () => {

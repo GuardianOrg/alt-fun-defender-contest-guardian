@@ -94,6 +94,27 @@ export const getWorkflowMessages = (
 ): WorkflowMessageRef[] => ensureArray(session).map((ref) => ({ ...ref }));
 
 /**
+ * Detach a single (chatId, messageId) entry from the stack so the next
+ * `clearWorkflowMessages` sweep leaves it alone. The Tx-status flow
+ * edits an originating bubble (the buy card or staging confirm card) in
+ * place to surface the live tx progress; the receipt the user sees at
+ * the end is that same bubble, so the bubble must survive the
+ * post-trade sweep that would otherwise delete every tracked transient.
+ * No-op when the entry isn't on the stack — idempotent so retries and
+ * double-removals don't crash.
+ */
+export const removeWorkflowMessage = (
+  session: WorkflowStackSession,
+  chatId: number,
+  messageId: number,
+): void => {
+  const stack = ensureArray(session);
+  session.workflowMessages = stack.filter(
+    (ref) => !(ref.chatId === chatId && ref.messageId === messageId),
+  );
+};
+
+/**
  * Delete every tracked transient message *for the given chat* and drop
  * those entries from the stack. Entries for other chats are preserved
  * — a concurrent flow in chat B does not get its ids swept by a clear

@@ -171,23 +171,6 @@ export const feeAccrual = onchainTable("fee_accrual", (t) => ({
   creatorIdx: index().on(table.creator),
 }));
 
-/** HyperSwap V2 Pair swaps (post-graduation DEX trades). */
-export const swap = onchainTable("swap", (t) => ({
-  id: t.text().primaryKey(),
-  pairAddress: t.hex().notNull(),
-  sender: t.hex().notNull(),
-  to: t.hex().notNull(),
-  amount0In: t.bigint().notNull(),
-  amount1In: t.bigint().notNull(),
-  amount0Out: t.bigint().notNull(),
-  amount1Out: t.bigint().notNull(),
-  blockNumber: t.bigint().notNull(),
-  timestamp: t.bigint().notNull(),
-}), (table) => ({
-  pairIdx: index().on(table.pairAddress),
-  timestampIdx: index().on(table.timestamp),
-}));
-
 /** Latest HyperSwap V2 Pair reserves (updated on Sync events). */
 export const pairReserve = onchainTable("pair_reserve", (t) => ({
   pairAddress: t.hex().primaryKey(),

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
@@ -1444,6 +1444,232 @@ describe("GET /tokens/:address — hidden-token holder bypass (issue #712)", () 
     expect(cacheControl).toMatch(/no-store/i);
     expect(cacheControl).toMatch(/private/i);
     expect(cacheControl).not.toMatch(/s-maxage=[1-9]/);
+  });
+});
+
+describe("GET /tokens/:address — wallet-aware edge cache (issue #930)", () => {
+  // Fresh in-memory `caches.default` per test. The module-level
+  // `vi.stubGlobal("caches", undefined)` above keeps the rest of the
+  // suite cache-free; this block re-installs a fake right before each
+  // test and tears it down after, mirroring the pattern from
+  // `edge-cache.test.ts`. The store is keyed on `req.url` (matching
+  // Cloudflare's URL-keyed Cache API contract closely enough for the
+  // route's `match` / `put` calls).
+  let cacheMatch: ReturnType<typeof vi.fn>;
+  let cachePut: ReturnType<typeof vi.fn>;
+  let cacheStore: Map<string, Response>;
+
+  function installFakeCache() {
+    cacheStore = new Map<string, Response>();
+    cacheMatch = vi.fn(async (req: Request) => {
+      const stored = cacheStore.get(req.url);
+      return stored ? stored.clone() : undefined;
+    });
+    cachePut = vi.fn(async (req: Request, res: Response) => {
+      cacheStore.set(req.url, res.clone());
+    });
+    (globalThis as { caches?: { default: unknown } }).caches = {
+      default: { match: cacheMatch, put: cachePut },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+    installFakeCache();
+  });
+
+  afterEach(() => {
+    // Restore the suite-wide `caches = undefined` stub so subsequent
+    // describes (which don't expect a cache) aren't poisoned.
+    (globalThis as { caches?: unknown }).caches = undefined;
+  });
+
+  // Acceptance (a): wallet-bearing request for a public token reads
+  // cache when warm and writes it when cold.
+  it("caches a wallet-bearing public-token response on cold miss and serves it on warm hit", async () => {
+    // Cold: public lens hits, hidden bypass branch never runs, response
+    // is admitted to the cache under the wallet-stripped URL.
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const cold = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(cold.status).toBe(200);
+    expect(cold.headers.get("Cache-Control")).toMatch(/s-maxage=\d+/);
+    // The cache write happens against the wallet-stripped URL — the
+    // canonical "public" slot for this token.
+    expect(cachePut).toHaveBeenCalledTimes(1);
+    const [putReq] = cachePut.mock.calls[0]!;
+    expect((putReq as Request).url).not.toContain("wallet=");
+    // Hono preserves the request URL casing, so the cache key carries
+    // the checksum-cased address verbatim from `c.req.url`. We just
+    // assert the address portion is present (case-insensitive).
+    expect((putReq as Request).url.toLowerCase()).toContain(
+      VALID_ADDRESS.toLowerCase(),
+    );
+
+    // Warm: same wallet-bearing URL, cache short-circuits the route
+    // before any DB / indexer / RPC work runs. We DON'T queue a second
+    // `mockSelectWhere` — if the route reached the DB the test would
+    // fail with a TypeError on the unmocked select chain.
+    const warm = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(warm.status).toBe(200);
+    const warmBody = (await warm.json()) as {
+      status: string;
+      data: { address: string };
+    };
+    expect(warmBody.status).toBe("success");
+    expect(warmBody.data.address).toBe(VALID_ADDRESS);
+    expect(mockReadContract).not.toHaveBeenCalled();
+  });
+
+  // Acceptance (b): anonymous request shares the same cache entry as
+  // the wallet-bearing request for a public token.
+  it("shares one cache slot between wallet-bearing and anonymous requests for the same public token", async () => {
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    // Prime: wallet-bearing cold request writes one entry under the
+    // wallet-stripped key.
+    const primer = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+    expect(primer.status).toBe(200);
+    expect(cacheStore.size).toBe(1);
+
+    // Hit: anonymous request resolves the same key. Again, NO DB mock
+    // is queued — if the route slipped past the cache it would throw.
+    const anon = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+    expect(anon.status).toBe(200);
+    const anonBody = (await anon.json()) as { data: { address: string } };
+    expect(anonBody.data.address).toBe(VALID_ADDRESS);
+
+    // And the symmetric direction: priming with an anonymous request
+    // and reading back through a wallet-bearing one MUST also share
+    // the slot — fresh cache, primed anonymously this time.
+    cacheStore.clear();
+    cacheMatch.mockClear();
+    cachePut.mockClear();
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([makeDbToken()]),
+    });
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const anonPrimer = await app.request(
+      `/tokens/${VALID_ADDRESS}`,
+      {},
+      makeEnv(),
+    );
+    expect(anonPrimer.status).toBe(200);
+    expect(cacheStore.size).toBe(1);
+
+    const walletHit = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+    expect(walletHit.status).toBe(200);
+  });
+
+  // Acceptance (c): hidden-token holder bypass response is NOT cached.
+  it("never caches a hidden-token holder-bypass response", async () => {
+    // Public lens misses, hidden lens hits, on-chain probe confirms
+    // ownership → bypass fires. The body is per-wallet and MUST stay
+    // out of `caches.default`.
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([]),
+    });
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([makeDbToken({ isHidden: true })]),
+    });
+    mockReadContract.mockResolvedValueOnce(1_000_000_000_000_000_000n);
+    mockPonderQuery.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { isHidden: boolean } };
+    expect(body.data.isHidden).toBe(true);
+
+    // The cache lookup happened (we still want to short-circuit if the
+    // *public* row of this address gets cached later), but the write
+    // for THIS response must not have run.
+    expect(cacheMatch).toHaveBeenCalledTimes(1);
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(cacheStore.size).toBe(0);
+
+    const cacheControl = res.headers.get("Cache-Control") ?? "";
+    expect(cacheControl).toMatch(/no-store/i);
+    expect(cacheControl).toMatch(/private/i);
+    expect(cacheControl).not.toMatch(/s-maxage=[1-9]/);
+  });
+
+  // Acceptance (d): wallet-bearing request for a hidden-not-held token
+  // returns 404 and is NOT cached.
+  it("returns 404 without caching when a wallet doesn't hold the hidden token", async () => {
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([]),
+    });
+    mockSelectWhere.mockReturnValueOnce({
+      limit: vi.fn().mockResolvedValue([makeDbToken({ isHidden: true })]),
+    });
+    // `balanceOf` says zero → ownership not proven → 404.
+    mockReadContract.mockResolvedValueOnce(0n);
+
+    const app = createApp();
+    const res = await app.request(
+      `/tokens/${VALID_ADDRESS}?wallet=${VALID_CREATOR}`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(404);
+    // Caching a 404 here would let an attacker poison the public slot
+    // for a token that's about to launch under that address. We ALWAYS
+    // skip `cache.put` for the 404 path, regardless of how the lookup
+    // got there.
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(cacheStore.size).toBe(0);
+  });
+
+  // Defense-in-depth: even with NO wallet supplied, a public-lens 404
+  // must not poison the cache. (Pre-#930 this was already the
+  // behaviour; the new code path keeps it that way because
+  // `cache.put` only runs after a successful row lookup.)
+  it("does not cache a public-lens 404 (no wallet supplied)", async () => {
+    mockSelectWhere.mockReturnValue({
+      limit: vi.fn().mockResolvedValue([]),
+    });
+
+    const app = createApp();
+    const res = await app.request(`/tokens/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(404);
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(cacheStore.size).toBe(0);
   });
 });
 

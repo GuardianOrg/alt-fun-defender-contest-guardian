@@ -15,8 +15,7 @@ Ponder EVM indexer. Indexes on-chain events from Alt Fun contracts and HyperSwap
 | `Sell` | Zap — decrements `token.organicUsdcRaised` (floored at 0); bumps `token.volumeUsd`, `globalStats.totalVolumeUsd`, the matching `hourlyVolume` bucket; reduces the seller's `walletPosition` cost basis proportionally |
 | `Referred` | Zap |
 | `Transfer` | Token (factory-registered via `TokenLaunched`) |
-| `Swap` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
-| `Sync` | HyperSwap V2 Pair (graduated pairs only, factory-registered) |
+| `Sync` | HyperSwap V2 Pair (graduated pairs only, factory-registered) — see *One handler per factory source* below for why `Swap` is deliberately not subscribed |
 
 ### Platform-wide counters (`globalStats`, `hourlyVolume`, `walletPosition`)
 
@@ -64,13 +63,40 @@ See `apps/api/AGENTS.md` and `apps/api/src/lib/token-enrich.ts` for the conversi
 
 **Token clones** are deployed when a token launches. The `Token` contract source uses `factory` config pointing at the Bonding contract's `TokenLaunched` event. When `TokenLaunched` fires, Ponder extracts the `token` parameter and begins indexing `Transfer` events. The handler in `src/bonding.ts` writes to the `tokenBalance` table.
 
-**HyperSwap V2 pairs** are created when a token graduates. The `HyperSwapPair` contract source uses `factory` config pointing at the Bonding contract's `TokenGraduated` event. When `TokenGraduated` fires, Ponder extracts the `pairAddress` parameter and begins indexing `Swap` and `Sync` events. Handlers in `src/hyperswap.ts` write to the `swap` and `pairReserve` tables.
+**HyperSwap V2 pairs** are created when a token graduates. The `HyperSwapPair` contract source uses `factory` config pointing at the Bonding contract's `TokenGraduated` event. When `TokenGraduated` fires, Ponder extracts the `pairAddress` parameter and begins indexing `Sync` events (only — see *One handler per factory source* below for why `Swap` is deliberately not subscribed). The handler in `src/hyperswap.ts` writes to the `pairReserve` table and mirrors live HyperSwap reserves into `token.curveSupply` / `token.ltReserve`.
 
 ABIs imported from `@launchpad/shared`. Full indexing spec in `docs/backend-scope.md`.
 
+#### One handler per factory source (Ponder 0.16 real-time bug workaround)
+
+Every Ponder source whose `address` is a `factory(...)` (currently `Token` and `HyperSwapPair`) **must register exactly one `ponder.on` handler**. Adding a second event handler on a factory source silently breaks post-deploy indexing for every newly-discovered child contract — they never get persisted to `ponder_sync.factory_addresses` and any fresh deploy (per-deploy schema, see PR #905) loses access to them entirely.
+
+Root cause: in `node_modules/ponder/dist/esm/sync-realtime/index.js`, the realtime sync builds its `factories` array by pushing `eventCallback.filter.address` for every event callback, with no dedup. Two events on the same factory source share the same `address` object reference (set once per source at config-build time), so the array contains the same factory object twice. The `filterBlockEventData` loop iterates that array and on the second pass for the same factory hits its own self-deletion branch:
+
+```js
+for (const factory of factories) {
+  const factoryId = factory.id;
+  for (const address of blockChildAddresses.get(factory)!) {
+    if (childAddresses.get(factoryId)!.has(address) === false) {
+      // first pass: NEW → add to in-memory map, keep in blockChildAddresses
+      childAddresses.get(factoryId)!.set(address, hexToNumber(block.number));
+    } else {
+      // second pass: SAME factory.id → already in map → DELETE from blockChildAddresses
+      blockChildAddresses.get(factory)!.delete(address);
+    }
+  }
+}
+```
+
+End state: the per-block `childAddresses` map is empty for the duplicated factory. On finalization the empty map is written → no `factory_addresses` row → `ponder_sync.intervals` advances anyway → next deploy's backfill `getRequiredIntervals` thinks the range is fully synced and skips re-extraction → the child address stays unknown forever.
+
+Historical sync dedupes by `factory.id` (`sync-historical/index.js` ~L240, `factoryIntervalsById = new Map(); ...`); real-time does not — the asymmetry was the bug. `apps/indexer/test/single-handler-per-factory.test.ts` locks the invariant by enumerating every registered handler and asserting each name in `FACTORY_SOURCE_NAMES` has exactly one. Add new factory sources to that list when you add them to `ponder.config.ts`.
+
+If you genuinely need per-event data on a factory source (e.g. per-`Swap` data), derive it from the router-level events (`Zap:Buy` / `Zap:Sell` for our case) or compute it from `Sync` reserve deltas — do not subscribe a second event on the factory source.
+
 #### Source factory events from the typed ABI, never `parseAbiItem` strings
 
-Factory subscriptions in `ponder.config.ts` resolve their `event` field with `getAbiItem({ abi: BondingAbi, name: "..." })` rather than the more concise `parseAbiItem("event Foo(address indexed bar)")`. This is deliberate — the topic0 hash Ponder uses to filter logs is derived from the AbiEvent's parameter list, and a single drift between the hand-rolled string and the real Solidity event silently produces the **wrong topic0**. The factory log filter then matches zero logs, the dynamically-spawned source's handlers never fire, and downstream tables (`tokenBalance` for `Token`, `swap` / `pairReserve` for `HyperSwapPair`) silently stay empty with no error surfaced anywhere — the regression behind issue #418, where one extra trailing `uint256 index` parameter on the `TokenLaunched` signature broke `/holders`, `/balances`, `/portfolio`, and the `creatorHoldingPct` security field for every token in production. `apps/indexer/test/ponder-config.test.ts` locks this contract by asserting the configured factory event's topic0 equals the real `BondingAbi` event's topic0.
+Factory subscriptions in `ponder.config.ts` resolve their `event` field with `getAbiItem({ abi: BondingAbi, name: "..." })` rather than the more concise `parseAbiItem("event Foo(address indexed bar)")`. This is deliberate — the topic0 hash Ponder uses to filter logs is derived from the AbiEvent's parameter list, and a single drift between the hand-rolled string and the real Solidity event silently produces the **wrong topic0**. The factory log filter then matches zero logs, the dynamically-spawned source's handlers never fire, and downstream tables (`tokenBalance` for `Token`, `pairReserve` for `HyperSwapPair`) silently stay empty with no error surfaced anywhere — the regression behind issue #418, where one extra trailing `uint256 index` parameter on the `TokenLaunched` signature broke `/holders`, `/balances`, `/portfolio`, and the `creatorHoldingPct` security field for every token in production. `apps/indexer/test/ponder-config.test.ts` locks this contract by asserting the configured factory event's topic0 equals the real `BondingAbi` event's topic0.
 
 ### Post-graduation reserve mirror (`HyperSwapPair:Sync`)
 

@@ -241,7 +241,7 @@ describe("/referral command", () => {
     );
   });
 
-  it("calls the bot-namespaced referrals endpoint with the active wallet", async () => {
+  it("calls the bot-namespaced referrals endpoint with the lowercased identity wallet", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
@@ -253,8 +253,13 @@ describe("/referral command", () => {
       (c) => String(c[0]).startsWith(API_BASE_URL),
     );
     expect(apiCall).toBeDefined();
+    // The bot lowercases before hitting the api so a future caller
+    // can't end up with two KV records (mixed-case vs lowercase) for
+    // the same wallet — the api `readRewardsWallet` keys on
+    // `.toLowerCase()` so a mixed-case URL would write/read different
+    // entries than a downstream lookup.
     expect(String(apiCall![0])).toBe(
-      `${API_BASE_URL}/api/v1/bot/referrals/${wallet.address}`,
+      `${API_BASE_URL}/api/v1/bot/referrals/${wallet.address.toLowerCase()}`,
     );
   });
 
@@ -437,6 +442,115 @@ describe("/referral command", () => {
       c.url.includes("/editMessageText"),
     );
     expect(edit!.body.text).toMatch(/https:\/\/t\.me\/[A-Za-z0-9_]+\?start=ref_7/);
+  });
+
+  /**
+   * Capture every URL hit on the api host so the stable-identity
+   * assertions below can prove which wallet was used for the
+   * referrals lookup — independent of any other test fixture.
+   */
+  const mockApiPerWallet = (
+    fetchSpy: ReturnType<typeof vi.spyOn>,
+    perWallet: Record<string, string>,
+  ): { urls: string[] } => {
+    const urls: string[] = [];
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      urls.push(url);
+      const match = /\/api\/v1\/bot\/referrals\/(0x[0-9a-fA-F]{40})$/.exec(
+        url,
+      );
+      if (!match) {
+        throw new Error(`Unexpected fetch: ${url}`);
+      }
+      const wallet = match[1]!.toLowerCase();
+      const rewards = (perWallet[wallet] ?? wallet).toLowerCase();
+      return new Response(
+        JSON.stringify({
+          data: {
+            rewardsWallet: rewards,
+            referredCount: 0,
+            lifetimeEarnedUsdc: "0",
+            badPaymentCount: 0,
+            attributionLossCount: 0,
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    return { urls };
+  };
+
+  it("keys stats by the user's referral-identity wallet, not the currently-active one", async () => {
+    // The user has TWO wallets and has flipped `setActive` after
+    // onboarding. The /referral surface must still query the API for
+    // their original (identity) wallet — otherwise referral stats and
+    // rewards-wallet config would fork every time the user switches
+    // active, leaking the appearance of multiple disjoint referrer
+    // identities to the same human.
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const walletA = await wm.createWallet(7, "main");
+    const walletB = await wm.createWallet(7, "extra");
+    await wm.setActive(7, walletB.id);
+    // Profile pins identity to wallet A — this is what /start writes
+    // on first-run after the fix lands.
+    await h.kv.put(
+      "profile:7",
+      JSON.stringify({
+        createdAt: Date.now(),
+        referrer: null,
+        referralIdentityWallet: walletA.address.toLowerCase(),
+      }),
+    );
+
+    const { urls } = mockApiPerWallet(fetchSpy, {});
+
+    await h.run(referralUpdate(7));
+
+    const referralCalls = urls.filter((u) =>
+      u.startsWith(`${API_BASE_URL}/api/v1/bot/referrals/`),
+    );
+    expect(referralCalls).toHaveLength(1);
+    expect(referralCalls[0]).toBe(
+      `${API_BASE_URL}/api/v1/bot/referrals/${walletA.address.toLowerCase()}`,
+    );
+    expect(referralCalls[0]).not.toContain(walletB.address.toLowerCase());
+  });
+
+  it("backfills the identity wallet onto a legacy profile that lacks the field", async () => {
+    // Profiles written before this feature carry no
+    // `referralIdentityWallet`. The helper must fall back to the
+    // user's current active wallet AND persist that choice so
+    // subsequent flips of `setActive` don't reshuffle the identity.
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const walletA = await wm.createWallet(7, "main");
+    await h.kv.put(
+      "profile:7",
+      JSON.stringify({
+        createdAt: 1_700_000_000_000,
+        referrer: null,
+      }),
+    );
+
+    mockApi(fetchSpy, walletA.address);
+
+    await h.run(referralUpdate(7));
+
+    const stored = (await h.kv.get("profile:7")) as string | null;
+    expect(stored).not.toBeNull();
+    const parsed = JSON.parse(stored!) as {
+      referralIdentityWallet?: string;
+      referrer: string | null;
+      createdAt: number;
+    };
+    expect(parsed.referralIdentityWallet?.toLowerCase()).toBe(
+      walletA.address.toLowerCase(),
+    );
+    // The backfill must not clobber existing fields.
+    expect(parsed.referrer).toBeNull();
+    expect(parsed.createdAt).toBe(1_700_000_000_000);
   });
 });
 
