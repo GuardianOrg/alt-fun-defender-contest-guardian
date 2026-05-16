@@ -162,10 +162,28 @@ const finaliseBuyCard = async (
 export const showBuyCardForAddress = async (
   ctx: AppContext,
   address: string,
-  options: { onPlaceholderReady?: () => void } = {},
+  options: {
+    onPlaceholderReady?: () => void;
+    /**
+     * Skip the prior-buy-card reuse path and always ship the placeholder
+     * as a fresh message at the bottom of the chat. Used by wizard
+     * intercepts (`tryAddressBuyIntercept`): the prior buy card stored
+     * in `lastBuyCardMessageByChat` is often scrolled far up the chat
+     * history (it came from a previous standalone paste, not from a
+     * paste inside the current wizard's neighbourhood), and silently
+     * editing it strands the user staring at deleted prompt + paste
+     * with no visible response near where they are looking. The bare-
+     * text intercept keeps reuse on by default — consecutive bare
+     * pastes happen near each other and the morph-in-place UX is the
+     * whole point of the reuse path.
+     */
+    forceFreshPlacement?: boolean;
+  } = {},
 ): Promise<void> => {
   const loadingText = buildLoadingText(address);
-  const reusedId = await reusePreviousBuyCardForLoading(ctx, loadingText);
+  const reusedId = options.forceFreshPlacement
+    ? null
+    : await reusePreviousBuyCardForLoading(ctx, loadingText);
   // When we reuse the prior card slot, synthesise a Message stub for
   // `finaliseBuyCard` — only `message_id` is read, and the in-place edit
   // path keeps the same id alive across the fetch.
