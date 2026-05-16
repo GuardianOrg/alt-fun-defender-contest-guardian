@@ -58,7 +58,14 @@ export const MAX_CANDLES = 500;
 // loads everything below so users can zoom/scroll left without re-fetching.
 // Caps the LT-rate `generate_series` row count at `MAX_HISTORY_CANDLES × 3`
 // (see `sampleSec` below) regardless of how far back the token launched.
-export const MAX_HISTORY_CANDLES = 1_500;
+//
+// Sized at 4× the largest viewport (`INTERVAL_MODE_BAR_COUNT = 120`, see
+// `apps/web/src/services/api.ts`) so users can scroll/zoom left over a
+// generous margin without re-fetching, while keeping the direct-Postgres
+// snapshot scan and the LT-rate `generate_series` row count bounded. Was
+// 1500 in the GraphQL-paginated era (PR #951 cutover) where the cost was
+// `MAX_PAGES`-bounded rather than row-count proportional. See issue #977.
+export const MAX_HISTORY_CANDLES = 500;
 
 export interface RatioSnapshot {
   timestamp: number;
@@ -405,7 +412,7 @@ chart.get("/:address", async (c) => {
   // without flooding the BounceTech `generate_series` query. `Math.ceil`
   // (not `floor`) so 5s candles use sampleSec=2 (3 samples per candle) — a
   // floor here would yield sampleSec=1 and double the row count from
-  // `MAX_HISTORY_CANDLES × 3` (~4500) to `× 5` (~7500). Floor of 1s preserves
+  // `MAX_HISTORY_CANDLES × 3` (~1500) to `× 5` (~2500). Floor of 1s preserves
   // monotonic step size for the 5s case (otherwise ceil(5/3) is already 2).
   const sampleSec = Math.max(1, Math.ceil(candleSec / 3));
 

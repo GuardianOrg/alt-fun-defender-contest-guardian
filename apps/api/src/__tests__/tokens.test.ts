@@ -120,9 +120,27 @@ vi.mock("../lib/lt-availability.js", () => ({
   _resetLtAvailabilityCache: vi.fn(),
 }));
 
+// Stub the LT-directory mirror reader. The route handlers now read
+// through `lt-directory-reads`:
+//   - `registerTokenFromChain` → `readLtByAddress`
+//   - `market-data` (the detail-page enrichment fan-out) →
+//     `readLiveLtRates` via `fetchLiveLtRates`
+// Each test seeds the relevant mock — `mockBounceTechLtList(...)` for
+// the registration path, `mockBounceLtResponse({ ... })` for the
+// detail-page LT rate. The legacy `fetch` mock survives only for the
+// bouncetech historical-rates path that still goes through HTTP.
+const mockReadLtByAddress = vi.fn();
+const mockReadLiveLtRates = vi.fn();
+vi.mock("../lib/lt-directory-reads.js", () => ({
+  readLtByAddress: mockReadLtByAddress,
+  readLtDirectory: vi.fn(),
+  readSupportedLtDirectory: vi.fn(),
+  readLiveLtRates: mockReadLiveLtRates,
+  readDirectoryLastUpdatedAt: vi.fn(),
+}));
+
 // Import route after mocks
 const { default: tokensRoute } = await import("../routes/tokens/index.js");
-const { _resetLtCache } = await import("../lib/token-registration.js");
 const { _resetLiveLtRatesCache } = await import("../lib/market-data.js");
 
 function createApp() {
@@ -192,8 +210,10 @@ function makeOnChainInfo(overrides: OnChainInfoOverrides = {}) {
   };
 }
 
-// BounceTech /leveraged-tokens response. Returned directly by the global
-// fetch mock to drive `resolveLtMeta` in `token-registration.ts`.
+// Seed the `readLtByAddress` mock with the row that `resolveLtMeta`
+// expects to find for `LT_ADDR`. The legacy name (`mockBounceTechLtList`)
+// is preserved so the per-test setup at each call site keeps reading
+// naturally — what changed is the data source (DB mirror, not HTTP).
 function mockBounceTechLtList(entries: Array<{
   address: string;
   isLong?: boolean;
@@ -230,22 +250,20 @@ function mockBounceTechLtList(entries: Array<{
     totalSupply: "0",
     totalAssets: "0",
   }));
-  mockFetch.mockImplementationOnce(async () => ({
-    ok: true,
-    json: async () => ({ data: merged }),
-  }));
+  mockReadLtByAddress.mockImplementationOnce(
+    async (_databaseUrl: string, ltAddress: string) => {
+      const target = ltAddress.toLowerCase();
+      return merged.find((d) => d.address.toLowerCase() === target) ?? null;
+    },
+  );
 }
 
 describe("POST /tokens — address-only registration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The token-registration helper caches the BounceTech LT directory at
-    // module scope (60s TTL). Without an explicit reset, the first test to
-    // populate the cache sticks for the rest of the suite, leaving any
-    // subsequent `mockBounceTechLtList(...)` queue unconsumed and making
-    // assertions order-dependent.
-    _resetLtCache();
-    // Same story for the live LT-rate cache (`fetchLiveLtRates`, 5s TTL).
+    // Live LT-rate cache (`fetchLiveLtRates`, 5s TTL) still exists per
+    // isolate — reset between cases so the first test to populate it
+    // doesn't make later tests order-dependent.
     _resetLiveLtRatesCache();
     // Default: row doesn't exist yet, registration succeeds.
     mockSelectWhere.mockReturnValue({ limit: vi.fn().mockResolvedValue([]) });
@@ -797,15 +815,11 @@ function makeDbToken(overrides: Record<string, unknown> = {}) {
 }
 
 function mockBounceLtResponse(rates: Record<string, string>) {
-  mockFetch.mockImplementation(async () => ({
-    ok: true,
-    json: async () => ({
-      data: Object.entries(rates).map(([address, exchangeRate]) => ({
-        address,
-        exchangeRate,
-      })),
-    }),
-  }));
+  const map = new Map<string, number>();
+  for (const [address, exchangeRate] of Object.entries(rates)) {
+    map.set(address.toLowerCase(), Number(BigInt(exchangeRate)) / 1e18);
+  }
+  mockReadLiveLtRates.mockResolvedValue(map);
 }
 
 describe("GET /tokens/:address — token lookup with Ponder", () => {

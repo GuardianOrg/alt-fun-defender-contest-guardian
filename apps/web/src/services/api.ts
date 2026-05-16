@@ -1,5 +1,4 @@
 import {
-  BOUNCE_INDEXING_API,
   type AdminCheckResponse,
   type AdminSessionAuth,
   type AdminTokenActionResponse,
@@ -722,17 +721,15 @@ export function fetchHolders(
   return apiFetch(`/api/v1/holders/${address}?limit=${limit}`);
 }
 
-// BounceTech Indexing API helpers
-
-async function bounceTechFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BOUNCE_INDEXING_API}${path}`, init);
-  if (!res.ok) {
-    throw new Error(`BounceTech API error: ${res.status} ${res.statusText}`);
-  }
-  return (await res.json()) as T;
-}
+// LT directory — sourced from the Alt Fun API's `lt_directory` mirror
+// (kept fresh by the on-chain `LtDirectoryPoller`). The route wraps the
+// directory in `formatSuccess({ data: [...] })`, which `apiFetch` unwraps
+// the outer envelope from; the `.data` access below peels off the inner
+// `{ data: [...] }` shape the route emits.
 
 export async function fetchLeveragedTokens(): Promise<LiveLeveragedToken[]> {
-  const res = await bounceTechFetch<{ data: LiveLeveragedToken[] }>("/leveraged-tokens");
+  const res = await apiFetch<{ data: LiveLeveragedToken[] }>(
+    "/api/v1/assets/leveraged-tokens",
+  );
   return res.data;
 }

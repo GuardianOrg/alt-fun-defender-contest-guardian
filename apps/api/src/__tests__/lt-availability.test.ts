@@ -1,13 +1,26 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { LiveLeveragedToken } from "@launchpad/shared";
 
-import {
+// Mock the `lt_directory` mirror reader so the default-fetcher tests
+// below can pin the DB-backed code path without standing up Drizzle.
+const mockReadSupportedLtDirectory = vi.fn<
+  (databaseUrl: string) => Promise<LiveLeveragedToken[] | null>
+>();
+vi.mock("../lib/lt-directory-reads.js", () => ({
+  readLtDirectory: vi.fn(),
+  readSupportedLtDirectory: mockReadSupportedLtDirectory,
+  readLiveLtRates: vi.fn(),
+  readLtByAddress: vi.fn(),
+  readDirectoryLastUpdatedAt: vi.fn(),
+}));
+
+const {
   _resetLtAvailabilityCache,
   getCachedLtAvailability,
   getLiveLtAvailability,
   refreshLiveLtAvailability,
-} from "../lib/lt-availability.js";
+} = await import("../lib/lt-availability.js");
 
 function makeLT(overrides: Partial<LiveLeveragedToken>): LiveLeveragedToken {
   return {
@@ -25,6 +38,10 @@ function makeLT(overrides: Partial<LiveLeveragedToken>): LiveLeveragedToken {
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  mockReadSupportedLtDirectory.mockReset();
+});
 
 afterEach(() => {
   _resetLtAvailabilityCache();
@@ -431,5 +448,87 @@ describe("refreshLiveLtAvailability", () => {
     // route handlers that they should fail-open (not filter).
     expect(result.fresh).toBe(false);
     expect(result.liveSymbols.size).toBe(0);
+  });
+});
+
+describe("default directory fetcher (lt_directory mirror)", () => {
+  it("reads from `readSupportedLtDirectory` when no override is supplied", async () => {
+    mockReadSupportedLtDirectory.mockResolvedValueOnce([
+      makeLT({
+        address: "0xffff000000000000000000000000000000000010",
+        symbol: "MIRROR2L",
+        targetAsset: "HYPE",
+        targetLeverage: 2,
+        isLong: true,
+      }),
+    ]);
+
+    const result = await getLiveLtAvailability({
+      databaseUrl: "postgres://test",
+      checkSymbolLive: async () => true,
+    });
+
+    expect(mockReadSupportedLtDirectory).toHaveBeenCalledTimes(1);
+    expect(mockReadSupportedLtDirectory).toHaveBeenCalledWith("postgres://test");
+    expect(result.liveSymbols.has("MIRROR2L")).toBe(true);
+  });
+
+  it("throws when the mirror is degraded (read returns null) so caller fails open", async () => {
+    mockReadSupportedLtDirectory.mockResolvedValueOnce(null);
+
+    // `refreshLiveLtAvailability` swallows the throw and falls back to
+    // the cached snapshot (empty here) — `fresh: false` is the signal
+    // route handlers use to fail open.
+    const result = await refreshLiveLtAvailability({
+      databaseUrl: "postgres://test",
+    });
+    expect(result.fresh).toBe(false);
+    expect(result.liveSymbols.size).toBe(0);
+  });
+
+  it("throws when neither `databaseUrl` nor `fetchSupportedLts` is provided", async () => {
+    // Programmer error — every production call site has
+    // `c.env.DATABASE_URL` available; tests either pass it explicitly
+    // or override `fetchSupportedLts`.
+    await expect(getLiveLtAvailability()).rejects.toThrow(/databaseUrl/);
+  });
+
+  it("does NOT cache an empty mirror snapshot as fresh on first boot", async () => {
+    // Regression pin: an empty `lt_directory` mirror (cold start, poller
+    // hasn't backfilled yet) used to be stored in the module cache with
+    // `expiresAt: Date.now() + CACHE_TTL_MS` and served as "fresh: true"
+    // for the next 5 minutes — masking the poller backfill. The fix
+    // returns a transient empty snapshot WITHOUT writing it to the
+    // module cache so the very next call re-attempts the refresh.
+    const fetchSupportedLts = vi
+      .fn<() => Promise<LiveLeveragedToken[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeLT({
+          address: "0xffff000000000000000000000000000000000020",
+          symbol: "LATE2L",
+          targetAsset: "HYPE",
+          targetLeverage: 2,
+          isLong: true,
+        }),
+      ]);
+
+    const first = await getLiveLtAvailability({
+      fetchSupportedLts,
+      checkSymbolLive: async () => true,
+    });
+    expect(first.liveSymbols.size).toBe(0);
+    // The cached view must also reflect "no fresh snapshot yet" so
+    // route handlers fail open instead of filtering everything out.
+    expect(getCachedLtAvailability().fresh).toBe(false);
+
+    // Second call (e.g. ~30s later when the poller has backfilled) must
+    // re-attempt the refresh, not serve the stored empty snapshot.
+    const second = await getLiveLtAvailability({
+      fetchSupportedLts,
+      checkSymbolLive: async () => true,
+    });
+    expect(fetchSupportedLts).toHaveBeenCalledTimes(2);
+    expect(second.liveSymbols.has("LATE2L")).toBe(true);
   });
 });

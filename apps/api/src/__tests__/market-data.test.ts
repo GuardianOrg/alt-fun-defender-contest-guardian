@@ -33,6 +33,18 @@ vi.mock("@neondatabase/serverless", () => ({
   neon: () => mockNeonQuery,
 }));
 
+// `fetchLiveLtRates` now reads through `readLiveLtRates` from the
+// `lt_directory` mirror. Mock it so the per-test rate seeding via
+// `mockBounceLtResponse({ ... })` still drives the price/mcap math.
+const mockReadLiveLtRates = vi.fn();
+vi.mock("../lib/lt-directory-reads.js", () => ({
+  readLtDirectory: vi.fn(),
+  readSupportedLtDirectory: vi.fn(),
+  readLiveLtRates: mockReadLiveLtRates,
+  readLtByAddress: vi.fn(),
+  readDirectoryLastUpdatedAt: vi.fn(),
+}));
+
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 vi.stubGlobal("caches", undefined);
@@ -66,15 +78,11 @@ const TOKEN_A = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045";
 const LT_A = "0xb88339CB7199b77E23DB6E890353E22632Ba630f";
 
 function mockBounceLtResponse(rates: Record<string, string>) {
-  mockFetch.mockImplementation(async () => ({
-    ok: true,
-    json: async () => ({
-      data: Object.entries(rates).map(([address, exchangeRate]) => ({
-        address,
-        exchangeRate,
-      })),
-    }),
-  }));
+  const map = new Map<string, number>();
+  for (const [address, exchangeRate] of Object.entries(rates)) {
+    map.set(address.toLowerCase(), Number(BigInt(exchangeRate)) / 1e18);
+  }
+  mockReadLiveLtRates.mockResolvedValue(map);
 }
 
 function snapshotMapForCutoff(addr: string, supply: string, reserve: string) {
@@ -153,7 +161,7 @@ describe("POST /market-data { addresses } — input validation", () => {
     const body = (await res.json()) as { data: Record<string, unknown> };
     expect(body.data).toEqual({});
     expect(mockFetchTokensOnchainByAddresses).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockReadLiveLtRates).not.toHaveBeenCalled();
   });
 
   it("returns 400 when an entry isn't a valid EVM address", async () => {
@@ -192,7 +200,7 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
     _resetLiveLtRatesCache();
   });
 
-  it("returns 503 when BounceTech API (live LT rates) is unreachable", async () => {
+  it("returns 503 when the lt_directory mirror (live LT rates) is unreachable", async () => {
     mockFetchTokensOnchainByAddresses.mockResolvedValueOnce([
       {
         address: TOKEN_A,
@@ -213,13 +221,13 @@ describe("POST /market-data { addresses } — happy + degraded paths", () => {
         timestamp: "1700000000",
       },
     ]);
-    mockFetch.mockResolvedValueOnce({ ok: false });
+    mockReadLiveLtRates.mockResolvedValueOnce(null);
 
     const res = await postMarketData([TOKEN_A]);
 
     expect(res.status).toBe(503);
     const body = (await res.json()) as { error: string };
-    expect(body.error).toContain("BounceTech API");
+    expect(body.error).toContain("LT directory mirror");
   });
 
   it("degrades (200 with null change24h, dataSource=degraded) when BounceTech snapshot DB is unreachable", async () => {
@@ -530,7 +538,7 @@ describe("POST /market-data — server-side cache (issue #928)", () => {
     expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
 
     // Second call must hit the cache verbatim — no further fan-out, no
-    // BounceTech fetch, no Neon roundtrip. The body must be byte-identical
+    // mirror read, no Neon roundtrip. The body must be byte-identical
     // to the cold response.
     const second = await postMarketData([TOKEN_A]);
     expect(second.status).toBe(200);
@@ -538,7 +546,7 @@ describe("POST /market-data — server-side cache (issue #928)", () => {
 
     expect(secondBody).toEqual(firstBody);
     expect(mockFetchTokensOnchainByAddresses).toHaveBeenCalledTimes(1);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockReadLiveLtRates).toHaveBeenCalledTimes(1);
     expect(mockNeonQuery).toHaveBeenCalledTimes(1);
     expect(cache.put).toHaveBeenCalledTimes(1);
     expect(cache.match).toHaveBeenCalledTimes(2);

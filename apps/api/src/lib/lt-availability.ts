@@ -1,12 +1,12 @@
 /**
  * "Is this LT live on BounceTech's public UI?" oracle (issue #621).
  *
- * BounceTech deploys leveraged tokens to chain + their indexing API the
- * moment they're spun up, often days before the team finishes testing them
- * and publishes them in their own web app. For those days the LT exists
- * everywhere we look (`/leveraged-tokens` directory, on-chain) but isn't
- * a "real" launch yet — we don't want it surfacing in Alt Fun's markets
- * sidebar, asset tape, pair selector, or token feed.
+ * BounceTech deploys leveraged tokens to chain the moment they're spun
+ * up, often days before the team finishes testing them and publishes them
+ * in their own web app. For those days the LT exists everywhere we look
+ * (our `lt_directory` Postgres mirror of the on-chain helper, on-chain)
+ * but isn't a "real" launch yet — we don't want it surfacing in Alt Fun's
+ * markets sidebar, asset tape, pair selector, or token feed.
  *
  * BounceTech doesn't expose a "published" flag on the indexing API, but
  * they only upload the per-LT logo at
@@ -37,11 +37,11 @@
  */
 
 import {
-  BOUNCE_INDEXING_API,
-  filterSupportedLTs,
   getBounceLtImageUrl,
   type LiveLeveragedToken,
 } from "@launchpad/shared";
+
+import { readSupportedLtDirectory } from "./lt-directory-reads.js";
 
 /**
  * How long a cached result stays "fresh". After this much time, the next
@@ -201,10 +201,15 @@ export function getCachedLtAvailability(): LtAvailability {
  * the cron has populated the cache) get a real answer.
  *
  * The fetcher is overridable for tests. In prod, it pulls the supported
- * LT directory from BounceTech's indexing API and HEAD-checks each LT's
- * logo.
+ * LT directory from the local `lt_directory` Postgres mirror (kept fresh
+ * by the on-chain `LtDirectoryPoller`) and HEAD-checks each LT's logo.
  */
 export async function getLiveLtAvailability(options: {
+  /**
+   * Required when no `fetchSupportedLts` override is supplied. Threaded
+   * through to the default `readSupportedLtDirectory` reader.
+   */
+  databaseUrl?: string;
   /** Override the LT directory fetcher (tests). */
   fetchSupportedLts?: () => Promise<LiveLeveragedToken[]>;
   /** Override per-symbol HEAD checker (tests). */
@@ -244,6 +249,7 @@ export async function getLiveLtAvailability(options: {
  * when the next BounceTech sweep fails.
  */
 export async function refreshLiveLtAvailability(options: {
+  databaseUrl?: string;
   fetchSupportedLts?: () => Promise<LiveLeveragedToken[]>;
   checkSymbolLive?: (symbol: string) => Promise<boolean>;
 } = {}): Promise<LtAvailability> {
@@ -255,6 +261,7 @@ export async function refreshLiveLtAvailability(options: {
 }
 
 async function ensureRefresh(options: {
+  databaseUrl?: string;
   fetchSupportedLts?: () => Promise<LiveLeveragedToken[]>;
   checkSymbolLive?: (symbol: string) => Promise<boolean>;
 }): Promise<CacheSnapshot> {
@@ -278,23 +285,31 @@ async function ensureRefresh(options: {
 }
 
 async function performRefresh(options: {
+  databaseUrl?: string;
   fetchSupportedLts?: () => Promise<LiveLeveragedToken[]>;
   checkSymbolLive?: (symbol: string) => Promise<boolean>;
 }): Promise<CacheSnapshot> {
-  const directory = await (options.fetchSupportedLts ?? fetchSupportedLts)();
+  const fetcher =
+    options.fetchSupportedLts ?? (() => fetchSupportedLts(options.databaseUrl));
+  const directory = await fetcher();
   if (directory.length === 0) {
-    // No directory entries means the BounceTech API is down or we got an
-    // empty payload. Don't clobber a previously-populated cache.
+    // No directory entries means the `lt_directory` mirror is empty
+    // (cold start, poller hasn't run yet). Don't clobber a previously-
+    // populated cache, and don't store the empty snapshot to the
+    // module cache either — caching `{}` as "fresh" for `CACHE_TTL_MS`
+    // would make every request behave as fresh-empty for the next 5
+    // minutes even after the poller backfills. Return a transient
+    // empty snapshot whose `expiresAt: 0` guarantees the next call
+    // re-attempts the refresh immediately. CodeRabbit caught this on
+    // PR #972 review.
     if (cache) return cache;
-    const empty: CacheSnapshot = {
+    return {
       liveAddresses: new Set(),
       liveSymbols: new Set(),
       liveUnderlyings: new Set(),
       directoryAddresses: new Set(),
-      expiresAt: Date.now() + CACHE_TTL_MS,
+      expiresAt: 0,
     };
-    cache = empty;
-    return empty;
   }
 
   // Populate the directory-membership set up front from the directory
@@ -358,26 +373,28 @@ async function performRefresh(options: {
 }
 
 /**
- * Pull the BounceTech LT directory (subset Alt Fun supports) for HEAD-
- * checking. Mirrors the same `filterSupportedLTs` call sites in
- * `routes/assets.ts` and `lib/token-registration.ts` so the live filter
- * never has to evaluate an LT we don't support anyway.
+ * Pull the supported LT directory (subset Alt Fun supports) for HEAD-
+ * checking, sourced from the local `lt_directory` Postgres mirror. The
+ * mirror is itself filtered through `filterSupportedLTs` by
+ * `readSupportedLtDirectory`, so this helper just unwraps the optional.
  *
- * Throws on any non-OK status so the snapshot's `fail-open` path (an
- * empty result with `fresh: true` would otherwise hide every LT) kicks
- * in instead. The caller treats `null` returned from this throw as
- * "unknown — degrade gracefully and show everything" rather than
- * "BounceTech returned an empty list, hide everything".
+ * Throws on a missing `databaseUrl` (programmer error — production call
+ * sites always have `c.env.DATABASE_URL`) and on a DB read failure so
+ * the snapshot's fail-open path kicks in instead of hiding every LT.
  */
-async function fetchSupportedLts(): Promise<LiveLeveragedToken[]> {
-  const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
-  if (!res.ok) {
+async function fetchSupportedLts(
+  databaseUrl: string | undefined,
+): Promise<LiveLeveragedToken[]> {
+  if (!databaseUrl) {
     throw new Error(
-      `BounceTech LT directory unavailable: HTTP ${res.status}`,
+      "lt-availability.fetchSupportedLts requires databaseUrl when no override is provided",
     );
   }
-  const json = (await res.json()) as { data?: LiveLeveragedToken[] };
-  return filterSupportedLTs(json.data ?? []);
+  const directory = await readSupportedLtDirectory(databaseUrl);
+  if (directory === null) {
+    throw new Error("lt_directory mirror unavailable");
+  }
+  return directory;
 }
 
 async function defaultSymbolChecker(symbol: string): Promise<boolean> {
