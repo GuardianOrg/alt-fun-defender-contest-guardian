@@ -85,54 +85,15 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
     ltReserve,
   });
 
-  // Decimate snapshot writes to at most one row per `(tokenAddress, blockTs)`.
-  // HyperSwap V2's `Sync` fires on every reserve change — post-swap state, MEV
-  // bot tail-swaps inside the same block, multi-step arbitrage routes — and on
-  // an actively-traded graduated token that produced ~22K snapshot rows in the
-  // 24h window before this fix vs. ~12K user-facing trades, ~2× the rate the
-  // chart actually needs. Sub-second resolution is unusable in the chart UI
-  // (the finest interval is 5 s) so a once-per-second cadence is lossless for
-  // the only consumer of this table (the `/chart` route).
-  //
-  // Strategy: first-per-second wins (`onConflictDoNothing`, NOT `doUpdate`).
-  // The id shape encodes the bucket: `sync-bucket-${tokenAddress}-${blockTs}`,
-  // and the bucket row is written exactly once — the FIRST same-second Sync
-  // populates it, every subsequent same-second Sync short-circuits at the
-  // unique-index check and is dropped before Postgres extends the heap or
-  // writes a WAL record. This is deliberate, and load-bearing for both
-  // properties below; the latest-wins alternative was rejected during review
-  // (PR #985 thread with @charlesmlin):
-  //
-  //   1. **Write IOPS reduction.** `doUpdate` would still cost a Postgres
-  //      round-trip + heap insert + WAL + replication + future vacuum on
-  //      every single Sync (the dedup ratio only saves rows, not writes).
-  //      `doNothing` cuts ALL of those proportional to the dedup ratio —
-  //      ~2× write reduction on ALT, the whole point of the issue's
-  //      "wastes Neon write IOPS during peak indexing" bullet.
-  //   2. **Row immutability.** Once a `(token, second)` bucket row exists
-  //      it is never mutated, so two queries against the same historical
-  //      bucket return byte-identical results. Latest-wins would silently
-  //      mutate the row on every same-second Sync, weakening the read-
-  //      stability guarantee the original per-event id shape provided.
-  //
-  // Cost: the bucket records the FIRST Sync's reserves rather than the last.
-  // Inside a same-second MEV sandwich the recorded reserves are pre-tail-
-  // swap rather than post-tail-swap, so a 5 s candle's `close` is set by the
-  // first Sync of its last second rather than the last. At HyperSwap V2 mid-
-  // tier liquidity that's typically <0.1 % drift on a sub-pixel-relevant
-  // dimension at the chart's >=5 s candle resolution, AND the live in-
-  // progress candle bypasses the DB entirely via the WS broadcast (which
-  // fires on every Sync regardless of the DB-side dedup, see below) so the
-  // user-facing live chart is unaffected.
-  //
-  // The downstream chart fetcher (`fetchTokenChartSnapshots`) only uses
-  // `tokenSnapshot.id` for the `(timestamp, id)` ORDER BY tiebreak, which
-  // remains deterministic with the new shape (one row per second eliminates
-  // the same-block tiebreak case the tiebreak existed for). Future consumers
-  // that need per-event reserve deltas should NOT add a dependency on this
-  // table — read `pairReserve` history (one row per pair, mutated on every
-  // Sync) or compute deltas from `routerTrade` (per-event, append-only)
-  // instead. See issue #978 and `apps/indexer/AGENTS.md`.
+  // Per-second snapshot decimation: at most one `tokenSnapshot` row per
+  // `(tokenAddress, blockTs)`. The first Sync of the bucket populates the row;
+  // every subsequent same-second Sync short-circuits at the unique-index check
+  // (`onConflictDoNothing` — NOT `doUpdate`, see AGENTS.md for the
+  // first-vs-latest-wins trade-off). The id encodes the bucket so the dedup
+  // happens at the DB layer with no application-side state. Full rationale,
+  // write-IOPS / immutability trade-offs, and the "don't read this table for
+  // per-event reserve deltas" downstream caveat all live in
+  // `apps/indexer/AGENTS.md` → *Per-second snapshot decimation* (issue #978).
   const snapshotId = `sync-bucket-${idx.tokenAddress}-${event.block.timestamp.toString()}`;
   await db
     .insert(tokenSnapshot)

@@ -238,21 +238,13 @@ describe("HyperSwapPair:Sync", () => {
     expect(body.data.tokenAmount).toBeUndefined();
   });
 
-  it("decimates same-second snapshot writes with first-wins reserves (issue #978, PR #985 review)", async () => {
-    // Two Sync events in the same block (same `block.timestamp`) — e.g. a
-    // user swap immediately followed by an MEV tail-swap. The handler must
-    // collapse them into a single `tokenSnapshot` row keyed
-    // `sync-bucket-${token}-${blockTs}` with FIRST-wins semantics: both
-    // calls target the same bucket id, both pass `onConflictDoNothing`, and
-    // Postgres short-circuits the second one at the unique-index check
-    // before extending the heap or writing a WAL record.
-    //
-    // First-wins (not latest-wins) was chosen during PR #985 review — see
-    // the comment block in `apps/indexer/src/hyperswap.ts`. The mock DB
-    // doesn't simulate Postgres's index-level conflict resolution, so this
-    // test asserts the contract at the call-site level: same bucket id,
-    // `doNothing` conflict policy on both inserts, and the *first* call's
-    // reserves are what would be persisted by Postgres.
+  it("decimates same-second snapshot writes with first-wins reserves (issue #978)", async () => {
+    // Two same-block Sync events must collapse into a single bucket row with
+    // first-wins semantics — same bucket id, `doNothing` policy on both
+    // inserts, first event's reserves are what Postgres would persist. The
+    // mock DB doesn't simulate index-level conflict resolution, so this asserts
+    // the contract at the call-site level. Rationale: AGENTS.md → *Per-second
+    // snapshot decimation*.
     db._setFindResult(hyperswapPairIndex, { pairAddress: "0xpair1" }, {
       pairAddress: "0xpair1",
       tokenAddress: "0xtoken1",
