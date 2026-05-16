@@ -6,6 +6,7 @@ import type {
   InlineKeyboard,
 } from "../keyboards/wallet-actions.js";
 import { logger } from "./logger.js";
+import { removeWorkflowMessage } from "./workflow-stack.js";
 
 /**
  * Global navigation primitives. Every system prompt (sub-menu reached
@@ -232,13 +233,30 @@ export const editToSubmenu = async (
   const link_preview_options = view.linkPreviewDisabled
     ? ({ is_disabled: true } as const)
     : undefined;
+  // Detach the bubble from the workflow stack before returning so a
+  // downstream `sweepWorkflow` (every conversation runs one on entry)
+  // cannot delete the view the user is about to look at. The bubble
+  // might be on the stack because a prior flow (e.g. `/buy` rendered
+  // into this bubble as the buy card via `editToSubmenu` + a follow-up
+  // `pushWorkflowMessage`) left the id tracked there and the user
+  // navigated Back/Home onto the same bubble without ever triggering
+  // a post-trade sweep. Without this detach, tapping a start-menu
+  // button on that bubble looks like "the prompt vanishes with no
+  // replacement" — the edit lands, then the conversation's sweep
+  // deletes the bubble before the user types anything.
+  const detach = (messageId: number): void => {
+    if (!ctx.chat) return;
+    removeWorkflowMessage(ctx.session, ctx.chat.id, messageId);
+  };
   try {
     await ctx.editMessageText(view.text, {
       parse_mode: view.parseMode,
       reply_markup,
       link_preview_options,
     });
-    return { editedMessageId: ctx.callbackQuery?.message?.message_id };
+    const editedMessageId = ctx.callbackQuery?.message?.message_id;
+    if (editedMessageId !== undefined) detach(editedMessageId);
+    return { editedMessageId };
   } catch (err) {
     if (!isBenignEditError(err)) {
       logger.warn("editToSubmenu: editMessageText failed, falling back", {
@@ -264,6 +282,7 @@ export const editToSubmenu = async (
       logger.debug("editToSubmenu: deleteMessage fallback failed", { err });
     }
   }
+  detach(sent.message_id);
   return { editedMessageId: sent.message_id };
 };
 

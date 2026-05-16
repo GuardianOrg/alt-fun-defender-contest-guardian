@@ -290,6 +290,52 @@ describe("/track command", () => {
     expect(String(edit!.body.text)).toMatch(/contract address|alt\.fun/i);
   });
 
+  it("Track start-menu button on a bubble whose id is still on the workflow stack doesn't sweep itself", async () => {
+    // Regression: if a prior `/buy` (or `/sell`) wizard rendered into
+    // this exact bubble and pushed its id onto the workflow stack, and
+    // the user then navigated Home onto the same bubble without ever
+    // triggering a post-trade sweep, the stale entry survives. Tapping
+    // Track previously edited the bubble into the prompt and then the
+    // conversation's first `sweepWorkflow` deleted that same bubble —
+    // user saw the start menu vanish with no replacement prompt.
+    // editToSubmenu must detach the bubble from the stack so the sweep
+    // can no longer target it.
+    const h = harness();
+    // Seed the session with the stale workflow entry for the start
+    // bubble (chatId 42, messageId 100 — matches `callbackUpdate`).
+    await h.kv.put(
+      "session:7",
+      JSON.stringify({
+        slippageBps: 1000,
+        defaultBuyUsdc: 20,
+        buyPresetsUsdc: [20, 40, 60, 80, 100],
+        sellPresetsPct: [10, 25, 50, 75, 100],
+        degenMode: true,
+        workflowMessages: [{ chatId: 42, messageId: 100 }],
+      }),
+    );
+    mockApi(fetchSpy);
+
+    await h.run(callbackUpdate(START_CALLBACK.track));
+
+    const calls = capture(fetchSpy);
+    const promptEdit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        /contract address|alt\.fun/i.test(String(c.body.text)),
+    );
+    expect(promptEdit).toBeDefined();
+    expect(promptEdit!.body.message_id).toBe(100);
+    // The prompt bubble must NOT be deleted by the conversation's
+    // entry-time sweep. Any deleteMessage for id 100 indicates the
+    // stale workflow entry was used to wipe the live prompt.
+    const promptDelete = calls.find(
+      (c) =>
+        c.url.includes("/deleteMessage") && c.body.message_id === 100,
+    );
+    expect(promptDelete).toBeUndefined();
+  });
+
   it("token-address prompt carries the [← Back] [🏠 Home] nav row", async () => {
     const h = harness();
     mockApi(fetchSpy);
