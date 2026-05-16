@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 
 import formatSuccess from "../utils/format-success.js";
 import formatError from "../utils/format-error.js";
+import { edgeCacheableJsonHeader } from "../utils/cache-control.js";
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import {
@@ -51,6 +52,50 @@ export const VALID_INTERVAL_SECONDS = new Set<number>([
 
 export const MIN_CANDLE_SECONDS = 5;
 export const MAX_CANDLES = 500;
+
+/**
+ * Per-POP edge-cache TTL for `GET /chart/:address`. The chart route's
+ * cost is dominated by the BounceTech `generate_series` LT-rate scan and
+ * the indexer-side snapshot fetch — both bounded but each round-trips
+ * Neon, so concurrent viewers of the same `(token, interval/timeframe)`
+ * pair multiply origin compute and Neon-HTTP load.
+ *
+ * **1 second** matches `TRADES_LIVE_TAIL_TTL_SECONDS` in `routes/trades.ts`
+ * (the existing project convention for live-feed endpoints) and is
+ * deliberately the smallest meaningful unit on this stack:
+ *
+ *   - HyperEVM block time is 1 s → a cached chart is at most one
+ *     block stale, which is the freshness floor of any read against
+ *     the chain.
+ *   - `LtTicker` DO broadcasts on the `price` channel every 1 s
+ *     (matched to BounceTech's `token_snapshots_v1` write cadence),
+ *     so the WS-driven live overlay refreshes at the same cadence
+ *     the cache could go stale at. By the time anyone could observe
+ *     a 1 s cache miss, the live overlay has already moved on.
+ *
+ * 1 s still collapses bursts of concurrent miss-traffic for the same
+ * canonical URL into one origin compute per POP per window — chart
+ * compute runs ~600-1000 ms per origin call so even sub-second TTLs
+ * absorb the bulk of a thundering-herd reload (issue #973).
+ *
+ * Why not 3 s (the issue's original suggestion): the chart's REST
+ * response feeds the frontend's in-progress-candle anchor
+ * (`useChartData.ts` → `ratioRef` / `exchangeRateRef`). Tabs already
+ * open are unaffected by any TTL — every `trade` WS event resets
+ * `ratioRef` to the fresh post-trade value. But a fresh chart load
+ * landing on a cached entry inherits a `currentRatio` that's up to
+ * TTL seconds behind the live state, and stays that way until the
+ * next `trade` WS event fires. On a viral pump that's milliseconds;
+ * on a quiet token it doesn't matter. Either way, holding the
+ * worst-case window to 1 s matches the trades live-tail and keeps
+ * the chart "lively" by the same metric the rest of the live-feed
+ * surfaces use.
+ *
+ * Set on every 200 response from this route. Error returns (400 / 404 /
+ * 503 / 500) are uncached — temporary upstream failures must not pin
+ * a bad response in the edge for the TTL window. See issue #973.
+ */
+export const CHART_CACHE_TTL_SECONDS = 1;
 
 // Maximum number of historical candles the API will hydrate per request.
 // The frontend defaults its visible viewport to a much smaller window (120
@@ -344,7 +389,81 @@ export function buildPriceTimeline(
  */
 const chart = new Hono<{ Bindings: AppBindings }>();
 
+/**
+ * Resolve the Worker's Cache API binding, or `undefined` in environments
+ * (some tests, `wrangler dev` without cache emulation) where the global
+ * isn't present. Same pattern as `routes/market-data.ts` and
+ * `routes/trades.ts` — kept inline so the route file stays a single
+ * import surface.
+ */
+function getCache(): Cache | undefined {
+  return (globalThis as { caches?: { default?: Cache } }).caches?.default;
+}
+
+/**
+ * Shape of every 200-success response from this route, used by the
+ * `respondWithEdgeCache` helper to keep `c.json(body)` from triggering
+ * TS2589 ("type instantiation is excessively deep") via Hono's full
+ * generic `c.json` signature. The three real success branches all
+ * resolve to this shape via `formatSuccess`.
+ */
+type ChartSuccessBody = {
+  readonly status: "success";
+  readonly data: {
+    candles: Candle[];
+    currentRatio: number;
+    currentExchangeRate: number;
+  };
+  readonly error: null;
+};
+
 chart.get("/:address", async (c) => {
+  /**
+   * Build a 200-success response, stamp the edge-cache directive, and
+   * (best-effort) admit the response to `caches.default` under the
+   * canonical request URL so subsequent same-URL requests inside the
+   * TTL window short-circuit at the pre-auth `serveFromEdgeCache`
+   * middleware. Only used on success paths — error returns (400 / 404 /
+   * 503 / 500) bypass this helper so transient upstream failures never
+   * get pinned in the edge for the TTL window. See issue #973.
+   *
+   * The cache key matches the read key the middleware uses
+   * (`new Request(c.req.url, { method: "GET" })`), so writes here are
+   * picked up verbatim on the next request. `response.clone()` is
+   * required because a `Response` body can only be consumed once and the
+   * original is about to be returned to the caller.
+   */
+  const respondWithEdgeCache = async (body: ChartSuccessBody) => {
+    const response = c.json(body);
+    response.headers.set(
+      "Cache-Control",
+      edgeCacheableJsonHeader(CHART_CACHE_TTL_SECONDS),
+    );
+    const cache = getCache();
+    if (cache) {
+      // Best-effort write — a `cache.put` rejection (e.g. response
+      // body exceeding the per-entry size limit, or a transient
+      // Cache API hiccup) must NOT turn a perfectly good 200 into a
+      // 500. Swallow the rejection, log structured for ops triage,
+      // and return the response anyway. CodeRabbit feedback on PR
+      // #984.
+      await cache
+        .put(new Request(c.req.url, { method: "GET" }), response.clone())
+        .catch((err: unknown) => {
+          console.log(
+            JSON.stringify({
+              level: "warn",
+              event: "chart_cache_put_failed",
+              error: err instanceof Error ? err.message : String(err),
+              url: c.req.url,
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        });
+    }
+    return response;
+  };
+
   const rawAddress = c.req.param("address");
   if (!isAddress(rawAddress)) {
     return c.json(formatError("Invalid address"), 400);
@@ -514,7 +633,7 @@ chart.get("/:address", async (c) => {
   ]);
 
   if (ltRows.length === 0) {
-    return c.json(
+    return respondWithEdgeCache(
       formatSuccess({
         candles: [],
         currentRatio: 0,
@@ -544,7 +663,7 @@ chart.get("/:address", async (c) => {
   if (ratioTimeline.length === 0) {
     const latestExchangeRate =
       Number(ltRows[ltRows.length - 1].exchange_rate) / 1e18;
-    return c.json(
+    return respondWithEdgeCache(
       formatSuccess({
         candles: [],
         currentRatio: 0,
@@ -564,7 +683,7 @@ chart.get("/:address", async (c) => {
   const currentExchangeRate =
     Number(ltRows[ltRows.length - 1].exchange_rate) / 1e18;
 
-  return c.json(
+  return respondWithEdgeCache(
     formatSuccess({
       candles,
       currentRatio,

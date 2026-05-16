@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
@@ -865,6 +865,324 @@ describe("GET /chart/:address", () => {
     } finally {
       dateNowSpy.mockRestore();
     }
+  });
+});
+
+describe("GET /chart/:address — edge cache (issue #973)", () => {
+  // Fresh in-memory `caches.default` per test, same pattern as the
+  // wallet-aware cache block in `tokens.test.ts` and `edge-cache.test.ts`.
+  // The store is keyed on `req.url` (matching Cloudflare's URL-keyed
+  // Cache API contract closely enough for the route's `put` call).
+  let cacheMatch: ReturnType<typeof vi.fn>;
+  let cachePut: ReturnType<typeof vi.fn>;
+  let cacheStore: Map<string, Response>;
+
+  function installFakeCache() {
+    cacheStore = new Map<string, Response>();
+    cacheMatch = vi.fn(async (req: Request) => {
+      const stored = cacheStore.get(req.url);
+      return stored ? stored.clone() : undefined;
+    });
+    cachePut = vi.fn(async (req: Request, res: Response) => {
+      cacheStore.set(req.url, res.clone());
+    });
+    (globalThis as { caches?: { default: unknown } }).caches = {
+      default: { match: cacheMatch, put: cachePut },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCheckIndexerHealth.mockResolvedValue(true);
+    mockFetchTokenChartContext.mockResolvedValue(null);
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+    mockNeonQuery.mockResolvedValue([]);
+    installFakeCache();
+  });
+
+  afterEach(() => {
+    // The wider suite installs `caches = undefined` at module load — restore
+    // that so subsequent describes don't accidentally see a cache. Mirrors
+    // the teardown in `tokens.test.ts`'s wallet-aware cache block.
+    delete (globalThis as { caches?: unknown }).caches;
+  });
+
+  it("stamps Cache-Control and writes caches.default on the happy 200 path", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(nowSec - 600),
+    });
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 300), exchange_rate: "2000000000000000000" },
+      { ts: String(nowSec - 100), exchange_rate: "2000000000000000000" },
+    ]);
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+
+    const app = createApp();
+    const res = await app.request(
+      `/chart/${VALID_ADDRESS}?interval=60`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(200);
+    // The directive must exactly match what `edgeCacheableJsonHeader(1)`
+    // produces — pin both the TTL value and the SWR companion so a
+    // future refactor of either constant breaks loudly. Mirrors the
+    // pinning style used in `trades.test.ts`. 1 s matches
+    // `TRADES_LIVE_TAIL_TTL_SECONDS`, HyperEVM's 1 s block time, and
+    // the LtTicker DO's 1 s broadcast cadence (see CHART_CACHE_TTL_SECONDS
+    // docstring in `routes/chart.ts`).
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
+    // Cache write happens under the same URL the pre-auth
+    // `serveFromEdgeCache` middleware will read from on the next
+    // request — so a warm-cache request short-circuits before any
+    // origin work runs.
+    expect(cachePut).toHaveBeenCalledTimes(1);
+    const [putReq] = cachePut.mock.calls[0]!;
+    expect((putReq as Request).method).toBe("GET");
+    expect((putReq as Request).url).toContain(VALID_ADDRESS);
+    expect((putReq as Request).url).toContain("interval=60");
+  });
+
+  it("caches the empty-LT-window 200 success branch", async () => {
+    // `ltRows.length === 0` returns a 200 with empty candles — that's
+    // still a valid response (no exchange-rate samples in window) and
+    // should be cacheable. Pre-fix this branch silently leaked through
+    // without a Cache-Control header.
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: "1700000000",
+    });
+    mockNeonQuery.mockResolvedValue([]);
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
+    expect(cachePut).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches the empty-ratio-timeline 200 success branch", async () => {
+    // `ratioTimeline.length === 0` (no `k` and no in-window trade
+    // snapshots) returns a 200 with the latest exchange rate but no
+    // candles. Still a valid happy-path response — should carry the
+    // cache directive AND populate `caches.default` like the full
+    // success path.
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: null,
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(nowSec - 600),
+    });
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
+    expect(cachePut).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT cache 400 invalid-address responses", async () => {
+    // Validation failures must not be pinned in the edge — a fix that
+    // re-allows the address must reach origin on the next request.
+    const app = createApp();
+    const res = await app.request("/chart/not-an-address", {}, makeEnv());
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it("does NOT cache 400 invalid-interval responses", async () => {
+    const app = createApp();
+    const res = await app.request(
+      `/chart/${VALID_ADDRESS}?interval=42`,
+      {},
+      makeEnv(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it("does NOT cache 404 token-not-found responses", async () => {
+    // `chartContext === null` + no `tokens.ltPair` row maps to 404. A
+    // newly-launched token would hit this branch in the indexing gap
+    // between the on-chain launch and the indexer catching up — caching
+    // a 404 here would mask the token for the TTL window across the
+    // entire POP.
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it("does NOT cache 503 indexer-unavailable responses (health probe)", async () => {
+    // Transient indexer outages must not be cached — the next request
+    // after recovery has to reach origin to serve real data.
+    mockCheckIndexerHealth.mockResolvedValue(false);
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it("does NOT cache 503 indexer-unavailable responses (snapshot fetch failure)", async () => {
+    // Distinct branch from the health probe: the snapshot fetch threw
+    // mid-request (returns `null`). Same caching rule — must not pin a
+    // transient failure.
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(nowSec - 600),
+    });
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+    mockFetchTokenChartSnapshots.mockResolvedValue(null);
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it("does NOT cache 500 BOUNCETECH_DATABASE_URL-missing responses", async () => {
+    // Misconfiguration — the next request must reach the (fixed) origin.
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(Math.floor(Date.now() / 1000) - 600),
+    });
+    const env = makeEnv();
+    env.BOUNCETECH_DATABASE_URL = "";
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, env);
+
+    expect(res.status).toBe(500);
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it("still returns 200 when caches.default.put rejects (best-effort write)", async () => {
+    // A `cache.put` rejection (response body over the per-entry size
+    // limit, transient Cache API failure, etc.) must NOT turn a clean
+    // 200 success into a 5xx. The route swallows the rejection,
+    // structured-logs for ops triage, and returns the response
+    // unchanged with its `Cache-Control` header intact. CodeRabbit
+    // feedback on PR #984.
+    cachePut.mockRejectedValueOnce(new Error("cache write failed"));
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(nowSec - 600),
+    });
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+
+    // Silence the structured warn log this test deliberately triggers
+    // — otherwise it noises up the test output. Restored in `finally`.
+    const consoleLogSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+
+    try {
+      const app = createApp();
+      const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Cache-Control")).toBe(
+        "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+      );
+      // The write was attempted (and rejected) — proves the route
+      // didn't short-circuit around the cache.
+      expect(cachePut).toHaveBeenCalledTimes(1);
+      // And the rejection was observed: a structured warn log fired.
+      // Sanity-check the level + event so a future log-format
+      // refactor doesn't drop the diagnostic silently.
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(
+        consoleLogSpy.mock.calls[0]![0] as string,
+      ) as { level: string; event: string; error: string };
+      expect(payload.level).toBe("warn");
+      expect(payload.event).toBe("chart_cache_put_failed");
+      expect(payload.error).toBe("cache write failed");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+  });
+
+  it("no-ops cleanly when caches.default is unavailable", async () => {
+    // Some test envs (and `wrangler dev` without cache emulation) don't
+    // expose `globalThis.caches` — the route must still return the
+    // 200 response with its Cache-Control header (the directive itself
+    // is enough for Cloudflare's zone-level edge cache), just without
+    // the local-isolate write.
+    delete (globalThis as { caches?: unknown }).caches;
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(nowSec - 600),
+    });
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+
+    const app = createApp();
+    const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
+    );
   });
 });
 
