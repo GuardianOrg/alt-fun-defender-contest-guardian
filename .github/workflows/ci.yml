@@ -78,7 +78,12 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          # Pinned, not `stable`. `stable` makes foundryup resolve the tag via
+          # api.github.com/repos/foundry-rs/foundry/releases/latest unauthenticated,
+          # which hits GitHub's 60 req/hr/IP anon limit on shared runner IPs and 403s
+          # the toolchain install. Concrete tags short-circuit that API call. Bump
+          # intentionally; nightly tracks the same pin.
+          version: v1.7.1
 
       - name: Cache Foundry artifacts
         uses: actions/cache@v5
