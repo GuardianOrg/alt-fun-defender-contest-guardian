@@ -6,6 +6,7 @@ import {
   buildBuyTokenKeyboard,
   normaliseBuyPresets,
 } from "../keyboards/buy-sell-token.js";
+import { wrapWithCtxPhrase } from "./anti-phishing.js";
 import { extractTokenAddress, fetchToken } from "./api.js";
 import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
@@ -57,11 +58,16 @@ const reusePreviousBuyCardForLoading = async (
   const prevMessageId = byChat[key];
   if (typeof prevMessageId !== "number") return null;
   try {
-    await ctx.api.editMessageText(chatId, prevMessageId, loadingText, {
-      parse_mode: "HTML",
-      link_preview_options: { is_disabled: true },
-      reply_markup: EMPTY_KEYBOARD,
-    });
+    await ctx.api.editMessageText(
+      chatId,
+      prevMessageId,
+      wrapWithCtxPhrase(ctx, loadingText),
+      {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: EMPTY_KEYBOARD,
+      },
+    );
     return prevMessageId;
   } catch {
     // Edit failed (stale id / outside 48h / racing delete) — drop the
@@ -101,11 +107,12 @@ const finaliseBuyCard = async (
     link_preview_options?: { is_disabled: boolean };
   } = {},
 ): Promise<void> => {
+  const wrapped = wrapWithCtxPhrase(ctx, text);
   const chatId = ctx.chat?.id;
   const messageId = placeholder.message_id;
   if (chatId !== undefined && typeof messageId === "number") {
     try {
-      await ctx.api.editMessageText(chatId, messageId, text, {
+      await ctx.api.editMessageText(chatId, messageId, wrapped, {
         parse_mode: "HTML",
         ...options,
       });
@@ -117,7 +124,7 @@ const finaliseBuyCard = async (
       if (byChat) delete byChat[String(chatId)];
     }
   }
-  const sent = await ctx.reply(text, {
+  const sent = await ctx.reply(wrapped, {
     parse_mode: "HTML",
     ...options,
   });
@@ -166,7 +173,7 @@ export const showBuyCardForAddress = async (
     reusedId !== null
       ? ({ message_id: reusedId } as Message)
       : await (async () => {
-          const sent = await ctx.reply(loadingText, {
+          const sent = await ctx.reply(wrapWithCtxPhrase(ctx, loadingText), {
             parse_mode: "HTML",
             link_preview_options: { is_disabled: true },
           });
