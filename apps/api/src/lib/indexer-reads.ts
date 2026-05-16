@@ -21,6 +21,8 @@ import {
   indexerTokenSnapshot,
 } from "../db/indexer-schema.js";
 
+import { describeError } from "./log-error.js";
+
 import type { Database } from "../db/client.js";
 import type {
   MarketDataItem,
@@ -59,12 +61,32 @@ import type {
  */
 
 /**
+ * Strip Drizzle's `Failed query: <SQL>\nparams: <values>` decoration so
+ * the `error.message` log field stays grep-able. The SQL itself is
+ * already in the source (and the surrounding `event` name pinpoints
+ * the call site), so we don't need to ship 1 KB+ of inlined SQL on
+ * every log line — the underlying *cause* (Neon HTTP status / response
+ * body) is the thing we actually need to triage and that's surfaced
+ * separately under `cause` by `describeError`. Issue #974.
+ */
+function stripQueryBloat(message: string): string {
+  return message.split("\n", 1)[0];
+}
+
+/**
  * Structured-logging shim for the catch blocks below. Every read in this
  * module follows the legacy `return null on error` contract so the route
  * handlers' existing 503 branches still trip — but the failure must not be
  * silent, or production 503s become unactionable. Logs the event name +
  * sanitized context as JSON so Cloudflare's tail / Logpush can pivot on
  * it. CodeRabbit feedback on PR #898.
+ *
+ * Drizzle's `neon-http` driver wraps every transport failure as
+ * `Error: Failed query: <SQL>\nparams: <values>` with the actual cause
+ * (Neon HTTP status, response body, AbortSignal, …) buried in
+ * `error.cause` / `error.sourceError`. Surfacing those fields at the top
+ * level is what makes the recurring `_failed` clusters actionable —
+ * without it every Neon transport hiccup looks identical. Issue #974.
  */
 function logIndexerReadFailure(
   event: string,
@@ -76,10 +98,7 @@ function logIndexerReadFailure(
       level: "error",
       event,
       ...context,
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message }
-          : String(error),
+      error: describeError(error, stripQueryBloat),
       timestamp: new Date().toISOString(),
     }),
   );

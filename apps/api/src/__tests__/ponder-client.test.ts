@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   checkPonderHealth,
@@ -223,6 +223,72 @@ describe("checkPonderHealth", () => {
     });
 
     expect(await checkPonderHealth("http://test-ponder")).toBe(false);
+  });
+});
+
+describe("logPonderFailure — error.cause unwrapping (issue #974)", () => {
+  // The same diagnostic gap that motivated `logIndexerReadFailure` applies
+  // here: a fetch exception with the underlying transport failure
+  // (timeout, AbortSignal, IPv6 fallback) buried in `error.cause` is
+  // currently logged as just the wrapper message — useless for triage.
+  // Mirror the shape so Cloudflare log search can pivot on the same
+  // fields across both code paths.
+  let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // `vi.clearAllMocks()` resets call history but keeps `console.log`
+    // mocked. Restore so later describes don't inherit a swallowed
+    // logger. CodeRabbit feedback on PR #983.
+    vi.restoreAllMocks();
+  });
+
+  function captureLastErrorPayload(): Record<string, unknown> {
+    expect(consoleLogSpy).toHaveBeenCalled();
+    const calls = consoleLogSpy.mock.calls;
+    const [raw] = calls[calls.length - 1] as [string];
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return parsed.error as Record<string, unknown>;
+  }
+
+  it("surfaces error.cause / code / sourceError on a network_error log line", async () => {
+    const queryPonder = createPonderQuery("http://test-ponder");
+    const cause = new Error("ETIMEDOUT");
+    cause.name = "FetchError";
+    const thrown = Object.assign(new Error("fetch failed"), {
+      cause,
+      code: "ETIMEDOUT",
+      sourceError: { phase: "connect" },
+    });
+    mockFetch.mockRejectedValue(thrown);
+
+    const result = await queryPonder("query { token { name } }");
+    expect(result).toBeNull();
+
+    const errorPayload = captureLastErrorPayload();
+    expect(errorPayload.name).toBe("Error");
+    expect(errorPayload.message).toBe("fetch failed");
+    expect(errorPayload.code).toBe("ETIMEDOUT");
+    const causeShape = errorPayload.cause as Record<string, unknown>;
+    expect(causeShape.name).toBe("FetchError");
+    expect(causeShape.message).toBe("ETIMEDOUT");
+    expect(errorPayload.sourceError).toEqual({ phase: "connect" });
+  });
+
+  it("preserves legacy non-Error fallback (String(error)) for thrown primitives", async () => {
+    const queryPonder = createPonderQuery("http://test-ponder");
+    mockFetch.mockRejectedValue("kaboom");
+
+    await queryPonder("query { token { name } }");
+
+    const log = JSON.parse(consoleLogSpy.mock.calls[0]![0] as string) as {
+      error: unknown;
+    };
+    expect(log.error).toBe("kaboom");
   });
 });
 

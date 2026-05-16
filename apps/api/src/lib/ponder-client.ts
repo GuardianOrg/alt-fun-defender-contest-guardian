@@ -1,3 +1,5 @@
+import { describeError } from "./log-error.js";
+
 const FALLBACK_URL = "http://localhost:42069";
 const PAGE_SIZE = 1000;
 /**
@@ -31,6 +33,11 @@ const LOG_QUERY_SNIPPET_LEN = 200;
  * no way to tell from prod tails which one fired. Structured fields so
  * the Cloudflare log search filters by `event:"ponder_query_failed"` and
  * by `mode` to triage.
+ *
+ * The `error` payload mirrors `logIndexerReadFailure` (issue #974) — pulls
+ * `cause` / `code` / `sourceError` to the top level so transport-layer
+ * failures (network timeout, AbortSignal, IPv6 fallback) are diagnosable
+ * from one log line.
  */
 function logPonderFailure(args: {
   url: string;
@@ -64,12 +71,7 @@ function logPonderFailure(args: {
       // schema dump on validation failure). 1KB is enough to identify
       // the failure class.
       body: body?.slice(0, 1024),
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message }
-          : error !== undefined
-            ? String(error)
-            : undefined,
+      error: describeError(error),
       timestamp: new Date().toISOString(),
     }),
   );
