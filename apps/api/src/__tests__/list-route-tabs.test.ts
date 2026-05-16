@@ -883,6 +883,60 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
     expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "CCC"]);
   });
 
+  it("paginates the degraded fallback so it can't leak an oversized page", async () => {
+    // CodeRabbit on PR #995: the in-memory volumeFor re-sort runs even
+    // on the degraded path (where `volumeFor` falls back to the row's
+    // own `volume24hUsd`). Without SQL-level pagination the fallback
+    // would return up to TRENDING_POOL_SIZE rows. Assert the
+    // pre-enrichment slice still applies when the indexer is down.
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce(null);
+    // DB mock ignores LIMIT/OFFSET — assert via the addresses passed to
+    // enrichment instead. The route must hand the page-size slice to
+    // `computeMarketDataForAddresses`, not the whole pool.
+    currentDbRows.rows = [
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_C, { ticker: "CCC" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: ADDR_B,
+          onchain: makeOnchain(ADDR_B),
+          market: makeMarket(),
+        },
+        {
+          address: ADDR_C,
+          onchain: makeOnchain(ADDR_C),
+          market: makeMarket(),
+        },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending&limit=2&offset=1",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+
+    expect(mockComputeMarketDataForAddresses).toHaveBeenCalledTimes(1);
+    const enrichArgs = mockComputeMarketDataForAddresses.mock.calls[0];
+    const enrichAddresses = (enrichArgs?.[2] as string[]).map((a) =>
+      a.toLowerCase(),
+    );
+    expect(enrichAddresses).toEqual([
+      ADDR_B.toLowerCase(),
+      ADDR_C.toLowerCase(),
+    ]);
+
+    const body = (await res.json()) as {
+      dataSource: string;
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.dataSource).toBe("degraded");
+    expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "CCC"]);
+  });
+
   it("preserves dataSource=degraded on an empty fallback page when the indexer is down", async () => {
     // Indexer returns null → fallback to createdAt-DESC slice → DB
     // happens to return zero rows (everything hidden/excluded). The

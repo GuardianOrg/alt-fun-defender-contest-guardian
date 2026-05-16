@@ -956,10 +956,10 @@ listRoute.get("/", async (c) => {
       // by row-local `volume24hUsd`, which is the same axis SQL would
       // sort on — so we push pagination into SQL and skip the
       // post-enrich slice (matches the live trending path; prevents
-      // an oversized page from leaking under outage). For mcap /
-      // change24h we need the full pool in memory so the comparator
-      // can pick the true top-N by the requested key before the
-      // post-enrich slice paginates.
+      // an oversized page from leaking under outage — CodeRabbit on
+      // PR #995). For mcap / change24h we need the full pool in
+      // memory so the comparator can pick the true top-N by the
+      // requested key before the post-enrich slice paginates.
       trendingDegraded = true;
       if (sort === "trending") {
         dbTokens = await db
