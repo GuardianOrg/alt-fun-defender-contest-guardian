@@ -1,7 +1,15 @@
 import { Hono } from "hono";
 
+import { createDb } from "../../db/client.js";
+import {
+  fetchFeeAccrualsSince,
+  fetchGraduationsSince,
+  fetchRouterTradesForAnalytics,
+  fetchTokensLaunchedSince,
+} from "../../lib/indexer-reads.js";
 import { createPonderPaginatedQuery } from "../../lib/ponder-client.js";
 import { usdcRawToUsd } from "../../lib/token-enrich.js";
+import formatError from "../../utils/format-error.js";
 import formatSuccess from "../../utils/format-success.js";
 
 import type { AppBindings } from "../../lib/types.js";
@@ -249,6 +257,163 @@ analytics.get("/revenue", async (c) => {
       protocol: buildDaySeries(protocolDayMap, days),
       creator: buildDaySeries(creatorDayMap, days),
       truncated,
+    }),
+  );
+});
+
+// ----------------------------------------------------------------------
+// Additive `-v2` siblings: identical response shape, sourced from the
+// indexer DB directly instead of paginated Ponder GraphQL. Mounted under
+// the same `/admin/analytics` prefix so callers can A/B compare with a
+// path swap. The v1 routes above stay live until the cut-over.
+// `truncated` is always `false` on the v2 routes — a single Postgres
+// query returns every row in the window with no paginator cap.
+// ----------------------------------------------------------------------
+
+analytics.get("/dau-v2", async (c) => {
+  const days = parseDays(c.req.query("days"), 30);
+  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+
+  const db = createDb(c.env.DATABASE_URL);
+  const trades = await fetchRouterTradesForAnalytics(db, cutoff);
+  if (trades === null) return c.json(formatError("Indexer unavailable"), 503);
+
+  const dayWallets = new Map<string, Set<string>>();
+  for (const t of trades) {
+    const day = toDayKey(Number(t.timestamp));
+    let wallets = dayWallets.get(day);
+    if (!wallets) {
+      wallets = new Set();
+      dayWallets.set(day, wallets);
+    }
+    wallets.add(t.trader.toLowerCase());
+  }
+
+  const dayMap = new Map<string, number>();
+  for (const [day, wallets] of dayWallets) {
+    dayMap.set(day, wallets.size);
+  }
+
+  return c.json(
+    formatSuccess({ series: buildDaySeries(dayMap, days), truncated: false }),
+  );
+});
+
+analytics.get("/volume-v2", async (c) => {
+  const days = parseDays(c.req.query("days"), 30);
+  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+
+  const db = createDb(c.env.DATABASE_URL);
+  const trades = await fetchRouterTradesForAnalytics(db, cutoff);
+  if (trades === null) return c.json(formatError("Indexer unavailable"), 503);
+
+  const dayMicroMap = new Map<string, bigint>();
+  for (const t of trades) {
+    const day = toDayKey(Number(t.timestamp));
+    dayMicroMap.set(day, (dayMicroMap.get(day) ?? 0n) + BigInt(t.usdcAmount));
+  }
+
+  const dayMap = new Map<string, number>();
+  for (const [day, microUsdc] of dayMicroMap) {
+    dayMap.set(day, usdcRawToUsd(microUsdc.toString()) ?? 0);
+  }
+
+  return c.json(
+    formatSuccess({ series: buildDaySeries(dayMap, days), truncated: false }),
+  );
+});
+
+analytics.get("/graduations-v2", async (c) => {
+  const days = parseDays(c.req.query("days"), 30);
+  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+
+  const db = createDb(c.env.DATABASE_URL);
+  const [graduations, windowTokens] = await Promise.all([
+    fetchGraduationsSince(db, cutoff),
+    fetchTokensLaunchedSince(db, cutoff),
+  ]);
+  if (graduations === null || windowTokens === null) {
+    return c.json(formatError("Indexer unavailable"), 503);
+  }
+
+  const gradDayMap = new Map<string, number>();
+  const launchDayMap = new Map<string, number>();
+  let totalGradTime = 0;
+  let gradCount = 0;
+
+  const tokenLaunchMap = new Map<string, number>();
+  for (const t of windowTokens) {
+    const ts = Number(t.timestamp);
+    tokenLaunchMap.set(t.address.toLowerCase(), ts);
+    const day = toDayKey(ts);
+    launchDayMap.set(day, (launchDayMap.get(day) ?? 0) + 1);
+  }
+  const totalLaunches = windowTokens.length;
+
+  for (const g of graduations) {
+    const ts = Number(g.timestamp);
+    const day = toDayKey(ts);
+    gradDayMap.set(day, (gradDayMap.get(day) ?? 0) + 1);
+    const launchTs = tokenLaunchMap.get(g.tokenAddress.toLowerCase());
+    if (launchTs) {
+      totalGradTime += ts - launchTs;
+      gradCount++;
+    }
+  }
+  const totalGrads = graduations.length;
+
+  return c.json(
+    formatSuccess({
+      daily: buildDaySeries(gradDayMap, days),
+      launches: buildDaySeries(launchDayMap, days),
+      totalLaunches,
+      totalGraduations: totalGrads,
+      graduationRate: totalLaunches > 0 ? gradCount / totalLaunches : 0,
+      avgTimeToGraduationSeconds:
+        gradCount > 0 ? Math.round(totalGradTime / gradCount) : null,
+      truncated: false,
+    }),
+  );
+});
+
+analytics.get("/revenue-v2", async (c) => {
+  const days = parseDays(c.req.query("days"), 30);
+  const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+
+  const db = createDb(c.env.DATABASE_URL);
+  const accruals = await fetchFeeAccrualsSince(db, cutoff);
+  if (accruals === null) return c.json(formatError("Indexer unavailable"), 503);
+
+  const protocolDayRaw = new Map<string, bigint>();
+  const creatorDayRaw = new Map<string, bigint>();
+
+  for (const accrual of accruals) {
+    const day = toDayKey(Number(accrual.timestamp));
+    const creatorRaw = BigInt(accrual.creatorAmount);
+    const protocolRaw = BigInt(accrual.protocolAmount);
+
+    if (creatorRaw > 0n) {
+      creatorDayRaw.set(day, (creatorDayRaw.get(day) ?? 0n) + creatorRaw);
+    }
+    if (protocolRaw > 0n) {
+      protocolDayRaw.set(day, (protocolDayRaw.get(day) ?? 0n) + protocolRaw);
+    }
+  }
+
+  const protocolDayMap = new Map<string, number>();
+  for (const [day, raw] of protocolDayRaw) {
+    protocolDayMap.set(day, usdcRawToUsd(raw.toString()) ?? 0);
+  }
+  const creatorDayMap = new Map<string, number>();
+  for (const [day, raw] of creatorDayRaw) {
+    creatorDayMap.set(day, usdcRawToUsd(raw.toString()) ?? 0);
+  }
+
+  return c.json(
+    formatSuccess({
+      protocol: buildDaySeries(protocolDayMap, days),
+      creator: buildDaySeries(creatorDayMap, days),
+      truncated: false,
     }),
   );
 });

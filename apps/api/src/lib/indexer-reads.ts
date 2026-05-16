@@ -14,13 +14,18 @@ import {
 
 import {
   indexerCreatorEarnings,
+  indexerFeeAccrual,
   indexerGlobalStats,
+  indexerGraduation,
   indexerHourlyVolume,
+  indexerReferral,
+  indexerReferrerStats,
   indexerRouterTrade,
   indexerToken,
   indexerTokenBalance,
   indexerTokenHourlyMetrics,
   indexerTokenSnapshot,
+  indexerWalletBotPosition,
 } from "../db/indexer-schema.js";
 
 import { describeError } from "./log-error.js";
@@ -1095,6 +1100,517 @@ export async function fetchTokenChartSnapshots(
       { tokenAddress: lowered, fromSec },
     );
     return null;
+  }
+}
+
+// ----------------------------------------------------------------------
+// Helpers introduced alongside the additive `*-v2` direct-DB endpoints.
+// The legacy Ponder-GraphQL endpoints remain mounted; these power the
+// parallel `-v2` routes so callers can A/B-compare shapes before the
+// cut-over.
+// ----------------------------------------------------------------------
+
+/**
+ * One row per fee-accrual event newer than `cutoffSec`, ordered newest-first.
+ * Feeds `/admin/analytics/revenue-v2` — same projection the legacy paginated
+ * GraphQL query selected (`creatorAmount`, `protocolAmount`, `timestamp`).
+ */
+export interface AnalyticsFeeAccrualRow {
+  creatorAmount: string;
+  protocolAmount: string;
+  timestamp: string;
+}
+
+export async function fetchFeeAccrualsSince(
+  db: Database,
+  cutoffSec: number,
+): Promise<AnalyticsFeeAccrualRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        creatorAmount: indexerFeeAccrual.creatorAmount,
+        protocolAmount: indexerFeeAccrual.protocolAmount,
+        timestamp: indexerFeeAccrual.timestamp,
+      })
+      .from(indexerFeeAccrual)
+      .where(gte(indexerFeeAccrual.timestamp, String(cutoffSec)))
+      .orderBy(desc(indexerFeeAccrual.timestamp), desc(indexerFeeAccrual.id));
+    return rows.map((r) => ({
+      creatorAmount: r.creatorAmount,
+      protocolAmount: r.protocolAmount,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchFeeAccrualsSince_failed", error, {
+      cutoffSec,
+    });
+    return null;
+  }
+}
+
+/** Lightweight projection for the analytics-route DAU/volume queries. */
+export interface AnalyticsRouterTradeRow {
+  trader: string;
+  usdcAmount: string;
+  timestamp: string;
+}
+
+/**
+ * Router-trade rows newer than `cutoffSec`. Same `(timestamp, id)` tiebreak
+ * `fetchRouterTrades` uses so paging is deterministic and so multi-trade
+ * blocks (multiple Zap.Buy/Sell events in the same block) emerge in a
+ * stable order. Used by both `/admin/analytics/dau-v2` and
+ * `/admin/analytics/volume-v2` — the two routes consume disjoint columns
+ * but the underlying scan is identical, so we share one helper.
+ */
+export async function fetchRouterTradesForAnalytics(
+  db: Database,
+  cutoffSec: number,
+): Promise<AnalyticsRouterTradeRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        trader: indexerRouterTrade.trader,
+        usdcAmount: indexerRouterTrade.usdcAmount,
+        timestamp: indexerRouterTrade.timestamp,
+      })
+      .from(indexerRouterTrade)
+      .where(gte(indexerRouterTrade.timestamp, String(cutoffSec)))
+      .orderBy(desc(indexerRouterTrade.timestamp), desc(indexerRouterTrade.id));
+    return rows.map((r) => ({
+      trader: r.trader,
+      usdcAmount: r.usdcAmount,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchRouterTradesForAnalytics_failed",
+      error,
+      { cutoffSec },
+    );
+    return null;
+  }
+}
+
+/** Graduation event projection for `/admin/analytics/graduations-v2`. */
+export interface AnalyticsGraduationRow {
+  tokenAddress: string;
+  timestamp: string;
+}
+
+export async function fetchGraduationsSince(
+  db: Database,
+  cutoffSec: number,
+): Promise<AnalyticsGraduationRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        tokenAddress: indexerGraduation.tokenAddress,
+        timestamp: indexerGraduation.timestamp,
+      })
+      .from(indexerGraduation)
+      .where(gte(indexerGraduation.timestamp, String(cutoffSec)))
+      .orderBy(desc(indexerGraduation.timestamp));
+    return rows.map((r) => ({
+      tokenAddress: r.tokenAddress,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchGraduationsSince_failed", error, {
+      cutoffSec,
+    });
+    return null;
+  }
+}
+
+/** Token-launch projection paired with `fetchGraduationsSince` to compute time-to-graduation. */
+export interface AnalyticsTokenLaunchRow {
+  address: string;
+  timestamp: string;
+}
+
+export async function fetchTokensLaunchedSince(
+  db: Database,
+  cutoffSec: number,
+): Promise<AnalyticsTokenLaunchRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        address: indexerToken.address,
+        timestamp: indexerToken.timestamp,
+      })
+      .from(indexerToken)
+      .where(gte(indexerToken.timestamp, String(cutoffSec)))
+      .orderBy(desc(indexerToken.timestamp));
+    return rows.map((r) => ({
+      address: r.address,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokensLaunchedSince_failed",
+      error,
+      { cutoffSec },
+    );
+    return null;
+  }
+}
+
+/** A held-balance row for `/balances-v2`. */
+export interface IndexerTokenBalanceRow {
+  tokenAddress: string;
+  balance: string;
+}
+
+/**
+ * Every (wallet, token) row with balance > 0. The legacy
+ * GraphQL query was `tokenBalances(where: { wallet, balance_gt: "0" })` —
+ * unscoped by token, so this returns every non-zero holding for the wallet
+ * in a single Postgres scan rather than paginating.
+ */
+export async function fetchTokenBalancesByWallet(
+  db: Database,
+  wallet: string,
+): Promise<IndexerTokenBalanceRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        tokenAddress: indexerTokenBalance.tokenAddress,
+        balance: indexerTokenBalance.balance,
+      })
+      .from(indexerTokenBalance)
+      .where(
+        and(
+          eq(indexerTokenBalance.wallet, wallet.toLowerCase()),
+          gt(indexerTokenBalance.balance, "0"),
+        ),
+      );
+    return rows.map((r) => ({
+      tokenAddress: r.tokenAddress,
+      balance: r.balance,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokenBalancesByWallet_failed",
+      error,
+      { wallet: wallet.toLowerCase() },
+    );
+    return null;
+  }
+}
+
+/**
+ * Same as `fetchTokenBalancesByWallet` but additionally constrained to a
+ * caller-supplied set of token addresses. Used by `/bot/positions-v2` to
+ * read live on-chain balances scoped to the tokens the wallet has
+ * `walletBotPosition` rows for — keeps the IN list bounded so a wallet
+ * with many non-bot holdings can't crowd out the relevant ones.
+ */
+export async function fetchTokenBalancesByWalletAndTokens(
+  db: Database,
+  wallet: string,
+  tokenAddresses: string[],
+): Promise<IndexerTokenBalanceRow[] | null> {
+  if (tokenAddresses.length === 0) return [];
+  try {
+    const lowered = tokenAddresses.map((a) => a.toLowerCase());
+    const rows = await db
+      .select({
+        tokenAddress: indexerTokenBalance.tokenAddress,
+        balance: indexerTokenBalance.balance,
+      })
+      .from(indexerTokenBalance)
+      .where(
+        and(
+          eq(indexerTokenBalance.wallet, wallet.toLowerCase()),
+          inArray(indexerTokenBalance.tokenAddress, lowered),
+          gt(indexerTokenBalance.balance, "0"),
+        ),
+      );
+    return rows.map((r) => ({
+      tokenAddress: r.tokenAddress,
+      balance: r.balance,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokenBalancesByWalletAndTokens_failed",
+      error,
+      { wallet: wallet.toLowerCase(), tokenCount: tokenAddresses.length },
+    );
+    return null;
+  }
+}
+
+/**
+ * Single (wallet, token) balance, used by `/security-v2` to pull the
+ * creator's own holding. The indexer keys `tokenBalance` by the
+ * composite `${wallet}-${tokenAddress}` id — primary-key hit at the
+ * database layer regardless of trade-history depth. Returns `null` for
+ * "no row exists" (wallet has never held this token) and `"unavailable"`
+ * for a caught error so callers can serve the neutral 200 fallback the
+ * legacy security route uses.
+ */
+export async function fetchTokenBalanceById(
+  db: Database,
+  wallet: string,
+  tokenAddress: string,
+): Promise<{ balance: string } | null | "unavailable"> {
+  try {
+    const id = `${wallet.toLowerCase()}-${tokenAddress.toLowerCase()}`;
+    const rows = await db
+      .select({ balance: indexerTokenBalance.balance })
+      .from(indexerTokenBalance)
+      .where(eq(indexerTokenBalance.id, id))
+      .limit(1);
+    if (rows.length === 0) return null;
+    return { balance: rows[0].balance };
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchTokenBalanceById_failed", error, {
+      wallet: wallet.toLowerCase(),
+      tokenAddress: tokenAddress.toLowerCase(),
+    });
+    return "unavailable";
+  }
+}
+
+/** Referral event surfaced on `/referrals-v2/:wallet`. */
+export interface IndexerReferralRow {
+  tokenAddress: string;
+  trader: string;
+  usdcAmount: string;
+  timestamp: string;
+}
+
+/**
+ * Every referral attributed to the given referrer, newest first. Mirrors the
+ * legacy paginated GraphQL `referrals(where: { referrer }, orderBy: "timestamp"
+ * orderDirection: "desc")` shape one-for-one.
+ */
+export async function fetchReferralsByReferrer(
+  db: Database,
+  referrer: string,
+): Promise<IndexerReferralRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        tokenAddress: indexerReferral.tokenAddress,
+        trader: indexerReferral.trader,
+        usdcAmount: indexerReferral.usdcAmount,
+        timestamp: indexerReferral.timestamp,
+      })
+      .from(indexerReferral)
+      .where(eq(indexerReferral.referrer, referrer.toLowerCase()))
+      .orderBy(desc(indexerReferral.timestamp), desc(indexerReferral.id));
+    return rows.map((r) => ({
+      tokenAddress: r.tokenAddress,
+      trader: r.trader,
+      usdcAmount: r.usdcAmount,
+      timestamp: r.timestamp,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchReferralsByReferrer_failed",
+      error,
+      { referrer: referrer.toLowerCase() },
+    );
+    return null;
+  }
+}
+
+/** Token + graduation pair used by `/security-v2/:address`. */
+export interface SecurityTokenContext {
+  creator: string;
+  graduated: boolean;
+  hyperswapPair: string | null;
+  graduation: { liquidity: string } | null;
+}
+
+/**
+ * Combined `(token, graduation)` lookup for the security route. Returns
+ * `null` when the token row is missing (the legacy GraphQL path produced
+ * the same neutral fallback) and `"unavailable"` on caught error.
+ */
+export async function fetchTokenAndGraduationForSecurity(
+  db: Database,
+  address: string,
+): Promise<SecurityTokenContext | null | "unavailable"> {
+  const lowered = address.toLowerCase();
+  try {
+    const [tokenRows, gradRows] = await Promise.all([
+      db
+        .select({
+          creator: indexerToken.creator,
+          graduated: indexerToken.graduated,
+          hyperswapPair: indexerToken.hyperswapPair,
+        })
+        .from(indexerToken)
+        .where(eq(indexerToken.address, lowered))
+        .limit(1),
+      db
+        .select({ liquidity: indexerGraduation.liquidity })
+        .from(indexerGraduation)
+        .where(eq(indexerGraduation.tokenAddress, lowered))
+        .limit(1),
+    ]);
+    if (tokenRows.length === 0) return null;
+    const [token] = tokenRows;
+    const grad = gradRows[0] ?? null;
+    return {
+      creator: token.creator,
+      graduated: token.graduated,
+      hyperswapPair: token.hyperswapPair,
+      graduation: grad ? { liquidity: grad.liquidity } : null,
+    };
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchTokenAndGraduationForSecurity_failed",
+      error,
+      { address: lowered },
+    );
+    return "unavailable";
+  }
+}
+
+/** A `walletBotPosition` row mirroring the legacy GraphQL projection. */
+export interface IndexerWalletBotPositionRow {
+  token: string;
+  ticker: string;
+  tokenBalance: string;
+  costBasisUsdc: string;
+  currentValueUsdc: string;
+  realisedPnlUsdc: string;
+  totalCostUsdc: string;
+  totalProceedsUsdc: string;
+}
+
+/**
+ * Every `walletBotPosition` row for the wallet. The bot-positions
+ * surface is wallet-scoped and bounded by the number of distinct tokens
+ * a wallet has traded via `BotFeeRouter` — realistic upper bound is
+ * O(hundreds), so no LIMIT clause is needed.
+ */
+export async function fetchWalletBotPositions(
+  db: Database,
+  wallet: string,
+): Promise<IndexerWalletBotPositionRow[] | null> {
+  try {
+    const rows = await db
+      .select({
+        token: indexerWalletBotPosition.token,
+        ticker: indexerWalletBotPosition.ticker,
+        tokenBalance: indexerWalletBotPosition.tokenBalance,
+        costBasisUsdc: indexerWalletBotPosition.costBasisUsdc,
+        currentValueUsdc: indexerWalletBotPosition.currentValueUsdc,
+        realisedPnlUsdc: indexerWalletBotPosition.realisedPnlUsdc,
+        totalCostUsdc: indexerWalletBotPosition.totalCostUsdc,
+        totalProceedsUsdc: indexerWalletBotPosition.totalProceedsUsdc,
+      })
+      .from(indexerWalletBotPosition)
+      .where(eq(indexerWalletBotPosition.wallet, wallet.toLowerCase()));
+    return rows.map((r) => ({
+      token: r.token,
+      ticker: r.ticker,
+      tokenBalance: r.tokenBalance,
+      costBasisUsdc: r.costBasisUsdc,
+      currentValueUsdc: r.currentValueUsdc,
+      realisedPnlUsdc: r.realisedPnlUsdc,
+      totalCostUsdc: r.totalCostUsdc,
+      totalProceedsUsdc: r.totalProceedsUsdc,
+    }));
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchWalletBotPositions_failed",
+      error,
+      { wallet: wallet.toLowerCase() },
+    );
+    return null;
+  }
+}
+
+/** `referrerStats` row shape for `/bot/referrals-v2`. */
+export interface IndexerReferrerStatsRow {
+  referredCount: number;
+  lifetimeEarnedUsdc: string;
+  badPaymentCount: number;
+  attributionLossCount: number;
+}
+
+/**
+ * Primary-key lookup by lowercased referrer wallet. Returns `null` when
+ * the row is missing (no router activity yet under this referrer) so
+ * the route can collapse to its zeroed-stats default. `"unavailable"`
+ * differentiates a caught error so the caller can still 200 with
+ * zeroed stats — the legacy GraphQL path returned the same fallback on
+ * indexer unavailability.
+ */
+export async function fetchReferrerStatsById(
+  db: Database,
+  id: string,
+): Promise<IndexerReferrerStatsRow | null | "unavailable"> {
+  try {
+    const rows = await db
+      .select({
+        referredCount: indexerReferrerStats.referredCount,
+        lifetimeEarnedUsdc: indexerReferrerStats.lifetimeEarnedUsdc,
+        badPaymentCount: indexerReferrerStats.badPaymentCount,
+        attributionLossCount: indexerReferrerStats.attributionLossCount,
+      })
+      .from(indexerReferrerStats)
+      .where(eq(indexerReferrerStats.id, id.toLowerCase()))
+      .limit(1);
+    if (rows.length === 0) return null;
+    const [r] = rows;
+    return {
+      referredCount: r.referredCount,
+      lifetimeEarnedUsdc: r.lifetimeEarnedUsdc,
+      badPaymentCount: r.badPaymentCount,
+      attributionLossCount: r.attributionLossCount,
+    };
+  } catch (error) {
+    logIndexerReadFailure(
+      "indexer_reads.fetchReferrerStatsById_failed",
+      error,
+      { id: id.toLowerCase() },
+    );
+    return "unavailable";
+  }
+}
+
+/** Minimal token meta surfaced by the new `/tokens/:address/meta` endpoint. */
+export interface IndexerTokenMetaRow {
+  address: string;
+  name: string;
+  symbol: string;
+}
+
+/**
+ * Single-token name/symbol lookup. Replaces the browser-side
+ * `fetchPonderToken(address)` call in `apps/web/src/services/tokenNames.ts`
+ * — the web migration to this endpoint lives in a follow-up PR; this
+ * helper exists so the API surface is ready when that lands.
+ */
+export async function fetchTokenMeta(
+  db: Database,
+  address: string,
+): Promise<IndexerTokenMetaRow | null | "unavailable"> {
+  try {
+    const rows = await db
+      .select({
+        address: indexerToken.address,
+        name: indexerToken.name,
+        symbol: indexerToken.symbol,
+      })
+      .from(indexerToken)
+      .where(eq(indexerToken.address, address.toLowerCase()))
+      .limit(1);
+    if (rows.length === 0) return null;
+    const [r] = rows;
+    return { address: r.address, name: r.name, symbol: r.symbol };
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchTokenMeta_failed", error, {
+      address: address.toLowerCase(),
+    });
+    return "unavailable";
   }
 }
 
