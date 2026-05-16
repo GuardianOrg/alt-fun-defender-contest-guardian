@@ -59,6 +59,19 @@ function redactSensitive(value: unknown): unknown {
 }
 
 /**
+ * `JSON.stringify` replacer that coerces `bigint` values to strings.
+ * `JSON.stringify(10n)` throws a `TypeError`; an `Error` carrying a
+ * bigint inside its `cause` / `code` would otherwise drop the entire
+ * outer log line. (`symbol` and `function` are silently elided by
+ * `JSON.stringify` already, so they don't need explicit handling
+ * inside nested structures.)
+ */
+function jsonSafeReplacer(_key: string, value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  return value;
+}
+
+/**
  * Best-effort shallow clone for arbitrary error sidecars (`cause` /
  * `sourceError` / unstructured `code`). Drivers attach plain-object
  * response payloads (status, body, headers) on these fields; `JSON
@@ -69,13 +82,29 @@ function redactSensitive(value: unknown): unknown {
  * pathological case. The clone is then walked through
  * `redactSensitive` so a future driver upgrade can't leak a credential
  * even if it stuffs one onto the error object.
+ *
+ * Top-level non-serializable primitives (`bigint`, `symbol`,
+ * `function`) are explicitly coerced to strings — `JSON.stringify`
+ * throws on a top-level bigint and returns `undefined` for top-level
+ * symbols/functions, both of which would corrupt the caller's outer
+ * log payload. Nested bigints survive via `jsonSafeReplacer`. CodeRabbit
+ * feedback on PR #983.
  */
 export function sanitizeErrorSidecar(value: unknown): unknown {
   if (value === undefined) return undefined;
   if (value === null) return null;
+  if (
+    typeof value === "bigint" ||
+    typeof value === "symbol" ||
+    typeof value === "function"
+  ) {
+    return String(value);
+  }
   if (typeof value !== "object") return value;
   try {
-    return redactSensitive(JSON.parse(JSON.stringify(value)));
+    return redactSensitive(
+      JSON.parse(JSON.stringify(value, jsonSafeReplacer)),
+    );
   } catch {
     return String(value);
   }

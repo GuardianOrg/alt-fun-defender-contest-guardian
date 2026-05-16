@@ -103,6 +103,17 @@ describe("describeError", () => {
     ).toBe(42);
   });
 
+  it("survives a bigint `code` without breaking the outer JSON.stringify", () => {
+    // `JSON.stringify(10n)` throws, and `error.code` is untyped on
+    // `Error` proper — a future thrown value carrying a bigint code
+    // would otherwise drop the entire failure log. CodeRabbit feedback
+    // on PR #983.
+    const error = Object.assign(new Error("boom"), { code: 503n });
+    const result = describeError(error) as Record<string, unknown>;
+    expect(result.code).toBe("503");
+    expect(() => JSON.stringify(result)).not.toThrow();
+  });
+
   it("applies the optional message transform without touching other fields", () => {
     // Drizzle's `Failed query: <SQL>\nparams: <values>` wrapper is
     // stripped to its first line at the call site in `indexer-reads.ts`.
@@ -135,12 +146,41 @@ describe("describeError", () => {
 });
 
 describe("sanitizeErrorSidecar", () => {
-  it("returns primitives unchanged", () => {
+  it("returns serializable primitives unchanged", () => {
     expect(sanitizeErrorSidecar("ok")).toBe("ok");
     expect(sanitizeErrorSidecar(0)).toBe(0);
     expect(sanitizeErrorSidecar(true)).toBe(true);
     expect(sanitizeErrorSidecar(null)).toBeNull();
     expect(sanitizeErrorSidecar(undefined)).toBeUndefined();
+  });
+
+  it("coerces non-serializable top-level primitives so the outer JSON.stringify never throws", () => {
+    // `JSON.stringify(10n)` throws; `JSON.stringify(Symbol())` /
+    // `JSON.stringify(() => {})` return `undefined` and would corrupt
+    // the surrounding log payload. Coerce to strings so the failure
+    // log stays valid. CodeRabbit feedback on PR #983.
+    expect(sanitizeErrorSidecar(10n)).toBe("10");
+    expect(sanitizeErrorSidecar(Symbol("trace"))).toMatch(/^Symbol\(trace\)$/);
+    expect(typeof sanitizeErrorSidecar(() => undefined)).toBe("string");
+
+    // And importantly: each result is JSON-serialisable on its own.
+    expect(() =>
+      JSON.stringify({ value: sanitizeErrorSidecar(10n) }),
+    ).not.toThrow();
+  });
+
+  it("coerces a bigint nested inside a sidecar object via the JSON replacer", () => {
+    // A bigint inside `cause` (e.g. a status code reported as bigint
+    // by an exotic driver) used to drop the entire log line when the
+    // outer `JSON.stringify` ran. The replacer converts it to its
+    // string form so the log survives intact. CodeRabbit feedback on
+    // PR #983.
+    const result = sanitizeErrorSidecar({
+      status: 503n,
+      attempts: [1n, 2n],
+    }) as Record<string, unknown>;
+    expect(result.status).toBe("503");
+    expect(result.attempts).toEqual(["1", "2"]);
   });
 
   it("strips functions and prototype noise via JSON round-trip", () => {
