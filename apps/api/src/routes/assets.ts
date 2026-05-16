@@ -82,6 +82,45 @@ async function fetchMids(): Promise<Record<string, string>> {
   }
 }
 
+/**
+ * DB-read budget for `/assets`. A cold Neon compute can keep the HTTPS
+ * connection open for tens of seconds before either succeeding or
+ * surfacing an error; without an explicit cap the route ends up
+ * waiting the full per-request budget on the caller side (e.g. the 10 s
+ * wall in `scripts/smoke-test.mjs`). 4 s is more than enough for a
+ * warm read and short enough that a cold-DB user gets the "show
+ * everything" fallback within their normal poll cadence. Matches the
+ * `EXTERNAL_FETCH_TIMEOUT_MS` pattern above for budget symmetry.
+ */
+const DB_READ_TIMEOUT_MS = 4_000;
+
+/**
+ * Race a promise against a wall-clock timeout. On timeout the wrapped
+ * call's settlement is ignored (Neon's HTTPS driver doesn't honour an
+ * AbortSignal at the per-query level) — so the SQL eventually completes
+ * server-side but the caller's bounded promise resolves with
+ * `fallback`. Used to bound DB reads inside route handlers when the
+ * underlying lib doesn't expose its own timeout knob.
+ */
+function withDbTimeout<T>(
+  promise: Promise<T>,
+  fallback: T,
+  timeoutMs: number,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), timeoutMs);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+}
+
 const assets = new Hono<{ Bindings: AppBindings }>();
 
 assets.get("/", async (c) => {
@@ -93,7 +132,15 @@ assets.get("/", async (c) => {
     // (poller hasn't backfilled yet or the DB read failed) — fall back to
     // an empty supported list. The availability snapshot below carries
     // the "show everything when degraded" semantics for the response.
-    readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
+    // Wrapped in `withDbTimeout` so a cold Neon compute can't pin the
+    // route past `DB_READ_TIMEOUT_MS` — a hung HTTPS-to-Neon connection
+    // is the failure mode we saw in CI cold-start runs (the lib's own
+    // try/catch only handles thrown errors, not stalls).
+    withDbTimeout(
+      readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
+      [],
+      DB_READ_TIMEOUT_MS,
+    ),
     // Don't let a stuck availability lookup take down `/assets` — fall
     // back to the cached snapshot (or "unknown, don't filter") on
     // failure. See `lt-availability.ts` for the fail-open rationale.
