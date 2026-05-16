@@ -27,18 +27,22 @@ const REQUEST_TIMEOUT_MS = 10_000;
 // — so the typical CI cold path is a fully suspended compute. Observed
 // cold-start on the staging project (`bounce-data-staging`,
 // 0.25-1 CU, ap-southeast-1) is ~80 seconds wall-clock from the first
-// retryable HTTPS hang to a healthy 200 reply; the previous
-// 8 × 10s retry pattern exhausted its budget on per-attempt hangs
-// before the wake-up landed, and every DB-backed test silently
-// skipped. We now issue 2 deliberately long-budget attempts (the
-// first one carries the cold-start wake-up; the second covers the
-// rare case where the first attempt hits a stuck connection that
-// won't recover). 2 × 60s + 1 × 3s = ~123s total — comfortably
-// below the `timeout-minutes: 3` job ceiling, and long enough to
-// absorb the observed cold-start tail.
-const DATABASE_PROBE_RETRIES = 2;
-const DATABASE_PROBE_TIMEOUT_MS = 60_000;
-const DATABASE_PROBE_RETRY_DELAY_MS = 3_000;
+// HTTPS attempt to a healthy 200 reply. While the wake-up is in flight
+// Neon returns `HTTP 500 + neon:retryable: true` quickly on each
+// attempt rather than hanging the connection; the fixed-attempt-count
+// retry pattern therefore exhausted its budget in ~20 s of fast
+// failures before the wake-up landed (previously: 8 × 10 s, then
+// 2 × 60 s — both failed for the same reason).
+//
+// We now use a deadline-based loop: retry until either the probe
+// succeeds, returns a non-retryable error, or the total wall-clock
+// budget elapses. Each attempt is bounded by `DATABASE_PROBE_TIMEOUT_MS`
+// (covers hung connections); the loop's outer deadline (`*_BUDGET_MS`)
+// bounds the cumulative wait so the smoke test stays under the
+// `timeout-minutes: 3` job ceiling.
+const DATABASE_PROBE_BUDGET_MS = 120_000;
+const DATABASE_PROBE_TIMEOUT_MS = 15_000;
+const DATABASE_PROBE_RETRY_DELAY_MS = 2_000;
 
 function randomAddress() {
   const hex = "0123456789abcdef";
@@ -99,9 +103,12 @@ async function withTimeout(promise, timeoutMs, label) {
 
 async function getDatabaseReadiness(connectionString) {
   const sql = neon(connectionString);
+  const deadline = Date.now() + DATABASE_PROBE_BUDGET_MS;
   let lastError = null;
+  let attempts = 0;
 
-  for (let attempt = 1; attempt <= DATABASE_PROBE_RETRIES; attempt++) {
+  while (Date.now() < deadline) {
+    attempts++;
     try {
       const probe = sql`
         SELECT
@@ -121,15 +128,22 @@ async function getDatabaseReadiness(connectionString) {
       };
     } catch (error) {
       lastError = error;
-      if (attempt < DATABASE_PROBE_RETRIES) {
-        await sleep(DATABASE_PROBE_RETRY_DELAY_MS);
-      }
+      // Neon's HTTP driver wraps cold-start errors with a JSON body
+      // containing `neon:retryable: true`. Any other error shape is a
+      // hard failure (auth error, bad URL, missing role, etc.) where
+      // burning the full retry budget would just slow the smoke test
+      // down without changing the outcome.
+      const message = error instanceof Error ? error.message : String(error);
+      const isRetryable = /"neon:retryable":\s*true/.test(message);
+      if (!isRetryable) break;
+      if (Date.now() + DATABASE_PROBE_RETRY_DELAY_MS >= deadline) break;
+      await sleep(DATABASE_PROBE_RETRY_DELAY_MS);
     }
   }
 
   const reason = lastError instanceof Error ? lastError.message : String(lastError);
   console.warn(
-    "Could not probe database readiness before smoke test; skipping DB-backed endpoint checks",
+    `Could not probe database readiness before smoke test (${attempts} attempts over ${Math.round((Date.now() - (deadline - DATABASE_PROBE_BUDGET_MS)) / 1000)} s); skipping DB-backed endpoint checks`,
     reason,
   );
   return {
