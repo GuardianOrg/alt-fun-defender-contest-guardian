@@ -2,32 +2,23 @@ import type { Bot } from "grammy";
 import type { Address } from "viem";
 
 import type { AppContext } from "../bot.js";
-import { buildTrackFromToken } from "./track.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
   ACTION_TOKEN_OUTAGE,
   editToActionCard,
 } from "../lib/action-card.js";
-import { ctxAntiPhishingPhrase } from "../lib/anti-phishing.js";
-import { fetchBotPositions, fetchToken, isAddress } from "../lib/api.js";
+import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_REFRESH_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
-  POSITIONS_TRACK_CALLBACK_CMD,
   buildPositionsPageKeyboard,
-  escapeHtml,
   formatBotPositionsResponse,
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
-import {
-  backHomeMarkup,
-  editToSubmenu,
-  pushNavSnapshot,
-  snapshotFromCallback,
-} from "../lib/nav.js";
+import { editToSubmenu } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
 
 const USAGE = "Usage: /positions <wallet_address>";
@@ -54,7 +45,8 @@ const renderPage = async (
   }
   if (!res.ok) return { outage: true };
 
-  const pages = formatBotPositionsResponse(res.data);
+  const botUsername = env.BOT_USERNAME?.trim() || null;
+  const pages = formatBotPositionsResponse(res.data, botUsername);
   // Clamp the requested page — positions may have shrunk since the
   // button was rendered, in which case `page` could exceed the new
   // page count.
@@ -348,101 +340,6 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
   };
   registerActionCallback(POSITIONS_BUY_CALLBACK_CMD, "buy");
   registerActionCallback(POSITIONS_SELL_CALLBACK_CMD, "sell");
-
-  /**
-   * Per-position `[📊 <TICKER>]` callback. Replaces the legacy
-   * `<a href="t.me/<bot>?start=track_<addr>">TICKER</a>` body anchor that
-   * bounced the user through Telegram's `/start track_<addr>` deeplink
-   * handler — that round-trip pulled the user out of the /positions
-   * bubble entirely, posted a fresh /track reply below, and (when
-   * `BOT_USERNAME` was misconfigured) silently broke the deeplink.
-   *
-   * Edit-in-place flow:
-   *   1. Push the current /positions snapshot onto the nav stack so Back
-   *      restores the original list (taken from `ctx.callbackQuery.message`
-   *      *before* the first edit so the "Fetching…" intermediate state
-   *      never lands on the stack).
-   *   2. Fetch the token's metadata so we can name the loading prompt.
-   *   3. Edit the bubble to "Fetching <TICKER> token details…" — the
-   *      user gets immediate feedback that their tap was received.
-   *   4. Render the full /track text card (`buildTrackFromToken` skips
-   *      the redundant token fetch) and edit the bubble once more to the
-   *      final view. The chart photo is dropped on this path because
-   *      `editMessageText` cannot convert a text bubble into a photo
-   *      message — staying inside one bubble is the whole point.
-   *
-   * Outage surfaces as a toast (no edit) so the user keeps the
-   * /positions list intact and can retry without re-navigating.
-   */
-  bot.callbackQuery(
-    new RegExp(`^${POSITIONS_TRACK_CALLBACK_CMD}:`),
-    async (ctx) => {
-      const data = ctx.callbackQuery.data ?? "";
-      const token = data.slice(POSITIONS_TRACK_CALLBACK_CMD.length + 1);
-      if (!isAddress(token)) {
-        await ctx.answerCallbackQuery({ text: "Invalid token." });
-        return;
-      }
-      if (!ctx.callbackQuery.message) {
-        await ctx.answerCallbackQuery({
-          text: "Message no longer available.",
-        });
-        return;
-      }
-      // Snapshot BEFORE any edit so Back lands on the /positions list,
-      // not the "Fetching…" intermediate state.
-      const parent = snapshotFromCallback(ctx);
-
-      const tokenRes = await fetchToken(ctx.env, token);
-      if (!tokenRes.ok) {
-        await ctx.answerCallbackQuery({
-          text:
-            tokenRes.kind === "not_found" ||
-            tokenRes.kind === "invalid_address"
-              ? "Token not found."
-              : OUTAGE,
-          show_alert: true,
-        });
-        return;
-      }
-      if (parent) pushNavSnapshot(ctx.session, parent);
-
-      try {
-        await ctx.editMessageText(
-          `Fetching <b>${escapeHtml(tokenRes.data.ticker)}</b> token details…`,
-          {
-            parse_mode: "HTML",
-            reply_markup: backHomeMarkup(),
-            link_preview_options: { is_disabled: true },
-          },
-        );
-      } catch (err) {
-        // The bubble may have been deleted by the user / replaced by a
-        // concurrent flow between the tap and our edit. That's benign —
-        // ack and bail rather than continuing to render into a bubble
-        // that no longer exists.
-        logger.warn("positions track: loading edit failed", { err });
-        await ctx.answerCallbackQuery();
-        return;
-      }
-
-      const render = await buildTrackFromToken(
-        ctx.env,
-        tokenRes.data,
-        ctxAntiPhishingPhrase(ctx),
-      );
-      try {
-        await ctx.editMessageText(render.text, {
-          parse_mode: "HTML",
-          reply_markup: { inline_keyboard: render.keyboard },
-          link_preview_options: { is_disabled: true },
-        });
-      } catch (err) {
-        logger.warn("positions track: final edit failed", { err });
-      }
-      await ctx.answerCallbackQuery();
-    },
-  );
 
   /**
    * Start-menu "Positions" button: open positions for the user's

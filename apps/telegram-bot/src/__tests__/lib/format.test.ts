@@ -12,7 +12,6 @@ import {
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_REFRESH_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
-  POSITIONS_TRACK_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
@@ -164,12 +163,12 @@ describe("formatBotPositionsResponse", () => {
     ]);
   });
 
-  it("does not emit any `t.me?start=...` body anchors", () => {
-    // Regression: the legacy Buy/Sell/Track anchors all bounced through
-    // Telegram's link-handler UI even inside the same bot's chat. The
-    // /positions card is now a pure callback surface — per-position
-    // `[📊 TICKER]`, `[Buy]`, `[Sell]` buttons replace every body
-    // anchor so the user never leaves the chat bubble.
+  it("omits ticker anchors when no botUsername is provided (fall-back to plain text)", () => {
+    // Without a configured BOT_USERNAME we deliberately render the
+    // ticker as plain text — a fabricated link would resolve to the
+    // wrong / a non-existent bot. Other body anchors (Buy / Sell
+    // deeplinks) were removed in favor of per-position callback buttons
+    // and must not reappear.
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ticker: "ALPHA",
@@ -183,26 +182,34 @@ describe("formatBotPositionsResponse", () => {
     expect(joined).not.toMatch(/<a\s/i);
   });
 
-  it("renders the open-position ticker as plain (un-linked) escaped text", () => {
+  it("wraps the open-position ticker in a `t.me/<bot>?start=track_<addr>` anchor when botUsername is provided", () => {
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ticker: "ALPHA",
     });
-    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
+    const pages = formatBotPositionsResponse(
+      { open: [pos], realised: [] },
+      "trade_cortisol_bot",
+    );
     const joined = pages.map((p) => p.text).join("\n");
-    expect(joined).toContain("ALPHA");
-    expect(joined).not.toMatch(/<a\s/i);
+    expect(joined).toContain(
+      `<a href="https://t.me/trade_cortisol_bot?start=track_${pos.token}">ALPHA</a>`,
+    );
   });
 
-  it("renders the realised-position ticker as plain (un-linked) escaped text", () => {
+  it("wraps the realised-position ticker in a `t.me/<bot>?start=track_<addr>` anchor when botUsername is provided", () => {
     const pos = realisedPos({
       token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       ticker: "BETA",
     });
-    const pages = formatBotPositionsResponse({ open: [], realised: [pos] });
+    const pages = formatBotPositionsResponse(
+      { open: [], realised: [pos] },
+      "trade_cortisol_bot",
+    );
     const joined = pages.map((p) => p.text).join("\n");
-    expect(joined).toContain("BETA");
-    expect(joined).not.toMatch(/<a\s/i);
+    expect(joined).toContain(
+      `<a href="https://t.me/trade_cortisol_bot?start=track_${pos.token}">BETA</a>`,
+    );
   });
 
   it("does not emit openActions for realised (closed) positions", () => {
@@ -262,6 +269,23 @@ describe("formatBotPositionsResponse", () => {
       realised: [],
     });
     expect(pages.map((p) => p.text).join("\n")).toContain("(—)");
+  });
+
+  it("keeps a single deeplinked line within the page limit even for a pathologically long ticker (anchor markup counted in budget)", () => {
+    // Regression: without anchor-overhead accounting, the `<a href="…">`
+    // / `</a>` wrapper can push one open-position line past the 4096-
+    // char Telegram ceiling once a multi-thousand-char ticker is wrapped
+    // in a deeplink. `chunkPositionsPages` cannot recover from an
+    // oversized line, so the budget must reserve the anchor markup up
+    // front.
+    const huge = "X".repeat(5000);
+    const pages = formatBotPositionsResponse(
+      { open: [openPos({ ticker: huge })], realised: [] },
+      "trade_cortisol_bot",
+    );
+    for (const page of pages) {
+      expect(page.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
   });
 
   it("chunks output into <=4096-char Telegram messages for large lists", () => {
@@ -401,48 +425,40 @@ describe("buildPositionsPageKeyboard", () => {
     ]);
   });
 
-  it("emits a [📊 <TICKER>] + [Buy <TICKER>] [Sell <TICKER>] pair per open action", () => {
+  it("emits a [Buy <TICKER>] [Sell <TICKER>] row per open action", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "ALPHA" },
       { token: TOKEN_B, ticker: "BETA" },
     ]);
     const rows = kb.inline_keyboard;
-    // Two per-position pairs (track + buy/sell = 2 rows each) + refresh
-    // row + the trailing Back/Home row = 6 rows total.
-    expect(rows).toHaveLength(6);
-    expect(rows[0]!.map((b) => b.text)).toEqual(["📊 ALPHA"]);
+    // Two per-position rows (buy/sell each) + refresh row + the
+    // trailing Back/Home row = 4 rows total. The track affordance lives
+    // in the body text as a deeplinked ticker, not as a keyboard button.
+    expect(rows).toHaveLength(4);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
     expect(rows[0]![0]!.callback_data).toBe(
-      `${POSITIONS_TRACK_CALLBACK_CMD}:${TOKEN_A}`,
-    );
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
-    expect(rows[1]![0]!.callback_data).toBe(
       `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
     );
-    expect(rows[1]![1]!.callback_data).toBe(
+    expect(rows[0]![1]!.callback_data).toBe(
       `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
     );
-    expect(rows[2]!.map((b) => b.text)).toEqual(["📊 BETA"]);
-    expect(rows[3]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
-    expect(rows[4]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[4]![0]!.callback_data).toBe(
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[2]![0]!.callback_data).toBe(
       `${POSITIONS_REFRESH_CALLBACK_CMD}:0:${WALLET}`,
     );
-    expect(rows[5]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "SUPERCALIFRAGILISTIC" },
     ]);
-    const trackRow = kb.inline_keyboard[0]!;
-    const buySellRow = kb.inline_keyboard[1]!;
-    expect(trackRow[0]!.text.length).toBeLessThanOrEqual("📊 ".length + 12);
-    expect(trackRow[0]!.text.endsWith("…")).toBe(true);
+    const buySellRow = kb.inline_keyboard[0]!;
     expect(buySellRow[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
     expect(buySellRow[0]!.text.endsWith("…")).toBe(true);
     // The full token address must still ride in callback_data verbatim
     // — the truncation is purely cosmetic on the label side.
-    expect(trackRow[0]!.callback_data).toContain(TOKEN_A);
     expect(buySellRow[0]!.callback_data).toContain(TOKEN_A);
   });
 
@@ -451,9 +467,8 @@ describe("buildPositionsPageKeyboard", () => {
       { token: TOKEN_A, ticker: "ALPHA" },
     ]);
     const rows = kb.inline_keyboard;
-    expect(rows[0]!.map((b) => b.text)).toEqual(["📊 ALPHA"]);
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
-    const nav = rows[2]!;
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    const nav = rows[1]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,
