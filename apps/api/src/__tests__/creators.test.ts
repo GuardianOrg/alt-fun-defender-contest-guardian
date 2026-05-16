@@ -4,11 +4,17 @@ import { Hono } from "hono";
 import type { AppBindings } from "../lib/types.js";
 
 const mockPonderQuery = vi.fn();
+const mockFetchCreatorEarnings = vi.fn();
 let mockTokens: { address: string; creator: string }[] = [];
 let mockProfile: { address: string; displayName?: string } | undefined;
 
 vi.mock("../lib/ponder-client.js", () => ({
   createPonderQuery: () => mockPonderQuery,
+}));
+
+vi.mock("../lib/indexer-reads.js", () => ({
+  fetchCreatorEarnings: (...args: unknown[]) =>
+    mockFetchCreatorEarnings(...args),
 }));
 
 // Drizzle chainable mock. The route makes two queries:
@@ -88,6 +94,133 @@ function makeEnv(): AppBindings {
 const CREATOR = "0xaaaa000000000000000000000000000000000001";
 const TOKEN_A = "0xbbbb000000000000000000000000000000000002";
 const TOKEN_B = "0xcccc000000000000000000000000000000000003";
+
+describe("GET /creators/:address/earnings", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns 400 for an invalid address", async () => {
+    const app = createApp();
+    const res = await app.request(
+      "/creators/not-an-address/earnings",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 503 when the indexer table is unreachable", async () => {
+    mockFetchCreatorEarnings.mockResolvedValue("unavailable");
+    const app = createApp();
+    const res = await app.request(
+      `/creators/${CREATOR}/earnings`,
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  it("returns a clean zero-state when no row exists for the creator", async () => {
+    mockFetchCreatorEarnings.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request(
+      `/creators/${CREATOR}/earnings`,
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        lifetimeEarnedUsdcRaw: string;
+        lifetimeClaimedUsdcRaw: string;
+        claimableUsdcRaw: string;
+        lifetimeEarnedUsd: number;
+        lifetimeClaimedUsd: number;
+        claimableUsd: number;
+      };
+    };
+    expect(body.data).toEqual({
+      lifetimeEarnedUsdcRaw: "0",
+      lifetimeClaimedUsdcRaw: "0",
+      claimableUsdcRaw: "0",
+      lifetimeEarnedUsd: 0,
+      lifetimeClaimedUsd: 0,
+      claimableUsd: 0,
+    });
+  });
+
+  it("returns derived claimable + USD-formatted figures from the precomputed counter", async () => {
+    mockFetchCreatorEarnings.mockResolvedValue({
+      lifetimeEarnedUsdcRaw: "12_500_000".replace(/_/g, ""), // 12.5 USDC
+      lifetimeClaimedUsdcRaw: "2_500_000".replace(/_/g, ""), // 2.5 USDC
+    });
+    const app = createApp();
+    const res = await app.request(
+      `/creators/${CREATOR}/earnings`,
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      data: {
+        lifetimeEarnedUsdcRaw: string;
+        lifetimeClaimedUsdcRaw: string;
+        claimableUsdcRaw: string;
+        lifetimeEarnedUsd: number;
+        lifetimeClaimedUsd: number;
+        claimableUsd: number;
+      };
+    };
+    expect(body.data.lifetimeEarnedUsdcRaw).toBe("12500000");
+    expect(body.data.lifetimeClaimedUsdcRaw).toBe("2500000");
+    expect(body.data.claimableUsdcRaw).toBe("10000000");
+    expect(body.data.lifetimeEarnedUsd).toBeCloseTo(12.5, 6);
+    expect(body.data.lifetimeClaimedUsd).toBeCloseTo(2.5, 6);
+    expect(body.data.claimableUsd).toBeCloseTo(10, 6);
+  });
+
+  it("clamps claimable at zero when the indexer briefly shows claimed > earned", async () => {
+    mockFetchCreatorEarnings.mockResolvedValue({
+      lifetimeEarnedUsdcRaw: "1000000",
+      lifetimeClaimedUsdcRaw: "1500000",
+    });
+    const app = createApp();
+    const res = await app.request(
+      `/creators/${CREATOR}/earnings`,
+      {},
+      makeEnv(),
+    );
+    const body = (await res.json()) as {
+      data: { claimableUsdcRaw: string; claimableUsd: number };
+    };
+    expect(body.data.claimableUsdcRaw).toBe("0");
+    expect(body.data.claimableUsd).toBe(0);
+  });
+
+  it("matches addresses case-insensitively (passes lowercase to the read helper)", async () => {
+    mockFetchCreatorEarnings.mockResolvedValue(null);
+    const app = createApp();
+    await app.request(`/creators/${CREATOR}/earnings`, {}, makeEnv());
+    // viem's `getAddress` checksums the param so the route hands the
+    // checksummed form to `fetchCreatorEarnings`. The helper itself
+    // lowercases internally — the contract under test is "the route
+    // forwards the checksum-cased address verbatim".
+    const arg = mockFetchCreatorEarnings.mock.calls[0][1] as string;
+    expect(arg.toLowerCase()).toBe(CREATOR.toLowerCase());
+  });
+
+  it("sets a Cache-Control header for edge caching", async () => {
+    mockFetchCreatorEarnings.mockResolvedValue(null);
+    const app = createApp();
+    const res = await app.request(
+      `/creators/${CREATOR}/earnings`,
+      {},
+      makeEnv(),
+    );
+    expect(res.headers.get("Cache-Control")).toContain("s-maxage=15");
+  });
+});
 
 describe("GET /creators/:address", () => {
   beforeEach(() => {

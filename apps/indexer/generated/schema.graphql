@@ -36,8 +36,8 @@ type Query {
   feeClaims(where: feeClaimFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): feeClaimPage!
   feeAccrual(id: String!): feeAccrual
   feeAccruals(where: feeAccrualFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): feeAccrualPage!
-  swap(id: String!): swap
-  swaps(where: swapFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): swapPage!
+  creatorEarnings(creator: String!): creatorEarnings
+  creatorEarningss(where: creatorEarningsFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): creatorEarningsPage!
   pairReserve(pairAddress: String!): pairReserve
   pairReserves(where: pairReserveFilter, orderBy: String, orderDirection: String, before: String, after: String, limit: Int, offset: Int): pairReservePage!
   hyperswapPairIndex(pairAddress: String!): hyperswapPairIndex
@@ -832,122 +832,47 @@ input feeAccrualFilter {
   timestamp_lte: BigInt
 }
 
-type swap {
-  id: String!
-  pairAddress: String!
-  sender: String!
-  to: String!
-  amount0In: BigInt!
-  amount1In: BigInt!
-  amount0Out: BigInt!
-  amount1Out: BigInt!
-  blockNumber: BigInt!
-  timestamp: BigInt!
+type creatorEarnings {
+  creator: String!
+  lifetimeEarnedUsdc: BigInt!
+  lifetimeClaimedUsdc: BigInt!
 }
 
-type swapPage {
-  items: [swap!]!
+type creatorEarningsPage {
+  items: [creatorEarnings!]!
   pageInfo: PageInfo!
   totalCount: Int!
 }
 
-input swapFilter {
-  AND: [swapFilter]
-  OR: [swapFilter]
-  id: String
-  id_not: String
-  id_in: [String]
-  id_not_in: [String]
-  id_contains: String
-  id_not_contains: String
-  id_starts_with: String
-  id_ends_with: String
-  id_not_starts_with: String
-  id_not_ends_with: String
-  id_contains_nocase: String
-  id_not_contains_nocase: String
-  id_starts_with_nocase: String
-  id_ends_with_nocase: String
-  id_not_starts_with_nocase: String
-  id_not_ends_with_nocase: String
-  pairAddress: String
-  pairAddress_not: String
-  pairAddress_in: [String]
-  pairAddress_not_in: [String]
-  pairAddress_contains: String
-  pairAddress_not_contains: String
-  pairAddress_starts_with: String
-  pairAddress_ends_with: String
-  pairAddress_not_starts_with: String
-  pairAddress_not_ends_with: String
-  sender: String
-  sender_not: String
-  sender_in: [String]
-  sender_not_in: [String]
-  sender_contains: String
-  sender_not_contains: String
-  sender_starts_with: String
-  sender_ends_with: String
-  sender_not_starts_with: String
-  sender_not_ends_with: String
-  to: String
-  to_not: String
-  to_in: [String]
-  to_not_in: [String]
-  to_contains: String
-  to_not_contains: String
-  to_starts_with: String
-  to_ends_with: String
-  to_not_starts_with: String
-  to_not_ends_with: String
-  amount0In: BigInt
-  amount0In_not: BigInt
-  amount0In_in: [BigInt]
-  amount0In_not_in: [BigInt]
-  amount0In_gt: BigInt
-  amount0In_lt: BigInt
-  amount0In_gte: BigInt
-  amount0In_lte: BigInt
-  amount1In: BigInt
-  amount1In_not: BigInt
-  amount1In_in: [BigInt]
-  amount1In_not_in: [BigInt]
-  amount1In_gt: BigInt
-  amount1In_lt: BigInt
-  amount1In_gte: BigInt
-  amount1In_lte: BigInt
-  amount0Out: BigInt
-  amount0Out_not: BigInt
-  amount0Out_in: [BigInt]
-  amount0Out_not_in: [BigInt]
-  amount0Out_gt: BigInt
-  amount0Out_lt: BigInt
-  amount0Out_gte: BigInt
-  amount0Out_lte: BigInt
-  amount1Out: BigInt
-  amount1Out_not: BigInt
-  amount1Out_in: [BigInt]
-  amount1Out_not_in: [BigInt]
-  amount1Out_gt: BigInt
-  amount1Out_lt: BigInt
-  amount1Out_gte: BigInt
-  amount1Out_lte: BigInt
-  blockNumber: BigInt
-  blockNumber_not: BigInt
-  blockNumber_in: [BigInt]
-  blockNumber_not_in: [BigInt]
-  blockNumber_gt: BigInt
-  blockNumber_lt: BigInt
-  blockNumber_gte: BigInt
-  blockNumber_lte: BigInt
-  timestamp: BigInt
-  timestamp_not: BigInt
-  timestamp_in: [BigInt]
-  timestamp_not_in: [BigInt]
-  timestamp_gt: BigInt
-  timestamp_lt: BigInt
-  timestamp_gte: BigInt
-  timestamp_lte: BigInt
+input creatorEarningsFilter {
+  AND: [creatorEarningsFilter]
+  OR: [creatorEarningsFilter]
+  creator: String
+  creator_not: String
+  creator_in: [String]
+  creator_not_in: [String]
+  creator_contains: String
+  creator_not_contains: String
+  creator_starts_with: String
+  creator_ends_with: String
+  creator_not_starts_with: String
+  creator_not_ends_with: String
+  lifetimeEarnedUsdc: BigInt
+  lifetimeEarnedUsdc_not: BigInt
+  lifetimeEarnedUsdc_in: [BigInt]
+  lifetimeEarnedUsdc_not_in: [BigInt]
+  lifetimeEarnedUsdc_gt: BigInt
+  lifetimeEarnedUsdc_lt: BigInt
+  lifetimeEarnedUsdc_gte: BigInt
+  lifetimeEarnedUsdc_lte: BigInt
+  lifetimeClaimedUsdc: BigInt
+  lifetimeClaimedUsdc_not: BigInt
+  lifetimeClaimedUsdc_in: [BigInt]
+  lifetimeClaimedUsdc_not_in: [BigInt]
+  lifetimeClaimedUsdc_gt: BigInt
+  lifetimeClaimedUsdc_lt: BigInt
+  lifetimeClaimedUsdc_gte: BigInt
+  lifetimeClaimedUsdc_lte: BigInt
 }
 
 type pairReserve {

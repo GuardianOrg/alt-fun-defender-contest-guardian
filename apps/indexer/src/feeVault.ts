@@ -1,6 +1,11 @@
 import { ponder } from "ponder:registry";
 
-import { feeAccrual, feeClaim, token } from "ponder:schema";
+import {
+  creatorEarnings,
+  feeAccrual,
+  feeClaim,
+  token,
+} from "ponder:schema";
 
 ponder.on("FeeVault:FeeAccrued", async ({ event, context }) => {
   const { db } = context;
@@ -34,6 +39,32 @@ ponder.on("FeeVault:FeeAccrued", async ({ event, context }) => {
       protocolFeesUsd: current.protocolFeesUsd + event.args.protocolAmount,
     });
   }
+
+  // Bump the per-creator running counter. The API's `/creators/:wallet
+  // /earnings` endpoint reads from this row directly so the frontend
+  // doesn't need to hit `FeeVault.creatorBalance` /
+  // `lifetimeCreatorEarned` over RPC on every 30s poll. Lifetime
+  // counter — never decreases (a `FeeVault:CreatorFeesClaimed` bumps
+  // `lifetimeClaimedUsdc` instead, and the API derives `claimable =
+  // lifetimeEarned − lifetimeClaimed` at read time).
+  const existingEarnings = await db.find(creatorEarnings, {
+    creator: event.args.creator,
+  });
+  if (existingEarnings) {
+    await db.update(creatorEarnings, { creator: event.args.creator }).set({
+      lifetimeEarnedUsdc:
+        existingEarnings.lifetimeEarnedUsdc + event.args.creatorAmount,
+    });
+  } else {
+    await db
+      .insert(creatorEarnings)
+      .values({
+        creator: event.args.creator,
+        lifetimeEarnedUsdc: event.args.creatorAmount,
+        lifetimeClaimedUsdc: 0n,
+      })
+      .onConflictDoUpdate({ lifetimeEarnedUsdc: event.args.creatorAmount });
+  }
 });
 
 ponder.on("FeeVault:CreatorFeesClaimed", async ({ event, context }) => {
@@ -51,6 +82,33 @@ ponder.on("FeeVault:CreatorFeesClaimed", async ({ event, context }) => {
       timestamp: BigInt(event.block.timestamp),
     })
     .onConflictDoNothing();
+
+  // Mirror image of the FeeAccrued handler — keep the per-creator
+  // claimed-total counter in lockstep with the claim event. The
+  // `creatorEarnings` row may be absent if the very first event we see
+  // for this wallet is a claim (e.g. backfill ordering, or a creator
+  // who claimed via direct contract interaction before any indexed
+  // accrual fired); seed the row in that case so the read side never
+  // sees a `lifetimeEarned < lifetimeClaimed` snapshot it would have to
+  // re-clamp.
+  const existingEarnings = await db.find(creatorEarnings, {
+    creator: event.args.creator,
+  });
+  if (existingEarnings) {
+    await db.update(creatorEarnings, { creator: event.args.creator }).set({
+      lifetimeClaimedUsdc:
+        existingEarnings.lifetimeClaimedUsdc + event.args.amount,
+    });
+  } else {
+    await db
+      .insert(creatorEarnings)
+      .values({
+        creator: event.args.creator,
+        lifetimeEarnedUsdc: 0n,
+        lifetimeClaimedUsdc: event.args.amount,
+      })
+      .onConflictDoUpdate({ lifetimeClaimedUsdc: event.args.amount });
+  }
 });
 
 ponder.on("FeeVault:ProtocolFeesClaimed", async ({ event, context }) => {
