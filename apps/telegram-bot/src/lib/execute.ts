@@ -33,6 +33,7 @@ import {
   type Hex,
   type IdempotencyBinding,
 } from "./trade.js";
+import { schedulePendingTxPoll } from "./pending-tx-poller.js";
 import { WalletManager } from "./wallet.js";
 
 /** How long a staged trade intent stays valid before the Confirm becomes a no-op. */
@@ -166,6 +167,14 @@ export type ConfirmOutcome =
       ticker: string;
       side: "buy" | "sell";
       token: string;
+      /**
+       * KV commit-log key minted for this Confirm (`intentKey(userId,
+       * nonce)`). Carried out of `confirmTrade` so the pending-tx
+       * alarm can `markFinal` the same slot once the receipt lands
+       * out-of-band — without it a retry that arrives after the
+       * background poll settles wouldn't see the recorded outcome.
+       */
+      idempotencyKey?: string;
     };
 
 export const confirmTrade = async (
@@ -250,6 +259,7 @@ export const confirmTrade = async (
     ticker: intent.ticker,
     side: intent.side,
     token: intent.token,
+    idempotencyKey: idempotency.key,
   };
 };
 
@@ -257,8 +267,18 @@ export const confirmTrade = async (
  * Render a user-facing reply for the confirm outcome. Tests assert on
  * pieces of this copy (tx hash, error words), so keep the strings
  * descriptive rather than emoji-coded.
+ *
+ * `isPollingActive` only matters for the `pending` arm and gates the
+ * "still polling in the background" promise: pass `true` from call
+ * sites that did successfully arm a `ChatDO`-alarm background poll
+ * (`runWithTxStatusUpdates` when `ctx.doState` is bound), `false`
+ * everywhere else so we don't lie to the user about updates that
+ * won't happen.
  */
-export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
+export const renderConfirmReply = (
+  outcome: ConfirmOutcome,
+  options: { isPollingActive?: boolean } = {},
+): string => {
   if (outcome.kind === "expired") {
     return "⏱ That trade confirmation has expired. Re-run /buy or /sell to try again.";
   }
@@ -307,7 +327,7 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   // reserved for outcomes the chain has definitively rejected or where
   // no tx ever landed.
   const prefix = result.kind === "pending" ? "⏳" : "❌";
-  return `${prefix} ${renderExecutionError(result)}`;
+  return `${prefix} ${renderExecutionError(result, { isPollingActive: options.isPollingActive })}`;
 };
 
 /**
@@ -506,7 +526,53 @@ export const runWithTxStatusUpdates = async (
   }
 
   if (outcome !== null) {
-    await safeEditStatus(args.target, renderConfirmReply(outcome));
+    // For the pending arm we want the bubble copy to reflect what
+    // actually got armed. `isPollingActive` is tri-state so the
+    // renderer can tell the three cases apart (see
+    // `renderExecutionError` in lib/trade.ts):
+    //   - undefined → no DO state bound, no poll attempted →
+    //                 neutral "check explorer" copy
+    //   - true      → schedulePendingTxPoll returned → promise an
+    //                 update once mined
+    //   - false     → tried to schedule but it threw → be explicit
+    //                 that polling has stopped
+    // Order: try to schedule first, then render with the resolved
+    // value. CodeRabbit (#965) flagged the earlier two-state
+    // collapse as conflating "no poll attempted" with "poll
+    // failed" — different user expectations, different copy.
+    let isPollingActive: boolean | undefined;
+    if (
+      outcome.kind === "executed" &&
+      !outcome.result.ok &&
+      outcome.result.kind === "pending" &&
+      args.ctx.doState
+    ) {
+      try {
+        await schedulePendingTxPoll(
+          { storage: args.ctx.doState.storage },
+          {
+            txHash: outcome.result.txHash,
+            chatId: args.target.chatId,
+            messageId: args.target.messageId,
+            side: outcome.side,
+            ticker: outcome.ticker,
+            token: outcome.token,
+            quotedOut: (outcome.result.quotedOut ?? 0n).toString(),
+            minOut: (outcome.result.minOut ?? 0n).toString(),
+            startedAt: Date.now(),
+            idempotencyKey: outcome.idempotencyKey,
+          },
+        );
+        isPollingActive = true;
+      } catch (err) {
+        logger.warn("schedule pendingTx poll failed", { err });
+        isPollingActive = false;
+      }
+    }
+    await safeEditStatus(
+      args.target,
+      renderConfirmReply(outcome, { isPollingActive }),
+    );
     // After a receipt-confirmed success the post-trade sweep inside
     // `confirmTrade` deletes the originating token-detail card and
     // staging prompt, leaving the receipt as the only visible bubble.

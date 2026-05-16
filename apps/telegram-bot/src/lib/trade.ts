@@ -563,9 +563,19 @@ export type ExecutionResult =
    * the UI must render a neutral "pending, check explorer" message
    * rather than ❌. `txHash` is required: receipt-timeout is only
    * reachable after `sendTransaction` returned, so the invariant is
-   * encoded in the type.
+   * encoded in the type. `quotedOut` / `minOut` are carried through
+   * from the original simulation so the background pending-tx poller
+   * (`lib/pending-tx-poller.ts`) can reconstruct the success-arm
+   * `ExecutionResult` when the receipt finally lands.
    */
-  | { ok: false; kind: "pending"; reason?: string; txHash: Hash }
+  | {
+      ok: false;
+      kind: "pending";
+      reason?: string;
+      txHash: Hash;
+      quotedOut?: bigint;
+      minOut?: bigint;
+    }
   | {
       ok: false;
       kind:
@@ -642,7 +652,7 @@ const ensureAllowance = async (
  * read the first matching log; the router emits exactly one
  * `BotRouterTrade` per trade.
  */
-const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
+export const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
   for (const log of logs) {
     try {
       const decoded = decodeEventLog({
@@ -669,7 +679,7 @@ const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
  * returns undefined when the event isn't present or decoding fails so
  * callers can fall back to the simulation quote.
  */
-const extractSellUsdcOut = (logs: readonly Log[]): bigint | undefined => {
+export const extractSellUsdcOut = (logs: readonly Log[]): bigint | undefined => {
   for (const log of logs) {
     try {
       const decoded = decodeEventLog({
@@ -761,6 +771,8 @@ export const awaitReceipt = async (
         kind: "pending",
         reason: err.message,
         txHash,
+        quotedOut: successOut.quotedOut,
+        minOut: successOut.minOut,
       };
     }
     return {
@@ -846,7 +858,7 @@ const permitDeadline = (): bigint =>
  * commit-log. `bigint`s are stringified so the record round-trips through
  * `JSON.stringify` — `JSON.parse` cannot rehydrate them on its own.
  */
-const toIntentResult = (result: ExecutionResult): IntentResult => {
+export const toIntentResult = (result: ExecutionResult): IntentResult => {
   if (result.ok) {
     return {
       ok: true,
@@ -1303,6 +1315,7 @@ export const explorerTxUrl = (hash: Hash): string =>
  */
 export const renderExecutionError = (
   result: Extract<ExecutionResult, { ok: false }>,
+  options: { isPollingActive?: boolean } = {},
 ): string => {
   if (result.kind === "not_configured") {
     return "Trade routing is not yet configured — try again in a moment.";
@@ -1311,8 +1324,32 @@ export const renderExecutionError = (
     return "Insufficient HYPE for gas — top up the wallet and retry.";
   }
   if (result.kind === "pending") {
+    // Three variants on the pending arm, distinguished by the
+    // tri-state `isPollingActive`:
+    //   - `true`  → a background poll is actually armed; promise
+    //               the bubble will update once the chain mines.
+    //   - `false` → we *tried* to arm one and failed (DO 500 / KV
+    //               throw / give-up timeout); be explicit that
+    //               polling has stopped.
+    //   - undefined → no background poll was attempted at all
+    //               (no DO state bound, admin/test entrypoint).
+    //               Render neutral "check the explorer" copy with
+    //               no polling-status claim either way.
+    if (options.isPollingActive === true) {
+      return (
+        `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
+        `Still polling in the background; this message updates once mined. ` +
+        `Explorer: ${explorerTxUrl(result.txHash)}`
+      );
+    }
+    if (options.isPollingActive === false) {
+      return (
+        `Tx pending — receipt not seen yet, no longer polling. ` +
+        `Check the explorer: ${explorerTxUrl(result.txHash)}`
+      );
+    }
     return (
-      `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
+      `Tx pending — receipt not seen yet. ` +
       `Check the explorer: ${explorerTxUrl(result.txHash)}`
     );
   }

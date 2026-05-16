@@ -2,6 +2,7 @@ import type { DurableObjectState } from "@cloudflare/workers-types";
 
 import { createBot } from "./bot.js";
 import { logger } from "./lib/logger.js";
+import { processPendingTxAlarm } from "./lib/pending-tx-poller.js";
 import type { Env } from "./lib/types.js";
 
 /**
@@ -17,13 +18,15 @@ import type { Env } from "./lib/types.js";
  * about). The DO has at-most-one-in-flight semantics per chat, so the
  * read-modify-write becomes atomic from the bot's perspective.
  *
- * The DO holds no persistent state of its own — it's pure serialisation
- * infrastructure. All durable data still lives in KV; the DO is a
- * single-threaded gateway in front of it.
+ * The DO also owns the pending-tx alarm queue: when a trade returns
+ * `kind: "pending"` from `awaitReceipt`, the handler persists the tx
+ * details in this DO's storage and sets an alarm so the receipt is
+ * re-polled in the background until the chain settles it. See
+ * `lib/pending-tx-poller.ts` for the polling loop.
  */
 export class ChatDO {
   constructor(
-    _state: DurableObjectState,
+    private readonly state: DurableObjectState,
     private readonly env: Env,
   ) {}
 
@@ -37,7 +40,7 @@ export class ChatDO {
     }
 
     try {
-      const bot = createBot(this.env);
+      const bot = createBot(this.env, { doState: this.state });
       // Cast to grammY's update type — webhook router validates the
       // chat_id presence before routing here, but the full Update
       // shape is grammY's contract to enforce inside handleUpdate.
@@ -50,5 +53,20 @@ export class ChatDO {
     }
 
     return new Response("ok");
+  }
+
+  /**
+   * Alarm fires when at least one pending tx is waiting on a receipt
+   * (set by `schedulePendingTxPoll`). The handler re-polls every
+   * entry, edits the corresponding bubble when the receipt lands, and
+   * reschedules itself until the queue is empty or each entry has
+   * exceeded its max-poll window. See `lib/pending-tx-poller.ts`.
+   */
+  async alarm(): Promise<void> {
+    try {
+      await processPendingTxAlarm(this.env, this.state.storage);
+    } catch (err) {
+      logger.error("pendingTx alarm failed", { err });
+    }
   }
 }
