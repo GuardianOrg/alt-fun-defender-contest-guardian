@@ -108,6 +108,15 @@ async function getDatabaseReadiness(connectionString) {
   let attempts = 0;
 
   while (Date.now() < deadline) {
+    // Cap each attempt at the smaller of the per-call cold-start
+    // timeout and whatever's left of the overall deadline — without
+    // this clamp, an attempt fired near the end of the budget could
+    // overshoot the deadline by up to `DATABASE_PROBE_TIMEOUT_MS`,
+    // pushing the smoke test against the `timeout-minutes: 3` job
+    // ceiling. CodeRabbit feedback on PR #982.
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const effectiveTimeout = Math.min(DATABASE_PROBE_TIMEOUT_MS, remaining);
     attempts++;
     try {
       const probe = sql`
@@ -117,7 +126,7 @@ async function getDatabaseReadiness(connectionString) {
       `;
       const [row] = await withTimeout(
         probe,
-        DATABASE_PROBE_TIMEOUT_MS,
+        effectiveTimeout,
         "Indexer view probe",
       );
       return {

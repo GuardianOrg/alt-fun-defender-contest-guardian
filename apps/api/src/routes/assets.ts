@@ -101,23 +101,60 @@ const DB_READ_TIMEOUT_MS = 4_000;
  * server-side but the caller's bounded promise resolves with
  * `fallback`. Used to bound DB reads inside route handlers when the
  * underlying lib doesn't expose its own timeout knob.
+ *
+ * Critically, only the *timer* path resolves with `fallback`: a
+ * genuine rejection from the wrapped promise propagates to the caller
+ * so `app.onError` still gets a chance to log + surface a real
+ * failure. CodeRabbit feedback on the original implementation: a
+ * blanket `.catch(() => resolve(fallback))` would have silently
+ * swallowed e.g. an auth error from `readSupportedLtDirectory` and
+ * served a degraded "show everything" page on top of a permanent
+ * misconfiguration. The `settled` latch covers the race where the
+ * wrapped promise eventually rejects *after* the timer has already
+ * fired — the rejection is still observed (no unhandled rejection in
+ * Workers) but treated as a no-op.
  */
 function withDbTimeout<T>(
   promise: Promise<T>,
   fallback: T,
   timeoutMs: number,
+  label: string,
 ): Promise<T> {
-  return new Promise<T>((resolve) => {
-    const timer = setTimeout(() => resolve(fallback), timeoutMs);
-    promise
-      .then((value) => {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      // Structured log on the timeout-fallback path so ops can spot
+      // chronic degraded reads in Cloudflare logs / `wrangler tail`
+      // without scraping for missing data. Matches the
+      // `console.log(JSON.stringify(...))` convention used elsewhere
+      // in `apps/api/src` (e.g. `lib/lt-directory-reads.ts`).
+      console.log(
+        JSON.stringify({
+          level: "warn",
+          event: "db_read_timeout_fallback",
+          helper: label,
+          timeoutMs,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      resolve(fallback);
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(value);
-      })
-      .catch(() => {
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        resolve(fallback);
-      });
+        reject(err);
+      },
+    );
   });
 }
 
@@ -140,6 +177,7 @@ assets.get("/", async (c) => {
       readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
       [],
       DB_READ_TIMEOUT_MS,
+      "readSupportedLtDirectory",
     ),
     // Don't let a stuck availability lookup take down `/assets` — fall
     // back to the cached snapshot (or "unknown, don't filter") on
