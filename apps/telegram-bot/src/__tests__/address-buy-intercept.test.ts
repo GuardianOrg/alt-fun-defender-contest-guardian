@@ -525,6 +525,96 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(botSends).toHaveLength(1);
   });
 
+  it("wizard intercept lands the buy card as a fresh message even when a stale prior buy-card slot exists", async () => {
+    // Regression: when a user has interacted with the bare-text
+    // intercept earlier in the chat, `lastBuyCardMessageByChat` carries
+    // a pointer to that old buy card. If the user later opens a
+    // /settings wizard and pastes an address, the wizard intercept used
+    // to reuse that stale upstream slot — the loading placeholder + the
+    // final card both edited a message scrolled far above the current
+    // wizard view, so the user saw their paste and the prompt vanish
+    // with no visible response anywhere near where they were typing.
+    // The wizard intercept must instead ship a fresh placeholder near
+    // the wizard so the buy card lands at the bottom of the chat where
+    // the user is looking.
+    const STALE_BUY_CARD_ID = 60;
+    const h = await harnessWithWallet();
+    // Re-seed the session with the stale pointer.
+    await h.kv.put(
+      `session:${USER_ID}`,
+      JSON.stringify({
+        slippageBps: 100,
+        defaultBuyUsdc: 20,
+        buyPresetsUsdc: [20, 40, 60, 80, 100],
+        sellPresetsPct: [10, 25, 50, 75, 100],
+        degenMode: false,
+        lastBuyCardMessageByChat: { [String(CHAT_ID)]: STALE_BUY_CARD_ID },
+      }),
+    );
+
+    let nextMessageId = 200;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/sendMessage")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: nextMessageId++,
+                date: 0,
+                chat: { id: CHAT_ID, type: "private" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000_000n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return tokenResponse();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    // Enter the settings buy-preset wizard so a real conversation is
+    // active when the paste arrives.
+    await h.run(callbackUpdate("set:bp0", 1));
+    fetchSpy.mockClear();
+    await h.run(messageUpdate(TOKEN_ADDR, 5));
+
+    const calls = capture(fetchSpy);
+    // The stale slot must NOT be edited — neither for the Loading
+    // placeholder nor for the final card body. Editing it would leave
+    // the wizard responsive only via a message scrolled out of view.
+    const editsOnStale = calls.filter(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        (c.body as { message_id?: number }).message_id === STALE_BUY_CARD_ID,
+    );
+    expect(editsOnStale).toHaveLength(0);
+
+    // The buy card must land via a fresh sendMessage (Loading) → in-
+    // place edit to final card on the freshly-allocated id.
+    const loading = findLoadingSend(calls);
+    expect(loading).toBeDefined();
+    const card = findCardSend(calls);
+    expect(card).toBeDefined();
+    expect(String(card!.body.text)).toContain("TEST");
+  });
+
   it("token-not-found surfaces inside the placeholder via editMessageText (no second message)", async () => {
     const h = await harnessWithWallet();
     let nextMessageId = 8000;
