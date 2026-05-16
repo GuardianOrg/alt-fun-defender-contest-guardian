@@ -526,42 +526,15 @@ export const runWithTxStatusUpdates = async (
   }
 
   if (outcome !== null) {
-    // Only the doState-bound path arms a background poll, so the
-    // "still polling in the background" copy is honest only when
-    // doState is present. Without it the pending bubble settles
-    // into the explorer-link form and never updates.
-    const willPoll =
-      outcome.kind === "executed" &&
-      !outcome.result.ok &&
-      outcome.result.kind === "pending" &&
-      Boolean(args.ctx.doState);
-    await safeEditStatus(
-      args.target,
-      renderConfirmReply(outcome, { isPollingActive: willPoll }),
-    );
-    // After a receipt-confirmed success the post-trade sweep inside
-    // `confirmTrade` deletes the originating token-detail card and
-    // staging prompt, leaving the receipt as the only visible bubble.
-    // Drop a fresh /start view directly underneath so the user has the
-    // home menu inline and can chain into the next buy/sell/positions
-    // without retyping `/start`. Only fires on `result.ok` — a pending
-    // or reverted outcome leaves the user's originating card in place
-    // so they can retry from it, and a duplicate home prompt below
-    // would just clutter that path.
-    if (
-      outcome.kind === "executed" &&
-      outcome.result.ok
-    ) {
-      await sendStartPromptAfterTrade(args.ctx, args.target.chatId);
-    }
-    // Pending tx — the user-facing bubble is now showing "⏳ Tx pending"
-    // with an explorer link, but the receipt may still mine after our
-    // in-band wait timed out. Hand the tx off to the chat's DO alarm
-    // queue so `processPendingTxAlarm` re-polls every few seconds and
-    // edits the same bubble in place when the chain settles the tx.
-    // Skipped when we have no DO state (admin entrypoints, tests
-    // without a DO) — the bubble just stays at "pending" and the user
-    // can check the explorer manually, matching the pre-poll behaviour.
+    // For the pending arm we want the bubble copy to reflect what
+    // actually got armed: only promise "still polling in the
+    // background" if the DO alarm scheduling step *succeeds*.
+    // Order: try to schedule first, then render with a known
+    // `isPollingActive` value, so a failed schedule (DO 500 / KV
+    // throw / missing doState) doesn't leave a "still polling"
+    // bubble pointing at no poll. CodeRabbit (#965) flagged the
+    // earlier "render-then-schedule" order as a UI lie.
+    let isPollingActive = false;
     if (
       outcome.kind === "executed" &&
       !outcome.result.ok &&
@@ -584,9 +557,29 @@ export const runWithTxStatusUpdates = async (
             idempotencyKey: outcome.idempotencyKey,
           },
         );
+        isPollingActive = true;
       } catch (err) {
         logger.warn("schedule pendingTx poll failed", { err });
       }
+    }
+    await safeEditStatus(
+      args.target,
+      renderConfirmReply(outcome, { isPollingActive }),
+    );
+    // After a receipt-confirmed success the post-trade sweep inside
+    // `confirmTrade` deletes the originating token-detail card and
+    // staging prompt, leaving the receipt as the only visible bubble.
+    // Drop a fresh /start view directly underneath so the user has the
+    // home menu inline and can chain into the next buy/sell/positions
+    // without retyping `/start`. Only fires on `result.ok` — a pending
+    // or reverted outcome leaves the user's originating card in place
+    // so they can retry from it, and a duplicate home prompt below
+    // would just clutter that path.
+    if (
+      outcome.kind === "executed" &&
+      outcome.result.ok
+    ) {
+      await sendStartPromptAfterTrade(args.ctx, args.target.chatId);
     }
     return outcome;
   }

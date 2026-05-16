@@ -1259,6 +1259,54 @@ describe("runWithTxStatusUpdates", () => {
     expect(storage.puts).toHaveLength(1);
     expect(storage.puts[0]![0]).toMatch(/^pendingTx:0xfeedface/);
     expect(storage.alarm).not.toBeNull();
+    // Now that scheduling succeeded, the bubble may legitimately
+    // promise the user a future update. The final edit text
+    // must include the "still polling" sentence the alarm path
+    // is committing to deliver.
+    const finalEdit = ((ctx.api as unknown as { editMessageText: { mock: { calls: Array<[unknown, unknown, string]> } } }).editMessageText.mock.calls).at(-1)![2];
+    expect(finalEdit).toMatch(/still polling/i);
+  });
+
+  it("renders the no-longer-polling pending copy when the schedule step throws", async () => {
+    // CodeRabbit (#965) flagged that promising "still polling" in
+    // the bubble before the alarm is actually persisted is a UI
+    // lie. If `schedulePendingTxPoll` throws (DO 500 / KV blip /
+    // missing storage method), the bubble must NOT include the
+    // "still polling in the background" line.
+    const { ctx, edits } = buildStatusCtx();
+    (ctx as unknown as { doState: unknown }).doState = {
+      storage: {
+        get: async () => {
+          throw new Error("DO storage exploded");
+        },
+        put: async () => {},
+        getAlarm: async () => null,
+        setAlarm: async () => {},
+      },
+    };
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: false,
+          kind: "pending",
+          reason: "WaitForTransactionReceiptTimeoutError",
+          txHash:
+            "0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface",
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    const finalEdit = edits[edits.length - 1]!.text;
+    expect(finalEdit).toMatch(/no longer polling/i);
+    expect(finalEdit).not.toMatch(/still polling/i);
   });
 
   it("skips background scheduling when no DO state is bound (admin / test entrypoints)", async () => {
