@@ -223,3 +223,28 @@ export const indexerTokenHourlyMetrics = ponderSchema.table(
     index("token_hourly_metrics_hour_start_index").on(table.hourStart),
   ],
 );
+
+/**
+ * `ponder_views.creator_earnings` — per-creator running counters,
+ * one row per creator wallet keyed by `creator`. The indexer
+ * (`apps/indexer/src/feeVault.ts`) keeps these in lockstep on every
+ * `FeeVault.FeeAccrued` (bumps `lifetime_earned_usdc`) and
+ * `FeeVault.CreatorFeesClaimed` (bumps `lifetime_claimed_usdc`), so
+ * `GET /api/v1/creators/:wallet/earnings` resolves with a single
+ * primary-key lookup — no RPC, no GraphQL hop, no per-token fan-out.
+ *
+ * Read-side derivation: `claimable = max(0, earned − claimed)`. The
+ * floor absorbs the brief sub-block ordering quirks that can arise
+ * during indexer catch-up (a `CreatorFeesClaimed` and the matching
+ * `FeeAccrued` chain can land in different blocks if a buy and a
+ * claim share the same tx). See the table-level docstring in
+ * `apps/indexer/ponder.schema.ts` for the full contract.
+ */
+export const indexerCreatorEarnings = ponderSchema.table(
+  "creator_earnings",
+  {
+    creator: text("creator").primaryKey(),
+    lifetimeEarnedUsdc: numeric("lifetime_earned_usdc").notNull().default("0"),
+    lifetimeClaimedUsdc: numeric("lifetime_claimed_usdc").notNull().default("0"),
+  },
+);

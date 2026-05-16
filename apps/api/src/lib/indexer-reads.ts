@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm";
 
 import {
+  indexerCreatorEarnings,
   indexerGlobalStats,
   indexerHourlyVolume,
   indexerRouterTrade,
@@ -843,6 +844,62 @@ export async function fetchTrendingCandidatesByVolume(
       { limit, cutoffHourStartSec },
     );
     return null;
+  }
+}
+
+/**
+ * Per-creator earnings totals (USDC, 6dp raw amounts). Sourced from the
+ * indexer's `creator_earnings` running-counter table, populated in
+ * lockstep with every `FeeVault.FeeAccrued` / `FeeVault.CreatorFeesClaimed`
+ * (see `apps/indexer/src/feeVault.ts`). Replaces the legacy frontend
+ * pattern of two `eth_call` reads against `FeeVault.creatorBalance` /
+ * `lifetimeCreatorEarned` per 30s poll per mounted earnings panel —
+ * which fanned out to ~`O(connected wallets × pages mounted)` RPC reads
+ * before this counter existed.
+ *
+ * The "no row" case is the steady state for any wallet that's never
+ * launched a token — surfaced as `null` so the route can ship a clean
+ * zero-state response instead of synthesising default zeros that the
+ * caller would have to special-case anyway.
+ */
+export interface CreatorEarningsRow {
+  /** Cumulative USDC accrued (6dp raw amount, decimal string). */
+  lifetimeEarnedUsdcRaw: string;
+  /** Cumulative USDC claimed (6dp raw amount, decimal string). */
+  lifetimeClaimedUsdcRaw: string;
+}
+
+export async function fetchCreatorEarnings(
+  db: Database,
+  creator: string,
+): Promise<CreatorEarningsRow | null | "unavailable"> {
+  // Indexer stores hex addresses lowercased — match that to keep the
+  // primary-key lookup hitting the index regardless of whether the API
+  // caller passed a checksum-cased or lowercased address.
+  const lowered = creator.toLowerCase();
+  try {
+    const rows = (await db
+      .select({
+        lifetimeEarnedUsdc: indexerCreatorEarnings.lifetimeEarnedUsdc,
+        lifetimeClaimedUsdc: indexerCreatorEarnings.lifetimeClaimedUsdc,
+      })
+      .from(indexerCreatorEarnings)
+      .where(eq(indexerCreatorEarnings.creator, lowered))
+      .limit(1)) as Array<{
+      lifetimeEarnedUsdc: string;
+      lifetimeClaimedUsdc: string;
+    }>;
+    if (rows.length === 0) return null;
+    const [row] = rows;
+    return {
+      lifetimeEarnedUsdcRaw: row.lifetimeEarnedUsdc ?? "0",
+      lifetimeClaimedUsdcRaw: row.lifetimeClaimedUsdc ?? "0",
+    };
+  } catch (error) {
+    logIndexerReadFailure("indexer_reads.fetchCreatorEarnings_failed", error, {
+      creator: lowered,
+    });
+    return "unavailable";
   }
 }
 

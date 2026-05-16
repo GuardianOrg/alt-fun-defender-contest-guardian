@@ -171,6 +171,45 @@ export const feeAccrual = onchainTable("fee_accrual", (t) => ({
   creatorIdx: index().on(table.creator),
 }));
 
+/**
+ * Per-creator running counters. One row per creator wallet, bumped in
+ * lockstep on every `FeeVault:FeeAccrued` (lifetimeEarnedUsdc) and
+ * `FeeVault:CreatorFeesClaimed` (lifetimeClaimedUsdc). Lets the API
+ * answer `GET /creators/:wallet/earnings` in O(1) — a single primary-key
+ * lookup — instead of either (a) reading `creatorBalance` /
+ * `lifetimeCreatorEarned` from the FeeVault contract over RPC on every
+ * 30s poll from every wallet that has the rewards panel open, or (b)
+ * paginating `feeAccrual` + `feeClaim` per request. Mirrors the
+ * `walletPosition` pattern (issue #397) — same tradeoff: O(1) read,
+ * O(1) write maintenance from the existing event handlers.
+ *
+ * `claimableUsdc` is derived at read time as
+ * `lifetimeEarnedUsdc − lifetimeClaimedUsdc`, clamped at 0 — the two
+ * counters are bumped from independent events and can briefly disagree
+ * by sub-block ordering quirks during indexer catch-up. Storing the
+ * difference would just compound the drift; the floor in the read path
+ * is the right place to absorb it.
+ */
+export const creatorEarnings = onchainTable("creator_earnings", (t) => ({
+  creator: t.hex().primaryKey(),
+  /**
+   * Cumulative USDC (6dp) accrued to this creator across every token
+   * they've launched. Mirror of `lifetimeCreatorEarned(creator)` on the
+   * `FeeVault` contract — bumped on every `FeeVault:FeeAccrued`. Never
+   * decreases.
+   */
+  lifetimeEarnedUsdc: t.bigint().notNull().default(0n),
+  /**
+   * Cumulative USDC (6dp) the creator has actually claimed. Bumped on
+   * every `FeeVault:CreatorFeesClaimed`. Never decreases. The vault
+   * contract resets `creatorBalance` to 0 on claim — the indexer is the
+   * only place this lifetime claimed total lives, so this counter
+   * doubles as the source of truth for the rewards-panel "claimed"
+   * pill.
+   */
+  lifetimeClaimedUsdc: t.bigint().notNull().default(0n),
+}));
+
 /** Latest HyperSwap V2 Pair reserves (updated on Sync events). */
 export const pairReserve = onchainTable("pair_reserve", (t) => ({
   pairAddress: t.hex().primaryKey(),
