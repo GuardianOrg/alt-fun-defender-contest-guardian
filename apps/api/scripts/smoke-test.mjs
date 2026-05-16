@@ -537,6 +537,31 @@ async function runTests() {
     }
   }
 
+  /**
+   * Resolve a token address from `/api/v1/tokens` and fail the smoke
+   * test on any discovery-side regression so the chart probe doesn't
+   * silently skip when the very endpoint it's trying to defend has
+   * broken. CodeRabbit feedback on PR #982: previously a 5xx or a
+   * malformed-but-200 response on the listing endpoint would collapse
+   * into `skip("no trending token available to probe")` and mask the
+   * regression. The contract assertions below mirror the shape the
+   * existing `GET /api/v1/tokens returns list` test already enforces
+   * up the file — same gate, different reason.
+   *
+   * Returns `null` only when the listing succeeds with an empty
+   * catalogue (legitimately-empty trending tab on a fresh DB), which
+   * the caller turns into a `skip` rather than a failure.
+   */
+  async function discoverTokenAddress(path, label) {
+    const { res, body } = await fetchJson(path);
+    assert(res.status === 200, `${label} discovery: HTTP ${res.status}`);
+    assert(
+      body?.status === "success" && Array.isArray(body?.data),
+      `${label} discovery: malformed response contract (status=${body?.status} data=${typeof body?.data})`,
+    );
+    return body.data[0]?.address ?? null;
+  }
+
   await test("Chart probes top trending token at every timeframe + interval", async () => {
     skipIfDatabaseUnavailable();
     if (!bouncetechDatabaseUrl) {
@@ -545,12 +570,10 @@ async function runTests() {
     // `sort=trending` ranks by rolling 24h gross volume — the address
     // returned here is the highest-snapshot-count token in the
     // catalogue, which is the worst case for any per-token row cap.
-    // Fall back to "newest" if trending is empty (degraded indexer
-    // path) so the probe still runs.
-    const { body: trendingBody } = await fetchJson(
+    const topTrending = await discoverTokenAddress(
       "/api/v1/tokens?limit=1&sort=trending",
+      "trending token",
     );
-    const topTrending = trendingBody?.data?.[0]?.address;
     if (!topTrending) skip("no trending token available to probe");
     await probeChartAddress(topTrending);
   });
@@ -567,13 +590,15 @@ async function runTests() {
     // branches in `buildPriceTimeline`. If we land on the same address
     // as the trending probe (small catalogues), skip to avoid redundant
     // work.
-    const { body: newestBody } = await fetchJson("/api/v1/tokens?limit=1");
-    const newest = newestBody?.data?.[0]?.address;
-    if (!newest) skip("no recently launched token available to probe");
-    const { body: trendingBody } = await fetchJson(
-      "/api/v1/tokens?limit=1&sort=trending",
+    const newest = await discoverTokenAddress(
+      "/api/v1/tokens?limit=1",
+      "newest token",
     );
-    const topTrending = trendingBody?.data?.[0]?.address;
+    if (!newest) skip("no recently launched token available to probe");
+    const topTrending = await discoverTokenAddress(
+      "/api/v1/tokens?limit=1&sort=trending",
+      "trending token",
+    );
     if (
       topTrending &&
       newest.toLowerCase() === topTrending.toLowerCase()
