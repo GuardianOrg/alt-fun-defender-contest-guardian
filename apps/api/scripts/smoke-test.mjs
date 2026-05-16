@@ -49,6 +49,15 @@ function getVarFromDevVars(filePath, key) {
 const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
 const databaseUrl =
   process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
+// The chart probe (see `/api/v1/chart` below) depends on the BounceTech
+// LT exchange-rate DB for its `generate_series` query; the route returns
+// 500 when the binding is missing. Detect that here so we can skip the
+// chart probe gracefully instead of failing the smoke test on a missing
+// dev secret. Mirrors the `databaseUrl` lookup above so the probe still
+// runs against whatever `wrangler dev` picks up via `.dev.vars`.
+const bouncetechDatabaseUrl =
+  process.env.BOUNCETECH_DATABASE_URL?.trim() ||
+  getVarFromDevVars(devVarsPath, "BOUNCETECH_DATABASE_URL");
 
 /**
  * Race a promise against a timeout. Neon's HTTP driver does not honour
@@ -463,6 +472,115 @@ async function runTests() {
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data.underlying), "Missing underlying");
     assert(Array.isArray(body.data.leveragedTokens), "Missing leveragedTokens");
+  });
+
+  // ─── Chart endpoint ────────────────────────────────────────────────
+  //
+  // The chart route is the single highest-engagement element on a token
+  // page and was silently 503'ing on the busiest token (ALT) for weeks
+  // before the direct-Postgres cut-over in #951. The failure mode was
+  // load-correlated: pagination capped at 20k rows, so the regression
+  // fired first on top-traffic tokens and last on local fixtures —
+  // exactly the class of bug a static seed-against-a-known-token probe
+  // misses. Hitting the live top-trending token's chart at every
+  // user-pickable timeframe + a representative interval sample bounds
+  // that risk by failing the smoke test on day 1 of any similar
+  // per-token cap regression. See issue #976.
+  console.log("\n--- Chart endpoint ---\n");
+
+  /**
+   * The set of (timeframe, interval) pairs the frontend can request.
+   * Mirrors the user-visible chart toolbar — every value here is reachable
+   * from a single click in the production UI, so each is a legitimate
+   * regression surface. Three explicit interval cases (60s / 5m / 4h)
+   * cover the spread between fine-grained intraday and coarse multi-hour
+   * candles where row-count caps tend to trip.
+   */
+  const CHART_PROBE_CASES = [
+    { q: "timeframe=1d", label: "tf=1d" },
+    { q: "timeframe=5d", label: "tf=5d" },
+    { q: "timeframe=1m", label: "tf=1m" },
+    { q: "interval=60", label: "iv=60" },
+    { q: "interval=300", label: "iv=300" },
+    { q: "interval=14400", label: "iv=14400" },
+  ];
+
+  async function probeChartAddress(address) {
+    for (const probeCase of CHART_PROBE_CASES) {
+      const res = await fetchWithTimeout(
+        `${BASE_URL}/api/v1/chart/${address}?${probeCase.q}`,
+      );
+      assert(
+        res.status === 200,
+        `chart ${probeCase.label} for ${address}: HTTP ${res.status}`,
+      );
+      // Treat a non-JSON body as a probe failure rather than letting the
+      // raw SyntaxError surface — the chart route always returns JSON in
+      // the contract under test, so a parse failure here is itself a
+      // regression signal.
+      let body;
+      try {
+        body = await res.json();
+      } catch (err) {
+        throw new Error(
+          `chart ${probeCase.label} for ${address}: non-JSON body (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      assert(
+        body?.status === "success",
+        `chart ${probeCase.label} for ${address}: status=${body?.status} error=${body?.error}`,
+      );
+      assert(
+        Array.isArray(body?.data?.candles),
+        `chart ${probeCase.label} for ${address}: missing data.candles array`,
+      );
+    }
+  }
+
+  await test("Chart probes top trending token at every timeframe + interval", async () => {
+    skipIfDatabaseUnavailable();
+    if (!bouncetechDatabaseUrl) {
+      skip("BOUNCETECH_DATABASE_URL unset — chart route requires the LT-rate DB");
+    }
+    // `sort=trending` ranks by rolling 24h gross volume — the address
+    // returned here is the highest-snapshot-count token in the
+    // catalogue, which is the worst case for any per-token row cap.
+    // Fall back to "newest" if trending is empty (degraded indexer
+    // path) so the probe still runs.
+    const { body: trendingBody } = await fetchJson(
+      "/api/v1/tokens?limit=1&sort=trending",
+    );
+    const topTrending = trendingBody?.data?.[0]?.address;
+    if (!topTrending) skip("no trending token available to probe");
+    await probeChartAddress(topTrending);
+  });
+
+  await test("Chart probes most-recently launched token", async () => {
+    skipIfDatabaseUnavailable();
+    if (!bouncetechDatabaseUrl) {
+      skip("BOUNCETECH_DATABASE_URL unset — chart route requires the LT-rate DB");
+    }
+    // Default sort is `createdAt desc` (see `apps/api/src/routes/tokens/list.ts`),
+    // which gives the newest launched token — a different code path from
+    // the trending probe above because pre-graduation tokens have a
+    // much smaller snapshot window and exercise the empty-/short-history
+    // branches in `buildPriceTimeline`. If we land on the same address
+    // as the trending probe (small catalogues), skip to avoid redundant
+    // work.
+    const { body: newestBody } = await fetchJson("/api/v1/tokens?limit=1");
+    const newest = newestBody?.data?.[0]?.address;
+    if (!newest) skip("no recently launched token available to probe");
+    const { body: trendingBody } = await fetchJson(
+      "/api/v1/tokens?limit=1&sort=trending",
+    );
+    const topTrending = trendingBody?.data?.[0]?.address;
+    if (
+      topTrending &&
+      newest.toLowerCase() === topTrending.toLowerCase()
+    ) {
+      skip("newest == top trending — already covered by previous probe");
+    }
+    await probeChartAddress(newest);
   });
 }
 
