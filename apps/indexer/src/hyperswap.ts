@@ -85,7 +85,28 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
     ltReserve,
   });
 
-  const snapshotId = `sync-${event.transaction.hash}-${event.log.logIndex}`;
+  // Decimate snapshot writes to at most one row per `(tokenAddress, blockTs)`.
+  // HyperSwap V2's `Sync` fires on every reserve change — post-swap state, MEV
+  // bot tail-swaps inside the same block, multi-step arbitrage routes — and on
+  // an actively-traded graduated token that produced ~22K snapshot rows in the
+  // 24h window before this fix vs. ~12K user-facing trades, ~2× the rate the
+  // chart actually needs. Sub-second resolution is unusable in the chart UI
+  // (the finest interval is 5 s) so a once-per-second cadence is lossless for
+  // the only consumer of this table (the `/chart` route).
+  //
+  // Strategy: latest-per-second key. Same-second rows OVERWRITE rather than
+  // skip — the most recent reserve state in a second is the canonical close
+  // for any candle bucket ending in that second. The id shape changes from
+  // `sync-${txHash}-${logIndex}` (per-event unique) to
+  // `sync-bucket-${tokenAddress}-${blockTs}` (per-second per-token unique).
+  // The downstream chart fetcher (`fetchTokenChartSnapshots`) only uses
+  // `tokenSnapshot.id` for the `(timestamp, id)` ORDER BY tiebreak, which
+  // remains deterministic with the new shape. See issue #978.
+  //
+  // Live `trade` WS broadcast still fires for every Sync (regardless of the
+  // dedup outcome) so `useChartData`'s in-progress candle aggregation keeps
+  // updating on every reserve change — only the database write is decimated.
+  const snapshotId = `sync-bucket-${idx.tokenAddress}-${event.block.timestamp.toString()}`;
   await db
     .insert(tokenSnapshot)
     .values({
@@ -96,7 +117,11 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
       blockNumber: BigInt(event.block.number),
       timestamp: BigInt(event.block.timestamp),
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      curveSupply: tokenReserve,
+      ltReserve,
+      blockNumber: BigInt(event.block.number),
+    });
 
   // Chart-state broadcast on the `trade` channel so `useChartData` picks
   // up the new ratio and rolls the in-progress candle. We deliberately
@@ -105,6 +130,12 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
   // for post-grad swaps come from the `Zap:Buy` / `Zap:Sell` broadcasts
   // (which fire in the same tx) plus the REST `/api/v1/trades` poll
   // fallback. See `TradeBroadcast`'s docstring for the full split.
+  //
+  // The broadcast fires unconditionally on every Sync (subject to the
+  // `isLiveEvent` backfill guard) — it is intentionally NOT gated on the
+  // database-side dedup. The chart's live tick aggregator merges every
+  // tick into the in-progress candle for sub-second high/low fidelity;
+  // suppressing intra-second ticks would visibly flat-line the candle.
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",
