@@ -141,23 +141,46 @@ export const escapeHtml = (s: string): string =>
 const formatTokenAddress = (token: string): string =>
   `<code>${token}</code>`;
 
-const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
+/**
+ * Render a `track_<addr>` deeplink to the bot. Tapping the ticker on a
+ * position line bounces the user back into this same bot's chat with
+ * `/start track_<addr>`, which the start handler routes to the /track
+ * card. We use the `https://t.me/<bot>?start=<payload>` form because
+ * Telegram's link preview surfaces a friendlier label than the in-app
+ * `tg://resolve?domain=<bot>&start=<payload>` variant.
+ *
+ * When `BOT_USERNAME` is missing the caller falls back to plain text —
+ * no fabricated link is better than a link that resolves to a wrong /
+ * non-existent bot.
+ */
+const trackDeeplinkHref = (botUsername: string, token: string): string =>
+  `https://t.me/${botUsername}?start=track_${token}`;
+
+const formatOpenLine = (
+  pos: BotOpenPosition,
+  limit: number,
+  botUsername: string | null,
+): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
     `\n  ${formatTokenAddress(pos.token)}` +
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
     `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
-  const label =
+  const truncated =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
+  const label = botUsername
+    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
+    : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
 const formatRealisedLine = (
   pos: BotRealisedPosition,
   limit: number,
+  botUsername: string | null,
 ): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
@@ -165,10 +188,13 @@ const formatRealisedLine = (
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
-  const label =
+  const truncated =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
+  const label = botUsername
+    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
+    : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
@@ -203,6 +229,7 @@ export interface PositionsPage {
  */
 export const formatBotPositionsResponse = (
   data: BotPositionsResponse,
+  botUsername: string | null = null,
 ): PositionsPage[] => {
   if (data.open.length === 0 && data.realised.length === 0) {
     return [{ text: "No open positions for this wallet.", openActions: [] }];
@@ -217,7 +244,7 @@ export const formatBotPositionsResponse = (
   if (data.open.length > 0) {
     header = `Open positions (${data.open.length})`;
     for (const p of data.open) {
-      lines.push(formatOpenLine(p, limit));
+      lines.push(formatOpenLine(p, limit, botUsername));
       lineActions.push({ token: p.token, ticker: p.ticker });
     }
   }
@@ -229,7 +256,7 @@ export const formatBotPositionsResponse = (
       lineActions.push(null);
     }
     for (const p of data.realised) {
-      lines.push(formatRealisedLine(p, limit));
+      lines.push(formatRealisedLine(p, limit, botUsername));
       lineActions.push(null);
     }
   }
@@ -283,14 +310,6 @@ export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
 export const POSITIONS_BUY_CALLBACK_CMD = "pb";
 export const POSITIONS_SELL_CALLBACK_CMD = "ps";
 /**
- * Per-position track button (the row above `[Buy] [Sell]`). Replaces the
- * legacy `<a href="t.me/<bot>?start=track_<addr>">TICKER</a>` body anchor
- * that bounced the user through Telegram's `/start track_<addr>` deeplink
- * handler — a callback edits the same bubble in place ("Fetching <TICKER>
- * token details…" → /track card) so the user never leaves the chat.
- */
-export const POSITIONS_TRACK_CALLBACK_CMD = "pt";
-/**
  * Refresh button on the positions card — re-fetches the wallet's
  * positions and re-renders the same page in place so unrealised PnL,
  * proceeds, and realised numbers reflect the latest indexer state.
@@ -342,11 +361,13 @@ const truncateTickerForButton = (ticker: string): string => {
  * keyboard — even an empty-state page surfaces Close so the user can
  * dismiss the prompt.
  *
- * Per-position buttons replace the legacy `Buy` / `Sell` HTML anchors
- * that pointed at `t.me/<bot>?start=buy_<addr>` deeplinks. The anchors
- * bounced the user through Telegram's link-handler UI even inside the
- * same bot's chat; callback buttons fire inline so the action card
- * lands as the next message in the same chat.
+ * Per-position Buy/Sell buttons fire inline via `pb:` / `ps:` callbacks
+ * so the action card lands as the next message in the same chat. The
+ * "view chart / track this token" affordance is the deeplinked ticker
+ * inside the body text itself (rendered by `formatOpenLine` /
+ * `formatRealisedLine`) — tapping it bounces through
+ * `t.me/<bot>?start=track_<addr>` back into the bot's chat and lands on
+ * a fresh /track card.
  *
  * The wallet rides in nav `callback_data` (not server-side state) so
  * the bot survives Worker cold-starts without a KV-backed page cache.
@@ -362,19 +383,6 @@ export const buildPositionsPageKeyboard = (
   const rows: InlineKeyboardButton[][] = [];
   for (const action of openActions) {
     const label = truncateTickerForButton(action.ticker);
-    // Track row goes on top so the natural "tap the ticker" gesture
-    // (mirrored from the dropped body anchor) is the most prominent
-    // per-position action. Callback edits the bubble in place — see
-    // `POSITIONS_TRACK_CALLBACK_CMD`.
-    rows.push([
-      {
-        text: `📊 ${label}`,
-        callback_data: encodeCallback(
-          POSITIONS_TRACK_CALLBACK_CMD,
-          action.token,
-        ),
-      },
-    ]);
     rows.push([
       {
         text: `Buy ${label}`,

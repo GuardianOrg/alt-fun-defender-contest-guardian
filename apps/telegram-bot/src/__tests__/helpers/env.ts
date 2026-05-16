@@ -38,6 +38,7 @@ export const makeTestEnv = (overrides: Partial<Env> = {}): Env => ({
   API_KEY: "test-api-key",
   MASTER_KEY: ZERO_MASTER_KEY,
   PIN_SALT_ROUNDS: 4,
+  BOT_USERNAME: "trade_cortisol_bot",
   WALLET_KV: stubKV(),
   CHAT_DO: stubChatDO(),
   ...overrides,

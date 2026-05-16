@@ -140,11 +140,14 @@ describe("pp callback (positions pagination)", () => {
     expect(body.chat_id).toBe(42);
     expect(body.message_id).toBe(99);
     expect(body.text).toContain("Page 2 of");
-    // Body no longer carries `t.me?start=...` anchors — per-position
-    // callback buttons replace them so the action fires inline.
+    // Body ticker is a `t.me/<bot>?start=track_<addr>` deeplink (the
+    // user's "tap the ticker to view this token" affordance). The
+    // legacy buy/sell body anchors stay gone — those are inline
+    // callback buttons now.
     expect(body.parse_mode).toBe("HTML");
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
+    expect(body.text).toContain("?start=track_");
     const rows = body.reply_markup.inline_keyboard;
     expect(rows.length).toBeGreaterThan(3);
     // Last row is Back/Home, second-to-last is the Refresh row,
@@ -160,20 +163,9 @@ describe("pp callback (positions pagination)", () => {
     for (const b of nav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
     }
-    // Per-position rows come in (track, buy/sell) pairs. The tickers on
-    // this page must also appear in the body text — so a navigation
-    // never desyncs the keyboard from the visible list. Body anchors
-    // are gone entirely: tapping the ticker fires the `pt:` callback.
     const positionRowCount = rows.length - 3;
-    expect(positionRowCount % 2).toBe(0);
-    expect(body.text).not.toContain("?start=track_");
-    expect(body.text).not.toMatch(/<a\s/i);
-    for (let i = 0; i < positionRowCount; i += 2) {
-      const trackRow = rows[i]!;
-      const buySellRow = rows[i + 1]!;
-      expect(trackRow).toHaveLength(1);
-      expect(trackRow[0]!.text.startsWith("📊 ")).toBe(true);
-      expect(trackRow[0]!.callback_data.startsWith("pt:0x")).toBe(true);
+    for (let i = 0; i < positionRowCount; i++) {
+      const buySellRow = rows[i]!;
       expect(buySellRow).toHaveLength(2);
       const buyLabel = buySellRow[0]!.text;
       const sellLabel = buySellRow[1]!.text;
@@ -181,8 +173,11 @@ describe("pp callback (positions pagination)", () => {
       expect(sellLabel.startsWith("Sell ")).toBe(true);
       expect(buySellRow[0]!.callback_data.startsWith("pb:0x")).toBe(true);
       expect(buySellRow[1]!.callback_data.startsWith("ps:0x")).toBe(true);
+      // The ticker on every Buy/Sell row must surface as a deeplinked
+      // anchor in the body so the keyboard never drifts from the
+      // visible list across pagination.
       const ticker = buyLabel.slice("Buy ".length);
-      expect(body.text).toContain(ticker);
+      expect(body.text).toContain(`>${ticker}</a>`);
     }
   });
 
@@ -200,21 +195,21 @@ describe("pp callback (positions pagination)", () => {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
     };
-    // Single page → no "Page X of Y" footer. Still has one per-position
-    // pair: track row + buy/sell row.
+    // Single page → no "Page X of Y" footer. Body ticker is deeplinked
+    // back to `/start track_<addr>`; buy/sell stay as inline callback
+    // buttons (no body anchors).
     expect(body.text).not.toContain("Page ");
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
-    expect(body.text).not.toContain("?start=track_");
+    expect(body.text).toContain("?start=track_");
     const rows = body.reply_markup!.inline_keyboard;
-    // Track row + buy/sell row + refresh row + trailing Back/Home row.
-    expect(rows).toHaveLength(4);
-    expect(rows[0]![0]!.callback_data.startsWith("pt:0x")).toBe(true);
-    expect(rows[1]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
-    expect(rows[1]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[2]![0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
-    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    // Buy/sell row + refresh row + trailing Back/Home row.
+    expect(rows).toHaveLength(3);
+    expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
+    expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[1]![0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("pr callback refreshes positions in place and toasts 'Refreshed' (proceeds + realised reflect latest indexer state)", async () => {
