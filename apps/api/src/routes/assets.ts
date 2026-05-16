@@ -182,7 +182,23 @@ assets.get("/", async (c) => {
     // Don't let a stuck availability lookup take down `/assets` — fall
     // back to the cached snapshot (or "unknown, don't filter") on
     // failure. See `lt-availability.ts` for the fail-open rationale.
-    getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null),
+    //
+    // `getLiveLtAvailability` is the longest dependency in this
+    // fan-out: on a cache miss it does its own `lt_directory` DB
+    // read plus a per-symbol BounceTech HEAD sweep. Its internal
+    // `REFRESH_TIMEOUT_MS` (15 s) only bounds the HEAD sweep, not
+    // the upstream DB read — so a cold Neon would otherwise pin
+    // `/assets` past every reasonable caller budget despite the
+    // adjacent `withDbTimeout` on the sibling `readSupportedLtDirectory`
+    // call. Reuse `withDbTimeout` here so the fan-out's tail latency
+    // is the max of three 4 s / 5 s bounded paths, not the
+    // unbounded internal of one slow lib.
+    withDbTimeout(
+      getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null),
+      null,
+      DB_READ_TIMEOUT_MS,
+      "getLiveLtAvailability",
+    ),
   ]);
 
   // When availability is `null` (initial cold start raced with a failing
