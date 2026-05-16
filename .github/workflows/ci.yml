@@ -218,6 +218,10 @@ jobs:
           FOUNDRY_PROFILE: ci
         run: forge test ${{ matrix.args }}
 
+  # Temporarily disabled — both smoke jobs hit the shared Neon DB and
+  # were compounding an ongoing database load issue. Re-enable once the
+  # underlying DB problem is resolved.
+  #
   # Re-enabled after the GraphQL → direct-Postgres migrations of #898
   # (/tokens, /holders, /trades, /portfolio, /stats), #931 (/health
   # probe), and #951 (/chart). The "indexing dependency blocking deploys"
@@ -231,109 +235,109 @@ jobs:
   # caused flakes. See issue #976 for the regression class this
   # specifically defends against (silent /chart 503s on top-traffic
   # tokens).
-  api-smoke:
-    name: API Smoke Test
-    runs-on: ubuntu-latest
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      # `BOUNCETECH_DATABASE_URL` is read by the chart probe via the
-      # `.dev.vars` lookup in `scripts/smoke-test.mjs`. Without it the
-      # chart-specific probes skip gracefully (the rest of the suite
-      # still runs); adding the secret turns the /chart regression gate
-      # from "wired but no-op" to "live". This wiring is forward-
-      # compatible — if the secret isn't configured the workflow still
-      # works.
-      BOUNCETECH_DATABASE_URL: ${{ secrets.BOUNCETECH_DATABASE_URL }}
-    steps:
-      - uses: actions/checkout@v6
+  # api-smoke:
+  #   name: API Smoke Test
+  #   runs-on: ubuntu-latest
+  #   env:
+  #     DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  #     # `BOUNCETECH_DATABASE_URL` is read by the chart probe via the
+  #     # `.dev.vars` lookup in `scripts/smoke-test.mjs`. Without it the
+  #     # chart-specific probes skip gracefully (the rest of the suite
+  #     # still runs); adding the secret turns the /chart regression gate
+  #     # from "wired but no-op" to "live". This wiring is forward-
+  #     # compatible — if the secret isn't configured the workflow still
+  #     # works.
+  #     BOUNCETECH_DATABASE_URL: ${{ secrets.BOUNCETECH_DATABASE_URL }}
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     - uses: actions/setup-node@v6
+  #       with:
+  #         node-version: 22
+  #         cache: npm
+  #
+  #     - name: Cache node_modules
+  #       id: nm-cache
+  #       uses: actions/cache@v5
+  #       with:
+  #         path: "**/node_modules"
+  #         key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+  #
+  #     - name: Install dependencies
+  #       if: steps.nm-cache.outputs.cache-hit != 'true'
+  #       run: npm ci
+  #
+  #     - name: Run postinstall (cached path)
+  #       if: steps.nm-cache.outputs.cache-hit == 'true'
+  #       run: node scripts/fix-ink-react.mjs
+  #
+  #     - name: Cache Turbo
+  #       uses: actions/cache@v5
+  #       with:
+  #         path: .turbo
+  #         key: turbo-js-${{ runner.os }}-${{ github.sha }}
+  #         restore-keys: turbo-js-${{ runner.os }}-
+  #
+  #     - name: Build shared package
+  #       run: npx turbo run build --filter=@launchpad/shared
+  #
+  #     # Write `.dev.vars` for `wrangler dev`. `BOUNCETECH_DATABASE_URL`
+  #     # is appended conditionally so the line is omitted entirely when
+  #     # the secret isn't set (rather than written as an empty value,
+  #     # which `wrangler` treats as a bound-but-empty env var and the
+  #     # chart route's "missing binding" branch wouldn't trigger).
+  #     - name: Create .dev.vars
+  #       if: env.DATABASE_URL != ''
+  #       run: |
+  #         echo "DATABASE_URL=$DATABASE_URL" > apps/api/.dev.vars
+  #         echo "PONDER_URL=http://localhost:42069" >> apps/api/.dev.vars
+  #         if [ -n "$BOUNCETECH_DATABASE_URL" ]; then
+  #           echo "BOUNCETECH_DATABASE_URL=$BOUNCETECH_DATABASE_URL" >> apps/api/.dev.vars
+  #         fi
+  #
+  #     - name: Smoke test API
+  #       if: env.DATABASE_URL != ''
+  #       run: npm run test:worker --workspace=@launchpad/api
+  #       timeout-minutes: 3
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Cache node_modules
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: "**/node_modules"
-          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
-
-      - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Run postinstall (cached path)
-        if: steps.nm-cache.outputs.cache-hit == 'true'
-        run: node scripts/fix-ink-react.mjs
-
-      - name: Cache Turbo
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: turbo-js-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-js-${{ runner.os }}-
-
-      - name: Build shared package
-        run: npx turbo run build --filter=@launchpad/shared
-
-      # Write `.dev.vars` for `wrangler dev`. `BOUNCETECH_DATABASE_URL`
-      # is appended conditionally so the line is omitted entirely when
-      # the secret isn't set (rather than written as an empty value,
-      # which `wrangler` treats as a bound-but-empty env var and the
-      # chart route's "missing binding" branch wouldn't trigger).
-      - name: Create .dev.vars
-        if: env.DATABASE_URL != ''
-        run: |
-          echo "DATABASE_URL=$DATABASE_URL" > apps/api/.dev.vars
-          echo "PONDER_URL=http://localhost:42069" >> apps/api/.dev.vars
-          if [ -n "$BOUNCETECH_DATABASE_URL" ]; then
-            echo "BOUNCETECH_DATABASE_URL=$BOUNCETECH_DATABASE_URL" >> apps/api/.dev.vars
-          fi
-
-      - name: Smoke test API
-        if: env.DATABASE_URL != ''
-        run: npm run test:worker --workspace=@launchpad/api
-        timeout-minutes: 3
-
-  indexer-smoke:
-    name: Indexer Smoke Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Cache node_modules
-        id: nm-cache
-        uses: actions/cache@v5
-        with:
-          path: "**/node_modules"
-          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
-
-      - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: npm ci
-
-      - name: Run postinstall (cached path)
-        if: steps.nm-cache.outputs.cache-hit == 'true'
-        run: node scripts/fix-ink-react.mjs
-
-      - name: Cache Turbo
-        uses: actions/cache@v5
-        with:
-          path: .turbo
-          key: turbo-js-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-js-${{ runner.os }}-
-
-      - name: Build shared package
-        run: npx turbo run build --filter=@launchpad/shared
-
-      - name: Smoke test indexer
-        run: npm run test:smoke --workspace=@launchpad/indexer
-        timeout-minutes: 5
-        env:
-          PONDER_RPC_URL_999: ${{ secrets.PONDER_RPC_URL_999 }}
+  # indexer-smoke:
+  #   name: Indexer Smoke Test
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v6
+  #
+  #     - uses: actions/setup-node@v6
+  #       with:
+  #         node-version: 22
+  #         cache: npm
+  #
+  #     - name: Cache node_modules
+  #       id: nm-cache
+  #       uses: actions/cache@v5
+  #       with:
+  #         path: "**/node_modules"
+  #         key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+  #
+  #     - name: Install dependencies
+  #       if: steps.nm-cache.outputs.cache-hit != 'true'
+  #       run: npm ci
+  #
+  #     - name: Run postinstall (cached path)
+  #       if: steps.nm-cache.outputs.cache-hit == 'true'
+  #       run: node scripts/fix-ink-react.mjs
+  #
+  #     - name: Cache Turbo
+  #       uses: actions/cache@v5
+  #       with:
+  #         path: .turbo
+  #         key: turbo-js-${{ runner.os }}-${{ github.sha }}
+  #         restore-keys: turbo-js-${{ runner.os }}-
+  #
+  #     - name: Build shared package
+  #       run: npx turbo run build --filter=@launchpad/shared
+  #
+  #     - name: Smoke test indexer
+  #       run: npm run test:smoke --workspace=@launchpad/indexer
+  #       timeout-minutes: 5
+  #       env:
+  #         PONDER_RPC_URL_999: ${{ secrets.PONDER_RPC_URL_999 }}
