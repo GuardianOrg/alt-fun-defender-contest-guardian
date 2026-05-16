@@ -32,22 +32,67 @@ const LOG_QUERY_SNIPPET_LEN = 200;
 const CAUSE_STACK_LINES = 5;
 
 /**
+ * Defence-in-depth redaction list for error-sidecar logging. Mirrors the
+ * same pattern in `indexer-reads.ts` so both swallow paths produce
+ * structurally-identical (and equally-redacted) payloads. CodeRabbit
+ * feedback on PR #983.
+ */
+const SENSITIVE_ERROR_KEY_PATTERN =
+  /authorization|cookie|token|secret|password|passwd|api[-_]?key|database[-_]?url|connection[-_]?string|dsn/i;
+
+/**
+ * Walk a JSON-safe value and replace any field whose key looks
+ * credential-shaped with `"[REDACTED]"`. Mirrors `redactSensitive` in
+ * `indexer-reads.ts`.
+ */
+function redactSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(
+        ([key, fieldValue]) => [
+          key,
+          SENSITIVE_ERROR_KEY_PATTERN.test(key)
+            ? "[REDACTED]"
+            : redactSensitive(fieldValue),
+        ],
+      ),
+    );
+  }
+  return value;
+}
+
+/**
  * Best-effort shallow clone for arbitrary error sidecars (`cause` /
- * `sourceError`). `JSON.parse(JSON.stringify(...))` strips functions and
- * prototype chains, but throws on circular structures — fall back to
- * `String(...)` so the surrounding log line stays valid in that
- * pathological case. Mirrors the same helper in `indexer-reads.ts`.
- * Issue #974.
+ * `sourceError` / unstructured `code`). `JSON.parse(JSON.stringify(...))`
+ * strips functions and prototype chains, but throws on circular
+ * structures — fall back to `String(...)` so the surrounding log line
+ * stays valid in that pathological case. The result is then walked
+ * through `redactSensitive` so a future Ponder client upgrade can't
+ * leak a credential through a sidecar. Mirrors `indexer-reads.ts`.
+ * Issue #974, CodeRabbit feedback on PR #983.
  */
 function sanitizeErrorSidecar(value: unknown): unknown {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (typeof value !== "object") return value;
   try {
-    return JSON.parse(JSON.stringify(value));
+    return redactSensitive(JSON.parse(JSON.stringify(value)));
   } catch {
     return String(value);
   }
+}
+
+/**
+ * Defensive serializer for `error.code`. Untyped on `Error` proper, so a
+ * thrown value could carry an object or a circular structure here, and
+ * an unguarded `JSON.stringify` of the outer log payload would throw
+ * and lose the entire failure log. CodeRabbit feedback on PR #983.
+ */
+function safeErrorCode(code: unknown): unknown {
+  if (code === undefined) return undefined;
+  if (typeof code === "string" || typeof code === "number") return code;
+  return sanitizeErrorSidecar(code);
 }
 
 /**
@@ -64,7 +109,7 @@ function describeError(error: unknown): unknown {
   }
   const err = error as Error & {
     cause?: unknown;
-    code?: string | number;
+    code?: unknown;
     sourceError?: unknown;
   };
   const cause = err.cause;
@@ -82,7 +127,7 @@ function describeError(error: unknown): unknown {
   return {
     name: error.name,
     message: error.message,
-    code: err.code,
+    code: safeErrorCode(err.code),
     cause: causeShape,
     sourceError: sanitizeErrorSidecar(err.sourceError),
   };

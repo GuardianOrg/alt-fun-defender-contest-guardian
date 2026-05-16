@@ -195,4 +195,71 @@ describe("logIndexerReadFailure — error.cause unwrapping", () => {
 
     expect(captureLog().error).toBe("kaboom");
   });
+
+  it("redacts credential-shaped keys nested inside cause / sourceError", async () => {
+    // Defence-in-depth: even though Neon HTTP doesn't leak credentials
+    // today, redact any key whose name *looks* credential-shaped before
+    // the value lands in Cloudflare logs. This covers the case where a
+    // future driver upgrade (or a hand-thrown error from somewhere in
+    // the pipeline) attaches an `Authorization` / `cookie` /
+    // `connectionString` field to the cause object. CodeRabbit feedback
+    // on PR #983.
+    nextThrowable = Object.assign(new Error("Failed query: ..."), {
+      cause: {
+        status: 502,
+        body: "Bad Gateway",
+        headers: {
+          authorization: "Bearer LEAKED-TOKEN",
+          cookie: "session=abc",
+          "x-trace-id": "ok-to-keep",
+        },
+        connectionString: "postgres://user:S3CRET@neon.tech",
+      },
+      sourceError: { token: "another-secret", info: "kept" },
+    });
+
+    await fetchTokenLabels(createDb("postgres://test"), ["0xabc"]);
+
+    const errorPayload = captureLog().error as Record<string, unknown>;
+    const cause = errorPayload.cause as Record<string, unknown>;
+    expect(cause.status).toBe(502);
+    expect(cause.body).toBe("Bad Gateway");
+    expect(cause.connectionString).toBe("[REDACTED]");
+    const headers = cause.headers as Record<string, unknown>;
+    expect(headers.authorization).toBe("[REDACTED]");
+    expect(headers.cookie).toBe("[REDACTED]");
+    expect(headers["x-trace-id"]).toBe("ok-to-keep");
+
+    const sourceError = errorPayload.sourceError as Record<string, unknown>;
+    expect(sourceError.token).toBe("[REDACTED]");
+    expect(sourceError.info).toBe("kept");
+
+    // And the serialised line itself should carry no leak.
+    const [raw] = consoleLogSpy.mock.calls[0] as [string];
+    expect(raw).not.toContain("LEAKED-TOKEN");
+    expect(raw).not.toContain("S3CRET");
+    expect(raw).not.toContain("another-secret");
+  });
+
+  it("safe-serializes a non-primitive `error.code` so the log line never throws", async () => {
+    // `err.code` is untyped on `Error` proper; a future thrown value
+    // could attach an object (or a circular structure) here, and an
+    // unguarded `JSON.stringify` of the outer payload would throw and
+    // drop the entire failure log. The serializer should normalise the
+    // shape and the log line must be valid JSON. CodeRabbit feedback
+    // on PR #983.
+    const circularCode: Record<string, unknown> = { value: "ETIMEDOUT" };
+    circularCode.self = circularCode;
+    nextThrowable = Object.assign(new Error("Failed query: ..."), {
+      code: circularCode,
+    });
+
+    await fetchTokenLabels(createDb("postgres://test"), ["0xabc"]);
+
+    // Log line is valid JSON (i.e. capture didn't throw on parse) and
+    // the `code` field survives in some form rather than dropping the
+    // whole error payload.
+    const errorPayload = captureLog().error as Record<string, unknown>;
+    expect(errorPayload.code).toBeDefined();
+  });
 });

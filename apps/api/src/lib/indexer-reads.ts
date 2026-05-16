@@ -66,23 +66,77 @@ import type {
 const CAUSE_STACK_LINES = 5;
 
 /**
+ * Defence-in-depth redaction list for error-sidecar logging. The Neon
+ * HTTP driver does NOT attach credentials to errors today (the wrapper
+ * message is `Failed query: <SQL>\nparams: <values>` — no
+ * `Authorization` header, no connection string), but a future driver
+ * upgrade or a hand-thrown error could. Redacting any key whose name
+ * looks credential-shaped before it lands in Cloudflare logs is cheap
+ * insurance. CodeRabbit feedback on PR #983.
+ */
+const SENSITIVE_ERROR_KEY_PATTERN =
+  /authorization|cookie|token|secret|password|passwd|api[-_]?key|database[-_]?url|connection[-_]?string|dsn/i;
+
+/**
+ * Walk a JSON-safe value and replace any field whose key looks
+ * credential-shaped with `"[REDACTED]"`. Operates on the post-`JSON
+ * .parse(JSON.stringify(...))` clone so we never see functions,
+ * prototypes, or circular refs by the time we recurse here.
+ */
+function redactSensitive(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSensitive);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(
+        ([key, fieldValue]) => [
+          key,
+          SENSITIVE_ERROR_KEY_PATTERN.test(key)
+            ? "[REDACTED]"
+            : redactSensitive(fieldValue),
+        ],
+      ),
+    );
+  }
+  return value;
+}
+
+/**
  * Best-effort shallow clone for arbitrary error sidecars (`cause` /
- * `sourceError`). The Neon HTTP driver attaches plain-object response
- * payloads (status, body, headers) on these fields; `JSON.parse(JSON
- * .stringify(...))` strips functions, prototype chains, and circular refs,
- * but it can also throw on circular structures — which would silently
- * swallow the entire log line in production. Falling back to `String(...)`
- * keeps the log line valid even in that pathological case. Issue #974.
+ * `sourceError` / unstructured `code`). The Neon HTTP driver attaches
+ * plain-object response payloads (status, body, headers) on these
+ * fields; `JSON.parse(JSON.stringify(...))` strips functions, prototype
+ * chains, and circular refs, but it can also throw on circular
+ * structures — which would silently swallow the entire log line in
+ * production. Falling back to `String(...)` keeps the log line valid
+ * even in that pathological case. The result is then walked through
+ * `redactSensitive` so a future driver upgrade can't leak a credential
+ * even if it stuffs one onto the error object. Issue #974, CodeRabbit
+ * feedback on PR #983.
  */
 function sanitizeErrorSidecar(value: unknown): unknown {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (typeof value !== "object") return value;
   try {
-    return JSON.parse(JSON.stringify(value));
+    return redactSensitive(JSON.parse(JSON.stringify(value)));
   } catch {
     return String(value);
   }
+}
+
+/**
+ * Defensive serializer for `error.code`. The neon-http driver ships
+ * `string | number` codes today, but the field is untyped on
+ * `Error` proper — a future thrown value could carry an object or a
+ * circular structure here, and an unguarded `JSON.stringify` of the
+ * outer log payload would throw and lose the *entire* failure log.
+ * Pass strings/numbers through and route everything else through the
+ * safe sidecar serializer. CodeRabbit feedback on PR #983.
+ */
+function safeErrorCode(code: unknown): unknown {
+  if (code === undefined) return undefined;
+  if (typeof code === "string" || typeof code === "number") return code;
+  return sanitizeErrorSidecar(code);
 }
 
 /**
@@ -109,7 +163,7 @@ function describeError(error: unknown): unknown {
   if (!(error instanceof Error)) return String(error);
   const err = error as Error & {
     cause?: unknown;
-    code?: string | number;
+    code?: unknown;
     sourceError?: unknown;
   };
   const cause = err.cause;
@@ -127,7 +181,7 @@ function describeError(error: unknown): unknown {
   return {
     name: error.name,
     message: stripQueryBloat(error.message),
-    code: err.code,
+    code: safeErrorCode(err.code),
     cause: causeShape,
     sourceError: sanitizeErrorSidecar(err.sourceError),
   };

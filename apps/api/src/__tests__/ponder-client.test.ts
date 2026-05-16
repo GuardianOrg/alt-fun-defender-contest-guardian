@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   checkPonderHealth,
@@ -238,6 +238,13 @@ describe("logPonderFailure — error.cause unwrapping (issue #974)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // `vi.clearAllMocks()` resets call history but keeps `console.log`
+    // mocked. Restore so later describes don't inherit a swallowed
+    // logger. CodeRabbit feedback on PR #983.
+    vi.restoreAllMocks();
   });
 
   function captureLastErrorPayload(): Record<string, unknown> {
