@@ -11,8 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  js-checks:
-    name: JS/TS Lint, Typecheck, Test, Build
+  # The four JS/TS turbo tasks (lint, typecheck, test, build) run as separate
+  # parallel jobs so wall-time is gated by the slowest single task rather than
+  # by the sum at 4-vCPU turbo concurrency. Each pays a small setup tax
+  # (~20s with cached node_modules), but they run concurrently. Per-task turbo
+  # cache keys keep each job's `.turbo` upload independent.
+  lint:
+    name: JS/TS Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -41,11 +46,119 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .turbo
-          key: turbo-js-${{ runner.os }}-${{ github.sha }}
-          restore-keys: turbo-js-${{ runner.os }}-
+          key: turbo-lint-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-lint-${{ runner.os }}-
 
-      - name: Lint, Typecheck, Test, Build (excluding contracts)
-        run: npx turbo run lint typecheck test build --filter='!@launchpad/contracts'
+      - name: Lint (excluding contracts)
+        run: npx turbo run lint --filter='!@launchpad/contracts'
+
+  typecheck:
+    name: JS/TS Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
+      - name: Cache Turbo
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: turbo-typecheck-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-typecheck-${{ runner.os }}-
+
+      - name: Typecheck (excluding contracts)
+        run: npx turbo run typecheck --filter='!@launchpad/contracts'
+
+  test:
+    name: JS/TS Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
+      - name: Cache Turbo
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: turbo-test-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-test-${{ runner.os }}-
+
+      - name: Test (excluding contracts)
+        run: npx turbo run test --filter='!@launchpad/contracts'
+
+  build:
+    name: JS/TS Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v5
+        with:
+          path: "**/node_modules"
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Run postinstall (cached path)
+        if: steps.nm-cache.outputs.cache-hit == 'true'
+        run: node scripts/fix-ink-react.mjs
+
+      - name: Cache Turbo
+        uses: actions/cache@v5
+        with:
+          path: .turbo
+          key: turbo-build-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-build-${{ runner.os }}-
+
+      - name: Build (excluding contracts)
+        run: npx turbo run build --filter='!@launchpad/contracts'
 
       - name: Security audit
         run: npm audit --omit=dev
@@ -78,7 +191,12 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          # Pinned, not `stable`. `stable` makes foundryup resolve the tag via
+          # api.github.com/repos/foundry-rs/foundry/releases/latest unauthenticated,
+          # which hits GitHub's 60 req/hr/IP anon limit on shared runner IPs and 403s
+          # the toolchain install. Concrete tags short-circuit that API call. Bump
+          # intentionally; nightly tracks the same pin.
+          version: v1.7.1
 
       - name: Cache Foundry artifacts
         uses: actions/cache@v5
