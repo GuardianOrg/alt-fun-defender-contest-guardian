@@ -838,3 +838,291 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
     expect(body.dataSource).toBe("degraded");
   });
 });
+
+/**
+ * Coverage for the alternate scored sorts (mcap / change24h) on the
+ * TRENDING tab. Both re-rank the same candidate pool the trending sort
+ * uses (top‑N by 24h gross USDC volume from the indexer) — the
+ * dropdown picks a different ordering key but never widens the cohort.
+ * Tests in this block assert (a) the candidate pool is still
+ * volume-driven (anti-spam property preserved) and (b) the final
+ * response is ordered by the requested key with the documented
+ * tie-break + null-handling rules.
+ */
+describe("GET /tokens?sort=mcap|change24h — alternate scored sorts", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Candidate-pool stub shared by every test below: the indexer's
+  // 24h-volume ranking returns A, B, C in that order. Each test mutates
+  // the market data + DB rows to set up the scenario it wants to assert.
+  function stubCandidatePool() {
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 1_000 },
+      { tokenAddress: ADDR_C.toLowerCase(), volume24hUsd: 100 },
+    ]);
+  }
+
+  it("sort=mcap reorders the trending pool by mcap desc (with 24h volume tie-break)", async () => {
+    stubCandidatePool();
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    const onchainC = makeOnchain(ADDR_C);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_C, { ticker: "CCC" }),
+    ];
+    // B has the largest mcap → must come first; C is mid; A is smallest.
+    // The volume-driven candidate order (A → B → C) must be overridden.
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket({ mcapUsd: 1_000 }) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket({ mcapUsd: 10_000_000 }) },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket({ mcapUsd: 50_000 }) },
+      ]),
+    );
+
+    const res = await createApp().request("/tokens?sort=mcap", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "CCC", "AAA"]);
+  });
+
+  it("sort=mcap breaks ties on 24h volume desc so equal-mcap rows surface the more-active one first", async () => {
+    stubCandidatePool();
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "HIGH_VOL" }),
+      makeDbRow(ADDR_B, { ticker: "LOW_VOL" }),
+    ];
+    // Both tokens have identical mcap. A has 24h volume 5000, B has 1000
+    // (from the candidate pool stub) → A must come first.
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket({ mcapUsd: 1_000_000 }) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket({ mcapUsd: 1_000_000 }) },
+      ]),
+    );
+
+    const res = await createApp().request("/tokens?sort=mcap", {}, makeEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["HIGH_VOL", "LOW_VOL"]);
+  });
+
+  it("sort=change24h reorders by 24h pct change desc, with nulls sinking to the bottom", async () => {
+    stubCandidatePool();
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    const onchainC = makeOnchain(ADDR_C);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "DEGRADED" }),
+      makeDbRow(ADDR_B, { ticker: "PUMP" }),
+      makeDbRow(ADDR_C, { ticker: "DUMP" }),
+    ];
+    // B is a +50% gainer, C is a -30% loser, A's change24h is unknown
+    // (degraded indexer / BounceTech). Order must be PUMP → DUMP →
+    // DEGRADED — `null` falls to the bottom even though `null > -30%`
+    // numerically would otherwise put it ahead of the dumping row.
+    // That's the documented "?? 0 would surface unknowns in the
+    // middle of the list" guard.
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket({ change24h: null }) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket({ change24h: 50 }) },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket({ change24h: -30 }) },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=change24h",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["PUMP", "DUMP", "DEGRADED"]);
+  });
+
+  it("sort=change24h is stable when every row has null change24h (no NaN crash on the comparator)", async () => {
+    // Two rows with `change24h: null` would produce `NaN` from a naive
+    // `-Infinity − -Infinity` sentinel; the comparator instead routes
+    // both-null cases through the mcap tie-break. Higher mcap wins —
+    // and crucially the sort doesn't throw / return non-deterministic
+    // order.
+    stubCandidatePool();
+    const onchainA = makeOnchain(ADDR_A);
+    const onchainB = makeOnchain(ADDR_B);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "SMALL_DEGRADED" }),
+      makeDbRow(ADDR_B, { ticker: "BIG_DEGRADED" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket({ change24h: null, mcapUsd: 1_000 }) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket({ change24h: null, mcapUsd: 10_000_000 }) },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=change24h",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["BIG_DEGRADED", "SMALL_DEGRADED"]);
+  });
+
+  it("uses the trending candidate pool for every scored sort (anti-spam preserved)", async () => {
+    // Critical anti-spam property: a token that hasn't traded in the
+    // last 24h has NO row in `token_hourly_metrics` and therefore is
+    // not in the candidate pool. Even if a high-mcap dead token exists
+    // in Postgres, it should NEVER surface on `sort=mcap` (because the
+    // pool doesn't contain it). We assert this indirectly by checking
+    // that `fetchTrendingCandidatesByVolume` is the gating call for
+    // every scored-sort variant.
+    for (const s of ["mcap", "change24h"] as const) {
+      mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([]);
+      await createApp().request(`/tokens?sort=${s}`, {}, makeEnv());
+    }
+    expect(mockFetchTrendingCandidatesByVolume).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * Coverage for the alternate scored sorts on `status=graduated`. The
+ * tab's default ordering is `graduatedAt desc` from the indexer
+ * (unchanged), but the frontend lets the user pick mcap / change24h
+ * to re-rank the graduated cohort. The route must enrich
+ * the full filtered pool before sorting (so the visible page reflects
+ * the true global ordering across the pool, not just the cheap default
+ * paginate-first path).
+ */
+describe("GET /tokens?status=graduated with scored sort overrides", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("default (no sort param) preserves Ponder's graduatedAt-desc ordering and only fetches market data for the paged slice", async () => {
+    // Regression guard for the cheap path: when no scored sort is in
+    // play, we should keep paginating first (against `orderedDbRows`)
+    // and only fetch BounceTech market data for the slice we actually
+    // return. Three onchain rows but only one DB row → page size of 1
+    // with no offset/limit query means we still only enrich the
+    // visible page.
+    const onchainA = makeOnchain(ADDR_A, { graduated: true, graduatedAt: "1700003000" });
+    const onchainB = makeOnchain(ADDR_B, { graduated: true, graduatedAt: "1700002000" });
+    const onchainC = makeOnchain(ADDR_C, { graduated: true, graduatedAt: "1700001000" });
+    mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
+      onchainA,
+      onchainB,
+      onchainC,
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_C, { ticker: "CCC" }),
+    ];
+    mockBuildBatchFromTokens.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket() },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket() },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket() },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?status=graduated&limit=2",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["AAA", "BBB"]);
+    // Only the 2 paged rows should have been sent to BounceTech (the
+    // cheap path's whole reason for existing).
+    expect(mockBuildBatchFromTokens).toHaveBeenCalledTimes(1);
+    const passedOnchain = mockBuildBatchFromTokens.mock.calls[0][2] as PonderTokenOnchain[];
+    expect(passedOnchain).toHaveLength(2);
+  });
+
+  it("sort=mcap re-ranks the graduated cohort by mcap desc (enriches the full pool before paginating)", async () => {
+    const onchainA = makeOnchain(ADDR_A, { graduated: true, graduatedAt: "1700003000" });
+    const onchainB = makeOnchain(ADDR_B, { graduated: true, graduatedAt: "1700002000" });
+    const onchainC = makeOnchain(ADDR_C, { graduated: true, graduatedAt: "1700001000" });
+    // Indexer returns A, B, C in `graduatedAt desc` order. The scored
+    // sort must override that with mcap desc → B (biggest) → A → C.
+    mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
+      onchainA,
+      onchainB,
+      onchainC,
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "MID_MCAP" }),
+      makeDbRow(ADDR_B, { ticker: "BIG_MCAP" }),
+      makeDbRow(ADDR_C, { ticker: "SMALL_MCAP" }),
+    ];
+    mockBuildBatchFromTokens.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket({ mcapUsd: 1_000_000 }) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket({ mcapUsd: 100_000_000 }) },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket({ mcapUsd: 1_000 }) },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?status=graduated&sort=mcap",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual([
+      "BIG_MCAP",
+      "MID_MCAP",
+      "SMALL_MCAP",
+    ]);
+    // The scored-sort path enriches the WHOLE filtered pool (3 rows),
+    // not just the paginated slice. That's the trade we pay for honest
+    // ordering across the page boundary.
+    const passedOnchain = mockBuildBatchFromTokens.mock.calls[0][2] as PonderTokenOnchain[];
+    expect(passedOnchain).toHaveLength(3);
+  });
+
+  it("sort=change24h on graduated routes null change values to the bottom", async () => {
+    const onchainA = makeOnchain(ADDR_A, { graduated: true, graduatedAt: "1700003000" });
+    const onchainB = makeOnchain(ADDR_B, { graduated: true, graduatedAt: "1700002000" });
+    const onchainC = makeOnchain(ADDR_C, { graduated: true, graduatedAt: "1700001000" });
+    mockFetchGraduatedTokensOnchain.mockResolvedValueOnce([
+      onchainA,
+      onchainB,
+      onchainC,
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "DEGRADED" }),
+      makeDbRow(ADDR_B, { ticker: "PUMP" }),
+      makeDbRow(ADDR_C, { ticker: "DUMP" }),
+    ];
+    mockBuildBatchFromTokens.mockResolvedValueOnce(
+      marketBatchOk([
+        { address: ADDR_A, onchain: onchainA, market: makeMarket({ change24h: null }) },
+        { address: ADDR_B, onchain: onchainB, market: makeMarket({ change24h: 25 }) },
+        { address: ADDR_C, onchain: onchainC, market: makeMarket({ change24h: -10 }) },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?status=graduated&sort=change24h",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ ticker: string }> };
+    expect(body.data.map((t) => t.ticker)).toEqual(["PUMP", "DUMP", "DEGRADED"]);
+  });
+});

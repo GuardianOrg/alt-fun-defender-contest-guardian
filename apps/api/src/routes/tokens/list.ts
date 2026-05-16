@@ -177,7 +177,95 @@ function enrich(
   };
 }
 
-type SortMode = "createdAt" | "leverage" | "name" | "trending";
+/**
+ * Comparator factory shared by the scored-sort paths (trending +
+ * graduated). Keeps the three sort flavours in one place so the
+ * trending branch and the graduated branch can't drift apart on
+ * tie-break or null-handling semantics — both call this with the same
+ * set of accessors and get back a `(a, b) => number` ready to hand to
+ * `Array.prototype.sort`.
+ *
+ * Null handling differs by sort:
+ *   - `mcap` / `trending` use `?? 0` for their primary accessor
+ *     inputs — those metrics are always ≥ 0 so a null falls cleanly
+ *     to the bottom of a desc sort with no special-casing.
+ *   - `change24h` uses an explicit null check (not a sentinel) because
+ *     percentage change can be negative: `change24h ?? 0` would pull
+ *     degraded "we don't know" rows up above every legitimate loser,
+ *     surfacing nulls in the middle of the list which is the wrong
+ *     signal. We instead route nulls to the bottom of the desc sort
+ *     directly in the comparator. (`Number.NEGATIVE_INFINITY` would
+ *     also work but produces `NaN` when both rows are null — using a
+ *     branch keeps the comparator total/well-behaved on every input.)
+ */
+function buildScoredComparator(
+  sort: "trending" | "mcap" | "change24h",
+  volume24hOf: (t: EnrichedToken) => number,
+  mcapOf: (t: EnrichedToken) => number,
+): (a: EnrichedToken, b: EnrichedToken) => number {
+  if (sort === "mcap") {
+    return (a, b) => {
+      const m = mcapOf(b) - mcapOf(a);
+      if (m !== 0) return m;
+      return volume24hOf(b) - volume24hOf(a);
+    };
+  }
+  if (sort === "change24h") {
+    return (a, b) => {
+      const ca = a.change24h;
+      const cb = b.change24h;
+      // Null sinks to the bottom — see the docstring above for why we
+      // can't use a `?? 0` or `?? -Infinity` sentinel here.
+      if (ca === null && cb === null) {
+        return mcapOf(b) - mcapOf(a);
+      }
+      if (ca === null) return 1;
+      if (cb === null) return -1;
+      if (cb !== ca) return cb - ca;
+      return mcapOf(b) - mcapOf(a);
+    };
+  }
+  // sort === "trending": 24h volume desc, mcap tie-break.
+  return (a, b) => {
+    const v = volume24hOf(b) - volume24hOf(a);
+    if (v !== 0) return v;
+    return mcapOf(b) - mcapOf(a);
+  };
+}
+
+/**
+ * Sort modes accepted on `/api/v1/tokens?sort=…`.
+ *
+ * The first three (`createdAt` / `leverage` / `name`) are simple SQL
+ * `ORDER BY` modes used by the DB-first path. The last three are
+ * "scored" sorts that re-rank the trending candidate pool (top‑N by
+ * rolling 24h volume) — when any of these is selected, the route
+ * fetches the volume-ranked candidate pool from the indexer and then
+ * reorders the hydrated rows in memory.
+ *
+ *   - `trending`   — 24h gross USDC volume desc (mcap tie-break).
+ *                    The TRENDING-tab default.
+ *   - `mcap`       — market cap desc (24h volume tie-break: equal
+ *                    mcap rows surface the more-active token first).
+ *   - `change24h`  — 24h percentage change desc (mcap tie-break;
+ *                    null sinks to the bottom — see the comparator).
+ *
+ * For `status=graduated` requests the same three scored sorts are
+ * accepted: they re-rank the graduated cohort (top‑N by `graduatedAt
+ * desc` from the indexer) by the same key. `trending` on a graduated
+ * cohort means "most-traded graduated tokens this week" — legitimate
+ * lens, though the frontend's TRENDING tab won't surface that combo.
+ * For `status=graduating` the sort param is ignored (curveFilled desc
+ * is the only meaningful order for that tab — see the in-memory sort
+ * a few hundred lines below).
+ */
+type SortMode =
+  | "createdAt"
+  | "leverage"
+  | "name"
+  | "trending"
+  | "mcap"
+  | "change24h";
 type StatusFilter = "curve" | "graduating" | "graduated";
 
 interface ListFilters {
@@ -325,9 +413,17 @@ listRoute.get("/", async (c) => {
   const sort: SortMode =
     sortRaw === "leverage" ||
     sortRaw === "name" ||
-    sortRaw === "trending"
+    sortRaw === "trending" ||
+    sortRaw === "mcap" ||
+    sortRaw === "change24h"
       ? sortRaw
       : "createdAt";
+  // Every scored sort is desc-only — `dir` is ignored by the handler for
+  // any sort in this set. Used both for cache-key canonicalisation
+  // (collapse `&dir=asc` / `&dir=desc` into the same entry) and to
+  // gate the candidate-pool branch a few hundred lines below.
+  const isScoredSort =
+    sort === "trending" || sort === "mcap" || sort === "change24h";
   const dir = c.req.query("dir") === "asc" ? asc : desc;
 
   const cachesObj = (globalThis as { caches?: { default?: Cache } }).caches;
@@ -335,14 +431,25 @@ listRoute.get("/", async (c) => {
   // Canonicalise the cache key by dropping params the handler ignores for
   // a given request shape. Prevents e.g. `?sort=trending&dir=asc` and
   // `&dir=desc` from each getting their own cache entry for identical
-  // responses (trending always sorts desc by score).
+  // responses (every scored sort is desc-only).
   const cacheUrl = new URL(c.req.url);
-  if (sort === "trending") {
+  if (isScoredSort) {
     cacheUrl.searchParams.delete("dir");
   }
-  // `status=graduated|graduating` derive their own ordering from Ponder
-  // and ignore the `sort`/`dir` params entirely.
-  if (status === "graduated" || status === "graduating") {
+  if (status === "graduating") {
+    // GRADUATING tab's ordering is fixed (curveFilled desc) — the sort
+    // param is ignored regardless of value, so it shouldn't fragment
+    // the cache.
+    cacheUrl.searchParams.delete("sort");
+    cacheUrl.searchParams.delete("dir");
+  }
+  if (status === "graduated" && !isScoredSort) {
+    // GRADUATED with no explicit sort: keeps the default `graduatedAt
+    // desc` ordering from Ponder, so `?sort=createdAt` / `?sort=name` /
+    // missing-sort all hit the same cache entry. When a scored sort
+    // (mcap / change24h / trending) IS supplied, we re-rank the
+    // cohort by that key — keep `sort` in the key so each re-ranking
+    // gets its own entry. See the GRADUATED branch below.
     cacheUrl.searchParams.delete("sort");
     cacheUrl.searchParams.delete("dir");
   }
@@ -429,22 +536,35 @@ listRoute.get("/", async (c) => {
       orderedOnchain.push(onchain);
     }
 
-    const paged = orderedDbRows.slice(offset, offset + limit);
-    const pagedOnchain = orderedOnchain.slice(offset, offset + limit);
-
-    if (paged.length === 0) {
+    if (orderedDbRows.length === 0) {
       const empty = c.json(formatSuccess([], "live"));
       empty.headers.set("Cache-Control", edgeCacheableJsonHeader(LIST_CACHE_TTL_SECONDS));
       if (cache) await cache.put(cacheKey, empty.clone());
       return empty;
     }
 
+    // Pagination differs by sort. The default (`graduatedAt desc` from
+    // Ponder) is what `orderedDbRows` already gives us, so we can
+    // paginate *before* fetching market data — the cheap path. A scored
+    // sort (mcap / change24h / trending) needs market data for the
+    // whole filtered pool to compute the final ordering, because the
+    // sort keys (mcap, change24h) are USD-denominated and come from
+    // BounceTech, not Ponder — so we enrich the pool, sort, and
+    // paginate at the end. Trades a wider BounceTech batch for honest
+    // ordering across the visible page.
+    const scoredSort = isScoredSort
+      ? (sort as "trending" | "mcap" | "change24h")
+      : null;
+
+    const enrichInputDbRows = scoredSort ? orderedDbRows : orderedDbRows.slice(offset, offset + limit);
+    const enrichInputOnchain = scoredSort ? orderedOnchain : orderedOnchain.slice(offset, offset + limit);
+
     // Reuse the already-resolved indexer tokens — saves a round-trip
     // compared to computeMarketDataForAddresses which re-fetches them.
     const marketResult = await buildBatchFromTokens(
       c.env.DATABASE_URL,
       c.env.BOUNCETECH_DATABASE_URL,
-      pagedOnchain,
+      enrichInputOnchain,
     );
 
     const onchainByAddress = new Map<string, PonderTokenOnchain>();
@@ -459,13 +579,13 @@ listRoute.get("/", async (c) => {
     } else {
       // Degraded: still render with on-chain data we already have so the
       // UI isn't empty — just without priceUsd / mcap / change24h.
-      for (const t of pagedOnchain) {
+      for (const t of enrichInputOnchain) {
         onchainByAddress.set(t.address.toLowerCase(), t);
       }
     }
 
     const graduationThresholdUsd = await getGraduationThresholdUsd(c.env);
-    const enriched = paged.map((t) =>
+    let enriched = enrichInputDbRows.map((t) =>
       enrich(
         t,
         onchainByAddress.get(t.address.toLowerCase()),
@@ -473,6 +593,22 @@ listRoute.get("/", async (c) => {
         graduationThresholdUsd,
       ),
     );
+
+    if (scoredSort) {
+      // Re-rank the full enriched pool by the selected key and paginate
+      // at the end. Accessors mirror the trending branch's logic — see
+      // `buildScoredComparator` for tie-break + null handling notes.
+      // `volume24hOf` falls back to `volume24hUsd ?? 0` (no trending
+      // candidate map on this branch — we didn't fetch one), which is
+      // the right thing for graduated tokens: `volume24hUsd` here is
+      // post-graduation Zap volume, fully comparable to the
+      // pre-graduation candidate-map values used on the trending tab.
+      const volume24hOf = (t: EnrichedToken) => t.volume24hUsd ?? 0;
+      const mcapOf = (t: EnrichedToken) => t.mcapUsd ?? 0;
+      enriched = [...enriched]
+        .sort(buildScoredComparator(scoredSort, volume24hOf, mcapOf))
+        .slice(offset, offset + limit);
+    }
 
     const response = c.json(
       formatSuccess(enriched, marketResult.ok ? "live" : "degraded"),
@@ -717,7 +853,9 @@ listRoute.get("/", async (c) => {
     sort === "name" ? tokens.name :
     tokens.createdAt;
 
-  // Trending = pure rolling 24h gross USDC volume. Single-stage flow:
+  // Scored sorts (trending / mcap / change24h) all use the same
+  // candidate pool — rolling 24h gross USDC volume desc, top‑N from
+  // `token_hourly_metrics`. Two-stage flow:
   //
   //   1. Sum the `token_hourly_metrics` buckets over the last 24h per
   //      token, `ORDER BY SUM(volume_usd) DESC LIMIT POOL`. The ranking
@@ -726,14 +864,19 @@ listRoute.get("/", async (c) => {
   //      token nobody trades simply has no rows in the window and so
   //      never appears in the ranking.
   //   2. Hydrate the matching rows from Postgres with the user's filters
-  //      applied (`status`, `underlying`, `direction`, etc.) and preserve
-  //      the volume ordering through pagination (tie-break on mcap).
+  //      applied (`status`, `underlying`, `direction`, etc.). The user's
+  //      selected sort decides the *final ordering* over the pool (see
+  //      the comparator block far below) — but the pool itself is
+  //      always volume-driven. So `sort=mcap` means "top mcap among
+  //      tokens that traded in the last 24h", NOT "top mcap globally"
+  //      (the latter would lose the anti-spam property and surface
+  //      stale tokens no one is engaging with). Same logic for
+  //      `change24h`.
   //
   // Failure mode: if the indexer is unreachable we fall back to a
   // createdAt-DESC slice so the tab keeps rendering. Tagged `dataSource:
   // "degraded"` below; the brief loss of volume ordering is preferable
   // to a 503 on the home-page tab.
-  const isScoredSort = sort === "trending";
   let trendingDegraded = false;
   // Map from lowercased address → 24h volume (USD). Populated for the
   // happy path so the final sort can use the same numbers the candidate
@@ -850,38 +993,42 @@ listRoute.get("/", async (c) => {
     ),
   );
 
-  if (sort === "trending") {
-    // Primary: 24h volume desc, sourced from the same `SUM(volume_usd)`
-    // the candidate query ranked on (`trendingVolumeByAddress`). Falls
-    // back to the row's own `volume24hUsd` when the candidate map is
-    // unavailable — that's the `trendingDegraded` createdAt-DESC fallback
-    // path, where preserving *some* volume signal is still better than
-    // arbitrary `createdAt` order.
+  if (isScoredSort) {
+    // Final ordering over the trending candidate pool, picked by the
+    // user's selected `sort`. The pool itself (top‑N by 24h gross
+    // USDC volume) is the same for every scored sort — see the
+    // candidate-pool comment further up. This block decides what to
+    // re-rank the hydrated rows by.
     //
-    // Tie-break on mcap desc so quiet tokens don't leapfrog priced ones
-    // at equal volume (treats unknown/null as 0 — matches the
-    // GRADUATING-tab tie-break for consistency). The tie-break is
-    // best-effort over the candidate pool: mcap depends on BounceTech +
-    // curve state and can't be expressed in SQL, so the indexer-side
-    // candidate query truncates the pool by `(volume desc, address asc)`
-    // first (deterministic) and the mcap reorder happens here. Volume
-    // collisions across 500+ tokens at 6dp-USDC precision are
-    // vanishingly improbable in practice, so the mcap reorder is the
-    // effective tie-break for any realistic input. CodeRabbit feedback
-    // on PR #946.
-    const volumeFor = (t: EnrichedToken): number => {
+    // `volume24hOf` reads from the same `SUM(volume_usd)` the
+    // candidate query ranked on (`trendingVolumeByAddress`) so the
+    // ordering for `sort=trending` is an exact mirror of the SQL.
+    // Falls back to the row's own `volume24hUsd` when the candidate
+    // map is unavailable — that's the `trendingDegraded` createdAt-
+    // DESC fallback path, where preserving *some* volume signal is
+    // still better than arbitrary `createdAt` order.
+    //
+    // Tie-breaks (per sort):
+    //   - trending / change24h → mcap desc
+    //   - mcap → 24h volume desc (equal-mcap rows surface the more-
+    //     active token first)
+    // The mcap tie-break is best-effort over the candidate pool: mcap
+    // depends on BounceTech + curve state and can't be expressed in
+    // SQL, so the indexer-side candidate query truncates the pool by
+    // `(volume desc, address asc)` first (deterministic) and the
+    // mcap reorder happens here. Volume collisions across 500+
+    // tokens at 6dp-USDC precision are vanishingly improbable in
+    // practice, so the mcap reorder is the effective tie-break for
+    // any realistic input. CodeRabbit feedback on PR #946.
+    const volume24hOf = (t: EnrichedToken): number => {
       const addr = t.address.toLowerCase();
       const mapped = trendingVolumeByAddress?.get(addr);
       if (mapped !== undefined) return mapped;
       return t.volume24hUsd ?? 0;
     };
+    const mcapOf = (t: EnrichedToken) => t.mcapUsd ?? 0;
     enriched = [...enriched]
-      .sort((a, b) => {
-        const va = volumeFor(a);
-        const vb = volumeFor(b);
-        if (vb !== va) return vb - va;
-        return (b.mcapUsd ?? 0) - (a.mcapUsd ?? 0);
-      })
+      .sort(buildScoredComparator(sort, volume24hOf, mcapOf))
       .slice(offset, offset + limit);
   }
 
