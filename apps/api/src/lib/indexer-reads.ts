@@ -59,12 +59,94 @@ import type {
  */
 
 /**
+ * Maximum number of stack-trace lines to retain on the unwrapped `cause`.
+ * Five is enough to identify the originating frame inside the Neon HTTP
+ * driver / fetch shim without bloating each log line by ~2 KB of noise.
+ */
+const CAUSE_STACK_LINES = 5;
+
+/**
+ * Best-effort shallow clone for arbitrary error sidecars (`cause` /
+ * `sourceError`). The Neon HTTP driver attaches plain-object response
+ * payloads (status, body, headers) on these fields; `JSON.parse(JSON
+ * .stringify(...))` strips functions, prototype chains, and circular refs,
+ * but it can also throw on circular structures — which would silently
+ * swallow the entire log line in production. Falling back to `String(...)`
+ * keeps the log line valid even in that pathological case. Issue #974.
+ */
+function sanitizeErrorSidecar(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object") return value;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Strip Drizzle's `Failed query: <SQL>\nparams: <values>` decoration so
+ * the message field stays grep-able. The SQL itself is already in the
+ * source (and the surrounding `event` name pinpoints the call site), so
+ * we don't need to ship 1 KB+ of inlined SQL on every log line — the
+ * underlying *cause* (Neon HTTP status / response body) is the thing we
+ * actually need to triage and that's surfaced separately under `cause`.
+ * Issue #974.
+ */
+function stripQueryBloat(message: string): string {
+  return message.split("\n", 1)[0];
+}
+
+/**
+ * Build the structured `error` payload for the JSON log line. Pulls
+ * `error.cause` / `error.code` / `error.sourceError` to the top level so
+ * Cloudflare log search can pivot on the underlying transport failure
+ * (Neon HTTP 5xx, AbortSignal, IPv6 fallback, …) instead of the useless
+ * Drizzle wrapper message. Issue #974.
+ */
+function describeError(error: unknown): unknown {
+  if (!(error instanceof Error)) return String(error);
+  const err = error as Error & {
+    cause?: unknown;
+    code?: string | number;
+    sourceError?: unknown;
+  };
+  const cause = err.cause;
+  const causeShape =
+    cause instanceof Error
+      ? {
+          name: cause.name,
+          message: cause.message,
+          stack: cause.stack
+            ?.split("\n")
+            .slice(0, CAUSE_STACK_LINES)
+            .join("\n"),
+        }
+      : sanitizeErrorSidecar(cause);
+  return {
+    name: error.name,
+    message: stripQueryBloat(error.message),
+    code: err.code,
+    cause: causeShape,
+    sourceError: sanitizeErrorSidecar(err.sourceError),
+  };
+}
+
+/**
  * Structured-logging shim for the catch blocks below. Every read in this
  * module follows the legacy `return null on error` contract so the route
  * handlers' existing 503 branches still trip — but the failure must not be
  * silent, or production 503s become unactionable. Logs the event name +
  * sanitized context as JSON so Cloudflare's tail / Logpush can pivot on
  * it. CodeRabbit feedback on PR #898.
+ *
+ * Drizzle's `neon-http` driver wraps every transport failure as
+ * `Error: Failed query: <SQL>\nparams: <values>` with the actual cause
+ * (Neon HTTP status, response body, AbortSignal, …) buried in
+ * `error.cause` / `error.sourceError`. Surfacing those fields at the top
+ * level is what makes the recurring `_failed` clusters actionable —
+ * without it every Neon transport hiccup looks identical. Issue #974.
  */
 function logIndexerReadFailure(
   event: string,
@@ -76,10 +158,7 @@ function logIndexerReadFailure(
       level: "error",
       event,
       ...context,
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message }
-          : String(error),
+      error: describeError(error),
       timestamp: new Date().toISOString(),
     }),
   );

@@ -25,12 +25,81 @@ const HEALTH_CHECK_TIMEOUT = 3000;
 const LOG_QUERY_SNIPPET_LEN = 200;
 
 /**
+ * Maximum number of stack-trace lines to retain on the unwrapped `cause`.
+ * Mirrors the same constant in `indexer-reads.ts` — five is enough to
+ * identify the originating frame without bloating the log line. Issue #974.
+ */
+const CAUSE_STACK_LINES = 5;
+
+/**
+ * Best-effort shallow clone for arbitrary error sidecars (`cause` /
+ * `sourceError`). `JSON.parse(JSON.stringify(...))` strips functions and
+ * prototype chains, but throws on circular structures — fall back to
+ * `String(...)` so the surrounding log line stays valid in that
+ * pathological case. Mirrors the same helper in `indexer-reads.ts`.
+ * Issue #974.
+ */
+function sanitizeErrorSidecar(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object") return value;
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
+}
+
+/**
+ * Build the structured `error` payload for the JSON log line. Pulls
+ * `error.cause` / `error.code` / `error.sourceError` to the top level so
+ * Cloudflare log search can pivot on the underlying failure (network
+ * timeout, AbortSignal, …) without grepping the wrapper message. Mirrors
+ * the same helper in `indexer-reads.ts` so the two log shapes stay in
+ * step. Issue #974.
+ */
+function describeError(error: unknown): unknown {
+  if (!(error instanceof Error)) {
+    return error === undefined ? undefined : String(error);
+  }
+  const err = error as Error & {
+    cause?: unknown;
+    code?: string | number;
+    sourceError?: unknown;
+  };
+  const cause = err.cause;
+  const causeShape =
+    cause instanceof Error
+      ? {
+          name: cause.name,
+          message: cause.message,
+          stack: cause.stack
+            ?.split("\n")
+            .slice(0, CAUSE_STACK_LINES)
+            .join("\n"),
+        }
+      : sanitizeErrorSidecar(cause);
+  return {
+    name: error.name,
+    message: error.message,
+    code: err.code,
+    cause: causeShape,
+    sourceError: sanitizeErrorSidecar(err.sourceError),
+  };
+}
+
+/**
  * Compact failure logger for `queryPonder`. The three swallow paths
  * (non-200 HTTP, GraphQL `errors[]`, fetch exception) are all visually
  * identical from the caller — a `null` return — so without logging there's
  * no way to tell from prod tails which one fired. Structured fields so
  * the Cloudflare log search filters by `event:"ponder_query_failed"` and
  * by `mode` to triage.
+ *
+ * The `error` payload mirrors `logIndexerReadFailure` (issue #974) — pulls
+ * `cause` / `code` / `sourceError` to the top level so transport-layer
+ * failures (network timeout, AbortSignal, IPv6 fallback) are diagnosable
+ * from one log line.
  */
 function logPonderFailure(args: {
   url: string;
@@ -64,12 +133,7 @@ function logPonderFailure(args: {
       // schema dump on validation failure). 1KB is enough to identify
       // the failure class.
       body: body?.slice(0, 1024),
-      error:
-        error instanceof Error
-          ? { name: error.name, message: error.message }
-          : error !== undefined
-            ? String(error)
-            : undefined,
+      error: describeError(error),
       timestamp: new Date().toISOString(),
     }),
   );
