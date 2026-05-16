@@ -12,6 +12,7 @@ import {
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_REFRESH_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
+  POSITIONS_TRACK_CALLBACK_CMD,
   renderPaginatedPage,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
@@ -163,66 +164,45 @@ describe("formatBotPositionsResponse", () => {
     ]);
   });
 
-  it("does not emit legacy `?start=buy_` / `?start=sell_` anchors", () => {
-    // Regression: the legacy Buy/Sell anchors bounced through Telegram's
-    // link-handler UI even inside the same bot's chat. Per-position
-    // callback buttons (see `buildPositionsPageKeyboard`) replace them
-    // for buy/sell. Only the ticker carries an anchor — the `track_`
-    // variant — added in the same iteration.
+  it("does not emit any `t.me?start=...` body anchors", () => {
+    // Regression: the legacy Buy/Sell/Track anchors all bounced through
+    // Telegram's link-handler UI even inside the same bot's chat. The
+    // /positions card is now a pure callback surface — per-position
+    // `[📊 TICKER]`, `[Buy]`, `[Sell]` buttons replace every body
+    // anchor so the user never leaves the chat bubble.
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ticker: "ALPHA",
     });
-    const pages = formatBotPositionsResponse(
-      { open: [pos], realised: [] },
-      null,
-    );
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
     const joined = pages.map((p) => p.text).join("\n");
     expect(joined).not.toContain("?start=buy_");
     expect(joined).not.toContain("?start=sell_");
     expect(joined).not.toContain("?start=track_");
     expect(joined).not.toContain("t.me/");
+    expect(joined).not.toMatch(/<a\s/i);
   });
 
-  it("renders the open-position ticker as a `?start=track_<addr>` anchor when a botUsername is given", () => {
+  it("renders the open-position ticker as plain (un-linked) escaped text", () => {
     const pos = openPos({
       token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       ticker: "ALPHA",
     });
-    const pages = formatBotPositionsResponse(
-      { open: [pos], realised: [] },
-      "CortisolTestBot",
-    );
+    const pages = formatBotPositionsResponse({ open: [pos], realised: [] });
     const joined = pages.map((p) => p.text).join("\n");
-    expect(joined).toContain(
-      `<a href="https://t.me/CortisolTestBot?start=track_${pos.token}">ALPHA</a>`,
-    );
+    expect(joined).toContain("ALPHA");
+    expect(joined).not.toMatch(/<a\s/i);
   });
 
-  it("renders the realised-position ticker as a `?start=track_<addr>` anchor when a botUsername is given", () => {
-    const pos = realisedPos({
-      token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      ticker: "BETA",
-    });
-    const pages = formatBotPositionsResponse(
-      { open: [], realised: [pos] },
-      "CortisolTestBot",
-    );
-    const joined = pages.map((p) => p.text).join("\n");
-    expect(joined).toContain(
-      `<a href="https://t.me/CortisolTestBot?start=track_${pos.token}">BETA</a>`,
-    );
-  });
-
-  it("does not link realised-position tickers when no botUsername is given", () => {
+  it("renders the realised-position ticker as plain (un-linked) escaped text", () => {
     const pos = realisedPos({
       token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       ticker: "BETA",
     });
     const pages = formatBotPositionsResponse({ open: [], realised: [pos] });
     const joined = pages.map((p) => p.text).join("\n");
-    expect(joined).not.toContain("track_");
-    expect(joined).not.toContain("t.me/");
+    expect(joined).toContain("BETA");
+    expect(joined).not.toMatch(/<a\s/i);
   });
 
   it("does not emit openActions for realised (closed) positions", () => {
@@ -421,39 +401,49 @@ describe("buildPositionsPageKeyboard", () => {
     ]);
   });
 
-  it("emits a [Buy <TICKER>] [Sell <TICKER>] row per open action", () => {
+  it("emits a [📊 <TICKER>] + [Buy <TICKER>] [Sell <TICKER>] pair per open action", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "ALPHA" },
       { token: TOKEN_B, ticker: "BETA" },
     ]);
     const rows = kb.inline_keyboard;
-    // Two action rows + refresh row + the trailing Back/Home row.
-    expect(rows).toHaveLength(4);
-    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    // Two per-position pairs (track + buy/sell = 2 rows each) + refresh
+    // row + the trailing Back/Home row = 6 rows total.
+    expect(rows).toHaveLength(6);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["📊 ALPHA"]);
     expect(rows[0]![0]!.callback_data).toBe(
+      `${POSITIONS_TRACK_CALLBACK_CMD}:${TOKEN_A}`,
+    );
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    expect(rows[1]![0]!.callback_data).toBe(
       `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
     );
-    expect(rows[0]![1]!.callback_data).toBe(
+    expect(rows[1]![1]!.callback_data).toBe(
       `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
     );
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[2]![0]!.callback_data).toBe(
+    expect(rows[2]!.map((b) => b.text)).toEqual(["📊 BETA"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
+    expect(rows[4]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[4]![0]!.callback_data).toBe(
       `${POSITIONS_REFRESH_CALLBACK_CMD}:0:${WALLET}`,
     );
-    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[5]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
     const kb = buildPositionsPageKeyboard(0, 1, WALLET, [
       { token: TOKEN_A, ticker: "SUPERCALIFRAGILISTIC" },
     ]);
-    const row = kb.inline_keyboard[0]!;
-    expect(row[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
-    expect(row[0]!.text.endsWith("…")).toBe(true);
+    const trackRow = kb.inline_keyboard[0]!;
+    const buySellRow = kb.inline_keyboard[1]!;
+    expect(trackRow[0]!.text.length).toBeLessThanOrEqual("📊 ".length + 12);
+    expect(trackRow[0]!.text.endsWith("…")).toBe(true);
+    expect(buySellRow[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
+    expect(buySellRow[0]!.text.endsWith("…")).toBe(true);
     // The full token address must still ride in callback_data verbatim
     // — the truncation is purely cosmetic on the label side.
-    expect(row[0]!.callback_data).toContain(TOKEN_A);
+    expect(trackRow[0]!.callback_data).toContain(TOKEN_A);
+    expect(buySellRow[0]!.callback_data).toContain(TOKEN_A);
   });
 
   it("page 0 of N: emits open action rows + a [Next →] nav row only", () => {
@@ -461,8 +451,9 @@ describe("buildPositionsPageKeyboard", () => {
       { token: TOKEN_A, ticker: "ALPHA" },
     ]);
     const rows = kb.inline_keyboard;
-    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
-    const nav = rows[1]!;
+    expect(rows[0]!.map((b) => b.text)).toEqual(["📊 ALPHA"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    const nav = rows[2]!;
     expect(nav.map((b) => b.text)).toEqual(["Next →"]);
     expect(nav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:1:${WALLET}`,

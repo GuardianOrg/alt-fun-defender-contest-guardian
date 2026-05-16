@@ -222,7 +222,7 @@ export const renderTrackCaption = (
   return withAntiPhishing(renderTrackBody(token, [], nowSec, 0), phrase);
 };
 
-const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
+export const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
   [
     {
       text: "Buy →",
@@ -242,7 +242,7 @@ const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
   backHomeRow(),
 ];
 
-interface TrackRender {
+export interface TrackRender {
   /** Full body for the text-only path (chart unavailable). */
   text: string;
   /** Trimmed body for the photo-caption path (≤ Telegram caption budget). */
@@ -261,6 +261,36 @@ interface TrackRender {
  * lets `renderTrackCaption` measure the same string Telegram will
  * receive when computing the 1024-char trim.
  */
+/**
+ * Variant of `buildTrack` that skips the initial `fetchToken` round trip
+ * — used by call sites that already hold a `TokenInfo` (e.g. the
+ * /positions `pt:` callback that fetches the token once to show a
+ * "Fetching <TICKER>…" loading prompt before rendering the card).
+ * Re-fetching here would just double the API hit for no information gain.
+ */
+export const buildTrackFromToken = async (
+  env: AppContext["env"],
+  token: TokenInfo,
+  phrase: string | null | undefined,
+): Promise<TrackRender> => {
+  const chartPromise: Promise<Uint8Array | null> = Promise.race([
+    buildTrackChartPng(env, token.address, token.name),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), CHART_TIMEOUT_MS)),
+  ]);
+  const [tradesResult, chartPng] = await Promise.all([
+    fetchTrades(env, token.address, TRADES_PER_CARD),
+    chartPromise,
+  ]);
+  const trades = tradesResult.ok ? tradesResult.data : [];
+  return {
+    text: withAntiPhishing(renderTrackBody(token, trades), phrase),
+    caption: renderTrackCaption(token, trades, undefined, phrase),
+    keyboard: buildTrackKeyboard(token.address),
+    chartPng,
+    tokenName: token.name,
+  };
+};
+
 const buildTrack = async (
   env: AppContext["env"],
   address: string,
@@ -286,30 +316,8 @@ const buildTrack = async (
   // text reply (CodeRabbit #731). Chart errors are swallowed inside
   // `buildTrackChartPng` for the same reason — the user always gets
   // the text card.
-  const chartPromise: Promise<Uint8Array | null> = Promise.race([
-    buildTrackChartPng(env, address, tokenResult.data.name),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), CHART_TIMEOUT_MS)),
-  ]);
-  const [tradesResult, chartPng] = await Promise.all([
-    fetchTrades(env, address, TRADES_PER_CARD),
-    chartPromise,
-  ]);
-  const trades = tradesResult.ok ? tradesResult.data : [];
-  return {
-    ok: true,
-    render: {
-      text: withAntiPhishing(renderTrackBody(tokenResult.data, trades), phrase),
-      caption: renderTrackCaption(
-        tokenResult.data,
-        trades,
-        undefined,
-        phrase,
-      ),
-      keyboard: buildTrackKeyboard(tokenResult.data.address),
-      chartPng,
-      tokenName: tokenResult.data.name,
-    },
-  };
+  const render = await buildTrackFromToken(env, tokenResult.data, phrase);
+  return { ok: true, render };
 };
 
 /**
