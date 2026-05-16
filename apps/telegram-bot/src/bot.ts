@@ -24,6 +24,7 @@ import { registerTrackCommand } from "./commands/track.js";
 import { registerWalletCommand } from "./commands/wallet.js";
 import { registerWithdrawCommand } from "./commands/withdraw.js";
 import type { Env } from "./lib/types.js";
+import type { DurableObjectState } from "@cloudflare/workers-types";
 
 /**
  * Per-user persistent settings written via `/settings` and `/wallet`.
@@ -146,6 +147,15 @@ export type AppContext = ConversationFlavor<
   Context & SessionFlavor<SessionData>
 > & {
   env: Env;
+  /**
+   * The chat's Durable Object state — present when the bot is invoked
+   * inside `ChatDO.fetch`. Used by trade handlers to persist
+   * pending-tx records and arm the DO alarm via
+   * `lib/pending-tx-poller.ts → schedulePendingTxPoll`. Optional
+   * because non-DO entry points (admin worker routes, unit tests) do
+   * not have a DO context.
+   */
+  doState?: DurableObjectState;
 };
 
 /**
@@ -168,6 +178,13 @@ export interface CreateBotOptions {
    * without monkey-patching `node-fetch` directly.
    */
   fetch?: typeof fetch;
+  /**
+   * Durable Object state for the chat the bot is running inside. Set
+   * by `ChatDO.fetch` so trade handlers can schedule pending-tx polls
+   * onto the DO's alarm queue. Unset when the bot is constructed
+   * outside a DO context (admin worker routes, tests).
+   */
+  doState?: DurableObjectState;
 }
 
 export const createBot = (
@@ -208,6 +225,7 @@ export const createBot = (
 
   bot.use(async (ctx, next) => {
     ctx.env = env;
+    ctx.doState = options.doState;
     await next();
   });
 

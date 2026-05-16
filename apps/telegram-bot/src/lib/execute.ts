@@ -33,6 +33,7 @@ import {
   type Hex,
   type IdempotencyBinding,
 } from "./trade.js";
+import { schedulePendingTxPoll } from "./pending-tx-poller.js";
 import { WalletManager } from "./wallet.js";
 
 /** How long a staged trade intent stays valid before the Confirm becomes a no-op. */
@@ -166,6 +167,14 @@ export type ConfirmOutcome =
       ticker: string;
       side: "buy" | "sell";
       token: string;
+      /**
+       * KV commit-log key minted for this Confirm (`intentKey(userId,
+       * nonce)`). Carried out of `confirmTrade` so the pending-tx
+       * alarm can `markFinal` the same slot once the receipt lands
+       * out-of-band — without it a retry that arrives after the
+       * background poll settles wouldn't see the recorded outcome.
+       */
+      idempotencyKey?: string;
     };
 
 export const confirmTrade = async (
@@ -250,6 +259,7 @@ export const confirmTrade = async (
     ticker: intent.ticker,
     side: intent.side,
     token: intent.token,
+    idempotencyKey: idempotency.key,
   };
 };
 
@@ -521,6 +531,40 @@ export const runWithTxStatusUpdates = async (
       outcome.result.ok
     ) {
       await sendStartPromptAfterTrade(args.ctx, args.target.chatId);
+    }
+    // Pending tx — the user-facing bubble is now showing "⏳ Tx pending"
+    // with an explorer link, but the receipt may still mine after our
+    // in-band wait timed out. Hand the tx off to the chat's DO alarm
+    // queue so `processPendingTxAlarm` re-polls every few seconds and
+    // edits the same bubble in place when the chain settles the tx.
+    // Skipped when we have no DO state (admin entrypoints, tests
+    // without a DO) — the bubble just stays at "pending" and the user
+    // can check the explorer manually, matching the pre-poll behaviour.
+    if (
+      outcome.kind === "executed" &&
+      !outcome.result.ok &&
+      outcome.result.kind === "pending" &&
+      args.ctx.doState
+    ) {
+      try {
+        await schedulePendingTxPoll(
+          { storage: args.ctx.doState.storage },
+          {
+            txHash: outcome.result.txHash,
+            chatId: args.target.chatId,
+            messageId: args.target.messageId,
+            side: outcome.side,
+            ticker: outcome.ticker,
+            token: outcome.token,
+            quotedOut: (outcome.result.quotedOut ?? 0n).toString(),
+            minOut: (outcome.result.minOut ?? 0n).toString(),
+            startedAt: Date.now(),
+            idempotencyKey: outcome.idempotencyKey,
+          },
+        );
+      } catch (err) {
+        logger.warn("schedule pendingTx poll failed", { err });
+      }
     }
     return outcome;
   }

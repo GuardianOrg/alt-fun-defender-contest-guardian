@@ -799,10 +799,13 @@ describe("renderExecutionError with on-chain revert", () => {
 
   it("renders a neutral pending message with explorer link when receipt times out", () => {
     // `pending` is the receipt-timeout case: tx is in mempool, may still
-    // mine. Copy must read as "pending — check explorer", not as a
-    // failure. The caller in execute.ts is responsible for the ⏳ prefix
-    // (see `renderConfirmReply`) — renderExecutionError just owns the
-    // body copy.
+    // mine. Copy must read as "pending — still polling, here is the
+    // explorer link", not as a failure. The caller in execute.ts is
+    // responsible for the ⏳ prefix (see `renderConfirmReply`) —
+    // renderExecutionError just owns the body copy. The "still
+    // polling" line reflects the background-poll handoff in
+    // `lib/pending-tx-poller.ts`: the bubble updates in place once
+    // the chain settles the tx.
     const reply = renderExecutionError({
       ok: false,
       kind: "pending",
@@ -811,7 +814,8 @@ describe("renderExecutionError with on-chain revert", () => {
         "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
     });
     expect(reply).toMatch(/pending/i);
-    expect(reply).toMatch(/check the explorer/i);
+    expect(reply).toMatch(/still polling/i);
+    expect(reply).toMatch(/explorer/i);
     // Must not read as a failure — no "failed" / "reverted" / "❌" copy.
     expect(reply).not.toMatch(/failed|reverted|❌/i);
     expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");

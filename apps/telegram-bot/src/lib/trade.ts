@@ -563,9 +563,19 @@ export type ExecutionResult =
    * the UI must render a neutral "pending, check explorer" message
    * rather than ❌. `txHash` is required: receipt-timeout is only
    * reachable after `sendTransaction` returned, so the invariant is
-   * encoded in the type.
+   * encoded in the type. `quotedOut` / `minOut` are carried through
+   * from the original simulation so the background pending-tx poller
+   * (`lib/pending-tx-poller.ts`) can reconstruct the success-arm
+   * `ExecutionResult` when the receipt finally lands.
    */
-  | { ok: false; kind: "pending"; reason?: string; txHash: Hash }
+  | {
+      ok: false;
+      kind: "pending";
+      reason?: string;
+      txHash: Hash;
+      quotedOut?: bigint;
+      minOut?: bigint;
+    }
   | {
       ok: false;
       kind:
@@ -642,7 +652,7 @@ const ensureAllowance = async (
  * read the first matching log; the router emits exactly one
  * `BotRouterTrade` per trade.
  */
-const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
+export const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
   for (const log of logs) {
     try {
       const decoded = decodeEventLog({
@@ -669,7 +679,7 @@ const extractBuyTokensOut = (logs: readonly Log[]): bigint | undefined => {
  * returns undefined when the event isn't present or decoding fails so
  * callers can fall back to the simulation quote.
  */
-const extractSellUsdcOut = (logs: readonly Log[]): bigint | undefined => {
+export const extractSellUsdcOut = (logs: readonly Log[]): bigint | undefined => {
   for (const log of logs) {
     try {
       const decoded = decodeEventLog({
@@ -761,6 +771,8 @@ export const awaitReceipt = async (
         kind: "pending",
         reason: err.message,
         txHash,
+        quotedOut: successOut.quotedOut,
+        minOut: successOut.minOut,
       };
     }
     return {
@@ -846,7 +858,7 @@ const permitDeadline = (): bigint =>
  * commit-log. `bigint`s are stringified so the record round-trips through
  * `JSON.stringify` — `JSON.parse` cannot rehydrate them on its own.
  */
-const toIntentResult = (result: ExecutionResult): IntentResult => {
+export const toIntentResult = (result: ExecutionResult): IntentResult => {
   if (result.ok) {
     return {
       ok: true,
@@ -1313,7 +1325,8 @@ export const renderExecutionError = (
   if (result.kind === "pending") {
     return (
       `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
-      `Check the explorer: ${explorerTxUrl(result.txHash)}`
+      `Still polling in the background; this message updates once mined. ` +
+      `Explorer: ${explorerTxUrl(result.txHash)}`
     );
   }
   if (result.kind === "unavailable") {

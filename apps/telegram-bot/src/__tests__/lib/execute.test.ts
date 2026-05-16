@@ -1210,6 +1210,85 @@ describe("runWithTxStatusUpdates", () => {
     expect(edits[0]!.text).toContain("Tx sending");
     expect(edits[1]!.text).toMatch(/Transaction failed/);
   });
+
+  it("schedules a background pending-tx poll when the receipt times out and a DO state is bound", async () => {
+    // Pending outcome = tx in mempool, in-band receipt-wait timed out.
+    // When the bot is running inside ChatDO the alarm queue takes
+    // over from here — assert the storage write + alarm arm happen
+    // so the alarm path keeps polling until the chain settles.
+    const { ctx } = buildStatusCtx();
+    const storage: {
+      puts: Array<[string, unknown]>;
+      alarm: number | null;
+    } = { puts: [], alarm: null };
+    (ctx as unknown as { doState: unknown }).doState = {
+      storage: {
+        put: async (k: string, v: unknown) => {
+          storage.puts.push([k, v]);
+        },
+        getAlarm: async () => storage.alarm,
+        setAlarm: async (when: number) => {
+          storage.alarm = when;
+        },
+      },
+    };
+    await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        idempotencyKey: "txintent:1:abc",
+        result: {
+          ok: false,
+          kind: "pending",
+          reason: "WaitForTransactionReceiptTimeoutError",
+          txHash:
+            "0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface",
+          quotedOut: 10n,
+          minOut: 9n,
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(storage.puts).toHaveLength(1);
+    expect(storage.puts[0]![0]).toMatch(/^pendingTx:0xfeedface/);
+    expect(storage.alarm).not.toBeNull();
+  });
+
+  it("skips background scheduling when no DO state is bound (admin / test entrypoints)", async () => {
+    // Without `ctx.doState` there is no alarm queue to hand the tx
+    // off to — the bubble stays at "⏳ Tx pending" and the user must
+    // check the explorer themselves. Just verify the helper does not
+    // throw and does not mutate any storage.
+    const { ctx } = buildStatusCtx();
+    expect((ctx as unknown as { doState?: unknown }).doState).toBeUndefined();
+    const outcome = await runWithTxStatusUpdates({
+      ctx,
+      target: { api: ctx.api, chatId: 5, messageId: 99 },
+      side: "buy",
+      description: "Buying $20.00 USDC of TICK",
+      run: async () => ({
+        kind: "executed",
+        token: TOKEN,
+        side: "buy",
+        ticker: "TICK",
+        result: {
+          ok: false,
+          kind: "pending",
+          reason: "WaitForTransactionReceiptTimeoutError",
+          txHash:
+            "0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface",
+        },
+      }),
+      pendingDelayMs: 60_000,
+    });
+    expect(outcome.kind).toBe("executed");
+  });
 });
 
 describe("runWithTxStatusUpdates post-trade /start prompt", () => {
