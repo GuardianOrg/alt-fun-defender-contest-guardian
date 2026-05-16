@@ -375,11 +375,7 @@ export async function fetchHistoricalCurveSnapshots(
   tokenAddresses: string[],
   cutoffSec: number,
 ): Promise<Map<string, PonderTokenSnapshot | null> | null> {
-  return readHistoricalCurveSnapshots(
-    createDb(databaseUrl),
-    tokenAddresses,
-    cutoffSec,
-  );
+  return readHistoricalCurveSnapshots(databaseUrl, tokenAddresses, cutoffSec);
 }
 
 /**

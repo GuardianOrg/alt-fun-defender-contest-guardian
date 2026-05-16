@@ -1,3 +1,4 @@
+import { neon } from "@neondatabase/serverless";
 import {
   and,
   asc,
@@ -260,7 +261,7 @@ export async function fetchNonGraduatedTokensOnchain(
  * sub-query per token (capped at 50 per batch, sequential across batches).
  */
 export async function fetchHistoricalCurveSnapshots(
-  db: Database,
+  databaseUrl: string,
   tokenAddresses: string[],
   cutoffSec: number,
 ): Promise<Map<string, { curveSupply: string; ltReserve: string; timestamp: string } | null> | null> {
@@ -275,24 +276,28 @@ export async function fetchHistoricalCurveSnapshots(
   if (tokenAddresses.length === 0) return result;
 
   const lowered = tokenAddresses.map((a) => a.toLowerCase());
+  // Use the **raw** `neon()` SQL tag, not drizzle's `db.execute(sql`...`)`:
+  // `drizzle-orm/neon-http` binds a JS array as a single scalar parameter
+  // and Postgres then rejects the `::text[]` cast with
+  // `22P02 malformed array literal: "0x..."`, so the catch below swallows
+  // the failure and every old-token `change24h` falls null with
+  // `dataSource: degraded`. The raw neon tag serialises the array as a
+  // proper PG array literal (`{a,b,c}`) and the same query plans
+  // identically. Sibling historical fetches in `market-data.ts`
+  // (`fetchHistoricalLtRates`, `fetchLtRatesAtLaunches`) already use the
+  // raw tag for the same reason — keep this one consistent.
+  //
+  // `id DESC` is the same `(timestamp, id)` tiebreak `fetchTokenChartSnapshots`
+  // and `fetchRouterTrades` already pin — `tokenSnapshot.timestamp` is
+  // `block.timestamp` at second resolution and ties on multi-trade blocks
+  // (and on a curve `Bonding.Trade` + post-grad `HyperSwapPair.Sync` in the
+  // same block). Without it, `DISTINCT ON (token_address)` picks an
+  // arbitrary tied row at the 24h cutoff and `change24h` wobbles across
+  // requests. Lock the secondary sort to the indexer's primary key
+  // (`${txHash}-${logIndex}`) so the historical reference is deterministic.
+  const sqlClient = neon(databaseUrl);
   try {
-    // `drizzle-orm/neon-http`'s `db.execute(sql`...`)` resolves to a
-    // `NeonHttpQueryResult` object (`{ rows, rowCount, command, ... }`) —
-    // NOT the rows array directly. We have to pluck `.rows`. The raw
-    // `neon()` SQL tag used elsewhere in this codebase (BounceTech reads
-    // in `market-data.ts`) does return the array directly, so the two
-    // patterns aren't symmetric. Discovered by the smoke test on the
-    // sibling `fetchPortfolioPositions` after the original cast hid the
-    // shape mismatch at type-check time.
-    // `id DESC` is the same `(timestamp, id)` tiebreak `fetchTokenChartSnapshots`
-    // and `fetchRouterTrades` already pin — `tokenSnapshot.timestamp` is
-    // `block.timestamp` at second resolution and ties on multi-trade blocks
-    // (and on a curve `Bonding.Trade` + post-grad `HyperSwapPair.Sync` in the
-    // same block). Without it, `DISTINCT ON (token_address)` picks an
-    // arbitrary tied row at the 24h cutoff and `change24h` wobbles across
-    // requests. Lock the secondary sort to the indexer's primary key
-    // (`${txHash}-${logIndex}`) so the historical reference is deterministic.
-    const queryResult = await db.execute(sql`
+    const rows = (await sqlClient`
       SELECT DISTINCT ON (token_address)
         token_address,
         curve_supply::text AS curve_supply,
@@ -302,8 +307,7 @@ export async function fetchHistoricalCurveSnapshots(
       WHERE token_address = ANY(${lowered}::text[])
         AND timestamp <= ${cutoffSec}::numeric
       ORDER BY token_address, timestamp DESC, id DESC
-    `);
-    const rows = queryResult.rows as unknown as Array<{
+    `) as unknown as Array<{
       token_address: string;
       curve_supply: string;
       lt_reserve: string;
