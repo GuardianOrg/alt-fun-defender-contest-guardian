@@ -456,15 +456,15 @@ describe("GET /chart/:address", () => {
 
     expect(res.status).toBe(200);
 
-    // Default candle width is 60s, MAX_HISTORY_CANDLES is 1500 →
-    // fromSec ≈ nowSec - 90000. Allow a ±100s tolerance for the wall
+    // Default candle width is 60s, MAX_HISTORY_CANDLES is 500 →
+    // fromSec ≈ nowSec - 30000. Allow a ±100s tolerance for the wall
     // clock advancing during the request.
     expect(mockFetchTokenChartSnapshots).toHaveBeenCalledTimes(1);
     const args = mockFetchTokenChartSnapshots.mock.calls[0];
     expect(args[1]).toBe(VALID_ADDRESS.toLowerCase());
     const fromSec = args[2] as number;
-    expect(fromSec).toBeGreaterThanOrEqual(nowSec - 90_100);
-    expect(fromSec).toBeLessThanOrEqual(nowSec - 89_900);
+    expect(fromSec).toBeGreaterThanOrEqual(nowSec - 30_100);
+    expect(fromSec).toBeLessThanOrEqual(nowSec - 29_900);
   });
 
   it("tolerates legitimately empty snapshot window (token launched inside window, no trades)", async () => {
