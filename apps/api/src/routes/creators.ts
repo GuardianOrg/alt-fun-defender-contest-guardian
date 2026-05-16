@@ -8,6 +8,7 @@ import formatError from "../utils/format-error.js";
 import formatSuccess from "../utils/format-success.js";
 import { createPonderQuery } from "../lib/ponder-client.js";
 import { fetchCreatorEarnings } from "../lib/indexer-reads.js";
+import { usdcRawToUsd } from "../lib/token-enrich.js";
 
 import type { AppBindings } from "../lib/types.js";
 
@@ -19,36 +20,6 @@ interface PonderTokenVolume {
 }
 
 const VOLUME_QUERY_PAGE_SIZE = 1000;
-
-/**
- * USDC has 6 decimals on-chain. Mirrors `USDC_DECIMALS` in
- * `apps/web/src/contracts/addresses.ts` — the value is fixed and shared
- * across every USDC consumer in the codebase, but inlining the constant
- * here keeps the route self-contained and avoids cross-package imports
- * for a single literal.
- */
-const USDC_DECIMALS = 6n;
-const USDC_DENOMINATOR = 10n ** USDC_DECIMALS;
-
-/**
- * Convert a 6dp USDC raw bigint string (as stored on the indexer) to a
- * floating-point USD value for the API response. Lossy at >2^53 dollars
- * — well outside any realistic creator-earnings range — and matches the
- * existing per-token `creatorFeesUsd` / `protocolFeesUsd` shape on
- * `ApiToken` so the rewards UI can format both the per-token row totals
- * and the aggregate header with the same `formatUsd` helper.
- */
-function rawUsdcToUsd(raw: string): number {
-  const big = BigInt(raw);
-  // Split at the decimal boundary so the precision loss is bounded to
-  // the fractional part, not the entire number — `1234567.50` should
-  // serialise as `1.234567` for the dollars and `.5` for the cents,
-  // not as a single `BigInt → Number` cast that loses the cents at
-  // ~`$9_007_199`.
-  const dollars = Number(big / USDC_DENOMINATOR);
-  const cents = Number(big % USDC_DENOMINATOR) / Number(USDC_DENOMINATOR);
-  return dollars + cents;
-}
 
 /**
  * Per-creator pooled earnings totals. Reads the precomputed
@@ -118,14 +89,18 @@ creators.get("/:address/earnings", async (c) => {
   // the read path rather than at write time.
   const claimableRaw = earnedRaw > claimedRaw ? earnedRaw - claimedRaw : 0n;
 
+  // `usdcRawToUsd` returns `number | null` so callers can distinguish
+  // "indexer didn't report a value" from "value was 0". Here every
+  // input is a defined raw string we just built, so the null branch is
+  // unreachable — `?? 0` exists only to discharge the type union.
   return c.json(
     formatSuccess({
       lifetimeEarnedUsdcRaw: earnedRaw.toString(),
       lifetimeClaimedUsdcRaw: claimedRaw.toString(),
       claimableUsdcRaw: claimableRaw.toString(),
-      lifetimeEarnedUsd: rawUsdcToUsd(result.lifetimeEarnedUsdcRaw),
-      lifetimeClaimedUsd: rawUsdcToUsd(result.lifetimeClaimedUsdcRaw),
-      claimableUsd: rawUsdcToUsd(claimableRaw.toString()),
+      lifetimeEarnedUsd: usdcRawToUsd(result.lifetimeEarnedUsdcRaw) ?? 0,
+      lifetimeClaimedUsd: usdcRawToUsd(result.lifetimeClaimedUsdcRaw) ?? 0,
+      claimableUsd: usdcRawToUsd(claimableRaw.toString()) ?? 0,
     }),
   );
 });

@@ -56,6 +56,14 @@ ponder.on("FeeVault:FeeAccrued", async ({ event, context }) => {
         existingEarnings.lifetimeEarnedUsdc + event.args.creatorAmount,
     });
   } else {
+    // `onConflictDoNothing` rather than absolute-value `onConflictDoUpdate`:
+    // the find-then-update path above is the only correct accumulation
+    // path; the conflict fallback is unreachable under Ponder's
+    // single-threaded event-loop, and `DoUpdate` with absolute values would
+    // overwrite an already-accumulated row with a single event's worth of
+    // earnings if the impossible race ever fired. Mirrors the
+    // `tokenHourlyMetrics` upsert in `bonding.ts` (CodeRabbit feedback on
+    // PR #867).
     await db
       .insert(creatorEarnings)
       .values({
@@ -63,7 +71,7 @@ ponder.on("FeeVault:FeeAccrued", async ({ event, context }) => {
         lifetimeEarnedUsdc: event.args.creatorAmount,
         lifetimeClaimedUsdc: 0n,
       })
-      .onConflictDoUpdate({ lifetimeEarnedUsdc: event.args.creatorAmount });
+      .onConflictDoNothing();
   }
 });
 
@@ -100,6 +108,8 @@ ponder.on("FeeVault:CreatorFeesClaimed", async ({ event, context }) => {
         existingEarnings.lifetimeClaimedUsdc + event.args.amount,
     });
   } else {
+    // See accumulator-upsert comment in the FeeAccrued handler above —
+    // `onConflictDoNothing` is the correct fallback for a running counter.
     await db
       .insert(creatorEarnings)
       .values({
@@ -107,7 +117,7 @@ ponder.on("FeeVault:CreatorFeesClaimed", async ({ event, context }) => {
         lifetimeEarnedUsdc: 0n,
         lifetimeClaimedUsdc: event.args.amount,
       })
-      .onConflictDoUpdate({ lifetimeClaimedUsdc: event.args.amount });
+      .onConflictDoNothing();
   }
 });
 

@@ -141,6 +141,10 @@ describe("FeeVault:FeeAccrued", () => {
       lifetimeEarnedUsdc: 250_000n,
       lifetimeClaimedUsdc: 0n,
     });
+    // Conflict fallback must be `doNothing`, not absolute-value `doUpdate` —
+    // a `DoUpdate` here would clobber an already-accumulated row with this
+    // single event's worth of earnings if the impossible race ever fired.
+    expect(earningsInsert!.conflict).toBe("doNothing");
     // No update should run on the seeding path — the row was just inserted.
     expect(
       db._updateCalls.find((c) => c.table === creatorEarnings),
@@ -274,6 +278,8 @@ describe("FeeVault:CreatorFeesClaimed", () => {
       lifetimeEarnedUsdc: 0n,
       lifetimeClaimedUsdc: 1_000_000n,
     });
+    // See accumulator-upsert lock-in on the FeeAccrued seed test.
+    expect(earningsInsert!.conflict).toBe("doNothing");
   });
 });
 
