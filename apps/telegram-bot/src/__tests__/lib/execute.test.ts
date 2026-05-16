@@ -289,12 +289,11 @@ describe("renderConfirmReply", () => {
     expect(reply).not.toContain("Alt Fun fee 0.75%");
   });
 
-  it("shows the token address and a clickable ticker linking to the alt.fun tracking page", () => {
-    // The confirmed receipt must expose the contract address (for
-    // copy-paste) and make the ticker a tap target that opens the
-    // canonical tracking page. The receipt bubble itself is preserved
-    // by the caller (see runWithTxStatusUpdates) so the user does not
-    // lose this link when the bot drops the follow-up start prompt.
+  it("shows the token contract address on its own line under the received amount", () => {
+    // The confirmed receipt exposes the bare contract address (for
+    // copy-paste) directly under the Received line. The standalone
+    // "Token:" footer was removed — the address row alone is enough
+    // to identify the trade.
     const reply = renderConfirmReply({
       kind: "executed",
       token: TOKEN,
@@ -308,11 +307,12 @@ describe("renderConfirmReply", () => {
         minOut: 1n,
       },
     });
-    expect(reply).toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
     expect(reply).toContain(`<code>${TOKEN}</code>`);
+    expect(reply).not.toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
+    expect(reply).not.toMatch(/^Token:/m);
   });
 
-  it("renders the same token + tracking-link footer on a sell receipt", () => {
+  it("renders the same contract-address row on a sell receipt", () => {
     const reply = renderConfirmReply({
       kind: "executed",
       token: TOKEN,
@@ -326,8 +326,33 @@ describe("renderConfirmReply", () => {
         minOut: 1n,
       },
     });
-    expect(reply).toContain(`<a href="https://alt.fun/token/${TOKEN}">TEST</a>`);
     expect(reply).toContain(`<code>${TOKEN}</code>`);
+    expect(reply).not.toMatch(/^Token:/m);
+  });
+
+  it("formats the receipt as Received / address / blank / Tx label / tx hash (no trailing Token row)", () => {
+    const reply = renderConfirmReply({
+      kind: "executed",
+      token: TOKEN,
+      side: "buy",
+      ticker: "TEST",
+      result: {
+        ok: true,
+        txHash:
+          "0xdeadbeef000000000000000000000000000000000000000000000000000000ab",
+        quotedOut: 1_200n * 10n ** 18n,
+        minOut: 1_100n * 10n ** 18n,
+        actualTokensOut: 1_234_500_000_000_000_000_000n,
+      },
+    });
+    const expected =
+      `✅ <b>Buy confirmed for TEST</b>\n\n` +
+      `Received: 1,234.5000 TEST\n` +
+      `<code>${TOKEN}</code>\n` +
+      `\n` +
+      `Tx:\n` +
+      `<a href="https://hyperevmscan.io/tx/0xdeadbeef000000000000000000000000000000000000000000000000000000ab">0xdeadbeef000000000000000000000000000000000000000000000000000000ab</a>`;
+    expect(reply).toBe(expected);
   });
 
   it("includes the on-chain tokens received on a buy when actualTokensOut is set (issue #802)", () => {
