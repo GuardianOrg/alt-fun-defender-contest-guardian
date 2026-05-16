@@ -263,7 +263,36 @@ export const tokenSnapshot = onchainTable("token_snapshot", (t) => ({
   blockNumber: t.bigint().notNull(),
   timestamp: t.bigint().notNull(),
 }), (table) => ({
+  // `(token_address asc, timestamp desc, id desc)` matches the
+  // `fetchHistoricalCurveSnapshots` query verbatim:
+  //
+  //   SELECT DISTINCT ON (token_address) ...
+  //   FROM ponder_views.token_snapshot
+  //   WHERE token_address = ANY($1::text[]) AND timestamp <= $2::numeric
+  //   ORDER BY token_address, timestamp DESC, id DESC
+  //
+  // Without a directionally-matching composite the planner falls back
+  // to per-key index seeks on `(token_address, timestamp)` followed by
+  // an external sort to enforce the `timestamp DESC, id DESC` tiebreak
+  // — pg_stat_statements measured ~1 s per call × ~77 calls/s in
+  // production (incident on 2026-05-16, PR #988 originally tripped
+  // it). The composite lets the DISTINCT ON resolve as a tight index
+  // scan per `token_address` slice with no sort step. Mirrors the
+  // same fix pattern as `routerTrade.tokenTimestampIdx`.
+  //
+  // The existing `(token_address, timestamp)` ascending index is kept
+  // because `fetchTokenChartSnapshots`'s in-window scan reads
+  // `timestamp ASC, id ASC` for a fixed token — Postgres can serve
+  // that by reverse-scanning the new descending index, but the
+  // forward scan on the legacy index is cheaper for the per-token
+  // chart hot path where N rows are small and we never want a
+  // backward scan.
   tokenTsIdx: index().on(table.tokenAddress, table.timestamp),
+  tokenTsDescIdIdx: index().on(
+    table.tokenAddress,
+    table.timestamp.desc(),
+    table.id.desc(),
+  ),
 }));
 
 /**
