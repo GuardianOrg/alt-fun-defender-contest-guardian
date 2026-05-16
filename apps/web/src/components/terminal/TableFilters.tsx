@@ -9,15 +9,19 @@ import { LEVERAGE_OPTIONS, UNDERLYING_ASSETS } from "../../config/constants";
 import { useLiveUnderlyings } from "../../hooks/useAssets";
 import {
   clearTokenFilters,
+  selectActiveFilter,
   selectTokenFilters,
+  selectTokenSort,
   setTokenDirectionFilter,
   setTokenLeverageFilter,
+  setTokenSort,
   setTokenUnderlyingFilter,
 } from "../../state/uiSlice";
 import { cn } from "../../utils/format";
 import AssetIcon from "../shared/AssetIcon";
 
 import type { UnderlyingAsset, Leverage } from "../../config/constants";
+import type { TokenSort } from "../../services/tokenService";
 import type { Direction } from "../../services/types";
 
 /**
@@ -27,7 +31,7 @@ import type { Direction } from "../../services/types";
  * open-popover is transient UI: nothing else in the app cares which one is
  * showing, and there's no value in keeping it across remounts.
  */
-type OpenPopover = null | "market" | "leverage" | "direction";
+type OpenPopover = null | "sort" | "market" | "leverage" | "direction";
 
 const ChevronIcon = ({ open }: { open: boolean }) => (
   <svg
@@ -258,22 +262,32 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
 }
 
 /**
- * Three-trigger filter rail rendered on the right side of the home-page
- * `CommandBar`. Replaces the old "X tokens live" counter — counting all
- * launched tokens stopped scaling visually once the catalogue grew, and
- * the space reads more useful as a discovery affordance than as a
- * vanity metric.
+ * Filter rail rendered on the right side of the home-page `CommandBar`.
+ * Replaces the old "X tokens live" counter — counting all launched
+ * tokens stopped scaling visually once the catalogue grew, and the
+ * space reads more useful as a discovery affordance than as a vanity
+ * metric.
  *
  * Each trigger anchors a small popover with a single-select option list:
+ *   - Sort (TRENDING + GRADUATED only): re-ranks the cohort by one of
+ *     three keys. Option copy is ALL CAPS to match the table-head
+ *     column names (`MCAP`, `24H CHANGE`, etc.). The first option
+ *     uses the tab's natural ordering — `24H VOLUME` on TRENDING,
+ *     `RECENTLY GRADUATED` on GRADUATED. The other two (`MCAP` /
+ *     `24H CHANGE`) map to `sort=mcap` / `sort=change24h` on the
+ *     API. The trigger is hidden on NEW + GRADUATING — those tabs
+ *     have a fixed natural ordering (`createdAt desc` / `curveFilled
+ *     desc`) and any override would fight the tab's own semantics.
  *   - Market: every supported underlying (HYPE, ETH, BTC, GOLD, …), with
  *     LT-live filtering so retired BounceTech markets don't show up.
  *   - Leverage: 2× / 3× / 5×.
  *   - Direction: Long / Short.
  *
- * "All" at the top of each list clears that facet. Selecting any other
- * row updates Redux and the home-page `useInfiniteTokens` query refetches
- * server-side (the API supports `?underlying=` / `?leverage=` /
- * `?direction=` directly — see `apps/api/src/routes/tokens/list.ts`).
+ * "All" at the top of each facet list clears that facet. Selecting any
+ * other row updates Redux and the home-page `useInfiniteTokens` query
+ * refetches server-side (the API supports `?sort=` / `?underlying=` /
+ * `?leverage=` / `?direction=` directly — see
+ * `apps/api/src/routes/tokens/list.ts`).
  *
  * Below `1240px` the rail wraps onto its own row directly under the
  * lifecycle tabs (see the matching media queries in
@@ -284,14 +298,56 @@ function OptionRow({ selected, onClick, children }: OptionRowProps) {
  * with horizontal overflow scroll on each so the affordances never
  * disappear entirely on phone-width viewports.
  */
+/**
+ * Label shown for the `"default"` sort row + trigger value, varying by
+ * active tab. On TRENDING the default sort is 24h volume desc; on
+ * GRADUATED it's the indexer's `graduatedAt desc`. The two surfaces
+ * are different enough that calling them the same name ("Trending" on
+ * graduated tokens reads strangely; "Recently graduated" on the
+ * trending tab is nonsense) so we render tab-appropriate copy and let
+ * Redux store the abstract `"default"` value.
+ *
+ * Labels render in ALL CAPS to match the table-head naming convention
+ * (`MCAP`, `24H CHANGE`, etc. in `TokenTable.tsx`) — the dropdown is
+ * intentionally a column-style affordance, distinct from the
+ * sentence-case option rows in Market / Leverage / Direction (which
+ * surface free-form values like `HYPE` / `Long`, not column names).
+ */
+function defaultSortLabel(activeFilter: ReturnType<typeof selectActiveFilter>): string {
+  return activeFilter === "graduated" ? "RECENTLY GRADUATED" : "24H VOLUME";
+}
+
+/**
+ * Trigger / option label for an explicit `TokenSort` value. Same copy
+ * on every tab — only the `"default"` slot is tab-aware (see
+ * `defaultSortLabel`). ALL CAPS for the same column-head consistency
+ * reason as `defaultSortLabel`.
+ */
+function explicitSortLabel(sort: Exclude<TokenSort, "default">): string {
+  if (sort === "mcap") return "MCAP";
+  return "24H CHANGE";
+}
+
 export default function TableFilters() {
   const dispatch = useDispatch();
   const filters = useSelector(selectTokenFilters);
+  const activeFilter = useSelector(selectActiveFilter);
+  const tokenSort = useSelector(selectTokenSort);
   const [open, setOpen] = useState<OpenPopover>(null);
 
+  const sortRef = useRef<HTMLDivElement | null>(null);
   const marketRef = useRef<HTMLDivElement | null>(null);
   const leverageRef = useRef<HTMLDivElement | null>(null);
   const directionRef = useRef<HTMLDivElement | null>(null);
+
+  // Sort dropdown is only meaningful on TRENDING + GRADUATED — the
+  // other two tabs (NEW / GRADUATING) have a fixed natural ordering
+  // (`createdAt desc` / `curveFilled desc`) that the API enforces and
+  // any "Mcap"-style override would fight against. Don't render the
+  // trigger at all there; the user shouldn't see a control that
+  // pretends to be available.
+  const showSortTrigger =
+    activeFilter === "trending" || activeFilter === "graduated";
 
   // Match the live-LT filter applied to the create flow + token list
   // (issue #621). Underlyings BounceTech hasn't surfaced on their UI
@@ -334,9 +390,59 @@ export default function TableFilters() {
     dispatch(setTokenDirectionFilter(next));
     closeAll();
   };
+  const handleSelectSort = (next: TokenSort) => {
+    dispatch(setTokenSort(next));
+    closeAll();
+  };
+
+  const sortTriggerLabel =
+    tokenSort === "default"
+      ? defaultSortLabel(activeFilter)
+      : explicitSortLabel(tokenSort);
 
   return (
     <div className={styles.rail} role="group" aria-label="Filter tokens">
+      {showSortTrigger && (
+        <div className={styles.triggerWrap} ref={sortRef}>
+          <FilterTrigger
+            label="Sort"
+            value={sortTriggerLabel}
+            // The "default" sort is the natural tab ordering — render
+            // the trigger in the neutral state (matches every other
+            // filter's "All …" affordance). Only the three explicit
+            // overrides light the trigger up in mint.
+            active={tokenSort !== "default"}
+            open={open === "sort"}
+            onClick={() => toggle("sort")}
+          />
+          {open === "sort" && (
+            <FilterPopover anchorRef={sortRef} onClose={closeAll}>
+              <div className={styles.popoverHeader}>Sort by</div>
+              <div className={styles.optionList}>
+                <OptionRow
+                  selected={tokenSort === "default"}
+                  onClick={() => handleSelectSort("default")}
+                >
+                  <span>{defaultSortLabel(activeFilter)}</span>
+                </OptionRow>
+                <OptionRow
+                  selected={tokenSort === "mcap"}
+                  onClick={() => handleSelectSort("mcap")}
+                >
+                  <span>{explicitSortLabel("mcap")}</span>
+                </OptionRow>
+                <OptionRow
+                  selected={tokenSort === "change24h"}
+                  onClick={() => handleSelectSort("change24h")}
+                >
+                  <span>{explicitSortLabel("change24h")}</span>
+                </OptionRow>
+              </div>
+            </FilterPopover>
+          )}
+        </div>
+      )}
+
       <div className={styles.triggerWrap} ref={marketRef}>
         <FilterTrigger
           label="Market"

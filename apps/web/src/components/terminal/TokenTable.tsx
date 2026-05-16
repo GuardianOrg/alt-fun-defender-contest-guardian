@@ -13,6 +13,7 @@ import {
   clearTokenFilters,
   selectActiveFilter,
   selectTokenFilters,
+  selectTokenSort,
 } from "../../state/uiSlice";
 
 import type { Token, TokenFilter } from "../../services/types";
@@ -65,12 +66,13 @@ export default function TokenTable() {
   const dispatch = useDispatch();
   const activeFilter = useSelector(selectActiveFilter);
   const tableFilters = useSelector(selectTokenFilters);
+  const tokenSort = useSelector(selectTokenSort);
   const hasActiveTableFilters =
     tableFilters.underlying !== undefined ||
     tableFilters.leverage !== undefined ||
     tableFilters.direction !== undefined;
   const { tokens, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
-    useInfiniteTokens(activeFilter, tableFilters);
+    useInfiniteTokens(activeFilter, tableFilters, tokenSort);
   // Keep the row-level mcap / 24h change / progress bar live as trades
   // land on-chain — throttled invalidation of the catalogue +
   // market-data queries off the global `trade` WS channel. See issue

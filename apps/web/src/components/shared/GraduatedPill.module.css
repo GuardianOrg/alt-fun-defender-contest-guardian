@@ -32,7 +32,7 @@
   background: var(--amber-bg);
   border: 1px solid rgba(240, 180, 41, 0.5);
   border-radius: 3px;
-  padding: 0.2rem 0.4rem;
+  padding: 0.2rem 0.4rem 0.1rem;
   line-height: 1;
   white-space: nowrap;
   flex-shrink: 0;

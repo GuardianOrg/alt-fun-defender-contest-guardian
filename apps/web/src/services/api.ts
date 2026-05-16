@@ -133,7 +133,9 @@ export type TokenListSort =
   | "createdAt"
   | "leverage"
   | "name"
-  | "trending";
+  | "trending"
+  | "mcap"
+  | "change24h";
 
 export type TokenListStatus = "curve" | "graduating" | "graduated";
 

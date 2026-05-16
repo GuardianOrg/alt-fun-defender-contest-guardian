@@ -183,4 +183,91 @@ describe("getTokensPage", () => {
     expect(url.searchParams.has("leverage")).toBe(false);
     expect(url.searchParams.has("direction")).toBe(false);
   });
+
+  // Sort axis (added with the TRENDING / GRADUATED re-rank dropdown).
+  // The wire-format mapping is non-trivial because `"default"` on the
+  // client resolves differently per tab — on TRENDING it lands as
+  // `sort=trending` (the explicit value, not absence), and on
+  // GRADUATED it lands as `status=graduated` with no `sort` param.
+  // These tests pin both cases so the dropdown's "Recently graduated"
+  // / "24h volume" defaults don't silently regress into the wrong API
+  // shape.
+
+  it("maps trending tab + default sort to `sort=trending`", async () => {
+    await tokenService.getTokensPage(
+      "trending",
+      0,
+      TOKENS_PAGE_SIZE,
+      {},
+      "default",
+    );
+    const url = lastUrl();
+    expect(url.searchParams.get("sort")).toBe("trending");
+    expect(url.searchParams.has("status")).toBe(false);
+  });
+
+  it("maps trending tab + explicit sort to that sort", async () => {
+    for (const s of ["mcap", "change24h"] as const) {
+      await tokenService.getTokensPage("trending", 0, TOKENS_PAGE_SIZE, {}, s);
+      const url = lastUrl();
+      expect(url.searchParams.get("sort")).toBe(s);
+      expect(url.searchParams.has("status")).toBe(false);
+    }
+  });
+
+  it("maps graduated tab + default sort to `status=graduated` with no sort param", async () => {
+    // GRADUATED's natural ordering is `graduatedAt desc` from Ponder —
+    // expressed as an absent `sort` param so the API takes its
+    // Ponder-first path. A literal `sort=createdAt` (the API's
+    // default-default) would still work but wastes a cache key, so we
+    // pin the absence here.
+    await tokenService.getTokensPage(
+      "graduated",
+      0,
+      TOKENS_PAGE_SIZE,
+      {},
+      "default",
+    );
+    const url = lastUrl();
+    expect(url.searchParams.get("status")).toBe("graduated");
+    expect(url.searchParams.has("sort")).toBe(false);
+  });
+
+  it("maps graduated tab + explicit sort to `status=graduated&sort=…`", async () => {
+    for (const s of ["mcap", "change24h"] as const) {
+      await tokenService.getTokensPage(
+        "graduated",
+        0,
+        TOKENS_PAGE_SIZE,
+        {},
+        s,
+      );
+      const url = lastUrl();
+      expect(url.searchParams.get("status")).toBe("graduated");
+      expect(url.searchParams.get("sort")).toBe(s);
+    }
+  });
+
+  it("ignores the sort param on NEW and GRADUATING tabs (natural ordering wins)", async () => {
+    // The UI hides the Sort trigger on these two tabs, but Redux still
+    // carries whatever sort the user last picked on TRENDING /
+    // GRADUATED. The service layer must drop it so a stale "Mcap"
+    // override doesn't sneak in via `?sort=mcap` on a NEW-tab request
+    // and silently override `createdAt desc`.
+    await tokenService.getTokensPage("new", 0, TOKENS_PAGE_SIZE, {}, "mcap");
+    let url = lastUrl();
+    expect(url.searchParams.has("sort")).toBe(false);
+    expect(url.searchParams.has("status")).toBe(false);
+
+    await tokenService.getTokensPage(
+      "graduating",
+      0,
+      TOKENS_PAGE_SIZE,
+      {},
+      "mcap",
+    );
+    url = lastUrl();
+    expect(url.searchParams.has("sort")).toBe(false);
+    expect(url.searchParams.get("status")).toBe("graduating");
+  });
 });
