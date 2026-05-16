@@ -339,7 +339,12 @@ export class LtDirectoryPoller extends DurableObject<AppBindings> {
           symbol: m.symbol,
           name: m.name,
           targetAsset: d.targetAsset,
-          targetLeverage: Number(d.targetLeverage),
+          // BounceTech encodes targetLeverage as multiplier × 1e18 on-chain.
+          // Unscale to match the human-readable 2/3/5 the schema column and
+          // every other consumer (`LiveLeveragedToken.targetLeverage: number`)
+          // expects. Divide as BigInt first — `Number(3e18n)` would silently
+          // lose precision past Number.MAX_SAFE_INTEGER (~9e15).
+          targetLeverage: Number(d.targetLeverage / 10n ** 18n),
           isLong: d.isLong,
           decimals: m.decimals,
           exchangeRate: d.exchangeRate.toString(),

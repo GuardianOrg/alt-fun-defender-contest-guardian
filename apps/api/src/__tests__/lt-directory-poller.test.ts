@@ -201,7 +201,7 @@ describe("LtDirectoryPoller alarm", () => {
       {
         leveragedToken: HYPE_2L_LOWER,
         targetAsset: "HYPE",
-        targetLeverage: 2n,
+        targetLeverage: 2_000_000_000_000_000_000n,
         isLong: true,
         exchangeRate: 1_000_000_000_000_000_000n,
         baseAssetBalance: 0n,
@@ -225,7 +225,7 @@ describe("LtDirectoryPoller alarm", () => {
       {
         leveragedToken: HYPE_2L_LOWER,
         targetAsset: "HYPE",
-        targetLeverage: 2n,
+        targetLeverage: 2_000_000_000_000_000_000n,
         isLong: true,
         exchangeRate: 1_000_000_000_000_000_000n,
         baseAssetBalance: 500n,
@@ -242,6 +242,7 @@ describe("LtDirectoryPoller alarm", () => {
     const rows = mockInsertChain.values.mock.calls[0][0] as Array<{
       address: string;
       symbol: string;
+      targetLeverage: number;
       exchangeRate: string;
       mintPaused: boolean;
       pollSequence: number;
@@ -249,6 +250,14 @@ describe("LtDirectoryPoller alarm", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].address).toBe(HYPE_2L_CHECKSUM);
     expect(rows[0].symbol).toBe("HYPE2L");
+    // BounceTech encodes targetLeverage on-chain as 2 × 1e18; the poller
+    // must unscale before persisting because the `target_leverage` schema
+    // column is `integer` (max 2_147_483_647) and would overflow on the
+    // raw wei-scaled bigint. Any future regression of the unscaling step
+    // shows up here as `targetLeverage = 2e18`, which also trips the
+    // sanity cap below.
+    expect(rows[0].targetLeverage).toBe(2);
+    expect(rows[0].targetLeverage).toBeLessThanOrEqual(1000);
     expect(rows[0].exchangeRate).toBe("1000000000000000000");
     expect(rows[0].mintPaused).toBe(false);
     expect(rows[0].pollSequence).toBe(1);
@@ -315,7 +324,7 @@ describe("LtDirectoryPoller alarm", () => {
       {
         leveragedToken: HYPE_2L_LOWER,
         targetAsset: "HYPE",
-        targetLeverage: 2n,
+        targetLeverage: 2_000_000_000_000_000_000n,
         isLong: true,
         exchangeRate: 1n,
         baseAssetBalance: 0n,
