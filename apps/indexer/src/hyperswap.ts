@@ -85,14 +85,9 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
     ltReserve,
   });
 
-  // Per-second snapshot decimation: at most one `tokenSnapshot` row per
-  // `(tokenAddress, blockTs)`. The first Sync of the bucket populates the row;
-  // every subsequent same-second Sync short-circuits at the unique-index check
-  // (`onConflictDoNothing` — NOT `doUpdate`, see AGENTS.md for the
-  // first-vs-latest-wins trade-off). The id encodes the bucket so the dedup
-  // happens at the DB layer with no application-side state. Full rationale,
-  // write-IOPS / immutability trade-offs, and the "don't read this table for
-  // per-event reserve deltas" downstream caveat all live in
+  // Per-second snapshot decimation: one `tokenSnapshot` row per
+  // `(tokenAddress, blockTs)` bucket via deterministic id +
+  // `onConflictDoNothing()` (first-wins). Policy rationale lives in
   // `apps/indexer/AGENTS.md` → *Per-second snapshot decimation* (issue #978).
   const snapshotId = `sync-bucket-${idx.tokenAddress}-${event.block.timestamp.toString()}`;
   await db
