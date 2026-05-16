@@ -8,6 +8,7 @@ import {
 } from "../keyboards/buy-sell-token.js";
 import { wrapWithCtxPhrase } from "./anti-phishing.js";
 import { extractTokenAddress, fetchToken } from "./api.js";
+import { logger } from "./logger.js";
 import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
 import { WalletManager } from "./wallet.js";
@@ -27,53 +28,34 @@ const TOKEN_NOT_FOUND_HTML =
 const API_UNAVAILABLE =
   "Data temporarily unavailable — try again in a moment.";
 
-const EMPTY_KEYBOARD: InlineKeyboardMarkup = { inline_keyboard: [] };
-
 /**
- * Edit the previously-shipped buy card (or error fallback) for this chat
- * in place with the Loading placeholder copy, returning the reused
- * message id so the final card can edit the same slot again. Each
- * address paste replaces the prior intercept output: stacking a new card
- * above the stale one leaves the user staring at two conflicting
- * screens, and delete-then-resend leaves a flash of empty chat between
- * the two calls.
- *
- * Returns `null` when no prior card is tracked or when the edit fails
- * (message already gone, outside 48h, racing delete, etc.) so the caller
- * falls back to a fresh `sendMessage`. Keyed by `chatId` so a user
- * alternating between two chats keeps each chat's last card tracked
- * independently — a single-slot field would lose chat A's card the
- * moment the user pasted in chat B and let stale cards stack again on
- * the return trip.
+ * Best-effort delete of the prior buy card for this chat so the new one
+ * lands as a fresh message near the user without leaving a stale duplicate
+ * scrolled upstream. The previous "edit-in-place" optimisation morphed
+ * the prior card via `editMessageText`, which silently failed the moment
+ * the user had interacted with anything else since that card was sent —
+ * the edit succeeded against a message scrolled far above the current
+ * view, so the user saw their paste vanish with no visible response
+ * anywhere near where they were typing (the bug behind /buy-endpoint-
+ * prompt-not-showing reports). Delete + fresh send is two API calls
+ * instead of one, but the placement guarantee is the whole point.
  */
-const reusePreviousBuyCardForLoading = async (
-  ctx: AppContext,
-  loadingText: string,
-): Promise<number | null> => {
+const deletePreviousBuyCard = async (ctx: AppContext): Promise<void> => {
   const chatId = ctx.chat?.id;
-  if (chatId === undefined) return null;
+  if (chatId === undefined) return;
   const byChat = ctx.session.lastBuyCardMessageByChat;
-  if (!byChat) return null;
+  if (!byChat) return;
   const key = String(chatId);
   const prevMessageId = byChat[key];
-  if (typeof prevMessageId !== "number") return null;
+  if (typeof prevMessageId !== "number") return;
+  // Clear the pointer first so a deletion failure (already gone, outside
+  // 48h window, racing delete) can't leave a stale pointer poisoning
+  // future intercepts.
+  delete byChat[key];
   try {
-    await ctx.api.editMessageText(
-      chatId,
-      prevMessageId,
-      wrapWithCtxPhrase(ctx, loadingText),
-      {
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-        reply_markup: EMPTY_KEYBOARD,
-      },
-    );
-    return prevMessageId;
-  } catch {
-    // Edit failed (stale id / outside 48h / racing delete) — drop the
-    // pointer and let the caller send a fresh placeholder.
-    delete byChat[key];
-    return null;
+    await ctx.api.deleteMessage(chatId, prevMessageId);
+  } catch (err) {
+    logger.debug("buy-card prior delete failed (benign)", { err });
   }
 };
 
@@ -152,56 +134,38 @@ const finaliseBuyCard = async (
  * api-unavailable), so the pivot looks identical to a normal `/buy`
  * lookup.
  *
- * Reuses the prior intercept message in this chat via `editMessageText`
- * (rather than delete + send) so the second paste in a row morphs the
- * existing card into Loading and then into the new card without the
- * screen blinking through an empty slot. Falls back to a fresh send when
- * the prior message is gone (outside 48h, racing delete) or no card is
- * tracked yet.
+ * Deletes any prior buy card for this chat before sending the new
+ * placeholder so the user never ends up with a stale upstream card
+ * alongside the new one. The earlier "edit-in-place" optimisation
+ * silently failed the moment the user interacted with anything between
+ * pastes — the morph landed against a message scrolled out of view, and
+ * the user saw their paste vanish with no visible response near where
+ * they were typing.
  */
 export const showBuyCardForAddress = async (
   ctx: AppContext,
   address: string,
   options: {
     onPlaceholderReady?: () => void;
-    /**
-     * Skip the prior-buy-card reuse path and always ship the placeholder
-     * as a fresh message at the bottom of the chat. Used by wizard
-     * intercepts (`tryAddressBuyIntercept`): the prior buy card stored
-     * in `lastBuyCardMessageByChat` is often scrolled far up the chat
-     * history (it came from a previous standalone paste, not from a
-     * paste inside the current wizard's neighbourhood), and silently
-     * editing it strands the user staring at deleted prompt + paste
-     * with no visible response near where they are looking. The bare-
-     * text intercept keeps reuse on by default — consecutive bare
-     * pastes happen near each other and the morph-in-place UX is the
-     * whole point of the reuse path.
-     */
-    forceFreshPlacement?: boolean;
   } = {},
 ): Promise<void> => {
+  // Tear the prior card down before sending the new placeholder. Done
+  // sequentially (not in parallel with the send) so the chat order is:
+  // delete-old → send-new → delete-user-paste, and the user never sees
+  // two buy cards on screen simultaneously. Best-effort: a benign 400
+  // (already gone, outside 48h) just falls through.
+  await deletePreviousBuyCard(ctx);
   const loadingText = buildLoadingText(address);
-  const reusedId = options.forceFreshPlacement
-    ? null
-    : await reusePreviousBuyCardForLoading(ctx, loadingText);
-  // When we reuse the prior card slot, synthesise a Message stub for
-  // `finaliseBuyCard` — only `message_id` is read, and the in-place edit
-  // path keeps the same id alive across the fetch.
-  const placeholder: Message =
-    reusedId !== null
-      ? ({ message_id: reusedId } as Message)
-      : await (async () => {
-          const sent = await ctx.reply(wrapWithCtxPhrase(ctx, loadingText), {
-            parse_mode: "HTML",
-            link_preview_options: { is_disabled: true },
-          });
-          rememberBuyCardMessage(ctx, sent);
-          return sent;
-        })();
+  const sent = await ctx.reply(wrapWithCtxPhrase(ctx, loadingText), {
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+  });
+  rememberBuyCardMessage(ctx, sent);
+  const placeholder: Message = sent;
 
-  // The Loading slot is now on screen (either reused or freshly sent),
-  // so it's safe for the caller to clean up the user's pasted address
-  // without leaving the chat momentarily blank.
+  // The Loading slot is now on screen, so it's safe for the caller to
+  // clean up the user's pasted address without leaving the chat
+  // momentarily blank.
   options.onPlaceholderReady?.();
 
   const tokenResult = await fetchToken(ctx.env, address);

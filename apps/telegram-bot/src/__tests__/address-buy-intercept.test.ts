@@ -296,13 +296,15 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(String(card!.body.text)).toContain("TEST");
   });
 
-  it("pasting a second address morphs the previous card in place (no delete + resend flash)", async () => {
+  it("pasting a second address deletes the prior card and sends a fresh one near the cursor", async () => {
+    // Regression: the earlier "morph in place via editMessageText"
+    // optimisation silently edited the prior card upstream the moment
+    // the user had interacted with anything else since that card was
+    // sent — the edit landed against a message scrolled out of view
+    // and the user saw their paste vanish with no visible response
+    // near where they were typing. Delete + fresh send guarantees the
+    // new card lands at the bottom of the chat, one bot card at a time.
     const h = await harnessWithWallet();
-    // Inline mock — sendMessage must return a real Message so the
-    // intercept can stash its message_id and reuse it on the next
-    // paste. The default `withTelegramOk` echoes `result: true`, which
-    // would null out the stash and the second paste would re-send
-    // instead of editing in place.
     let nextMessageId = 5000;
     const sendMessageIds: number[] = [];
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
@@ -349,47 +351,33 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(firstCardId).toBeDefined();
     fetchSpy.mockClear();
 
-    // Second paste — the prior card slot must be reused (edited in
-    // place to Loading, then edited again to the final card). No
-    // sendMessage, no deleteMessage on the prior card: that's the
-    // delete-then-resend flash this test guards against.
+    // Second paste — prior card must be DELETED, then a fresh
+    // placeholder sent at the bottom of the chat (edited to the final
+    // card body). Editing the prior id (a scrolled-out-of-view slot)
+    // would silently strand the user.
     await h.run(messageUpdate(TOKEN_ADDR, 21));
 
     const calls = capture(fetchSpy);
-    // The prior card id is edited twice: once to Loading, once to the
-    // final card body. Both must target `firstCardId`.
-    const editsOnPriorCard = calls.filter(
-      (c) =>
-        c.url.includes("/editMessageText") &&
-        (c.body as { message_id?: number }).message_id === firstCardId,
-    );
-    expect(editsOnPriorCard.length).toBeGreaterThanOrEqual(2);
-    expect(String(editsOnPriorCard[0]!.body.text)).toContain("Loading");
-    expect(
-      editsOnPriorCard.some((c) =>
-        String(c.body.text).includes("Test Token"),
-      ),
-    ).toBe(true);
-
-    // The only sendMessage the second paste fires (if any) is NOT a buy
-    // card or a Loading placeholder — those reuse the existing slot.
-    const stalePlaceholder = calls.find(
-      (c) =>
-        c.url.includes("/sendMessage") &&
-        typeof c.body.text === "string" &&
-        (String(c.body.text).includes("Loading") ||
-          String(c.body.text).includes("Test Token")),
-    );
-    expect(stalePlaceholder).toBeUndefined();
-
-    // And the prior card must NOT be deleted — deleting it before the
-    // edit lands recreates the very flash this fix removes.
     const deletePrior = calls.find(
       (c) =>
         c.url.includes("/deleteMessage") &&
         (c.body as { message_id?: number }).message_id === firstCardId,
     );
-    expect(deletePrior).toBeUndefined();
+    expect(deletePrior).toBeDefined();
+    // No edit lands on the (now-gone) prior card id.
+    const editsOnPriorCard = calls.filter(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        (c.body as { message_id?: number }).message_id === firstCardId,
+    );
+    expect(editsOnPriorCard).toHaveLength(0);
+    // A fresh Loading placeholder lands as a new sendMessage, then is
+    // edited in place to the final card body on its OWN id.
+    const loading = findLoadingSend(calls);
+    expect(loading).toBeDefined();
+    const card = findCardSend(calls);
+    expect(card).toBeDefined();
+    expect(String(card!.body.text)).toContain("TEST");
   });
 
   it("non-address text outside any flow is ignored (no buy card, no error)", async () => {
@@ -606,10 +594,101 @@ describe("Address → buy menu intercept (issue #821)", () => {
     );
     expect(editsOnStale).toHaveLength(0);
 
+    // The stale slot must be DELETED so the user doesn't see a stale
+    // buy card upstream alongside the freshly-sent one.
+    const deleteStale = calls.find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id === STALE_BUY_CARD_ID,
+    );
+    expect(deleteStale).toBeDefined();
+
     // The buy card must land via a fresh sendMessage (Loading) → in-
     // place edit to final card on the freshly-allocated id.
     const loading = findLoadingSend(calls);
     expect(loading).toBeDefined();
+    const card = findCardSend(calls);
+    expect(card).toBeDefined();
+    expect(String(card!.body.text)).toContain("TEST");
+  });
+
+  it("bare-text intercept deletes the stale prior buy card and lands a fresh one at the cursor", async () => {
+    // Mirrors the wizard-intercept regression for the bare-text path:
+    // a `lastBuyCardMessageByChat` pointer to a card scrolled out of
+    // view (because the user did other things between pastes) used to
+    // silently edit that upstream slot. The user's paste vanished and
+    // nothing visible landed at the bottom of the chat. Deleting the
+    // prior card before sending the fresh placeholder restores the
+    // "buy card always near the cursor" guarantee.
+    const STALE_BUY_CARD_ID = 70;
+    const h = await harnessWithWallet();
+    await h.kv.put(
+      `session:${USER_ID}`,
+      JSON.stringify({
+        slippageBps: 100,
+        defaultBuyUsdc: 20,
+        buyPresetsUsdc: [20, 40, 60, 80, 100],
+        sellPresetsPct: [10, 25, 50, 75, 100],
+        degenMode: false,
+        lastBuyCardMessageByChat: { [String(CHAT_ID)]: STALE_BUY_CARD_ID },
+      }),
+    );
+
+    let nextMessageId = 200;
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/sendMessage")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: nextMessageId++,
+                date: 0,
+                chat: { id: CHAT_ID, type: "private" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      if (url === RPC_URL) {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: `0x${(100_000_000n).toString(16).padStart(64, "0")}`,
+          }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith(API_BASE) && url.includes("/api/v1/tokens/")) {
+        return tokenResponse();
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    await h.run(messageUpdate(TOKEN_ADDR, 6));
+
+    const calls = capture(fetchSpy);
+    // No edit lands on the stale id.
+    const editsOnStale = calls.filter(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        (c.body as { message_id?: number }).message_id === STALE_BUY_CARD_ID,
+    );
+    expect(editsOnStale).toHaveLength(0);
+    // The stale id IS deleted.
+    const deleteStale = calls.find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id === STALE_BUY_CARD_ID,
+    );
+    expect(deleteStale).toBeDefined();
+    // And a fresh buy card lands.
     const card = findCardSend(calls);
     expect(card).toBeDefined();
     expect(String(card!.body.text)).toContain("TEST");
