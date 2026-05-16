@@ -271,6 +271,23 @@ describe("formatBotPositionsResponse", () => {
     expect(pages.map((p) => p.text).join("\n")).toContain("(—)");
   });
 
+  it("keeps a single deeplinked line within the page limit even for a pathologically long ticker (anchor markup counted in budget)", () => {
+    // Regression: without anchor-overhead accounting, the `<a href="…">`
+    // / `</a>` wrapper can push one open-position line past the 4096-
+    // char Telegram ceiling once a multi-thousand-char ticker is wrapped
+    // in a deeplink. `chunkPositionsPages` cannot recover from an
+    // oversized line, so the budget must reserve the anchor markup up
+    // front.
+    const huge = "X".repeat(5000);
+    const pages = formatBotPositionsResponse(
+      { open: [openPos({ ticker: huge })], realised: [] },
+      "trade_cortisol_bot",
+    );
+    for (const page of pages) {
+      expect(page.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+  });
+
   it("chunks output into <=4096-char Telegram messages for large lists", () => {
     const many: BotOpenPosition[] = Array.from({ length: 250 }, (_, i) =>
       openPos({

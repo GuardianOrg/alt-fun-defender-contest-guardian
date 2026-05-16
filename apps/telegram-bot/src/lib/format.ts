@@ -166,14 +166,18 @@ const formatOpenLine = (
     `\n  ${formatTokenAddress(pos.token)}` +
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
     `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
-  const budget = limit - LINE_PREFIX.length - suffix.length;
+  // Reserve the `<a href="<href>"></a>` overhead so a pathologically
+  // long ticker still fits inside `limit` once the anchor is wrapped
+  // around it. Without this a 4000-char symbol on a deeplinked render
+  // can push the whole line past Telegram's 4096-char ceiling.
+  const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
+  const anchorOverhead = href ? `<a href="${href}"></a>`.length : 0;
+  const budget = limit - LINE_PREFIX.length - suffix.length - anchorOverhead;
   const truncated =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
-  const label = botUsername
-    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
-    : truncated;
+  const label = href ? `<a href="${href}">${truncated}</a>` : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
@@ -187,14 +191,14 @@ const formatRealisedLine = (
     `\n  ${formatTokenAddress(pos.token)}` +
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
-  const budget = limit - LINE_PREFIX.length - suffix.length;
+  const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
+  const anchorOverhead = href ? `<a href="${href}"></a>`.length : 0;
+  const budget = limit - LINE_PREFIX.length - suffix.length - anchorOverhead;
   const truncated =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
-  const label = botUsername
-    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
-    : truncated;
+  const label = href ? `<a href="${href}">${truncated}</a>` : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
