@@ -22,8 +22,16 @@ const BASE_URL = `http://localhost:${PORT}`;
 const STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
-const DATABASE_PROBE_RETRIES = 3;
-const DATABASE_PROBE_RETRY_DELAY_MS = 1_000;
+// Generous budget for Neon serverless cold-start. The staging compute
+// scales to zero between CI runs and the wake-up path can return
+// `HTTP 500 + neon:retryable: true` for several seconds before the
+// instance is reachable. The previous 3 × 1s retry window was below
+// the typical wake threshold and caused every DB-backed smoke test
+// to skip on the first CI run after an idle period (~19 spurious
+// skips). 8 attempts × 2s delay gives ~16s of patience — comfortably
+// above observed cold-start latency, well below the per-job timeout.
+const DATABASE_PROBE_RETRIES = 8;
+const DATABASE_PROBE_RETRY_DELAY_MS = 2_000;
 
 function randomAddress() {
   const hex = "0123456789abcdef";

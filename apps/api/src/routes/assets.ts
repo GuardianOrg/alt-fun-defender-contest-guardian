@@ -17,6 +17,17 @@ let cachedMids: { data: Record<string, string>; ts: number } | null = null;
 let cachedLTs: { data: LiveLeveragedToken[]; ts: number } | null = null;
 
 const CACHE_TTL_MS = 10_000;
+// Bound each external fan-out so a stalled CDN can't pin the request
+// indefinitely. Both Hyperliquid `/info` and the BounceTech indexing
+// API are p99 ≪ 1 s under normal load; the 5 s cap absorbs transient
+// latency spikes while still failing fast enough to fall through to
+// the per-isolate cache (or empty list) within a single client-side
+// poll cycle. Mirrors the budget pattern used by `fetchWithTimeout`
+// in the API smoke-test harness — without it a hung external CDN
+// silently consumes the Worker's 30 s subrequest budget, which is
+// what surfaced as a 10 s smoke-test timeout on `/api/v1/assets`
+// during a CI run.
+const EXTERNAL_FETCH_TIMEOUT_MS = 5_000;
 
 /**
  * Test-only hook: drop the per-isolate `mids` + `LTs` caches between
@@ -29,16 +40,43 @@ export function _resetAssetsRouteCache(): void {
   cachedLTs = null;
 }
 
+/**
+ * Wrap a `fetch` in an `AbortController` so a stuck remote can't hang
+ * the route past `timeoutMs`. Returns the response on success; throws
+ * (and lets the caller fall through to its catch + cache fallback) on
+ * timeout or network failure. Extracted instead of inlining so both
+ * fan-outs share the exact same abort semantics — divergence between
+ * them would otherwise let one external dep dominate the other's
+ * latency budget.
+ */
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchMids(): Promise<Record<string, string>> {
   if (cachedMids && Date.now() - cachedMids.ts < CACHE_TTL_MS) {
     return cachedMids.data;
   }
   try {
-    const res = await fetch(HYPERLIQUID_INFO_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "allMids" }),
-    });
+    const res = await fetchWithTimeout(
+      HYPERLIQUID_INFO_API,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "allMids" }),
+      },
+      EXTERNAL_FETCH_TIMEOUT_MS,
+    );
     const data = (await res.json()) as Record<string, string>;
     cachedMids = { data, ts: Date.now() };
     return data;
@@ -52,7 +90,11 @@ async function fetchLTs(): Promise<LiveLeveragedToken[]> {
     return cachedLTs.data;
   }
   try {
-    const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
+    const res = await fetchWithTimeout(
+      `${BOUNCE_INDEXING_API}/leveraged-tokens`,
+      {},
+      EXTERNAL_FETCH_TIMEOUT_MS,
+    );
     const json = (await res.json()) as { data?: LiveLeveragedToken[] };
     const lts = filterSupportedLTs(json.data ?? []);
     cachedLTs = { data: lts, ts: Date.now() };
