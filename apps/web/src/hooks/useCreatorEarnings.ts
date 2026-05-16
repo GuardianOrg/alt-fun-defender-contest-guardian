@@ -19,25 +19,29 @@ const hyperEvmClient = createPublicClient({
 
 // Poll cadence for the rewards card. Fees accrue on every trade through
 // `Zap`, so a static "load on mount + load on claim" view goes stale
-// the instant a creator's bonding curve sees activity — but the
-// underlying fetch is the most expensive recurring read in the app:
-// `creatorService.getEarnings` walks `/api/v1/tokens?creator=…` to
-// exhaustion (`fetchAllTokens`, up to 1000 pages × 100 tokens) plus
-// two `eth_call`s against `FeeVault`. The hook is mounted
-// unconditionally on every page that renders `EarningsPanel`,
-// `ProfileView`, or `CreatorBadge`, so a 5s cadence (the previous
-// floor from issue #454) was firing the full walk for every connected
-// wallet on every page navigation, including token-detail pages where
-// the wallet isn't even the creator.
+// the instant a creator's bonding curve sees activity — but the hook
+// is mounted unconditionally on every page that renders
+// `EarningsPanel`, `ProfileView`, or `CreatorBadge`, so a tight cadence
+// fans out fast across the catalogue.
+//
+// The vault-totals fetch is now a single `GET /api/v1/creators/
+// :wallet/earnings` call backed by an indexer primary-key lookup
+// (edge-cached for 15s), replacing the legacy two `eth_call`s against
+// `FeeVault.creatorBalance` / `lifetimeCreatorEarned`. The per-token
+// list still walks `/api/v1/tokens?creator=…` — bounded to one
+// wallet's tokens by the server-side `creator` filter (issue #476).
 //
 // 30s aligns with `/market-data`'s edge-cache TTL — the slowest other
 // recurring fetch on the same surfaces — and matches the worst-case
 // freshness a creator can reasonably tolerate for "I just got a wave
-// of trades, when will my claimable balance update?". Combined with
-// TanStack Query's tab-hidden auto-pause, a backgrounded earnings
-// panel costs zero. User-driven refreshes (open the panel, land a
-// claim tx) still run instantly via the explicit `refetch()` paths
-// that already wire `useCreatorEarnings.refetch` into the claim flow.
+// of trades, when will my claimable balance update?". A 30s poll on
+// top of the 15s API edge cache means worst-case staleness is ~45s
+// (and almost always <30s in practice once the SWR window kicks in).
+// Combined with TanStack Query's tab-hidden auto-pause, a
+// backgrounded earnings panel costs zero. User-driven refreshes
+// (open the panel, land a claim tx) still run instantly via the
+// explicit `refetch()` paths that already wire
+// `useCreatorEarnings.refetch` into the claim flow.
 const REFETCH_INTERVAL_MS = 30_000;
 
 export function useCreatorEarnings() {

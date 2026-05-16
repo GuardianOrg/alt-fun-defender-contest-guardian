@@ -617,6 +617,40 @@ export function fetchBalances(wallet: string): Promise<ApiBalance[]> {
   return apiFetch(`/api/v1/balances/${wallet}`);
 }
 
+/**
+ * Per-creator pooled earnings totals served by `GET /api/v1/creators/
+ * :address/earnings`. The endpoint reads the indexer's per-creator
+ * `creator_earnings` row directly (one primary-key lookup) — replaces
+ * the legacy frontend pattern of issuing two `FeeVault.creatorBalance`
+ * / `lifetimeCreatorEarned` `eth_call`s on every 30s rewards-panel
+ * poll, multiplied by every page that mounts `EarningsPanel`,
+ * `ProfileView`, or `CreatorBadge`.
+ *
+ * Both `*Raw` (6dp decimal-string) and `*Usd` (USD float) variants
+ * ride along on the response. The frontend currently only consumes
+ * the floats, but the raw figures are kept on the wire so callers that
+ * need exact integer math (claim amount confirmation, future
+ * "claim X of Y" splits) don't have to round-trip through the float
+ * back into a bigint.
+ */
+export interface ApiCreatorEarnings {
+  /** Lifetime USDC accrued, 6dp decimal string. Never decreases. */
+  lifetimeEarnedUsdcRaw: string;
+  /** Lifetime USDC claimed, 6dp decimal string. Never decreases. */
+  lifetimeClaimedUsdcRaw: string;
+  /** `max(0, lifetimeEarned − lifetimeClaimed)`, 6dp decimal string. */
+  claimableUsdcRaw: string;
+  lifetimeEarnedUsd: number;
+  lifetimeClaimedUsd: number;
+  claimableUsd: number;
+}
+
+export function fetchCreatorEarnings(
+  wallet: string,
+): Promise<ApiCreatorEarnings> {
+  return apiFetch(`/api/v1/creators/${wallet}/earnings`);
+}
+
 export function fetchSparkline(
   address: string,
   points = 20,
