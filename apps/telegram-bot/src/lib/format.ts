@@ -141,43 +141,23 @@ export const escapeHtml = (s: string): string =>
 const formatTokenAddress = (token: string): string =>
   `<code>${token}</code>`;
 
-/**
- * Render a `track_<addr>` deeplink to the bot. Tapping the ticker on an
- * open-position line bounces the user through Telegram's link handler
- * back into this same bot's chat with `/start track_<addr>` — the
- * `/start` handler routes the payload to the /track card. Telegram
- * accepts both `https://t.me/<bot>?start=<payload>` and the in-app
- * `tg://resolve?domain=<bot>&start=<payload>` form; we use the https
- * variant because Telegram's preview UI shows a friendlier label.
- */
-const trackDeeplinkHref = (botUsername: string, token: string): string =>
-  `https://t.me/${botUsername}?start=track_${token}`;
-
-const formatOpenLine = (
-  pos: BotOpenPosition,
-  limit: number,
-  botUsername: string | null,
-): string => {
+const formatOpenLine = (pos: BotOpenPosition, limit: number): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
     `\n  ${formatTokenAddress(pos.token)}` +
     `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
     `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
-  const truncated =
+  const label =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
-  const label = botUsername
-    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
-    : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
 const formatRealisedLine = (
   pos: BotRealisedPosition,
   limit: number,
-  botUsername: string | null,
 ): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
@@ -185,13 +165,10 @@ const formatRealisedLine = (
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
-  const truncated =
+  const label =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
-  const label = botUsername
-    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
-    : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
@@ -226,7 +203,6 @@ export interface PositionsPage {
  */
 export const formatBotPositionsResponse = (
   data: BotPositionsResponse,
-  botUsername: string | null = null,
 ): PositionsPage[] => {
   if (data.open.length === 0 && data.realised.length === 0) {
     return [{ text: "No open positions for this wallet.", openActions: [] }];
@@ -241,7 +217,7 @@ export const formatBotPositionsResponse = (
   if (data.open.length > 0) {
     header = `Open positions (${data.open.length})`;
     for (const p of data.open) {
-      lines.push(formatOpenLine(p, limit, botUsername));
+      lines.push(formatOpenLine(p, limit));
       lineActions.push({ token: p.token, ticker: p.ticker });
     }
   }
@@ -253,7 +229,7 @@ export const formatBotPositionsResponse = (
       lineActions.push(null);
     }
     for (const p of data.realised) {
-      lines.push(formatRealisedLine(p, limit, botUsername));
+      lines.push(formatRealisedLine(p, limit));
       lineActions.push(null);
     }
   }
@@ -306,6 +282,14 @@ export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
  */
 export const POSITIONS_BUY_CALLBACK_CMD = "pb";
 export const POSITIONS_SELL_CALLBACK_CMD = "ps";
+/**
+ * Per-position track button (the row above `[Buy] [Sell]`). Replaces the
+ * legacy `<a href="t.me/<bot>?start=track_<addr>">TICKER</a>` body anchor
+ * that bounced the user through Telegram's `/start track_<addr>` deeplink
+ * handler — a callback edits the same bubble in place ("Fetching <TICKER>
+ * token details…" → /track card) so the user never leaves the chat.
+ */
+export const POSITIONS_TRACK_CALLBACK_CMD = "pt";
 /**
  * Refresh button on the positions card — re-fetches the wallet's
  * positions and re-renders the same page in place so unrealised PnL,
@@ -378,6 +362,19 @@ export const buildPositionsPageKeyboard = (
   const rows: InlineKeyboardButton[][] = [];
   for (const action of openActions) {
     const label = truncateTickerForButton(action.ticker);
+    // Track row goes on top so the natural "tap the ticker" gesture
+    // (mirrored from the dropped body anchor) is the most prominent
+    // per-position action. Callback edits the bubble in place — see
+    // `POSITIONS_TRACK_CALLBACK_CMD`.
+    rows.push([
+      {
+        text: `📊 ${label}`,
+        callback_data: encodeCallback(
+          POSITIONS_TRACK_CALLBACK_CMD,
+          action.token,
+        ),
+      },
+    ]);
     rows.push([
       {
         text: `Buy ${label}`,
