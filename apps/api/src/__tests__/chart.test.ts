@@ -1098,6 +1098,60 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
     expect(cachePut).not.toHaveBeenCalled();
   });
 
+  it("still returns 200 when caches.default.put rejects (best-effort write)", async () => {
+    // A `cache.put` rejection (response body over the per-entry size
+    // limit, transient Cache API failure, etc.) must NOT turn a clean
+    // 200 success into a 5xx. The route swallows the rejection,
+    // structured-logs for ops triage, and returns the response
+    // unchanged with its `Cache-Control` header intact. CodeRabbit
+    // feedback on PR #984.
+    cachePut.mockRejectedValueOnce(new Error("cache write failed"));
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    mockFetchTokenChartContext.mockResolvedValue({
+      k: "1000000000000000000000000000000000000000000000",
+      ltToken: LT_ADDRESS,
+      graduated: false,
+      graduatedAt: null,
+      timestamp: String(nowSec - 600),
+    });
+    mockNeonQuery.mockResolvedValue([
+      { ts: String(nowSec - 60), exchange_rate: "2000000000000000000" },
+    ]);
+    mockFetchTokenChartSnapshots.mockResolvedValue([]);
+
+    // Silence the structured warn log this test deliberately triggers
+    // — otherwise it noises up the test output. Restored in `finally`.
+    const consoleLogSpy = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+
+    try {
+      const app = createApp();
+      const res = await app.request(`/chart/${VALID_ADDRESS}`, {}, makeEnv());
+
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Cache-Control")).toBe(
+        "public, max-age=0, s-maxage=3, stale-while-revalidate=6",
+      );
+      // The write was attempted (and rejected) — proves the route
+      // didn't short-circuit around the cache.
+      expect(cachePut).toHaveBeenCalledTimes(1);
+      // And the rejection was observed: a structured warn log fired.
+      // Sanity-check the level + event so a future log-format
+      // refactor doesn't drop the diagnostic silently.
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+      const payload = JSON.parse(
+        consoleLogSpy.mock.calls[0]![0] as string,
+      ) as { level: string; event: string; error: string };
+      expect(payload.level).toBe("warn");
+      expect(payload.event).toBe("chart_cache_put_failed");
+      expect(payload.error).toBe("cache write failed");
+    } finally {
+      consoleLogSpy.mockRestore();
+    }
+  });
+
   it("no-ops cleanly when caches.default is unavailable", async () => {
     // Some test envs (and `wrangler dev` without cache emulation) don't
     // expose `globalThis.caches` — the route must still return the

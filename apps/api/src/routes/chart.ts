@@ -410,10 +410,25 @@ chart.get("/:address", async (c) => {
     );
     const cache = getCache();
     if (cache) {
-      await cache.put(
-        new Request(c.req.url, { method: "GET" }),
-        response.clone(),
-      );
+      // Best-effort write — a `cache.put` rejection (e.g. response
+      // body exceeding the per-entry size limit, or a transient
+      // Cache API hiccup) must NOT turn a perfectly good 200 into a
+      // 500. Swallow the rejection, log structured for ops triage,
+      // and return the response anyway. CodeRabbit feedback on PR
+      // #984.
+      await cache
+        .put(new Request(c.req.url, { method: "GET" }), response.clone())
+        .catch((err: unknown) => {
+          console.log(
+            JSON.stringify({
+              level: "warn",
+              event: "chart_cache_put_failed",
+              error: err instanceof Error ? err.message : String(err),
+              url: c.req.url,
+              timestamp: new Date().toISOString(),
+            }),
+          );
+        });
     }
     return response;
   };
