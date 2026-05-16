@@ -26,32 +26,48 @@ const TOKEN_NOT_FOUND_HTML =
 const API_UNAVAILABLE =
   "Data temporarily unavailable — try again in a moment.";
 
+const EMPTY_KEYBOARD: InlineKeyboardMarkup = { inline_keyboard: [] };
+
 /**
- * Delete the previously-shipped buy card (or error fallback) for this
- * chat, if one is still tracked on the session. Each address paste
- * replaces the prior intercept output: stacking a new card above the
- * stale one leaves the user staring at two conflicting screens.
+ * Edit the previously-shipped buy card (or error fallback) for this chat
+ * in place with the Loading placeholder copy, returning the reused
+ * message id so the final card can edit the same slot again. Each
+ * address paste replaces the prior intercept output: stacking a new card
+ * above the stale one leaves the user staring at two conflicting
+ * screens, and delete-then-resend leaves a flash of empty chat between
+ * the two calls.
  *
- * Best-effort: Telegram returns 400 when the message is already gone
- * (user wiped it, or it aged past the 48h delete window) and the new
- * card must still ship. Keyed by `chatId` so a user alternating between
- * two chats keeps each chat's last card tracked independently — a
- * single-slot field would lose chat A's card the moment the user pasted
- * in chat B and let stale cards stack again on the return trip.
+ * Returns `null` when no prior card is tracked or when the edit fails
+ * (message already gone, outside 48h, racing delete, etc.) so the caller
+ * falls back to a fresh `sendMessage`. Keyed by `chatId` so a user
+ * alternating between two chats keeps each chat's last card tracked
+ * independently — a single-slot field would lose chat A's card the
+ * moment the user pasted in chat B and let stale cards stack again on
+ * the return trip.
  */
-const replacePreviousBuyCard = async (ctx: AppContext): Promise<void> => {
+const reusePreviousBuyCardForLoading = async (
+  ctx: AppContext,
+  loadingText: string,
+): Promise<number | null> => {
   const chatId = ctx.chat?.id;
-  if (chatId === undefined) return;
+  if (chatId === undefined) return null;
   const byChat = ctx.session.lastBuyCardMessageByChat;
-  if (!byChat) return;
+  if (!byChat) return null;
   const key = String(chatId);
   const prevMessageId = byChat[key];
-  if (typeof prevMessageId !== "number") return;
-  delete byChat[key];
+  if (typeof prevMessageId !== "number") return null;
   try {
-    await ctx.api.deleteMessage(chatId, prevMessageId);
+    await ctx.api.editMessageText(chatId, prevMessageId, loadingText, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: EMPTY_KEYBOARD,
+    });
+    return prevMessageId;
   } catch {
-    // Already gone / outside 48h / no rights — fall through.
+    // Edit failed (stale id / outside 48h / racing delete) — drop the
+    // pointer and let the caller send a fresh placeholder.
+    delete byChat[key];
+    return null;
   }
 };
 
@@ -129,20 +145,39 @@ const finaliseBuyCard = async (
  * api-unavailable), so the pivot looks identical to a normal `/buy`
  * lookup.
  *
- * Replaces (delete + send) any prior intercept message in this chat so
- * the second paste in a row swaps the card in place instead of stacking
- * a new one above the stale one.
+ * Reuses the prior intercept message in this chat via `editMessageText`
+ * (rather than delete + send) so the second paste in a row morphs the
+ * existing card into Loading and then into the new card without the
+ * screen blinking through an empty slot. Falls back to a fresh send when
+ * the prior message is gone (outside 48h, racing delete) or no card is
+ * tracked yet.
  */
 export const showBuyCardForAddress = async (
   ctx: AppContext,
   address: string,
+  options: { onPlaceholderReady?: () => void } = {},
 ): Promise<void> => {
-  await replacePreviousBuyCard(ctx);
-  const placeholder = await ctx.reply(buildLoadingText(address), {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-  });
-  rememberBuyCardMessage(ctx, placeholder);
+  const loadingText = buildLoadingText(address);
+  const reusedId = await reusePreviousBuyCardForLoading(ctx, loadingText);
+  // When we reuse the prior card slot, synthesise a Message stub for
+  // `finaliseBuyCard` — only `message_id` is read, and the in-place edit
+  // path keeps the same id alive across the fetch.
+  const placeholder: Message =
+    reusedId !== null
+      ? ({ message_id: reusedId } as Message)
+      : await (async () => {
+          const sent = await ctx.reply(loadingText, {
+            parse_mode: "HTML",
+            link_preview_options: { is_disabled: true },
+          });
+          rememberBuyCardMessage(ctx, sent);
+          return sent;
+        })();
+
+  // The Loading slot is now on screen (either reused or freshly sent),
+  // so it's safe for the caller to clean up the user's pasted address
+  // without leaving the chat momentarily blank.
+  options.onPlaceholderReady?.();
 
   const tokenResult = await fetchToken(ctx.env, address);
   if (!tokenResult.ok) {
@@ -201,19 +236,18 @@ export const registerAddressBuyIntercept = (bot: Bot<AppContext>): void => {
     if (text.startsWith("/")) return;
     const addr = extractTokenAddress(text);
     if (!addr) return;
-    // Sweep the user's pasted address before the card lands — the
-    // address is redundant once the token card is on screen and would
-    // otherwise sit above it as visual clutter. Mirrors the conversation
-    // intercept path, where `tryAddressBuyIntercept`'s `sweepWorkflow`
-    // already wipes the user's reply via the workflow stack. Best-
-    // effort: Telegram returns 400 if the message is already gone, and
-    // we'd rather still ship the card than abort on a transient
-    // deleteMessage failure.
-    try {
-      await ctx.deleteMessage();
-    } catch {
-      // Already gone / outside 48h window / no rights — fall through.
-    }
-    await showBuyCardForAddress(ctx, addr);
+    // Sweep the user's pasted address only AFTER the Loading slot is
+    // on screen — deleting first leaves a beat of blank chat where the
+    // paste used to be, defeating the whole point of the placeholder.
+    // Best-effort and fire-and-forget: Telegram returns 400 if the
+    // message is already gone, and we'd rather still ship the card than
+    // abort on a transient deleteMessage failure.
+    await showBuyCardForAddress(ctx, addr, {
+      onPlaceholderReady: () => {
+        void ctx.deleteMessage().catch(() => {
+          // Already gone / outside 48h window / no rights — fall through.
+        });
+      },
+    });
   });
 };

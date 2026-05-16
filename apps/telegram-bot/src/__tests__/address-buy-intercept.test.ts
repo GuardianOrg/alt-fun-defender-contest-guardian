@@ -167,7 +167,7 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(buttons.some((b) => b.text.includes("Buy 100"))).toBe(true);
   });
 
-  it("pasting a bare address sweeps the user's message before showing the buy card", async () => {
+  it("pasting a bare address sweeps the user's message AFTER the Loading placeholder lands", async () => {
     const h = await harnessWithWallet();
     wireMocks(fetchSpy);
 
@@ -184,6 +184,23 @@ describe("Address → buy menu intercept (issue #821)", () => {
     // The card still ships even though the user's message was wiped.
     const card = findCardSend(calls);
     expect(card).toBeDefined();
+    // Ordering matters: the Loading placeholder must hit Telegram BEFORE
+    // the deleteMessage call removes the user's paste. Otherwise the
+    // chat blinks blank between the delete and the placeholder send —
+    // which is the exact regression this guards against. The placeholder
+    // is the first `sendMessage` the intercept fires.
+    const loadingIdx = calls.findIndex((c) =>
+      c.url.includes("/sendMessage") &&
+      typeof c.body.text === "string" &&
+      String(c.body.text).includes("Loading"),
+    );
+    const deleteUserIdx = calls.findIndex(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id === 113,
+    );
+    expect(loadingIdx).toBeGreaterThanOrEqual(0);
+    expect(deleteUserIdx).toBeGreaterThan(loadingIdx);
   });
 
   it("pasting an alt.fun URL outside any flow lands the buy card too", async () => {
@@ -279,12 +296,13 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(String(card!.body.text)).toContain("TEST");
   });
 
-  it("pasting a second address replaces the previous card (delete old, send new)", async () => {
+  it("pasting a second address morphs the previous card in place (no delete + resend flash)", async () => {
     const h = await harnessWithWallet();
     // Inline mock — sendMessage must return a real Message so the
-    // intercept can stash its message_id and delete it on the next
+    // intercept can stash its message_id and reuse it on the next
     // paste. The default `withTelegramOk` echoes `result: true`, which
-    // would null out the stash and no replace would happen.
+    // would null out the stash and the second paste would re-send
+    // instead of editing in place.
     let nextMessageId = 5000;
     const sendMessageIds: number[] = [];
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
@@ -331,24 +349,47 @@ describe("Address → buy menu intercept (issue #821)", () => {
     expect(firstCardId).toBeDefined();
     fetchSpy.mockClear();
 
-    // Second paste — the previous card must be deleted before the new
-    // one ships, so the user sees one card on screen, not two.
+    // Second paste — the prior card slot must be reused (edited in
+    // place to Loading, then edited again to the final card). No
+    // sendMessage, no deleteMessage on the prior card: that's the
+    // delete-then-resend flash this test guards against.
     await h.run(messageUpdate(TOKEN_ADDR, 21));
 
     const calls = capture(fetchSpy);
-    const deletePrevIdx = calls.findIndex(
+    // The prior card id is edited twice: once to Loading, once to the
+    // final card body. Both must target `firstCardId`.
+    const editsOnPriorCard = calls.filter(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        (c.body as { message_id?: number }).message_id === firstCardId,
+    );
+    expect(editsOnPriorCard.length).toBeGreaterThanOrEqual(2);
+    expect(String(editsOnPriorCard[0]!.body.text)).toContain("Loading");
+    expect(
+      editsOnPriorCard.some((c) =>
+        String(c.body.text).includes("Test Token"),
+      ),
+    ).toBe(true);
+
+    // The only sendMessage the second paste fires (if any) is NOT a buy
+    // card or a Loading placeholder — those reuse the existing slot.
+    const stalePlaceholder = calls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        typeof c.body.text === "string" &&
+        (String(c.body.text).includes("Loading") ||
+          String(c.body.text).includes("Test Token")),
+    );
+    expect(stalePlaceholder).toBeUndefined();
+
+    // And the prior card must NOT be deleted — deleting it before the
+    // edit lands recreates the very flash this fix removes.
+    const deletePrior = calls.find(
       (c) =>
         c.url.includes("/deleteMessage") &&
         (c.body as { message_id?: number }).message_id === firstCardId,
     );
-    expect(deletePrevIdx).toBeGreaterThanOrEqual(0);
-    // The new card must land *after* the delete — otherwise the user
-    // sees both cards on screen for the brief window between the two
-    // calls, which is the exact regression this test guards against.
-    const newCardSentIdx = calls.findIndex((c) =>
-      c.url.includes("/sendMessage"),
-    );
-    expect(newCardSentIdx).toBeGreaterThan(deletePrevIdx);
+    expect(deletePrior).toBeUndefined();
   });
 
   it("non-address text outside any flow is ignored (no buy card, no error)", async () => {
