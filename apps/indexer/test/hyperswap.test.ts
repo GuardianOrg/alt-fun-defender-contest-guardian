@@ -153,17 +153,14 @@ describe("HyperSwapPair:Sync", () => {
       blockNumber: 500n,
       timestamp: 1700400000n,
     });
-    // `doUpdate` (latest-wins) — the most recent reserve in the second is
-    // the canonical close for any candle bucket ending in that second.
-    // `timestamp` is intentionally absent from the conflict-update payload:
-    // it's the bucket key, so updating it is a no-op and including it
-    // would just add noise to the SQL.
-    expect(snapshotInsert!.conflict).toBe("doUpdate");
-    expect(snapshotInsert!.conflictValues).toEqual({
-      curveSupply: 1_000_000n,
-      ltReserve: 5_000n,
-      blockNumber: 500n,
-    });
+    // `doNothing` (first-wins) — the FIRST Sync of a `(token, second)` bucket
+    // populates the row, every subsequent same-second Sync short-circuits at
+    // the unique-index check and is dropped before Postgres extends the heap.
+    // Cuts write IOPS proportional to the dedup ratio (~2× on ALT), and keeps
+    // bucket rows write-once for read-stability. See PR #985 review thread
+    // and the comment block in `apps/indexer/src/hyperswap.ts` for the
+    // first-vs-latest-wins discussion.
+    expect(snapshotInsert!.conflict).toBe("doNothing");
   });
 
   it("flips reserve mapping when the token is token1 in the pair", async () => {
@@ -241,13 +238,21 @@ describe("HyperSwapPair:Sync", () => {
     expect(body.data.tokenAmount).toBeUndefined();
   });
 
-  it("decimates same-second snapshot writes with latest-wins reserves (issue #978)", async () => {
+  it("decimates same-second snapshot writes with first-wins reserves (issue #978, PR #985 review)", async () => {
     // Two Sync events in the same block (same `block.timestamp`) — e.g. a
     // user swap immediately followed by an MEV tail-swap. The handler must
     // collapse them into a single `tokenSnapshot` row keyed
-    // `sync-bucket-${token}-${blockTs}`, with the second event's reserves
-    // overwriting the first via `onConflictDoUpdate` (NOT `doNothing`,
-    // which would freeze the candle close at the pre-tail-swap state).
+    // `sync-bucket-${token}-${blockTs}` with FIRST-wins semantics: both
+    // calls target the same bucket id, both pass `onConflictDoNothing`, and
+    // Postgres short-circuits the second one at the unique-index check
+    // before extending the heap or writing a WAL record.
+    //
+    // First-wins (not latest-wins) was chosen during PR #985 review — see
+    // the comment block in `apps/indexer/src/hyperswap.ts`. The mock DB
+    // doesn't simulate Postgres's index-level conflict resolution, so this
+    // test asserts the contract at the call-site level: same bucket id,
+    // `doNothing` conflict policy on both inserts, and the *first* call's
+    // reserves are what would be persisted by Postgres.
     db._setFindResult(hyperswapPairIndex, { pairAddress: "0xpair1" }, {
       pairAddress: "0xpair1",
       tokenAddress: "0xtoken1",
@@ -284,22 +289,28 @@ describe("HyperSwapPair:Sync", () => {
     const snapshotInserts = db._insertCalls.filter(
       (c) => c.table === tokenSnapshot,
     );
-    // Both calls happen against the SAME bucket id. Postgres applies the
-    // ON CONFLICT DO UPDATE on the second one, so the persisted row ends
-    // up with the second event's reserves — that's the verified contract.
     expect(snapshotInserts).toHaveLength(2);
     for (const ins of snapshotInserts) {
       expect((ins.values as { id: string }).id).toBe(
         "sync-bucket-0xtoken1-1700400000",
       );
-      expect(ins.conflict).toBe("doUpdate");
+      // `doNothing` on both — first-wins semantics, no `conflictValues`
+      // payload because we never overwrite. Postgres drops the second
+      // insert at the index check.
+      expect(ins.conflict).toBe("doNothing");
+      expect(ins.conflictValues).toBeUndefined();
     }
-    // The second event's reserves win — verifies the latest-per-second
-    // strategy from issue #978's acceptance criteria.
-    expect(snapshotInserts[1].conflictValues).toEqual({
-      curveSupply: 1_500n,
-      ltReserve: 1_800n,
+    // The first event's reserves are what would be persisted — Postgres's
+    // ON CONFLICT DO NOTHING leaves the existing row untouched on the
+    // second call. This is the verified row-immutability invariant: once
+    // a `(token, second)` bucket exists it never mutates.
+    expect(snapshotInserts[0].values).toEqual({
+      id: "sync-bucket-0xtoken1-1700400000",
+      tokenAddress: "0xtoken1",
+      curveSupply: 1_000n,
+      ltReserve: 2_000n,
       blockNumber: 500n,
+      timestamp: 1700400000n,
     });
   });
 
