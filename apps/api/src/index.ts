@@ -481,7 +481,7 @@ export default {
     );
 
     ctx.waitUntil(
-      refreshLiveLtAvailability().catch((err) => {
+      refreshLiveLtAvailability({ databaseUrl: env.DATABASE_URL }).catch((err) => {
         console.log(
           JSON.stringify({
             level: "error",

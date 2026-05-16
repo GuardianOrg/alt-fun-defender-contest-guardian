@@ -13,6 +13,7 @@ import {
   fetchTrendingCandidatesByVolume as readTrendingCandidatesByVolume,
   type TrendingVolumeCandidate,
 } from "./indexer-reads.js";
+import { readLiveLtRates } from "./lt-directory-reads.js";
 
 /** Fixed launch supply (1B × 1e18) used for mcap calculations. */
 export const TOKEN_SUPPLY = 1_000_000_000;
@@ -101,11 +102,6 @@ interface PonderTokenSnapshot {
   timestamp: string;
 }
 
-interface BounceLt {
-  address: string;
-  exchangeRate: string;
-}
-
 interface BounceHistoricalRow {
   token_address: string;
   exchange_rate: string;
@@ -152,8 +148,8 @@ export interface MarketDataItem {
  * - The frontend polls `/market-data` at 30s, so any rate sourced inside
  *   a single response is at most 5s stale — finer-grained than the poll
  *   cadence anyway.
- * - Eliminates ~95% of BounceTech `/leveraged-tokens` directory calls
- *   under the production tail (~22 market-data req/s × 30s window).
+ * - Eliminates ~95% of `lt_directory` mirror reads under the production
+ *   tail (~22 market-data req/s × 30s window).
  *
  * 2-10s is all defensible; if you change this, leave a note here.
  */
@@ -172,24 +168,27 @@ export function _resetLiveLtRatesCache(): void {
 }
 
 /**
- * Fetch the BounceTech LT directory (`/leveraged-tokens`) and reduce it to
- * a `Map<lt-address-lowercased, exchangeRate (USD per LT)>`. Cached per
- * isolate for `LIVE_LT_RATES_TTL_MS`.
+ * Build a `Map<lt-address-lowercased, exchangeRate (USD per LT)>` from
+ * the local `lt_directory` Postgres mirror (`readLiveLtRates`). Cached
+ * per isolate for `LIVE_LT_RATES_TTL_MS`.
  *
- * Coalescing: concurrent callers during a refresh share a single in-flight
- * `fetch` via the Promise lock — same pattern as `lt-availability.ts`.
+ * Coalescing: concurrent callers during a refresh share a single
+ * in-flight read via the Promise lock — same pattern as
+ * `lt-availability.ts`.
  *
- * Fail-open trade-off: when the BounceTech fetch fails (network error or
- * non-2xx) **and** we have a stale cached entry, we return the stale map
- * instead of `null`. A transient BounceTech blip would otherwise cascade
- * into 503s on every market-data response (the entire `/market-data`
- * surface returns `ok: false` when this is `null`); serving rates that
- * are at most a few extra seconds stale is strictly better than blanking
- * the price feed for every connected client. The first failure with no
- * cache (cold start during a BounceTech outage) still returns `null` so
- * the route can surface the upstream outage honestly.
+ * Fail-open trade-off: when the DB read fails **and** we have a stale
+ * cached entry, we return the stale map instead of `null`. A transient
+ * mirror outage would otherwise cascade into 503s on every market-data
+ * response (the entire `/market-data` surface returns `ok: false` when
+ * this is `null`); serving rates that are at most a few extra seconds
+ * stale is strictly better than blanking the price feed for every
+ * connected client. The first failure with no cache (cold start during
+ * a mirror outage) still returns `null` so the route can surface the
+ * upstream outage honestly.
  */
-export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
+export async function fetchLiveLtRates(
+  databaseUrl: string,
+): Promise<Map<string, number> | null> {
   const now = Date.now();
   if (liveLtRatesCache && liveLtRatesCache.expiresAt > now) {
     return liveLtRatesCache.map;
@@ -198,16 +197,8 @@ export async function fetchLiveLtRates(): Promise<Map<string, number> | null> {
 
   liveLtRatesInflight = (async () => {
     try {
-      const res = await fetch("https://indexing.bounce.tech/leveraged-tokens");
-      if (!res.ok) return liveLtRatesCache?.map ?? null;
-      const json = (await res.json()) as { data: BounceLt[] };
-      const map = new Map<string, number>();
-      for (const lt of json.data) {
-        map.set(
-          lt.address.toLowerCase(),
-          Number(BigInt(lt.exchangeRate)) / 1e18,
-        );
-      }
+      const map = await readLiveLtRates(databaseUrl);
+      if (map === null) return liveLtRatesCache?.map ?? null;
       liveLtRatesCache = { map, expiresAt: Date.now() + LIVE_LT_RATES_TTL_MS };
       return map;
     } catch {
@@ -693,9 +684,9 @@ export async function buildBatchFromTokens(
 
   // Run the live LT rate fetch in parallel with the historical / activity
   // queries. The cache makes most calls cheap, but on a cold isolate the
-  // BounceTech round-trip is on the order of the Postgres reads — letting
-  // them race shaves the slowest of (BounceTech, indexer, BounceTech-DB)
-  // off the critical path instead of paying their sum.
+  // mirror read is on the order of the indexer reads — letting them race
+  // shaves the slowest of (mirror, indexer, BounceTech-DB) off the
+  // critical path instead of paying their sum.
   const [
     liveLtRates,
     historicalCurve,
@@ -703,7 +694,7 @@ export async function buildBatchFromTokens(
     historicalLtRatesAtLaunch,
     routerActivity,
   ] = await Promise.all([
-    fetchLiveLtRates(),
+    fetchLiveLtRates(databaseUrl),
     fetchHistoricalCurveSnapshots(databaseUrl, oldTokenAddresses, cutoffSec),
     fetchHistoricalLtRates(bouncetechDbUrl, allLtAddresses, cutoffSec),
     fetchLtRatesAtLaunches(bouncetechDbUrl, newTokenLtInputs),
@@ -711,7 +702,7 @@ export async function buildBatchFromTokens(
   ]);
 
   if (liveLtRates === null) {
-    return { ok: false, error: "BounceTech API unavailable", code: 503 };
+    return { ok: false, error: "LT directory mirror unavailable", code: 503 };
   }
 
   // `buildPastPriceInputs` accepts null for each historical map and
