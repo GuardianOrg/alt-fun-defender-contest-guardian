@@ -1,17 +1,7 @@
-import { FeeVaultAbi } from "@launchpad/shared";
-import { createPublicClient, formatUnits, http } from "viem";
-
-import { API_BASE, fetchAllTokens } from "./api";
-import { hyperEVM } from "../config/chains";
+import { API_BASE, fetchAllTokens, fetchCreatorEarnings } from "./api";
 import { DEFAULT_TOKEN_IMAGE } from "../config/constants";
-import { ADDRESSES, USDC_DECIMALS } from "../contracts/addresses";
 
 import type { CreatorEarnings } from "./types";
-
-const publicClient = createPublicClient({
-  chain: hyperEVM,
-  transport: http(),
-});
 
 export interface ICreatorService {
   getEarnings(walletAddress: string): Promise<CreatorEarnings | null>;
@@ -21,38 +11,26 @@ export interface ICreatorService {
 const liveCreatorService: ICreatorService = {
   async getEarnings(walletAddress) {
     try {
-      // Server-side `creator` filter pushes the lookup into Postgres so we
-      // only paginate this wallet's tokens, not the full catalogue. Without
-      // it, a creator whose token slipped off the top-100-by-createdAt
-      // would see it disappear from the rewards tab the moment the platform
-      // crossed 100 launches (issue #476). `fetchAllTokens` walks the
-      // 100-row server cap until exhausted, so even a creator with hundreds
-      // of tokens is covered.
-      const createdTokens = await fetchAllTokens({ creator: walletAddress });
-
-      // Fees are pooled at the `FeeVault` level — a single USDC balance per
-      // creator covers every token they've launched. One read, not N.
-      const [claimableRaw, lifetimeRaw] = await Promise.all([
-        publicClient.readContract({
-          address: ADDRESSES.feeVault,
-          abi: FeeVaultAbi,
-          functionName: "creatorBalance",
-          args: [walletAddress as `0x${string}`],
-        }) as Promise<bigint>,
-        publicClient.readContract({
-          address: ADDRESSES.feeVault,
-          abi: FeeVaultAbi,
-          functionName: "lifetimeCreatorEarned",
-          args: [walletAddress as `0x${string}`],
-        }) as Promise<bigint>,
+      // Pooled vault totals come from the indexer-backed
+      // `GET /api/v1/creators/:address/earnings` endpoint — one HTTP
+      // call replaces the prior two `eth_call`s against
+      // `FeeVault.creatorBalance` / `lifetimeCreatorEarned` per 30s
+      // poll per mounted earnings/profile/creator-badge page. Server-
+      // side `creator` filter on the per-token list pushes the lookup
+      // into Postgres so we only paginate this wallet's tokens, not the
+      // full catalogue (issue #476). The two reads are independent —
+      // fetch them in parallel.
+      const [createdTokens, vaultEarnings] = await Promise.all([
+        fetchAllTokens({ creator: walletAddress }),
+        fetchCreatorEarnings(walletAddress),
       ]);
 
-      const totalClaimable = parseFloat(formatUnits(claimableRaw, USDC_DECIMALS));
-      const totalEarned = parseFloat(formatUnits(lifetimeRaw, USDC_DECIMALS));
-      // Claim events aren't tracked on the vault's state (balances reset on
-      // `claim`), so we derive claimed = lifetime earned − currently claimable.
-      // Clamp at 0 so block-time ordering quirks never show a negative.
-      const totalClaimed = Math.max(0, totalEarned - totalClaimable);
+      // Direct mapping — endpoint already runs the floor at zero and the
+      // float conversion server-side (using the precision-aware
+      // `usdcRawToUsd` split); see `apps/api/src/routes/creators.ts`.
+      const totalEarned = vaultEarnings.lifetimeEarnedUsd;
+      const totalClaimable = vaultEarnings.claimableUsd;
+      const totalClaimed = vaultEarnings.lifetimeClaimedUsd;
 
       if (createdTokens.length === 0) {
         return totalEarned > 0 || totalClaimable > 0

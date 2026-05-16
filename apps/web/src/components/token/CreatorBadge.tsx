@@ -4,6 +4,7 @@ import styles from "./CreatorBadge.module.css";
 import { CREATOR_FEE_SHARE_PCT } from "../../config/constants";
 import { useCreatorEarnings } from "../../hooks/useCreatorEarnings";
 import { useWallet } from "../../hooks/useWallet";
+import { formatUsd } from "../../utils/format";
 import Button from "../shared/Button";
 
 import type { Token } from "../../services/types";
@@ -63,7 +64,7 @@ export default function CreatorBadge({ token }: Props) {
               <div>
                 <div className={styles.statLabel}>volume</div>
                 <div className={styles.statValue}>
-                  ${tokenData.totalVolumeUsd.toLocaleString()}
+                  {formatUsd(tokenData.totalVolumeUsd)}
                 </div>
               </div>
               <div>
