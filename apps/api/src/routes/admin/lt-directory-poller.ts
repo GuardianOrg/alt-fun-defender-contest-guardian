@@ -13,6 +13,12 @@ ltDirectoryPoller.get("/", async (c) => {
 
   try {
     const res = await stub.fetch("https://internal/ensure");
+    if (!res.ok) {
+      return c.json(
+        formatError(`LtDirectoryPoller /ensure returned HTTP ${res.status}`),
+        503,
+      );
+    }
     const body = (await res.json()) as unknown;
     return c.json(formatSuccess(body));
   } catch (err) {

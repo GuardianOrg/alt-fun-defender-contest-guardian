@@ -83,6 +83,24 @@ describe("GET /admin/lt-directory-poller", () => {
     expect(stubFetch).toHaveBeenCalledWith("https://internal/ensure");
   });
 
+  it("returns 503 when the DO /ensure resolves non-2xx (no formatSuccess wrap)", async () => {
+    const stubFetch = vi.fn(
+      async () => new Response("upstream blew up", { status: 500 }),
+    );
+    const ns = makeNamespace(stubFetch);
+
+    const res = await createApp().request(
+      "/admin/lt-directory-poller",
+      { headers: { "X-Admin-Key": "test-admin-key" } },
+      makeEnv(ns),
+    );
+
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { status: string; error: string };
+    expect(body.status).toBe("error");
+    expect(body.error).toContain("LtDirectoryPoller /ensure returned HTTP 500");
+  });
+
   it("returns 503 with a formatError envelope when the DO stub throws", async () => {
     const stubFetch = vi.fn(async () => {
       throw new Error("network down");
