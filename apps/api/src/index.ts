@@ -98,7 +98,7 @@ app.use("*", async (c, next) => {
     // hammer that re-arms the alarm if one isn't queued.
     ltDirectoryPollerTouched = true;
     const id = c.env.LT_DIRECTORY_POLLER_DO.idFromName(
-      "lt-directory-poller",
+      "lt-directory-poller-v2",
     );
     const stub = c.env.LT_DIRECTORY_POLLER_DO.get(id);
     // `fetch().catch()` only fires on network-level rejection. A 4xx/5xx
@@ -398,7 +398,7 @@ export default {
     // DO constructor already self-schedules, this is the
     // belt-and-braces path for evictions + cold deploys).
     const directoryPollerId = env.LT_DIRECTORY_POLLER_DO.idFromName(
-      "lt-directory-poller",
+      "lt-directory-poller-v2",
     );
     const directoryPollerStub =
       env.LT_DIRECTORY_POLLER_DO.get(directoryPollerId);

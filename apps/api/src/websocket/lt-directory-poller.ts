@@ -3,7 +3,7 @@
  * (`LeveragedTokenHelper.getLeveragedTokens()`) into our Neon
  * `lt_directory` table.
  *
- * A single global instance (`idFromName("lt-directory-poller")`) wakes
+ * A single global instance (`idFromName("lt-directory-poller-v2")`) wakes
  * itself every {@link POLL_INTERVAL_MS} via Durable Object alarms. Each
  * tick:
  *   1. Sets the next alarm FIRST so a thrown handler can never halt the
