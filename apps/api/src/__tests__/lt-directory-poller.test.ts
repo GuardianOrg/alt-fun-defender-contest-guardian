@@ -346,4 +346,86 @@ describe("LtDirectoryPoller alarm", () => {
     expect(firstCall[0].pollSequence).toBe(1);
     expect(secondCall[0].pollSequence).toBe(2);
   });
+
+  it("skips malformed-leverage rows individually so one bad row can't fail the whole batch", async () => {
+    const { ctx, pendingInits } = createState();
+    const HYPE_3L_LOWER = "0xa000000000000000000000000000000000000002" as const;
+    const HYPE_5L_LOWER = "0xa000000000000000000000000000000000000003" as const;
+    stubHelperReturn([
+      {
+        leveragedToken: HYPE_2L_LOWER,
+        targetAsset: "HYPE",
+        targetLeverage: 2_000_000_000_000_000_000n,
+        isLong: true,
+        exchangeRate: 1n,
+        baseAssetBalance: 0n,
+        totalAssets: 0n,
+        mintPaused: false,
+      },
+      {
+        // Wildly out-of-range value — would overflow `integer` (max
+        // 2_147_483_647) post-descaling and atomically fail the batch
+        // upsert. Guard must skip this row instead.
+        leveragedToken: HYPE_3L_LOWER,
+        targetAsset: "HYPE",
+        targetLeverage:
+          10_000_000_000n * TARGET_LEVERAGE_SCALE_TEST,
+        isLong: true,
+        exchangeRate: 1n,
+        baseAssetBalance: 0n,
+        totalAssets: 0n,
+        mintPaused: false,
+      },
+      {
+        leveragedToken: HYPE_5L_LOWER,
+        targetAsset: "HYPE",
+        targetLeverage: 5_000_000_000_000_000_000n,
+        isLong: true,
+        exchangeRate: 1n,
+        baseAssetBalance: 0n,
+        totalAssets: 0n,
+        mintPaused: false,
+      },
+    ]);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const poller = await buildPoller(ctx, pendingInits, makeEnv());
+    await poller.alarm();
+
+    // Two good rows upserted; one bad row skipped.
+    expect(mockInsertChain.values).toHaveBeenCalledTimes(1);
+    const rows = mockInsertChain.values.mock.calls[0][0] as Array<{
+      targetLeverage: number;
+    }>;
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.targetLeverage).sort()).toEqual([2, 5]);
+
+    // Structured warn surfaces the skip so it shows up in live tail.
+    const events = logSpy.mock.calls
+      .map(([msg]) => {
+        try {
+          return JSON.parse(msg as string) as {
+            level?: string;
+            event?: string;
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter((e): e is { level: string; event: string } => e !== null);
+    expect(
+      events.some(
+        (e) =>
+          e.event === "lt_directory_invalid_target_leverage" &&
+          e.level === "warn",
+      ),
+    ).toBe(true);
+
+    logSpy.mockRestore();
+  });
 });
+
+// Mirrors the poller's TARGET_LEVERAGE_SCALE — kept local to the test so the
+// fixture can construct intentionally-out-of-range values without importing
+// from the module under test (and exposing the constant publicly).
+const TARGET_LEVERAGE_SCALE_TEST = 10n ** 18n;

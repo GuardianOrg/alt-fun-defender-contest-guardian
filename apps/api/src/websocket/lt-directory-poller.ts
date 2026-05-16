@@ -66,6 +66,15 @@ const POLL_INTERVAL_MS = 30_000;
 // surfaces any actual problem.
 const HEARTBEAT_LOG_EVERY_N_TICKS = 60;
 
+// On-chain `targetLeverage` is encoded as multiplier × 1e18.
+const TARGET_LEVERAGE_SCALE = 10n ** 18n;
+// Postgres signed-int32 max. Any descaled leverage above this would
+// overflow the `target_leverage integer` column and atomically fail the
+// entire batch upsert — exactly the bug that left the mirror empty for
+// hours before the unscaling fix landed. Guard per-row instead so one
+// malformed helper datum can't take down the whole tick.
+const PG_INTEGER_MAX = 2_147_483_647n;
+
 /**
  * Minimal ERC-20 metadata ABI for the one-shot `name`/`symbol`/
  * `decimals` multicall on newly-discovered LT addresses. Kept inline
@@ -334,17 +343,34 @@ export class LtDirectoryPoller extends DurableObject<AppBindings> {
         // half-populated one that downstream consumers have to
         // defensively guard against.
         if (!m) return null;
+        // Unscale BounceTech's wei-scaled targetLeverage (multiplier × 1e18)
+        // to the human-readable 2/3/5 that the schema column and every other
+        // consumer (`LiveLeveragedToken.targetLeverage: number`) expects.
+        // Divide as BigInt first — `Number(3e18n)` would silently lose
+        // precision past Number.MAX_SAFE_INTEGER (~9e15). Then per-row
+        // guard against malformed values (fractional encoding, negatives,
+        // or anything that would overflow `target_leverage integer` and
+        // atomically fail the whole batch upsert).
+        const unscaledTargetLeverage = d.targetLeverage / TARGET_LEVERAGE_SCALE;
+        const hasFractionalScale =
+          d.targetLeverage % TARGET_LEVERAGE_SCALE !== 0n;
+        if (
+          hasFractionalScale ||
+          unscaledTargetLeverage < 0n ||
+          unscaledTargetLeverage > PG_INTEGER_MAX
+        ) {
+          this.log("warn", "lt_directory_invalid_target_leverage", {
+            address: d.leveragedToken,
+            targetLeverage: d.targetLeverage.toString(),
+          });
+          return null;
+        }
         return {
           address: getAddress(d.leveragedToken),
           symbol: m.symbol,
           name: m.name,
           targetAsset: d.targetAsset,
-          // BounceTech encodes targetLeverage as multiplier × 1e18 on-chain.
-          // Unscale to match the human-readable 2/3/5 the schema column and
-          // every other consumer (`LiveLeveragedToken.targetLeverage: number`)
-          // expects. Divide as BigInt first — `Number(3e18n)` would silently
-          // lose precision past Number.MAX_SAFE_INTEGER (~9e15).
-          targetLeverage: Number(d.targetLeverage / 10n ** 18n),
+          targetLeverage: Number(unscaledTargetLeverage),
           isLong: d.isLong,
           decimals: m.decimals,
           exchangeRate: d.exchangeRate.toString(),
