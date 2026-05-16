@@ -818,6 +818,71 @@ describe("GET /tokens?sort=trending — volume-based candidate path", () => {
     expect(mockComputeMarketDataForAddresses).not.toHaveBeenCalled();
   });
 
+  it("only enriches the paginated slice, not the full candidate pool", async () => {
+    // Perf invariant: cold-cache trending was 20s because we used to
+    // hydrate + enrich all `TRENDING_POOL_SIZE` candidates and only
+    // sliced after market-data. The fix slices the candidate pool to
+    // `[offset, offset+limit]` *before* `computeMarketDataForAddresses`,
+    // so the BounceTech LATERAL scans only see page-size work.
+    //
+    // Five candidates ordered by volume desc; default page size on this
+    // request is `limit=2, offset=1` → only ADDR_B (middle of the page)
+    // and ADDR_C should be passed to enrichment.
+    const ADDR_D = "0x4444444444444444444444444444444444444444";
+    const ADDR_E = "0x5555555555555555555555555555555555555555";
+    mockFetchTrendingCandidatesByVolume.mockResolvedValueOnce([
+      { tokenAddress: ADDR_A.toLowerCase(), volume24hUsd: 5_000 },
+      { tokenAddress: ADDR_B.toLowerCase(), volume24hUsd: 4_000 },
+      { tokenAddress: ADDR_C.toLowerCase(), volume24hUsd: 3_000 },
+      { tokenAddress: ADDR_D.toLowerCase(), volume24hUsd: 2_000 },
+      { tokenAddress: ADDR_E.toLowerCase(), volume24hUsd: 1_000 },
+    ]);
+    currentDbRows.rows = [
+      makeDbRow(ADDR_A, { ticker: "AAA" }),
+      makeDbRow(ADDR_B, { ticker: "BBB" }),
+      makeDbRow(ADDR_C, { ticker: "CCC" }),
+      makeDbRow(ADDR_D, { ticker: "DDD" }),
+      makeDbRow(ADDR_E, { ticker: "EEE" }),
+    ];
+    mockComputeMarketDataForAddresses.mockResolvedValueOnce(
+      marketBatchOk([
+        {
+          address: ADDR_B,
+          onchain: makeOnchain(ADDR_B),
+          market: makeMarket(),
+        },
+        {
+          address: ADDR_C,
+          onchain: makeOnchain(ADDR_C),
+          market: makeMarket(),
+        },
+      ]),
+    );
+
+    const res = await createApp().request(
+      "/tokens?sort=trending&limit=2&offset=1",
+      {},
+      makeEnv(),
+    );
+    expect(res.status).toBe(200);
+
+    // The route MUST hand only the page-size slice to enrichment.
+    expect(mockComputeMarketDataForAddresses).toHaveBeenCalledTimes(1);
+    const enrichArgs = mockComputeMarketDataForAddresses.mock.calls[0];
+    const enrichAddresses = (enrichArgs?.[2] as string[]).map((a) =>
+      a.toLowerCase(),
+    );
+    expect(enrichAddresses).toEqual([
+      ADDR_B.toLowerCase(),
+      ADDR_C.toLowerCase(),
+    ]);
+
+    const body = (await res.json()) as {
+      data: Array<{ ticker: string }>;
+    };
+    expect(body.data.map((t) => t.ticker)).toEqual(["BBB", "CCC"]);
+  });
+
   it("preserves dataSource=degraded on an empty fallback page when the indexer is down", async () => {
     // Indexer returns null → fallback to createdAt-DESC slice → DB
     // happens to return zero rows (everything hidden/excluded). The
