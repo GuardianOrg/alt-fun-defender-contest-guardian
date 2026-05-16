@@ -1324,21 +1324,32 @@ export const renderExecutionError = (
     return "Insufficient HYPE for gas — top up the wallet and retry.";
   }
   if (result.kind === "pending") {
-    // Two variants — the "still polling" promise is only honest
-    // when a background poll is actually armed (DO state present,
-    // and the give-up timeout hasn't fired). The pending-tx-poller
-    // give-up path and the no-DO fallback path both pass
-    // `isPollingActive: false` so the copy doesn't lie about
-    // future updates that won't happen.
-    if (options.isPollingActive) {
+    // Three variants on the pending arm, distinguished by the
+    // tri-state `isPollingActive`:
+    //   - `true`  → a background poll is actually armed; promise
+    //               the bubble will update once the chain mines.
+    //   - `false` → we *tried* to arm one and failed (DO 500 / KV
+    //               throw / give-up timeout); be explicit that
+    //               polling has stopped.
+    //   - undefined → no background poll was attempted at all
+    //               (no DO state bound, admin/test entrypoint).
+    //               Render neutral "check the explorer" copy with
+    //               no polling-status claim either way.
+    if (options.isPollingActive === true) {
       return (
         `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
         `Still polling in the background; this message updates once mined. ` +
         `Explorer: ${explorerTxUrl(result.txHash)}`
       );
     }
+    if (options.isPollingActive === false) {
+      return (
+        `Tx pending — receipt not seen yet, no longer polling. ` +
+        `Check the explorer: ${explorerTxUrl(result.txHash)}`
+      );
+    }
     return (
-      `Tx pending — receipt not seen yet, no longer polling. ` +
+      `Tx pending — receipt not seen yet. ` +
       `Check the explorer: ${explorerTxUrl(result.txHash)}`
     );
   }

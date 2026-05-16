@@ -527,14 +527,20 @@ export const runWithTxStatusUpdates = async (
 
   if (outcome !== null) {
     // For the pending arm we want the bubble copy to reflect what
-    // actually got armed: only promise "still polling in the
-    // background" if the DO alarm scheduling step *succeeds*.
-    // Order: try to schedule first, then render with a known
-    // `isPollingActive` value, so a failed schedule (DO 500 / KV
-    // throw / missing doState) doesn't leave a "still polling"
-    // bubble pointing at no poll. CodeRabbit (#965) flagged the
-    // earlier "render-then-schedule" order as a UI lie.
-    let isPollingActive = false;
+    // actually got armed. `isPollingActive` is tri-state so the
+    // renderer can tell the three cases apart (see
+    // `renderExecutionError` in lib/trade.ts):
+    //   - undefined → no DO state bound, no poll attempted →
+    //                 neutral "check explorer" copy
+    //   - true      → schedulePendingTxPoll returned → promise an
+    //                 update once mined
+    //   - false     → tried to schedule but it threw → be explicit
+    //                 that polling has stopped
+    // Order: try to schedule first, then render with the resolved
+    // value. CodeRabbit (#965) flagged the earlier two-state
+    // collapse as conflating "no poll attempted" with "poll
+    // failed" — different user expectations, different copy.
+    let isPollingActive: boolean | undefined;
     if (
       outcome.kind === "executed" &&
       !outcome.result.ok &&
@@ -560,6 +566,7 @@ export const runWithTxStatusUpdates = async (
         isPollingActive = true;
       } catch (err) {
         logger.warn("schedule pendingTx poll failed", { err });
+        isPollingActive = false;
       }
     }
     await safeEditStatus(

@@ -842,10 +842,13 @@ describe("renderExecutionError with on-chain revert", () => {
     expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
   });
 
-  it("defaults to no-polling copy when the flag is omitted", () => {
-    // Default option must be the safer of the two — no false
-    // promise of background updates if the caller forgot to pass
-    // the flag.
+  it("defaults to neutral pending copy when the flag is omitted (no polling-status claim either way)", () => {
+    // CodeRabbit (#965 round 3) flagged that conflating
+    // "undefined" (no poll attempted) with "false" (poll
+    // attempted but failed) is wrong: the no-DO entry points
+    // (admin scripts, tests) never armed a poll, so the bubble
+    // should make no polling-status claim at all. The two
+    // explicit variants stay reachable via the flag.
     const reply = renderExecutionError({
       ok: false,
       kind: "pending",
@@ -853,8 +856,11 @@ describe("renderExecutionError with on-chain revert", () => {
       txHash:
         "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
     });
-    expect(reply).toMatch(/no longer polling/i);
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toMatch(/explorer/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
     expect(reply).not.toMatch(/still polling/i);
+    expect(reply).not.toMatch(/no longer polling/i);
   });
 });
 

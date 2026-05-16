@@ -1312,9 +1312,10 @@ describe("runWithTxStatusUpdates", () => {
   it("skips background scheduling when no DO state is bound (admin / test entrypoints)", async () => {
     // Without `ctx.doState` there is no alarm queue to hand the tx
     // off to — the bubble stays at "⏳ Tx pending" and the user must
-    // check the explorer themselves. Just verify the helper does not
-    // throw and does not mutate any storage.
-    const { ctx } = buildStatusCtx();
+    // check the explorer themselves. The neutral pending copy must
+    // not claim either polling state (no poll was attempted, so
+    // neither "still polling" nor "no longer polling" is honest).
+    const { ctx, edits } = buildStatusCtx();
     expect((ctx as unknown as { doState?: unknown }).doState).toBeUndefined();
     const outcome = await runWithTxStatusUpdates({
       ctx,
@@ -1337,6 +1338,13 @@ describe("runWithTxStatusUpdates", () => {
       pendingDelayMs: 60_000,
     });
     expect(outcome.kind).toBe("executed");
+    const finalEdit = edits[edits.length - 1]!.text;
+    expect(finalEdit).toMatch(/Tx pending/i);
+    expect(finalEdit).toContain(
+      "hyperevmscan.io/tx/0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface",
+    );
+    expect(finalEdit).not.toMatch(/still polling/i);
+    expect(finalEdit).not.toMatch(/no longer polling/i);
   });
 });
 
