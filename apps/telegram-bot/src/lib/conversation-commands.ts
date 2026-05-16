@@ -60,13 +60,7 @@ export const tryAddressBuyIntercept = async (
   if (!addr) return false;
   await sweepWorkflow(conversation);
   await conversation.external((outerCtx) =>
-    // `forceFreshPlacement` skips the prior-buy-card reuse path: the
-    // stored `lastBuyCardMessageByChat` slot often sits far upstream
-    // from where the user is currently typing (a stale standalone
-    // paste). Editing it leaves the wizard with deleted prompt + paste
-    // and no visible response near the cursor — see the placement-
-    // option doc on `showBuyCardForAddress` for the full rationale.
-    showBuyCardForAddress(outerCtx, addr, { forceFreshPlacement: true }),
+    showBuyCardForAddress(outerCtx, addr),
   );
   return true;
 };
