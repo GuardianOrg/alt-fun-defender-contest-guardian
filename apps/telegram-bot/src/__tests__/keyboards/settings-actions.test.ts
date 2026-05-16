@@ -77,6 +77,17 @@ describe("buildExecSpeedKeyboard", () => {
     expect(labels).toContain("✏️ 0.1 gwei");
   });
 
+  it("marks only the FIRST matching slot when two slots share the active value", () => {
+    // CodeRabbit PR #969 — without this guard, edits that collide on
+    // a value would render with `•` on every matching slot at once.
+    const rows = buildExecSpeedKeyboard([0.5, 0.5, 0.1], 0.5);
+    const labels = flatLabels(rows);
+    const bulletCount = labels.filter((t) => t.startsWith("•")).length;
+    expect(bulletCount).toBe(1);
+    expect(labels[0]).toBe("• 0.5 gwei •");
+    expect(labels[1]).toBe("✏️ 0.5 gwei");
+  });
+
   it("encodes the slot index in the callback payload", () => {
     const rows = buildExecSpeedKeyboard([0.5, 0.15, 0.1], 0.5);
     const callbacks = rows

@@ -246,15 +246,19 @@ export const buildExecSpeedKeyboard = (
   tipPresetsGwei: readonly number[],
   activeTipGwei: number,
 ): InlineKeyboard => {
-  const buttons = tipPresetsGwei.map((gwei, idx) => {
-    const isActive = gwei === activeTipGwei;
-    return {
-      text: isActive
+  // Two slots can share a value (the user is free to set, say,
+  // [0.5, 0.5, 0.1]); marking every match with `•` makes the panel
+  // claim multiple "active" buttons at once. Mark only the FIRST
+  // slot whose value matches the active tip — keeps the active-vs-
+  // edit affordance unambiguous regardless of preset duplication.
+  const activeIdx = tipPresetsGwei.findIndex((g) => g === activeTipGwei);
+  const buttons = tipPresetsGwei.map((gwei, idx) => ({
+    text:
+      idx === activeIdx
         ? `• ${formatTipLabel(gwei)} •`
         : `✏️ ${formatTipLabel(gwei)}`,
-      callback_data: encodeTipPresetSlot(idx),
-    };
-  });
+    callback_data: encodeTipPresetSlot(idx),
+  }));
   return [buttons, backHomeRow()];
 };
 

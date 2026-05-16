@@ -1,4 +1,5 @@
 import { KvAdapter } from "@grammyjs/storage-cloudflare";
+import { DEFAULT_TIP_PRESETS_GWEI } from "./keyboards/settings-actions.js";
 import {
   type ConversationData,
   type ConversationFlavor,
@@ -137,13 +138,15 @@ export interface SessionData {
  */
 const DEFAULT_BUY_PRESETS = [20, 40, 60, 80, 100] as const;
 const DEFAULT_SELL_PRESETS = [10, 25, 50, 75, 100] as const;
-const DEFAULT_TIP_PRESETS_GWEI = [0.5, 0.15, 0.1] as const;
 
 const buildDefaultSession = (): SessionData => ({
   slippageBps: 1000,
   defaultBuyUsdc: 20,
   buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
   sellPresetsPct: [...DEFAULT_SELL_PRESETS],
+  // Source of truth for tip presets lives in
+  // keyboards/settings-actions.ts so the normaliser, the UI
+  // fallbacks, and the session defaults can never drift apart.
   executionTipPresetsGwei: [...DEFAULT_TIP_PRESETS_GWEI],
   executionTipGwei: DEFAULT_TIP_PRESETS_GWEI[0],
   degenMode: true,
