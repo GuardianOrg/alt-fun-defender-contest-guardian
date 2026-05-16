@@ -22,8 +22,27 @@ const BASE_URL = `http://localhost:${PORT}`;
 const STARTUP_TIMEOUT_MS = 30_000;
 const POLL_INTERVAL_MS = 1_000;
 const REQUEST_TIMEOUT_MS = 10_000;
-const DATABASE_PROBE_RETRIES = 3;
-const DATABASE_PROBE_RETRY_DELAY_MS = 1_000;
+// Neon serverless staging compute scales to zero between CI runs and
+// `suspend_timeout_seconds: 0` means it suspends *immediately* on idle
+// — so the typical CI cold path is a fully suspended compute. Observed
+// cold-start on the staging project (`bounce-data-staging`,
+// 0.25-1 CU, ap-southeast-1) is ~80 seconds wall-clock from the first
+// HTTPS attempt to a healthy 200 reply. While the wake-up is in flight
+// Neon returns `HTTP 500 + neon:retryable: true` quickly on each
+// attempt rather than hanging the connection; the fixed-attempt-count
+// retry pattern therefore exhausted its budget in ~20 s of fast
+// failures before the wake-up landed (previously: 8 × 10 s, then
+// 2 × 60 s — both failed for the same reason).
+//
+// We now use a deadline-based loop: retry until either the probe
+// succeeds, returns a non-retryable error, or the total wall-clock
+// budget elapses. Each attempt is bounded by `DATABASE_PROBE_TIMEOUT_MS`
+// (covers hung connections); the loop's outer deadline (`*_BUDGET_MS`)
+// bounds the cumulative wait so the smoke test stays under the
+// `timeout-minutes: 3` job ceiling.
+const DATABASE_PROBE_BUDGET_MS = 120_000;
+const DATABASE_PROBE_TIMEOUT_MS = 15_000;
+const DATABASE_PROBE_RETRY_DELAY_MS = 2_000;
 
 function randomAddress() {
   const hex = "0123456789abcdef";
@@ -49,6 +68,15 @@ function getVarFromDevVars(filePath, key) {
 const devVarsPath = fileURLToPath(new URL("../.dev.vars", import.meta.url));
 const databaseUrl =
   process.env.DATABASE_URL?.trim() || getVarFromDevVars(devVarsPath, "DATABASE_URL");
+// The chart probe (see `/api/v1/chart` below) depends on the BounceTech
+// LT exchange-rate DB for its `generate_series` query; the route returns
+// 500 when the binding is missing. Detect that here so we can skip the
+// chart probe gracefully instead of failing the smoke test on a missing
+// dev secret. Mirrors the `databaseUrl` lookup above so the probe still
+// runs against whatever `wrangler dev` picks up via `.dev.vars`.
+const bouncetechDatabaseUrl =
+  process.env.BOUNCETECH_DATABASE_URL?.trim() ||
+  getVarFromDevVars(devVarsPath, "BOUNCETECH_DATABASE_URL");
 
 /**
  * Race a promise against a timeout. Neon's HTTP driver does not honour
@@ -75,9 +103,21 @@ async function withTimeout(promise, timeoutMs, label) {
 
 async function getDatabaseReadiness(connectionString) {
   const sql = neon(connectionString);
+  const deadline = Date.now() + DATABASE_PROBE_BUDGET_MS;
   let lastError = null;
+  let attempts = 0;
 
-  for (let attempt = 1; attempt <= DATABASE_PROBE_RETRIES; attempt++) {
+  while (Date.now() < deadline) {
+    // Cap each attempt at the smaller of the per-call cold-start
+    // timeout and whatever's left of the overall deadline — without
+    // this clamp, an attempt fired near the end of the budget could
+    // overshoot the deadline by up to `DATABASE_PROBE_TIMEOUT_MS`,
+    // pushing the smoke test against the `timeout-minutes: 3` job
+    // ceiling. CodeRabbit feedback on PR #982.
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const effectiveTimeout = Math.min(DATABASE_PROBE_TIMEOUT_MS, remaining);
+    attempts++;
     try {
       const probe = sql`
         SELECT
@@ -86,7 +126,7 @@ async function getDatabaseReadiness(connectionString) {
       `;
       const [row] = await withTimeout(
         probe,
-        REQUEST_TIMEOUT_MS,
+        effectiveTimeout,
         "Indexer view probe",
       );
       return {
@@ -97,15 +137,22 @@ async function getDatabaseReadiness(connectionString) {
       };
     } catch (error) {
       lastError = error;
-      if (attempt < DATABASE_PROBE_RETRIES) {
-        await sleep(DATABASE_PROBE_RETRY_DELAY_MS);
-      }
+      // Neon's HTTP driver wraps cold-start errors with a JSON body
+      // containing `neon:retryable: true`. Any other error shape is a
+      // hard failure (auth error, bad URL, missing role, etc.) where
+      // burning the full retry budget would just slow the smoke test
+      // down without changing the outcome.
+      const message = error instanceof Error ? error.message : String(error);
+      const isRetryable = /"neon:retryable":\s*true/.test(message);
+      if (!isRetryable) break;
+      if (Date.now() + DATABASE_PROBE_RETRY_DELAY_MS >= deadline) break;
+      await sleep(DATABASE_PROBE_RETRY_DELAY_MS);
     }
   }
 
   const reason = lastError instanceof Error ? lastError.message : String(lastError);
   console.warn(
-    "Could not probe database readiness before smoke test; skipping DB-backed endpoint checks",
+    `Could not probe database readiness before smoke test (${attempts} attempts over ${Math.round((Date.now() - (deadline - DATABASE_PROBE_BUDGET_MS)) / 1000)} s); skipping DB-backed endpoint checks`,
     reason,
   );
   return {
@@ -463,6 +510,140 @@ async function runTests() {
     assert(res.status === 200, `Expected 200, got ${res.status}`);
     assert(Array.isArray(body.data.underlying), "Missing underlying");
     assert(Array.isArray(body.data.leveragedTokens), "Missing leveragedTokens");
+  });
+
+  // ─── Chart endpoint ────────────────────────────────────────────────
+  //
+  // The chart route is the single highest-engagement element on a token
+  // page and was silently 503'ing on the busiest token (ALT) for weeks
+  // before the direct-Postgres cut-over in #951. The failure mode was
+  // load-correlated: pagination capped at 20k rows, so the regression
+  // fired first on top-traffic tokens and last on local fixtures —
+  // exactly the class of bug a static seed-against-a-known-token probe
+  // misses. Hitting the live top-trending token's chart at every
+  // user-pickable timeframe + a representative interval sample bounds
+  // that risk by failing the smoke test on day 1 of any similar
+  // per-token cap regression. See issue #976.
+  console.log("\n--- Chart endpoint ---\n");
+
+  /**
+   * The set of (timeframe, interval) pairs the frontend can request.
+   * Mirrors the user-visible chart toolbar — every value here is reachable
+   * from a single click in the production UI, so each is a legitimate
+   * regression surface. Three explicit interval cases (60s / 5m / 4h)
+   * cover the spread between fine-grained intraday and coarse multi-hour
+   * candles where row-count caps tend to trip.
+   */
+  const CHART_PROBE_CASES = [
+    { q: "timeframe=1d", label: "tf=1d" },
+    { q: "timeframe=5d", label: "tf=5d" },
+    { q: "timeframe=1m", label: "tf=1m" },
+    { q: "interval=60", label: "iv=60" },
+    { q: "interval=300", label: "iv=300" },
+    { q: "interval=14400", label: "iv=14400" },
+  ];
+
+  async function probeChartAddress(address) {
+    for (const probeCase of CHART_PROBE_CASES) {
+      const res = await fetchWithTimeout(
+        `${BASE_URL}/api/v1/chart/${address}?${probeCase.q}`,
+      );
+      assert(
+        res.status === 200,
+        `chart ${probeCase.label} for ${address}: HTTP ${res.status}`,
+      );
+      // Treat a non-JSON body as a probe failure rather than letting the
+      // raw SyntaxError surface — the chart route always returns JSON in
+      // the contract under test, so a parse failure here is itself a
+      // regression signal.
+      let body;
+      try {
+        body = await res.json();
+      } catch (err) {
+        throw new Error(
+          `chart ${probeCase.label} for ${address}: non-JSON body (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      assert(
+        body?.status === "success",
+        `chart ${probeCase.label} for ${address}: status=${body?.status} error=${body?.error}`,
+      );
+      assert(
+        Array.isArray(body?.data?.candles),
+        `chart ${probeCase.label} for ${address}: missing data.candles array`,
+      );
+    }
+  }
+
+  /**
+   * Resolve a token address from `/api/v1/tokens` and fail the smoke
+   * test on any discovery-side regression so the chart probe doesn't
+   * silently skip when the very endpoint it's trying to defend has
+   * broken. CodeRabbit feedback on PR #982: previously a 5xx or a
+   * malformed-but-200 response on the listing endpoint would collapse
+   * into `skip("no trending token available to probe")` and mask the
+   * regression. The contract assertions below mirror the shape the
+   * existing `GET /api/v1/tokens returns list` test already enforces
+   * up the file — same gate, different reason.
+   *
+   * Returns `null` only when the listing succeeds with an empty
+   * catalogue (legitimately-empty trending tab on a fresh DB), which
+   * the caller turns into a `skip` rather than a failure.
+   */
+  async function discoverTokenAddress(path, label) {
+    const { res, body } = await fetchJson(path);
+    assert(res.status === 200, `${label} discovery: HTTP ${res.status}`);
+    assert(
+      body?.status === "success" && Array.isArray(body?.data),
+      `${label} discovery: malformed response contract (status=${body?.status} data=${typeof body?.data})`,
+    );
+    return body.data[0]?.address ?? null;
+  }
+
+  await test("Chart probes top trending token at every timeframe + interval", async () => {
+    skipIfDatabaseUnavailable();
+    if (!bouncetechDatabaseUrl) {
+      skip("BOUNCETECH_DATABASE_URL unset — chart route requires the LT-rate DB");
+    }
+    // `sort=trending` ranks by rolling 24h gross volume — the address
+    // returned here is the highest-snapshot-count token in the
+    // catalogue, which is the worst case for any per-token row cap.
+    const topTrending = await discoverTokenAddress(
+      "/api/v1/tokens?limit=1&sort=trending",
+      "trending token",
+    );
+    if (!topTrending) skip("no trending token available to probe");
+    await probeChartAddress(topTrending);
+  });
+
+  await test("Chart probes most-recently launched token", async () => {
+    skipIfDatabaseUnavailable();
+    if (!bouncetechDatabaseUrl) {
+      skip("BOUNCETECH_DATABASE_URL unset — chart route requires the LT-rate DB");
+    }
+    // Default sort is `createdAt desc` (see `apps/api/src/routes/tokens/list.ts`),
+    // which gives the newest launched token — a different code path from
+    // the trending probe above because pre-graduation tokens have a
+    // much smaller snapshot window and exercise the empty-/short-history
+    // branches in `buildPriceTimeline`. If we land on the same address
+    // as the trending probe (small catalogues), skip to avoid redundant
+    // work.
+    const newest = await discoverTokenAddress(
+      "/api/v1/tokens?limit=1",
+      "newest token",
+    );
+    if (!newest) skip("no recently launched token available to probe");
+    const topTrending = await discoverTokenAddress(
+      "/api/v1/tokens?limit=1&sort=trending",
+      "trending token",
+    );
+    if (
+      topTrending &&
+      newest.toLowerCase() === topTrending.toLowerCase()
+    ) {
+      skip("newest == top trending — already covered by previous probe");
+    }
+    await probeChartAddress(newest);
   });
 }
 

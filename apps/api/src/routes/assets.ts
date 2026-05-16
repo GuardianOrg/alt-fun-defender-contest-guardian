@@ -16,6 +16,16 @@ import type { AppBindings } from "../lib/types.js";
 let cachedMids: { data: Record<string, string>; ts: number } | null = null;
 
 const CACHE_TTL_MS = 10_000;
+// Bound the Hyperliquid `/info` fan-out so a stalled CDN can't pin the
+// request indefinitely. The endpoint is p99 ≪ 1 s under normal load;
+// the 5 s cap absorbs transient latency spikes while still failing
+// fast enough to fall through to the per-isolate cache within a
+// single client-side poll cycle. Mirrors the budget pattern used by
+// `fetchWithTimeout` in the API smoke-test harness — without it a
+// hung external CDN silently consumes the Worker's 30 s subrequest
+// budget, which is what surfaced as a 10 s smoke-test timeout on
+// `/api/v1/assets` during a CI run.
+const EXTERNAL_FETCH_TIMEOUT_MS = 5_000;
 
 /**
  * Test-only hook: drop the per-isolate `mids` cache between vitest cases.
@@ -27,22 +37,125 @@ export function _resetAssetsRouteCache(): void {
   cachedMids = null;
 }
 
+/**
+ * Wrap a `fetch` in an `AbortController` so a stuck remote can't hang
+ * the route past `timeoutMs`. Returns the response on success; throws
+ * (and lets the caller fall through to its catch + cache fallback) on
+ * timeout or network failure. Extracted instead of inlining so both
+ * fan-outs share the exact same abort semantics — divergence between
+ * them would otherwise let one external dep dominate the other's
+ * latency budget.
+ */
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchMids(): Promise<Record<string, string>> {
   if (cachedMids && Date.now() - cachedMids.ts < CACHE_TTL_MS) {
     return cachedMids.data;
   }
   try {
-    const res = await fetch(HYPERLIQUID_INFO_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "allMids" }),
-    });
+    const res = await fetchWithTimeout(
+      HYPERLIQUID_INFO_API,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "allMids" }),
+      },
+      EXTERNAL_FETCH_TIMEOUT_MS,
+    );
     const data = (await res.json()) as Record<string, string>;
     cachedMids = { data, ts: Date.now() };
     return data;
   } catch {
     return cachedMids?.data ?? {};
   }
+}
+
+/**
+ * DB-read budget for `/assets`. A cold Neon compute can keep the HTTPS
+ * connection open for tens of seconds before either succeeding or
+ * surfacing an error; without an explicit cap the route ends up
+ * waiting the full per-request budget on the caller side (e.g. the 10 s
+ * wall in `scripts/smoke-test.mjs`). 4 s is more than enough for a
+ * warm read and short enough that a cold-DB user gets the "show
+ * everything" fallback within their normal poll cadence. Matches the
+ * `EXTERNAL_FETCH_TIMEOUT_MS` pattern above for budget symmetry.
+ */
+const DB_READ_TIMEOUT_MS = 4_000;
+
+/**
+ * Race a promise against a wall-clock timeout. On timeout the wrapped
+ * call's settlement is ignored (Neon's HTTPS driver doesn't honour an
+ * AbortSignal at the per-query level) — so the SQL eventually completes
+ * server-side but the caller's bounded promise resolves with
+ * `fallback`. Used to bound DB reads inside route handlers when the
+ * underlying lib doesn't expose its own timeout knob.
+ *
+ * Critically, only the *timer* path resolves with `fallback`: a
+ * genuine rejection from the wrapped promise propagates to the caller
+ * so `app.onError` still gets a chance to log + surface a real
+ * failure. CodeRabbit feedback on the original implementation: a
+ * blanket `.catch(() => resolve(fallback))` would have silently
+ * swallowed e.g. an auth error from `readSupportedLtDirectory` and
+ * served a degraded "show everything" page on top of a permanent
+ * misconfiguration. The `settled` latch covers the race where the
+ * wrapped promise eventually rejects *after* the timer has already
+ * fired — the rejection is still observed (no unhandled rejection in
+ * Workers) but treated as a no-op.
+ */
+function withDbTimeout<T>(
+  promise: Promise<T>,
+  fallback: T,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      // Structured log on the timeout-fallback path so ops can spot
+      // chronic degraded reads in Cloudflare logs / `wrangler tail`
+      // without scraping for missing data. Matches the
+      // `console.log(JSON.stringify(...))` convention used elsewhere
+      // in `apps/api/src` (e.g. `lib/lt-directory-reads.ts`).
+      console.log(
+        JSON.stringify({
+          level: "warn",
+          event: "db_read_timeout_fallback",
+          helper: label,
+          timeoutMs,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      resolve(fallback);
+    }, timeoutMs);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 const assets = new Hono<{ Bindings: AppBindings }>();
@@ -56,11 +169,36 @@ assets.get("/", async (c) => {
     // (poller hasn't backfilled yet or the DB read failed) — fall back to
     // an empty supported list. The availability snapshot below carries
     // the "show everything when degraded" semantics for the response.
-    readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
+    // Wrapped in `withDbTimeout` so a cold Neon compute can't pin the
+    // route past `DB_READ_TIMEOUT_MS` — a hung HTTPS-to-Neon connection
+    // is the failure mode we saw in CI cold-start runs (the lib's own
+    // try/catch only handles thrown errors, not stalls).
+    withDbTimeout(
+      readSupportedLtDirectory(c.env.DATABASE_URL).then((d) => d ?? []),
+      [],
+      DB_READ_TIMEOUT_MS,
+      "readSupportedLtDirectory",
+    ),
     // Don't let a stuck availability lookup take down `/assets` — fall
     // back to the cached snapshot (or "unknown, don't filter") on
     // failure. See `lt-availability.ts` for the fail-open rationale.
-    getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null),
+    //
+    // `getLiveLtAvailability` is the longest dependency in this
+    // fan-out: on a cache miss it does its own `lt_directory` DB
+    // read plus a per-symbol BounceTech HEAD sweep. Its internal
+    // `REFRESH_TIMEOUT_MS` (15 s) only bounds the HEAD sweep, not
+    // the upstream DB read — so a cold Neon would otherwise pin
+    // `/assets` past every reasonable caller budget despite the
+    // adjacent `withDbTimeout` on the sibling `readSupportedLtDirectory`
+    // call. Reuse `withDbTimeout` here so the fan-out's tail latency
+    // is the max of three 4 s / 5 s bounded paths, not the
+    // unbounded internal of one slow lib.
+    withDbTimeout(
+      getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null),
+      null,
+      DB_READ_TIMEOUT_MS,
+      "getLiveLtAvailability",
+    ),
   ]);
 
   // When availability is `null` (initial cold start raced with a failing
