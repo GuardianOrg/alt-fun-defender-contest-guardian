@@ -52,6 +52,16 @@ export interface SessionData {
    * the default `[10, 25, 50, 75, 100]`.
    */
   sellPresetsPct?: number[];
+  /**
+   * 3-slot customizable execution-speed tip presets in gwei (issue #967).
+   * `executionTipGwei` is the currently-active tip and is what gets
+   * plumbed into `lib/trade.ts` as `maxPriorityFeePerGas` on every
+   * sendTransaction. Older sessions have these undefined;
+   * `normaliseTipPresets` falls back to the default `[0.5, 0.15, 0.1]`
+   * and the active tip falls back to slot 0.
+   */
+  executionTipPresetsGwei?: number[];
+  executionTipGwei?: number;
   antiPhishingPhrase?: string;
   degenMode: boolean;
   /**
@@ -127,12 +137,15 @@ export interface SessionData {
  */
 const DEFAULT_BUY_PRESETS = [20, 40, 60, 80, 100] as const;
 const DEFAULT_SELL_PRESETS = [10, 25, 50, 75, 100] as const;
+const DEFAULT_TIP_PRESETS_GWEI = [0.5, 0.15, 0.1] as const;
 
 const buildDefaultSession = (): SessionData => ({
   slippageBps: 1000,
   defaultBuyUsdc: 20,
   buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
   sellPresetsPct: [...DEFAULT_SELL_PRESETS],
+  executionTipPresetsGwei: [...DEFAULT_TIP_PRESETS_GWEI],
+  executionTipGwei: DEFAULT_TIP_PRESETS_GWEI[0],
   degenMode: true,
 });
 

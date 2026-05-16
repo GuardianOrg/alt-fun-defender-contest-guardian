@@ -509,6 +509,17 @@ export interface ExecuteBuyArgs {
   referrer?: Hex;
   /** Optional KV commit-log to dedupe submission retries. */
   idempotency?: IdempotencyBinding;
+  /**
+   * Flat priority-fee tip in wei plumbed into every `sendTransaction`
+   * as `maxPriorityFeePerGas` (issue #967). When unset viem derives the
+   * tip from `eth_feeHistory` percentile — which rolls 0 on HyperEVM
+   * where many txs bid 0, leaving submitted txs stuck in the mempool.
+   * Callers (`/buy`, `/sell`) read this from
+   * `ctx.session.executionTipGwei` so the value the user picks in
+   * `/settings → Execution Speed` is exactly what lands on-chain. No
+   * multiplier, no cancel-and-replace ladder — flat tip per AGENTS.md.
+   */
+  priorityFeeWei?: bigint;
 }
 
 export interface ExecuteSellArgs {
@@ -526,6 +537,8 @@ export interface ExecuteSellArgs {
   referrer?: Hex;
   /** Optional KV commit-log to dedupe submission retries. */
   idempotency?: IdempotencyBinding;
+  /** Same as `ExecuteBuyArgs.priorityFeeWei` — see there. */
+  priorityFeeWei?: bigint;
 }
 
 export type ExecutionResult =
@@ -607,6 +620,7 @@ const ensureAllowance = async (
   owner: Address,
   spender: Address,
   amount: bigint,
+  priorityFeeWei?: bigint,
 ): Promise<Hash | null> => {
   const current = (await publicClient.readContract({
     address: token,
@@ -632,6 +646,9 @@ const ensureAllowance = async (
     to: token,
     data,
     gas: bufferGas(estimated),
+    ...(priorityFeeWei !== undefined
+      ? { maxPriorityFeePerGas: priorityFeeWei }
+      : {}),
   });
   // Block until the approve is mined — the buy/sell that follows reads
   // allowance from `latest` state and would race otherwise.
@@ -1045,6 +1062,7 @@ export const executeBuy = async (
           args.trader,
           router,
           args.usdcAmount,
+          args.priorityFeeWei,
         );
       }
     }
@@ -1128,6 +1146,9 @@ export const executeBuy = async (
       to: router,
       data,
       gas: bufferGas(estimated),
+      ...(args.priorityFeeWei !== undefined
+        ? { maxPriorityFeePerGas: args.priorityFeeWei }
+        : {}),
     });
 
     if (args.idempotency) {
@@ -1201,6 +1222,7 @@ export const executeSell = async (
           args.trader,
           router,
           args.tokenAmount,
+          args.priorityFeeWei,
         );
       }
     }
@@ -1274,6 +1296,9 @@ export const executeSell = async (
       to: router,
       data,
       gas: bufferGas(estimated),
+      ...(args.priorityFeeWei !== undefined
+        ? { maxPriorityFeePerGas: args.priorityFeeWei }
+        : {}),
     });
 
     if (args.idempotency) {

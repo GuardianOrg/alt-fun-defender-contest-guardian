@@ -6,6 +6,7 @@ import {
   encodeErrorResult,
   encodeEventTopics,
   parseAbi,
+  parseTransaction,
   recoverTypedDataAddress,
 } from "viem";
 import { BotFeeRouterAbi } from "@launchpad/shared";
@@ -1174,6 +1175,54 @@ describe("executeBuy idempotency", () => {
     // Every write must carry the TTL so the slot doesn't leak forever.
     for (const w of writesForKey) {
       expect(w.options?.expirationTtl).toBe(INTENT_TTL_SECONDS);
+    }
+  });
+
+  // Issue #967 — the bot was previously submitting txs with
+  // `maxPriorityFeePerGas = 0` (viem's `feeHistory` percentile rolls 0
+  // on HyperEVM where many txs bid 0). The user-configured tip from
+  // `/settings → Execution Speed` MUST end up as the
+  // `maxPriorityFeePerGas` on every `eth_sendRawTransaction` payload —
+  // not a multiple of it, not a percentile-derived value. We parse the
+  // raw tx bytes server-side so the assertion measures the exact value
+  // the JSON-RPC node would see, not just the viem-side intent.
+  it("plumbs `priorityFeeWei` through as `maxPriorityFeePerGas` on the sent tx", async () => {
+    const kv = new InMemoryKv();
+    const TIP_WEI = 500_000_000n; // 0.5 gwei — the issue #967 default.
+    let capturedRaw: string | null = null;
+    fetchSpy.mockImplementation(
+      makeFetch({
+        onSendRaw: (raw) => {
+          capturedRaw = raw;
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: TX_HASH_SUCCESS }),
+            { status: 200 },
+          );
+        },
+      }) as never,
+    );
+
+    const result = await executeBuy(
+      { HYPEREVM_RPC_URL: RPC_URL, BOT_FEE_ROUTER_ADDRESS: ROUTER },
+      {
+        token: TOKEN as `0x${string}`,
+        usdcAmount: 20_000_000n,
+        trader: TRADER_FOR_KEY,
+        privateKey: PRIVATE_KEY,
+        slippageBps: 100,
+        idempotency: { kv, key: intentKey(7, "n-tip") },
+        priorityFeeWei: TIP_WEI,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (typeof capturedRaw !== "string") {
+      throw new Error("eth_sendRawTransaction was not invoked");
+    }
+    const tx = parseTransaction(capturedRaw as `0x${string}`);
+    expect(tx.type).toBe("eip1559");
+    if (tx.type === "eip1559") {
+      expect(tx.maxPriorityFeePerGas).toBe(TIP_WEI);
     }
   });
 });

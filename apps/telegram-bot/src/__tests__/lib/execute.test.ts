@@ -648,6 +648,55 @@ describe("confirmTrade idempotency wiring", () => {
     expect(call[1].idempotency).toBeDefined();
     expect(call[1].idempotency?.key).toBe(`txintent:7:${nonce}`);
   });
+
+  it("plumbs the active execution-speed tip into executeBuy as priorityFeeWei (issue #967)", async () => {
+    execBuySpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xabc",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    // Active tip 0.15 gwei → 150_000_000 wei.
+    const { ctx } = await fakeCtx({
+      executionTipPresetsGwei: [0.5, 0.15, 0.1],
+      executionTipGwei: 0.15,
+    });
+    const { nonce } = stageBuy({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      usdcRaw: 20_000_000n,
+    });
+    await confirmTrade(ctx, nonce);
+    const call = execBuySpy.mock.calls[0] as [
+      unknown,
+      { priorityFeeWei?: bigint },
+    ];
+    expect(call[1].priorityFeeWei).toBe(150_000_000n);
+  });
+
+  it("falls back to the slot-0 default (0.5 gwei) when no active tip is stored", async () => {
+    execSellSpy.mockResolvedValue({
+      ok: true,
+      txHash: "0xbeef",
+      quotedOut: 1n,
+      minOut: 1n,
+    });
+    const { ctx } = await fakeCtx();
+    const { nonce } = stageSell({
+      ctx,
+      token: TOKEN,
+      ticker: "T",
+      tokenRaw: 10n ** 18n,
+    });
+    await confirmTrade(ctx, nonce);
+    const call = execSellSpy.mock.calls[0] as [
+      unknown,
+      { priorityFeeWei?: bigint },
+    ];
+    // 0.5 gwei = 500_000_000 wei.
+    expect(call[1].priorityFeeWei).toBe(500_000_000n);
+  });
 });
 
 describe("submitBuy / submitSell (degen-mode entry)", () => {
