@@ -1,3 +1,5 @@
+import { describeError } from "./log-error.js";
+
 const FALLBACK_URL = "http://localhost:42069";
 const PAGE_SIZE = 1000;
 /**
@@ -23,115 +25,6 @@ const HEALTH_CHECK_TIMEOUT = 3000;
  * only need enough to identify the query and grep for it in the source.
  */
 const LOG_QUERY_SNIPPET_LEN = 200;
-
-/**
- * Maximum number of stack-trace lines to retain on the unwrapped `cause`.
- * Mirrors the same constant in `indexer-reads.ts` — five is enough to
- * identify the originating frame without bloating the log line. Issue #974.
- */
-const CAUSE_STACK_LINES = 5;
-
-/**
- * Defence-in-depth redaction list for error-sidecar logging. Mirrors the
- * same pattern in `indexer-reads.ts` so both swallow paths produce
- * structurally-identical (and equally-redacted) payloads. CodeRabbit
- * feedback on PR #983.
- */
-const SENSITIVE_ERROR_KEY_PATTERN =
-  /authorization|cookie|token|secret|password|passwd|api[-_]?key|database[-_]?url|connection[-_]?string|dsn/i;
-
-/**
- * Walk a JSON-safe value and replace any field whose key looks
- * credential-shaped with `"[REDACTED]"`. Mirrors `redactSensitive` in
- * `indexer-reads.ts`.
- */
-function redactSensitive(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(redactSensitive);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(
-        ([key, fieldValue]) => [
-          key,
-          SENSITIVE_ERROR_KEY_PATTERN.test(key)
-            ? "[REDACTED]"
-            : redactSensitive(fieldValue),
-        ],
-      ),
-    );
-  }
-  return value;
-}
-
-/**
- * Best-effort shallow clone for arbitrary error sidecars (`cause` /
- * `sourceError` / unstructured `code`). `JSON.parse(JSON.stringify(...))`
- * strips functions and prototype chains, but throws on circular
- * structures — fall back to `String(...)` so the surrounding log line
- * stays valid in that pathological case. The result is then walked
- * through `redactSensitive` so a future Ponder client upgrade can't
- * leak a credential through a sidecar. Mirrors `indexer-reads.ts`.
- * Issue #974, CodeRabbit feedback on PR #983.
- */
-function sanitizeErrorSidecar(value: unknown): unknown {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  if (typeof value !== "object") return value;
-  try {
-    return redactSensitive(JSON.parse(JSON.stringify(value)));
-  } catch {
-    return String(value);
-  }
-}
-
-/**
- * Defensive serializer for `error.code`. Untyped on `Error` proper, so a
- * thrown value could carry an object or a circular structure here, and
- * an unguarded `JSON.stringify` of the outer log payload would throw
- * and lose the entire failure log. CodeRabbit feedback on PR #983.
- */
-function safeErrorCode(code: unknown): unknown {
-  if (code === undefined) return undefined;
-  if (typeof code === "string" || typeof code === "number") return code;
-  return sanitizeErrorSidecar(code);
-}
-
-/**
- * Build the structured `error` payload for the JSON log line. Pulls
- * `error.cause` / `error.code` / `error.sourceError` to the top level so
- * Cloudflare log search can pivot on the underlying failure (network
- * timeout, AbortSignal, …) without grepping the wrapper message. Mirrors
- * the same helper in `indexer-reads.ts` so the two log shapes stay in
- * step. Issue #974.
- */
-function describeError(error: unknown): unknown {
-  if (!(error instanceof Error)) {
-    return error === undefined ? undefined : String(error);
-  }
-  const err = error as Error & {
-    cause?: unknown;
-    code?: unknown;
-    sourceError?: unknown;
-  };
-  const cause = err.cause;
-  const causeShape =
-    cause instanceof Error
-      ? {
-          name: cause.name,
-          message: cause.message,
-          stack: cause.stack
-            ?.split("\n")
-            .slice(0, CAUSE_STACK_LINES)
-            .join("\n"),
-        }
-      : sanitizeErrorSidecar(cause);
-  return {
-    name: error.name,
-    message: error.message,
-    code: safeErrorCode(err.code),
-    cause: causeShape,
-    sourceError: sanitizeErrorSidecar(err.sourceError),
-  };
-}
 
 /**
  * Compact failure logger for `queryPonder`. The three swallow paths
