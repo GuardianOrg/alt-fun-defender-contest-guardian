@@ -931,12 +931,15 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
     );
 
     expect(res.status).toBe(200);
-    // The directive must exactly match what `edgeCacheableJsonHeader(3)`
+    // The directive must exactly match what `edgeCacheableJsonHeader(1)`
     // produces — pin both the TTL value and the SWR companion so a
     // future refactor of either constant breaks loudly. Mirrors the
-    // pinning style used in `trades.test.ts`.
+    // pinning style used in `trades.test.ts`. 1 s matches
+    // `TRADES_LIVE_TAIL_TTL_SECONDS`, HyperEVM's 1 s block time, and
+    // the LtTicker DO's 1 s broadcast cadence (see CHART_CACHE_TTL_SECONDS
+    // docstring in `routes/chart.ts`).
     expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, s-maxage=3, stale-while-revalidate=6",
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
     // Cache write happens under the same URL the pre-auth
     // `serveFromEdgeCache` middleware will read from on the next
@@ -968,7 +971,7 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, s-maxage=3, stale-while-revalidate=6",
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
     expect(cachePut).toHaveBeenCalledTimes(1);
   });
@@ -997,7 +1000,7 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, s-maxage=3, stale-while-revalidate=6",
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
     expect(cachePut).toHaveBeenCalledTimes(1);
   });
@@ -1132,7 +1135,7 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
 
       expect(res.status).toBe(200);
       expect(res.headers.get("Cache-Control")).toBe(
-        "public, max-age=0, s-maxage=3, stale-while-revalidate=6",
+        "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
       );
       // The write was attempted (and rejected) — proves the route
       // didn't short-circuit around the cache.
@@ -1178,7 +1181,7 @@ describe("GET /chart/:address — edge cache (issue #973)", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe(
-      "public, max-age=0, s-maxage=3, stale-while-revalidate=6",
+      "public, max-age=0, s-maxage=1, stale-while-revalidate=2",
     );
   });
 });

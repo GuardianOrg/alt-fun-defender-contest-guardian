@@ -60,18 +60,42 @@ export const MAX_CANDLES = 500;
  * Neon, so concurrent viewers of the same `(token, interval/timeframe)`
  * pair multiply origin compute and Neon-HTTP load.
  *
- * 3 seconds collapses every concurrent miss for the same canonical URL
- * to a single origin compute per POP per window and matches
- * `MARKET_DATA_CACHE_TTL_SECONDS` in `routes/market-data.ts`. WebSocket
- * `price` ticks update the in-progress candle between fetches so the
- * cache TTL is invisible to users (the WS path is the source of
- * truth for live updates; the REST response only seeds the timeline).
+ * **1 second** matches `TRADES_LIVE_TAIL_TTL_SECONDS` in `routes/trades.ts`
+ * (the existing project convention for live-feed endpoints) and is
+ * deliberately the smallest meaningful unit on this stack:
+ *
+ *   - HyperEVM block time is 1 s → a cached chart is at most one
+ *     block stale, which is the freshness floor of any read against
+ *     the chain.
+ *   - `LtTicker` DO broadcasts on the `price` channel every 1 s
+ *     (matched to BounceTech's `token_snapshots_v1` write cadence),
+ *     so the WS-driven live overlay refreshes at the same cadence
+ *     the cache could go stale at. By the time anyone could observe
+ *     a 1 s cache miss, the live overlay has already moved on.
+ *
+ * 1 s still collapses bursts of concurrent miss-traffic for the same
+ * canonical URL into one origin compute per POP per window — chart
+ * compute runs ~600-1000 ms per origin call so even sub-second TTLs
+ * absorb the bulk of a thundering-herd reload (issue #973).
+ *
+ * Why not 3 s (the issue's original suggestion): the chart's REST
+ * response feeds the frontend's in-progress-candle anchor
+ * (`useChartData.ts` → `ratioRef` / `exchangeRateRef`). Tabs already
+ * open are unaffected by any TTL — every `trade` WS event resets
+ * `ratioRef` to the fresh post-trade value. But a fresh chart load
+ * landing on a cached entry inherits a `currentRatio` that's up to
+ * TTL seconds behind the live state, and stays that way until the
+ * next `trade` WS event fires. On a viral pump that's milliseconds;
+ * on a quiet token it doesn't matter. Either way, holding the
+ * worst-case window to 1 s matches the trades live-tail and keeps
+ * the chart "lively" by the same metric the rest of the live-feed
+ * surfaces use.
  *
  * Set on every 200 response from this route. Error returns (400 / 404 /
  * 503 / 500) are uncached — temporary upstream failures must not pin
  * a bad response in the edge for the TTL window. See issue #973.
  */
-export const CHART_CACHE_TTL_SECONDS = 3;
+export const CHART_CACHE_TTL_SECONDS = 1;
 
 // Maximum number of historical candles the API will hydrate per request.
 // The frontend defaults its visible viewport to a much smaller window (120
