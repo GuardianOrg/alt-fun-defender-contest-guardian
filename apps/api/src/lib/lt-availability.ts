@@ -295,17 +295,21 @@ async function performRefresh(options: {
   if (directory.length === 0) {
     // No directory entries means the `lt_directory` mirror is empty
     // (cold start, poller hasn't run yet). Don't clobber a previously-
-    // populated cache.
+    // populated cache, and don't store the empty snapshot to the
+    // module cache either — caching `{}` as "fresh" for `CACHE_TTL_MS`
+    // would make every request behave as fresh-empty for the next 5
+    // minutes even after the poller backfills. Return a transient
+    // empty snapshot whose `expiresAt: 0` guarantees the next call
+    // re-attempts the refresh immediately. CodeRabbit caught this on
+    // PR #972 review.
     if (cache) return cache;
-    const empty: CacheSnapshot = {
+    return {
       liveAddresses: new Set(),
       liveSymbols: new Set(),
       liveUnderlyings: new Set(),
       directoryAddresses: new Set(),
-      expiresAt: Date.now() + CACHE_TTL_MS,
+      expiresAt: 0,
     };
-    cache = empty;
-    return empty;
   }
 
   // Populate the directory-membership set up front from the directory

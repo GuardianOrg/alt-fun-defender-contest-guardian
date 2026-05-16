@@ -492,4 +492,43 @@ describe("default directory fetcher (lt_directory mirror)", () => {
     // or override `fetchSupportedLts`.
     await expect(getLiveLtAvailability()).rejects.toThrow(/databaseUrl/);
   });
+
+  it("does NOT cache an empty mirror snapshot as fresh on first boot", async () => {
+    // Regression pin: an empty `lt_directory` mirror (cold start, poller
+    // hasn't backfilled yet) used to be stored in the module cache with
+    // `expiresAt: Date.now() + CACHE_TTL_MS` and served as "fresh: true"
+    // for the next 5 minutes — masking the poller backfill. The fix
+    // returns a transient empty snapshot WITHOUT writing it to the
+    // module cache so the very next call re-attempts the refresh.
+    const fetchSupportedLts = vi
+      .fn<() => Promise<LiveLeveragedToken[]>>()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        makeLT({
+          address: "0xffff000000000000000000000000000000000020",
+          symbol: "LATE2L",
+          targetAsset: "HYPE",
+          targetLeverage: 2,
+          isLong: true,
+        }),
+      ]);
+
+    const first = await getLiveLtAvailability({
+      fetchSupportedLts,
+      checkSymbolLive: async () => true,
+    });
+    expect(first.liveSymbols.size).toBe(0);
+    // The cached view must also reflect "no fresh snapshot yet" so
+    // route handlers fail open instead of filtering everything out.
+    expect(getCachedLtAvailability().fresh).toBe(false);
+
+    // Second call (e.g. ~30s later when the poller has backfilled) must
+    // re-attempt the refresh, not serve the stored empty snapshot.
+    const second = await getLiveLtAvailability({
+      fetchSupportedLts,
+      checkSymbolLive: async () => true,
+    });
+    expect(fetchSupportedLts).toHaveBeenCalledTimes(2);
+    expect(second.liveSymbols.has("LATE2L")).toBe(true);
+  });
 });

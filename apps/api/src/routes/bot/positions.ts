@@ -126,13 +126,12 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
  * what is actually a healthy position.
  */
 const fetchCurrentPricesUsdc18dp = async (
-  ponderUrl: string,
   databaseUrl: string,
   addresses: string[],
 ): Promise<Map<string, bigint>> => {
   if (addresses.length === 0) return new Map();
   const [tokens, ltRates] = await Promise.all([
-    fetchTokensOnchainByAddresses(ponderUrl, addresses),
+    fetchTokensOnchainByAddresses(databaseUrl, addresses),
     fetchLiveLtRates(databaseUrl),
   ]);
   const out = new Map<string, bigint>();
@@ -348,11 +347,7 @@ const fetchPositions = async (
       const openTokens = Array.from(
         new Set(open.map((p) => p.token.toLowerCase())),
       );
-      const liveMark = await fetchCurrentPricesUsdc18dp(
-        ponderUrl,
-        databaseUrl,
-        openTokens,
-      );
+      const liveMark = await fetchCurrentPricesUsdc18dp(databaseUrl, openTokens);
       for (const p of open) {
         const priceUsdc18dp = liveMark.get(p.token.toLowerCase());
         if (priceUsdc18dp === undefined) continue;
