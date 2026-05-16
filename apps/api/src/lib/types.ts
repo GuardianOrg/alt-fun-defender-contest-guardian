@@ -27,7 +27,7 @@ export interface AppBindings {
   LT_TICKER_DO: DurableObjectNamespace;
   /**
    * Global `LtDirectoryPoller` instance (single shard, addressed via
-   * `idFromName("lt-directory-poller")`). Owns the periodic refresh of
+   * `idFromName("lt-directory-poller-v2")`). Owns the periodic refresh of
    * the `lt_directory` Postgres table by reading
    * `LeveragedTokenHelper.getLeveragedTokens()` on a 30s alarm cadence.
    * Touched once per Worker isolate (via `/ensure`) and once per cron
