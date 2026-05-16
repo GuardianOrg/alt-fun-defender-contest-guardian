@@ -1,4 +1,5 @@
 import { KvAdapter } from "@grammyjs/storage-cloudflare";
+import { DEFAULT_TIP_PRESETS_GWEI } from "./keyboards/settings-actions.js";
 import {
   type ConversationData,
   type ConversationFlavor,
@@ -52,6 +53,16 @@ export interface SessionData {
    * the default `[10, 25, 50, 75, 100]`.
    */
   sellPresetsPct?: number[];
+  /**
+   * 3-slot customizable execution-speed tip presets in gwei (issue #967).
+   * `executionTipGwei` is the currently-active tip and is what gets
+   * plumbed into `lib/trade.ts` as `maxPriorityFeePerGas` on every
+   * sendTransaction. Older sessions have these undefined;
+   * `normaliseTipPresets` falls back to the default `[0.5, 0.15, 0.1]`
+   * and the active tip falls back to slot 0.
+   */
+  executionTipPresetsGwei?: number[];
+  executionTipGwei?: number;
   antiPhishingPhrase?: string;
   degenMode: boolean;
   /**
@@ -133,6 +144,11 @@ const buildDefaultSession = (): SessionData => ({
   defaultBuyUsdc: 20,
   buyPresetsUsdc: [...DEFAULT_BUY_PRESETS],
   sellPresetsPct: [...DEFAULT_SELL_PRESETS],
+  // Source of truth for tip presets lives in
+  // keyboards/settings-actions.ts so the normaliser, the UI
+  // fallbacks, and the session defaults can never drift apart.
+  executionTipPresetsGwei: [...DEFAULT_TIP_PRESETS_GWEI],
+  executionTipGwei: DEFAULT_TIP_PRESETS_GWEI[0],
   degenMode: true,
 });
 

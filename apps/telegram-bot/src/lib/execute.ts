@@ -14,6 +14,10 @@
 
 import type { AppContext } from "../bot.js";
 import { sendStartPromptAfterTrade } from "../commands/start.js";
+import {
+  normaliseTipPresets,
+  resolveActiveTipGwei,
+} from "../keyboards/settings-actions.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
@@ -38,6 +42,24 @@ import { WalletManager } from "./wallet.js";
 
 /** How long a staged trade intent stays valid before the Confirm becomes a no-op. */
 export const CONFIRM_WINDOW_MS = 60_000;
+
+/**
+ * Convert a gwei tip (e.g. `0.5`) to wei as `bigint`. Multiplies the
+ * gwei value by 1e6 first (six significant fractional digits is more
+ * than enough for any tip the user could realistically configure — the
+ * settings wizard caps the input to `MAX_TIP_GWEI = 100`) so the
+ * subsequent `* 10n^3n` integer multiplication preserves sub-gwei
+ * precision without dragging in a decimal-arithmetic dependency. The
+ * higher-precision path matters because `parseGwei("0.15")` from viem
+ * would round-trip through floating-point and bring its own subtle
+ * rounding quirks; this helper is allocation-free and locked to the
+ * settings layer's invariants (gwei ≥ MIN_TIP_GWEI, ≤ MAX_TIP_GWEI).
+ */
+export const activeTipGweiToWei = (gwei: number): bigint => {
+  // 1 gwei = 1e9 wei; carrying 6 fractional digits ⇒ multiplier 1e3.
+  const microGwei = Math.round(gwei * 1_000_000);
+  return BigInt(microGwei) * 1_000n;
+};
 
 /**
  * Canonical alt.fun token tracking page for a given contract address.
@@ -202,6 +224,18 @@ export const confirmTrade = async (
   const token = intent.token as Hex;
   const amount = BigInt(intent.amountRaw);
   const referrer = await loadReferrer(ctx.env, ctx.from.id);
+  // Resolve the flat priority-fee tip the user picked in
+  // `/settings → Execution Speed` (issue #967). Plumb as
+  // `maxPriorityFeePerGas` on every sendTransaction so the bot
+  // never bids 0 tip on HyperEVM. No multiplier, no
+  // cancel-and-replace — the user's slot value lands on-chain
+  // verbatim.
+  const priorityFeeWei = activeTipGweiToWei(
+    resolveActiveTipGwei(
+      normaliseTipPresets(ctx.session.executionTipPresetsGwei),
+      ctx.session.executionTipGwei,
+    ),
+  );
 
   // Persistent commit-log keyed on (userId, nonce). The in-memory clear
   // of `pendingTrade` above protects against a duplicate Confirm tap
@@ -225,6 +259,7 @@ export const confirmTrade = async (
           slippageBps,
           referrer,
           idempotency,
+          priorityFeeWei,
         })
       : await executeSell(ctx.env, {
           token,
@@ -234,6 +269,7 @@ export const confirmTrade = async (
           slippageBps,
           referrer,
           idempotency,
+          priorityFeeWei,
         });
 
   // Best-effort sweep of every transient message tracked on the

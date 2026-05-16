@@ -15,6 +15,16 @@ export const SETTINGS_CALLBACK = {
   slipCustom: "set:slipx",
   buySettings: "set:bs",
   sellSettings: "set:ss",
+  execSettings: "set:es", // issue #967 — opens the execution-speed sub-menu
+  /**
+   * Per-slot execution-speed tip button (issue #967). Encoded as
+   * `set:tps<idx>`. Tapping a slot that is NOT currently active
+   * selects it as the new active tip; tapping the active slot opens
+   * the edit wizard so the user can change that slot's gwei value.
+   * Dual-mode keeps the sub-menu at three buttons total instead of six
+   * (one select + one pencil per slot).
+   */
+  tipPresetSlot: "set:tps",
   buyPresetSlot: "set:bp", // appended with slot index 0..4
   sellPresetSlot: "set:sp", // appended with slot index 0..4
   degenToggle: "set:dgn",
@@ -30,7 +40,95 @@ export interface SettingsStatus {
   defaultBuyUsdc: number;
   degenMode: boolean;
   antiPhishingPhrase: string | null;
+  executionTipGwei: number;
 }
+
+/**
+ * Defaults for the execution-speed tip sub-menu (issue #967). Slot 0
+ * is also the default active tip; the higher the tip, the higher the
+ * chance the block builder picks the bot's tx in the next block.
+ */
+export const DEFAULT_TIP_PRESETS_GWEI: readonly number[] = [0.5, 0.15, 0.1];
+
+/** Number of tip preset slots on the execution-speed sub-menu. */
+export const TIP_PRESETS_LENGTH = 3;
+
+/**
+ * Minimum tip (gwei). A zero tip is what got us into issue #967 in the
+ * first place — disallow it so the user cannot edit a slot back into
+ * the broken state.
+ */
+export const MIN_TIP_GWEI = 0.001;
+
+/**
+ * Max tip (gwei). Past this every reasonable HyperEVM tx is paying
+ * orders of magnitude more than the prod-jp 2 gwei baseline — almost
+ * certainly a fat-fingered decimal point rather than an intentional
+ * setting, so we cap at the wizard layer.
+ */
+export const MAX_TIP_GWEI = 100;
+
+/** `set:tps<idx>` — callback for the i-th tip-preset slot. */
+export const encodeTipPresetSlot = (idx: number): string =>
+  `${SETTINGS_CALLBACK.tipPresetSlot}${idx}`;
+
+export const decodeTipPresetSlot = (data: string): number | null => {
+  if (!data.startsWith(SETTINGS_CALLBACK.tipPresetSlot)) return null;
+  const rest = data.slice(SETTINGS_CALLBACK.tipPresetSlot.length);
+  if (!/^\d+$/.test(rest)) return null;
+  const n = Number(rest);
+  return Number.isInteger(n) ? n : null;
+};
+
+/**
+ * Normalise the stored tip-preset array against `[MIN_TIP_GWEI,
+ * MAX_TIP_GWEI]`. Sessions written before issue #967 have no
+ * `executionTipPresetsGwei`; readers fall back to the defaults.
+ * Out-of-range slots fall back to the same-index default.
+ */
+export const normaliseTipPresets = (
+  stored: readonly number[] | undefined,
+): number[] => {
+  const base =
+    Array.isArray(stored) && stored.length === TIP_PRESETS_LENGTH
+      ? stored
+      : DEFAULT_TIP_PRESETS_GWEI;
+  return base.map((raw, idx) => {
+    if (!Number.isFinite(raw) || raw < MIN_TIP_GWEI || raw > MAX_TIP_GWEI) {
+      return DEFAULT_TIP_PRESETS_GWEI[idx]!;
+    }
+    return raw;
+  });
+};
+
+/**
+ * Resolve the active tip (gwei). Older sessions store no
+ * `executionTipGwei` — fall back to slot 0 of the (normalised) preset
+ * list, which is also the default 0.5 gwei for fresh installs.
+ */
+export const resolveActiveTipGwei = (
+  presets: readonly number[],
+  active: number | undefined,
+): number => {
+  if (
+    typeof active === "number" &&
+    Number.isFinite(active) &&
+    active >= MIN_TIP_GWEI &&
+    active <= MAX_TIP_GWEI
+  ) {
+    return active;
+  }
+  return presets[0] ?? DEFAULT_TIP_PRESETS_GWEI[0]!;
+};
+
+/** Compact label for a gwei tip — strips trailing zeros to keep buttons tight. */
+export const formatTipLabel = (gwei: number): string => {
+  if (Number.isInteger(gwei)) return `${gwei} gwei`;
+  // 0.5 → "0.5", 0.15 → "0.15", 0.1 → "0.1". Strip trailing zeros and
+  // a dangling dot.
+  const s = gwei.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+  return `${s} gwei`;
+};
 
 /** `set:slip<bps>` — encode a preset bps value into a compact callback string. */
 export const encodeSlippagePreset = (bps: number): string =>
@@ -111,6 +209,12 @@ export const buildSettingsKeyboard = (
     slipRow,
     [
       {
+        text: `Execution Speed: ${formatTipLabel(status.executionTipGwei)}`,
+        callback_data: SETTINGS_CALLBACK.execSettings,
+      },
+    ],
+    [
+      {
         text: "Buy Settings",
         callback_data: SETTINGS_CALLBACK.buySettings,
       },
@@ -128,6 +232,34 @@ export const buildSettingsKeyboard = (
     ],
     backHomeRow(),
   ];
+};
+
+/**
+ * Render the 3-slot Execution Speed sub-menu (issue #967). Each slot
+ * is a dual-mode button:
+ *   - Tap an inactive slot → select it as the new active tip.
+ *   - Tap the active slot   → open the gwei edit wizard for that slot.
+ * The active slot is bookended with `•` so the user can tell which
+ * value is currently being plumbed into `maxPriorityFeePerGas`.
+ */
+export const buildExecSpeedKeyboard = (
+  tipPresetsGwei: readonly number[],
+  activeTipGwei: number,
+): InlineKeyboard => {
+  // Two slots can share a value (the user is free to set, say,
+  // [0.5, 0.5, 0.1]); marking every match with `•` makes the panel
+  // claim multiple "active" buttons at once. Mark only the FIRST
+  // slot whose value matches the active tip — keeps the active-vs-
+  // edit affordance unambiguous regardless of preset duplication.
+  const activeIdx = tipPresetsGwei.findIndex((g) => g === activeTipGwei);
+  const buttons = tipPresetsGwei.map((gwei, idx) => ({
+    text:
+      idx === activeIdx
+        ? `• ${formatTipLabel(gwei)} •`
+        : `✏️ ${formatTipLabel(gwei)}`,
+    callback_data: encodeTipPresetSlot(idx),
+  }));
+  return [buttons, backHomeRow()];
 };
 
 /**
