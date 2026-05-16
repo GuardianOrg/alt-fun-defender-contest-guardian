@@ -85,7 +85,11 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
     ltReserve,
   });
 
-  const snapshotId = `sync-${event.transaction.hash}-${event.log.logIndex}`;
+  // Per-second snapshot decimation: one `tokenSnapshot` row per
+  // `(tokenAddress, blockTs)` bucket via deterministic id +
+  // `onConflictDoNothing()` (first-wins). Policy rationale lives in
+  // `apps/indexer/AGENTS.md` → *Per-second snapshot decimation* (issue #978).
+  const snapshotId = `sync-bucket-${idx.tokenAddress}-${event.block.timestamp.toString()}`;
   await db
     .insert(tokenSnapshot)
     .values({
@@ -105,6 +109,12 @@ ponder.on("HyperSwapPair:Sync", async ({ event, context }) => {
   // for post-grad swaps come from the `Zap:Buy` / `Zap:Sell` broadcasts
   // (which fire in the same tx) plus the REST `/api/v1/trades` poll
   // fallback. See `TradeBroadcast`'s docstring for the full split.
+  //
+  // The broadcast fires unconditionally on every Sync (subject to the
+  // `isLiveEvent` backfill guard) — it is intentionally NOT gated on the
+  // database-side dedup. The chart's live tick aggregator merges every
+  // tick into the in-progress candle for sub-second high/low fidelity;
+  // suppressing intra-second ticks would visibly flat-line the candle.
   if (isLiveEvent(event.block.timestamp)) {
     broadcastEvent({
       event: "trade",

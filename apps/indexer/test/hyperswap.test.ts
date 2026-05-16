@@ -140,14 +140,26 @@ describe("HyperSwapPair:Sync", () => {
 
     const snapshotInsert = db._insertCalls.find((c) => c.table === tokenSnapshot);
     expect(snapshotInsert).toBeDefined();
+    // Id is now per-second per-token (`sync-bucket-${token}-${blockTs}`)
+    // rather than per-event (`sync-${txHash}-${logIndex}`) — the per-second
+    // decimation collapses MEV bot tail-swaps and multi-step arbitrage
+    // routes inside the same block into a single snapshot row. See issue
+    // #978 and the comment block in `apps/indexer/src/hyperswap.ts`.
     expect(snapshotInsert!.values).toEqual({
-      id: "sync-0xsynctx-7",
+      id: "sync-bucket-0xtoken1-1700400000",
       tokenAddress: "0xtoken1",
       curveSupply: 1_000_000n,
       ltReserve: 5_000n,
       blockNumber: 500n,
       timestamp: 1700400000n,
     });
+    // `doNothing` (first-wins) — the FIRST Sync of a `(token, second)` bucket
+    // populates the row, every subsequent same-second Sync short-circuits at
+    // the unique-index check and is dropped before Postgres extends the heap.
+    // Cuts write IOPS proportional to the dedup ratio (~2× on ALT), and keeps
+    // bucket rows write-once for read-stability. See PR #985 review thread
+    // and the comment block in `apps/indexer/src/hyperswap.ts` for the
+    // first-vs-latest-wins discussion.
     expect(snapshotInsert!.conflict).toBe("doNothing");
   });
 
@@ -186,6 +198,7 @@ describe("HyperSwapPair:Sync", () => {
     });
 
     const handler = getHandler("HyperSwapPair:Sync");
+    const blockTs = BigInt(Math.floor(Date.now() / 1000));
     await handler({
       event: createMockEvent({
         args: { reserve0: 100n, reserve1: 200n },
@@ -193,7 +206,7 @@ describe("HyperSwapPair:Sync", () => {
         txHash: "0xtx",
         logIndex: 3,
         // Live event window — broadcast must fire.
-        blockTimestamp: BigInt(Math.floor(Date.now() / 1000)),
+        blockTimestamp: blockTs,
       }),
       context: { db },
     });
@@ -212,6 +225,9 @@ describe("HyperSwapPair:Sync", () => {
       curveSupply: "100",
       ltReserve: "200",
     });
+    // The broadcast id matches the new decimated snapshot id shape
+    // (`sync-bucket-${token}-${blockTs}`) — see issue #978.
+    expect(body.data.id).toBe(`sync-bucket-0xtoken1-${blockTs.toString()}`);
     // Trade-list payload deliberately absent — see `TradeBroadcast`'s
     // docstring. The trade-feed UI sources rows from the Zap:Buy /
     // Zap:Sell broadcasts (which fire alongside post-grad swaps) plus
@@ -220,6 +236,140 @@ describe("HyperSwapPair:Sync", () => {
     expect(body.data.trader).toBeUndefined();
     expect(body.data.isBuy).toBeUndefined();
     expect(body.data.tokenAmount).toBeUndefined();
+  });
+
+  it("decimates same-second snapshot writes with first-wins reserves (issue #978)", async () => {
+    // Two same-block Sync events must collapse into a single bucket row with
+    // first-wins semantics — same bucket id, `doNothing` policy on both
+    // inserts, first event's reserves are what Postgres would persist. The
+    // mock DB doesn't simulate index-level conflict resolution, so this asserts
+    // the contract at the call-site level. Rationale: AGENTS.md → *Per-second
+    // snapshot decimation*.
+    db._setFindResult(hyperswapPairIndex, { pairAddress: "0xpair1" }, {
+      pairAddress: "0xpair1",
+      tokenAddress: "0xtoken1",
+      ltAddress: "0xlt1",
+      tokenIsToken0: true,
+    });
+
+    const handler = getHandler("HyperSwapPair:Sync");
+
+    await handler({
+      event: createMockEvent({
+        args: { reserve0: 1_000n, reserve1: 2_000n },
+        logAddress: "0xpair1",
+        txHash: "0xtx-first",
+        logIndex: 1,
+        blockNumber: 500n,
+        blockTimestamp: 1700400000n,
+      }),
+      context: { db },
+    });
+
+    await handler({
+      event: createMockEvent({
+        args: { reserve0: 1_500n, reserve1: 1_800n },
+        logAddress: "0xpair1",
+        txHash: "0xtx-second",
+        logIndex: 2,
+        blockNumber: 500n,
+        blockTimestamp: 1700400000n,
+      }),
+      context: { db },
+    });
+
+    const snapshotInserts = db._insertCalls.filter(
+      (c) => c.table === tokenSnapshot,
+    );
+    expect(snapshotInserts).toHaveLength(2);
+    for (const ins of snapshotInserts) {
+      expect((ins.values as { id: string }).id).toBe(
+        "sync-bucket-0xtoken1-1700400000",
+      );
+      // `doNothing` on both — first-wins semantics, no `conflictValues`
+      // payload because we never overwrite. Postgres drops the second
+      // insert at the index check.
+      expect(ins.conflict).toBe("doNothing");
+      expect(ins.conflictValues).toBeUndefined();
+    }
+    // The first event's reserves are what would be persisted — Postgres's
+    // ON CONFLICT DO NOTHING leaves the existing row untouched on the
+    // second call. This is the verified row-immutability invariant: once
+    // a `(token, second)` bucket exists it never mutates.
+    expect(snapshotInserts[0].values).toEqual({
+      id: "sync-bucket-0xtoken1-1700400000",
+      tokenAddress: "0xtoken1",
+      curveSupply: 1_000n,
+      ltReserve: 2_000n,
+      blockNumber: 500n,
+      timestamp: 1700400000n,
+    });
+  });
+
+  it("broadcasts on every Sync regardless of the snapshot dedup (issue #978)", async () => {
+    // The DB-side decimation must NOT suppress the WS broadcast — the
+    // chart's live-tick aggregator merges every tick into the in-progress
+    // candle for sub-second high/low fidelity, and silencing intra-second
+    // ticks would visibly flat-line a candle whenever a user trade landed
+    // in the same block as a follow-up MEV swap.
+    db._setFindResult(hyperswapPairIndex, { pairAddress: "0xpair1" }, {
+      pairAddress: "0xpair1",
+      tokenAddress: "0xtoken1",
+      ltAddress: "0xlt1",
+      tokenIsToken0: true,
+    });
+
+    const handler = getHandler("HyperSwapPair:Sync");
+    const blockTs = BigInt(Math.floor(Date.now() / 1000));
+
+    await handler({
+      event: createMockEvent({
+        args: { reserve0: 1_000n, reserve1: 2_000n },
+        logAddress: "0xpair1",
+        txHash: "0xtx-first",
+        logIndex: 1,
+        blockNumber: 500n,
+        blockTimestamp: blockTs,
+      }),
+      context: { db },
+    });
+
+    await handler({
+      event: createMockEvent({
+        args: { reserve0: 1_500n, reserve1: 1_800n },
+        logAddress: "0xpair1",
+        txHash: "0xtx-second",
+        logIndex: 2,
+        blockNumber: 500n,
+        blockTimestamp: blockTs,
+      }),
+      context: { db },
+    });
+
+    // Two broadcasts despite collapsing into a single snapshot row — the
+    // contract is "every Sync gets a WS tick".
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    const [, init0] = fetchSpy.mock.calls[0];
+    const [, init1] = fetchSpy.mock.calls[1];
+    const body0 = JSON.parse(init0!.body as string) as {
+      event: string;
+      data: Record<string, string>;
+    };
+    const body1 = JSON.parse(init1!.body as string) as {
+      event: string;
+      data: Record<string, string>;
+    };
+    expect(body0.data.curveSupply).toBe("1000");
+    expect(body0.data.ltReserve).toBe("2000");
+    expect(body1.data.curveSupply).toBe("1500");
+    expect(body1.data.ltReserve).toBe("1800");
+    // Both broadcasts share the bucket id — the chart's WS handler keys
+    // off `(curveSupply, ltReserve)` rather than `id`, so a shared id is
+    // harmless and matches what the persisted snapshot row carries.
+    const expectedId = `sync-bucket-0xtoken1-${blockTs.toString()}`;
+    expect(body0.data.id).toBe(expectedId);
+    expect(body1.data.id).toBe(expectedId);
   });
 
   it("skips the WS broadcast for backfill events (older than the live window)", async () => {
