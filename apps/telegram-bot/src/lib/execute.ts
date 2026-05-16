@@ -293,18 +293,13 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
     } else if (side === "sell" && result.actualUsdcOut !== undefined) {
       receivedLine = `Received: $${formatUsdc(result.actualUsdcOut.toString())} USDC\n`;
     }
-    // The ticker on the Token line is the clickable jump to the live
-    // alt.fun tracking page; the bare contract address sits next to it
-    // so the user has both a tap target and a copyable identifier.
-    // The receipt bubble itself is deliberately preserved by the
-    // caller — see `runWithTxStatusUpdates`, which detaches it from
-    // the post-trade workflow sweep before submitting the trade.
-    const trackingUrl = trackingPageUrl(token);
     return (
       `✅ <b>${verb} confirmed for ${tickerSafe}</b>\n\n` +
       `${receivedLine}` +
-      `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>\n` +
-      `Token: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`
+      `<code>${tokenSafe}</code>\n` +
+      `\n` +
+      `Tx:\n` +
+      `<a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
   // `pending` is not a failure — the tx is in the mempool and may still
