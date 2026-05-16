@@ -43,6 +43,12 @@ const readRewardsWallet = async (
   kv: KVNamespace,
   wallet: string,
 ): Promise<string> => {
+  // `wallet` is already lowercased by the caller. The KV write path
+  // (`POST /:wallet/rewards-wallet` in the v1 route) also lowercases
+  // before storing, but defensively normalise on read so a legacy or
+  // out-of-band mixed-case record still produces a canonical lowercase
+  // value — keeps the response and `fetchReferrerStatsById` lookup
+  // aligned. CodeRabbit feedback on PR #991.
   const raw = await kv.get(rewardsKey(wallet));
   if (!raw) return wallet;
   try {
@@ -51,7 +57,7 @@ const readRewardsWallet = async (
       typeof parsed.rewardsWallet === "string" &&
       isAddress(parsed.rewardsWallet, { strict: false })
     ) {
-      return parsed.rewardsWallet;
+      return parsed.rewardsWallet.toLowerCase();
     }
     return wallet;
   } catch {

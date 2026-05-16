@@ -95,13 +95,17 @@ describe("GET /bot/referrals-v2/:wallet", () => {
     expect(body.data.lifetimeEarnedUsdc).toBe("12345");
   });
 
-  it("honours the KV-stored rewardsWallet when looking up referrer stats", async () => {
-    const rewards = "0x000000000000000000000000000000000000beef";
+  it("honours the KV-stored rewardsWallet and lowercases it for the lookup + response", async () => {
+    // Stored value is intentionally checksum-cased so we can assert the
+    // route normalises it before both the DB lookup and the response —
+    // matches `fetchReferrerStatsById`'s lowercase id expectation.
+    const storedChecksumCased = "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa";
+    const lowercased = storedChecksumCased.toLowerCase();
     const kv = makeKV(
       new Map([
         [
           `rewards-wallet:${VALID_WALLET.toLowerCase()}`,
-          JSON.stringify({ rewardsWallet: rewards, setAt: 1 }),
+          JSON.stringify({ rewardsWallet: storedChecksumCased, setAt: 1 }),
         ],
       ]),
     );
@@ -114,9 +118,9 @@ describe("GET /bot/referrals-v2/:wallet", () => {
     expect(res.status).toBe(200);
     expect(mockFetchReferrerStatsById).toHaveBeenCalledWith(
       expect.anything(),
-      rewards,
+      lowercased,
     );
     const body = (await res.json()) as { data: { rewardsWallet: string } };
-    expect(body.data.rewardsWallet).toBe(rewards);
+    expect(body.data.rewardsWallet).toBe(lowercased);
   });
 });

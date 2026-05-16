@@ -1,7 +1,15 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
+
+// `buildDaySeries` calls `new Date()` to build the day index, so the
+// route's day window is rooted on `Date.now()`. Freeze the clock so the
+// hardcoded May-2026 timestamps in the per-test fixtures keep landing
+// inside the `days=…` window indefinitely — without this the suite
+// starts silently producing empty series once the fixtures fall out of
+// scope. CodeRabbit feedback on PR #991.
+const FROZEN_NOW = new Date("2026-05-16T12:00:00Z");
 
 const mockFetchFeeAccrualsSince = vi.fn();
 const mockFetchRouterTradesForAnalytics = vi.fn();
@@ -50,7 +58,12 @@ function makeEnv(): AppBindings {
 }
 
 describe("GET /admin/analytics/revenue-v2", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("returns 503 when the helper signals indexer unavailability", async () => {
     mockFetchFeeAccrualsSince.mockResolvedValue(null);
@@ -92,7 +105,12 @@ describe("GET /admin/analytics/revenue-v2", () => {
 });
 
 describe("GET /admin/analytics/dau-v2", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("returns 503 when the helper returns null", async () => {
     mockFetchRouterTradesForAnalytics.mockResolvedValue(null);
@@ -129,7 +147,12 @@ describe("GET /admin/analytics/dau-v2", () => {
 });
 
 describe("GET /admin/analytics/volume-v2", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("returns 503 when the helper returns null", async () => {
     mockFetchRouterTradesForAnalytics.mockResolvedValue(null);
@@ -160,7 +183,12 @@ describe("GET /admin/analytics/volume-v2", () => {
 });
 
 describe("GET /admin/analytics/graduations-v2", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(FROZEN_NOW);
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("503 when either parallel helper signals indexer unavailability", async () => {
     mockFetchGraduationsSince.mockResolvedValue([]);

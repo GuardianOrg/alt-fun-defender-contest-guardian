@@ -33,6 +33,12 @@ tokenMetaRoute.get("/:address/meta", async (c) => {
   if (meta === "unavailable") {
     return c.json(formatError("Indexer unavailable"), 503);
   }
+  // `name` / `symbol` flip exactly once per token (at `TokenLaunched`),
+  // so callers can absorb minutes of staleness without consequence.
+  // The web's `tokenNames` cache is the dominant caller and re-keys
+  // its in-memory cache on the resolved value, so a stale read still
+  // produces the right label. CodeRabbit feedback on PR #991.
+  c.header("Cache-Control", "public, s-maxage=300, stale-while-revalidate=3600");
   return c.json(formatSuccess(meta));
 });
 
