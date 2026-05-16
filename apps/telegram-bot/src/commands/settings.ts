@@ -651,6 +651,25 @@ const tipPresetSlotConversation = async (
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
+    // Reject duplicates so each slot stays a distinct preset — the
+    // dual-mode select / edit affordance assumes one slot per value,
+    // and the keyboard's first-match-wins rule would leave the other
+    // matching slot stuck as a clone with no visible distinction.
+    // CodeRabbit PR #969.
+    const existing = await conversation.external((outside) =>
+      readTipPresets(outside.session),
+    );
+    if (existing.some((tip, i) => i !== slotIdx && tip === value)) {
+      const retry = await ctx.reply(
+        wrap(
+          ctx,
+          "That value is already used by another slot. Send a different tip.",
+        ),
+        { reply_markup: backHomeMarkup() },
+      );
+      await trackWorkflowMessage(conversation, retry.message_id);
+      continue;
+    }
     try {
       await conversation.external((outside) => {
         const current = normaliseTipPresets(
