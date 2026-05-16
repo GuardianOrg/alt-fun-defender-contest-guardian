@@ -400,7 +400,7 @@ listRoute.get("/", async (c) => {
     // see `lib/lt-availability.ts`. We pass the rows through the filter
     // before pagination so `offset` / `limit` reference the visible slice
     // and we don't end up with short pages.
-    const availability = await getLiveLtAvailability().catch(() => null);
+    const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
 
     const dbByAddress = new Map<string, DbToken>();
@@ -538,7 +538,7 @@ listRoute.get("/", async (c) => {
         ),
       );
 
-    const availability = await getLiveLtAvailability().catch(() => null);
+    const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
     const liveFiltered = filterByLiveLt(dbRowsRaw, availability);
 
     const dbByAddress = new Map<string, DbToken>();
@@ -672,7 +672,7 @@ listRoute.get("/", async (c) => {
   // whenever a slice contained any LT that BounceTech retired. See
   // `lib/lt-availability.ts` for the cache + HEAD-check semantics and the
   // fail-open rationale.
-  const availability = await getLiveLtAvailability().catch(() => null);
+  const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
 
   const conditions: SQL[] = [eq(tokens.isHidden, false)];
   // Hide retired markets (issue #639) from every DB-first response.
@@ -933,7 +933,7 @@ listRoute.get("/search", async (c) => {
   // path, and skip the clause entirely if `checksumDirectoryAddresses`
   // filtered every entry out (malformed directory payload) so a 500 from
   // `inArray([])` / `getAddress("not-an-address")` can't take down search.
-  const availability = await getLiveLtAvailability().catch(() => null);
+  const availability = await getLiveLtAvailability({ databaseUrl: c.env.DATABASE_URL }).catch(() => null);
   const checksummedDirectory =
     availability && availability.fresh && availability.directoryAddresses.size > 0
       ? checksumDirectoryAddresses(availability.directoryAddresses)

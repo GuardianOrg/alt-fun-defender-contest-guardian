@@ -30,9 +30,7 @@ import { createPublicClient, getAddress, http, isAddress } from "viem";
 
 import {
   BondingAbi,
-  BOUNCE_INDEXING_API,
   CONTRACT_ADDRESSES,
-  filterSupportedLTs,
   HYPER_EVM,
   sanitizeTelegramHandle,
   sanitizeTwitterHandle,
@@ -43,6 +41,7 @@ import {
 import { createDb } from "../db/client.js";
 import { tokens } from "../db/schema.js";
 import { broadcastToChannel } from "./broadcast.js";
+import { readLtByAddress } from "./lt-directory-reads.js";
 
 import type { AppBindings } from "./types.js";
 
@@ -53,17 +52,6 @@ const chain = {
   rpcUrls: { default: { http: [HYPER_EVM.rpcUrl] } },
 } as const;
 
-/// Worker-isolate cache for the BounceTech LT directory. We resolve LT
-/// addresses → `underlying` / `leverage` / `direction` from the public list,
-/// which changes infrequently. 60s is plenty short to pick up newly listed
-/// LTs without hammering BounceTech.
-const LT_CACHE_TTL_MS = 60_000;
-let cachedLTs: { data: LiveLeveragedToken[]; ts: number } | null = null;
-
-/** Test-only hook to drop the per-isolate LT directory cache between cases. */
-export function _resetLtCache(): void {
-  cachedLTs = null;
-}
 
 /**
  * R2 keys produced by `POST /api/v1/images` are always under the
@@ -275,7 +263,7 @@ export async function registerTokenFromChain(
 
   const info = await fetchOnChainInfo(env, address);
   const imageUrl = await validateImageUrl(env, info.image, apiOrigin);
-  const ltMeta = await resolveLtMeta(info.ltAddress);
+  const ltMeta = await resolveLtMeta(env.DATABASE_URL, info.ltAddress);
 
   const inserted = await withDbError(() =>
     db
@@ -461,12 +449,22 @@ async function validateImageUrl(
 }
 
 async function resolveLtMeta(
+  databaseUrl: string,
   ltAddress: `0x${string}`,
 ): Promise<LiveLeveragedToken> {
-  const lts = await fetchLiveLts();
-  const target = ltAddress.toLowerCase();
-  const match = lts.find((lt) => lt.address.toLowerCase() === target);
-  if (!match) {
+  // `readLtByAddress` distinguishes "not present" (returns null) from
+  // "DB read failed" (returns undefined). We map the two to different
+  // `RegistrationError` codes so the cron and frontend retry the second
+  // (transient) but surface the first as a permanent 422 to the caller.
+  const match = await readLtByAddress(databaseUrl, ltAddress);
+  if (match === undefined) {
+    throw new RegistrationError(
+      "rpc_error",
+      "LT directory mirror unavailable",
+      502,
+    );
+  }
+  if (match === null) {
     throw new RegistrationError(
       "lt_unknown",
       "LT address is not in the BounceTech directory",
@@ -474,25 +472,4 @@ async function resolveLtMeta(
     );
   }
   return match;
-}
-
-async function fetchLiveLts(): Promise<LiveLeveragedToken[]> {
-  if (cachedLTs && Date.now() - cachedLTs.ts < LT_CACHE_TTL_MS) {
-    return cachedLTs.data;
-  }
-  try {
-    const res = await fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`);
-    if (!res.ok) throw new Error(`status ${res.status}`);
-    const json = (await res.json()) as { data?: LiveLeveragedToken[] };
-    const lts = filterSupportedLTs(json.data ?? []);
-    cachedLTs = { data: lts, ts: Date.now() };
-    return lts;
-  } catch (err) {
-    if (cachedLTs) return cachedLTs.data;
-    throw new RegistrationError(
-      "lt_unknown",
-      `BounceTech LT directory unavailable: ${err instanceof Error ? err.message : "unknown"}`,
-      502,
-    );
-  }
 }

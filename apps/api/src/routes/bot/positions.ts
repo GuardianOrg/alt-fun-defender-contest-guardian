@@ -126,13 +126,13 @@ const pctOrNull = (numerator: bigint, denominator: bigint): number | null => {
  * what is actually a healthy position.
  */
 const fetchCurrentPricesUsdc18dp = async (
-  ponderUrl: string,
+  databaseUrl: string,
   addresses: string[],
 ): Promise<Map<string, bigint>> => {
   if (addresses.length === 0) return new Map();
   const [tokens, ltRates] = await Promise.all([
-    fetchTokensOnchainByAddresses(ponderUrl, addresses),
-    fetchLiveLtRates(),
+    fetchTokensOnchainByAddresses(databaseUrl, addresses),
+    fetchLiveLtRates(databaseUrl),
   ]);
   const out = new Map<string, bigint>();
   if (!tokens || !ltRates) return out;
@@ -162,6 +162,7 @@ interface PonderTokenBalance {
 
 const fetchPositions = async (
   ponderUrl: string,
+  databaseUrl: string,
   wallet: string,
 ): Promise<PositionsResponse> => {
   try {
@@ -346,7 +347,7 @@ const fetchPositions = async (
       const openTokens = Array.from(
         new Set(open.map((p) => p.token.toLowerCase())),
       );
-      const liveMark = await fetchCurrentPricesUsdc18dp(ponderUrl, openTokens);
+      const liveMark = await fetchCurrentPricesUsdc18dp(databaseUrl, openTokens);
       for (const p of open) {
         const priceUsdc18dp = liveMark.get(p.token.toLowerCase());
         if (priceUsdc18dp === undefined) continue;
@@ -399,7 +400,7 @@ positions.get("/:wallet", async (c) => {
     return c.json(formatError("Invalid wallet address"), 400);
   }
   const wallet = rawWallet.toLowerCase();
-  const data = await fetchPositions(c.env.PONDER_URL, wallet);
+  const data = await fetchPositions(c.env.PONDER_URL, c.env.DATABASE_URL, wallet);
   // Same edge-cache window as `/portfolio` — positions are stable
   // until the next router trade fires, and a 15s cap lines up with
   // the indexer's typical lag.

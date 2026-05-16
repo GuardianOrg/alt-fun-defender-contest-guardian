@@ -1,12 +1,10 @@
 /**
  * Read helpers for the `lt_directory` table that the
- * `LtDirectoryPoller` Durable Object keeps fresh. Provided as the
- * additive landing of the on-chain-mirror data path — only the new
- * `GET /assets/leveraged-tokens` endpoint reads from these today.
- * Switching the existing
- * `fetch(`${BOUNCE_INDEXING_API}/leveraged-tokens`)` consumers over
- * to these helpers happens in a follow-up PR once parity with the
- * legacy HTTP source is verified.
+ * `LtDirectoryPoller` Durable Object keeps fresh. These are the live
+ * data path for the LT directory across the API — `lt-availability`,
+ * `token-registration`, `routes/assets`, and the per-request market-data
+ * lookups all read through these helpers instead of fanning out to
+ * `indexing.bounce.tech`.
  *
  * Failure-mode policy: every helper returns `null` (or `undefined` for
  * `readLtByAddress`) on a DB error so callers can branch into their
@@ -15,8 +13,8 @@
  * observable during incident triage.
  *
  * The poller itself owns "this LT exists in the directory" semantics —
- * if the table is empty the API behaves exactly as it does today during
- * a cold start, only without the cross-cluster `indexing.bounce.tech`
+ * if the table is empty the API behaves exactly as it does during a
+ * cold start, only without the cross-cluster `indexing.bounce.tech`
  * fan-out.
  */
 import { eq, desc, max } from "drizzle-orm";
