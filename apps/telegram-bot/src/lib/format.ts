@@ -177,6 +177,7 @@ const formatOpenLine = (
 const formatRealisedLine = (
   pos: BotRealisedPosition,
   limit: number,
+  botUsername: string | null,
 ): string => {
   const labelRaw = escapeHtml(pos.ticker);
   const suffix =
@@ -184,10 +185,13 @@ const formatRealisedLine = (
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
     `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
   const budget = limit - LINE_PREFIX.length - suffix.length;
-  const label =
+  const truncated =
     labelRaw.length > budget
       ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
       : labelRaw;
+  const label = botUsername
+    ? `<a href="${trackDeeplinkHref(botUsername, pos.token)}">${truncated}</a>`
+    : truncated;
   return `${LINE_PREFIX}${label}${suffix}`;
 };
 
@@ -249,7 +253,7 @@ export const formatBotPositionsResponse = (
       lineActions.push(null);
     }
     for (const p of data.realised) {
-      lines.push(formatRealisedLine(p, limit));
+      lines.push(formatRealisedLine(p, limit, botUsername));
       lineActions.push(null);
     }
   }
