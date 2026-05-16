@@ -199,7 +199,7 @@ describe("formatBotPositionsResponse", () => {
     );
   });
 
-  it("does not link realised-position tickers (closed positions have no /track follow-up)", () => {
+  it("renders the realised-position ticker as a `?start=track_<addr>` anchor when a botUsername is given", () => {
     const pos = realisedPos({
       token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       ticker: "BETA",
@@ -209,7 +209,20 @@ describe("formatBotPositionsResponse", () => {
       "CortisolTestBot",
     );
     const joined = pages.map((p) => p.text).join("\n");
+    expect(joined).toContain(
+      `<a href="https://t.me/CortisolTestBot?start=track_${pos.token}">BETA</a>`,
+    );
+  });
+
+  it("does not link realised-position tickers when no botUsername is given", () => {
+    const pos = realisedPos({
+      token: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      ticker: "BETA",
+    });
+    const pages = formatBotPositionsResponse({ open: [], realised: [pos] });
+    const joined = pages.map((p) => p.text).join("\n");
     expect(joined).not.toContain("track_");
+    expect(joined).not.toContain("t.me/");
   });
 
   it("does not emit openActions for realised (closed) positions", () => {
