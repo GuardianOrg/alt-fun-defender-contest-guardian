@@ -6,6 +6,7 @@ import { subscribeMockTokens } from "../dev/mockFeed";
 import {
   tokenService,
   TOKENS_PAGE_SIZE,
+  type TokenSort,
   type TokenTableFiltersInput,
 } from "../services/tokenService";
 
@@ -73,10 +74,11 @@ export function dedupeTokensByAddress(tokens: readonly Token[]): Token[] {
 export function useTokens(
   filter?: TokenFilter,
   tableFilters?: TokenTableFiltersInput,
+  sort: TokenSort = "default",
 ) {
   return useQuery({
-    queryKey: ["tokens", filter, tableFiltersKey(tableFilters)],
-    queryFn: () => tokenService.getTokens(filter, tableFilters),
+    queryKey: ["tokens", filter, tableFiltersKey(tableFilters), sort],
+    queryFn: () => tokenService.getTokens(filter, tableFilters, sort),
     refetchInterval: 10_000,
   });
 }
@@ -94,21 +96,27 @@ export function useTokens(
  *
  * `tableFilters` are forwarded to the API and participate in the
  * cache key so flipping a facet (e.g. Market: HYPE) triggers a fresh
- * paginated walk rather than re-using the unfiltered cache.
+ * paginated walk rather than re-using the unfiltered cache. `sort`
+ * (TRENDING / GRADUATED only — the Sort dropdown is hidden on NEW
+ * and GRADUATING) participates in the cache key for the same
+ * reason: switching from `Trending` to `Mcap` must trigger a fresh
+ * page-1 fetch, not splice mismatched rows onto the existing pages.
  */
 export function useInfiniteTokens(
   filter?: TokenFilter,
   tableFilters?: TokenTableFiltersInput,
+  sort: TokenSort = "default",
 ) {
   const filtersKey = tableFiltersKey(tableFilters);
   const query = useInfiniteQuery({
-    queryKey: ["tokens-infinite", filter, filtersKey],
+    queryKey: ["tokens-infinite", filter, filtersKey, sort],
     queryFn: ({ pageParam }) =>
       tokenService.getTokensPage(
         filter,
         pageParam,
         TOKENS_PAGE_SIZE,
         tableFilters,
+        sort,
       ),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {

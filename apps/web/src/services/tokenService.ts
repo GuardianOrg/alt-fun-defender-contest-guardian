@@ -138,10 +138,27 @@ export interface TokenTableFiltersInput {
   direction?: Direction;
 }
 
+/**
+ * Sort axis layered on top of the lifecycle tab. `"default"` means
+ * "use the tab's natural order" — on TRENDING that's 24h gross USDC
+ * volume desc (`sort=trending` on the wire); on GRADUATED that's
+ * `graduatedAt desc` (no `sort` param on the wire). The two explicit
+ * values re-rank within the cohort the tab gave us:
+ *
+ *   - `"mcap"`      — market cap desc, 24h volume tie-break
+ *   - `"change24h"` — 24h % change desc, mcap tie-break (nulls sink)
+ *
+ * Only the TRENDING and GRADUATED tabs expose this control in the UI
+ * (see `TableFilters`). NEW + GRADUATING keep their natural ordering;
+ * `tokenSort` is ignored on those tabs by `filterToApiOptions`.
+ */
+export type TokenSort = "default" | "mcap" | "change24h";
+
 export interface ITokenService {
   getTokens(
     filter?: TokenFilter,
     tableFilters?: TokenTableFiltersInput,
+    sort?: TokenSort,
   ): Promise<Token[]>;
   /**
    * Paginated variant for the home-page infinite-scroll list. Returns a
@@ -154,6 +171,7 @@ export interface ITokenService {
     offset: number,
     limit: number,
     tableFilters?: TokenTableFiltersInput,
+    sort?: TokenSort,
   ): Promise<Token[]>;
   /**
    * Look up a single token by address.
@@ -180,27 +198,53 @@ export interface ITokenService {
 export const TOKENS_PAGE_SIZE = 30;
 
 /**
- * Map a client-side `TokenFilter` + optional pair-level facets to the right
- * server-side query params. All filtering + sorting for the landing-page
- * tabs is done by the API — the client doesn't reorder or sub-filter the
- * returned list.
+ * Map a client-side `TokenFilter` + optional pair-level facets + optional
+ * `TokenSort` override to the right server-side query params. All
+ * filtering + sorting for the landing-page tabs is done by the API — the
+ * client doesn't reorder or sub-filter the returned list.
+ *
+ * `sort` only applies on the TRENDING and GRADUATED tabs (the only two
+ * where the Sort dropdown is rendered — see `TableFilters`). On NEW
+ * and GRADUATING the natural tab order is the whole point of the tab
+ * and we silently ignore any sort value. On TRENDING the `"default"`
+ * value resolves to `sort=trending` (24h volume desc). On GRADUATED
+ * `"default"` omits the param so the API falls back to its Ponder-
+ * driven `graduatedAt desc` order.
  */
 function filterToApiOptions(
   filter: TokenFilter | undefined,
   tableFilters: TokenTableFiltersInput = {},
+  sort: TokenSort = "default",
 ): FetchTokensOptions {
   const base: FetchTokensOptions = (() => {
     switch (filter) {
       case undefined:
       case "trending":
-        return { sort: "trending" };
+        // TRENDING default uses the same volume-driven candidate pool
+        // either way. The user-selected override (mcap / change24h)
+        // re-ranks the pool — server-side, see the route for cohort
+        // semantics. `"default"` stays on the explicit `sort=trending`
+        // value (not absence) because absence would make the API fall
+        // through to its DB-first `createdAt desc` path — different
+        // from what TRENDING wants.
+        if (sort === "default") return { sort: "trending" };
+        return { sort };
       case "new":
-        // Default API sort is `createdAt desc` — exactly what NEW wants.
+        // Default API sort is `createdAt desc` — exactly what NEW
+        // wants. Sort dropdown is hidden on this tab; ignore any value.
         return {};
       case "graduating":
+        // Sort dropdown is hidden on GRADUATING — the API enforces
+        // curveFilled desc regardless. Ignore any sort value.
         return { status: "graduating" };
       case "graduated":
-        return { status: "graduated" };
+        // GRADUATED default = Ponder's `graduatedAt desc` (no `sort`
+        // param). Any explicit override (mcap / change24h) gets
+        // forwarded — the API enriches the full graduated cohort and
+        // re-ranks by that key. `"default"` here means "no override",
+        // which is the absence path.
+        if (sort === "default") return { status: "graduated" };
+        return { status: "graduated", sort };
     }
   })();
   // Spread the user-selected facets in, dropping `undefined` values so the
@@ -220,11 +264,12 @@ function filterToApiOptions(
 async function liveGetTokens(
   filter?: TokenFilter,
   tableFilters?: TokenTableFiltersInput,
+  sort?: TokenSort,
 ): Promise<Token[]> {
   const apiTokens = await fetchTokens(
     100,
     0,
-    filterToApiOptions(filter, tableFilters),
+    filterToApiOptions(filter, tableFilters, sort),
   ).catch((): ApiToken[] => []);
   if (apiTokens.length === 0) return [];
   return apiTokens.map(fromApiToken);
@@ -235,6 +280,7 @@ async function liveGetTokensPage(
   offset: number,
   limit: number,
   tableFilters?: TokenTableFiltersInput,
+  sort?: TokenSort,
 ): Promise<Token[]> {
   // No catch-and-swallow here (unlike `liveGetTokens`) — the infinite-scroll
   // caller relies on a thrown error to mark the page as failed and surface
@@ -243,7 +289,7 @@ async function liveGetTokensPage(
   const apiTokens = await fetchTokens(
     limit,
     offset,
-    filterToApiOptions(filter, tableFilters),
+    filterToApiOptions(filter, tableFilters, sort),
   );
   return apiTokens.map(fromApiToken);
 }
