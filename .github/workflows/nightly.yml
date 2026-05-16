@@ -20,7 +20,8 @@ jobs:
 
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          # Keep this pin in sync with `ci.yml` — see the rationale comment there.
+          version: v1.7.1
 
       - name: Cache Foundry artifacts
         uses: actions/cache@v5
