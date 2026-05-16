@@ -1223,6 +1223,7 @@ describe("runWithTxStatusUpdates", () => {
     } = { puts: [], alarm: null };
     (ctx as unknown as { doState: unknown }).doState = {
       storage: {
+        get: async (_k: string) => undefined,
         put: async (k: string, v: unknown) => {
           storage.puts.push([k, v]);
         },

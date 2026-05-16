@@ -797,15 +797,55 @@ describe("renderExecutionError with on-chain revert", () => {
     expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
   });
 
-  it("renders a neutral pending message with explorer link when receipt times out", () => {
-    // `pending` is the receipt-timeout case: tx is in mempool, may still
-    // mine. Copy must read as "pending — still polling, here is the
-    // explorer link", not as a failure. The caller in execute.ts is
-    // responsible for the ⏳ prefix (see `renderConfirmReply`) —
-    // renderExecutionError just owns the body copy. The "still
-    // polling" line reflects the background-poll handoff in
-    // `lib/pending-tx-poller.ts`: the bubble updates in place once
-    // the chain settles the tx.
+  it("renders the still-polling variant when a background poll is armed", () => {
+    // With `isPollingActive: true` the caller is promising the
+    // bubble will be edited in place once the chain settles. Copy
+    // reflects that explicitly so the user understands the
+    // background handoff in `lib/pending-tx-poller.ts`.
+    const reply = renderExecutionError(
+      {
+        ok: false,
+        kind: "pending",
+        reason: "WaitForTransactionReceiptTimeoutError",
+        txHash:
+          "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+      },
+      { isPollingActive: true },
+    );
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toMatch(/still polling/i);
+    expect(reply).toMatch(/updates once mined/i);
+    // Must not read as a failure — no "failed" / "reverted" / "❌" copy.
+    expect(reply).not.toMatch(/failed|reverted|❌/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+  });
+
+  it("renders the no-longer-polling variant when no background poll will fire", () => {
+    // Give-up path inside pending-tx-poller and the non-DO
+    // fallback path both pass `isPollingActive: false`. Copy must
+    // NOT promise background updates the user won't get — that was
+    // the CodeRabbit comment that prompted this split (PR #965).
+    const reply = renderExecutionError(
+      {
+        ok: false,
+        kind: "pending",
+        reason: "Receipt not seen within 30 minutes.",
+        txHash:
+          "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
+      },
+      { isPollingActive: false },
+    );
+    expect(reply).toMatch(/pending/i);
+    expect(reply).toMatch(/no longer polling/i);
+    expect(reply).not.toMatch(/still polling/i);
+    expect(reply).not.toMatch(/updates once mined/i);
+    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+  });
+
+  it("defaults to no-polling copy when the flag is omitted", () => {
+    // Default option must be the safer of the two — no false
+    // promise of background updates if the caller forgot to pass
+    // the flag.
     const reply = renderExecutionError({
       ok: false,
       kind: "pending",
@@ -813,12 +853,8 @@ describe("renderExecutionError with on-chain revert", () => {
       txHash:
         "0x8edc611c82129c8acd78782811d155d72e219d01dd06eeb9c208f6a11919f473",
     });
-    expect(reply).toMatch(/pending/i);
-    expect(reply).toMatch(/still polling/i);
-    expect(reply).toMatch(/explorer/i);
-    // Must not read as a failure — no "failed" / "reverted" / "❌" copy.
-    expect(reply).not.toMatch(/failed|reverted|❌/i);
-    expect(reply).toContain("hyperevmscan.io/tx/0x8edc611c");
+    expect(reply).toMatch(/no longer polling/i);
+    expect(reply).not.toMatch(/still polling/i);
   });
 });
 

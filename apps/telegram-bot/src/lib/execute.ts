@@ -267,8 +267,18 @@ export const confirmTrade = async (
  * Render a user-facing reply for the confirm outcome. Tests assert on
  * pieces of this copy (tx hash, error words), so keep the strings
  * descriptive rather than emoji-coded.
+ *
+ * `isPollingActive` only matters for the `pending` arm and gates the
+ * "still polling in the background" promise: pass `true` from call
+ * sites that did successfully arm a `ChatDO`-alarm background poll
+ * (`runWithTxStatusUpdates` when `ctx.doState` is bound), `false`
+ * everywhere else so we don't lie to the user about updates that
+ * won't happen.
  */
-export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
+export const renderConfirmReply = (
+  outcome: ConfirmOutcome,
+  options: { isPollingActive?: boolean } = {},
+): string => {
   if (outcome.kind === "expired") {
     return "⏱ That trade confirmation has expired. Re-run /buy or /sell to try again.";
   }
@@ -317,7 +327,7 @@ export const renderConfirmReply = (outcome: ConfirmOutcome): string => {
   // reserved for outcomes the chain has definitively rejected or where
   // no tx ever landed.
   const prefix = result.kind === "pending" ? "⏳" : "❌";
-  return `${prefix} ${renderExecutionError(result)}`;
+  return `${prefix} ${renderExecutionError(result, { isPollingActive: options.isPollingActive })}`;
 };
 
 /**
@@ -516,7 +526,19 @@ export const runWithTxStatusUpdates = async (
   }
 
   if (outcome !== null) {
-    await safeEditStatus(args.target, renderConfirmReply(outcome));
+    // Only the doState-bound path arms a background poll, so the
+    // "still polling in the background" copy is honest only when
+    // doState is present. Without it the pending bubble settles
+    // into the explorer-link form and never updates.
+    const willPoll =
+      outcome.kind === "executed" &&
+      !outcome.result.ok &&
+      outcome.result.kind === "pending" &&
+      Boolean(args.ctx.doState);
+    await safeEditStatus(
+      args.target,
+      renderConfirmReply(outcome, { isPollingActive: willPoll }),
+    );
     // After a receipt-confirmed success the post-trade sweep inside
     // `confirmTrade` deletes the originating token-detail card and
     // staging prompt, leaving the receipt as the only visible bubble.

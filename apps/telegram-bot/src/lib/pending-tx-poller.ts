@@ -95,15 +95,50 @@ interface SchedulerEnv {
  * later than `PENDING_TX_POLL_INTERVAL_MS` from now. Callers invoke
  * this immediately after `runWithTxStatusUpdates` sees a `pending`
  * outcome — the alarm takes over from there.
+ *
+ * Merges with any existing record for the same tx hash instead of
+ * overwriting outright: a webhook retry (or a second confirm tap that
+ * the idempotency layer dedupes upstream) would otherwise reset
+ * `startedAt` to "now" — silently extending the 30-min give-up window
+ * forever — and could zero out `quotedOut` / `minOut` if the retry
+ * arrived with empty fields. Earliest non-zero `startedAt` wins and
+ * we only fill in `quotedOut` / `minOut` from the new record when
+ * the existing slot has them at zero.
  */
 export const schedulePendingTxPoll = async (
   env: SchedulerEnv,
   record: PendingTxRecord,
 ): Promise<void> => {
-  await env.storage.put(storageKey(record.txHash), record);
-  const existing = await env.storage.getAlarm();
+  const existing = (await env.storage.get(
+    storageKey(record.txHash),
+  )) as PendingTxRecord | undefined;
+  const merged: PendingTxRecord = existing
+    ? {
+        ...record,
+        // Preserve the earliest non-zero startedAt so the give-up
+        // deadline measures from the *first* time the tx went pending,
+        // not the latest re-schedule.
+        startedAt:
+          existing.startedAt > 0 && existing.startedAt < record.startedAt
+            ? existing.startedAt
+            : record.startedAt,
+        // Keep a non-zero quote/min if we already had one; the
+        // background poll's final render falls back to these when
+        // the receipt's BotRouterTrade log is missing.
+        quotedOut:
+          existing.quotedOut && existing.quotedOut !== "0"
+            ? existing.quotedOut
+            : record.quotedOut,
+        minOut:
+          existing.minOut && existing.minOut !== "0"
+            ? existing.minOut
+            : record.minOut,
+      }
+    : record;
+  await env.storage.put(storageKey(record.txHash), merged);
+  const existingAlarm = await env.storage.getAlarm();
   const next = Date.now() + PENDING_TX_POLL_INTERVAL_MS;
-  if (existing === null || existing > next) {
+  if (existingAlarm === null || existingAlarm > next) {
     await env.storage.setAlarm(next);
   }
 };
@@ -160,16 +195,61 @@ const buildEditor = (env: Pick<Env, "TELEGRAM_BOT_TOKEN">): BubbleEditor => {
   };
 };
 
+/**
+ * Edit outcomes the alarm path cares about. `finalised` covers
+ * "bubble is settled, the DO record can be cleared" — either the
+ * edit landed or Telegram says the bubble is gone / unmodifiable
+ * (in which case retrying is pointless). `transient` is the keep-
+ * the-record case: we hit a 429 / 5xx / network blip and should
+ * try again on the next alarm tick instead of marking the
+ * idempotency slot final against a bubble the user never saw.
+ */
+type EditOutcome = "finalised" | "transient";
+
+const isTransientEditError = (err: unknown): boolean => {
+  const e = err as { error_code?: number; description?: string; message?: string };
+  if (typeof e.error_code === "number") {
+    if (e.error_code === 429) return true;
+    if (e.error_code >= 500 && e.error_code < 600) return true;
+  }
+  const desc = (e.description ?? e.message ?? "").toLowerCase();
+  return (
+    desc.includes("too many requests") ||
+    desc.includes("timeout") ||
+    desc.includes("network") ||
+    desc.includes("econnreset") ||
+    desc.includes("etimedout")
+  );
+};
+
 const safeEdit = async (
   editor: BubbleEditor,
   rec: PendingTxRecord,
   text: string,
-): Promise<void> => {
+): Promise<EditOutcome> => {
   try {
     await editor.editMessageText(rec, text);
+    return "finalised";
   } catch (err) {
-    if (isBenignEditError(err)) return;
-    logger.debug("pendingTx edit failed", { err, txHash: rec.txHash });
+    if (isBenignEditError(err)) {
+      // Bubble was deleted or is unchanged — the chat surface is
+      // already in its terminal state, retrying buys nothing.
+      return "finalised";
+    }
+    if (isTransientEditError(err)) {
+      logger.debug("pendingTx edit transient, will retry", {
+        err,
+        txHash: rec.txHash,
+      });
+      return "transient";
+    }
+    // Unknown 4xx (e.g. 403) — we can't recover by retrying; mark
+    // the record finalised so the alarm loop doesn't spin on it.
+    logger.debug("pendingTx edit failed (terminal)", {
+      err,
+      txHash: rec.txHash,
+    });
+    return "finalised";
   }
 };
 
@@ -197,6 +277,13 @@ const formatUsdc = (raw: bigint): string => {
  * compatible with `renderConfirmReply` (same HTML shape) so a user
  * sees the same final layout whether the receipt landed in-band or
  * via the alarm path.
+ *
+ * The alarm path only ever calls this on a **terminal** state for
+ * the bubble — success, revert, or the give-up pending — so we
+ * always pass `isPollingActive: false` to `renderExecutionError`.
+ * Promising "still polling" from here would be a lie: by the time
+ * this render lands the DO record is about to be deleted (or
+ * already was on the prior tick for transient retries).
  */
 const renderFinal = (
   rec: PendingTxRecord,
@@ -222,7 +309,7 @@ const renderFinal = (
     );
   }
   const prefix = result.kind === "pending" ? "⏳" : "❌";
-  return `${prefix} ${renderExecutionError(result)}`;
+  return `${prefix} ${renderExecutionError(result, { isPollingActive: false })}`;
 };
 
 interface PollContext {
@@ -280,7 +367,20 @@ const pollOne = async (
       hash: rec.txHash,
     });
     const result = receiptToResult(rec, receipt);
-    await safeEdit(poll.editor, rec, renderFinal(rec, result));
+    const editOutcome = await safeEdit(
+      poll.editor,
+      rec,
+      renderFinal(rec, result),
+    );
+    if (editOutcome === "transient") {
+      // Telegram threw 429 / 5xx / network — don't mark the
+      // idempotency slot final and don't delete the record. Next
+      // alarm tick re-edits with the same receipt-derived final
+      // text and finalises then. Keeping the record intact means a
+      // webhook retry that re-enters confirmTrade still sees
+      // `submitted` and re-polls instead of resubmitting.
+      return { finalised: false };
+    }
     if (rec.idempotencyKey) {
       try {
         await markFinal(poll.kv, rec.idempotencyKey, toIntentResult(result));
@@ -304,7 +404,12 @@ const pollOne = async (
         txHash: rec.txHash,
         reason: "Receipt not seen within 30 minutes.",
       };
-      await safeEdit(poll.editor, rec, renderFinal(rec, giveUp));
+      const editOutcome = await safeEdit(
+        poll.editor,
+        rec,
+        renderFinal(rec, giveUp),
+      );
+      if (editOutcome === "transient") return { finalised: false };
       await poll.storage.delete(storageKey(rec.txHash));
       return { finalised: true };
     }

@@ -121,6 +121,35 @@ describe("schedulePendingTxPoll", () => {
     );
     expect(s.alarm).toBe(earlier);
   });
+
+  it("merges into an existing record instead of overwriting startedAt + quotedOut + minOut", async () => {
+    // A webhook retry (or any second scheduling call for the same
+    // tx hash) must NOT reset startedAt to "now" — that would
+    // silently push the 30-min give-up deadline out forever — and
+    // must NOT zero out a quotedOut / minOut the first call
+    // recorded. The merge rule is: earliest non-zero startedAt
+    // wins, existing non-zero quote/min are preserved.
+    const s = makeStorage();
+    const originalStarted = Date.now() - 10_000;
+    const earlier = makeRecord({
+      startedAt: originalStarted,
+      quotedOut: "5000",
+      minOut: "4750",
+    });
+    s.map.set(`pendingTx:${earlier.txHash.toLowerCase()}`, earlier);
+    await schedulePendingTxPoll(
+      { storage: asStorage(s) as never },
+      makeRecord({
+        startedAt: Date.now(),
+        quotedOut: "0",
+        minOut: "0",
+      }),
+    );
+    const merged = s.map.get(`pendingTx:${earlier.txHash.toLowerCase()}`) as PendingTxRecord;
+    expect(merged.startedAt).toBe(originalStarted);
+    expect(merged.quotedOut).toBe("5000");
+    expect(merged.minOut).toBe("4750");
+  });
 });
 
 /**
@@ -301,5 +330,59 @@ describe("processPendingTxAlarm", () => {
     const body = JSON.parse(String((editSpy.mock.calls[0]![1] as unknown as { body: string }).body));
     expect(body.text.startsWith("❌")).toBe(true);
     expect(s.map.size).toBe(0);
+  });
+
+  it("keeps the record and skips markFinal when Telegram returns a transient 429", async () => {
+    // CodeRabbit (#965) flagged that swallowing edit failures
+    // before finalising idempotency means a 429 / 5xx silently
+    // commits the slot final against a bubble the user never
+    // saw. Transient HTTP errors must leave the DO record intact
+    // so the next alarm tick can re-edit (and only then
+    // finalise).
+    const s = makeStorage();
+    const rec = makeRecord();
+    s.map.set(`pendingTx:${rec.txHash.toLowerCase()}`, rec);
+
+    const fakeReceipt = {
+      status: "success",
+      logs: [],
+      transactionHash: rec.txHash,
+    };
+    const tradeModule = await import("../../lib/trade.js");
+    vi.spyOn(tradeModule, "buildPublicClient").mockReturnValue({
+      getTransactionReceipt: vi.fn().mockResolvedValue(fakeReceipt),
+    } as unknown as ReturnType<typeof tradeModule.buildPublicClient>);
+
+    // Telegram returns 429 — the editor throws an error carrying
+    // `error_code: 429`, which `isTransientEditError` recognises.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_input: unknown, _init: unknown) =>
+          new Response(
+            JSON.stringify({ ok: false, description: "Too Many Requests", error_code: 429 }),
+            { status: 429 },
+          ),
+      ),
+    );
+
+    const putSpy = vi.fn();
+    const kvEnv = {
+      ...env,
+      WALLET_KV: {
+        get: async () => null,
+        put: putSpy,
+      } as unknown as KVNamespace,
+    } as Parameters<typeof processPendingTxAlarm>[0];
+
+    await processPendingTxAlarm(kvEnv, asStorage(s) as never);
+
+    // Record must survive the transient error and the alarm
+    // must be re-armed so the next tick retries the edit +
+    // markFinal cycle. markFinal would have written to KV; assert
+    // it didn't.
+    expect(s.map.size).toBe(1);
+    expect(s.alarm).not.toBeNull();
+    expect(putSpy).not.toHaveBeenCalled();
   });
 });

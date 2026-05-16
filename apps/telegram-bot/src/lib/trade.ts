@@ -1315,6 +1315,7 @@ export const explorerTxUrl = (hash: Hash): string =>
  */
 export const renderExecutionError = (
   result: Extract<ExecutionResult, { ok: false }>,
+  options: { isPollingActive?: boolean } = {},
 ): string => {
   if (result.kind === "not_configured") {
     return "Trade routing is not yet configured — try again in a moment.";
@@ -1323,10 +1324,22 @@ export const renderExecutionError = (
     return "Insufficient HYPE for gas — top up the wallet and retry.";
   }
   if (result.kind === "pending") {
+    // Two variants — the "still polling" promise is only honest
+    // when a background poll is actually armed (DO state present,
+    // and the give-up timeout hasn't fired). The pending-tx-poller
+    // give-up path and the no-DO fallback path both pass
+    // `isPollingActive: false` so the copy doesn't lie about
+    // future updates that won't happen.
+    if (options.isPollingActive) {
+      return (
+        `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
+        `Still polling in the background; this message updates once mined. ` +
+        `Explorer: ${explorerTxUrl(result.txHash)}`
+      );
+    }
     return (
-      `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
-      `Still polling in the background; this message updates once mined. ` +
-      `Explorer: ${explorerTxUrl(result.txHash)}`
+      `Tx pending — receipt not seen yet, no longer polling. ` +
+      `Check the explorer: ${explorerTxUrl(result.txHash)}`
     );
   }
   if (result.kind === "unavailable") {
