@@ -50,6 +50,7 @@ import {
   SELL_STAGING_BUFFER_CAPPED_PRESET_HTML,
   SELL_STAGING_READY_HTML,
   SELL_STAGING_READY_PRESET_HTML,
+  TRADE_STAGING_TOKEN_LINE_HTML,
   SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TOAST_REFRESHED,
@@ -758,8 +759,11 @@ const runPercentSell = async (
   );
   const tickerSafe = escapeHtml(token.ticker);
   const tokenSafe = escapeHtml(token.address);
-  const tokenLine =
-    `\n\nToken: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const tokenLine = t(TRADE_STAGING_TOKEN_LINE_HTML, lang)(
+    trackingPageUrl(token.address),
+    tickerSafe,
+    tokenSafe,
+  );
   const header =
     buffer.kind === "capped"
       ? t(SELL_STAGING_BUFFER_CAPPED_HTML, lang)(
@@ -1011,8 +1015,11 @@ const handlePercentSell = async (
     percent === 100 ? t(SELL_PRESET_ALL_OF_SUFFIX, lang)(totalBalanceFormatted) : "";
   const tickerSafe = escapeHtml(token.ticker);
   const tokenSafe = escapeHtml(token.address);
-  const tokenLine =
-    `\n\nToken: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const tokenLine = t(TRADE_STAGING_TOKEN_LINE_HTML, lang)(
+    trackingPageUrl(token.address),
+    tickerSafe,
+    tokenSafe,
+  );
   const header =
     buffer.kind === "capped"
       ? t(SELL_STAGING_BUFFER_CAPPED_PRESET_HTML, lang)(

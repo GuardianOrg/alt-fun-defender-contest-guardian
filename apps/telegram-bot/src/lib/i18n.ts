@@ -2148,8 +2148,8 @@ export const BUY_STAGING_HTML = {
     trackingUrl: string,
   ) =>
     `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
-    `Tap <b>Confirm</b> within 60s to submit.\n\n` +
-    `Token: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
+    `Tap <b>Confirm</b> within 60s to submit.` +
+    `\n\nToken: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
   SimplifiedChinese: (
     amount: number,
     tickerSafe: string,
@@ -2157,8 +2157,8 @@ export const BUY_STAGING_HTML = {
     trackingUrl: string,
   ) =>
     `✅ <b>准备买入 ${tickerSafe}：$${amount.toFixed(2)} USDC</b>\n\n` +
-    `请在 60 秒内点击 <b>确认</b> 以提交。\n\n` +
-    `代币：<a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
+    `请在 60 秒内点击 <b>确认</b> 以提交。` +
+    `\n\n代币：<a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
 } as const;
 
 // ─── /sell — staging copy ──────────────────────────────────────────
@@ -2234,6 +2234,16 @@ export const SELL_STAGING_BUFFER_CAPPED_PRESET_HTML = {
 export const SELL_PRESET_ALL_OF_SUFFIX = {
   English: (totalBalance: string) => ` all ${totalBalance}`,
   SimplifiedChinese: (totalBalance: string) => `（全部 ${totalBalance}）`,
+} as const;
+export const TRADE_STAGING_TOKEN_LINE_HTML = {
+  English: (trackingUrl: string, tickerSafe: string, tokenSafe: string) =>
+    `\n\nToken: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
+  SimplifiedChinese: (
+    trackingUrl: string,
+    tickerSafe: string,
+    tokenSafe: string,
+  ) =>
+    `\n\n代币：<a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
 } as const;
 export const SELL_STAGING_BUFFER_CAPPED_HTML = {
   English: (

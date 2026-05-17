@@ -433,6 +433,18 @@ describe("i18n module", () => {
     expect(t(i18n.SELL_PRESET_ALL_OF_SUFFIX, "SimplifiedChinese")("100")).toBe(
       "（全部 100）",
     );
+
+    // Shared staging Token: line (used by buy + sell)
+    expect(
+      i18n.TRADE_STAGING_TOKEN_LINE_HTML.English("https://x", "WIF", "0xabc"),
+    ).toContain('Token: <a href="https://x">WIF</a>');
+    expect(
+      t(i18n.TRADE_STAGING_TOKEN_LINE_HTML, "SimplifiedChinese")(
+        "https://x",
+        "WIF",
+        "0xabc",
+      ),
+    ).toContain("代币：");
   });
 
   it("renders round-2 i18n keys (positions row labels, track sides, chart, PIN action labels, inline withdraw errors)", () => {
