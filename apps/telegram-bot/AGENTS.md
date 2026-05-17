@@ -952,7 +952,7 @@ src/
 - Wizard surfaces a clear warning that past attributions do NOT redirect on rewards-wallet change
 - Bad-referrer-wallet banner: when the indexer reports `referrerCut == 0` for at least one trade where `referrer == this user's rewardsWallet`, the banner appears at the top of /referral with a count of failed payments
 - Failed payments banner does NOT include a "claim refund" button — the lost cuts are unrecoverable, surface only as preventative copy
-- Self-referral case: lifetime earned correctly accumulates the user's own self-referral cut on their own trades
+- Self-referral case: a user who tried to onboard with their own `ref_<userId>` / `ref_<username>` deeplink has `referrer = null` (see /start tests) and therefore `lifetimeEarnedUsdc = 0` from their own trades — no self-referral cut accrues anywhere
 - No claim/withdraw/payout button anywhere in the screen
 
 **`commands/settings.test.ts`**
