@@ -843,7 +843,10 @@ describe("Rewards wallet picker", () => {
     const w1 = await wm.createWallet(7, "main");
     const w2 = await wm.createWallet(7); // unlabeled — falls back to shortened address
     const w3 = await wm.createWallet(7, "extra");
-    mockApi(fetchSpy, w1.address);
+    // Use an unrelated rewards wallet so the layout assertions in this
+    // test aren't perturbed by the `• … •` selected-state marker —
+    // dedicated test below covers the marker behaviour.
+    mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
     await h.run(
       callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
@@ -935,6 +938,73 @@ describe("Rewards wallet picker", () => {
     expect(String(postCall![0])).toBe(
       `${API_BASE_URL}/api/v1/bot/referrals/${w1.address.toLowerCase()}/rewards-wallet`,
     );
+  });
+
+  it("marks the wallet matching the current rewards wallet with `• … •` bullets", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const w1 = await wm.createWallet(7, "main");
+    const w2 = await wm.createWallet(7, "extra");
+    await wm.createWallet(7, "third");
+    // Mock api so the current rewards wallet is w2 — hex chars
+    // uppercased (api validator only accepts `0x` + mixed-case hex) to
+    // prove the picker comparison is case-insensitive on the hex body.
+    mockApi(fetchSpy, w1.address, {
+      body: {
+        rewardsWallet: `0x${w2.address.slice(2).toUpperCase()}`,
+        referredCount: 0,
+        lifetimeEarnedUsdc: "0",
+        badPaymentCount: 0,
+        attributionLossCount: 0,
+      },
+    });
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 500,
+      }),
+    );
+
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edit).toBeDefined();
+    const kb = (edit!.body.reply_markup as {
+      inline_keyboard: { text: string; callback_data?: string }[][];
+    }).inline_keyboard;
+
+    // w1 ("main") and w2 ("extra") sit on the first row; only w2 is
+    // the active rewards wallet so only its label gets the bullets.
+    expect(kb[0]![0]!.text).toBe("main");
+    expect(kb[0]![1]!.text).toBe("• extra •");
+    // w3 lands on the trailing single-button row; it is not the
+    // current rewards wallet so it stays unmarked.
+    expect(kb[1]![0]!.text).toBe("third");
+    // Custom never carries the marker.
+    expect(kb[2]![0]!.text).toBe("Custom");
+  });
+
+  it("falls back to an unmarked picker when the rewards-wallet api lookup fails", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const w1 = await wm.createWallet(7, "main");
+    mockApi(fetchSpy, w1.address, { status: 503 });
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 501,
+      }),
+    );
+
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edit).toBeDefined();
+    const kb = (edit!.body.reply_markup as {
+      inline_keyboard: { text: string; callback_data?: string }[][];
+    }).inline_keyboard;
+    // No wallet rendered with bullets when the api is unreachable.
+    expect(kb[0]![0]!.text).toBe("main");
   });
 
   it("renders Custom + Back/Home even when the user has zero wallets", async () => {

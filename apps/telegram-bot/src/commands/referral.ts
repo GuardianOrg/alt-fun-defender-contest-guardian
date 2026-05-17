@@ -223,17 +223,30 @@ const pickerButtonLabel = (w: StoredWallet): string =>
  * Back / Home row. The picker is always shown even when the user has
  * zero wallets — in that case only Custom + Back/Home render, which
  * still gives them a path through to the address-entry wizard.
+ *
+ * When `currentRewardsWallet` matches a custodial wallet address
+ * (case-insensitive, since EVM addresses are case-insensitive on the
+ * wire), that button's label is wrapped in `• … •` bullet markers to
+ * mirror the slippage-preset selected-state indicator from
+ * `keyboards/settings-actions.ts :: buildSettingsKeyboard`.
  */
 const buildPickerKeyboard = (
   wallets: StoredWallet[],
+  currentRewardsWallet?: string | null,
 ): { text: string; callback_data: string }[][] => {
+  const currentLower = currentRewardsWallet?.toLowerCase();
   const rows: { text: string; callback_data: string }[][] = [];
   for (let i = 0; i < wallets.length; i += 2) {
     const row: { text: string; callback_data: string }[] = [];
     for (let j = i; j < Math.min(i + 2, wallets.length); j++) {
       const w = wallets[j]!;
+      const label = pickerButtonLabel(w);
+      const isCurrent =
+        currentLower !== undefined &&
+        currentLower !== null &&
+        w.address.toLowerCase() === currentLower;
       row.push({
-        text: pickerButtonLabel(w),
+        text: isCurrent ? `• ${label} •` : label,
         callback_data: `${REFERRAL_CALLBACK.pickRewardsWalletPrefix}${w.id}`,
       });
     }
@@ -912,11 +925,31 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
-    const wallets = await buildManager(ctx.env).listWallets(ctx.from.id);
+    const wm = buildManager(ctx.env);
+    const wallets = await wm.listWallets(ctx.from.id);
+    // Resolve the user's current rewards wallet so we can mark the
+    // matching picker button with the slippage-style `• … •` selected
+    // indicator. A failure here (no identity wallet yet, api outage)
+    // degrades cleanly to an unmarked picker — the picker itself must
+    // remain reachable so the user can still set a wallet for the
+    // first time.
+    const identity = await getReferralIdentityWallet(ctx.env, wm, ctx.from.id);
+    let currentRewardsWallet: string | null = null;
+    if (identity) {
+      const stats = await fetchBotReferralStats(ctx.env, identity);
+      if (stats.ok) {
+        currentRewardsWallet = stats.data.rewardsWallet;
+      } else {
+        logger.warn("fetchBotReferralStats failed in picker", {
+          userId: ctx.from.id,
+          kind: stats.kind,
+        });
+      }
+    }
     await editToSubmenu(ctx, {
       text: renderPickerHtml(ctx.session.antiPhishingPhrase),
       parseMode: "HTML",
-      inlineKeyboard: buildPickerKeyboard(wallets),
+      inlineKeyboard: buildPickerKeyboard(wallets, currentRewardsWallet),
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();
