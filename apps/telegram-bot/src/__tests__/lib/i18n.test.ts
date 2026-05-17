@@ -319,6 +319,162 @@ describe("i18n module", () => {
     ).toBe("Transaction reverted: revert reason.");
   });
 
+  it("renders newly threaded buy/sell/withdraw/referral/wallet copy in both languages", () => {
+    // /buy — custom-amount wizard
+    expect(i18n.BUY_CUSTOM_AMOUNT_PROMPT.English(20)).toContain(
+      "Enter the USDC amount to buy",
+    );
+    expect(t(i18n.BUY_CUSTOM_AMOUNT_PROMPT, "SimplifiedChinese")(20)).toContain(
+      "请输入要买入的 USDC 金额",
+    );
+    expect(i18n.BUY_INVALID_NUMBER_RETRY_REPLY.English(20)).toContain(
+      "Please enter a valid number",
+    );
+    expect(
+      t(i18n.BUY_INVALID_NUMBER_RETRY_REPLY, "SimplifiedChinese")(20),
+    ).toContain("请输入有效数字");
+    expect(i18n.BUY_MINIMUM_BUY_RETRY_REPLY.English(20)).toBe(
+      "Minimum buy is $20 USDC. Enter a larger amount.",
+    );
+    expect(
+      t(i18n.BUY_MINIMUM_BUY_RETRY_REPLY, "SimplifiedChinese")(20),
+    ).toContain("最低买入金额");
+    expect(i18n.BUY_UNABLE_VERIFY_USDC_BALANCE_REPLY.English).toContain(
+      "Unable to verify",
+    );
+    expect(
+      t(i18n.BUY_UNABLE_VERIFY_USDC_BALANCE_REPLY, "SimplifiedChinese"),
+    ).toContain("无法核实");
+    expect(
+      i18n.BUY_INSUFFICIENT_USDC_RETRY_REPLY.English(120.5, "$100"),
+    ).toContain("Insufficient USDC balance");
+    expect(
+      t(i18n.BUY_INSUFFICIENT_USDC_RETRY_REPLY, "SimplifiedChinese")(120.5, "$100"),
+    ).toContain("USDC 余额不足");
+    expect(
+      i18n.BUY_STAGING_HTML.English(20.5, "WIF", "0xabc", "https://x"),
+    ).toContain("Ready to buy");
+    expect(
+      t(i18n.BUY_STAGING_HTML, "SimplifiedChinese")(
+        20.5,
+        "WIF",
+        "0xabc",
+        "https://x",
+      ),
+    ).toContain("准备买入");
+
+    // /sell — staging copy
+    expect(
+      i18n.SELL_STAGING_READY_HTML.English(50, "WIF", 10.5, "\n\ntoken"),
+    ).toContain("Ready to sell 50% of WIF");
+    expect(
+      t(i18n.SELL_STAGING_READY_HTML, "SimplifiedChinese")(
+        50,
+        "WIF",
+        10.5,
+        "\n\ntoken",
+      ),
+    ).toContain("准备卖出");
+    expect(
+      i18n.SELL_STAGING_BUFFER_CAPPED_HTML.English(
+        5,
+        10,
+        50,
+        "\n\ntoken",
+      ),
+    ).toContain("Buffer low");
+    expect(
+      t(i18n.SELL_STAGING_BUFFER_CAPPED_HTML, "SimplifiedChinese")(
+        5,
+        10,
+        50,
+        "\n\ntoken",
+      ),
+    ).toContain("流动性缓冲不足");
+
+    // /withdraw — amount prompt + receipt
+    expect(i18n.WITHDRAW_AMOUNT_PROMPT.English("USDC", "100 USDC")).toContain(
+      "How much USDC?",
+    );
+    expect(
+      t(i18n.WITHDRAW_AMOUNT_PROMPT, "SimplifiedChinese")("USDC", "100 USDC"),
+    ).toContain("提币多少");
+    expect(
+      i18n.WITHDRAW_SUBMITTED_RECEIPT_HTML.English("0xhash", "https://ex/tx"),
+    ).toContain("Withdraw submitted");
+    expect(
+      t(i18n.WITHDRAW_SUBMITTED_RECEIPT_HTML, "SimplifiedChinese")(
+        "0xhash",
+        "https://ex/tx",
+      ),
+    ).toContain("提币已提交");
+
+    // /referral — rewards-wallet update fallback
+    expect(
+      i18n.REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY.English("0xabc"),
+    ).toBe("Rewards wallet updated to 0xabc.");
+    expect(
+      t(
+        i18n.REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY,
+        "SimplifiedChinese",
+      )("0xabc"),
+    ).toContain("奖励钱包已更新");
+
+    // /wallet — security status + empty-state hints
+    expect(i18n.WALLET_STATUS_PIN_NOT_SET.English).toBe("• PIN: not set");
+    expect(
+      t(i18n.WALLET_STATUS_PIN_NOT_SET, "SimplifiedChinese"),
+    ).toContain("PIN：未设置");
+    expect(i18n.WALLET_STATUS_PIN_SET.English).toBe("• PIN: set");
+    expect(
+      t(i18n.WALLET_STATUS_PIN_SET, "SimplifiedChinese"),
+    ).toContain("PIN：已设置");
+    expect(i18n.WALLET_STATUS_PIN_RESET_READY.English).toContain(
+      "Complete PIN reset",
+    );
+    expect(
+      t(i18n.WALLET_STATUS_PIN_RESET_READY, "SimplifiedChinese"),
+    ).toContain("完成 PIN 重置");
+    expect(i18n.WALLET_STATUS_PIN_RESET_PENDING.English("3h")).toContain(
+      "reset requested, available in ~3h",
+    );
+    expect(
+      t(i18n.WALLET_STATUS_PIN_RESET_PENDING, "SimplifiedChinese")("3h"),
+    ).toContain("已申请重置，约 3h 后可用");
+    expect(i18n.WALLET_STATUS_WITHDRAW_LOCK_OFF.English).toBe(
+      "• Withdrawal lock: off",
+    );
+    expect(
+      t(i18n.WALLET_STATUS_WITHDRAW_LOCK_OFF, "SimplifiedChinese"),
+    ).toContain("提币锁定：关闭");
+    expect(i18n.WALLET_STATUS_WITHDRAW_LOCK_ON.English).toBe(
+      "• Withdrawal lock: on",
+    );
+    expect(
+      t(i18n.WALLET_STATUS_WITHDRAW_LOCK_ON, "SimplifiedChinese"),
+    ).toContain("提币锁定：开启");
+    expect(i18n.WALLET_EMPTY_CREATE_HINT.English).toContain("Create");
+    expect(
+      t(i18n.WALLET_EMPTY_CREATE_HINT, "SimplifiedChinese"),
+    ).toContain("新建");
+    expect(i18n.WALLET_EMPTY_IMPORT_HINT.English).toContain("Privy");
+    expect(
+      t(i18n.WALLET_EMPTY_IMPORT_HINT, "SimplifiedChinese"),
+    ).toContain("Privy");
+    expect(i18n.WALLET_LIST_HEADER.English(1, 10)).toBe("Wallets (1/10)");
+    expect(t(i18n.WALLET_LIST_HEADER, "SimplifiedChinese")(1, 10)).toBe(
+      "钱包（1/10）",
+    );
+    expect(i18n.WALLET_UNLABELED_PLACEHOLDER.English).toBe("(unlabeled)");
+    expect(
+      t(i18n.WALLET_UNLABELED_PLACEHOLDER, "SimplifiedChinese"),
+    ).toBe("（无标签）");
+    expect(i18n.WALLET_ACTIVE_LEGEND.English).toContain("active wallet");
+    expect(
+      t(i18n.WALLET_ACTIVE_LEGEND, "SimplifiedChinese"),
+    ).toContain("活动钱包");
+  });
+
   it("renders newly extracted /track copy", () => {
     expect(i18n.TRACK_RECENT_TRADES_HEADER_HTML.English).toBe(
       "<b>Recent trades</b>",

@@ -61,11 +61,13 @@ import {
   TOAST_NO_ACTIVE_WALLET,
   TOAST_SUBMITTING,
   WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY,
+  WITHDRAW_AMOUNT_PROMPT,
   WITHDRAW_DESTINATION_PROMPT,
   WITHDRAW_INSUFFICIENT_BALANCE_REPLY,
   WITHDRAW_INVALID_AMOUNT_REPLY,
   WITHDRAW_INVALID_DESTINATION_REPLY,
   WITHDRAW_PIN_PROMPT,
+  WITHDRAW_SUBMITTED_RECEIPT_HTML,
   WITHDRAW_SUMMARY_HEADER,
   WITHDRAW_TAP_CONFIRM_HINT,
   WITHDRAW_WHICH_ASSET_PROMPT,
@@ -298,12 +300,12 @@ const renderAssetPrompt = (
  * trade cards. Back/Home row is appended so a user who taps the wizard
  * by mistake can exit without sending a stray text.
  */
-const assetPickerKeyboard = (): InlineCallbackButton[][] => [
+const assetPickerKeyboard = (lang: Language): InlineCallbackButton[][] => [
   [
     { text: "USDC", callback_data: WITHDRAW_ASSET_CALLBACK.usdc },
     { text: "HYPE", callback_data: WITHDRAW_ASSET_CALLBACK.hype },
   ],
-  backHomeRow(),
+  backHomeRow(lang),
 ];
 
 const assetFromCallback = (data: string): WithdrawAsset | null => {
@@ -370,7 +372,7 @@ const verifyPinForWithdraw = async (
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
     withAntiPhishing(t(WITHDRAW_PIN_PROMPT, lang)),
-    { reply_markup: backHomeMarkup() },
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
@@ -404,7 +406,7 @@ const verifyPinForWithdraw = async (
       withAntiPhishing(
         t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
       ),
-      { reply_markup: backHomeMarkup() },
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }
@@ -421,9 +423,10 @@ const promptArg = async (
   ctx: AppContext,
   prompt: string,
   interceptBuy = false,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<string | null> => {
   const promptMsg = await ctx.reply(withAntiPhishing(prompt), {
-    reply_markup: backHomeMarkup(),
+    reply_markup: backHomeMarkup(lang),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
   const reply = await conversation.waitFor("message:text");
@@ -485,14 +488,14 @@ const withdrawWizardConversation = async (
         outside,
         origin,
         withAntiPhishing(renderAssetPrompt(balances, lang)),
-        { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
+        { reply_markup: { inline_keyboard: assetPickerKeyboard(lang) } },
       ),
     );
   }
   if (!editedOriginAsAsset) {
     const assetPromptMsg = await ctx.reply(
       withAntiPhishing(renderAssetPrompt(balances, lang)),
-      { reply_markup: { inline_keyboard: assetPickerKeyboard() } },
+      { reply_markup: { inline_keyboard: assetPickerKeyboard(lang) } },
     );
     await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
   } else if (origin) {
@@ -525,8 +528,9 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      `How much ${asset}? Your ${asset} balance is ${formatBalance(balance, asset)}. Send a positive amount (e.g. 0.1).`,
+      t(WITHDRAW_AMOUNT_PROMPT, lang)(asset, formatBalance(balance, asset)),
       true,
+      lang,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -536,7 +540,7 @@ const withdrawWizardConversation = async (
     if (parsed === null) {
       const retry = await ctx.reply(
         withAntiPhishing(t(WITHDRAW_INVALID_AMOUNT_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -550,6 +554,8 @@ const withdrawWizardConversation = async (
       conversation,
       ctx,
       t(WITHDRAW_DESTINATION_PROMPT, lang),
+      false,
+      lang,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -559,7 +565,7 @@ const withdrawWizardConversation = async (
     if (parsed === null) {
       const retry = await ctx.reply(
         withAntiPhishing(t(WITHDRAW_INVALID_DESTINATION_REPLY, lang)),
-        { reply_markup: backHomeMarkup() },
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -738,7 +744,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     const result = await editToSubmenu(ctx, {
       text: t(TOAST_LOADING_WITHDRAW, lang),
       parseMode: "HTML",
-      inlineKeyboard: [backHomeRow()],
+      inlineKeyboard: [backHomeRow(lang)],
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();
@@ -823,11 +829,10 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     if (result.ok) {
       await ctx.reply(
         withAntiPhishing(
-          [
-            `✅ Withdraw submitted`,
-            "",
-            `Tx: <a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`,
-          ].join("\n"),
+          t(WITHDRAW_SUBMITTED_RECEIPT_HTML, lang)(
+            result.txHash,
+            explorerTxUrl(result.txHash),
+          ),
         ),
         { parse_mode: "HTML", link_preview_options: { is_disabled: true } },
       );

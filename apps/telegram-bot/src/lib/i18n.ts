@@ -2129,3 +2129,189 @@ export const SELL_BUFFER_BELOW_MIN_HTML = {
     `当前最大卖出约 $${maxUsd.toFixed(2)}，低于 $${minUsdc} 最低限额。` +
     `BounceTech 会在约 10 秒内补充流动性缓冲——请稍后重试。`,
 } as const;
+
+// ─── /buy — custom-amount wizard copy ──────────────────────────────
+
+export const BUY_CUSTOM_AMOUNT_PROMPT = {
+  English: (minUsdc: number) =>
+    `Enter the USDC amount to buy (minimum $${minUsdc}):\n\nTap Home to exit.`,
+  SimplifiedChinese: (minUsdc: number) =>
+    `请输入要买入的 USDC 金额（最低 $${minUsdc}）：\n\n点击主页退出。`,
+} as const;
+export const BUY_INVALID_NUMBER_RETRY_REPLY = {
+  English: (minUsdc: number) =>
+    `Please enter a valid number (e.g. 50). Minimum is $${minUsdc}.`,
+  SimplifiedChinese: (minUsdc: number) =>
+    `请输入有效数字（例如 50）。最低为 $${minUsdc}。`,
+} as const;
+export const BUY_MINIMUM_BUY_RETRY_REPLY = {
+  English: (minUsdc: number) =>
+    `Minimum buy is $${minUsdc} USDC. Enter a larger amount.`,
+  SimplifiedChinese: (minUsdc: number) =>
+    `最低买入金额为 $${minUsdc} USDC。请输入更大的金额。`,
+} as const;
+export const BUY_UNABLE_VERIFY_USDC_BALANCE_REPLY = {
+  English: "Unable to verify your USDC balance — please try again.",
+  SimplifiedChinese: "无法核实您的 USDC 余额——请重试。",
+} as const;
+export const BUY_INSUFFICIENT_USDC_RETRY_REPLY = {
+  English: (totalNeeded: number, formattedUsdc: string) =>
+    `Insufficient USDC balance.\n` +
+    `You need $${totalNeeded.toFixed(2)} (amount + fees) but have ${formattedUsdc}.\n\n` +
+    `Enter a smaller amount, or tap Home to exit.`,
+  SimplifiedChinese: (totalNeeded: number, formattedUsdc: string) =>
+    `USDC 余额不足。\n` +
+    `您需要 $${totalNeeded.toFixed(2)}（金额 + 手续费），现有 ${formattedUsdc}。\n\n` +
+    `请输入更小的金额，或点击主页退出。`,
+} as const;
+export const BUY_STAGING_HTML = {
+  English: (
+    amount: number,
+    tickerSafe: string,
+    tokenSafe: string,
+    trackingUrl: string,
+  ) =>
+    `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
+    `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+    `Token: <a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
+  SimplifiedChinese: (
+    amount: number,
+    tickerSafe: string,
+    tokenSafe: string,
+    trackingUrl: string,
+  ) =>
+    `✅ <b>准备买入 ${tickerSafe}：$${amount.toFixed(2)} USDC</b>\n\n` +
+    `请在 60 秒内点击 <b>确认</b> 以提交。\n\n` +
+    `代币：<a href="${trackingUrl}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
+} as const;
+
+// ─── /sell — staging copy ──────────────────────────────────────────
+
+export const SELL_STAGING_READY_HTML = {
+  English: (
+    percent: number,
+    tickerSafe: string,
+    proceedsUsd: number,
+    tokenLine: string,
+  ) =>
+    `✅ <b>Ready to sell ${percent}% of ${tickerSafe} (≈$${proceedsUsd.toFixed(2)})</b>\n\n` +
+    `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`,
+  SimplifiedChinese: (
+    percent: number,
+    tickerSafe: string,
+    proceedsUsd: number,
+    tokenLine: string,
+  ) =>
+    `✅ <b>准备卖出 ${tickerSafe} 的 ${percent}%（约 $${proceedsUsd.toFixed(2)}）</b>\n\n` +
+    `请在 60 秒内点击 <b>确认</b> 以提交。${tokenLine}`,
+} as const;
+export const SELL_STAGING_BUFFER_CAPPED_HTML = {
+  English: (
+    cappedProceedsUsd: number,
+    originalProceedsUsd: number,
+    percent: number,
+    tokenLine: string,
+  ) =>
+    `⚠️ <b>Buffer low — capping sell at $${cappedProceedsUsd.toFixed(2)}</b> ` +
+    `(reduced from ≈$${originalProceedsUsd.toFixed(2)} for ${percent}%).\n` +
+    `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
+    `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`,
+  SimplifiedChinese: (
+    cappedProceedsUsd: number,
+    originalProceedsUsd: number,
+    percent: number,
+    tokenLine: string,
+  ) =>
+    `⚠️ <b>流动性缓冲不足——已将卖出上限设为 $${cappedProceedsUsd.toFixed(2)}</b>` +
+    `（${percent}% 原本约 $${originalProceedsUsd.toFixed(2)}）。\n` +
+    `流动性缓冲会在约 10 秒后补充；剩余部分请分批卖出。\n\n` +
+    `请在 60 秒内点击 <b>确认</b> 以提交缩减后的金额。${tokenLine}`,
+} as const;
+
+// ─── /withdraw — amount prompt + success receipt ───────────────────
+
+export const WITHDRAW_AMOUNT_PROMPT = {
+  English: (asset: string, formattedBalance: string) =>
+    `How much ${asset}? Your ${asset} balance is ${formattedBalance}. Send a positive amount (e.g. 0.1).`,
+  SimplifiedChinese: (asset: string, formattedBalance: string) =>
+    `提币多少 ${asset}？您的 ${asset} 余额为 ${formattedBalance}。请发送正数（例如 0.1）。`,
+} as const;
+export const WITHDRAW_SUBMITTED_RECEIPT_HTML = {
+  English: (txHash: string, explorerUrl: string) =>
+    `✅ Withdraw submitted\n\nTx: <a href="${explorerUrl}">${txHash}</a>`,
+  SimplifiedChinese: (txHash: string, explorerUrl: string) =>
+    `✅ 提币已提交\n\n交易：<a href="${explorerUrl}">${txHash}</a>`,
+} as const;
+
+// ─── /referral — rewards wallet update fallback ────────────────────
+
+export const REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY = {
+  English: (rewardsWallet: string) =>
+    `Rewards wallet updated to ${rewardsWallet}.`,
+  SimplifiedChinese: (rewardsWallet: string) =>
+    `奖励钱包已更新为 ${rewardsWallet}。`,
+} as const;
+
+// ─── /wallet — security status + empty-state hints ─────────────────
+
+export const WALLET_STATUS_PIN_NOT_SET = {
+  English: "• PIN: not set",
+  SimplifiedChinese: "• PIN：未设置",
+} as const;
+export const WALLET_STATUS_PIN_RESET_READY = {
+  English: "• PIN: reset ready — tap [Complete PIN reset] to set a new PIN",
+  SimplifiedChinese: "• PIN：重置已就绪——点击 [完成 PIN 重置] 以设置新 PIN",
+} as const;
+export const WALLET_STATUS_PIN_RESET_PENDING = {
+  English: (hoursRemaining: string) =>
+    `• PIN: reset requested, available in ~${hoursRemaining} — tap [Cancel PIN reset] if you didn't request this`,
+  SimplifiedChinese: (hoursRemaining: string) =>
+    `• PIN：已申请重置，约 ${hoursRemaining} 后可用——如非您发起请点击 [取消 PIN 重置]`,
+} as const;
+export const WALLET_STATUS_PIN_SET = {
+  English: "• PIN: set",
+  SimplifiedChinese: "• PIN：已设置",
+} as const;
+export const WALLET_STATUS_WITHDRAW_LOCK_OFF = {
+  English: "• Withdrawal lock: off",
+  SimplifiedChinese: "• 提币锁定：关闭",
+} as const;
+export const WALLET_STATUS_WITHDRAW_LOCK_DISABLE_READY = {
+  English:
+    "• Withdrawal lock: on (disable ready — tap [Complete disable] to clear)",
+  SimplifiedChinese:
+    "• 提币锁定：开启（停用已就绪——点击 [完成停用] 以清除）",
+} as const;
+export const WALLET_STATUS_WITHDRAW_LOCK_DISABLE_PENDING = {
+  English:
+    "• Withdrawal lock: on (disable pending — 24h cooldown in progress)",
+  SimplifiedChinese:
+    "• 提币锁定：开启（停用待生效——24 小时冷却中）",
+} as const;
+export const WALLET_STATUS_WITHDRAW_LOCK_ON = {
+  English: "• Withdrawal lock: on",
+  SimplifiedChinese: "• 提币锁定：开启",
+} as const;
+export const WALLET_EMPTY_CREATE_HINT = {
+  English: "• Create — generate a new bot-managed wallet to start trading",
+  SimplifiedChinese: "• 新建 — 生成一个由机器人管理的新钱包以开始交易",
+} as const;
+export const WALLET_EMPTY_IMPORT_HINT = {
+  English:
+    "• Import — paste an existing private key (including a Privy key exported from the Web App)",
+  SimplifiedChinese:
+    "• 导入 — 粘贴已有的私钥（包括从 Web 应用导出的 Privy 私钥）",
+} as const;
+export const WALLET_LIST_HEADER = {
+  English: (count: number, max: number) => `Wallets (${count}/${max})`,
+  SimplifiedChinese: (count: number, max: number) =>
+    `钱包（${count}/${max}）`,
+} as const;
+export const WALLET_UNLABELED_PLACEHOLDER = {
+  English: "(unlabeled)",
+  SimplifiedChinese: "（无标签）",
+} as const;
+export const WALLET_ACTIVE_LEGEND = {
+  English: "* = active wallet (used for buy / sell / withdraw)",
+  SimplifiedChinese: "* = 活动钱包（用于买入 / 卖出 / 提币）",
+} as const;

@@ -45,6 +45,8 @@ import {
   SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY,
   SELL_PROCEEDS_BELOW_MIN_REPLY,
   SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY,
+  SELL_STAGING_BUFFER_CAPPED_HTML,
+  SELL_STAGING_READY_HTML,
   SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TOAST_REFRESHED,
@@ -757,13 +759,19 @@ const runPercentSell = async (
     `\n\nToken: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
   const header =
     buffer.kind === "capped"
-      ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
-        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
-        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
-      : `✅ <b>Ready to sell ${percent}% of ${tickerSafe} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
-  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+      ? t(SELL_STAGING_BUFFER_CAPPED_HTML, lang)(
+          effectiveProceedsUsd,
+          quote.proceedsUsd,
+          percent,
+          tokenLine,
+        )
+      : t(SELL_STAGING_READY_HTML, lang)(
+          percent,
+          tickerSafe,
+          effectiveProceedsUsd,
+          tokenLine,
+        );
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the originating token-detail card into the staging bubble so
   // the wizard runs in a single bubble; fall back to a fresh reply if
@@ -1066,10 +1074,11 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
   // edits the same bubble (rather than dropping a new prompt below the
   // still-visible start menu).
   bot.callbackQuery(START_CALLBACK.sell, async (ctx) => {
+    const lang = ctxLang(ctx);
     const result = await editToSubmenu(ctx, {
-      text: PROMPT_HTML(ctxLang(ctx)),
+      text: PROMPT_HTML(lang),
       parseMode: "HTML",
-      inlineKeyboard: [backHomeRow()],
+      inlineKeyboard: [backHomeRow(lang)],
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();

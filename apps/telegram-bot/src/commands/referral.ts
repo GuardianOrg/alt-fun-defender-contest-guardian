@@ -59,6 +59,7 @@ import {
   REFERRAL_PIN_CONFIRM_PROMPT,
   REFERRAL_PRIVATE_DM_ONLY_REPLY,
   REFERRAL_REWARDS_WALLET_LABEL,
+  REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY,
   REFERRAL_SEND_NEW_ADDRESS_PROMPT,
   REFERRAL_SET_PIN_PROMPT,
   REFERRAL_SHARE_LINK_LEAD,
@@ -820,7 +821,9 @@ const changeRewardsWalletConversation = async (
   if (!landed) {
     await ctx.reply(
       wrap(ctx,
-        `Rewards wallet updated to ${result.data.rewardsWallet}.`,
+        t(REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY, lang)(
+          result.data.rewardsWallet,
+        ),
       ),
     );
     await sendReferral(ctx, userId, ctx.from?.username);
@@ -920,7 +923,9 @@ const pickKnownRewardsWalletConversation = async (
   if (!landed) {
     await ctx.reply(
       wrap(ctx,
-        `Rewards wallet updated to ${result.data.rewardsWallet}.`,
+        t(REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY, lang)(
+          result.data.rewardsWallet,
+        ),
       ),
     );
     await sendReferral(ctx, userId, ctx.from?.username);

@@ -43,8 +43,21 @@ import {
   WALLET_IMPORT_INVALID_KEY_REPLY,
   WALLET_IMPORT_PASTE_KEY_PROMPT,
   WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY,
+  WALLET_ACTIVE_LEGEND,
+  WALLET_EMPTY_CREATE_HINT,
+  WALLET_EMPTY_IMPORT_HINT,
+  WALLET_LIST_HEADER,
   WALLET_NO_WALLETS_YET_REPLY,
   WALLET_PICK_ACTIVE_PROMPT,
+  WALLET_STATUS_PIN_NOT_SET,
+  WALLET_STATUS_PIN_RESET_PENDING,
+  WALLET_STATUS_PIN_RESET_READY,
+  WALLET_STATUS_PIN_SET,
+  WALLET_STATUS_WITHDRAW_LOCK_DISABLE_PENDING,
+  WALLET_STATUS_WITHDRAW_LOCK_DISABLE_READY,
+  WALLET_STATUS_WITHDRAW_LOCK_OFF,
+  WALLET_STATUS_WITHDRAW_LOCK_ON,
+  WALLET_UNLABELED_PLACEHOLDER,
   WALLET_PIN_CHANGED_HEADER,
   WALLET_PIN_RESET_COMPLETE_HEADER,
   WALLET_PIN_SET_HEADER,
@@ -218,33 +231,30 @@ const renderSecurityStatusLines = (
   security: WalletSecurityStatus,
   now: number,
   pinResetReadyAt: number | null,
+  lang: Language,
 ): string[] => {
   const lines: string[] = [];
   if (!security.pinSet) {
-    lines.push("• PIN: not set");
+    lines.push(t(WALLET_STATUS_PIN_NOT_SET, lang));
   } else if (security.pinResetReady) {
-    lines.push(
-      "• PIN: reset ready — tap [Complete PIN reset] to set a new PIN",
-    );
+    lines.push(t(WALLET_STATUS_PIN_RESET_READY, lang));
   } else if (security.pinResetPending && pinResetReadyAt !== null) {
     lines.push(
-      `• PIN: reset requested, available in ~${formatHoursRemaining(pinResetReadyAt, now)} — tap [Cancel PIN reset] if you didn't request this`,
+      t(WALLET_STATUS_PIN_RESET_PENDING, lang)(
+        formatHoursRemaining(pinResetReadyAt, now),
+      ),
     );
   } else {
-    lines.push("• PIN: set");
+    lines.push(t(WALLET_STATUS_PIN_SET, lang));
   }
   if (!security.withdrawLockEnabled) {
-    lines.push("• Withdrawal lock: off");
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_OFF, lang));
   } else if (security.withdrawDisableReady) {
-    lines.push(
-      "• Withdrawal lock: on (disable ready — tap [Complete disable] to clear)",
-    );
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_DISABLE_READY, lang));
   } else if (security.withdrawDisablePending) {
-    lines.push(
-      "• Withdrawal lock: on (disable pending — 24h cooldown in progress)",
-    );
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_DISABLE_PENDING, lang));
   } else {
-    lines.push("• Withdrawal lock: on");
+    lines.push(t(WALLET_STATUS_WITHDRAW_LOCK_ON, lang));
   }
   return lines;
 };
@@ -261,6 +271,7 @@ const renderMainText = (
     security,
     now,
     pinResetReadyAt,
+    lang,
   );
   if (wallets.length === 0) {
     // "Import from Web App" stays first-class per AGENTS.md "Key
@@ -269,21 +280,25 @@ const renderMainText = (
     return [
       t(WALLET_NO_WALLETS_YET_REPLY, lang),
       "",
-      "• Create — generate a new bot-managed wallet to start trading",
-      "• Import — paste an existing private key (including a Privy key exported from the Web App)",
+      t(WALLET_EMPTY_CREATE_HINT, lang),
+      t(WALLET_EMPTY_IMPORT_HINT, lang),
       "",
       ...statusLines,
     ].join("\n");
   }
-  const lines = [`Wallets (${wallets.length}/${MAX_WALLETS_PER_USER})`, ""];
+  const lines = [
+    t(WALLET_LIST_HEADER, lang)(wallets.length, MAX_WALLETS_PER_USER),
+    "",
+  ];
+  const unlabeled = t(WALLET_UNLABELED_PLACEHOLDER, lang);
   for (const w of wallets) {
     const marker = w.id === active?.id ? "*" : " ";
     lines.push(
-      `${marker} ${w.label ?? "(unlabeled)"} — ${truncateAddress(w.address)}`,
+      `${marker} ${w.label ?? unlabeled} — ${truncateAddress(w.address)}`,
     );
   }
   if (active) {
-    lines.push("", "* = active wallet (used for buy / sell / withdraw)");
+    lines.push("", t(WALLET_ACTIVE_LEGEND, lang));
   }
   lines.push("", ...statusLines);
   return lines.join("\n");

@@ -326,13 +326,13 @@ const showPrompt = async (
   if (origin) {
     const edited = await conversation.external((outside) =>
       safeEditMessage(outside, origin, wrap(outside, text), {
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(getCtxLanguage(outside)),
       }),
     );
     if (edited) return;
   }
   const msg = await ctx.reply(wrap(ctx, text), {
-    reply_markup: backHomeMarkup(),
+    reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
   });
   await trackWorkflowMessage(conversation, msg.message_id);
 };
