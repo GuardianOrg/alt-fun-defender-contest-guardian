@@ -481,14 +481,27 @@ const sellCustomConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   tokenAddress: string,
+  origin?: MessageRef,
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await replyWithNav(
-    ctx,
-    "Enter a percent of your position to sell (1–100):\n\nTap Home to exit.",
-  );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  const promptText =
+    "Enter a percent of your position to sell (1–100):\n\nTap Home to exit.";
+
+  // Edit-in-place when entered from a token-card tap; fall back to a
+  // fresh reply otherwise (slash-entry / inline-mode without origin).
+  let promptShown = false;
+  if (origin) {
+    promptShown = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, promptText, {
+        reply_markup: backHomeMarkup(),
+      }),
+    );
+  }
+  if (!promptShown) {
+    const promptMsg = await replyWithNav(ctx, promptText);
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
@@ -511,7 +524,7 @@ const sellCustomConversation = async (
       continue;
     }
 
-    await runPercentSell(conversation, msgCtx, tokenAddress, percent);
+    await runPercentSell(conversation, msgCtx, tokenAddress, percent, origin);
     await sweepWorkflow(conversation);
     return;
   }
@@ -528,6 +541,7 @@ const runPercentSell = async (
   msgCtx: AppContext,
   tokenAddress: string,
   percent: number,
+  origin?: MessageRef,
 ): Promise<void> => {
   const userId = msgCtx.from?.id;
   const active = userId
@@ -696,14 +710,34 @@ const runPercentSell = async (
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
       : `✅ <b>Ready to sell ${percent}% of ${tickerSafe} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
-  const stagingMsg = await msgCtx.reply(header, {
-    parse_mode: "HTML",
-    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
-    link_preview_options: { is_disabled: true },
-  });
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+
+  // Edit the originating token-detail card into the staging bubble so
+  // the wizard runs in a single bubble; fall back to a fresh reply if
+  // the origin is gone (deleted, > 48h, no origin threaded).
+  let stagingMessageId: number | null = null;
+  if (origin) {
+    const edited = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, header, {
+        parse_mode: "HTML",
+        reply_markup: stagingMarkup,
+        link_preview_options: { is_disabled: true },
+      }),
+    );
+    if (edited) stagingMessageId = origin.messageId;
+  }
+  if (stagingMessageId === null) {
+    const stagingMsg = await msgCtx.reply(header, {
+      parse_mode: "HTML",
+      reply_markup: stagingMarkup,
+      link_preview_options: { is_disabled: true },
+    });
+    stagingMessageId = stagingMsg.message_id;
+  }
   // Staging prompt is stale once the trade lands — push so the
-  // post-trade sweep clears it alongside the originating card.
-  await trackWorkflowMessage(conversation, stagingMsg.message_id);
+  // post-trade sweep clears it. The Tx-status flow detaches it before
+  // editing in place with the receipt, so the receipt survives.
+  await trackWorkflowMessage(conversation, stagingMessageId);
 };
 
 /** Re-fetch token + token balance and edit the existing sell card in-place. */
@@ -846,12 +880,6 @@ const handlePercentSell = async (
   const effectiveProceedsUsd =
     buffer.kind === "capped" ? buffer.reducedProceedsUsd : quote.proceedsUsd;
 
-  // Track the token-detail card the user just tapped on so the
-  // post-trade sweep clears it once the sell commits.
-  if (ctx.callbackQuery?.message) {
-    trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
-  }
-
   // Buffer-capped sells always require explicit confirm per AGENTS.md;
   // degen only skips the confirm step on the happy path.
   if (ctx.session.degenMode && buffer.kind !== "capped") {
@@ -911,12 +939,35 @@ const handlePercentSell = async (
         `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
       : `✅ <b>Ready to sell ${percent}%${allOf} of ${tickerSafe} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
         `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
-  const stagingMsg = await ctx.reply(header, {
-    parse_mode: "HTML",
-    reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
-    link_preview_options: { is_disabled: true },
-  });
-  trackForPostTradeSweep(ctx, stagingMsg.message_id);
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+
+  // Edit the token-detail card into the staging bubble in place rather
+  // than dropping a fresh staging prompt below it. `cnf:` / `ccl:`
+  // target the bubble the user tapped Confirm on, so the edited bubble
+  // works identically through the confirm flow.
+  const cbMsg = ctx.callbackQuery?.message;
+  let stagingMessageId: number | null = null;
+  if (cbMsg) {
+    try {
+      await safeEditMessageText(ctx, header, {
+        parse_mode: "HTML",
+        reply_markup: stagingMarkup,
+        link_preview_options: { is_disabled: true },
+      });
+      stagingMessageId = cbMsg.message_id;
+    } catch (err) {
+      logger.debug("sell preset: edit-in-place failed, sending fresh", { err });
+    }
+  }
+  if (stagingMessageId === null) {
+    const stagingMsg = await ctx.reply(header, {
+      parse_mode: "HTML",
+      reply_markup: stagingMarkup,
+      link_preview_options: { is_disabled: true },
+    });
+    stagingMessageId = stagingMsg.message_id;
+  }
+  trackForPostTradeSweep(ctx, stagingMessageId);
 };
 
 export const registerSellCommand = (bot: Bot<AppContext>): void => {
@@ -1013,21 +1064,23 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Sell X% — enter custom-percent conversation
+  // Sell X% — enter custom-percent conversation. Pass the token-detail
+  // card as the wizard's origin so every step edits that same bubble
+  // instead of stacking new prompts below it.
   bot.callbackQuery(/^btspx:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
     }
-    // Push the originating token-detail card onto the workflow stack
-    // before entering the wizard, so the post-trade sweep deletes it
-    // once the user's eventual sell lands.
-    if (ctx.callbackQuery.message) {
-      trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
-    }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("sell-custom", parsed.args[0]);
+    await ctx.conversation.enter("sell-custom", parsed.args[0], origin);
   });
 };
 

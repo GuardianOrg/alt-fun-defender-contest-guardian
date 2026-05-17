@@ -267,14 +267,27 @@ const buyCustomConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   tokenAddress: string,
+  origin?: MessageRef,
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
-  const promptMsg = await replyWithNav(
-    ctx,
-    `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nTap Home to exit.`,
-  );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
+  const promptText = `Enter the USDC amount to buy (minimum $${MIN_USDC_BUY_AMOUNT}):\n\nTap Home to exit.`;
+
+  // Edit-in-place when entered from a token-card tap so the wizard
+  // runs in the same bubble; fall back to a fresh reply when no origin
+  // is threaded (slash-entry / inline-mode).
+  let promptShown = false;
+  if (origin) {
+    promptShown = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, promptText, {
+        reply_markup: backHomeMarkup(),
+      }),
+    );
+  }
+  if (!promptShown) {
+    const promptMsg = await replyWithNav(ctx, promptText);
+    await trackWorkflowMessage(conversation, promptMsg.message_id);
+  }
 
   while (true) {
     const msgCtx = await conversation.waitFor("message:text");
@@ -420,20 +433,42 @@ const buyCustomConversation = async (
     );
     const tickerSafe = escapeHtml(token.ticker);
     const tokenSafe = escapeHtml(token.address);
-    const stagingMsg = await msgCtx.reply(
+    const stagingText =
       `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.\n\n` +
-        `Token: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
-      {
+      `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+      `Token: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+    const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+
+    // Prefer editing the originating token-detail card in place: the
+    // card already showed token + balance, the staging text re-states
+    // both, and a fresh bubble below would just stack clutter. The
+    // `cnf:` / `ccl:` handlers target whichever bubble the user tapped
+    // Confirm on, so they work against the edited bubble identically.
+    let stagingMessageId: number | null = null;
+    if (origin) {
+      const edited = await conversation.external((outside) =>
+        safeEditMessageById(outside, origin, stagingText, {
+          parse_mode: "HTML",
+          reply_markup: stagingMarkup,
+          link_preview_options: { is_disabled: true },
+        }),
+      );
+      if (edited) stagingMessageId = origin.messageId;
+    }
+    if (stagingMessageId === null) {
+      const stagingMsg = await msgCtx.reply(stagingText, {
         parse_mode: "HTML",
-        reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+        reply_markup: stagingMarkup,
         link_preview_options: { is_disabled: true },
-      },
-    );
+      });
+      stagingMessageId = stagingMsg.message_id;
+    }
     await sweepWorkflow(conversation);
     // Staging prompt is stale once the trade lands — push so the
-    // post-trade sweep clears it alongside the originating card.
-    await trackWorkflowMessage(conversation, stagingMsg.message_id);
+    // post-trade sweep clears it. The Tx-status flow detaches it
+    // before editing in place with the receipt, so the receipt itself
+    // survives the sweep.
+    await trackWorkflowMessage(conversation, stagingMessageId);
     return;
   }
 };
@@ -540,11 +575,6 @@ const handleFixedBuy = async (
   }
 
   const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
-  // Track the token-detail card the user just tapped on so the
-  // post-trade sweep clears it once the buy commits.
-  if (ctx.callbackQuery?.message) {
-    trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
-  }
   if (ctx.session.degenMode) {
     await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
     const cbMsg = ctx.callbackQuery?.message;
@@ -593,17 +623,40 @@ const handleFixedBuy = async (
   });
   const tickerSafe = escapeHtml(tokenResult.data.ticker);
   const tokenSafe = escapeHtml(tokenResult.data.address);
-  const stagingMsg = await ctx.reply(
+  const stagingText =
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tickerSafe}</b>\n\n` +
-      `Tap <b>Confirm</b> within 60s to submit.\n\n` +
-      `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`,
-    {
+    `Tap <b>Confirm</b> within 60s to submit.\n\n` +
+    `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+
+  // Edit the token-detail card the user tapped from into the staging
+  // bubble: the card already showed token + balance and the staging
+  // text re-states both, so a fresh reply below would just clutter.
+  // `cnf:` / `ccl:` already target the bubble the user tapped Confirm
+  // on, so they operate on the edited bubble identically.
+  const cbMsg = ctx.callbackQuery?.message;
+  let stagingMessageId: number | null = null;
+  if (cbMsg) {
+    try {
+      await safeEditMessageText(ctx, stagingText, {
+        parse_mode: "HTML",
+        reply_markup: stagingMarkup,
+        link_preview_options: { is_disabled: true },
+      });
+      stagingMessageId = cbMsg.message_id;
+    } catch (err) {
+      logger.debug("buy preset: edit-in-place failed, sending fresh", { err });
+    }
+  }
+  if (stagingMessageId === null) {
+    const stagingMsg = await ctx.reply(stagingText, {
       parse_mode: "HTML",
-      reply_markup: { inline_keyboard: confirmKeyboard(nonce) },
+      reply_markup: stagingMarkup,
       link_preview_options: { is_disabled: true },
-    },
-  );
-  trackForPostTradeSweep(ctx, stagingMsg.message_id);
+    });
+    stagingMessageId = stagingMsg.message_id;
+  }
+  trackForPostTradeSweep(ctx, stagingMessageId);
 };
 
 export const registerBuyCommand = (bot: Bot<AppContext>): void => {
@@ -702,21 +755,24 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     });
   });
 
-  // Buy X USDC — enter custom amount conversation
+  // Buy X USDC — enter custom amount conversation. Pass the token-detail
+  // card the user tapped from as the wizard's origin so every step
+  // (amount prompt, retries, staging confirm) edits that same bubble
+  // rather than stacking new prompts below it.
   bot.callbackQuery(/^btbx:/, async (ctx) => {
     const parsed = parseCallback(ctx.callbackQuery.data);
     if (!parsed?.args[0]) {
       await ctx.answerCallbackQuery();
       return;
     }
-    // Push the originating token-detail card onto the workflow stack
-    // before entering the wizard, so the post-trade sweep deletes it
-    // once the user's eventual buy lands.
-    if (ctx.callbackQuery.message) {
-      trackForPostTradeSweep(ctx, ctx.callbackQuery.message.message_id);
-    }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("buy-custom", parsed.args[0]);
+    await ctx.conversation.enter("buy-custom", parsed.args[0], origin);
   });
 
   // Confirm / Cancel are shared with /sell (same staging slot in

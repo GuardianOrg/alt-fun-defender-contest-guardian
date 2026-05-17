@@ -230,104 +230,11 @@ const editToState = async (
 };
 
 /**
- * Conversation: collect a custom slippage value (percent input).
- * Stores the result on the session as bps, capped at `MAX_SLIPPAGE_BPS`.
- */
-const customSlippageConversation = async (
-  conversation: Conversation<AppContext, AppContext>,
-  ctx: AppContext,
-): Promise<void> => {
-  await sweepWorkflow(conversation);
-  const presetList = SLIPPAGE_PRESETS_BPS.map((bps) =>
-    formatBpsLabel(bps),
-  ).join(" / ");
-  const promptMsg = await ctx.reply(
-    wrap(
-      ctx,
-      [
-        "Send a custom slippage percent (e.g. `0.75`, `3`, `7.5`).",
-        `Quick presets: ${presetList}.`,
-        `Max ${MAX_SLIPPAGE_BPS / 100}% — past that the trade lib rejects.`,
-        "",
-        "Tap Home to exit and keep the current value.",
-      ].join("\n"),
-    ),
-    { reply_markup: backHomeMarkup() },
-  );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
-
-  while (true) {
-    const msg = await conversation.waitFor("message:text");
-    await trackWorkflowMessage(conversation, msg.message.message_id);
-    const text = msg.message.text.trim();
-    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
-    if (await tryAddressBuyIntercept(conversation, text)) return;
-    // Use a generous outer bound here so a typo'd "1000%" still flows
-    // to the explicit `bps > MAX_SLIPPAGE_BPS` cap message below
-    // instead of the generic invalid-input reply. `parseUserAmount`
-    // already rejects `Infinity` / NaN / `> Number.MAX_SAFE_INTEGER`.
-    const pct = parseUserAmount(text.replace(/%/g, ""), {
-      max: MAX_SLIPPAGE_BPS,
-    });
-    if (pct === null) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Send a positive number like `2` or `0.5`."),
-        { reply_markup: backHomeMarkup() },
-      );
-      await trackWorkflowMessage(conversation, retry.message_id);
-      continue;
-    }
-    const bps = Math.round(pct * 100);
-    if (bps < 1) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Slippage must be at least 0.01%. Send again."),
-        { reply_markup: backHomeMarkup() },
-      );
-      await trackWorkflowMessage(conversation, retry.message_id);
-      continue;
-    }
-    if (bps > MAX_SLIPPAGE_BPS) {
-      const retry = await ctx.reply(
-        wrap(
-          ctx,
-          `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value.`,
-        ),
-        { reply_markup: backHomeMarkup() },
-      );
-      await trackWorkflowMessage(conversation, retry.message_id);
-      continue;
-    }
-    try {
-      await conversation.external((outside) => {
-        outside.session.slippageBps = bps;
-      });
-    } catch {
-      // Defence-in-depth: a synchronous throw from `external` (rare —
-      // most KV failures surface at session-flush time, outside this
-      // catch) must never reach a "saved" reply. The session plugin's
-      // own flush errors land on `bot.catch` in `bot.ts`.
-      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
-      await sweepWorkflow(conversation);
-      return;
-    }
-    const state = await conversation.external((outside) =>
-      renderMainState(outside),
-    );
-    await ctx.reply(
-      wrap(ctx, `Slippage set to ${formatBpsLabel(bps)}.\n\n${state.text}`),
-      { reply_markup: state.reply_markup },
-    );
-    await sweepWorkflow(conversation);
-    return;
-  }
-};
-
-/**
- * Origin reference to the Buy / Sell Settings menu message the user
- * tapped a slot button on. Captured at callback time and threaded
- * through the slot wizard so the conversation can edit that same
- * message in place after the new value is saved — sending a fresh
- * panel below would leave the stale slot values visible above it.
+ * Origin reference to the Settings menu message the user tapped a
+ * button on. Captured at callback time and threaded through the
+ * wizard so the conversation can edit that same message in place for
+ * the prompt, retry copy, and refreshed panel — sending fresh prompts
+ * below would leave the stale menu visible above each step.
  */
 interface OriginMessageRef {
   chatId: number;
@@ -374,6 +281,153 @@ const safeEditMessage = async (
 };
 
 /**
+ * Show a wizard prompt: edit the origin menu in place when available
+ * (single-bubble UX), fall back to a fresh tracked reply when the
+ * origin is gone / not threaded. `wrap` is applied here so anti-
+ * phishing prepend stays consistent across all prompts.
+ *
+ * Used for both initial prompts and retry copy inside the slot /
+ * phrase / custom-slippage conversations so the wizard runs in a
+ * single bubble instead of stacking new prompts below each invalid
+ * input. Caller does not need to track the message id — the fallback
+ * branch tracks it for the post-wizard sweep automatically.
+ */
+const showPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  origin: OriginMessageRef | undefined,
+  text: string,
+): Promise<void> => {
+  if (origin) {
+    const edited = await conversation.external((outside) =>
+      safeEditMessage(outside, origin, wrap(outside, text), {
+        reply_markup: backHomeMarkup(),
+      }),
+    );
+    if (edited) return;
+  }
+  const msg = await ctx.reply(wrap(ctx, text), {
+    reply_markup: backHomeMarkup(),
+  });
+  await trackWorkflowMessage(conversation, msg.message_id);
+};
+
+/**
+ * Conversation: collect a custom slippage value (percent input).
+ * Stores the result on the session as bps, capped at `MAX_SLIPPAGE_BPS`.
+ *
+ * `origin` is the /settings menu the user tapped [Custom %] from; the
+ * conversation edits it in place for the prompt, every retry, and the
+ * refreshed panel so the flow runs in a single bubble.
+ */
+const customSlippageConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  origin?: OriginMessageRef,
+): Promise<void> => {
+  await sweepWorkflow(conversation);
+  const presetList = SLIPPAGE_PRESETS_BPS.map((bps) =>
+    formatBpsLabel(bps),
+  ).join(" / ");
+  await showPrompt(
+    conversation,
+    ctx,
+    origin,
+    [
+      "Send a custom slippage percent (e.g. `0.75`, `3`, `7.5`).",
+      `Quick presets: ${presetList}.`,
+      `Max ${MAX_SLIPPAGE_BPS / 100}% — past that the trade lib rejects.`,
+      "",
+      "Tap Home to exit and keep the current value.",
+    ].join("\n"),
+  );
+
+  while (true) {
+    const msg = await conversation.waitFor("message:text");
+    await trackWorkflowMessage(conversation, msg.message.message_id);
+    const text = msg.message.text.trim();
+    if (isOtherSlashCommand(text)) await haltAndForward(conversation);
+    if (await tryAddressBuyIntercept(conversation, text)) return;
+    // Use a generous outer bound here so a typo'd "1000%" still flows
+    // to the explicit `bps > MAX_SLIPPAGE_BPS` cap message below
+    // instead of the generic invalid-input reply. `parseUserAmount`
+    // already rejects `Infinity` / NaN / `> Number.MAX_SAFE_INTEGER`.
+    const pct = parseUserAmount(text.replace(/%/g, ""), {
+      max: MAX_SLIPPAGE_BPS,
+    });
+    if (pct === null) {
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Send a positive number like `2` or `0.5`.",
+      );
+      continue;
+    }
+    const bps = Math.round(pct * 100);
+    if (bps < 1) {
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Slippage must be at least 0.01%. Send again.",
+      );
+      continue;
+    }
+    if (bps > MAX_SLIPPAGE_BPS) {
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value.`,
+      );
+      continue;
+    }
+    try {
+      await conversation.external((outside) => {
+        outside.session.slippageBps = bps;
+      });
+    } catch {
+      // Defence-in-depth: a synchronous throw from `external` (rare —
+      // most KV failures surface at session-flush time, outside this
+      // catch) must never reach a "saved" reply. The session plugin's
+      // own flush errors land on `bot.catch` in `bot.ts`.
+      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await sweepWorkflow(conversation);
+      return;
+    }
+    // Refresh the origin /settings panel in place when available so
+    // the user lands on the updated state inside the same bubble.
+    // Lead with a short confirmation line so the user can see the
+    // wizard succeeded (the panel below already reflects the new
+    // value, but the confirmation makes the save read unambiguous).
+    const confirmation = `Slippage set to ${formatBpsLabel(bps)}.`;
+    const edited = origin
+      ? await conversation.external(async (outside) => {
+          const state = renderMainState(outside);
+          return safeEditMessage(
+            outside,
+            origin,
+            wrap(outside, `${confirmation}\n\n${state.text}`),
+            { reply_markup: state.reply_markup },
+          );
+        })
+      : false;
+    if (!edited) {
+      const state = await conversation.external((outside) =>
+        renderMainState(outside),
+      );
+      await ctx.reply(
+        wrap(ctx, `${confirmation}\n\n${state.text}`),
+        { reply_markup: state.reply_markup },
+      );
+    }
+    await sweepWorkflow(conversation);
+    return;
+  }
+};
+
+/**
  * Conversation: edit one slot of the buy-preset list (issue #818).
  * `slotIdx` is the 0-based slot the user tapped. Stores the parsed
  * amount in `session.buyPresetsUsdc[slotIdx]` and, if `slotIdx === 0`,
@@ -395,20 +449,18 @@ const buyPresetSlotConversation = async (
     return;
   }
   await sweepWorkflow(conversation);
-  const promptMsg = await ctx.reply(
-    wrap(
-      ctx,
-      [
-        "Change the value of the buy amount button.",
-        "",
-        `Send a USDC amount between $${MIN_USDC_BUY_AMOUNT} and $${MAX_BUY_PRESET_USDC}.`,
-        "",
-        "Tap Home to exit and keep the current value.",
-      ].join("\n"),
-    ),
-    { reply_markup: backHomeMarkup() },
+  await showPrompt(
+    conversation,
+    ctx,
+    origin,
+    [
+      "Change the value of the buy amount button.",
+      "",
+      `Send a USDC amount between $${MIN_USDC_BUY_AMOUNT} and $${MAX_BUY_PRESET_USDC}.`,
+      "",
+      "Tap Home to exit and keep the current value.",
+    ].join("\n"),
   );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -418,33 +470,30 @@ const buyPresetSlotConversation = async (
     if (await tryAddressBuyIntercept(conversation, text)) return;
     const value = parseUserAmount(text, { max: MAX_BUY_PRESET_USDC });
     if (value === null) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Send a positive USDC amount like `50`."),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Send a positive USDC amount like `50`.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value < MIN_USDC_BUY_AMOUNT) {
-      const retry = await ctx.reply(
-        wrap(
-          ctx,
-          `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value.`,
-        ),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value.`,
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value > MAX_BUY_PRESET_USDC) {
-      const retry = await ctx.reply(
-        wrap(
-          ctx,
-          `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value.`,
-        ),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value.`,
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const rounded = Math.round(value);
@@ -510,20 +559,18 @@ const sellPresetSlotConversation = async (
     return;
   }
   await sweepWorkflow(conversation);
-  const promptMsg = await ctx.reply(
-    wrap(
-      ctx,
-      [
-        "Change the value of the sell percent button.",
-        "",
-        "Send a percent between 1 and 100.",
-        "",
-        "Tap Home to exit and keep the current value.",
-      ].join("\n"),
-    ),
-    { reply_markup: backHomeMarkup() },
+  await showPrompt(
+    conversation,
+    ctx,
+    origin,
+    [
+      "Change the value of the sell percent button.",
+      "",
+      "Send a percent between 1 and 100.",
+      "",
+      "Tap Home to exit and keep the current value.",
+    ].join("\n"),
   );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -533,20 +580,22 @@ const sellPresetSlotConversation = async (
     if (await tryAddressBuyIntercept(conversation, text)) return;
     const value = parseUserAmount(text.replace(/%/g, ""), { max: 100 });
     if (value === null) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Send a number between 1 and 100."),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Send a number between 1 and 100.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const rounded = Math.round(value);
     if (rounded < 1 || rounded > 100) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Percent must be between 1 and 100. Send again."),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Percent must be between 1 and 100. Send again.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     try {
@@ -603,20 +652,18 @@ const tipPresetSlotConversation = async (
     return;
   }
   await sweepWorkflow(conversation);
-  const promptMsg = await ctx.reply(
-    wrap(
-      ctx,
-      [
-        "Change the value of this execution-speed slot.",
-        "",
-        `Send a gwei tip between ${MIN_TIP_GWEI} and ${MAX_TIP_GWEI}.`,
-        "",
-        "Tap Home to exit and keep the current value.",
-      ].join("\n"),
-    ),
-    { reply_markup: backHomeMarkup() },
+  await showPrompt(
+    conversation,
+    ctx,
+    origin,
+    [
+      "Change the value of this execution-speed slot.",
+      "",
+      `Send a gwei tip between ${MIN_TIP_GWEI} and ${MAX_TIP_GWEI}.`,
+      "",
+      "Tap Home to exit and keep the current value.",
+    ].join("\n"),
   );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
 
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -628,27 +675,30 @@ const tipPresetSlotConversation = async (
       max: MAX_TIP_GWEI,
     });
     if (value === null) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Send a positive gwei amount like `0.5` or `2`."),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Send a positive gwei amount like `0.5` or `2`.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value < MIN_TIP_GWEI) {
-      const retry = await ctx.reply(
-        wrap(ctx, `Minimum tip is ${MIN_TIP_GWEI} gwei. Send a larger value.`),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        `Minimum tip is ${MIN_TIP_GWEI} gwei. Send a larger value.`,
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (value > MAX_TIP_GWEI) {
-      const retry = await ctx.reply(
-        wrap(ctx, `Capped at ${MAX_TIP_GWEI} gwei. Send a smaller value.`),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        `Capped at ${MAX_TIP_GWEI} gwei. Send a smaller value.`,
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     // Reject duplicates so each slot stays a distinct preset — the
@@ -660,14 +710,12 @@ const tipPresetSlotConversation = async (
       readTipPresets(outside.session),
     );
     if (existing.some((tip, i) => i !== slotIdx && tip === value)) {
-      const retry = await ctx.reply(
-        wrap(
-          ctx,
-          "That value is already used by another slot. Send a different tip.",
-        ),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "That value is already used by another slot. Send a different tip.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     try {
@@ -718,21 +766,20 @@ const tipPresetSlotConversation = async (
 const setPhraseConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: OriginMessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   await sweepWorkflow(conversation);
-  const promptMsg = await ctx.reply(
-    wrap(
-      ctx,
-      [
-        "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
-        "",
-        `Max ${MAX_PHRASE_LEN} characters.`,
-      ].join("\n"),
-    ),
-    { reply_markup: backHomeMarkup() },
+  await showPrompt(
+    conversation,
+    ctx,
+    origin,
+    [
+      "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
+      "",
+      `Max ${MAX_PHRASE_LEN} characters.`,
+    ].join("\n"),
   );
-  await trackWorkflowMessage(conversation, promptMsg.message_id);
   while (true) {
     const reply = await conversation.waitFor("message:text");
     const text = reply.message.text;
@@ -741,22 +788,21 @@ const setPhraseConversation = async (
     if (await tryAddressBuyIntercept(conversation, trimmed)) return;
     await trackWorkflowMessage(conversation, reply.message.message_id);
     if (trimmed.length === 0) {
-      const retry = await ctx.reply(
-        wrap(ctx, "Phrase cannot be empty. Send again."),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Phrase cannot be empty. Send again.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     if (trimmed.length > MAX_PHRASE_LEN) {
-      const retry = await ctx.reply(
-        wrap(
-          ctx,
-          `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
-        ),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     await conversation.external((outside) => {
@@ -765,10 +811,27 @@ const setPhraseConversation = async (
     const state = await conversation.external((outside) =>
       renderMainState(outside),
     );
-    await ctx.reply(
-      withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
-      { reply_markup: state.reply_markup },
-    );
+    // Refresh the origin /settings panel in place when available so
+    // the user lands on the updated phrase header inside the same
+    // bubble; the trimmed phrase is what `withAntiPhishing` needs to
+    // render correctly (the inner ctx.session snapshot still holds
+    // the pre-change value at this point in conversation replay).
+    const edited = origin
+      ? await conversation.external(async (outside) =>
+          safeEditMessage(
+            outside,
+            origin,
+            withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
+            { reply_markup: state.reply_markup },
+          ),
+        )
+      : false;
+    if (!edited) {
+      await ctx.reply(
+        withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
+        { reply_markup: state.reply_markup },
+      );
+    }
     await sweepWorkflow(conversation);
     return;
   }
@@ -776,10 +839,14 @@ const setPhraseConversation = async (
 
 export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(customSlippageConversation, {
-      id: "settings-custom-slippage",
-      parallel: true,
-    }),
+    createConversation(
+      customSlippageConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "settings-custom-slippage", parallel: true },
+    ),
   );
   bot.use(
     createConversation(
@@ -812,10 +879,14 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     ),
   );
   bot.use(
-    createConversation(setPhraseConversation, {
-      id: "settings-set-phrase",
-      parallel: true,
-    }),
+    createConversation(
+      setPhraseConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "settings-set-phrase", parallel: true },
+    ),
   );
 
   bot.command("settings", async (ctx) => {
@@ -885,8 +956,14 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const origin = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("settings-custom-slippage");
+    await ctx.conversation.enter("settings-custom-slippage", origin);
   });
 
   bot.callbackQuery(SETTINGS_CALLBACK.buySettings, async (ctx) => {
@@ -1023,8 +1100,14 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
+    const origin = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("settings-set-phrase");
+    await ctx.conversation.enter("settings-set-phrase", origin);
   });
 
   bot.callbackQuery(SETTINGS_CALLBACK.phraseClear, async (ctx) => {

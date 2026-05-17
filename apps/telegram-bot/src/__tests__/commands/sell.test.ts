@@ -264,6 +264,31 @@ describe("Sell flow (st:s button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/minimum|proceeds/i);
   });
 
+  it("Sell preset edits the token-detail card in place into the staging confirm bubble (no fresh sendMessage)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, {
+      tokenBalance: 100_000n * 10n ** 18n,
+      priceUsd: 0.001,
+    });
+
+    await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
+
+    const calls = capture(fetchSpy);
+    const edit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        String(c.body.text ?? "").includes("Ready to sell"),
+    );
+    expect(edit).toBeDefined();
+    expect(edit!.body.message_id).toBe(100);
+    const fresh = calls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String(c.body.text ?? "").includes("Ready to sell"),
+    );
+    expect(fresh).toBeUndefined();
+  });
+
   it("Sell 100% shows confirmation when balance is sufficient", async () => {
     const h = await harnessWithWallet();
     // 100k tokens × $0.001 = $100 holding
@@ -275,7 +300,15 @@ describe("Sell flow (st:s button → conversation)", () => {
     await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    // Preset-sell now edits the originating token-detail card in place
+    // into the staging confirm bubble instead of sending a fresh
+    // message below it; accept either endpoint.
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to sell"),
+    );
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to sell");
     expect(String(send!.body.text)).toContain("TEST");
@@ -402,7 +435,12 @@ describe("Sell flow (st:s button → conversation)", () => {
     await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to sell"),
+    );
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to sell");
     // Fee summary moved to the tx-receipt endpoint per issue #801.
@@ -582,7 +620,12 @@ describe("Sell flow (BotFeeRouter simulation)", () => {
     await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to sell"),
+    );
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to sell");
   });
@@ -811,7 +854,12 @@ describe("Sell flow (LT buffer preflight)", () => {
     await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        /Buffer low/i.test(String(c.body.text ?? "")),
+    );
     expect(send).toBeDefined();
     const text = String(send!.body.text);
     expect(text).toMatch(/Buffer low/i);
@@ -857,7 +905,12 @@ describe("Sell flow (LT buffer preflight)", () => {
     await h.run(callbackUpdate(`btsp:${TOKEN_ADDR}:100`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to sell"),
+    );
     expect(send).toBeDefined();
     const text = String(send!.body.text);
     expect(text).toContain("Ready to sell");

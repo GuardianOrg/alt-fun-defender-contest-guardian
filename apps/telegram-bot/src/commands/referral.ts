@@ -22,7 +22,13 @@ import {
   haltAndForward,
   isOtherSlashCommand,
 } from "../lib/conversation-commands.js";
-import { backHomeMarkup, backHomeRow, editToSubmenu } from "../lib/nav.js";
+import {
+  backHomeMarkup,
+  backHomeRow,
+  editToSubmenu,
+  type MessageRef,
+  safeEditMessageById,
+} from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { getReferralIdentityWallet } from "../lib/onboarding.js";
@@ -298,6 +304,39 @@ const sweepPinMessage = async (
 };
 
 /**
+ * Show a wizard prompt: edit the origin bubble (the referral card the
+ * user tapped [Change rewards wallet] from) when available, otherwise
+ * fall back to a fresh tracked reply. The single-bubble path keeps the
+ * change-rewards-wallet wizard from stacking warning → address-retry →
+ * PIN-ask → confirm-PIN-ask → retry bubbles down the chat.
+ */
+const showPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  origin: MessageRef | undefined,
+  text: string,
+  parseMode?: "HTML",
+): Promise<void> => {
+  const wrapped = wrap(ctx, text);
+  if (origin) {
+    const edited = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, wrapped, {
+        parse_mode: parseMode,
+        link_preview_options: { is_disabled: true },
+        reply_markup: backHomeMarkup(),
+      }),
+    );
+    if (edited) return;
+  }
+  const msg = await ctx.reply(wrapped, {
+    parse_mode: parseMode,
+    link_preview_options: { is_disabled: true },
+    reply_markup: backHomeMarkup(),
+  });
+  await trackWorkflowMessage(conversation, msg.message_id);
+};
+
+/**
  * Run the PIN set-or-verify flow inline so the rewards-wallet change
  * is gated on the same 6-digit PIN that protects wallet exports and
  * withdrawals. First-time users are walked through a PIN set; users
@@ -309,19 +348,19 @@ const runPinGate = async (
   ctx: AppContext,
   userId: number,
   chatId: number,
+  origin: MessageRef | undefined,
 ): Promise<boolean> => {
   const pinAlreadySet = await conversation.external((outside) =>
     buildPinManager(outside.env).isPinSet(userId),
   );
 
   if (!pinAlreadySet) {
-    const askMsg = await ctx.reply(
-      wrap(ctx,
-        "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
-      ),
-      { reply_markup: backHomeMarkup() },
+    await showPrompt(
+      conversation,
+      ctx,
+      origin,
+      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
     );
-    await trackWorkflowMessage(conversation, askMsg.message_id);
     let candidate: string | null = null;
     while (candidate === null) {
       const msg = await conversation.waitFor("message:text");
@@ -331,22 +370,22 @@ const runPinGate = async (
       );
       if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       if (!PinManager.isValidPinFormat(text)) {
-        const retry = await ctx.reply(
-          wrap(ctx,
-            "PIN must be exactly 6 digits. Send again.",
-          ),
-          { reply_markup: backHomeMarkup() },
+        await showPrompt(
+          conversation,
+          ctx,
+          origin,
+          "PIN must be exactly 6 digits. Send again.",
         );
-        await trackWorkflowMessage(conversation, retry.message_id);
         continue;
       }
       candidate = text;
     }
-    const confirmAsk = await ctx.reply(
-      wrap(ctx, "Confirm — send the same 6 digits again."),
-      { reply_markup: backHomeMarkup() },
+    await showPrompt(
+      conversation,
+      ctx,
+      origin,
+      "Confirm — send the same 6 digits again.",
     );
-    await trackWorkflowMessage(conversation, confirmAsk.message_id);
     while (true) {
       const msg = await conversation.waitFor("message:text");
       const text = msg.message.text.trim();
@@ -355,13 +394,12 @@ const runPinGate = async (
       );
       if (isOtherSlashCommand(text)) await haltAndForward(conversation);
       if (text !== candidate) {
-        const retry = await ctx.reply(
-          wrap(ctx,
-            "PINs do not match. Send the confirmation PIN again.",
-          ),
-          { reply_markup: backHomeMarkup() },
+        await showPrompt(
+          conversation,
+          ctx,
+          origin,
+          "PINs do not match. Send the confirmation PIN again.",
         );
-        await trackWorkflowMessage(conversation, retry.message_id);
         continue;
       }
       break;
@@ -373,13 +411,12 @@ const runPinGate = async (
     return true;
   }
 
-  const askMsg = await ctx.reply(
-    wrap(ctx,
-      "Send your 6-digit PIN to authorise the rewards-wallet change.",
-    ),
-    { reply_markup: backHomeMarkup() },
+  await showPrompt(
+    conversation,
+    ctx,
+    origin,
+    "Send your 6-digit PIN to authorise the rewards-wallet change.",
   );
-  await trackWorkflowMessage(conversation, askMsg.message_id);
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
@@ -411,13 +448,12 @@ const runPinGate = async (
       );
       return false;
     }
-    const retry = await ctx.reply(
-      wrap(ctx,
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
-      ),
-      { reply_markup: backHomeMarkup() },
+    await showPrompt(
+      conversation,
+      ctx,
+      origin,
+      `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
     );
-    await trackWorkflowMessage(conversation, retry.message_id);
   }
 };
 
@@ -430,6 +466,7 @@ const runPinGate = async (
 const changeRewardsWalletConversation = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
+  origin?: MessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const userId = ctx.from.id;
@@ -464,12 +501,29 @@ const changeRewardsWalletConversation = async (
     "",
     REWARDS_WALLET_WARNING,
   ].join("\n");
-  const warningMsg = await ctx.reply(warningText, {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-    reply_markup: backHomeMarkup(),
-  });
-  await trackWorkflowMessage(conversation, warningMsg.message_id);
+  // Initial warning is rendered with parse_mode=HTML and a pre-built
+  // anti-phishing header (the inner `wrap()` would double-prepend it),
+  // so this step uses the explicit edit/reply path rather than
+  // `showPrompt`. Subsequent retry prompts route through `showPrompt`
+  // since their copy is plain text.
+  let warningShown = false;
+  if (origin) {
+    warningShown = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, warningText, {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+        reply_markup: backHomeMarkup(),
+      }),
+    );
+  }
+  if (!warningShown) {
+    const warningMsg = await ctx.reply(warningText, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+      reply_markup: backHomeMarkup(),
+    });
+    await trackWorkflowMessage(conversation, warningMsg.message_id);
+  }
 
   let candidate: string | null = null;
   while (candidate === null) {
@@ -478,13 +532,12 @@ const changeRewardsWalletConversation = async (
     const text = msg.message.text.trim();
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!isAddress(text, { strict: false })) {
-      const retry = await ctx.reply(
-        wrap(ctx,
-          "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
-        ),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
       );
-      await trackWorkflowMessage(conversation, retry.message_id);
       continue;
     }
     const lowered = text.toLowerCase();
@@ -493,18 +546,17 @@ const changeRewardsWalletConversation = async (
       // user attempts to set the rewards wallet to … a known burn
       // address." Gate the persist behind an explicit `confirm` so a
       // mis-paste can't permanently route earnings into a null sink.
-      const warn = await ctx.reply(
-        wrap(ctx,
-          [
-            "⚠️ That address is a known burn / null address.",
-            "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
-            "",
-            "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
-          ].join("\n"),
-        ),
-        { reply_markup: backHomeMarkup() },
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        [
+          "⚠️ That address is a known burn / null address.",
+          "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
+          "",
+          "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
+        ].join("\n"),
       );
-      await trackWorkflowMessage(conversation, warn.message_id);
       const confirmMsg = await conversation.waitFor("message:text");
       await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
       const confirmText = confirmMsg.message.text.trim();
@@ -515,24 +567,22 @@ const changeRewardsWalletConversation = async (
         // through the validator so the user can recover from the
         // warning without restarting the wizard.
         if (!isAddress(confirmText, { strict: false })) {
-          const retry = await ctx.reply(
-            wrap(ctx,
-              "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
-            ),
-            { reply_markup: backHomeMarkup() },
+          await showPrompt(
+            conversation,
+            ctx,
+            origin,
+            "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
           );
-          await trackWorkflowMessage(conversation, retry.message_id);
           continue;
         }
         const next = confirmText.toLowerCase();
         if (isKnownBurnAddress(next)) {
-          const retry = await ctx.reply(
-            wrap(ctx,
-              "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
-            ),
-            { reply_markup: backHomeMarkup() },
+          await showPrompt(
+            conversation,
+            ctx,
+            origin,
+            "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
           );
-          await trackWorkflowMessage(conversation, retry.message_id);
           continue;
         }
         candidate = next;
@@ -543,7 +593,7 @@ const changeRewardsWalletConversation = async (
   }
   const newRewardsWallet: string = candidate;
 
-  const pinOk = await runPinGate(conversation, ctx, userId, chatId);
+  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin);
   if (!pinOk) {
     await sweepWorkflow(conversation);
     return;
@@ -564,21 +614,49 @@ const changeRewardsWalletConversation = async (
     return;
   }
 
-  await ctx.reply(
-    wrap(ctx,
-      `Rewards wallet updated to ${result.data.rewardsWallet}.`,
+  // Render the refreshed /referral view straight into the origin
+  // bubble so the user lands on it without a fresh "Updated…" toast
+  // bubble + new view stacking up beneath it. Falls back to the
+  // legacy two-message reply path when the origin is gone.
+  const refreshed = await conversation.external((outside) =>
+    buildView(
+      outside.env,
+      userId,
+      outside.from?.username,
+      outside.session.antiPhishingPhrase,
     ),
   );
-  await sendReferral(ctx, userId, ctx.from?.username);
+  let landed = false;
+  if (origin && refreshed.ok) {
+    landed = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, refreshed.view.text, {
+        parse_mode: refreshed.view.parse_mode,
+        link_preview_options: refreshed.view.link_preview_options,
+        reply_markup: refreshed.view.reply_markup,
+      }),
+    );
+  }
+  if (!landed) {
+    await ctx.reply(
+      wrap(ctx,
+        `Rewards wallet updated to ${result.data.rewardsWallet}.`,
+      ),
+    );
+    await sendReferral(ctx, userId, ctx.from?.username);
+  }
   await sweepWorkflow(conversation);
 };
 
 export const registerReferralCommand = (bot: Bot<AppContext>): void => {
   bot.use(
-    createConversation(changeRewardsWalletConversation, {
-      id: "referral-change-rewards-wallet",
-      parallel: true,
-    }),
+    createConversation(
+      changeRewardsWalletConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "referral-change-rewards-wallet", parallel: true },
+    ),
   );
 
   bot.command("referral", async (ctx) => {
@@ -639,7 +717,13 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const origin: MessageRef | undefined = ctx.callbackQuery.message
+      ? {
+          chatId: ctx.callbackQuery.message.chat.id,
+          messageId: ctx.callbackQuery.message.message_id,
+        }
+      : undefined;
     await ctx.answerCallbackQuery();
-    await ctx.conversation.enter("referral-change-rewards-wallet");
+    await ctx.conversation.enter("referral-change-rewards-wallet", origin);
   });
 };
