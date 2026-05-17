@@ -5,6 +5,7 @@ import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
+  type Language,
   OUTAGE_REPLY,
   POSITIONS_INVALID_ADDRESS_REPLY,
   POSITIONS_NO_ACTIVE_WALLET_REPLY,
@@ -67,6 +68,7 @@ const renderView = async (
   wallet: string,
   openPage: number,
   realisedPage: number,
+  lang: Language,
 ): Promise<RenderedView | { outage: true } | { invalid: true }> => {
   const res = await fetchBotPositions(env, wallet);
   if (res.ok === false && res.kind === "invalid_address") {
@@ -75,8 +77,14 @@ const renderView = async (
   if (!res.ok) return { outage: true };
 
   const botUsername = env.BOT_USERNAME?.trim() || null;
-  const view = buildPositionsView(res.data, openPage, realisedPage, botUsername);
-  const keyboard = buildPositionsPageKeyboard(view, wallet);
+  const view = buildPositionsView(
+    res.data,
+    openPage,
+    realisedPage,
+    botUsername,
+    lang,
+  );
+  const keyboard = buildPositionsPageKeyboard(view, wallet, lang);
   return { text: view.text, reply_markup: keyboard };
 };
 
@@ -132,7 +140,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(wrap(ctx, invalidAddress(ctx)));
       return;
     }
-    const view = await renderView(ctx.env, wallet, 0, 0);
+    const view = await renderView(ctx.env, wallet, 0, 0, getCtxLanguage(ctx));
     if ("invalid" in view) {
       await ctx.reply(wrap(ctx, invalidAddress(ctx)));
       return;
@@ -178,7 +186,13 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         return;
       }
 
-      const view = await renderView(ctx.env, wallet, openPage, realisedPage);
+      const view = await renderView(
+        ctx.env,
+        wallet,
+        openPage,
+        realisedPage,
+        getCtxLanguage(ctx),
+      );
       if ("invalid" in view || "outage" in view) {
         await ctx.answerCallbackQuery({ text: outage(ctx) });
         return;
@@ -244,7 +258,13 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         return;
       }
 
-      const view = await renderView(ctx.env, wallet, openPage, realisedPage);
+      const view = await renderView(
+        ctx.env,
+        wallet,
+        openPage,
+        realisedPage,
+        getCtxLanguage(ctx),
+      );
       if ("invalid" in view || "outage" in view) {
         await ctx.answerCallbackQuery({ text: outage(ctx) });
         return;
@@ -312,7 +332,13 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
-    const view = await renderView(ctx.env, active.address, 0, 0);
+    const view = await renderView(
+      ctx.env,
+      active.address,
+      0,
+      0,
+      getCtxLanguage(ctx),
+    );
     if ("invalid" in view) {
       await ctx.answerCallbackQuery({ text: invalidAddress(ctx), show_alert: true });
       return;

@@ -1394,6 +1394,18 @@ export const POSITIONS_REALISED_POS_HEADER = {
   English: "Realized Pos",
   SimplifiedChinese: "已实现仓位",
 } as const;
+export const POSITIONS_OPEN_POS_HEADER = {
+  English: "Open Pos",
+  SimplifiedChinese: "未平仓位",
+} as const;
+export const POSITIONS_OPEN_SECTION_HEADER = {
+  English: (count: number): string => `Open positions (${count})`,
+  SimplifiedChinese: (count: number): string => `未平仓位 (${count})`,
+} as const;
+export const POSITIONS_REALISED_SECTION_HEADER = {
+  English: (count: number): string => `Realized positions (${count})`,
+  SimplifiedChinese: (count: number): string => `已实现仓位 (${count})`,
+} as const;
 export const ANTI_PHISHING_STATIC_HEADER = {
   English: "This bot will never ask for your seed phrase or private key via DM.",
   SimplifiedChinese: "本机器人绝不会通过私聊向您索取助记词或私钥。",

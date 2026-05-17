@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   makeBotHarness,
   mockTelegramOk,
+  withTelegramOk,
   type BotTestHarness,
 } from "./helpers/bot.js";
+import { SETTINGS_CALLBACK } from "../keyboards/settings-actions.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import { WalletManager } from "../lib/wallet.js";
 
@@ -162,5 +164,121 @@ describe("language preference propagates across flows", () => {
       String((c.body as { text?: string }).text ?? "").includes("用法"),
     );
     expect(reply).toBeDefined();
+  });
+
+  // Regression: tapping the start-menu Wallet button after the user
+  // switched language must render the wallet panel keyboard in the new
+  // language. `renderMainState` used to forget to pass `lang` into
+  // `buildWalletMainKeyboard`, so the body text translated but every
+  // button below it stayed English.
+  it("Wallet start-menu button renders keyboard buttons in SimplifiedChinese", async () => {
+    const h = makeBotHarness();
+    await seedChineseSession(h);
+    const wm = new WalletManager(
+      h.kv as unknown as KVNamespace,
+      h.env.MASTER_KEY,
+    );
+    await wm.createWallet(USER_ID);
+    await h.run(callbackUpdate(START_CALLBACK.wallet, 1));
+    const edits = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edits.length).toBeGreaterThan(0);
+    const keyboard = (
+      edits[0]!.body.reply_markup as {
+        inline_keyboard: { text: string }[][];
+      }
+    ).inline_keyboard;
+    const labels = keyboard.flat().map((b) => b.text);
+    // First row is Create / Import — both must be localised.
+    expect(labels).toContain("新建");
+    expect(labels).toContain("导入");
+    // Trailing back/home row must also be localised.
+    expect(labels).toContain("← 返回");
+    expect(labels).toContain("🏠 主页");
+  });
+
+  // Regression: tapping the start-menu Positions button after a language
+  // switch used to render an English back/home row because
+  // `buildPositionsPageKeyboard` called `backHomeRow()` with no argument
+  // and `renderView` swallowed the user's language entirely.
+  it("Positions start-menu button renders keyboard in SimplifiedChinese", async () => {
+    const h = makeBotHarness();
+    await seedChineseSession(h);
+    const wm = new WalletManager(
+      h.kv as unknown as KVNamespace,
+      h.env.MASTER_KEY,
+    );
+    await wm.createWallet(USER_ID);
+    withTelegramOk(fetchSpy, async (input) => {
+      const url = String(input);
+      if (url.includes("/api/v1/bot/positions-v2/")) {
+        return new Response(
+          JSON.stringify({ data: { open: [], realised: [] } }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    await h.run(callbackUpdate(START_CALLBACK.positions, 1));
+    const edits = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edits.length).toBeGreaterThan(0);
+    const keyboard = (
+      edits[0]!.body.reply_markup as {
+        inline_keyboard: { text: string }[][];
+      }
+    ).inline_keyboard;
+    const labels = keyboard.flat().map((b) => b.text);
+    expect(labels).toContain("🔄 刷新");
+    expect(labels).toContain("← 返回");
+    expect(labels).toContain("🏠 主页");
+  });
+
+  // Regression: changing language in the settings panel must clear the
+  // nav stack so a subsequent Back tap does not restore the stale
+  // English /start snapshot that was captured when the user entered
+  // settings. With the stack empty, Back falls through to Home and
+  // re-renders /start fresh in the new language. We assert the stack
+  // is empty after the toggle — the downstream Back → renderHome path
+  // is covered by `nav.test.ts` against the same empty-stack input.
+  it("language-switch callback clears the navStack so a later Back falls through to a fresh Home render", async () => {
+    const h = makeBotHarness();
+    // Seed a session whose navStack carries the English /start
+    // snapshot that would have been pushed when the user entered
+    // settings. Default language stays English — the callback toggles
+    // it to SimplifiedChinese.
+    await h.kv.put(
+      `session:${USER_ID}`,
+      JSON.stringify({
+        slippageBps: 1000,
+        defaultBuyUsdc: 20,
+        buyPresetsUsdc: [20, 40, 60, 80, 100],
+        sellPresetsPct: [10, 25, 50, 75, 100],
+        executionTipGwei: 500_000_000,
+        degenMode: true,
+        language: "English",
+        navStack: [
+          {
+            text: "Welcome to Alt Fun.",
+            keyboard: [
+              [{ text: "Settings", callback_data: "st:set" }],
+            ],
+          },
+        ],
+      }),
+    );
+    await h.run(
+      callbackUpdate(`${SETTINGS_CALLBACK.language}:SimplifiedChinese`, 1),
+    );
+    const raw = (await h.kv.get(`session:${USER_ID}`)) as string | null;
+    expect(raw).not.toBeNull();
+    const session = JSON.parse(raw!) as {
+      language?: string;
+      navStack?: unknown[];
+    };
+    expect(session.language).toBe("SimplifiedChinese");
+    expect(session.navStack ?? []).toEqual([]);
   });
 });

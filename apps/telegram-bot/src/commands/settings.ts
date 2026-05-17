@@ -40,6 +40,7 @@ import {
 } from "../lib/conversation-commands.js";
 import {
   backHomeMarkup,
+  clearNavStack,
   editToSubmenu,
   pushNavSnapshot,
   snapshotFromCallback,
@@ -927,6 +928,11 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
         return;
       }
       ctx.session.language = next;
+      // Drop the nav stack — every snapshot on it was rendered in the
+      // previous language and Back would otherwise restore stale copy
+      // (e.g. the English /start bubble the user came in from). Falling
+      // through to Home on the next Back tap re-renders fresh in `next`.
+      clearNavStack(ctx.session);
       await editToState(ctx, renderMainState(ctx));
       const toast =
         next === "SimplifiedChinese"
