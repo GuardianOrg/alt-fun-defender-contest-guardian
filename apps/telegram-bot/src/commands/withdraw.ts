@@ -47,6 +47,7 @@ import {
   safeEditMessageById,
 } from "../lib/nav.js";
 import {
+  CANCEL_BUTTON,
   CONFIRM_WITHDRAW_BUTTON,
   TOAST_CANCELLED,
   TOAST_CONFIRMATION_EXPIRED_WITHDRAW,
@@ -307,7 +308,7 @@ const confirmKeyboard = (
 ): Array<Array<{ text: string; callback_data: string }>> => [
   [
     { text: CONFIRM_WITHDRAW_BUTTON.English, callback_data: `wdc:${nonce}` },
-    { text: "✖ Cancel", callback_data: `wdcl:${nonce}` },
+    { text: CANCEL_BUTTON.English, callback_data: `wdcl:${nonce}` },
   ],
 ];
 

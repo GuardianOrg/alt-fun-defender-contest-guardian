@@ -610,7 +610,7 @@ const changeRewardsWalletConversation = async (
     ),
   );
   if (!identity) {
-    await ctx.reply(NO_WALLET_REPLY);
+    await ctx.reply(wrap(ctx, NO_WALLET_REPLY));
     await sweepWorkflow(conversation);
     return;
   }
@@ -905,11 +905,11 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
 
   bot.command("referral", async (ctx) => {
     if (!ctx.from) {
-      await ctx.reply(NO_USER_REPLY);
+      await ctx.reply(wrap(ctx, NO_USER_REPLY));
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(NON_PRIVATE_CHAT_REPLY);
+      await ctx.reply(wrap(ctx, NON_PRIVATE_CHAT_REPLY));
       return;
     }
     await sendReferral(ctx, ctx.from.id, ctx.from.username);
