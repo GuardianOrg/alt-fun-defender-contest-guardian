@@ -91,6 +91,19 @@ describe("renderHelp (pure)", () => {
     expect(html).not.toContain("如有更多问题");
   });
 
+  it("does not claim alt.fun distributes the bot in security tips", () => {
+    // The bot is operated outside alt.fun, so the anti-phishing copy must
+    // not direct users to source the bot link from alt.fun. The neutral
+    // "follow links from sources you already trust" wording replaces it.
+    const overview = renderHelp(undefined, undefined);
+    const security = renderHelp("security", undefined);
+    for (const html of [overview, security]) {
+      expect(html).not.toMatch(/link from .*alt\.fun/i);
+      expect(html).not.toMatch(/Only use the .* link from/i);
+    }
+    expect(security).toContain("sources you already trust");
+  });
+
   it.each([
     ["wallet", "AES-256-GCM"],
     ["wallets", "AES-256-GCM"],
