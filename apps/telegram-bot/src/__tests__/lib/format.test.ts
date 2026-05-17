@@ -620,6 +620,49 @@ describe("ticker truncation in body lines", () => {
   });
 });
 
+describe("compact fallback when numeric fields are pathologically large", () => {
+  it("falls back to a compact ticker+address rendering when the full body would exceed TELEGRAM_MESSAGE_LIMIT", () => {
+    // Build positions where every bigint-backed numeric field is huge
+    // (the per-ticker clamp alone does not bound `formatTokenAmount` /
+    // `formatUsdc` output, so a malicious token contract could push the
+    // composed body past the 4096-char limit).
+    const wei = "9".repeat(200); // 200-digit integer string
+    const open: BotOpenPosition[] = Array.from({ length: 5 }, (_, i) =>
+      openPos({
+        token: `0x${i.toString(16).padStart(40, "0")}`,
+        ticker: `LT${i}`,
+        balance: wei,
+        costBasisUsdc: wei,
+        currentValueUsdc: wei,
+        unrealisedPnlUsdc: wei,
+        unrealisedPnlPct: 1_000_000,
+      }),
+    );
+    const realised: BotRealisedPosition[] = Array.from({ length: 5 }, (_, i) =>
+      realisedPos({
+        token: `0x${(1000 + i).toString(16).padStart(40, "0")}`,
+        ticker: `R${i}`,
+        totalCostUsdc: wei,
+        totalProceedsUsdc: wei,
+        realisedPnlUsdc: wei,
+        realisedPnlPct: 1_000_000,
+      }),
+    );
+    const view = buildPositionsView(
+      { open, realised },
+      0,
+      0,
+      "trade_cortisol_bot",
+    );
+    expect(view.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    // Compact form: tickers + addresses survive, numeric fields drop.
+    expect(view.text).toContain("LT0");
+    expect(view.text).toContain("R0");
+    expect(view.text).toContain("Open positions (5)");
+    expect(view.text).toContain("Realised positions (5)");
+  });
+});
+
 describe("positions message body fits TELEGRAM_MESSAGE_LIMIT", () => {
   it("any single (openPage, realisedPage) view stays inside the 4096-char ceiling", () => {
     // 5 open + 5 realised entries fit comfortably; this is the upper

@@ -294,8 +294,47 @@ export const buildPositionsView = (
     sections.push([header, ...lines].join("\n\n"));
   }
 
+  // Final 4096-char guard. Per-ticker clamping plus the 5-per-section
+  // page size keeps the realistic body well under Telegram's limit, but
+  // the numeric fields are bigint-backed and an attacker-controlled
+  // token contract can return pathologically large `balanceOf` values
+  // (cost basis / current value are also unbounded in theory). If we
+  // somehow blow the limit, fall back to a compact rendering that
+  // keeps the ticker + token address per line and drops the numeric
+  // detail — better a truncated view than a 400 from Telegram.
+  let text = sections.join("\n\n");
+  if (text.length > TELEGRAM_MESSAGE_LIMIT) {
+    const compactOpenLines = openSlice.map(
+      (p) =>
+        `${LINE_PREFIX}${truncateAndEscapeTicker(p.ticker)}\n  ${formatTokenAddress(p.token)}`,
+    );
+    const compactRealisedLines = realisedSlice.map(
+      (p) =>
+        `${LINE_PREFIX}${truncateAndEscapeTicker(p.ticker)}\n  ${formatTokenAddress(p.token)}`,
+    );
+    const compact: string[] = [];
+    if (openTotal > 0)
+      compact.push(
+        [`Open positions (${openTotal})`, ...compactOpenLines].join("\n\n"),
+      );
+    if (realisedTotal > 0)
+      compact.push(
+        [`Realised positions (${realisedTotal})`, ...compactRealisedLines].join(
+          "\n\n",
+        ),
+      );
+    text = compact.join("\n\n");
+    if (text.length > TELEGRAM_MESSAGE_LIMIT) {
+      // Last-resort hard slice; the compact form already drops the
+      // numeric fields so reaching here would require >300 chars of
+      // ticker per line across all 10 slots, which the ticker clamp
+      // rules out.
+      text = `${text.slice(0, TELEGRAM_MESSAGE_LIMIT - 1)}…`;
+    }
+  }
+
   return {
-    text: sections.join("\n\n"),
+    text,
     openTotal,
     realisedTotal,
     openTotalPages,
