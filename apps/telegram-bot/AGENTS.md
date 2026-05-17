@@ -116,7 +116,7 @@ The bot surfaces this in `/referral` if it's detected (the indexer can compare a
 
 ### Self-referral
 
-Allowed. No router-side guard. A self-referring user effectively pays a 0.4% bot fee instead of 0.5%, which is fine — that's the same behaviour as any other referred user, just with referrer = trader.
+Blocked at the bot layer. `resolveReferrer` (in `lib/onboarding.ts`) compares the deeplink's `referrerUserId` against the calling user's own `userId` and returns `null` on a match — both `ref_<own userId>` and `ref_<own username>` collapse to a bare /start. There is no router-side guard, so the bot is the sole enforcement point: every trade for that user passes `referrer = address(0)` and the full bot fee accrues to treasury. This prevents a single user from farming the referrer share (0.1% of trade volume) of their own bot fee, which is the only reason self-referral was ever useful.
 
 ### Alt Fun referrer slot
 
@@ -541,9 +541,9 @@ There is **no** claim, withdraw, or payout button. Referrer cuts settle on-chain
 
 - Recorded on first /start when the deeplink param is `ref_<referrerUsername>` (preferred) or `ref_<referrerUserId>` (fallback when the sharer has no Telegram username). The bot resolves the handle → that referrer's `rewardsWallet` via the indexer / api at /start time, and stores that resolved wallet address as the new user's `referrer` in KV.
 - The stored `referrer` is what the bot passes to `BotFeeRouter.buyWithBotFee` / `sellWithBotFee` on every subsequent trade by this user. This makes it lifetime by construction: every trade pays out, forever, to the address resolved at /start.
-- Subsequent /start calls do not overwrite an existing `referrer`. Same `ChatDO` serialisation as profile creation (see /start).
+- Subsequent /start calls do not overwrite an existing `referrer`. Same `ChatDO` serialisation as profile creation (see /start). This is a one-way door in both directions: **a user whose first /start was bare (no deeplink) can never acquire a referrer afterwards** — the second /start short-circuits the entire referrer-resolution block, so `referrer` stays `null` forever and every trade routes the full bot fee to treasury. This is intentional; allowing late attribution would let users shop for a referrer (e.g. flip to a friend) after they've already onboarded, undermining the "first-touch wins" model that the indexer's payout split assumes.
 - If the referrer's rewards wallet is unset at the moment the new user runs /start (the referrer hasn't onboarded their own bot account yet), the deeplink is dropped silently and the new user has `referrer = address(0)` permanently. **No retro-linking.** Surface in the deeplink referrer's /referral the next time they open it: "Some users hit your link before you finished setup; their attribution was not assigned. Check that your rewards wallet is set so this doesn't happen again."
-- Self-referral allowed (router has no guard). Bot does not warn or block — users self-referring just lower their effective bot fee from 0.5% to 0.4%.
+- Self-referral is blocked at the bot layer: `resolveReferrer` drops any deeplink whose resolved `referrerUserId` equals the caller's own `userId` (covers both `ref_<own userId>` and `ref_<own username>`). The user ends up with `referrer = null` exactly as if they'd run a bare /start. See *Bot Fee Model → Self-referral* for the rationale.
 
 #### Stats source
 
@@ -931,8 +931,8 @@ src/
 - First `/start` → user profile created in KV
 - Referral deeplink `ref_<refUserId>` where the referrer has a registered `rewardsWallet` → bot resolves to that wallet via api and stores it as the new user's `referrer` in KV (NOT the userId)
 - Referral deeplink where the referrer has not yet onboarded (no `rewardsWallet`) → deeplink dropped silently, new user has `referrer = address(0)`, no retro-link when the referrer later onboards
-- Second `/start` → does not overwrite `referrer` or existing profile (lifetime, immutable after first set)
-- Self-referral (`ref_<own userId>`) → allowed; the resolved address is the new user's own rewards wallet (which equals their custodial wallet on day one)
+- Second `/start` → does not overwrite `referrer` or existing profile (lifetime, immutable after first set). Also covers the no-late-attribution case: a user whose first `/start` was bare cannot acquire a referrer via a later `/start ref_<userId>`.
+- Self-referral (`ref_<own userId>` or `ref_<own username>`) → blocked; `referrer` stays `null` exactly as if the deeplink had been omitted
 
 **`commands/positions.test.ts`**
 - Single GET to `/api/v1/bot/positions/:wallet` returns both Open and Realised sections — assert no per-token RPC fan-out
@@ -952,7 +952,7 @@ src/
 - Wizard surfaces a clear warning that past attributions do NOT redirect on rewards-wallet change
 - Bad-referrer-wallet banner: when the indexer reports `referrerCut == 0` for at least one trade where `referrer == this user's rewardsWallet`, the banner appears at the top of /referral with a count of failed payments
 - Failed payments banner does NOT include a "claim refund" button — the lost cuts are unrecoverable, surface only as preventative copy
-- Self-referral case: lifetime earned correctly accumulates the user's own self-referral cut on their own trades
+- Self-referral case: a user who tried to onboard with their own `ref_<userId>` / `ref_<username>` deeplink has `referrer = null` (see /start tests) and therefore `lifetimeEarnedUsdc = 0` from their own trades — no self-referral cut accrues anywhere
 - No claim/withdraw/payout button anywhere in the screen
 
 **`commands/settings.test.ts`**
