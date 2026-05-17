@@ -131,17 +131,33 @@ interface ApiEnvelope<T> {
   error?: string;
 }
 
+// 10s matches `getJsonWithNotFound` and the write-side helpers. The cap
+// is the difference between a slow-but-recovering apps/api round-trip
+// and a Telegram callback spinner that never resolves: without it, an
+// upstream stall (indexer GraphQL contention, Neon connection drops —
+// see `apps/indexer/RESPONSE_TIME_INVESTIGATION.md`) burns the full
+// Cloudflare subrequest budget, the caller never reaches
+// `answerCallbackQuery`, and the user perceives the tap as silently
+// dropped. AbortError lands in the catch as `unavailable`, the same
+// shape as a network refusal, so callsite copy stays uniform.
+const GET_TIMEOUT_MS = 10_000;
+
 async function getJson<T>(
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   path: string,
 ): Promise<ApiResult<T>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GET_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${env.API_BASE_URL}${path}`, {
       headers: buildHeaders(env.API_KEY),
+      signal: controller.signal,
     });
   } catch {
     return { ok: false, kind: "unavailable" };
+  } finally {
+    clearTimeout(timer);
   }
   if (res.status === 400) return { ok: false, kind: "invalid_address" };
   if (res.status === 503 || res.status >= 500)

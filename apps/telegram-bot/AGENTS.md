@@ -697,7 +697,7 @@ Explicit degraded-state behaviour for each dependency. Never show stale data as 
 
 | Dependency | Failure mode | Bot behaviour |
 |---|---|---|
-| `apps/api` unreachable | 503 / timeout | Reply: "Data temporarily unavailable — try again in a moment." Abort the command. |
+| `apps/api` unreachable | 503 / timeout | Render the outage card per *Timeouts on every outbound API call* below. Never let the originating callback `await` an un-bounded fetch — the spinner strands and the tap looks dropped. |
 | Ponder degraded | `apps/api` returns null curve fields | Show token card with `curveFilled` only; omit organic/leverage split. Mirror the `apps/api` degraded fallback — see [apps/api/AGENTS.md](../api/AGENTS.md#token-enrichment-graduation-progress-bar). |
 | HyperEVM RPC down | `eth_sendRawTransaction` fails | Reply with error + raw message. Do not retry automatically — user must re-initiate. |
 | Tx reverted | Receipt `status = 0` | Decode revert reason if possible (e.g. "TradingNotOpen", "InsufficientBalance"). If not decodable, show tx hash + "Transaction failed — check explorer." |
@@ -705,6 +705,41 @@ Explicit degraded-state behaviour for each dependency. Never show stale data as 
 | KV write failure | Wallet or session not persisted | Reply: "Failed to save — please retry." Never proceed assuming the write succeeded. |
 | `deleteMessage` on old message | 400 from Telegram API | Catch and treat as no-op. Log for debugging but do not surface to user. |
 | `editMessageText` on deleted message | 400 `message not found` | Catch and treat as no-op. |
+
+### Timeouts on every outbound API call
+
+**Every helper that hits `apps/api`, the indexer, BounceTech, Hyperliquid, Alchemy RPC, or any other network surface MUST arm an `AbortController` before `fetch` and clear the timer in `finally`.** Without a budget, a slow upstream (indexer GraphQL contention, Neon connection drops, BounceTech outage) eats the full Cloudflare subrequest window, the callback handler never reaches `answerCallbackQuery`, and the Telegram spinner keeps turning — the user perceives the tap as silently dropped. Two read-paths shipped without the budget historically (`lib/api.ts → getJson`, pre-fix); both now use the same 10s envelope as `getJsonWithNotFound` / `setBotRewardsWallet` / `lib/rpc.ts`.
+
+Budget table — pick the matching column when you add a new outbound call. Tighter is fine; looser needs an inline comment explaining why.
+
+| Surface | Budget | Notes |
+|---|---|---|
+| `apps/api` reads (`getJson`, `getJsonWithNotFound`) | `10_000` ms | Matches the write-side helpers. Anything past 10s in practice means apps/api is degraded — surface the outage card. |
+| `apps/api` writes (POST/PUT) | `10_000` ms | Same as reads. `setBotRewardsWallet` is the canonical example. |
+| HyperEVM RPC (`lib/rpc.ts`) | `RPC_TIMEOUT_MS` (currently `5_000` ms) | Well below Telegram's webhook ACK ceiling — leaves headroom for a follow-up reply. |
+| Chart / image generation | `10_000` ms | The chart route runs server-side in apps/api; same envelope as other api reads. |
+| Pending-tx receipt polling | `RECEIPT_TIMEOUT_MS` (`20_000` ms) in-band, then DO alarm | The 20s in-band wait is bounded so the webhook ACKs before Telegram retries; the DO alarm path continues polling for up to 30 min. See *Background polling for pending receipts*. |
+
+When the timer fires, the `AbortError` lands in the same catch as a network refusal — return the `unavailable` kind (or its caller-side equivalent) so the failure shape is uniform across "couldn't reach", "5xx", and "timed out".
+
+### Outage card — uniform shape across every command
+
+A timeout (or any equivalent `unavailable` / `5xx` from an api helper) must surface as the **outage card**:
+
+```text
+Data temporarily unavailable — try again in a moment.
+[← Back] [🏠 Home]
+```
+
+Rules:
+
+- **Always carry `backHomeRow()`** — the outage card is a system-prompt like any other; the user must have an exit. Never render a bare text reply with no keyboard. See *Navigation Model — Back / Home* above.
+- **Edit-in-place when the trigger has a parent bubble** (callback queries, wizard steps that were entered via `editToSubmenu`). Use `safeEditMessageById` / `editToSubmenu` from `lib/nav.ts` so the outage replaces the originating message instead of stacking a fresh bubble below it. This is the same constraint as every other system-prompt navigation — see *Start-menu button → wizard entries edit the start bubble in place*.
+- **Fallback rule when edit is structurally impossible** (photo message → text edit, expired message id, "message not found" / "message can't be edited" 400 from Telegram): send a fresh text reply with the outage copy + `backHomeRow()`, **then** delete the stale originating bubble via `ctx.deleteMessage()` so the chat doesn't carry two screens for the same state. The "edit fails → fresh reply → delete origin" pattern is the same one `editToSubmenu` already implements internally — reuse it; don't reinvent.
+- **Slash-command entry paths (no parent bubble)** — `/positions <addr>`, `/buy <addr>` typed fresh — fall through to a plain `replyWithNav(ctx, OUTAGE_TEXT)` (which defaults `reply_markup` to `backHomeMarkup()`). Nothing to edit, nothing to delete.
+- **Always `answerCallbackQuery` after the outage is on screen.** A toast (`{ text: OUTAGE_TEXT, show_alert: true }`) is the right choice only for ephemeral guard rejects ("Invalid token", "Missing user") — never for a real upstream timeout. Toasts disappear; the user needs the Back/Home buttons to recover.
+
+Adding a new command? Search for `OUTAGE` / `Data temporarily unavailable` in `apps/telegram-bot/src/` and reuse the existing helpers — `replyWithNav`, `editToSubmenu`, `safeEditMessageById`. A bespoke outage path will drift from this rule on the next refactor.
 
 ---
 
