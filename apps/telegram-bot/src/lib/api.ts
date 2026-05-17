@@ -131,16 +131,25 @@ interface ApiEnvelope<T> {
   error?: string;
 }
 
-// 10s matches `getJsonWithNotFound` and the write-side helpers. The cap
-// is the difference between a slow-but-recovering apps/api round-trip
-// and a Telegram callback spinner that never resolves: without it, an
-// upstream stall (indexer GraphQL contention, Neon connection drops —
-// see `apps/indexer/RESPONSE_TIME_INVESTIGATION.md`) burns the full
-// Cloudflare subrequest budget, the caller never reaches
-// `answerCallbackQuery`, and the user perceives the tap as silently
-// dropped. AbortError lands in the catch as `unavailable`, the same
-// shape as a network refusal, so callsite copy stays uniform.
-const GET_TIMEOUT_MS = 10_000;
+// TEMPORARY: bumped from 10s → 30s while apps/api is degraded. Live
+// `wrangler tail launchpad-api` (2026-05-17) showed `/api/v1/market-data`
+// (the dependency of `/api/v1/tokens/:address`) regularly serving in
+// 1–3s and occasionally stalling past 30s under peak load, which was
+// tripping the prior 10s envelope and surfacing the outage card on
+// healthy tokens (e.g. issue: T-REX token detail returning "data not
+// available"). Revert to 10s once `apps/api` p99 is back under budget
+// — see `apps/indexer/RESPONSE_TIME_INVESTIGATION.md`. AGENTS.md → *Timeouts
+// on every outbound API call* documents the 10s rule and explicitly
+// permits a looser budget with an inline justification, which this is.
+//
+// The cap is the difference between a slow-but-recovering apps/api
+// round-trip and a Telegram callback spinner that never resolves:
+// without it, an upstream stall burns the full Cloudflare subrequest
+// budget, the caller never reaches `answerCallbackQuery`, and the user
+// perceives the tap as silently dropped. AbortError lands in the catch
+// as `unavailable`, the same shape as a network refusal, so callsite
+// copy stays uniform.
+const GET_TIMEOUT_MS = 30_000;
 
 async function getJson<T>(
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
@@ -179,7 +188,7 @@ async function getJsonWithNotFound<T>(
   path: string,
 ): Promise<ApiResult<T>> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const timer = setTimeout(() => controller.abort(), GET_TIMEOUT_MS);
   let res: Response;
   try {
     res = await fetch(`${env.API_BASE_URL}${path}`, {
