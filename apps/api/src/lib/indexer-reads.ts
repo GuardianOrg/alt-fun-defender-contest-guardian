@@ -68,6 +68,37 @@ import type {
  */
 
 /**
+ * Bucket size for the trailing-24h cutoff parameter used by
+ * `fetchHistoricalCurveSnapshots` and `fetchRouterTradeActivity`.
+ *
+ * Issue #1035: both queries' top-of-Neon-spend ranking is driven by call
+ * count, not per-call cost — the cutoff was `now - 86_400` and shifted every
+ * second, so Postgres' prepared-plan cache missed on the parameter value and
+ * the planner re-checked every call. Flooring to a 30-second bucket means
+ * every request landing in the same 30s window passes the same numeric
+ * cutoff; the plan is reused across the bucket.
+ *
+ * `token_snapshot` / `router_trade` are append-only — a given (addresses,
+ * bucketed-cutoff) tuple returns a byte-identical result for the duration of
+ * the bucket. User-visible drift on the "24h" label is at most 30s, well
+ * inside the noise floor for `change24h` / `volume24hUsd`. Volume keeps
+ * growing within a bucket because the SQL's lower bound is the only thing
+ * quantised — the upper bound is open, so new trades land immediately.
+ */
+const TRAILING_24H_CUTOFF_BUCKET_SEC = 30;
+
+/**
+ * Floor a "trailing 24h" cutoff to {@link TRAILING_24H_CUTOFF_BUCKET_SEC}.
+ * Exported for use by `market-data.ts` (which threads the same cutoff into
+ * `fetchHistoricalCurveSnapshots` + `fetchHistoricalLtRates` + the old/new
+ * token partition) so the whole batch shares one window definition.
+ */
+export function quantizeTrailing24hCutoffSec(nowSec: number): number {
+  const raw = nowSec - 86_400;
+  return Math.floor(raw / TRAILING_24H_CUTOFF_BUCKET_SEC) * TRAILING_24H_CUTOFF_BUCKET_SEC;
+}
+
+/**
  * Strip Drizzle's `Failed query: <SQL>\nparams: <values>` decoration so
  * the `error.message` log field stays grep-able. The SQL itself is
  * already in the source (and the surrounding `event` name pinpoints
@@ -377,7 +408,10 @@ export async function fetchRouterTradeActivity(
 ): Promise<Map<string, RouterTradeActivity> | null> {
   if (addresses.length === 0) return new Map();
   const lowered = addresses.map((a) => a.toLowerCase());
-  const sinceSec = nowSec - 86_400;
+  // Bucketed lower bound — see `quantizeTrailing24hCutoffSec` for the
+  // call-count-driven rationale (issue #1035). Window is "24h..24h+30s"
+  // depending on where in the bucket the request lands.
+  const sinceSec = quantizeTrailing24hCutoffSec(nowSec);
   try {
     const rows = (await db
       .select({

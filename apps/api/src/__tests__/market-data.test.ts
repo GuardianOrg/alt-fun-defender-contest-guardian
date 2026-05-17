@@ -22,6 +22,12 @@ vi.mock("../lib/indexer-reads.js", () => ({
   fetchGraduatedTokensOnchain: vi.fn(),
   fetchNonGraduatedTokensOnchain: vi.fn(),
   fetchTrendingCandidatesByVolume: vi.fn(),
+  // Pure helper — keep the real implementation so `market-data.ts`'s
+  // cutoff math behaves exactly as in prod under this test. Inline the
+  // 30s bucket math to avoid pulling the real `indexer-reads.js` module
+  // into the mock factory (which would re-introduce its other imports).
+  quantizeTrailing24hCutoffSec: (nowSec: number) =>
+    Math.floor((nowSec - 86_400) / 30) * 30,
 }));
 
 vi.mock("../db/client.js", () => ({
