@@ -26,7 +26,11 @@ import {
   OUTAGE_REPLY as I18N_OUTAGE_REPLY,
   PIN_DO_NOT_MATCH_REPLY,
   PIN_INVALID_FORMAT_REPLY,
+  PIN_LOCKED_REPLY,
   PIN_STATE_LOST_REPLY,
+  PIN_WRONG_RETRY_REPLY,
+  REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL,
+  REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT,
   REFERRAL_ABORTED_RETRY_PROMPT,
   REFERRAL_BURN_ADDRESS_WARNING_REPLY,
   REFERRAL_BURN_CONFIRM_PROMPT,
@@ -41,8 +45,10 @@ import {
   REFERRAL_HEADER_REWARDS_REJECTING,
   REFERRAL_HEADER_YOUR_REFERRAL,
   REFERRAL_INVALID_ADDRESS_REPLY,
+  REFERRAL_LIFETIME_EARNED_LABEL,
   REFERRAL_LINK_LABEL,
   REFERRAL_LONG_LIVED_HINT,
+  REFERRAL_REFERRED_USERS_LABEL,
   REFERRAL_NO_USER_REPLY as I18N_REFERRAL_NO_USER_REPLY,
   REFERRAL_NO_WALLET_REPLY as I18N_REFERRAL_NO_WALLET_REPLY,
   REFERRAL_NON_PRIVATE_CHAT_REPLY as I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY,
@@ -58,6 +64,7 @@ import {
   REFERRAL_UPDATE_REWARDS_WALLET_HINT,
   REFERRAL_VERIFY_PIN_PROMPT,
   REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY,
+  TAP_TO_COPY_HINT,
   TOAST_MISSING_USER,
 } from "../lib/i18n.js";
 import {
@@ -204,13 +211,13 @@ const renderReferralHtml = (
     "",
     REFERRAL_LINK_LABEL.English,
     `<code>${escapeHtml(link)}</code>`,
-    "(Tap to copy)",
+    TAP_TO_COPY_HINT.English,
     "",
     REFERRAL_REWARDS_WALLET_LABEL.English,
     `<code>${escapeHtml(stats.rewardsWallet)}</code>`,
     "",
-    `Referred users: ${stats.referredCount}`,
-    `Lifetime earned: $${escapeHtml(earned)} USDC`,
+    REFERRAL_REFERRED_USERS_LABEL.English(stats.referredCount),
+    REFERRAL_LIFETIME_EARNED_LABEL.English(escapeHtml(earned)),
   ];
   const banners = renderBanners(stats);
   if (banners.length > 0) {
@@ -558,16 +565,23 @@ const runPinGate = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx,
-          `Too many wrong PIN attempts — locked for ~${mins} min. Rewards-wallet change cancelled.`,
+        wrap(
+          ctx,
+          PIN_LOCKED_REPLY.English(
+            mins,
+            REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL.English,
+          ),
         ),
       );
       return false;
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(ctx,
-          PIN_STATE_LOST_REPLY.English,
+        wrap(
+          ctx,
+          PIN_STATE_LOST_REPLY.English(
+            REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT.English,
+          ),
         ),
       );
       return false;
@@ -576,7 +590,7 @@ const runPinGate = async (
       conversation,
       ctx,
       origin,
-      `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
+      PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining),
     );
   }
 };

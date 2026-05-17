@@ -63,7 +63,9 @@ import {
   SETTINGS_SELL_SLOT_PROMPT,
   SETTINGS_SELL_SLOT_RANGE_REPLY,
   SETTINGS_SELL_SUBMENU_TITLE,
+  SETTINGS_EXECUTION_SPEED_SET_REPLY,
   SETTINGS_SLIPPAGE_MIN_REPLY,
+  SETTINGS_SLIPPAGE_SET_REPLY,
   TOAST_DEGEN_MODE_DISABLED,
   TOAST_DEGEN_MODE_ENABLED,
   TOAST_MISSING_USER,
@@ -787,7 +789,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       ctx.session.slippageBps = clamped;
       await editToState(ctx, renderMainState(ctx));
       await ctx.answerCallbackQuery({
-        text: `Slippage set to ${formatBpsLabel(clamped)}.`,
+        text: SETTINGS_SLIPPAGE_SET_REPLY.English(formatBpsLabel(clamped)),
       });
     },
   );
@@ -852,7 +854,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       }
       await editToState(ctx, renderMainState(ctx));
       await ctx.answerCallbackQuery({
-        text: `Execution speed set to ${preset.label}.`,
+        text: SETTINGS_EXECUTION_SPEED_SET_REPLY.English(preset.label),
       });
     },
   );

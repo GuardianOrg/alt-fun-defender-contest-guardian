@@ -728,6 +728,98 @@ export const TOAST_CONFIRM_CLEARED = {
 export const TOAST_CONFIRM_ALREADY_EXPIRED = {
   English: "Already expired",
 } as const;
+export const CONFIRM_EXPIRED_REPLY = {
+  English:
+    "⏱ That trade confirmation has expired. Re-run /buy or /sell to try again.",
+} as const;
+
+// ─── Trade confirm receipt + tx-status copy ────────────────────────
+
+export const TRADE_VERB_BUY = { English: "Buy" } as const;
+export const TRADE_VERB_SELL = { English: "Sell" } as const;
+export const TRADE_RECEIVED_TOKENS = {
+  English: (amount: string, ticker: string) =>
+    `Received: ${amount} ${ticker}\n`,
+} as const;
+export const TRADE_RECEIVED_USDC = {
+  English: (amount: string) => `Received: $${amount} USDC\n`,
+} as const;
+export const TRADE_CONFIRMED_HEADER_HTML = {
+  English: (verb: string, ticker: string) =>
+    `✅ <b>${verb} confirmed for ${ticker}</b>`,
+} as const;
+export const TRADE_TX_LABEL = { English: "Tx:" } as const;
+export const TRADE_STATUS_BUYING = {
+  English: (usdcLabel: string, ticker: string) =>
+    `Buying ${usdcLabel} USDC of ${ticker}`,
+} as const;
+export const TRADE_STATUS_SELLING = {
+  English: (tokenAmount: string, ticker: string) =>
+    `Selling ${tokenAmount} ${ticker}`,
+} as const;
+export const TX_SENDING_HEADER_HTML = { English: "⏳ <b>Tx sending</b>" } as const;
+export const TX_PENDING_HEADER_HTML = { English: "⏳ <b>Tx pending</b>" } as const;
+export const TX_PENDING_BODY = {
+  English:
+    "Still waiting for the network to confirm — this may take another moment.",
+} as const;
+
+// ─── renderExecutionError variants ─────────────────────────────────
+
+export const TX_PENDING_POLLING_REPLY = {
+  English: (timeoutSec: number, explorerUrl: string) =>
+    `Tx pending — receipt not seen within ${timeoutSec}s. ` +
+    `Still polling in the background; this message updates once mined. ` +
+    `Explorer: ${explorerUrl}`,
+} as const;
+export const TX_PENDING_NO_POLLING_REPLY = {
+  English: (explorerUrl: string) =>
+    `Tx pending — receipt not seen yet, no longer polling. ` +
+    `Check the explorer: ${explorerUrl}`,
+} as const;
+export const TX_PENDING_NEUTRAL_REPLY = {
+  English: (explorerUrl: string) =>
+    `Tx pending — receipt not seen yet. ` +
+    `Check the explorer: ${explorerUrl}`,
+} as const;
+export const TX_SUBMITTED_RECEIPT_MISSING_REPLY = {
+  English: (explorerUrl: string) =>
+    `Tx submitted but receipt not seen yet — check the explorer: ${explorerUrl}`,
+} as const;
+export const RPC_UNAVAILABLE_REPLY = {
+  English: "RPC unavailable — please try again in a moment.",
+} as const;
+export const TRADING_NOT_YET_OPEN_REPLY = {
+  English: (suffix: string) =>
+    `Trading not yet open for this token — wait for the launch delay to clear.${suffix}`,
+} as const;
+export const LT_BUFFER_LOW_REPLY = {
+  English: (suffix: string) =>
+    `BounceTech LT buffer low — try a smaller amount or retry in ~10s.${suffix}`,
+} as const;
+export const SLIPPAGE_EXCEEDED_REPLY = {
+  English: (suffix: string) =>
+    `Price moved past slippage — try again or raise slippage in /settings.${suffix}`,
+} as const;
+export const BUYS_PAUSED_MINT_PAUSED_REPLY = {
+  English: (suffix: string) =>
+    `Buys paused for this token — BounceTech LT is temporarily mint-paused. Sells still work.${suffix}`,
+} as const;
+export const TX_REVERTED_ON_CHAIN_REPLY = {
+  English: (reason: string, explorerUrl: string) =>
+    `Transaction reverted on-chain${reason ? `: ${reason}` : ""}. See ${explorerUrl}.`,
+} as const;
+export const TX_FAILED_GENERIC_REPLY = {
+  English: (reason: string) => `Transaction failed${reason ? `: ${reason}` : ""}.`,
+} as const;
+export const RPC_UNAVAILABLE_WITH_REASON_REPLY = {
+  English: (reason: string) =>
+    `RPC unavailable${reason ? `: ${reason}` : ""} — try again in a moment.`,
+} as const;
+export const TRANSACTION_REVERTED_WITH_REASON_REPLY = {
+  English: (reason: string) =>
+    `Transaction reverted${reason ? `: ${reason}` : ""}.`,
+} as const;
 export const PIN_NO_PIN_ON_FILE_REPLY = {
   English: "No PIN on file — re-run /wallet to set one.",
 } as const;
@@ -748,6 +840,12 @@ export const TOKEN_LIFECYCLE_GRADUATED = {
 } as const;
 export const POSITIONS_REALISED_POS_HEADER = {
   English: "Realised Pos",
+} as const;
+export const POSITIONS_BUY_TICKER_BUTTON = {
+  English: (ticker: string) => `Buy ${ticker}`,
+} as const;
+export const POSITIONS_SELL_TICKER_BUTTON = {
+  English: (ticker: string) => `Sell ${ticker}`,
 } as const;
 export const ANTI_PHISHING_STATIC_HEADER = {
   English: "This bot will never ask for your seed phrase or private key via DM.",
@@ -776,6 +874,17 @@ export const START_BALANCE_UNAVAILABLE_TOAST = {
 export const START_BALANCE_REFRESHED_TOAST = {
   English: "Balance refreshed",
 } as const;
+export const START_WELCOME_LEAD = {
+  English: (botName: string) =>
+    `Welcome to ${botName} — the bot for trading alt.fun tokens on HyperEVM.`,
+} as const;
+export const START_BALANCE_LABEL = {
+  English: (usdc: string) => `Balance: ${usdc} USDC`,
+} as const;
+export const START_GAS_BALANCE_LABEL = {
+  English: (hype: string) => `Gas balance: ${hype} HYPE`,
+} as const;
+export const TAP_TO_COPY_HINT = { English: "(Tap to copy)" } as const;
 
 // ─── /settings panel labels + wizard prompts ───────────────────────
 
@@ -1020,7 +1129,7 @@ export const PIN_DO_NOT_MATCH_REPLY = {
   English: "PINs do not match. Send the confirmation PIN again.",
 } as const;
 export const PIN_STATE_LOST_REPLY = {
-  English: "PIN state lost — re-run /referral → Change rewards wallet.",
+  English: (retryHint: string) => `PIN state lost — re-run ${retryHint}.`,
 } as const;
 export const REFERRAL_INVALID_ADDRESS_REPLY = {
   English:
@@ -1064,6 +1173,176 @@ export const REFERRAL_HEADER_CHANGE_REWARDS_WALLET = {
 export const REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT = {
   English:
     "<b>Changing your rewards wallet does NOT redirect already-attributed referees.</b>",
+} as const;
+
+// ─── /wallet — extracted toasts & prompts ──────────────────────────
+
+export const WALLET_RENAME_LENGTH_INVALID_REPLY = {
+  English: (max: number) =>
+    `Label must be 1–${max} characters. Rename cancelled.`,
+} as const;
+export const WALLET_DELETE_CONFIRM_PROMPT = {
+  English: (label: string, address: string) =>
+    `Final step — this permanently removes ${label} (${address}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or tap Home to exit.`,
+} as const;
+export const WALLET_PIN_SET_HEADER = { English: "PIN set." } as const;
+export const WALLET_PIN_CHANGED_HEADER = { English: "PIN changed." } as const;
+export const WALLET_RESET_NOT_READY_WITH_CANCEL_HINT_REPLY = {
+  English: (hours: string) =>
+    `Reset not yet available — ~${hours} remaining. Tap [Cancel PIN reset] if you didn't request this.`,
+} as const;
+export const WALLET_RESET_NOT_READY_REPLY = {
+  English: (hours: string) => `Reset not yet available — ~${hours} remaining.`,
+} as const;
+export const TOAST_WALLET_CREATED = {
+  English: (address: string) => `Created ${address}`,
+} as const;
+export const TOAST_WALLET_CAP_REACHED = {
+  English: (max: number) =>
+    `Wallet cap reached (${max}). Delete one first.`,
+} as const;
+export const TOAST_WALLET_SWITCHED_TO = {
+  English: (label: string) => `Switched to ${label}`,
+} as const;
+export const TOAST_WALLET_SWITCHED = { English: "Switched." } as const;
+export const TOAST_PIN_RESET_REQUESTED = {
+  English: (hours: string) =>
+    `PIN reset requested. Complete in ~${hours}. The old PIN still works during the cooldown.`,
+} as const;
+export const TOAST_LOCK_DISABLE_REQUESTED = {
+  English: (hours: string) =>
+    `Disable requested — completes in ~${hours}. Tap the lock button again to revoke.`,
+} as const;
+
+// ─── PIN flow (shared by /wallet, /referral, /security) ────────────
+
+export const PIN_VERIFY_PROMPT = {
+  English: (actionLabel: string) =>
+    `Send your current 6-digit PIN to authorise ${actionLabel}.`,
+} as const;
+export const REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL = {
+  English: "Rewards-wallet change",
+} as const;
+export const REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT = {
+  English: "/referral → Change rewards wallet",
+} as const;
+export const PIN_AUTHORISE_THE_PROMPT = {
+  English: (actionLabel: string) =>
+    `Send your 6-digit PIN to authorise the ${actionLabel}.`,
+} as const;
+export const WALLET_PIN_RESET_COMPLETE_HEADER = {
+  English: "PIN reset complete.",
+} as const;
+export const PIN_LOCKED_REPLY = {
+  English: (mins: number, actionLabel: string) =>
+    `Too many wrong PIN attempts — locked for ~${mins} min. ${actionLabel} cancelled.`,
+} as const;
+export const PIN_WRONG_RETRY_REPLY = {
+  English: (attemptsRemaining: number) =>
+    `Wrong PIN. ${attemptsRemaining} attempts remaining. Try again.`,
+} as const;
+
+// ─── /buy — extracted toasts ───────────────────────────────────────
+
+export const BUY_INSUFFICIENT_USDC_REPLY = {
+  English: (totalNeeded: number, usdcAvailable: number) =>
+    `Insufficient USDC: need $${totalNeeded.toFixed(2)}, have $${usdcAvailable.toFixed(2)}.`,
+} as const;
+
+// ─── /track — extracted trade-list copy ────────────────────────────
+
+export const TRACK_RECENT_TRADES_HEADER_HTML = {
+  English: "<b>Recent trades</b>",
+} as const;
+export const TRACK_NO_TRADES_YET_HTML = {
+  English: "<i>No trades yet.</i>",
+} as const;
+export const TRACK_RELATIVE_TIME = {
+  English: {
+    justNow: "just now",
+    seconds: (n: number) => `${n}s ago`,
+    minutes: (n: number) => `${n}m ago`,
+    hours: (n: number) => `${n}h ago`,
+    days: (n: number) => `${n}d ago`,
+  },
+} as const;
+
+// ─── Token card (shared by /buy, /sell, /track) ────────────────────
+
+export const TOKEN_CARD_MARKET_CAP_HTML = {
+  English: (mcap: string) => `💰 <b>Market Cap:</b> ${mcap}`,
+} as const;
+export const TOKEN_CARD_PRICE_HTML = {
+  English: (price: string) => `💵 <b>Price:</b> ${price}`,
+} as const;
+export const TOKEN_CARD_CHANGE_24H_HTML = {
+  English: (pct: string) => `📊 <b>24h Change:</b> ${pct}`,
+} as const;
+export const TOKEN_CARD_VOLUME_24H_HTML = {
+  English: (volume: string) => `📈 <b>24h Volume:</b> ${volume}`,
+} as const;
+export const TOKEN_CARD_CURVE_FILLED_HTML = {
+  English: (pct: string) => `🔥 <b>Curve Filled:</b> ${pct}`,
+} as const;
+export const TOKEN_CARD_VIEW_ON_EXPLORER_HTML = {
+  English: (url: string) => `🔍 <a href="${url}">View on Explorer</a>`,
+} as const;
+export const TOKEN_CARD_VIEW_ON_ALT_FUN_HTML = {
+  English: (url: string) => `🚀 <a href="${url}">View on Alt Fun</a>`,
+} as const;
+export const TOKEN_CARD_YOUR_USDC_BALANCE_HTML = {
+  English: (formattedUsdc: string) =>
+    `💼 <b>Your USDC Balance:</b> ${formattedUsdc}`,
+} as const;
+export const TOKEN_CARD_BALANCE_UNAVAILABLE = {
+  English: "— (balance unavailable)",
+} as const;
+export const TOKEN_CARD_YOUR_BALANCE_HTML = {
+  English: (holdingText: string) => `💼 <b>Your Balance:</b> ${holdingText}`,
+} as const;
+
+// ─── /referral — extracted stat labels ─────────────────────────────
+
+export const REFERRAL_REFERRED_USERS_LABEL = {
+  English: (count: number) => `Referred users: ${count}`,
+} as const;
+export const REFERRAL_LIFETIME_EARNED_LABEL = {
+  English: (earnedUsdc: string) => `Lifetime earned: $${earnedUsdc} USDC`,
+} as const;
+
+// ─── /sell — extracted toasts ──────────────────────────────────────
+
+export const SELL_NO_BALANCE_REPLY = {
+  English: (ticker: string) => `You hold no ${ticker}.`,
+} as const;
+export const SELL_PERCENT_ROUNDS_TO_ZERO_REPLY = {
+  English: (percent: number, ticker: string) =>
+    `${percent}% of your ${ticker} balance rounds to zero.`,
+} as const;
+export const SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY = {
+  English: (percent: number, ticker: string) =>
+    `${percent}% of your ${ticker} balance rounds to zero — try a larger percent.`,
+} as const;
+export const SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY = {
+  English: (proceedsUsd: number, minUsdc: number) =>
+    `Estimated proceeds ≈$${proceedsUsd.toFixed(2)} would be below the $${minUsdc} minimum. Increase the percent or tap Home to exit.`,
+} as const;
+export const SELL_PROCEEDS_BELOW_MIN_REPLY = {
+  English: (proceedsUsd: number, minUsdc: number) =>
+    `Estimated proceeds ≈$${proceedsUsd.toFixed(2)} would be below the $${minUsdc} minimum.`,
+} as const;
+export const SELL_LT_BUFFER_TOO_LOW_REPLY = {
+  English: (maxProceedsUsd: number, minUsdc: number) =>
+    `LT buffer too low — max sell ≈$${maxProceedsUsd.toFixed(2)} < $${minUsdc} min. Retry in ~10s.`,
+} as const;
+
+// ─── /settings — extracted toasts ──────────────────────────────────
+
+export const SETTINGS_SLIPPAGE_SET_REPLY = {
+  English: (label: string) => `Slippage set to ${label}.`,
+} as const;
+export const SETTINGS_EXECUTION_SPEED_SET_REPLY = {
+  English: (label: string) => `Execution speed set to ${label}.`,
 } as const;
 
 // ─── /sell — buffer-low banner ─────────────────────────────────────

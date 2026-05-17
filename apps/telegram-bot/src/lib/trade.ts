@@ -40,9 +40,20 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
+  BUYS_PAUSED_MINT_PAUSED_REPLY,
   INSUFFICIENT_HYPE_FOR_GAS_REPLY,
+  LT_BUFFER_LOW_REPLY,
+  RPC_UNAVAILABLE_REPLY,
+  SLIPPAGE_EXCEEDED_REPLY,
   TRADE_ALREADY_IN_FLIGHT_REPLY,
   TRADE_ROUTING_NOT_CONFIGURED_REPLY,
+  TRADING_NOT_YET_OPEN_REPLY,
+  TX_FAILED_GENERIC_REPLY,
+  TX_PENDING_NEUTRAL_REPLY,
+  TX_PENDING_NO_POLLING_REPLY,
+  TX_PENDING_POLLING_REPLY,
+  TX_REVERTED_ON_CHAIN_REPLY,
+  TX_SUBMITTED_RECEIPT_MISSING_REPLY,
 } from "./i18n.js";
 import {
   claimIntent,
@@ -1366,50 +1377,42 @@ export const renderExecutionError = (
     //               Render neutral "check the explorer" copy with
     //               no polling-status claim either way.
     if (options.isPollingActive === true) {
-      return (
-        `Tx pending — receipt not seen within ${RECEIPT_TIMEOUT_MS / 1000}s. ` +
-        `Still polling in the background; this message updates once mined. ` +
-        `Explorer: ${explorerTxUrl(result.txHash)}`
+      return TX_PENDING_POLLING_REPLY.English(
+        RECEIPT_TIMEOUT_MS / 1000,
+        explorerTxUrl(result.txHash),
       );
     }
     if (options.isPollingActive === false) {
-      return (
-        `Tx pending — receipt not seen yet, no longer polling. ` +
-        `Check the explorer: ${explorerTxUrl(result.txHash)}`
-      );
+      return TX_PENDING_NO_POLLING_REPLY.English(explorerTxUrl(result.txHash));
     }
-    return (
-      `Tx pending — receipt not seen yet. ` +
-      `Check the explorer: ${explorerTxUrl(result.txHash)}`
-    );
+    return TX_PENDING_NEUTRAL_REPLY.English(explorerTxUrl(result.txHash));
   }
   if (result.kind === "unavailable") {
     if (result.txHash) {
-      return (
-        `Tx submitted but receipt not seen yet — check the explorer: ` +
-        `${explorerTxUrl(result.txHash)}`
+      return TX_SUBMITTED_RECEIPT_MISSING_REPLY.English(
+        explorerTxUrl(result.txHash),
       );
     }
-    return "RPC unavailable — please try again in a moment.";
+    return RPC_UNAVAILABLE_REPLY.English;
   }
   const reason = result.reason ?? "";
   const suffix = result.txHash
     ? ` See ${explorerTxUrl(result.txHash)}.`
     : "";
   if (/TradingNotOpen/i.test(reason)) {
-    return `Trading not yet open for this token — wait for the launch delay to clear.${suffix}`;
+    return TRADING_NOT_YET_OPEN_REPLY.English(suffix);
   }
   if (/InsufficientBalance/i.test(reason)) {
-    return `BounceTech LT buffer low — try a smaller amount or retry in ~10s.${suffix}`;
+    return LT_BUFFER_LOW_REPLY.English(suffix);
   }
   if (/Slippage|SlippageExceeded|too little|tooLittle/i.test(reason)) {
-    return `Price moved past slippage — try again or raise slippage in /settings.${suffix}`;
+    return SLIPPAGE_EXCEEDED_REPLY.English(suffix);
   }
   if (/mint paused|MintPaused/i.test(reason)) {
-    return `Buys paused for this token — BounceTech LT is temporarily mint-paused. Sells still work.${suffix}`;
+    return BUYS_PAUSED_MINT_PAUSED_REPLY.English(suffix);
   }
   if (result.txHash) {
-    return `Transaction reverted on-chain${reason ? `: ${reason}` : ""}. See ${explorerTxUrl(result.txHash)}.`;
+    return TX_REVERTED_ON_CHAIN_REPLY.English(reason, explorerTxUrl(result.txHash));
   }
-  return `Transaction failed${reason ? `: ${reason}` : ""}.`;
+  return TX_FAILED_GENERIC_REPLY.English(reason);
 };

@@ -7,8 +7,13 @@ import {
   isOtherSlashCommand,
 } from "./conversation-commands.js";
 import {
+  PIN_DO_NOT_MATCH_REPLY,
   PIN_FLOW_CONFIRM_PROMPT,
+  PIN_INVALID_FORMAT_REPLY,
+  PIN_LOCKED_REPLY,
   PIN_NO_PIN_ON_FILE_REPLY,
+  PIN_VERIFY_PROMPT,
+  PIN_WRONG_RETRY_REPLY,
 } from "./i18n.js";
 import { backHomeMarkup } from "./nav.js";
 import { PinManager } from "./pin.js";
@@ -82,7 +87,7 @@ export const askNewPin = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx, "PIN must be exactly 6 digits. Send again."),
+        wrap(ctx, PIN_INVALID_FORMAT_REPLY.English),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -105,7 +110,7 @@ export const askNewPin = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
-        wrap(ctx, "PINs do not match. Send the confirmation PIN again."),
+        wrap(ctx, PIN_DO_NOT_MATCH_REPLY.English),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -129,10 +134,7 @@ export const verifyExistingPin = async (
   actionLabel: string,
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
-    wrap(
-      ctx,
-      `Send your current 6-digit PIN to authorise ${actionLabel}.`,
-    ),
+    wrap(ctx, PIN_VERIFY_PROMPT.English(actionLabel)),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -153,10 +155,7 @@ export const verifyExistingPin = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(
-          ctx,
-          `Too many wrong PIN attempts — locked for ~${mins} min. ${actionLabel} cancelled.`,
-        ),
+        wrap(ctx, PIN_LOCKED_REPLY.English(mins, actionLabel)),
       );
       return false;
     }
@@ -167,10 +166,7 @@ export const verifyExistingPin = async (
       return false;
     }
     const retry = await ctx.reply(
-      wrap(
-        ctx,
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
-      ),
+      wrap(ctx, PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);

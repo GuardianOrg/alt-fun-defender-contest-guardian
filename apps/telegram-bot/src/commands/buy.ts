@@ -34,6 +34,7 @@ import {
 } from "../lib/execute.js";
 import { escapeHtml } from "../lib/format.js";
 import {
+  BUY_INSUFFICIENT_USDC_REPLY,
   NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
   OUTAGE_REPLY,
   TOAST_CONFIRM_ALREADY_EXPIRED,
@@ -570,7 +571,7 @@ const handleFixedBuy = async (
   const totalNeeded = amountUsdc * (1 + COMBINED_FEE_RATE);
   if (usdcAvailable < totalNeeded) {
     await ctx.answerCallbackQuery({
-      text: `Insufficient USDC: need $${totalNeeded.toFixed(2)}, have $${usdcAvailable.toFixed(2)}.`,
+      text: BUY_INSUFFICIENT_USDC_REPLY.English(totalNeeded, usdcAvailable),
       show_alert: true,
     });
     return;

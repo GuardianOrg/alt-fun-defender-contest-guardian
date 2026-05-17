@@ -28,7 +28,15 @@ import {
   type TransactionReceipt,
 } from "viem";
 
-import { PENDING_TX_RECEIPT_NOT_SEEN_REPLY } from "./i18n.js";
+import {
+  PENDING_TX_RECEIPT_NOT_SEEN_REPLY,
+  TRADE_CONFIRMED_HEADER_HTML,
+  TRADE_RECEIVED_TOKENS,
+  TRADE_RECEIVED_USDC,
+  TRADE_TX_LABEL,
+  TRADE_VERB_BUY,
+  TRADE_VERB_SELL,
+} from "./i18n.js";
 import { markFinal, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
@@ -319,21 +327,27 @@ const renderFinal = (
   result: ExecutionResult,
 ): string => {
   if (result.ok) {
-    const verb = rec.side === "buy" ? "Buy" : "Sell";
+    const verb =
+      rec.side === "buy" ? TRADE_VERB_BUY.English : TRADE_VERB_SELL.English;
     const tickerSafe = escapeHtml(rec.ticker);
     const tokenSafe = escapeHtml(rec.token);
     let receivedLine = "";
     if (rec.side === "buy" && result.actualTokensOut !== undefined) {
-      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${tickerSafe}\n`;
+      receivedLine = TRADE_RECEIVED_TOKENS.English(
+        formatToken18(result.actualTokensOut),
+        tickerSafe,
+      );
     } else if (rec.side === "sell" && result.actualUsdcOut !== undefined) {
-      receivedLine = `Received: $${formatUsdc(result.actualUsdcOut)} USDC\n`;
+      receivedLine = TRADE_RECEIVED_USDC.English(
+        formatUsdc(result.actualUsdcOut),
+      );
     }
     return (
-      `✅ <b>${verb} confirmed for ${tickerSafe}</b>\n\n` +
+      `${TRADE_CONFIRMED_HEADER_HTML.English(verb, tickerSafe)}\n\n` +
       `${receivedLine}` +
       `<code>${tokenSafe}</code>\n` +
       `\n` +
-      `Tx:\n` +
+      `${TRADE_TX_LABEL.English}\n` +
       `<a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }

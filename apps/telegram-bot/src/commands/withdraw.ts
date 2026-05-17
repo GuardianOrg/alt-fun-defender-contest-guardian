@@ -49,6 +49,10 @@ import {
 import {
   CANCEL_BUTTON,
   CONFIRM_WITHDRAW_BUTTON,
+  PIN_LOCKED_REPLY,
+  PIN_WRONG_RETRY_REPLY,
+  RPC_UNAVAILABLE_WITH_REASON_REPLY,
+  TRANSACTION_REVERTED_WITH_REASON_REPLY,
   TOAST_CANCELLED,
   TOAST_CONFIRMATION_EXPIRED_WITHDRAW,
   TOAST_LOADING_WITHDRAW,
@@ -319,9 +323,9 @@ const renderError = (
     return WITHDRAW_INSUFFICIENT_BALANCE_REPLY.English;
   }
   if (result.kind === "reverted") {
-    return `Transaction reverted${result.reason ? `: ${result.reason}` : ""}.`;
+    return TRANSACTION_REVERTED_WITH_REASON_REPLY.English(result.reason ?? "");
   }
-  return `RPC unavailable${result.reason ? `: ${result.reason}` : ""} — try again in a moment.`;
+  return RPC_UNAVAILABLE_WITH_REASON_REPLY.English(result.reason ?? "");
 };
 
 /**
@@ -362,9 +366,7 @@ const verifyPinForWithdraw = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        withAntiPhishing(
-          `Too many wrong PIN attempts — locked for ~${mins} min. Withdraw cancelled.`,
-        ),
+        withAntiPhishing(PIN_LOCKED_REPLY.English(mins, "Withdraw")),
       );
       return false;
     }
@@ -374,7 +376,7 @@ const verifyPinForWithdraw = async (
     }
     const retry = await ctx.reply(
       withAntiPhishing(
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
+        PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining),
       ),
       { reply_markup: backHomeMarkup() },
     );

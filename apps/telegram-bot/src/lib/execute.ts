@@ -19,8 +19,20 @@ import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import {
   CANCEL_BUTTON,
   CONFIRM_BUTTON,
+  CONFIRM_EXPIRED_REPLY,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
+  TRADE_CONFIRMED_HEADER_HTML,
+  TRADE_RECEIVED_TOKENS,
+  TRADE_RECEIVED_USDC,
+  TRADE_STATUS_BUYING,
+  TRADE_STATUS_SELLING,
+  TRADE_TX_LABEL,
+  TRADE_VERB_BUY,
+  TRADE_VERB_SELL,
   TRANSACTION_FAILED_REPLY,
+  TX_PENDING_BODY,
+  TX_PENDING_HEADER_HTML,
+  TX_SENDING_HEADER_HTML,
 } from "./i18n.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
@@ -316,7 +328,7 @@ export const renderConfirmReply = (
   options: { isPollingActive?: boolean } = {},
 ): string => {
   if (outcome.kind === "expired") {
-    return "⏱ That trade confirmation has expired. Re-run /buy or /sell to try again.";
+    return CONFIRM_EXPIRED_REPLY.English;
   }
   if (outcome.kind === "no_wallet") {
     return TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English;
@@ -327,7 +339,8 @@ export const renderConfirmReply = (
     // `ok` to true after waitForTransactionReceipt returns status=success,
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
-    const verb = side === "buy" ? "Buy" : "Sell";
+    const verb =
+      side === "buy" ? TRADE_VERB_BUY.English : TRADE_VERB_SELL.English;
     // Ticker is user-controlled on launch and the address comes off the
     // session intent — escape both before interpolating into the
     // parse_mode="HTML" payload so a stray `<` cannot break Telegram
@@ -345,16 +358,21 @@ export const renderConfirmReply = (
     // pre-trade estimate as "received" would mislead.
     let receivedLine = "";
     if (side === "buy" && result.actualTokensOut !== undefined) {
-      receivedLine = `Received: ${formatToken18(result.actualTokensOut)} ${tickerSafe}\n`;
+      receivedLine = TRADE_RECEIVED_TOKENS.English(
+        formatToken18(result.actualTokensOut),
+        tickerSafe,
+      );
     } else if (side === "sell" && result.actualUsdcOut !== undefined) {
-      receivedLine = `Received: $${formatUsdc(result.actualUsdcOut.toString())} USDC\n`;
+      receivedLine = TRADE_RECEIVED_USDC.English(
+        formatUsdc(result.actualUsdcOut.toString()),
+      );
     }
     return (
-      `✅ <b>${verb} confirmed for ${tickerSafe}</b>\n\n` +
+      `${TRADE_CONFIRMED_HEADER_HTML.English(verb, tickerSafe)}\n\n` +
       `${receivedLine}` +
       `<code>${tokenSafe}</code>\n` +
       `\n` +
-      `Tx:\n` +
+      `${TRADE_TX_LABEL.English}\n` +
       `<a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
@@ -456,17 +474,17 @@ export const describeTradeForStatus = (
 ): string => {
   const ticker_ = escapeHtml(ticker);
   if (side === "buy") {
-    return `Buying ${formatUsdc6(amountRaw)} USDC of ${ticker_}`;
+    return TRADE_STATUS_BUYING.English(formatUsdc6(amountRaw), ticker_);
   }
-  return `Selling ${formatToken18(amountRaw)} ${ticker_}`;
+  return TRADE_STATUS_SELLING.English(formatToken18(amountRaw), ticker_);
 };
 
 export const renderTxSendingText = (description: string): string =>
-  `⏳ <b>Tx sending</b>\n${description}`;
+  `${TX_SENDING_HEADER_HTML.English}\n${description}`;
 
 export const renderTxPendingText = (description: string): string =>
-  `⏳ <b>Tx pending</b>\n${description}\n\n` +
-  `Still waiting for the network to confirm — this may take another moment.`;
+  `${TX_PENDING_HEADER_HTML.English}\n${description}\n\n` +
+  TX_PENDING_BODY.English;
 
 interface TxStatusEditTarget {
   api: AppContext["api"];

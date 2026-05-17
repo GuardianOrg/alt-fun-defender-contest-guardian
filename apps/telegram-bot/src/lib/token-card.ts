@@ -1,5 +1,15 @@
 import type { TokenInfo } from "./api.js";
 import {
+  TOKEN_CARD_BALANCE_UNAVAILABLE,
+  TOKEN_CARD_CHANGE_24H_HTML,
+  TOKEN_CARD_CURVE_FILLED_HTML,
+  TOKEN_CARD_MARKET_CAP_HTML,
+  TOKEN_CARD_PRICE_HTML,
+  TOKEN_CARD_VIEW_ON_ALT_FUN_HTML,
+  TOKEN_CARD_VIEW_ON_EXPLORER_HTML,
+  TOKEN_CARD_VOLUME_24H_HTML,
+  TOKEN_CARD_YOUR_BALANCE_HTML,
+  TOKEN_CARD_YOUR_USDC_BALANCE_HTML,
   TOKEN_LIFECYCLE_BONDING_CURVE,
   TOKEN_LIFECYCLE_GRADUATED,
   TOKEN_LIFECYCLE_GRADUATING,
@@ -140,20 +150,20 @@ export const renderBuyTokenCardText = (
     renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
-    `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
-    `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
-    `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
-    `📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`,
+    TOKEN_CARD_MARKET_CAP_HTML.English(formatMcap(token.mcapUsd)),
+    TOKEN_CARD_PRICE_HTML.English(formatUsdPrice(token.priceUsd)),
+    TOKEN_CARD_CHANGE_24H_HTML.English(formatPct(token.change24h)),
+    TOKEN_CARD_VOLUME_24H_HTML.English(formatVolume(token.volume24hUsd)),
   ];
   if (token.status !== "graduated") {
-    lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
+    lines.push(TOKEN_CARD_CURVE_FILLED_HTML.English(curvePct));
   }
   lines.push(
     "",
-    `💼 <b>Your USDC Balance:</b> ${formatUsdc6(usdcBalance)}`,
+    TOKEN_CARD_YOUR_USDC_BALANCE_HTML.English(formatUsdc6(usdcBalance)),
     "",
-    `🔍 <a href="${explorerUrl}">View on Explorer</a>`,
-    `🚀 <a href="${altFunUrl}">View on Alt Fun</a>`,
+    TOKEN_CARD_VIEW_ON_EXPLORER_HTML.English(explorerUrl),
+    TOKEN_CARD_VIEW_ON_ALT_FUN_HTML.English(altFunUrl),
   );
   return lines.join("\n");
 };
@@ -171,7 +181,7 @@ export const renderSellTokenCardText = (
 
   let holdingText: string;
   if (tokenBalance === null) {
-    holdingText = "— (balance unavailable)";
+    holdingText = TOKEN_CARD_BALANCE_UNAVAILABLE.English;
   } else if (tokenBalance > 0n) {
     const formattedBal = formatToken18(tokenBalance);
     let usdEquiv = "";
@@ -188,17 +198,17 @@ export const renderSellTokenCardText = (
     renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
-    `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
-    `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
-    `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
-    `📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`,
+    TOKEN_CARD_MARKET_CAP_HTML.English(formatMcap(token.mcapUsd)),
+    TOKEN_CARD_PRICE_HTML.English(formatUsdPrice(token.priceUsd)),
+    TOKEN_CARD_CHANGE_24H_HTML.English(formatPct(token.change24h)),
+    TOKEN_CARD_VOLUME_24H_HTML.English(formatVolume(token.volume24hUsd)),
   ];
   lines.push(
     "",
-    `💼 <b>Your Balance:</b> ${holdingText}`,
+    TOKEN_CARD_YOUR_BALANCE_HTML.English(holdingText),
     "",
-    `🔍 <a href="${explorerUrl}">View on Explorer</a>`,
-    `🚀 <a href="${altFunUrl}">View on Alt Fun</a>`,
+    TOKEN_CARD_VIEW_ON_EXPLORER_HTML.English(explorerUrl),
+    TOKEN_CARD_VIEW_ON_ALT_FUN_HTML.English(altFunUrl),
   );
   return lines.join("\n");
 };
@@ -217,18 +227,18 @@ export const renderTrackTokenCardText = (token: TokenInfo): string => {
     renderHeader(token),
     `<i>${statusLabel(token.status)}</i>`,
     "",
-    `💰 <b>Market Cap:</b> ${formatMcap(token.mcapUsd)}`,
-    `💵 <b>Price:</b> ${formatUsdPrice(token.priceUsd)}`,
-    `📊 <b>24h Change:</b> ${formatPct(token.change24h)}`,
-    `📈 <b>24h Volume:</b> ${formatVolume(token.volume24hUsd)}`,
+    TOKEN_CARD_MARKET_CAP_HTML.English(formatMcap(token.mcapUsd)),
+    TOKEN_CARD_PRICE_HTML.English(formatUsdPrice(token.priceUsd)),
+    TOKEN_CARD_CHANGE_24H_HTML.English(formatPct(token.change24h)),
+    TOKEN_CARD_VOLUME_24H_HTML.English(formatVolume(token.volume24hUsd)),
   ];
   if (token.status !== "graduated") {
-    lines.push(`🔥 <b>Curve Filled:</b> ${curvePct}`);
+    lines.push(TOKEN_CARD_CURVE_FILLED_HTML.English(curvePct));
   }
   lines.push(
     "",
-    `🔍 <a href="${explorerUrl}">View on Explorer</a>`,
-    `🚀 <a href="${altFunUrl}">View on Alt Fun</a>`,
+    TOKEN_CARD_VIEW_ON_EXPLORER_HTML.English(explorerUrl),
+    TOKEN_CARD_VIEW_ON_ALT_FUN_HTML.English(altFunUrl),
   );
   return lines.join("\n");
 };

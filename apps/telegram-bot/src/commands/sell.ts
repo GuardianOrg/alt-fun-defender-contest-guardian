@@ -37,6 +37,12 @@ import {
   SELL_BUFFER_BELOW_MIN_HTML,
   SELL_CUSTOM_PERCENT_INVALID_REPLY,
   SELL_CUSTOM_PERCENT_PROMPT,
+  SELL_LT_BUFFER_TOO_LOW_REPLY,
+  SELL_NO_BALANCE_REPLY,
+  SELL_PERCENT_ROUNDS_TO_ZERO_REPLY,
+  SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY,
+  SELL_PROCEEDS_BELOW_MIN_REPLY,
+  SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY,
   SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TOAST_REFRESHED,
@@ -603,14 +609,14 @@ const runPercentSell = async (
   }
 
   if (tokenBalance === 0n) {
-    await msgCtx.reply(`You hold no ${token.ticker}.`);
+    await msgCtx.reply(SELL_NO_BALANCE_REPLY.English(token.ticker));
     return { stagedFinal: false };
   }
 
   const tokenRaw = tokensForPercent(tokenBalance, percent);
   if (tokenRaw === 0n) {
     await msgCtx.reply(
-      `${percent}% of your ${token.ticker} balance rounds to zero — try a larger percent.`,
+      SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY.English(percent, token.ticker),
     );
     return { stagedFinal: false };
   }
@@ -631,7 +637,10 @@ const runPercentSell = async (
   if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
     await replyWithNav(
       msgCtx,
-      `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum. Increase the percent or tap Home to exit.`,
+      SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY.English(
+        quote.proceedsUsd,
+        MIN_USDC_SELL_AMOUNT,
+      ),
     );
     return { stagedFinal: false };
   }
@@ -859,7 +868,7 @@ const handlePercentSell = async (
 
   if (tokenBalance === 0n) {
     await ctx.answerCallbackQuery({
-      text: `You hold no ${token.ticker}.`,
+      text: SELL_NO_BALANCE_REPLY.English(token.ticker),
       show_alert: true,
     });
     return;
@@ -868,7 +877,7 @@ const handlePercentSell = async (
   const tokenRaw = tokensForPercent(tokenBalance, percent);
   if (tokenRaw === 0n) {
     await ctx.answerCallbackQuery({
-      text: `${percent}% of your ${token.ticker} balance rounds to zero.`,
+      text: SELL_PERCENT_ROUNDS_TO_ZERO_REPLY.English(percent, token.ticker),
       show_alert: true,
     });
     return;
@@ -890,7 +899,10 @@ const handlePercentSell = async (
   }
   if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
     await ctx.answerCallbackQuery({
-      text: `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum.`,
+      text: SELL_PROCEEDS_BELOW_MIN_REPLY.English(
+        quote.proceedsUsd,
+        MIN_USDC_SELL_AMOUNT,
+      ),
       show_alert: true,
     });
     return;
@@ -904,7 +916,10 @@ const handlePercentSell = async (
   );
   if (buffer.kind === "below_min") {
     await ctx.answerCallbackQuery({
-      text: `LT buffer too low — max sell ≈$${buffer.maxProceedsUsd.toFixed(2)} < $${MIN_USDC_SELL_AMOUNT} min. Retry in ~10s.`,
+      text: SELL_LT_BUFFER_TOO_LOW_REPLY.English(
+        buffer.maxProceedsUsd,
+        MIN_USDC_SELL_AMOUNT,
+      ),
       show_alert: true,
     });
     return;

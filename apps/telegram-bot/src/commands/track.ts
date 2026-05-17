@@ -36,6 +36,9 @@ import {
   SELL_ARROW_BUTTON,
   TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
   TOKEN_LOOKUP_PROMPT_HTML,
+  TRACK_NO_TRADES_YET_HTML,
+  TRACK_RECENT_TRADES_HEADER_HTML,
+  TRACK_RELATIVE_TIME,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -139,11 +142,12 @@ const renderTradeRow = (trade: Trade, nowSec: number): string => {
 
 /** Relative-time formatter for trade rows. Caps at days for older entries. */
 const formatRelative = (deltaSec: number): string => {
-  if (!Number.isFinite(deltaSec) || deltaSec < 0) return "just now";
-  if (deltaSec < 60) return `${Math.floor(deltaSec)}s ago`;
-  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
-  if (deltaSec < 86_400) return `${Math.floor(deltaSec / 3600)}h ago`;
-  return `${Math.floor(deltaSec / 86_400)}d ago`;
+  const t = TRACK_RELATIVE_TIME.English;
+  if (!Number.isFinite(deltaSec) || deltaSec < 0) return t.justNow;
+  if (deltaSec < 60) return t.seconds(Math.floor(deltaSec));
+  if (deltaSec < 3600) return t.minutes(Math.floor(deltaSec / 60));
+  if (deltaSec < 86_400) return t.hours(Math.floor(deltaSec / 3600));
+  return t.days(Math.floor(deltaSec / 86_400));
 };
 
 /**
@@ -162,12 +166,12 @@ export const renderTrackBody = (
   const card = renderTrackTokenCardText(token);
   const capped = trades.slice(0, Math.max(0, maxTrades));
   if (capped.length === 0) {
-    return `${card}\n\n<b>Recent trades</b>\n<i>No trades yet.</i>`;
+    return `${card}\n\n${TRACK_RECENT_TRADES_HEADER_HTML.English}\n${TRACK_NO_TRADES_YET_HTML.English}`;
   }
   const rows = capped
     .map((t) => renderTradeRow(t, nowSec))
     .join("\n");
-  return `${card}\n\n<b>Recent trades</b>\n${rows}`;
+  return `${card}\n\n${TRACK_RECENT_TRADES_HEADER_HTML.English}\n${rows}`;
 };
 
 /**
