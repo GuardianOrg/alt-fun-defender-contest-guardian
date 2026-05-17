@@ -246,7 +246,7 @@ describe("/settings command", () => {
         c.url.includes("/answerCallbackQuery"),
       );
       expect(ack!.body.text).toContain("Fast");
-      expect(ack!.body.text).toContain("0.15 gwei");
+      expect(ack!.body.text).not.toContain("gwei");
       const edit = calls.find((c) => c.url.includes("/editMessageText"));
       const labels = (
         edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
@@ -256,7 +256,8 @@ describe("/settings command", () => {
       expect(labels).toContain("• Fast •");
       expect(labels).toContain("Lightning");
       expect(labels).toContain("Eco");
-      expect(edit!.body.text).toContain("Execution speed: 0.15 gwei");
+      expect(edit!.body.text).toContain("Execution speed: Fast");
+      expect(edit!.body.text).not.toContain("gwei");
     });
 
     it("tapping Eco persists 0.1 gwei", async () => {

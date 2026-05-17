@@ -99,13 +99,16 @@ export const resolveActiveTipGwei = (active: number | undefined): number => {
   return SPEED_PRESET_GWEI[0]!;
 };
 
-/** Compact label for a gwei tip — strips trailing zeros to keep status text tight. */
-export const formatTipLabel = (gwei: number): string => {
-  if (Number.isInteger(gwei)) return `${gwei} gwei`;
-  // 0.5 → "0.5", 0.15 → "0.15", 0.1 → "0.1". Strip trailing zeros and
-  // a dangling dot.
-  const s = gwei.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
-  return `${s} gwei`;
+/**
+ * Map a gwei tip to its preset label (Lightning / Fast / Eco). Used in
+ * the `/settings` status line and the speed-preset ack toast so the
+ * description mirrors the button the user tapped instead of leaking the
+ * raw gwei value. Falls back to the slot-0 label for any value that
+ * isn't a known preset — mirrors `resolveActiveTipGwei`'s clamp.
+ */
+export const formatTipPresetLabel = (gwei: number): string => {
+  const preset = SPEED_PRESETS.find((p) => p.gwei === gwei);
+  return preset?.label ?? SPEED_PRESETS[0]!.label;
 };
 
 /** `set:slip<bps>` — encode a preset bps value into a compact callback string. */
