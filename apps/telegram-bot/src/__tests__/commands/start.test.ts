@@ -1201,13 +1201,37 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
     expect(sent[0]!.text).not.toContain("Welcome to");
   });
 
-  it("track_<addr> deeplink replies with the track card (token + trades + Buy/Sell) and skips the welcome screen", async () => {
-    const h = harnessWithRpc();
-    // The track route also fetches /trades and /chart — extend the
-    // shared action-fetch mock to cover both with empty payloads so
-    // the chart renderer short-circuits without resvg-wasm.
-    withTelegramOk(fetchSpy, async (input, init) => {
+  /**
+   * Telegram mock that hands back a real Message shape (with a
+   * unique numeric `message_id`) for every `sendMessage` so the start
+   * handler can capture the loading-placeholder id and edit it in
+   * place. Plain `okResponse(true)` would force `message_id` to
+   * `undefined`, skip the edit branch, and reduce the test to the
+   * fallback path that never exercised the placeholder logic.
+   */
+  const trackMockFetch = (opts: { nextMessageId?: { id: number } } = {}): void => {
+    const ids = opts.nextMessageId ?? { id: 7000 };
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/sendMessage")) {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              result: {
+                message_id: ids.id++,
+                date: 0,
+                chat: { id: 42, type: "private" },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({ ok: true, result: true }),
+          { status: 200 },
+        );
+      }
       if (url === RPC_URL) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
@@ -1267,22 +1291,162 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
+  };
+
+  it("track_<addr> deeplink ships a Loading placeholder, then edits it in place with the token detail card", async () => {
+    const h = harnessWithRpc();
+    trackMockFetch();
     await h.run(startUpdate(7, "private", { param: `track_${TOKEN}` }));
-    const sent = sentBodies();
-    expect(sent).toHaveLength(1);
-    const text = sent[0]!.text;
-    expect(text).toContain("Test Token");
-    expect(text).toContain("Recent trades");
-    // Welcome message would carry the address as a tap-to-copy block.
-    expect(text).not.toContain("Welcome to");
-    const markup = sent[0]!.reply_markup as
+
+    const calls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .filter(
+        (call) =>
+          typeof (call[1] as RequestInit | undefined)?.body === "string",
+      )
+      .map((call) => ({
+        url: String(call[0]),
+        body: JSON.parse((call[1] as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+
+    // Exactly one Telegram `sendMessage` lands — the Loading
+    // placeholder. The final track card MUST replace it in place via
+    // `editMessageText`, not stack as a second sendMessage further down
+    // the chat.
+    const sends = calls.filter((c) => c.url.includes("/sendMessage"));
+    expect(sends).toHaveLength(1);
+    expect(String(sends[0]!.body.text)).toContain("Loading");
+    expect(String(sends[0]!.body.text)).toContain(
+      `${TOKEN.slice(0, 6)}…${TOKEN.slice(-4)}`,
+    );
+
+    const cardEdit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        typeof c.body.text === "string" &&
+        String(c.body.text).includes("Test Token"),
+    );
+    expect(cardEdit).toBeDefined();
+    const editText = String(cardEdit!.body.text);
+    expect(editText).toContain("Recent trades");
+    // The welcome copy never lands at all — the placeholder swallows
+    // the user's `/start` slot end-to-end.
+    expect(editText).not.toContain("Welcome to");
+    const markup = cardEdit!.body.reply_markup as
       | { inline_keyboard: { text: string; url?: string }[][] }
       | undefined;
-    const labels =
-      markup?.inline_keyboard.flat().map((b) => b.text) ?? [];
+    const labels = markup?.inline_keyboard.flat().map((b) => b.text) ?? [];
     expect(labels.some((t) => t.includes("Buy"))).toBe(true);
     expect(labels.some((t) => t.includes("Sell"))).toBe(true);
-    expect(labels).not.toContain("Open on Alt Fun");
+
+    // Ordering: placeholder send must hit Telegram strictly before the
+    // edit it points at. A reversed order would mean the edit fired
+    // against a stale id and the placeholder lingered until the next
+    // user action.
+    const sendIdx = calls.findIndex((c) => c === sends[0]);
+    const editIdx = calls.findIndex((c) => c === cardEdit);
+    expect(sendIdx).toBeLessThan(editIdx);
+  });
+
+  it("track_<addr> deeplink sweeps the synthetic /start user bubble", async () => {
+    const h = harnessWithRpc();
+    trackMockFetch();
+    await h.run(startUpdate(7, "private", { param: `track_${TOKEN}` }));
+    const calls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .filter(
+        (call) =>
+          typeof (call[1] as RequestInit | undefined)?.body === "string",
+      )
+      .map((call) => ({
+        url: String(call[0]),
+        body: JSON.parse((call[1] as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+    const synthSweep = calls.find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id === 1,
+    );
+    expect(synthSweep).toBeDefined();
+    expect((synthSweep!.body as { chat_id?: number }).chat_id).toBe(42);
+  });
+
+  it("track_<addr> deeplink also sweeps the prior /positions card stored in session", async () => {
+    const POSITIONS_MESSAGE_ID = 5555;
+    const h = harnessWithRpc();
+    // Seed the session as if the user had just run /positions in this
+    // chat — the deeplink handler must read this pointer and tear the
+    // stale positions card down once the token detail lands so the user
+    // is not scrolled past a list above the freshly-rendered card.
+    await h.kv.put(
+      "session:7",
+      JSON.stringify({
+        slippageBps: 1000,
+        defaultBuyUsdc: 20,
+        degenMode: true,
+        lastPositionsMessageByChat: { "42": POSITIONS_MESSAGE_ID },
+      }),
+    );
+    trackMockFetch();
+    await h.run(startUpdate(7, "private", { param: `track_${TOKEN}` }));
+    const calls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .filter(
+        (call) =>
+          typeof (call[1] as RequestInit | undefined)?.body === "string",
+      )
+      .map((call) => ({
+        url: String(call[0]),
+        body: JSON.parse((call[1] as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+    const positionsSweep = calls.find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id ===
+          POSITIONS_MESSAGE_ID,
+    );
+    expect(positionsSweep).toBeDefined();
+    expect((positionsSweep!.body as { chat_id?: number }).chat_id).toBe(42);
+
+    // The session pointer is cleared after the sweep fires so a second
+    // deeplink in this chat does not attempt to delete an already-gone
+    // message slot. Reading the session back exercises the same path
+    // the next handler invocation would take.
+    const raw = (await h.kv.get("session:7")) as string | null;
+    expect(raw).not.toBeNull();
+    const session = JSON.parse(raw!) as {
+      lastPositionsMessageByChat?: Record<string, number>;
+    };
+    expect(session.lastPositionsMessageByChat?.["42"]).toBeUndefined();
+  });
+
+  it("track_<addr> deeplink with no prior /positions in session does NOT fire a positions-card sweep", async () => {
+    const h = harnessWithRpc();
+    trackMockFetch();
+    await h.run(startUpdate(7, "private", { param: `track_${TOKEN}` }));
+    const calls = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
+      .filter(
+        (call) =>
+          typeof (call[1] as RequestInit | undefined)?.body === "string",
+      )
+      .map((call) => ({
+        url: String(call[0]),
+        body: JSON.parse((call[1] as RequestInit).body as string) as Record<
+          string,
+          unknown
+        >,
+      }));
+    // Only the synthetic /start (message_id 1) is deleted; no second
+    // `deleteMessage` fires against an unknown positions-card slot.
+    const deletes = calls.filter((c) => c.url.includes("/deleteMessage"));
+    expect(deletes).toHaveLength(1);
+    expect((deletes[0]!.body as { message_id?: number }).message_id).toBe(1);
   });
 
   it("falls back to the welcome screen for a malformed action payload", async () => {

@@ -34,6 +34,24 @@ import { logger } from "../lib/logger.js";
 import { editToSubmenu, replyWithNav } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
 
+/**
+ * Record the (chatId, messageId) of the just-rendered positions card so
+ * the track-action deeplink fired by tapping a ticker on an open
+ * position can sweep it once the token detail card lands. Mirrors the
+ * `lastBuyCardMessageByChat` shape — keyed by stringified chatId for
+ * JSON round-trip through the session store.
+ */
+const rememberPositionsMessage = (
+  ctx: AppContext,
+  messageId: number | undefined,
+): void => {
+  const chatId = ctx.chat?.id;
+  if (chatId === undefined || typeof messageId !== "number") return;
+  const byChat = ctx.session.lastPositionsMessageByChat ?? {};
+  byChat[String(chatId)] = messageId;
+  ctx.session.lastPositionsMessageByChat = byChat;
+};
+
 const USAGE = POSITIONS_USAGE_REPLY.English;
 const OUTAGE = OUTAGE_REPLY.English;
 const INVALID_ADDRESS = POSITIONS_INVALID_ADDRESS_REPLY.English;
@@ -124,10 +142,11 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await replyWithNav(ctx, wrap(ctx, OUTAGE));
       return;
     }
-    await ctx.reply(wrap(ctx, view.text), {
+    const sent = await ctx.reply(wrap(ctx, view.text), {
       ...HTML_REPLY,
       reply_markup: view.reply_markup,
     });
+    rememberPositionsMessage(ctx, sent.message_id);
   });
 
   /**
@@ -365,12 +384,13 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     try {
-      await editToSubmenu(ctx, {
+      const result = await editToSubmenu(ctx, {
         text: wrap(ctx, view.text),
         parseMode: "HTML",
         inlineKeyboard: view.reply_markup.inline_keyboard,
         linkPreviewDisabled: true,
       });
+      rememberPositionsMessage(ctx, result.editedMessageId);
     } catch (err) {
       await ctx.answerCallbackQuery();
       throw err;
