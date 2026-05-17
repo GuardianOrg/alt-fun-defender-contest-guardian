@@ -62,10 +62,14 @@ describe("i18n module", () => {
     expect(body).toContain("<code>wallet</code>, <code>trading</code>");
   });
 
-  it("renders the buy card loading text with a short address", () => {
-    expect(i18n.BUY_CARD_LOADING_HTML.English("0x1234…abcd")).toBe(
-      "⏳ Loading <code>0x1234…abcd</code>…",
-    );
+  it("renders the buy card loading text with the full address so tap-to-copy yields the full hex", () => {
+    const full = "0x1234567890abcdef1234567890abcdef12345678";
+    const english = i18n.BUY_CARD_LOADING_HTML.English(full);
+    expect(english).toBe(`⏳ Loading <code>${full}</code>…`);
+    expect(english).not.toContain("…</code>");
+    const zh = i18n.BUY_CARD_LOADING_HTML.SimplifiedChinese(full);
+    expect(zh).toBe(`⏳ 正在加载 <code>${full}</code>…`);
+    expect(zh).not.toContain("…</code>");
   });
 
   it("renders the sell buffer banner with the formatted max and minimum", () => {

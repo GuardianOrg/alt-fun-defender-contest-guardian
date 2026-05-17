@@ -482,12 +482,11 @@ describe("Address → buy menu intercept (issue #821)", () => {
     const calls = capture(fetchSpy);
     const loading = findLoadingSend(calls);
     expect(loading).toBeDefined();
-    // The shortened address is part of the placeholder copy so the user
-    // can verify the bot picked up the address they pasted, not a
-    // neighbouring token's address from a multi-line paste.
-    expect(String(loading!.body.text)).toContain(
-      `${TOKEN_ADDR.slice(0, 6)}…${TOKEN_ADDR.slice(-4)}`,
-    );
+    // The full address is wrapped in `<code>` so Telegram's tap-to-copy
+    // gesture copies the full hex string, not a `0x1234…abcd` shortened
+    // form. Shortening here would leak `…` into the user's clipboard.
+    expect(String(loading!.body.text)).toContain(`<code>${TOKEN_ADDR}</code>`);
+    expect(String(loading!.body.text)).not.toContain("…</code>");
 
     // The card must arrive via `editMessageText` against the same
     // message that carried the placeholder — that's the whole point of
