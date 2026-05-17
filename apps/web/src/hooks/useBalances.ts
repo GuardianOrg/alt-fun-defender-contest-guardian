@@ -86,10 +86,13 @@ export function buildHeldTokens(
 
 /**
  * Read the wallet's positions from the indexer-backed
- * `/api/v1/balances/:wallet` route. Wallet-scoped via Ponder
- * (`tokenBalances where wallet=…, balance_gt: 0`), joins token metadata
- * server-side, and includes admin-hidden tokens for holders so they can
- * sell out (issue #712). One HTTP call regardless of catalogue size.
+ * `/api/v1/balances-v2/:wallet` route — same response shape as the legacy
+ * `/balances` GraphQL path, but reads `ponder_views.token_balance` directly
+ * over Postgres (one wallet-scoped `SELECT … WHERE wallet = ? AND balance > 0`)
+ * instead of paginating the Ponder GraphQL `tokenBalances` connection.
+ * Joins token metadata server-side and includes admin-hidden tokens for
+ * holders so they can sell out (issue #712). One HTTP call regardless of
+ * catalogue size.
  */
 async function fetchRawBalancesFromApi(
   walletAddress: string,

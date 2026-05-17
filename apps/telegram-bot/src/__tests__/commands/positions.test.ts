@@ -91,7 +91,7 @@ describe("/positions", () => {
     const activeAddress = await seedActiveWallet(h);
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -136,7 +136,7 @@ describe("/positions", () => {
   it("renders an empty-state message when the wallet holds no positions", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -157,7 +157,7 @@ describe("/positions", () => {
   it("renders a single open position with deeplinked ticker, balance, cost, value, PnL, and [Buy] / [Sell] callback row", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
             data: {
@@ -228,7 +228,7 @@ describe("/positions", () => {
   it("renders both Open and Realised sections when both have rows", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
             data: {
@@ -282,7 +282,7 @@ describe("/positions", () => {
     }));
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open, realised: [] } }),
           { status: 200 },
@@ -360,7 +360,7 @@ describe("/positions", () => {
   it("makes exactly one upstream request and forwards the bot X-API-Key", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -377,7 +377,7 @@ describe("/positions", () => {
     expect(apiCalls).toHaveLength(1);
     const headers = new Headers((apiCalls[0]![1] as RequestInit).headers);
     expect(headers.get("x-api-key")).toBe("test-api-key");
-    expect(String(apiCalls[0]![0])).toContain("/api/v1/bot/positions/");
+    expect(String(apiCalls[0]![0])).toContain("/api/v1/bot/positions-v2/");
   });
 });
 

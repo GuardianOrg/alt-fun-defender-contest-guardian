@@ -28,7 +28,7 @@ const mockApi = (
   }));
   fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes("/api/v1/bot/positions/")) {
+    if (url.includes("/api/v1/bot/positions-v2/")) {
       return new Response(
         JSON.stringify({
           data: { open: openItems, realised: realisedItems },
@@ -293,7 +293,7 @@ describe("pp callback (positions pagination)", () => {
   it("pr callback refreshes positions in place and toasts 'Refreshed' (proceeds + realised reflect latest indexer state)", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
             data: {
@@ -366,7 +366,7 @@ describe("pp callback (positions pagination)", () => {
   it("ACKs the callback (answerCallbackQuery) even when editMessageText fails (deleted msg / not modified)", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({
             data: {

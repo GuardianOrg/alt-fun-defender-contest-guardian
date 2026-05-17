@@ -259,7 +259,7 @@ describe("/referral command", () => {
     // `.toLowerCase()` so a mixed-case URL would write/read different
     // entries than a downstream lookup.
     expect(String(apiCall![0])).toBe(
-      `${API_BASE_URL}/api/v1/bot/referrals/${wallet.address.toLowerCase()}`,
+      `${API_BASE_URL}/api/v1/bot/referrals-v2/${wallet.address.toLowerCase()}`,
     );
   });
 
@@ -463,7 +463,7 @@ describe("/referral command", () => {
     withTelegramOk(fetchSpy, async (input) => {
       const url = String(input);
       urls.push(url);
-      const match = /\/api\/v1\/bot\/referrals\/(0x[0-9a-fA-F]{40})$/.exec(
+      const match = /\/api\/v1\/bot\/referrals-v2\/(0x[0-9a-fA-F]{40})$/.exec(
         url,
       );
       if (!match) {
@@ -515,11 +515,11 @@ describe("/referral command", () => {
     await h.run(referralUpdate(7));
 
     const referralCalls = urls.filter((u) =>
-      u.startsWith(`${API_BASE_URL}/api/v1/bot/referrals/`),
+      u.startsWith(`${API_BASE_URL}/api/v1/bot/referrals-v2/`),
     );
     expect(referralCalls).toHaveLength(1);
     expect(referralCalls[0]).toBe(
-      `${API_BASE_URL}/api/v1/bot/referrals/${walletA.address.toLowerCase()}`,
+      `${API_BASE_URL}/api/v1/bot/referrals-v2/${walletA.address.toLowerCase()}`,
     );
     expect(referralCalls[0]).not.toContain(walletB.address.toLowerCase());
   });

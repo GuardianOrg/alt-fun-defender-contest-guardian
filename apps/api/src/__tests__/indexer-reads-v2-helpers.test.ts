@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { desc } from "drizzle-orm";
+import { asc, desc } from "drizzle-orm";
 
 import {
   indexerFeeAccrual,
@@ -7,6 +7,7 @@ import {
   indexerReferral,
   indexerRouterTrade,
   indexerToken,
+  indexerTokenBalance,
 } from "../db/indexer-schema.js";
 
 // Capture every Drizzle builder method call across the helpers exercised
@@ -111,10 +112,12 @@ describe("indexer-reads v2 helpers — SQL shape", () => {
     expect(idOrder).toEqual(desc(indexerReferral.id));
   });
 
-  it("fetchTokenBalancesByWallet has no orderBy or limit (returns the whole holdings set)", async () => {
+  it("fetchTokenBalancesByWallet orders by tokenAddress asc (matches Ponder GraphQL's composite-id default — keeps the v2 cut-over byte-equal with v1) and applies no limit", async () => {
     const db = createDb("postgres://test");
     await fetchTokenBalancesByWallet(db, "0xAAA");
-    expect(orderByCalls).toHaveLength(0);
+    expect(orderByCalls).toHaveLength(1);
+    const [order] = orderByCalls[0] as [unknown];
+    expect(order).toEqual(asc(indexerTokenBalance.tokenAddress));
     expect(limitCalls).toHaveLength(0);
   });
 

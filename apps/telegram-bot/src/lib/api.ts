@@ -264,7 +264,7 @@ export const fetchBotPositions = async (
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   wallet: string,
 ): Promise<ApiResult<BotPositionsResponse>> => {
-  const res = await getJson<unknown>(env, `/api/v1/bot/positions/${wallet}`);
+  const res = await getJson<unknown>(env, `/api/v1/bot/positions-v2/${wallet}`);
   if (!res.ok) return res;
   return isBotPositionsResponse(res.data)
     ? { ok: true, data: res.data }
@@ -287,7 +287,7 @@ export const fetchReferralStats = async (
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   wallet: string,
 ): Promise<ApiResult<ReferralStats>> => {
-  const res = await getJson<unknown>(env, `/api/v1/referrals/${wallet}`);
+  const res = await getJson<unknown>(env, `/api/v1/referrals-v2/${wallet}`);
   if (!res.ok) return res;
   return isReferralStats(res.data)
     ? {
@@ -324,7 +324,7 @@ export const fetchBotReferralStats = async (
   env: Pick<Env, "API_BASE_URL" | "API_KEY">,
   wallet: string,
 ): Promise<ApiResult<BotReferralStats>> => {
-  const res = await getJson<unknown>(env, `/api/v1/bot/referrals/${wallet}`);
+  const res = await getJson<unknown>(env, `/api/v1/bot/referrals-v2/${wallet}`);
   if (!res.ok) return res;
   return isBotReferralStats(res.data)
     ? { ok: true, data: res.data }

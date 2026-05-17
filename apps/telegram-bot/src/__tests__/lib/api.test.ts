@@ -107,7 +107,7 @@ describe("fetchBotPositions", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("x-api-key")).toBe("test-api-key");
     expect(fetchSpy.mock.calls[0]![0]).toBe(
-      "https://api.test.local/api/v1/bot/positions/0xabc",
+      "https://api.test.local/api/v1/bot/positions-v2/0xabc",
     );
   });
 
@@ -249,7 +249,7 @@ describe("fetchBotPositions", () => {
     );
     const res = await fetchReferralStats(env, "0xabc");
     expect(fetchSpy.mock.calls[0]![0]).toBe(
-      "https://api.test.local/api/v1/referrals/0xabc",
+      "https://api.test.local/api/v1/referrals-v2/0xabc",
     );
     expect(res).toEqual({
       ok: true,
