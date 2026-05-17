@@ -289,6 +289,13 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
           actionParam.token,
         );
       }
+      // Sweep the synthetic `/start <action>_<addr>` user bubble that
+      // Telegram injects when an action deeplink is tapped — the user
+      // never typed it, and leaving it above the token card just clutters
+      // the chat. Best-effort: incoming-message deletion in private DMs
+      // is allowed within 48h, and we'd rather keep the card visible than
+      // surface a transient deleteMessage failure to the user.
+      void ctx.deleteMessage().catch(() => {});
       return;
     }
 
