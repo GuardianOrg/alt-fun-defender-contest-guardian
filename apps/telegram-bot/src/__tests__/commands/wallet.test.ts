@@ -375,7 +375,8 @@ describe("/wallet command", () => {
       );
       expect(prompt?.body.text).toMatch(/Send your 6-digit PIN/);
 
-      // Send correct PIN → bot decrypts and reveals.
+      // Send correct PIN → bot decrypts and edits the prompt bubble
+      // into the reveal in place.
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(textUpdate("123456", 3));
@@ -385,10 +386,13 @@ describe("/wallet command", () => {
         c.url.includes("/deleteMessage"),
       );
       expect(deletes.length).toBeGreaterThanOrEqual(1);
-      // Reveal carries address + private key marker.
+      // Reveal lands as an in-place edit of the /wallet panel bubble
+      // (the same message that hosted the "Send your 6-digit PIN"
+      // prompt) — not as a fresh /sendMessage. Carries address +
+      // private key marker + Delete-now button.
       const reveal = calls.find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          c.url.includes("/editMessageText") &&
           typeof c.body.text === "string" &&
           (c.body.text as string).includes("Private key:"),
       );
@@ -467,14 +471,16 @@ describe("/wallet command", () => {
         ),
       ).toBeDefined();
 
-      // Turn 3: verify. Bot reveals the key.
+      // Turn 3: verify. Bot edits the /wallet origin bubble into the
+      // reveal in place — same in-place semantics as the
+      // pinAlreadySet path.
       fetchSpy.mockClear();
       mockTelegramOk(fetchSpy);
       await h.run(textUpdate("123456", 5));
       const afterVerify = capture(fetchSpy);
       const reveal = afterVerify.find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          c.url.includes("/editMessageText") &&
           typeof c.body.text === "string" &&
           (c.body.text as string).includes("Private key:"),
       );
@@ -496,6 +502,92 @@ describe("/wallet command", () => {
       await h.run(textUpdate("/positions", 3));
       const pm = buildPm(h);
       expect(await pm.isPinSet(7)).toBe(false);
+    });
+
+    it("renders Chinese back/home + user anti-phishing phrase on the PIN prompt", async () => {
+      const h = makeBotHarness();
+      // Seed a Chinese session with a custom anti-phishing phrase.
+      // Both must reach the PIN prompt's edit — `tryEditOriginToPrompt`
+      // used to read language + phrase off the replay-time `ctx` and
+      // silently collapse to English + static fallback.
+      await h.kv.put(
+        `session:7`,
+        JSON.stringify({
+          slippageBps: 1000,
+          defaultBuyUsdc: 20,
+          buyPresetsUsdc: [20, 40, 60, 80, 100],
+          sellPresetsPct: [10, 25, 50, 75, 100],
+          executionTipGwei: 500_000_000,
+          degenMode: true,
+          language: "SimplifiedChinese",
+          antiPhishingPhrase: "雪豹一二三",
+        }),
+      );
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      const prompt = capture(fetchSpy).find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          /6 位 PIN/.test(c.body.text as string),
+      );
+      expect(prompt).toBeDefined();
+      // User-set anti-phishing phrase prepended (not the English
+      // static fallback).
+      expect(prompt!.body.text).toContain("雪豹一二三");
+      const buttons = (
+        prompt!.body.reply_markup as {
+          inline_keyboard: { text: string; callback_data: string }[][];
+        }
+      ).inline_keyboard.flat();
+      expect(buttons.find((b) => b.callback_data === "nav:b")?.text).toBe(
+        "← 返回",
+      );
+      expect(buttons.find((b) => b.callback_data === "nav:h")?.text).toBe(
+        "🏠 主页",
+      );
+    });
+
+    it("five wrong PINs lock the user and replace the prompt with the /start view", async () => {
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      const pm = buildPm(h);
+      await pm.setPin(7, "123456");
+
+      await h.run(callbackUpdate(WALLET_CALLBACK.exportKey));
+      // Five consecutive wrong PINs trip the 30-min lockout.
+      for (let i = 0; i < 5; i++) {
+        fetchSpy.mockClear();
+        mockTelegramOk(fetchSpy);
+        await h.run(textUpdate("000000", 10 + i));
+      }
+      const lockoutCalls = capture(fetchSpy);
+      // No reveal — the wallet panel's PK detail must not leak after
+      // lockout.
+      const reveal = lockoutCalls.find(
+        (c) =>
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
+          typeof c.body.text === "string" &&
+          (c.body.text as string).includes("Private key:"),
+      );
+      expect(reveal).toBeUndefined();
+      // The /wallet origin bubble is replaced with the /start view so
+      // the user has a live home affordance — the "send PIN" prompt
+      // is no longer actionable for 30 minutes.
+      const startReplace = lockoutCalls.find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          typeof c.body.text === "string" &&
+          /Welcome|Wallet|Address|alt\.fun/i.test(c.body.text as string),
+      );
+      expect(startReplace).toBeDefined();
     });
 
     it("Delete-now button calls Telegram deleteMessage on the reveal (export)", async () => {

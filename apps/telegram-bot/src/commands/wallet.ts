@@ -5,6 +5,7 @@ import {
 import type { Bot } from "grammy";
 
 import type { AppContext } from "../bot.js";
+import { buildStartSnapshot } from "./start.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
   WALLET_CALLBACK,
@@ -12,7 +13,10 @@ import {
   buildWalletSwitchKeyboard,
   type WalletSecurityStatus,
 } from "../keyboards/wallet-actions.js";
-import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import {
+  wrapWithCtxPhrase as wrap,
+  withAntiPhishing,
+} from "../lib/anti-phishing.js";
 import {
   haltAndForward,
   isOtherSlashCommand,
@@ -145,6 +149,20 @@ const convLang = async (
     outside.session?.language ?? DEFAULT_LANGUAGE,
   );
 
+/**
+ * Read the user's anti-phishing phrase off the live outside session.
+ * Like `convLang`, the captured replay-time `ctx` has no `session`, so
+ * the only reliable read is through `conversation.external` against the
+ * outside ctx. Returns `null` for users who haven't set a phrase —
+ * `withAntiPhishing` then falls back to the localised static header.
+ */
+const convPhrase = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<string | null> =>
+  conversation.external((outside) =>
+    outside.session?.antiPhishingPhrase ?? null,
+  );
+
 const RENAME_MAX_LEN = 32;
 
 /**
@@ -220,14 +238,25 @@ const truncateAddress = (addr: string): string =>
  */
 const tryEditOriginToPrompt = async (
   conversation: Conversation<AppContext, AppContext>,
-  ctx: AppContext,
   origin: MessageRef,
   text: string,
+  lang: Language,
+  phrase: string | null,
 ): Promise<boolean> =>
+  // Inside conversation replay the captured `ctx` has no session, so
+  // both the anti-phishing phrase and the language must come from the
+  // outside ctx (threaded in by the caller via `convLang` / `convPhrase`)
+  // — using `getCtxLanguage(ctx)` here silently rendered the [← Back]
+  // and [🏠 Home] buttons in English even for users on Simplified
+  // Chinese, and dropped the user-set anti-phishing phrase back to the
+  // English static fallback.
   conversation.external((outside) =>
-    safeEditMessageById(outside, origin, wrap(ctx, text), {
-      reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
-    }),
+    safeEditMessageById(
+      outside,
+      origin,
+      withAntiPhishing(text, phrase, lang),
+      { reply_markup: backHomeMarkup(lang) },
+    ),
   );
 
 /**
@@ -423,19 +452,21 @@ const renameWalletConversation = async (
   origin?: MessageRef,
 ): Promise<void> => {
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   let editedOrigin = false;
   if (origin) {
     editedOrigin = await tryEditOriginToPrompt(
       conversation,
-      ctx,
       origin,
       t(WALLET_RENAME_PROMPT, lang),
+      lang,
+      phrase,
     );
   }
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
-      wrap(ctx, t(WALLET_RENAME_PROMPT, lang)),
+      withAntiPhishing(t(WALLET_RENAME_PROMPT, lang), phrase, lang),
       { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -550,8 +581,9 @@ const runPinSetFlow = async (
   userId: number,
   chatId: number,
   actionLabel: string,
-  origin?: MessageRef,
-  lang: Language = DEFAULT_LANGUAGE,
+  origin: MessageRef | undefined,
+  lang: Language,
+  phrase: string | null,
 ): Promise<boolean> => {
   // Track the bot's prompt messages so a sweep on exit removes them.
   // User-side PIN replies are NOT tracked: `sweepPinMessage` deletes
@@ -562,14 +594,15 @@ const runPinSetFlow = async (
   if (origin) {
     editedOrigin = await tryEditOriginToPrompt(
       conversation,
-      ctx,
       origin,
       t(WALLET_SET_PIN_PROMPT, lang),
+      lang,
+      phrase,
     );
   }
   if (!editedOrigin) {
     const askMsg = await ctx.reply(
-      wrap(ctx, t(WALLET_SET_PIN_PROMPT, lang)),
+      withAntiPhishing(t(WALLET_SET_PIN_PROMPT, lang), phrase, lang),
       { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -585,7 +618,7 @@ const runPinSetFlow = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx, t(PIN_INVALID_FORMAT_REPLY, lang)),
+        withAntiPhishing(t(PIN_INVALID_FORMAT_REPLY, lang), phrase, lang),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -595,7 +628,7 @@ const runPinSetFlow = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, t(WALLET_CONFIRM_PIN_PROMPT, lang)),
+    withAntiPhishing(t(WALLET_CONFIRM_PIN_PROMPT, lang), phrase, lang),
     { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
@@ -609,7 +642,7 @@ const runPinSetFlow = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
-        wrap(ctx, t(PIN_DO_NOT_MATCH_REPLY, lang)),
+        withAntiPhishing(t(PIN_DO_NOT_MATCH_REPLY, lang), phrase, lang),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -622,8 +655,10 @@ const runPinSetFlow = async (
     buildPinManager(outside.env).setPin(userId, candidate!),
   );
   const finalAsk = await ctx.reply(
-    wrap(ctx,
+    withAntiPhishing(
       t(PIN_SET_NOW_SEND_ONCE_MORE_PROMPT, lang)(actionLabel),
+      phrase,
+      lang,
     ),
     { reply_markup: backHomeMarkup(lang) },
   );
@@ -636,6 +671,14 @@ const runPinSetFlow = async (
  * the user back through retries. The PinManager owns the attempt
  * counter and lockout state; we only render its result.
  */
+/**
+ * Outcome of `runPinVerifyFlow`. Differentiated so callers can branch
+ * on lockout (replace the prompt bubble with the start view, since the
+ * user is now wedged for 30 minutes and "Export key" is no longer
+ * meaningful) versus a clean abort.
+ */
+type PinVerifyOutcome = "ok" | "locked" | "unset";
+
 const runPinVerifyFlow = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
@@ -644,17 +687,24 @@ const runPinVerifyFlow = async (
   pinAlreadySet: boolean,
   actionLabel: string,
   retryHint: string,
-  origin?: MessageRef,
-  lang: Language = DEFAULT_LANGUAGE,
-): Promise<boolean> => {
+  origin: MessageRef | undefined,
+  lang: Language,
+  phrase: string | null,
+): Promise<PinVerifyOutcome> => {
   if (pinAlreadySet) {
     let editedOrigin = false;
     const prompt = t(PIN_AUTHORISE_THE_PROMPT, lang)(actionLabel);
     if (origin) {
-      editedOrigin = await tryEditOriginToPrompt(conversation, ctx, origin, prompt);
+      editedOrigin = await tryEditOriginToPrompt(
+        conversation,
+        origin,
+        prompt,
+        lang,
+        phrase,
+      );
     }
     if (!editedOrigin) {
-      const askMsg = await ctx.reply(wrap(ctx, prompt), {
+      const askMsg = await ctx.reply(withAntiPhishing(prompt, phrase, lang), {
         reply_markup: backHomeMarkup(lang),
       });
       await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -671,28 +721,40 @@ const runPinVerifyFlow = async (
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
-    if (result.ok) return true;
+    if (result.ok) return "ok";
     if (result.reason === "locked" || result.reason === "locked-now") {
       const mins = Math.max(
         1,
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, t(PIN_LOCKED_REPLY, lang)(mins, capitalize(actionLabel))),
+        withAntiPhishing(
+          t(PIN_LOCKED_REPLY, lang)(mins, capitalize(actionLabel)),
+          phrase,
+          lang,
+        ),
       );
-      return false;
+      return "locked";
     }
     if (result.reason === "unset") {
       // Shouldn't happen — we either just set the PIN above or
       // confirmed `isPinSet` at entry. Surface a clean abort rather
       // than looping forever if the KV state somehow vanished.
       await ctx.reply(
-        wrap(ctx, t(PIN_STATE_LOST_REPLY, lang)(retryHint)),
+        withAntiPhishing(
+          t(PIN_STATE_LOST_REPLY, lang)(retryHint),
+          phrase,
+          lang,
+        ),
       );
-      return false;
+      return "unset";
     }
     const retry = await ctx.reply(
-      wrap(ctx, t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining)),
+      withAntiPhishing(
+        t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
+        phrase,
+        lang,
+      ),
       { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -723,6 +785,7 @@ const exportKeyConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
 
   // Conversation bodies replay across waitFor boundaries; on replay
@@ -747,6 +810,7 @@ const exportKeyConversation = async (
       exportLabel,
       origin,
       lang,
+      phrase,
     );
     if (!setOk) {
       await sweepWorkflow(conversation);
@@ -754,7 +818,7 @@ const exportKeyConversation = async (
     }
   }
 
-  const verifyOk = await runPinVerifyFlow(
+  const verifyOutcome = await runPinVerifyFlow(
     conversation,
     ctx,
     userId,
@@ -764,8 +828,18 @@ const exportKeyConversation = async (
     "/wallet → Export key",
     pinAlreadySet ? origin : undefined,
     lang,
+    phrase,
   );
-  if (!verifyOk) {
+  if (verifyOutcome !== "ok") {
+    // Lockout / state-lost: the export bubble is now dead-ended —
+    // the user can't retry for 30 minutes (lockout) or at all
+    // (unset). Replace the prompt with the /start view so they have
+    // a live home affordance instead of a stale "Enter PIN" bubble
+    // sitting above the locked / state-lost notice. Best-effort —
+    // if the bubble is gone the sweep below still cleans up.
+    if (origin) {
+      await editOriginToStart(conversation, origin);
+    }
     await sweepWorkflow(conversation);
     return;
   }
@@ -777,8 +851,15 @@ const exportKeyConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, t(WALLET_EXPORT_NO_LONGER_EXISTS_REPLY, lang)),
+      withAntiPhishing(
+        t(WALLET_EXPORT_NO_LONGER_EXISTS_REPLY, lang),
+        phrase,
+        lang,
+      ),
     );
+    if (origin) {
+      await editOriginToStart(conversation, origin);
+    }
     await sweepWorkflow(conversation);
     return;
   }
@@ -787,36 +868,104 @@ const exportKeyConversation = async (
   );
   const wallet = walletRecord;
 
-  // Sweep prompt history BEFORE rendering the reveal so the PIN-set /
-  // PIN-verify ladder gets cleared first, and the reveal lands at the
-  // bottom of the chat where the 30s auto-delete + "Delete now" path
-  // can manage it independently. The reveal id is intentionally NOT
-  // tracked on the workflow stack — auto-delete owns its lifecycle and
-  // a future sweep must not prematurely remove a still-pending reveal.
-  await sweepWorkflow(conversation);
-
   const revealBody = [
     t(WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY, lang),
     "",
     t(WALLET_EXPORT_REVEAL_ADDRESS_LABEL, lang)(wallet.address),
     t(WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL, lang)(privateKey),
   ].join("\n");
-
-  const revealMessage = await ctx.reply(wrap(ctx, revealBody), {
-    reply_markup: {
-      inline_keyboard: [
-        [
-          {
-            text: t(WALLET_DELETE_NOW_BUTTON, lang),
-            callback_data: WALLET_CALLBACK.exportDelete,
-          },
-        ],
+  const revealMarkup = {
+    inline_keyboard: [
+      [
+        {
+          text: t(WALLET_DELETE_NOW_BUTTON, lang),
+          callback_data: WALLET_CALLBACK.exportDelete,
+        },
       ],
-    },
-  });
+    ],
+  };
 
-  await conversation.external((outside) => {
-    scheduleRevealAutoDelete(outside, chatId, revealMessage.message_id);
+  // Edit the existing prompt bubble (the wallet panel the user tapped
+  // [Export key] on, transitioned through "Enter PIN" by the verify
+  // flow) into the reveal so the chat stays single-bubbled rather
+  // than splitting into "prompt deleted + fresh reveal below" — the
+  // PIN message itself is already swept by `sweepPinMessage` inside
+  // the verify loop. The auto-delete still fires on the reveal's
+  // message_id (= origin.messageId here) so the 30 s hygiene window
+  // is preserved. Fall back to a fresh reply when origin can't be
+  // edited (deleted, aged out) — the user still gets the reveal.
+  let revealMessageId: number | undefined;
+  let editedOrigin = false;
+  if (origin) {
+    editedOrigin = await conversation.external((outside) =>
+      safeEditMessageById(
+        outside,
+        origin,
+        withAntiPhishing(revealBody, phrase, lang),
+        { reply_markup: revealMarkup },
+      ),
+    );
+    if (editedOrigin) revealMessageId = origin.messageId;
+  }
+
+  // Sweep retry / confirm / state-set prompts AFTER editing origin so
+  // origin (which is not on the workflow stack) is the lone bubble
+  // left in the chat for this flow. When the edit fell back to a
+  // fresh reply we still sweep first so the prompts disappear before
+  // the reveal lands underneath them.
+  await sweepWorkflow(conversation);
+
+  if (!editedOrigin) {
+    const revealMessage = await ctx.reply(
+      withAntiPhishing(revealBody, phrase, lang),
+      { reply_markup: revealMarkup },
+    );
+    revealMessageId = revealMessage.message_id;
+  }
+
+  if (revealMessageId !== undefined) {
+    const messageId = revealMessageId;
+    await conversation.external((outside) => {
+      scheduleRevealAutoDelete(outside, chatId, messageId);
+    });
+  }
+};
+
+/**
+ * Replace an arbitrary bubble (the in-flight PIN prompt's bubble) with
+ * the /start view. Used when the export flow ends without a reveal —
+ * lockout, missing wallet, state-lost — so the user is re-seated on
+ * the home menu instead of staring at a stale wizard prompt. Captures
+ * the same edit/fallback pattern `lib/nav.ts → renderHome` uses for
+ * Home taps, but against an explicit message ref rather than the
+ * callback-query's own message.
+ */
+const editOriginToStart = async (
+  conversation: Conversation<AppContext, AppContext>,
+  origin: MessageRef,
+): Promise<void> => {
+  await conversation.external(async (outside) => {
+    const snap = await buildStartSnapshot(outside);
+    if (!snap) return;
+    try {
+      await outside.api.editMessageText(
+        origin.chatId,
+        origin.messageId,
+        snap.text,
+        {
+          parse_mode: snap.parseMode,
+          reply_markup: { inline_keyboard: snap.keyboard },
+          link_preview_options: snap.linkPreviewDisabled
+            ? { is_disabled: true }
+            : undefined,
+        },
+      );
+    } catch {
+      // The origin bubble may already be gone (user cleared chat,
+      // 48h window elapsed). Swallow — the lockout / state-lost
+      // reply already informs the user; the start replacement is a
+      // best-effort affordance, not load-bearing.
+    }
   });
 };
 
@@ -850,20 +999,22 @@ const importWalletConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
 
   let editedOrigin = false;
   if (origin) {
     editedOrigin = await tryEditOriginToPrompt(
       conversation,
-      ctx,
       origin,
       t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang),
+      lang,
+      phrase,
     );
   }
   if (!editedOrigin) {
     const promptMsg = await ctx.reply(
-      wrap(ctx, t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang)),
+      withAntiPhishing(t(WALLET_IMPORT_PASTE_KEY_PROMPT, lang), phrase, lang),
       { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -980,6 +1131,7 @@ const deleteWalletConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
 
   const pinAlreadySet = await conversation.external((outside) =>
@@ -996,6 +1148,7 @@ const deleteWalletConversation = async (
       deleteLabel,
       origin,
       lang,
+      phrase,
     );
     if (!setOk) {
       await sweepWorkflow(conversation);
@@ -1003,7 +1156,7 @@ const deleteWalletConversation = async (
     }
   }
 
-  const verifyOk = await runPinVerifyFlow(
+  const verifyOutcome = await runPinVerifyFlow(
     conversation,
     ctx,
     userId,
@@ -1013,8 +1166,9 @@ const deleteWalletConversation = async (
     "/wallet → Delete",
     pinAlreadySet ? origin : undefined,
     lang,
+    phrase,
   );
-  if (!verifyOk) {
+  if (verifyOutcome !== "ok") {
     await sweepWorkflow(conversation);
     return;
   }
