@@ -144,6 +144,32 @@ describe("fetchBotPositions", () => {
     });
   });
 
+  // Regression for "clicking positions yields no response": when apps/api or
+  // the indexer stalls under load (see apps/indexer/RESPONSE_TIME_INVESTIGATION.md),
+  // the read-side helper must abort instead of consuming the full Cloudflare
+  // subrequest budget — otherwise the callback handler never reaches
+  // `answerCallbackQuery` and the Telegram spinner hangs.
+  it("aborts a stalled fetch after the GET timeout and returns unavailable", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchSpy.mockImplementationOnce(
+        (_url: unknown, init?: RequestInit) =>
+          new Promise<Response>((_, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          }),
+      );
+      const pending = fetchBotPositions(env, "0xabc");
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(await pending).toEqual({ ok: false, kind: "unavailable" });
+      const init = fetchSpy.mock.calls[0]![1] as RequestInit;
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns unknown on missing envelope.data", async () => {
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({}), { status: 200 }),

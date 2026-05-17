@@ -385,4 +385,53 @@ describe("processPendingTxAlarm", () => {
     expect(s.alarm).not.toBeNull();
     expect(putSpy).not.toHaveBeenCalled();
   });
+
+  it("keeps the record when the Telegram edit aborts on the EDIT_TIMEOUT_MS budget", async () => {
+    // CodeRabbit follow-up: the 10s AbortController on the DO alarm's
+    // editMessageText fetch throws `AbortError`, which lacks both
+    // `error_code` and a "timeout" description substring. Without the
+    // explicit `AbortError` branch in `isTransientEditError` the abort
+    // falls through to the unknown-4xx path and finalises the record,
+    // stranding the bubble on "still polling".
+    const s = makeStorage();
+    const rec = makeRecord();
+    s.map.set(`pendingTx:${rec.txHash.toLowerCase()}`, rec);
+
+    const fakeReceipt = {
+      status: "success",
+      logs: [],
+      transactionHash: rec.txHash,
+    };
+    const tradeModule = await import("../../lib/trade.js");
+    vi.spyOn(tradeModule, "buildPublicClient").mockReturnValue({
+      getTransactionReceipt: vi.fn().mockResolvedValue(fakeReceipt),
+    } as unknown as ReturnType<typeof tradeModule.buildPublicClient>);
+
+    // Fetch returns a rejected promise carrying `AbortError` straight
+    // away — the production effect of the in-editor `setTimeout(10s)`
+    // firing inside `buildEditor`. Simulating the rejection synchronously
+    // keeps the test fast while exercising the real error-shape path
+    // through `isTransientEditError`.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("aborted", "AbortError");
+      }),
+    );
+
+    const putSpy = vi.fn();
+    const kvEnv = {
+      ...env,
+      WALLET_KV: {
+        get: async () => null,
+        put: putSpy,
+      } as unknown as KVNamespace,
+    } as Parameters<typeof processPendingTxAlarm>[0];
+
+    await processPendingTxAlarm(kvEnv, asStorage(s) as never);
+
+    expect(s.map.size).toBe(1);
+    expect(s.alarm).not.toBeNull();
+    expect(putSpy).not.toHaveBeenCalled();
+  });
 });

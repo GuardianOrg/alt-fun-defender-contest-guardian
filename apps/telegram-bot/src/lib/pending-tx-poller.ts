@@ -157,21 +157,35 @@ interface BubbleEditor {
   ) => Promise<void>;
 }
 
+// Matches `lib/telegram.ts → CALL_TIMEOUT_MS`. The DO alarm path runs without
+// a webhook ACK window, but an unbounded fetch can still hold the alarm and
+// block the DO from servicing the next poll cycle. See
+// `apps/telegram-bot/AGENTS.md → Timeouts on every outbound API call`.
+const EDIT_TIMEOUT_MS = 10_000;
+
 const buildEditor = (env: Pick<Env, "TELEGRAM_BOT_TOKEN">): BubbleEditor => {
   return {
     editMessageText: async (rec, text) => {
       const url = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/editMessageText`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          chat_id: rec.chatId,
-          message_id: rec.messageId,
-          text,
-          parse_mode: "HTML",
-          link_preview_options: { is_disabled: true },
-        }),
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), EDIT_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            chat_id: rec.chatId,
+            message_id: rec.messageId,
+            text,
+            parse_mode: "HTML",
+            link_preview_options: { is_disabled: true },
+          }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         let description = body;
@@ -207,6 +221,20 @@ const buildEditor = (env: Pick<Env, "TELEGRAM_BOT_TOKEN">): BubbleEditor => {
 type EditOutcome = "finalised" | "transient";
 
 const isTransientEditError = (err: unknown): boolean => {
+  // `AbortError` from the EDIT_TIMEOUT_MS budget is by definition transient:
+  // Telegram didn't respond inside the window, so retrying on the next alarm
+  // tick is the correct recovery. Without this branch the abort falls through
+  // to the unknown-4xx path and finalises the record, stranding the user on
+  // the "still polling" bubble — the opposite of what the timeout exists to
+  // achieve. Node and the browser both surface aborts as `name === "AbortError"`;
+  // belt-and-suspenders match on the message text too in case the upstream
+  // ever switches to a plain `Error`.
+  if (
+    err instanceof Error &&
+    (err.name === "AbortError" || /aborted/i.test(err.message))
+  ) {
+    return true;
+  }
   const e = err as { error_code?: number; description?: string; message?: string };
   if (typeof e.error_code === "number") {
     if (e.error_code === 429) return true;

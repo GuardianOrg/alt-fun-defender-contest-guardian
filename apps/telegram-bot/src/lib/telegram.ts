@@ -51,16 +51,33 @@ export interface TelegramUpdate {
 
 const API_BASE = "https://api.telegram.org";
 
+// Matches the api-helper budget (`lib/api.ts → GET_TIMEOUT_MS`). Telegram's
+// Bot API normally answers in <500ms; a 10s ceiling is well past the worst
+// healthy round-trip while still short enough that a wedged upstream can't
+// burn the Cloudflare subrequest budget and strand the webhook handler.
+// AbortError lands as a rejection on the returned promise — callers that
+// already wrap `callTelegram` in try/catch (admin routes, DO alarm editor)
+// keep working unchanged; new callers must do the same. See
+// `apps/telegram-bot/AGENTS.md → Timeouts on every outbound API call`.
+const CALL_TIMEOUT_MS = 10_000;
+
 export const callTelegram = async (
   botToken: string,
   method: string,
   payload: Record<string, unknown>,
 ): Promise<Response> => {
-  return fetch(`${API_BASE}/bot${botToken}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CALL_TIMEOUT_MS);
+  try {
+    return await fetch(`${API_BASE}/bot${botToken}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 /**

@@ -16,6 +16,24 @@ REST API + WebSocket server. Serves indexed blockchain data and real-time trade/
 - Terminal API (`/api/v1/`) for third-party integrators
 - WebSocket: `trade`, `price`, `graduation`, `newToken`, `stats`
 
+## Outbound timeout discipline
+
+**Every outbound `fetch` from a route handler — Ponder GraphQL, BounceTech, Hyperliquid, Alchemy RPC, OpenAI moderation, anything off the worker — MUST arm an `AbortController` before the call and clear the timer in `finally`.** An unbounded upstream call eats the worker's 30s subrequest budget; downstream callers (the bot's `/positions` callback, the frontend's trade-feed poller, edge cache misses) sit blocked waiting on a worker that's already lost. Surface the failure as `null` / `503` so each client can return a clean outage to its user.
+
+The historical violation was `lib/ponder-client.ts → createPonderQuery` — every indexer-backed route (`/balances`, `/bot/positions`, `/bot/referrals`, `/holders`, `/security/*`, etc.) inherited it. Fixed by capping at `QUERY_TIMEOUT_MS` (8s) in the same shape as the sibling `checkPonderHealth`.
+
+Budget guidance — looser needs an inline comment explaining why:
+
+| Surface | Budget | Notes |
+|---|---|---|
+| Ponder GraphQL (`lib/ponder-client.ts → createPonderQuery`) | `QUERY_TIMEOUT_MS` (8s) | Healthy p99 < 1s under load; 8s caps stalls well under Cloudflare's 30s ceiling. |
+| OpenAI moderation (`lib/image-moderation.ts`) | `REQUEST_TIMEOUT_MS` (10s) | Fail-closed on timeout — no upload happens. |
+| BounceTech LT HEAD probes (`lib/lt-availability.ts`) | per-HEAD `setTimeout`, 2s | Fail-open: treat unknown as live. |
+| Asset/image proxy (`routes/assets.ts → fetchWithTimeout`) | per-call | Helper takes `timeoutMs` explicitly. |
+| Ponder health probe (`checkPonderHealth`) | `HEALTH_CHECK_TIMEOUT` (3s) | Tighter than the read path because it gates `/healthz`. |
+
+If a new route adds an outbound dependency that doesn't fit one of these, set the budget yourself — never call `fetch` bare. See `apps/telegram-bot/AGENTS.md → Timeouts on every outbound API call` for the analogous rule on the client side; the two layers reinforce each other.
+
 ## Aggregate routes (counter-backed, edge-cached)
 
 `/api/v1/holders`, `/api/v1/portfolio`, `/api/v1/security`, `/api/v1/creators`, and `/api/v1/stats` all answer in O(1) (or close to it) by reading indexer-side derived tables instead of paginating the trade history (issue #397). The mapping:
