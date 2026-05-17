@@ -152,10 +152,42 @@ describe("fetchBotPositions", () => {
           }),
       );
       const pending = fetchBotPositions(env, "0xabc");
-      await vi.advanceTimersByTimeAsync(10_000);
+      // GET_TIMEOUT_MS is temporarily 30s while apps/api is degraded —
+      // see the inline comment on `GET_TIMEOUT_MS` in lib/api.ts.
+      await vi.advanceTimersByTimeAsync(30_000);
       expect(await pending).toEqual({ ok: false, kind: "unavailable" });
       const init = fetchSpy.mock.calls[0]![1] as RequestInit;
       expect(init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regression: with apps/api degraded and serving healthy responses in
+  // ~10–25s (live `wrangler tail launchpad-api` 2026-05-17), the prior
+  // 10s envelope aborted before the response landed and surfaced the
+  // outage card on healthy tokens (e.g. T-REX token detail). The bumped
+  // 30s budget must let a 25s response through unabbed.
+  it("does not abort a sub-30s slow fetch — the response lands as ok", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchSpy.mockImplementationOnce(
+        (_url: unknown, _init?: RequestInit) =>
+          new Promise<Response>((resolve) => {
+            setTimeout(() => {
+              resolve(
+                new Response(
+                  JSON.stringify({ data: { open: [], realised: [] } }),
+                  { status: 200 },
+                ),
+              );
+            }, 25_000);
+          }),
+      );
+      const pending = fetchBotPositions(env, "0xabc");
+      await vi.advanceTimersByTimeAsync(25_000);
+      const result = await pending;
+      expect(result.ok).toBe(true);
     } finally {
       vi.useRealTimers();
     }
