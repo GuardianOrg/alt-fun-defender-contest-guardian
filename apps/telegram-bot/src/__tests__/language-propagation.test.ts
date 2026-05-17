@@ -135,7 +135,7 @@ describe("language preference propagates across flows", () => {
     // all need to land translated when a wallet exists.
     expect(body).toContain("钱包（1/");
     expect(body).toContain("（未命名）");
-    expect(body).toContain("活动钱包");
+    expect(body).toContain("活跃钱包");
   });
 
   it("renders /referral non-private-chat reply in SimplifiedChinese", async () => {
