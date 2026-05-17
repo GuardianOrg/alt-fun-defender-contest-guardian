@@ -167,13 +167,28 @@ export interface PositionActionTarget {
 const TICKER_ESCAPED_MAX = 64;
 
 /**
+ * Strip Unicode control characters (`\r`, `\n`, `\t`, other Cc) from a
+ * raw on-chain ticker. Token contracts return arbitrary UTF-8 and a
+ * symbol carrying embedded newlines or tabs would split the HTML body
+ * across lines or leak into inline-button labels — both produce broken
+ * layout or, with a malicious ticker, partially controlled markup.
+ * Collapse every control char run into a single space so downstream
+ * escape + truncate sees a flat single-line string.
+ */
+const sanitizeTickerControlChars = (ticker: string): string =>
+  // eslint-disable-next-line no-control-regex
+  ticker.replace(/[\u0000-\u001F\u007F-\u009F]+/g, " ");
+
+/**
  * HTML-escape the ticker and clamp the result to `TICKER_ESCAPED_MAX`.
- * If the cut would fall inside an HTML entity (e.g. mid-`&amp;`) we
- * backtrack to the previous `;` so the body never emits a half-entity
- * like `&am`.
+ * Strips control chars first so embedded `\n` / `\r` / `\t` from an
+ * attacker-controlled `Token.symbol()` cannot leak into the body or
+ * inline-button labels. If the cut would fall inside an HTML entity
+ * (e.g. mid-`&amp;`) we backtrack to the previous `;` so the body
+ * never emits a half-entity like `&am`.
  */
 const truncateAndEscapeTicker = (ticker: string): string => {
-  const escaped = escapeHtml(ticker);
+  const escaped = escapeHtml(sanitizeTickerControlChars(ticker));
   if (escaped.length <= TICKER_ESCAPED_MAX) return escaped;
   let cut = escaped.slice(0, TICKER_ESCAPED_MAX - 1);
   const lastAmp = cut.lastIndexOf("&");
@@ -379,7 +394,10 @@ export interface InlineKeyboardMarkup {
 
 const truncateTickerForButton = (ticker: string): string => {
   const MAX = 12;
-  return ticker.length > MAX ? `${ticker.slice(0, MAX - 1)}…` : ticker;
+  // Sanitize control chars first — embedded `\n` / `\t` in an inline
+  // button label produces broken layout on every Telegram client.
+  const flat = sanitizeTickerControlChars(ticker);
+  return flat.length > MAX ? `${flat.slice(0, MAX - 1)}…` : flat;
 };
 
 /**

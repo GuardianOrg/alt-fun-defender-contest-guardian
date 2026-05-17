@@ -620,6 +620,39 @@ describe("ticker truncation in body lines", () => {
   });
 });
 
+describe("ticker control-char sanitization", () => {
+  it("collapses embedded \\n / \\r / \\t inside a ticker so the body never spills across lines", () => {
+    const pos = openPos({ ticker: "EVIL\nMULTI\rLINE\tTICKER" });
+    const view = buildPositionsView({ open: [pos], realised: [] }, 0, 0);
+    expect(view.text).not.toMatch(/EVIL\n/);
+    expect(view.text).not.toMatch(/EVIL\r/);
+    expect(view.text).not.toMatch(/EVIL\t/);
+    expect(view.text).toContain("EVIL MULTI LINE TICKER");
+  });
+
+  it("collapses embedded control chars inside a realised-position ticker too", () => {
+    const pos = realisedPos({ ticker: "BAD\nNEWLINE" });
+    const view = buildPositionsView({ open: [], realised: [pos] }, 0, 0);
+    expect(view.text).toContain("BAD NEWLINE");
+    expect(view.text).not.toMatch(/BAD\n/);
+  });
+
+  it("collapses control chars on inline-button labels (truncated form has no \\n / \\t)", () => {
+    const pos = openPos({
+      token: "0xcccccccccccccccccccccccccccccccccccccccc",
+      ticker: "X\nY\tZ",
+    });
+    const view = buildPositionsView({ open: [pos], realised: [] }, 0, 0);
+    const kb = buildPositionsPageKeyboard(
+      view,
+      "0x1234567890abcdef1234567890abcdef12345678",
+    );
+    const buyLabel = kb.inline_keyboard[0]![0]!.text;
+    expect(buyLabel).not.toMatch(/[\n\r\t]/);
+    expect(buyLabel).toBe("Buy X Y Z");
+  });
+});
+
 describe("compact fallback when numeric fields are pathologically large", () => {
   it("falls back to a compact ticker+address rendering when the full body would exceed TELEGRAM_MESSAGE_LIMIT", () => {
     // Build positions where every bigint-backed numeric field is huge
