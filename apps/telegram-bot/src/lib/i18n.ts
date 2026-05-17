@@ -2205,6 +2205,60 @@ export const SELL_STAGING_READY_HTML = {
     `✅ <b>准备卖出 ${tickerSafe} 的 ${percent}%（约 $${proceedsUsd.toFixed(2)}）</b>\n\n` +
     `请在 60 秒内点击 <b>确认</b> 以提交。${tokenLine}`,
 } as const;
+export const SELL_STAGING_READY_PRESET_HTML = {
+  English: (
+    percent: number,
+    allOf: string,
+    tickerSafe: string,
+    proceedsUsd: number,
+    tokenLine: string,
+  ) =>
+    `✅ <b>Ready to sell ${percent}%${allOf} of ${tickerSafe} (≈$${proceedsUsd.toFixed(2)})</b>\n\n` +
+    `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`,
+  SimplifiedChinese: (
+    percent: number,
+    allOf: string,
+    tickerSafe: string,
+    proceedsUsd: number,
+    tokenLine: string,
+  ) =>
+    `✅ <b>准备卖出 ${tickerSafe} 的 ${percent}%${allOf}（约 $${proceedsUsd.toFixed(2)}）</b>\n\n` +
+    `请在 60 秒内点击 <b>确认</b> 以提交。${tokenLine}`,
+} as const;
+export const SELL_STAGING_BUFFER_CAPPED_PRESET_HTML = {
+  English: (
+    cappedProceedsUsd: number,
+    originalProceedsUsd: number,
+    percent: number,
+    sellingAmount: string,
+    totalBalance: string,
+    tickerSafe: string,
+    tokenLine: string,
+  ) =>
+    `⚠️ <b>Buffer low — capping sell at $${cappedProceedsUsd.toFixed(2)}</b> ` +
+    `(reduced from ≈$${originalProceedsUsd.toFixed(2)} for ${percent}%).\n` +
+    `Selling ${sellingAmount} of ${totalBalance} ${tickerSafe}. ` +
+    `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
+    `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`,
+  SimplifiedChinese: (
+    cappedProceedsUsd: number,
+    originalProceedsUsd: number,
+    percent: number,
+    sellingAmount: string,
+    totalBalance: string,
+    tickerSafe: string,
+    tokenLine: string,
+  ) =>
+    `⚠️ <b>流动性缓冲不足——已将卖出上限设为 $${cappedProceedsUsd.toFixed(2)}</b>` +
+    `（${percent}% 原本约 $${originalProceedsUsd.toFixed(2)}）。\n` +
+    `本次卖出 ${sellingAmount}，共持有 ${totalBalance} ${tickerSafe}。` +
+    `流动性缓冲会在约 10 秒后补充；剩余部分请分批卖出。\n\n` +
+    `请在 60 秒内点击 <b>确认</b> 以提交缩减后的金额。${tokenLine}`,
+} as const;
+export const SELL_PRESET_ALL_OF_SUFFIX = {
+  English: (totalBalance: string) => ` all ${totalBalance}`,
+  SimplifiedChinese: (totalBalance: string) => `（全部 ${totalBalance}）`,
+} as const;
 export const SELL_STAGING_BUFFER_CAPPED_HTML = {
   English: (
     cappedProceedsUsd: number,
@@ -2396,7 +2450,7 @@ export const PIN_ACTION_LABEL_DELETE = {
 } as const;
 export const PIN_SET_NOW_SEND_ONCE_MORE_PROMPT = {
   English: (actionLabel: string) =>
-    `PIN set. Send it once more to authorise the ${actionLabel}.`,
+    `PIN set. Send it once more to authorize the ${actionLabel}.`,
   SimplifiedChinese: (actionLabel: string) =>
     `PIN 已设置。请再发送一次以授权${actionLabel}。`,
 } as const;

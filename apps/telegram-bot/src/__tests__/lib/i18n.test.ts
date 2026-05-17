@@ -397,7 +397,7 @@ describe("i18n module", () => {
       "删除",
     );
     expect(i18n.PIN_SET_NOW_SEND_ONCE_MORE_PROMPT.English("export")).toBe(
-      "PIN set. Send it once more to authorise the export.",
+      "PIN set. Send it once more to authorize the export.",
     );
     expect(
       t(i18n.PIN_SET_NOW_SEND_ONCE_MORE_PROMPT, "SimplifiedChinese")("导出"),

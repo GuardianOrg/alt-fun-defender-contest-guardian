@@ -43,10 +43,13 @@ import {
   SELL_NO_BALANCE_REPLY,
   SELL_PERCENT_ROUNDS_TO_ZERO_REPLY,
   SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY,
+  SELL_PRESET_ALL_OF_SUFFIX,
   SELL_PROCEEDS_BELOW_MIN_REPLY,
   SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY,
   SELL_STAGING_BUFFER_CAPPED_HTML,
+  SELL_STAGING_BUFFER_CAPPED_PRESET_HTML,
   SELL_STAGING_READY_HTML,
+  SELL_STAGING_READY_PRESET_HTML,
   SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TOAST_REFRESHED,
@@ -1003,21 +1006,32 @@ const handlePercentSell = async (
     ticker: token.ticker,
     tokenRaw: effectiveTokenRaw,
   });
-  const allOf = percent === 100 ? ` all ${formatToken18(tokenBalance)}` : "";
+  const totalBalanceFormatted = formatToken18(tokenBalance);
+  const allOf =
+    percent === 100 ? t(SELL_PRESET_ALL_OF_SUFFIX, lang)(totalBalanceFormatted) : "";
   const tickerSafe = escapeHtml(token.ticker);
   const tokenSafe = escapeHtml(token.address);
   const tokenLine =
     `\n\nToken: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
   const header =
     buffer.kind === "capped"
-      ? `⚠️ <b>Buffer low — capping sell at $${effectiveProceedsUsd.toFixed(2)}</b> ` +
-        `(reduced from ≈$${quote.proceedsUsd.toFixed(2)} for ${percent}%).\n` +
-        `Selling ${formatToken18(effectiveTokenRaw)} of ${formatToken18(tokenBalance)} ${tickerSafe}. ` +
-        `Buffer replenishes in ~10s; sell in chunks for the remainder.\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit the reduced amount.${tokenLine}`
-      : `✅ <b>Ready to sell ${percent}%${allOf} of ${tickerSafe} (≈$${effectiveProceedsUsd.toFixed(2)})</b>\n\n` +
-        `Tap <b>Confirm</b> within 60s to submit.${tokenLine}`;
-  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+      ? t(SELL_STAGING_BUFFER_CAPPED_PRESET_HTML, lang)(
+          effectiveProceedsUsd,
+          quote.proceedsUsd,
+          percent,
+          formatToken18(effectiveTokenRaw),
+          totalBalanceFormatted,
+          tickerSafe,
+          tokenLine,
+        )
+      : t(SELL_STAGING_READY_PRESET_HTML, lang)(
+          percent,
+          allOf,
+          tickerSafe,
+          effectiveProceedsUsd,
+          tokenLine,
+        );
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the token-detail card into the staging bubble in place rather
   // than dropping a fresh staging prompt below it. `cnf:` / `ccl:`
