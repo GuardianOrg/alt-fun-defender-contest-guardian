@@ -83,6 +83,14 @@ describe("renderHelp (pure)", () => {
     );
   });
 
+  it("does not direct users to alt.fun for issue support", () => {
+    // The bot is operated outside alt.fun; the support-redirect line was
+    // removed so the product is not falsely associated with that domain.
+    const html = renderHelp(undefined, undefined);
+    expect(html).not.toContain("Further questions?");
+    expect(html).not.toContain("如有更多问题");
+  });
+
   it.each([
     ["wallet", "AES-256-GCM"],
     ["wallets", "AES-256-GCM"],
