@@ -1,4 +1,5 @@
 import type { Bot } from "grammy";
+import type { MessageEntity } from "grammy/types";
 
 import type { AppContext } from "../bot.js";
 import type {
@@ -84,6 +85,18 @@ export const MAX_NAV_STACK = 10;
 export interface NavSnapshot {
   text: string;
   parseMode?: "HTML" | "MarkdownV2";
+  /**
+   * Explicit Telegram MessageEntity list. Used when the snapshot is
+   * captured off a rendered Telegram message — `msg.text` strips the
+   * HTML/Markdown source, so without re-attaching the entities the
+   * restored bubble loses formatting (the /start screen's `<code>`
+   * wrapper around the wallet address is the regression that drove
+   * this — without it, Tap-to-copy stops working after Back). When
+   * both `entities` and `parseMode` are set, `entities` wins and
+   * `parseMode` is dropped before the API call (Telegram rejects the
+   * pair).
+   */
+  entities?: MessageEntity[];
   keyboard: InlineKeyboard;
   linkPreviewDisabled?: boolean;
 }
@@ -140,6 +153,15 @@ export const snapshotFromCallback = (ctx: AppContext): NavSnapshot | null => {
   // by editing text would orphan the attachment.
   const text = "text" in msg ? msg.text : undefined;
   if (typeof text !== "string") return null;
+  // Telegram returns formatted message text with the HTML/Markdown
+  // source stripped — the formatting lives in `msg.entities`. Capture
+  // those so a Back-restore can re-attach them via the `entities`
+  // editMessage parameter; otherwise the /start `<code>` wrapper on
+  // the wallet address collapses to plain text and tap-to-copy dies.
+  const rawEntities = (msg as { entities?: unknown }).entities;
+  const entities: MessageEntity[] | undefined = Array.isArray(rawEntities)
+    ? (rawEntities as MessageEntity[])
+    : undefined;
   const markup = msg.reply_markup;
   const rawKeyboard: unknown = (markup as { inline_keyboard?: unknown })
     ?.inline_keyboard;
@@ -170,7 +192,7 @@ export const snapshotFromCallback = (ctx: AppContext): NavSnapshot | null => {
       }
       return cells;
     });
-  return { text, keyboard: safeKeyboard };
+  return { text, entities, keyboard: safeKeyboard };
 };
 
 /** Callable supplied at registration time so nav handlers can render
@@ -376,18 +398,41 @@ const isMessageNotModifiedError = (err: unknown): boolean => {
   return desc.includes("message is not modified");
 };
 
+/**
+ * Build the `editMessageText` / `reply` payload for a NavSnapshot.
+ * When `entities` is set we drop `parse_mode` — Telegram rejects both
+ * being sent together, and the entities are the higher-fidelity source
+ * (they survived a round-trip through the rendered bubble whereas
+ * `parseMode` is only ever set on snapshots produced by code that knew
+ * the original render path). Without this drop the Back fallback can
+ * 400 with "can't parse entities" when the captured text contains
+ * characters HTML treats as markup but that aren't in `entities`.
+ */
+const snapshotEditPayload = (
+  snap: NavSnapshot,
+): {
+  parse_mode?: "HTML" | "MarkdownV2";
+  entities?: MessageEntity[];
+  reply_markup: { inline_keyboard: InlineKeyboard };
+  link_preview_options?: { is_disabled: true };
+} => {
+  const useEntities = snap.entities !== undefined;
+  return {
+    parse_mode: useEntities ? undefined : snap.parseMode,
+    entities: useEntities ? snap.entities : undefined,
+    reply_markup: { inline_keyboard: snap.keyboard },
+    link_preview_options: snap.linkPreviewDisabled
+      ? { is_disabled: true }
+      : undefined,
+  };
+};
+
 const editMessageToSnapshot = async (
   ctx: AppContext,
   snap: NavSnapshot,
 ): Promise<boolean> => {
   try {
-    await ctx.editMessageText(snap.text, {
-      parse_mode: snap.parseMode,
-      reply_markup: { inline_keyboard: snap.keyboard },
-      link_preview_options: snap.linkPreviewDisabled
-        ? { is_disabled: true }
-        : undefined,
-    });
+    await ctx.editMessageText(snap.text, snapshotEditPayload(snap));
     return true;
   } catch (err) {
     // Never throw out of a nav handler — Home / Back are the user's
@@ -454,13 +499,7 @@ export const registerNavCallbacks = (
         // restore — otherwise a transient Telegram 5xx silently
         // collapses one level of Back history.
         try {
-          await ctx.reply(snap.text, {
-            parse_mode: snap.parseMode,
-            reply_markup: { inline_keyboard: snap.keyboard },
-            link_preview_options: snap.linkPreviewDisabled
-              ? { is_disabled: true }
-              : undefined,
-          });
+          await ctx.reply(snap.text, snapshotEditPayload(snap));
         } catch (err) {
           pushNavSnapshot(ctx.session, snap);
           throw err;
@@ -531,13 +570,7 @@ const renderHome = async (
   const edited = await editMessageToSnapshot(ctx, snap);
   await ctx.answerCallbackQuery();
   if (edited) return;
-  const sent = await ctx.reply(snap.text, {
-    parse_mode: snap.parseMode,
-    reply_markup: { inline_keyboard: snap.keyboard },
-    link_preview_options: snap.linkPreviewDisabled
-      ? { is_disabled: true }
-      : undefined,
-  });
+  const sent = await ctx.reply(snap.text, snapshotEditPayload(snap));
   // Delete the originating bubble AFTER the fresh start view lands so
   // a transient send failure can never leave the user staring at an
   // empty chat. Best-effort: a benign 400 (already gone, outside the
