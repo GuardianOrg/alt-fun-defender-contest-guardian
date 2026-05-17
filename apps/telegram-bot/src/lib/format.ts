@@ -8,7 +8,10 @@ import {
   DEFAULT_LANGUAGE,
   type Language,
   POSITIONS_NO_OPEN_POSITIONS_REPLY,
+  POSITIONS_OPEN_POS_HEADER,
+  POSITIONS_OPEN_SECTION_HEADER,
   POSITIONS_REALISED_POS_HEADER,
+  POSITIONS_REALISED_SECTION_HEADER,
   REFRESH_BUTTON_TEXT,
   t,
 } from "./i18n.js";
@@ -294,12 +297,12 @@ export const buildPositionsView = (
 
   const sections: string[] = [];
   if (openTotal > 0) {
-    const header = `Open positions (${openTotal})`;
+    const header = t(POSITIONS_OPEN_SECTION_HEADER, lang)(openTotal);
     const lines = openSlice.map((p) => formatOpenLine(p, botUsername));
     sections.push([header, ...lines].join("\n\n"));
   }
   if (realisedTotal > 0) {
-    const header = `Realized positions (${realisedTotal})`;
+    const header = t(POSITIONS_REALISED_SECTION_HEADER, lang)(realisedTotal);
     const lines = realisedSlice.map((p) => formatRealisedLine(p, botUsername));
     sections.push([header, ...lines].join("\n\n"));
   }
@@ -325,13 +328,17 @@ export const buildPositionsView = (
     const compact: string[] = [];
     if (openTotal > 0)
       compact.push(
-        [`Open positions (${openTotal})`, ...compactOpenLines].join("\n\n"),
+        [
+          t(POSITIONS_OPEN_SECTION_HEADER, lang)(openTotal),
+          ...compactOpenLines,
+        ].join("\n\n"),
       );
     if (realisedTotal > 0)
       compact.push(
-        [`Realized positions (${realisedTotal})`, ...compactRealisedLines].join(
-          "\n\n",
-        ),
+        [
+          t(POSITIONS_REALISED_SECTION_HEADER, lang)(realisedTotal),
+          ...compactRealisedLines,
+        ].join("\n\n"),
       );
     text = compact.join("\n\n");
     if (text.length > TELEGRAM_MESSAGE_LIMIT) {
@@ -463,7 +470,7 @@ export const buildPositionsPageKeyboard = (
       view.openPage,
       view.openTotalPages,
       wallet,
-      "Open Pos",
+      t(POSITIONS_OPEN_POS_HEADER, lang),
       pageCallback,
       "open",
       view.realisedPage,
@@ -495,6 +502,6 @@ export const buildPositionsPageKeyboard = (
       ),
     },
   ]);
-  rows.push(backHomeRow());
+  rows.push(backHomeRow(lang));
   return { inline_keyboard: rows };
 };

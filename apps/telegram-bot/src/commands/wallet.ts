@@ -364,6 +364,7 @@ const renderMainState = async (
         wallets.length > 0,
         active !== null,
         status,
+        lang,
       ),
     },
   };
