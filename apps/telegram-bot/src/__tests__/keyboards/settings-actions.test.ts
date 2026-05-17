@@ -145,7 +145,8 @@ describe("buildSettingsKeyboard", () => {
     const rows = buildSettingsKeyboard({ ...baseStatus, executionTipGwei: 2 });
     const labels = flatLabels(rows);
     expect(labels).toContain("• Lightning •");
-    expect(labels.filter((t) => t.startsWith("• "))).toHaveLength(2);
+    // Active markers: slippage preset, speed preset, language preset.
+    expect(labels.filter((t) => t.startsWith("• "))).toHaveLength(3);
   });
 
   it("encodes the slot index in each speed-button callback payload", () => {
@@ -174,5 +175,42 @@ describe("buildSettingsKeyboard", () => {
     );
     expect(speedRowIdx).toBeGreaterThan(-1);
     expect(buySettingsIdx).toBeGreaterThan(speedRowIdx);
+  });
+
+  it("renders a '-- Language --' inert header row above an active English button", () => {
+    const rows = buildSettingsKeyboard(baseStatus);
+    const langHeaderIdx = rows.findIndex(
+      (row) => row.length === 1 && row[0]!.text === "-- Language --",
+    );
+    expect(langHeaderIdx).toBeGreaterThan(-1);
+    const header = rows[langHeaderIdx]![0]!;
+    if (!("callback_data" in header)) {
+      throw new Error("Language header has no callback_data");
+    }
+    expect(header.callback_data).toBe(SETTINGS_CALLBACK.noop);
+
+    const langRow = rows[langHeaderIdx + 1]!;
+    expect(langRow.length).toBe(1);
+    const englishBtn = langRow[0]!;
+    expect(englishBtn.text).toBe("• English •");
+    if (!("callback_data" in englishBtn)) {
+      throw new Error("English button has no callback_data");
+    }
+    expect(englishBtn.callback_data).toBe(SETTINGS_CALLBACK.noop);
+  });
+
+  it("places the language section below execution speed and above Buy / Sell Settings", () => {
+    const rows = buildSettingsKeyboard(baseStatus);
+    const speedRowIdx = rows.findIndex((row) =>
+      row.some((b) => b.text.includes("Lightning")),
+    );
+    const langHeaderIdx = rows.findIndex(
+      (row) => row.length === 1 && row[0]!.text === "-- Language --",
+    );
+    const buySettingsIdx = rows.findIndex((row) =>
+      row.some((b) => b.text === "Buy Settings"),
+    );
+    expect(langHeaderIdx).toBeGreaterThan(speedRowIdx);
+    expect(buySettingsIdx).toBeGreaterThan(langHeaderIdx);
   });
 });
