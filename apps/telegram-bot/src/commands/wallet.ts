@@ -21,7 +21,22 @@ import {
 import {
   TOAST_DELETE_CANCELLED,
   TOAST_DELETED,
+  WALLET_CHANGE_PIN_PROMPT,
+  WALLET_CONFIRM_PIN_PROMPT,
+  WALLET_DELETE_NO_LONGER_EXISTS_REPLY,
+  WALLET_EXPORT_NO_LONGER_EXISTS_REPLY,
   WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY,
+  WALLET_IMPORT_ALREADY_EXISTS_REPLY,
+  WALLET_IMPORT_INVALID_KEY_REPLY,
+  WALLET_IMPORT_PASTE_KEY_PROMPT,
+  WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY,
+  WALLET_NO_WALLETS_YET_REPLY,
+  WALLET_PICK_ACTIVE_PROMPT,
+  WALLET_RENAME_NO_LONGER_EXISTS_REPLY,
+  WALLET_RENAME_PROMPT,
+  WALLET_RESET_PIN_PROMPT,
+  WALLET_SET_NEW_PIN_PROMPT,
+  WALLET_SET_PIN_PROMPT,
   TOAST_DISABLE_CANCELLED,
   TOAST_NO_PIN_RESET_IN_PROGRESS,
   TOAST_INVALID_SWITCH_TARGET,
@@ -200,7 +215,7 @@ const renderMainText = (
     // Constraints" so users who already have a Privy wallet see the
     // bridge path. Both Create and Import are now wired.
     return [
-      "No wallets yet.",
+      WALLET_NO_WALLETS_YET_REPLY.English,
       "",
       "• Create — generate a new bot-managed wallet to start trading",
       "• Import — paste an existing private key (including a Privy key exported from the Web App)",
@@ -323,7 +338,7 @@ const renameWalletConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
   const promptMsg = await ctx.reply(
-    wrap(ctx, "Send the new label for this wallet (max 32 chars)."),
+    wrap(ctx, WALLET_RENAME_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -361,7 +376,7 @@ const renameWalletConversation = async (
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
       await reply.reply(
-        wrap(ctx, "Wallet no longer exists. Rename cancelled."),
+        wrap(ctx, WALLET_RENAME_NO_LONGER_EXISTS_REPLY.English),
       );
       await sweepWorkflow(conversation);
       return;
@@ -444,7 +459,7 @@ const runPinSetFlow = async (
   // burn `deleteMessage` calls on the eventual clear.
   const askMsg = await ctx.reply(
     wrap(ctx,
-      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+      WALLET_SET_PIN_PROMPT.English,
     ),
     { reply_markup: backHomeMarkup() },
   );
@@ -472,7 +487,7 @@ const runPinSetFlow = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, "Confirm — send the same 6 digits again."),
+    wrap(ctx, WALLET_CONFIRM_PIN_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
@@ -647,7 +662,7 @@ const exportKeyConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, "Wallet no longer exists. Export aborted."),
+      wrap(ctx, WALLET_EXPORT_NO_LONGER_EXISTS_REPLY.English),
     );
     await sweepWorkflow(conversation);
     return;
@@ -721,15 +736,7 @@ const importWalletConversation = async (
   await sweepWorkflow(conversation);
 
   const promptMsg = await ctx.reply(
-    wrap(ctx,
-      [
-        "Paste the private key for the wallet you want to import (0x-prefixed, 64 hex chars).",
-        "",
-        "Your message is deleted from this chat the instant the bot reads it. The bot never stores the plaintext key — only an encrypted copy.",
-        "",
-        "Tap Home to exit.",
-      ].join("\n"),
-    ),
+    wrap(ctx, WALLET_IMPORT_PASTE_KEY_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -755,7 +762,7 @@ const importWalletConversation = async (
     if (!parsed) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
+          WALLET_IMPORT_INVALID_KEY_REPLY.English,
         ),
         { reply_markup: backHomeMarkup() },
       );
@@ -790,7 +797,7 @@ const importWalletConversation = async (
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
         wrap(ctx,
-          "That private key is invalid. Paste it again.",
+          WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY.English,
         ),
         { reply_markup: backHomeMarkup() },
       );
@@ -800,7 +807,7 @@ const importWalletConversation = async (
     if (result.kind === "duplicate") {
       await ctx.reply(
         wrap(ctx,
-          "That wallet is already in your list. Import cancelled.",
+          WALLET_IMPORT_ALREADY_EXISTS_REPLY.English,
         ),
       );
       await sweepWorkflow(conversation);
@@ -891,7 +898,7 @@ const deleteWalletConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, "Wallet no longer exists. Delete aborted."),
+      wrap(ctx, WALLET_DELETE_NO_LONGER_EXISTS_REPLY.English),
     );
     await sweepWorkflow(conversation);
     return;
@@ -937,7 +944,7 @@ const deleteWalletConversation = async (
   );
   if (deleteResult.kind === "missing") {
     await ctx.reply(
-      wrap(ctx, "Wallet no longer exists. Delete aborted."),
+      wrap(ctx, WALLET_DELETE_NO_LONGER_EXISTS_REPLY.English),
     );
     await sweepWorkflow(conversation);
     return;
@@ -973,7 +980,7 @@ const setPinConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+    WALLET_SET_NEW_PIN_PROMPT.English,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
@@ -1016,7 +1023,7 @@ const changePinConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send the new 6-digit PIN (digits only).",
+    WALLET_CHANGE_PIN_PROMPT.English,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
@@ -1070,7 +1077,7 @@ const completeResetConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send your new 6-digit PIN (digits only).",
+    WALLET_RESET_PIN_PROMPT.English,
   );
   const result = await conversation.external((outside) =>
     buildPinManager(outside.env).completeReset(userId, newPin),
@@ -1217,7 +1224,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (parent) pushNavSnapshot(ctx.session, parent);
     await safeEditMessageText(
       ctx,
-      wrap(ctx, "Pick the wallet to use as active:"),
+      wrap(ctx, WALLET_PICK_ACTIVE_PROMPT.English),
       {
         reply_markup: {
           inline_keyboard: buildWalletSwitchKeyboard(

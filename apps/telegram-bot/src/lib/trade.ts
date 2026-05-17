@@ -40,6 +40,11 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
+  INSUFFICIENT_HYPE_FOR_GAS_REPLY,
+  TRADE_ALREADY_IN_FLIGHT_REPLY,
+  TRADE_ROUTING_NOT_CONFIGURED_REPLY,
+} from "./i18n.js";
+import {
   claimIntent,
   markFinal,
   markSubmitted,
@@ -1005,7 +1010,7 @@ const resolveDuplicate = async (
     ok: false,
     kind: "unavailable",
     reason:
-      "Trade already in flight — wait a moment, then check the explorer or retry.",
+      TRADE_ALREADY_IN_FLIGHT_REPLY.English,
     txHash: record.txHash,
   };
 };
@@ -1343,10 +1348,10 @@ export const renderExecutionError = (
   options: { isPollingActive?: boolean } = {},
 ): string => {
   if (result.kind === "not_configured") {
-    return "Trade routing is not yet configured — try again in a moment.";
+    return TRADE_ROUTING_NOT_CONFIGURED_REPLY.English;
   }
   if (result.kind === "insufficient_funds") {
-    return "Insufficient HYPE for gas — top up the wallet and retry.";
+    return INSUFFICIENT_HYPE_FOR_GAS_REPLY.English;
   }
   if (result.kind === "pending") {
     // Three variants on the pending arm, distinguished by the

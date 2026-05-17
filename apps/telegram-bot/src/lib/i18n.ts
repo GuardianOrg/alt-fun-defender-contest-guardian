@@ -651,6 +651,46 @@ export const NO_ACTIVE_WALLET_RUN_WALLET_REPLY = {
 export const TRANSACTION_FAILED_SHORT_REPLY = {
   English: "Transaction failed — please try again in a moment.",
 } as const;
+export const TRADE_ALREADY_IN_FLIGHT_REPLY = {
+  English:
+    "Trade already in flight — wait a moment, then check the explorer or retry.",
+} as const;
+export const TRADE_ROUTING_NOT_CONFIGURED_REPLY = {
+  English: "Trade routing is not yet configured — try again in a moment.",
+} as const;
+export const INSUFFICIENT_HYPE_FOR_GAS_REPLY = {
+  English: "Insufficient HYPE for gas — top up the wallet and retry.",
+} as const;
+export const TOAST_CONFIRM_CLEARED = {
+  English: "Cancelled",
+} as const;
+export const TOAST_CONFIRM_ALREADY_EXPIRED = {
+  English: "Already expired",
+} as const;
+export const PIN_NO_PIN_ON_FILE_REPLY = {
+  English: "No PIN on file — re-run /wallet to set one.",
+} as const;
+export const PIN_FLOW_CONFIRM_PROMPT = {
+  English: "Confirm — send the same 6 digits again.",
+} as const;
+export const PENDING_TX_RECEIPT_NOT_SEEN_REPLY = {
+  English: "Receipt not seen within 30 minutes.",
+} as const;
+export const TOKEN_LIFECYCLE_GRADUATING = {
+  English: "Graduating 🔄",
+} as const;
+export const TOKEN_LIFECYCLE_BONDING_CURVE = {
+  English: "Bonding Curve",
+} as const;
+export const TOKEN_LIFECYCLE_GRADUATED = {
+  English: "Graduated ✅",
+} as const;
+export const POSITIONS_REALISED_POS_HEADER = {
+  English: "Realised Pos",
+} as const;
+export const ANTI_PHISHING_STATIC_HEADER = {
+  English: "This bot will never ask for your seed phrase or private key via DM.",
+} as const;
 export const TOKEN_NOT_FOUND_SHORT_REPLY = {
   English: "Token not found — make sure the address is correct.",
 } as const;
@@ -749,6 +789,220 @@ export const SELL_CUSTOM_PERCENT_INVALID_REPLY = {
 } as const;
 export const SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY = {
   English: "Unable to verify your token balance — please try again.",
+} as const;
+
+// ─── Slash command descriptions (Telegram BotCommand list) ─────────
+
+export const BOT_COMMAND_START_DESCRIPTION = {
+  English: "Open the main menu and create or import a wallet",
+} as const;
+export const BOT_COMMAND_HELP_DESCRIPTION = {
+  English: "Command list and security guidance",
+} as const;
+export const BOT_COMMAND_BUY_DESCRIPTION = {
+  English: "Buy a token by contract address",
+} as const;
+export const BOT_COMMAND_SELL_DESCRIPTION = {
+  English: "Sell a token from your positions",
+} as const;
+export const BOT_COMMAND_POSITIONS_DESCRIPTION = {
+  English: "Show open and realised positions",
+} as const;
+export const BOT_COMMAND_TRACK_DESCRIPTION = {
+  English: "Show a token info card and recent trades",
+} as const;
+export const BOT_COMMAND_WALLET_DESCRIPTION = {
+  English: "Wallets, PIN, withdrawal lock",
+} as const;
+export const BOT_COMMAND_WITHDRAW_DESCRIPTION = {
+  English: "Withdraw HYPE or USDC to an external wallet",
+} as const;
+export const BOT_COMMAND_SETTINGS_DESCRIPTION = {
+  English: "Slippage, default buy amount, anti-phishing phrase, degen mode",
+} as const;
+export const BOT_COMMAND_REFERRAL_DESCRIPTION = {
+  English: "Your referral link and earned rewards",
+} as const;
+
+// ─── /withdraw wizard ───────────────────────────────────────────────
+
+export const WITHDRAW_WHICH_ASSET_PROMPT = {
+  English: "Which asset?",
+} as const;
+export const WITHDRAW_SUMMARY_HEADER = {
+  English: "Withdraw summary",
+} as const;
+export const WITHDRAW_TAP_CONFIRM_HINT = {
+  English: "Tap Confirm Withdraw within 60s to submit.",
+} as const;
+export const WITHDRAW_INSUFFICIENT_BALANCE_REPLY = {
+  English: "Insufficient balance for the requested amount + gas.",
+} as const;
+export const WITHDRAW_PIN_PROMPT = {
+  English: "Send your 6-digit PIN to authorise the withdraw.",
+} as const;
+export const WITHDRAW_INVALID_AMOUNT_REPLY = {
+  English:
+    "Invalid amount — must be a positive decimal within the asset's precision. Send again.",
+} as const;
+export const WITHDRAW_DESTINATION_PROMPT = {
+  English: "Destination address? Send a 0x-prefixed EVM address.",
+} as const;
+export const WITHDRAW_INVALID_DESTINATION_REPLY = {
+  English:
+    "Invalid address — must be 0x followed by 40 hex characters. Send again.",
+} as const;
+
+// ─── /wallet wizards ────────────────────────────────────────────────
+
+export const WALLET_NO_WALLETS_YET_REPLY = {
+  English: "No wallets yet.",
+} as const;
+export const WALLET_RENAME_PROMPT = {
+  English: "Send the new label for this wallet (max 32 chars).",
+} as const;
+export const WALLET_RENAME_NO_LONGER_EXISTS_REPLY = {
+  English: "Wallet no longer exists. Rename cancelled.",
+} as const;
+export const WALLET_EXPORT_NO_LONGER_EXISTS_REPLY = {
+  English: "Wallet no longer exists. Export aborted.",
+} as const;
+export const WALLET_DELETE_NO_LONGER_EXISTS_REPLY = {
+  English: "Wallet no longer exists. Delete aborted.",
+} as const;
+export const WALLET_SET_PIN_PROMPT = {
+  English:
+    "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+} as const;
+export const WALLET_CONFIRM_PIN_PROMPT = {
+  English: "Confirm — send the same 6 digits again.",
+} as const;
+export const WALLET_IMPORT_PASTE_KEY_PROMPT = {
+  English: [
+    "Paste the private key for the wallet you want to import (0x-prefixed, 64 hex chars).",
+    "",
+    "Your message is deleted from this chat the instant the bot reads it. The bot never stores the plaintext key — only an encrypted copy.",
+    "",
+    "Tap Home to exit.",
+  ].join("\n\n"),
+} as const;
+export const WALLET_IMPORT_INVALID_KEY_REPLY = {
+  English:
+    "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
+} as const;
+export const WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY = {
+  English: "That private key is invalid. Paste it again.",
+} as const;
+export const WALLET_IMPORT_ALREADY_EXISTS_REPLY = {
+  English: "That wallet is already in your list. Import cancelled.",
+} as const;
+export const WALLET_CHANGE_PIN_PROMPT = {
+  English: "Send the new 6-digit PIN (digits only).",
+} as const;
+export const WALLET_RESET_PIN_PROMPT = {
+  English: "Send your new 6-digit PIN (digits only).",
+} as const;
+export const WALLET_SET_NEW_PIN_PROMPT = {
+  English:
+    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+} as const;
+export const WALLET_PICK_ACTIVE_PROMPT = {
+  English: "Pick the wallet to use as active:",
+} as const;
+
+// ─── /referral wizards ──────────────────────────────────────────────
+
+export const REFERRAL_UPDATE_REWARDS_WALLET_HINT = {
+  English: "Update your rewards wallet to fix future payments.",
+} as const;
+export const REFERRAL_CHECK_REWARDS_WALLET_HINT = {
+  English: "Check that your rewards wallet is set so this doesn't happen again.",
+} as const;
+export const REFERRAL_SHARE_LINK_LEAD = {
+  English: "Share your link to earn a cut of every trade your referees make.",
+} as const;
+export const REFERRAL_LINK_LABEL = {
+  English: "Your referral link:",
+} as const;
+export const REFERRAL_REWARDS_WALLET_LABEL = {
+  English: "Your rewards wallet:",
+} as const;
+export const REFERRAL_PAST_REFEREES_WARNING = {
+  English:
+    "Past referees keep paying the previously-set address forever, by on-chain attribution. To redirect future earnings from existing referees, you must control the previously-set address.",
+} as const;
+export const REFERRAL_PICK_OR_CUSTOM_HINT = {
+  English:
+    "Pick one of your bot wallets below, or tap <b>Custom</b> to enter a different HyperEVM address.",
+} as const;
+export const REFERRAL_LONG_LIVED_HINT = {
+  English:
+    "Set the new wallet to a long-lived address you control (hardware wallet or main custodial wallet) — avoid exchange deposit addresses or rotating addresses.",
+} as const;
+export const REFERRAL_SEND_NEW_ADDRESS_PROMPT = {
+  English: "Send the new rewards wallet address (0x-prefixed, 40 hex chars).",
+} as const;
+export const REFERRAL_SET_PIN_PROMPT = {
+  English:
+    "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
+} as const;
+export const REFERRAL_PIN_CONFIRM_PROMPT = {
+  English: "Confirm — send the same 6 digits again.",
+} as const;
+export const REFERRAL_VERIFY_PIN_PROMPT = {
+  English: "Send your 6-digit PIN to authorise the rewards-wallet change.",
+} as const;
+export const PIN_INVALID_FORMAT_REPLY = {
+  English: "PIN must be exactly 6 digits. Send again.",
+} as const;
+export const PIN_DO_NOT_MATCH_REPLY = {
+  English: "PINs do not match. Send the confirmation PIN again.",
+} as const;
+export const PIN_STATE_LOST_REPLY = {
+  English: "PIN state lost — re-run /referral → Change rewards wallet.",
+} as const;
+export const REFERRAL_INVALID_ADDRESS_REPLY = {
+  English:
+    "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
+} as const;
+export const REFERRAL_BURN_PAYMENT_LOST_WARNING = {
+  English:
+    "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
+} as const;
+export const REFERRAL_BURN_CONFIRM_PROMPT = {
+  English:
+    "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
+} as const;
+export const REFERRAL_ABORTED_RETRY_PROMPT = {
+  English:
+    "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
+} as const;
+export const REFERRAL_STILL_BURN_RETRY_PROMPT = {
+  English:
+    "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
+} as const;
+export const REFERRAL_COULD_NOT_UPDATE_REPLY = {
+  English: "Could not update rewards wallet. Try again later.",
+} as const;
+export const REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY = {
+  English:
+    "That wallet is no longer available. Re-run /referral → Change rewards wallet.",
+} as const;
+export const REFERRAL_HEADER_REWARDS_REJECTING = {
+  English: "<b>⚠️ Rewards wallet rejecting USDC transfers</b>",
+} as const;
+export const REFERRAL_HEADER_ATTRIBUTION_DROPPED = {
+  English: "<b>⚠️ Attribution dropped for some referees</b>",
+} as const;
+export const REFERRAL_HEADER_YOUR_REFERRAL = {
+  English: "<b>Your referral</b>",
+} as const;
+export const REFERRAL_HEADER_CHANGE_REWARDS_WALLET = {
+  English: "<b>Change rewards wallet</b>",
+} as const;
+export const REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT = {
+  English:
+    "<b>Changing your rewards wallet does NOT redirect already-attributed referees.</b>",
 } as const;
 
 // ─── /sell — buffer-low banner ─────────────────────────────────────

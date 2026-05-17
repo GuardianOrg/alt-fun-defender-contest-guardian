@@ -54,6 +54,14 @@ import {
   TOAST_NO_ACTIVE_WALLET,
   TOAST_SUBMITTING,
   WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY,
+  WITHDRAW_DESTINATION_PROMPT,
+  WITHDRAW_INSUFFICIENT_BALANCE_REPLY,
+  WITHDRAW_INVALID_AMOUNT_REPLY,
+  WITHDRAW_INVALID_DESTINATION_REPLY,
+  WITHDRAW_PIN_PROMPT,
+  WITHDRAW_SUMMARY_HEADER,
+  WITHDRAW_TAP_CONFIRM_HINT,
+  WITHDRAW_WHICH_ASSET_PROMPT,
   WITHDRAW_LOCKED_REPLY as I18N_WITHDRAW_LOCKED_REPLY,
   WITHDRAW_NO_ACTIVE_WALLET_REPLY as I18N_WITHDRAW_NO_ACTIVE_WALLET_REPLY,
   WITHDRAW_NO_PIN_REPLY as I18N_WITHDRAW_NO_PIN_REPLY,
@@ -250,7 +258,7 @@ const ASSET_PICKER_PATTERN = /^wda:(usdc|hype)$/;
 
 const renderAssetPrompt = (balances: AssetBalances): string =>
   [
-    "Which asset?",
+    WITHDRAW_WHICH_ASSET_PROMPT.English,
     "",
     `You have ${formatBalance(balances.usdc, "USDC")} and ${formatBalance(balances.hype, "HYPE")}.`,
   ].join("\n");
@@ -277,7 +285,7 @@ const assetFromCallback = (data: string): WithdrawAsset | null => {
 
 const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
   const lines = [
-    "Withdraw summary",
+    WITHDRAW_SUMMARY_HEADER.English,
     "",
     `• Asset: ${args.asset}`,
     `• Amount: ${formatAmount(args.amountRaw, args.asset)} ${args.asset}`,
@@ -290,7 +298,7 @@ const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
       WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY.English,
     );
   }
-  lines.push("", "Tap Confirm Withdraw within 60s to submit.");
+  lines.push("", WITHDRAW_TAP_CONFIRM_HINT.English);
   return lines.join("\n");
 };
 
@@ -307,7 +315,7 @@ const renderError = (
   result: Exclude<Awaited<ReturnType<typeof executeWithdraw>>, { ok: true }>,
 ): string => {
   if (result.kind === "insufficient_funds") {
-    return "Insufficient balance for the requested amount + gas.";
+    return WITHDRAW_INSUFFICIENT_BALANCE_REPLY.English;
   }
   if (result.kind === "reverted") {
     return `Transaction reverted${result.reason ? `: ${result.reason}` : ""}.`;
@@ -329,7 +337,7 @@ const verifyPinForWithdraw = async (
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
     withAntiPhishing(
-      "Send your 6-digit PIN to authorise the withdraw.",
+      WITHDRAW_PIN_PROMPT.English,
     ),
     { reply_markup: backHomeMarkup() },
   );
@@ -498,7 +506,7 @@ const withdrawWizardConversation = async (
     if (parsed === null) {
       const retry = await ctx.reply(
         withAntiPhishing(
-          "Invalid amount — must be a positive decimal within the asset's precision. Send again.",
+          WITHDRAW_INVALID_AMOUNT_REPLY.English,
         ),
         { reply_markup: backHomeMarkup() },
       );
@@ -513,7 +521,7 @@ const withdrawWizardConversation = async (
     const raw = await promptArg(
       conversation,
       ctx,
-      "Destination address? Send a 0x-prefixed EVM address.",
+      WITHDRAW_DESTINATION_PROMPT.English,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -523,7 +531,7 @@ const withdrawWizardConversation = async (
     if (parsed === null) {
       const retry = await ctx.reply(
         withAntiPhishing(
-          "Invalid address — must be 0x followed by 40 hex characters. Send again.",
+          WITHDRAW_INVALID_DESTINATION_REPLY.English,
         ),
         { reply_markup: backHomeMarkup() },
       );

@@ -24,13 +24,40 @@ import {
 } from "../lib/conversation-commands.js";
 import {
   OUTAGE_REPLY as I18N_OUTAGE_REPLY,
+  PIN_DO_NOT_MATCH_REPLY,
+  PIN_INVALID_FORMAT_REPLY,
+  PIN_STATE_LOST_REPLY,
+  REFERRAL_ABORTED_RETRY_PROMPT,
   REFERRAL_BURN_ADDRESS_WARNING_REPLY,
+  REFERRAL_BURN_CONFIRM_PROMPT,
+  REFERRAL_BURN_PAYMENT_LOST_WARNING,
   REFERRAL_CHANGE_REWARDS_WALLET_BUTTON,
+  REFERRAL_CHECK_REWARDS_WALLET_HINT,
+  REFERRAL_COULD_NOT_UPDATE_REPLY,
   REFERRAL_CUSTOM_BUTTON,
+  REFERRAL_HEADER_ATTRIBUTION_DROPPED,
+  REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT,
+  REFERRAL_HEADER_CHANGE_REWARDS_WALLET,
+  REFERRAL_HEADER_REWARDS_REJECTING,
+  REFERRAL_HEADER_YOUR_REFERRAL,
+  REFERRAL_INVALID_ADDRESS_REPLY,
+  REFERRAL_LINK_LABEL,
+  REFERRAL_LONG_LIVED_HINT,
   REFERRAL_NO_USER_REPLY as I18N_REFERRAL_NO_USER_REPLY,
   REFERRAL_NO_WALLET_REPLY as I18N_REFERRAL_NO_WALLET_REPLY,
   REFERRAL_NON_PRIVATE_CHAT_REPLY as I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY,
+  REFERRAL_PAST_REFEREES_WARNING,
+  REFERRAL_PICK_OR_CUSTOM_HINT,
+  REFERRAL_PIN_CONFIRM_PROMPT,
   REFERRAL_PRIVATE_DM_ONLY_REPLY,
+  REFERRAL_REWARDS_WALLET_LABEL,
+  REFERRAL_SEND_NEW_ADDRESS_PROMPT,
+  REFERRAL_SET_PIN_PROMPT,
+  REFERRAL_SHARE_LINK_LEAD,
+  REFERRAL_STILL_BURN_RETRY_PROMPT,
+  REFERRAL_UPDATE_REWARDS_WALLET_HINT,
+  REFERRAL_VERIFY_PIN_PROMPT,
+  REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY,
   TOAST_MISSING_USER,
 } from "../lib/i18n.js";
 import {
@@ -144,18 +171,18 @@ const renderBanners = (stats: BotReferralStats): string[] => {
   if (stats.badPaymentCount > 0) {
     banners.push(
       [
-        "<b>⚠️ Rewards wallet rejecting USDC transfers</b>",
+        REFERRAL_HEADER_REWARDS_REJECTING.English,
         `${stats.badPaymentCount} referral payment${stats.badPaymentCount === 1 ? "" : "s"} rolled into treasury and are not recoverable.`,
-        "Update your rewards wallet to fix future payments.",
+        REFERRAL_UPDATE_REWARDS_WALLET_HINT.English,
       ].join("\n"),
     );
   }
   if (stats.attributionLossCount > 0) {
     banners.push(
       [
-        "<b>⚠️ Attribution dropped for some referees</b>",
+        REFERRAL_HEADER_ATTRIBUTION_DROPPED.English,
         `${stats.attributionLossCount} user${stats.attributionLossCount === 1 ? "" : "s"} hit your link before you finished setup; their attribution was not assigned.`,
-        "Check that your rewards wallet is set so this doesn't happen again.",
+        REFERRAL_CHECK_REWARDS_WALLET_HINT.English,
       ].join("\n"),
     );
   }
@@ -171,15 +198,15 @@ const renderReferralHtml = (
   const sections = [
     escapeHtml(resolveAntiPhishingHeader(phrase)),
     "",
-    "<b>Your referral</b>",
+    REFERRAL_HEADER_YOUR_REFERRAL.English,
     "",
-    "Share your link to earn a cut of every trade your referees make.",
+    REFERRAL_SHARE_LINK_LEAD.English,
     "",
-    "Your referral link:",
+    REFERRAL_LINK_LABEL.English,
     `<code>${escapeHtml(link)}</code>`,
     "(Tap to copy)",
     "",
-    "Your rewards wallet:",
+    REFERRAL_REWARDS_WALLET_LABEL.English,
     `<code>${escapeHtml(stats.rewardsWallet)}</code>`,
     "",
     `Referred users: ${stats.referredCount}`,
@@ -271,13 +298,13 @@ const buildPickerKeyboard = (
 };
 
 const PICKER_INTRO = [
-  "<b>Change rewards wallet</b>",
+  REFERRAL_HEADER_CHANGE_REWARDS_WALLET.English,
   "",
-  "<b>Changing your rewards wallet does NOT redirect already-attributed referees.</b>",
+  REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT.English,
   "",
-  "Past referees keep paying the previously-set address forever, by on-chain attribution. To redirect future earnings from existing referees, you must control the previously-set address.",
+  REFERRAL_PAST_REFEREES_WARNING.English,
   "",
-  "Pick one of your bot wallets below, or tap <b>Custom</b> to enter a different HyperEVM address.",
+  REFERRAL_PICK_OR_CUSTOM_HINT.English,
 ].join("\n");
 
 const renderPickerHtml = (phrase: string | null | undefined): string =>
@@ -354,13 +381,13 @@ const sendReferral = async (
 };
 
 const REWARDS_WALLET_WARNING = [
-  "<b>Changing your rewards wallet does NOT redirect already-attributed referees.</b>",
+  REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT.English,
   "",
-  "Past referees keep paying the previously-set address forever, by on-chain attribution. To redirect future earnings from existing referees, you must control the previously-set address.",
+  REFERRAL_PAST_REFEREES_WARNING.English,
   "",
-  "Set the new wallet to a long-lived address you control (hardware wallet or main custodial wallet) — avoid exchange deposit addresses or rotating addresses.",
+  REFERRAL_LONG_LIVED_HINT.English,
   "",
-  "Send the new rewards wallet address (0x-prefixed, 40 hex chars).",
+  REFERRAL_SEND_NEW_ADDRESS_PROMPT.English,
 ].join("\n");
 
 /**
@@ -456,7 +483,7 @@ const runPinGate = async (
       conversation,
       ctx,
       origin,
-      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect rewards-wallet changes.",
+      REFERRAL_SET_PIN_PROMPT.English,
     );
     let candidate: string | null = null;
     while (candidate === null) {
@@ -471,7 +498,7 @@ const runPinGate = async (
           conversation,
           ctx,
           origin,
-          "PIN must be exactly 6 digits. Send again.",
+          PIN_INVALID_FORMAT_REPLY.English,
         );
         continue;
       }
@@ -481,7 +508,7 @@ const runPinGate = async (
       conversation,
       ctx,
       origin,
-      "Confirm — send the same 6 digits again.",
+      REFERRAL_PIN_CONFIRM_PROMPT.English,
     );
     while (true) {
       const msg = await conversation.waitFor("message:text");
@@ -495,7 +522,7 @@ const runPinGate = async (
           conversation,
           ctx,
           origin,
-          "PINs do not match. Send the confirmation PIN again.",
+          PIN_DO_NOT_MATCH_REPLY.English,
         );
         continue;
       }
@@ -512,7 +539,7 @@ const runPinGate = async (
     conversation,
     ctx,
     origin,
-    "Send your 6-digit PIN to authorise the rewards-wallet change.",
+    REFERRAL_VERIFY_PIN_PROMPT.English,
   );
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -540,7 +567,7 @@ const runPinGate = async (
     if (result.reason === "unset") {
       await ctx.reply(
         wrap(ctx,
-          "PIN state lost — re-run /referral → Change rewards wallet.",
+          PIN_STATE_LOST_REPLY.English,
         ),
       );
       return false;
@@ -640,7 +667,7 @@ const changeRewardsWalletConversation = async (
         conversation,
         ctx,
         origin,
-        "Not a valid HyperEVM address. Send a 0x-prefixed 40-char hex address.",
+        REFERRAL_INVALID_ADDRESS_REPLY.English,
       );
       continue;
     }
@@ -656,9 +683,9 @@ const changeRewardsWalletConversation = async (
         origin,
         [
           REFERRAL_BURN_ADDRESS_WARNING_REPLY.English,
-          "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
+          REFERRAL_BURN_PAYMENT_LOST_WARNING.English,
           "",
-          "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
+          REFERRAL_BURN_CONFIRM_PROMPT.English,
         ].join("\n"),
       );
       const confirmMsg = await conversation.waitFor("message:text");
@@ -680,7 +707,7 @@ const changeRewardsWalletConversation = async (
             conversation,
             ctx,
             origin,
-            "Aborted. Send 'confirm' or a new 0x-prefixed address, or tap Home to exit.",
+            REFERRAL_ABORTED_RETRY_PROMPT.English,
           );
           continue;
         }
@@ -690,7 +717,7 @@ const changeRewardsWalletConversation = async (
             conversation,
             ctx,
             origin,
-            "That's still a known burn address. Send 'confirm' to proceed, tap Home to exit, or a different address.",
+            REFERRAL_STILL_BURN_RETRY_PROMPT.English,
           );
           continue;
         }
@@ -716,7 +743,7 @@ const changeRewardsWalletConversation = async (
       wrap(ctx,
         result.kind === "unavailable"
           ? "API temporarily unavailable — try again in a moment."
-          : "Could not update rewards wallet. Try again later.",
+          : REFERRAL_COULD_NOT_UPDATE_REPLY.English,
       ),
     );
     await sweepWorkflow(conversation);
@@ -797,7 +824,7 @@ const pickKnownRewardsWalletConversation = async (
       conversation,
       ctx,
       origin,
-      "That wallet is no longer available. Re-run /referral → Change rewards wallet.",
+      REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY.English,
     );
     await sweepWorkflow(conversation);
     return;
@@ -818,7 +845,7 @@ const pickKnownRewardsWalletConversation = async (
       await showPrompt(conversation, ctx, origin, OUTAGE_REPLY);
     } else {
       await ctx.reply(
-        wrap(ctx, "Could not update rewards wallet. Try again later."),
+        wrap(ctx, REFERRAL_COULD_NOT_UPDATE_REPLY.English),
       );
     }
     await sweepWorkflow(conversation);

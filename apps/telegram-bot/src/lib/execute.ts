@@ -19,6 +19,7 @@ import { intentKey, type IdempotencyKv } from "./idempotency.js";
 import {
   CANCEL_BUTTON,
   CONFIRM_BUTTON,
+  TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TRANSACTION_FAILED_REPLY,
 } from "./i18n.js";
 import { logger } from "./logger.js";
@@ -318,7 +319,7 @@ export const renderConfirmReply = (
     return "⏱ That trade confirmation has expired. Re-run /buy or /sell to try again.";
   }
   if (outcome.kind === "no_wallet") {
-    return "No active wallet — run /wallet to set one up.";
+    return TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English;
   }
   const { result, ticker, side, token } = outcome;
   if (result.ok) {

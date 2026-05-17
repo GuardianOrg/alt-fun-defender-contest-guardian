@@ -1,4 +1,9 @@
 import type { TokenInfo } from "./api.js";
+import {
+  TOKEN_LIFECYCLE_BONDING_CURVE,
+  TOKEN_LIFECYCLE_GRADUATED,
+  TOKEN_LIFECYCLE_GRADUATING,
+} from "./i18n.js";
 
 const HYPEREVMSCAN_BASE = "https://hyperevmscan.io";
 const ALTFUN_TOKEN_BASE = "https://alt.fun/token";
@@ -114,9 +119,9 @@ const renderHeader = (token: TokenInfo): string => {
 };
 
 const statusLabel = (status: string): string => {
-  if (status === "graduated") return "Graduated ✅";
-  if (status === "graduating") return "Graduating 🔄";
-  return "Bonding Curve";
+  if (status === "graduated") return TOKEN_LIFECYCLE_GRADUATED.English;
+  if (status === "graduating") return TOKEN_LIFECYCLE_GRADUATING.English;
+  return TOKEN_LIFECYCLE_BONDING_CURVE.English;
 };
 
 /**

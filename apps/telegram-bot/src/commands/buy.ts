@@ -36,6 +36,8 @@ import { escapeHtml } from "../lib/format.js";
 import {
   NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
   OUTAGE_REPLY,
+  TOAST_CONFIRM_ALREADY_EXPIRED,
+  TOAST_CONFIRM_CLEARED,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TOAST_REFRESHED,
   TOAST_SUBMITTING,
@@ -836,7 +838,9 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     }
     const cleared = cancelTrade(ctx, nonce);
     await ctx.answerCallbackQuery({
-      text: cleared ? "Cancelled" : "Already expired",
+      text: cleared
+        ? TOAST_CONFIRM_CLEARED.English
+        : TOAST_CONFIRM_ALREADY_EXPIRED.English,
     });
   });
 };

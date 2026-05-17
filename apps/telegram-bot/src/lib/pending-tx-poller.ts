@@ -28,6 +28,7 @@ import {
   type TransactionReceipt,
 } from "viem";
 
+import { PENDING_TX_RECEIPT_NOT_SEEN_REPLY } from "./i18n.js";
 import { markFinal, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
@@ -430,7 +431,7 @@ const pollOne = async (
         ok: false,
         kind: "pending",
         txHash: rec.txHash,
-        reason: "Receipt not seen within 30 minutes.",
+        reason: PENDING_TX_RECEIPT_NOT_SEEN_REPLY.English,
       };
       const editOutcome = await safeEdit(
         poll.editor,

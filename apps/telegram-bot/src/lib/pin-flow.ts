@@ -6,6 +6,10 @@ import {
   haltAndForward,
   isOtherSlashCommand,
 } from "./conversation-commands.js";
+import {
+  PIN_FLOW_CONFIRM_PROMPT,
+  PIN_NO_PIN_ON_FILE_REPLY,
+} from "./i18n.js";
 import { backHomeMarkup } from "./nav.js";
 import { PinManager } from "./pin.js";
 import {
@@ -88,7 +92,7 @@ export const askNewPin = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, "Confirm — send the same 6 digits again."),
+    wrap(ctx, PIN_FLOW_CONFIRM_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
@@ -158,7 +162,7 @@ export const verifyExistingPin = async (
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(ctx, "No PIN on file — re-run /wallet to set one."),
+        wrap(ctx, PIN_NO_PIN_ON_FILE_REPLY.English),
       );
       return false;
     }

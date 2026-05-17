@@ -12,8 +12,9 @@
  * is intentionally exempt — the header would consume most of the
  * budget and the toast itself isn't an impersonation surface.
  */
-export const ANTI_PHISHING_HEADER =
-  "This bot will never ask for your seed phrase or private key via DM.";
+import { ANTI_PHISHING_STATIC_HEADER } from "./i18n.js";
+
+export const ANTI_PHISHING_HEADER = ANTI_PHISHING_STATIC_HEADER.English;
 
 export const resolveAntiPhishingHeader = (
   phrase: string | null | undefined,
