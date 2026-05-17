@@ -333,6 +333,12 @@ export const safeEditMessageById = async (
  * who moved on (cleared chat, deleted the bot reply, tapped a stale
  * button twice). Every start-menu callback that edits a message in
  * place uses this so the fallback path is identical across commands.
+ *
+ * Also catches the photo-bubble case ("there is no text in the message
+ * to edit"): Home / Back can be tapped on a chart card (sendPhoto), and
+ * `editMessageText` is structurally invalid against a media bubble —
+ * the only honest recovery is delete + fresh reply, identical to the
+ * benign-text path.
  */
 export const isBenignEditError = (err: unknown): boolean => {
   const e = err as BenignEditError;
@@ -342,7 +348,8 @@ export const isBenignEditError = (err: unknown): boolean => {
     desc.includes("message to edit not found") ||
     desc.includes("message not found") ||
     desc.includes("message is not modified") ||
-    desc.includes("message can't be edited")
+    desc.includes("message can't be edited") ||
+    desc.includes("there is no text in the message to edit")
   );
 };
 
@@ -360,8 +367,17 @@ const editMessageToSnapshot = async (
     });
     return true;
   } catch (err) {
-    if (isBenignEditError(err)) return false;
-    throw err;
+    // Never throw out of a nav handler — Home / Back are the user's
+    // last-resort escape and a thrown error here would propagate to
+    // `bot.catch` and leave the tap looking dead from the client. Log
+    // non-benign cases for ops visibility and degrade to the delete +
+    // reply fallback in `renderHome`, identical to the benign path.
+    if (!isBenignEditError(err)) {
+      logger.warn("nav: editMessageText failed, falling back to fresh reply", {
+        err,
+      });
+    }
+    return false;
   }
 };
 
@@ -402,9 +418,12 @@ export const registerNavCallbacks = (
       const edited = await editMessageToSnapshot(ctx, snap);
       await ctx.answerCallbackQuery();
       if (!edited) {
-        // The original message is gone (deleted by user or aged out);
-        // surface the snapshot as a fresh reply so the user is not
-        // stranded with no UI.
+        // The originating bubble can't be edited (deleted by user,
+        // aged out, photo caption from a chart card). Send the
+        // snapshot as a fresh reply then delete the source bubble so
+        // Back replaces the existing message rather than stacking a
+        // duplicate alongside it. Reply-then-delete order so a send
+        // failure never leaves the chat blank.
         await ctx.reply(snap.text, {
           parse_mode: snap.parseMode,
           reply_markup: { inline_keyboard: snap.keyboard },
@@ -412,6 +431,7 @@ export const registerNavCallbacks = (
             ? { is_disabled: true }
             : undefined,
         });
+        await deleteCurrentMessage(ctx);
       }
       return;
     }
@@ -467,15 +487,28 @@ const renderHome = async (
     });
     return;
   }
+  // Try edit-in-place first — the happy path for a text bubble. When
+  // the source bubble cannot be edited (photo caption from /track,
+  // deleted by user, aged out, or any non-benign Telegram 400) the
+  // bubble is deleted and the start view is sent as a fresh reply,
+  // so Home **always** replaces the existing message with the start
+  // endpoint rather than leaving a stale source bubble alongside a
+  // new one.
   const edited = await editMessageToSnapshot(ctx, snap);
   await ctx.answerCallbackQuery();
-  if (!edited) {
-    await ctx.reply(snap.text, {
-      parse_mode: snap.parseMode,
-      reply_markup: { inline_keyboard: snap.keyboard },
-      link_preview_options: snap.linkPreviewDisabled
-        ? { is_disabled: true }
-        : undefined,
-    });
-  }
+  if (edited) return;
+  const sent = await ctx.reply(snap.text, {
+    parse_mode: snap.parseMode,
+    reply_markup: { inline_keyboard: snap.keyboard },
+    link_preview_options: snap.linkPreviewDisabled
+      ? { is_disabled: true }
+      : undefined,
+  });
+  // Delete the originating bubble AFTER the fresh start view lands so
+  // a transient send failure can never leave the user staring at an
+  // empty chat. Best-effort: a benign 400 (already gone, outside the
+  // 48h delete window, photo bubble owned by someone else) is fine to
+  // swallow — the start view is what the user came for.
+  void sent;
+  await deleteCurrentMessage(ctx);
 };
