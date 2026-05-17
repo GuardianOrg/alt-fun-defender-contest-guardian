@@ -133,6 +133,7 @@ import {
 import {
   backHomeMarkup,
   editToSubmenu,
+  isBenignEditError,
   pushNavSnapshot,
   snapshotFromCallback,
   safeEditMessageById,
@@ -569,12 +570,23 @@ const editRevealToStart = async (
   chatId: number,
   messageId: number,
 ): Promise<void> => {
+  let snap: Awaited<ReturnType<typeof buildStartSnapshot>>;
   try {
-    const snap = await buildStartSnapshot(ctx);
-    if (!snap) {
+    snap = await buildStartSnapshot(ctx);
+  } catch {
+    snap = null;
+  }
+  if (!snap) {
+    // No start snapshot to render (no active wallet, RPC down). Fall
+    // back to deleting the reveal so the plaintext key never lingers.
+    try {
       await ctx.api.deleteMessage(chatId, messageId);
-      return;
+    } catch {
+      // Bubble already gone or out of the 48h deleteMessage window.
     }
+    return;
+  }
+  try {
     await ctx.api.editMessageText(chatId, messageId, snap.text, {
       parse_mode: snap.parseMode,
       reply_markup: { inline_keyboard: snap.keyboard },
@@ -582,14 +594,18 @@ const editRevealToStart = async (
         ? { is_disabled: true }
         : undefined,
     });
-  } catch {
-    // Edit failed — try a delete as a hygiene fallback. If that also
-    // fails the bubble is already gone or out of window, which is
-    // exactly the state we wanted anyway.
+  } catch (err) {
+    // Benign 400s ("message is not modified", "message not found",
+    // "message can't be edited", etc.) mean the bubble is already in
+    // the target state — Done was pressed at t=5s, the bubble is
+    // already /start when the 30s timer fires — or it's gone entirely.
+    // Deleting in those cases would wipe the home menu the user is
+    // currently using. Only fall through on a real failure.
+    if (isBenignEditError(err)) return;
     try {
       await ctx.api.deleteMessage(chatId, messageId);
     } catch {
-      // Swallow — see above.
+      // Bubble already gone or out of window.
     }
   }
 };

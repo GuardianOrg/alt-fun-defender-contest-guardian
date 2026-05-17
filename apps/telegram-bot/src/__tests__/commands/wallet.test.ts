@@ -658,6 +658,52 @@ describe("/wallet command", () => {
       expect(del!.body.chat_id).toBe(42);
       expect(del!.body.message_id).toBe(777);
     });
+
+    it("Done button swallows 'message is not modified' without deleting the home bubble", async () => {
+      // Regression: after a successful Done tap, the 30s auto-return
+      // timer fires editRevealToStart against the same messageId. The
+      // bubble already shows /start, so Telegram returns 400 "message
+      // is not modified". The handler must NOT fall through to
+      // deleteMessage — that would wipe the home menu the user is on.
+      const h = makeBotHarness();
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
+      // Mock all editMessageText to return the benign 400; everything
+      // else returns the standard ok payload.
+      fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/editMessageText")) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description: "Bad Request: message is not modified",
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      });
+      await h.run({
+        update_id: 9003,
+        callback_query: {
+          id: "cbq-del3",
+          from: { id: 7, is_bot: false, first_name: "Ada" },
+          chat_instance: "i-del3",
+          message: {
+            message_id: 888,
+            date: 0,
+            chat: { id: 42, type: "private" as const },
+          },
+          data: WALLET_CALLBACK.exportDelete,
+        },
+      });
+      const calls = capture(fetchSpy);
+      const del = calls.find((c) => c.url.includes("/deleteMessage"));
+      expect(del).toBeUndefined();
+    });
   });
 
   // Import flow: callback → conversation prompts for private key →
