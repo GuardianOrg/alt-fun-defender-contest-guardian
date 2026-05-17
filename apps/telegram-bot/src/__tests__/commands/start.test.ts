@@ -540,7 +540,7 @@ describe("/start command", () => {
     // The last two rows are Settings/Referral and Help — pinning the
     // exact layout per the moved-security cleanup.
     expect(keyboard[keyboard.length - 2]?.map((b) => b.text)).toEqual([
-      "Settings",
+      "⚙️ Settings",
       "Referral",
     ]);
     expect(keyboard[keyboard.length - 1]?.map((b) => b.text)).toEqual([

@@ -127,7 +127,7 @@ export const START_POSITIONS_BUTTON = { English: "Positions" } as const;
 export const START_TRACK_BUTTON = { English: "Track" } as const;
 export const START_WALLET_BUTTON = { English: "Wallet" } as const;
 export const START_WITHDRAW_BUTTON = { English: "Withdraw" } as const;
-export const START_SETTINGS_BUTTON = { English: "Settings" } as const;
+export const START_SETTINGS_BUTTON = { English: "⚙️ Settings" } as const;
 export const START_REFERRAL_BUTTON = { English: "Referral" } as const;
 export const START_HELP_BUTTON = { English: "Help" } as const;
 
