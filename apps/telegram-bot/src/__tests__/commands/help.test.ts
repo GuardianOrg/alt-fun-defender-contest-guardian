@@ -92,12 +92,20 @@ describe("renderHelp (pure)", () => {
   });
 
   it("lists the current /settings surfaces in the overview", () => {
-    // /settings now also owns language and execution speed; help drift here
-    // would lead users to think these settings live somewhere else.
+    // /settings owns six knobs today: language, slippage, execution speed,
+    // degen mode, buy/sell presets, and the anti-phishing phrase. Help drift
+    // on any one of them sends users to the wrong place.
     const html = renderHelp(undefined, undefined);
-    expect(html).toContain("language");
-    expect(html).toContain("execution speed");
-    expect(html).toContain("degen mode");
+    for (const needle of [
+      "language",
+      "slippage",
+      "execution speed",
+      "degen mode",
+      "buy/sell presets",
+      "anti-phishing phrase",
+    ]) {
+      expect(html).toContain(needle);
+    }
   });
 
   it("describes the current 5-slot buy/sell preset model under trading", () => {
@@ -115,9 +123,12 @@ describe("renderHelp (pure)", () => {
     // The lock is two-phase: enable instant, disable requires the user to
     // come back after 24h and tap Complete disable. The earlier copy only
     // mentioned the cooldown — without the second tap users assumed the
-    // lock cleared on its own.
+    // lock cleared on its own. The cancel-disable button label is the only
+    // affordance to revoke the request mid-cooldown.
     const html = renderHelp("security", undefined);
+    expect(html).toMatch(/Withdrawal lock button/i);
     expect(html).toContain("Complete disable");
+    expect(html).toContain("cancel disable");
     expect(html).toContain("24-hour");
   });
 
@@ -127,17 +138,20 @@ describe("renderHelp (pure)", () => {
     // users debugging the other two with no help-text hint.
     const html = renderHelp("referrals", undefined);
     expect(html).toMatch(/self-referral/i);
-    expect(html).toMatch(/bare/i); // bare first /start
+    expect(html).toMatch(/first \/start was bare/i);
     expect(html).toMatch(/had not yet onboarded/i);
   });
 
   it("notes that token positions must be sold before they can be withdrawn", () => {
     // /withdraw only handles native HYPE and USDC; users repeatedly tried to
     // withdraw Alt Fun token balances directly and hit a confusing failure.
+    // The preserved "every withdrawal is blocked until the lock is disabled"
+    // wording on step 2 is intentional — see PR #1045 for the why.
     const html = renderHelp("withdraw", undefined);
     expect(html).toContain("USDC");
     expect(html).toContain("HYPE");
     expect(html).toMatch(/sell.*first/i);
+    expect(html).toMatch(/every withdrawal is blocked until the lock is disabled/i);
   });
 
   it("does not claim alt.fun distributes the bot in security tips", () => {
