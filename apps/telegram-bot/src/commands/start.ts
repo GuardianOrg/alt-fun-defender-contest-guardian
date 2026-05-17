@@ -13,6 +13,19 @@ import {
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
+import {
+  OUTAGE_REPLY,
+  POSITIONS_NO_ACTIVE_WALLET_REPLY,
+  REFRESH_PRIVATE_DM_ONLY_REPLY,
+  START_BALANCE_REFRESHED_TOAST,
+  START_BALANCE_UNAVAILABLE_TOAST,
+  START_COULD_NOT_CREATE_WALLET_REPLY,
+  START_NO_USER_REPLY as I18N_START_NO_USER_REPLY,
+  START_NON_PRIVATE_CHAT_REPLY as I18N_START_NON_PRIVATE_CHAT_REPLY,
+  START_ONCE_FUNDED_REFRESH_HINT,
+  START_WALLET_ADDRESS_LABEL,
+  TOKEN_NOT_FOUND_SHORT_REPLY,
+} from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
   parseActionStartParam,
@@ -29,11 +42,9 @@ import { formatHype18, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Wallet flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /start.";
+const NON_PRIVATE_CHAT_REPLY = I18N_START_NON_PRIVATE_CHAT_REPLY.English;
 
-const NO_USER_REPLY =
-  "Wallets require a personal Telegram account — this message has no user attached.";
+const NO_USER_REPLY = I18N_START_NO_USER_REPLY.English;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -64,14 +75,14 @@ const renderWelcomeHtml = (
     "",
     `Welcome to ${BOT_NAME} — the bot for trading alt fun tokens on HyperEVM.`,
     "",
-    "Your wallet address:",
+    START_WALLET_ADDRESS_LABEL.English,
     `<code>${escapeHtml(address)}</code>`,
     "(Tap to copy)",
     "",
     `Balance: ${escapeHtml(usdc)} USDC`,
     `Gas balance: ${escapeHtml(hype)} HYPE`,
     "",
-    "Once funded, tap Refresh and your balance will appear here.",
+    START_ONCE_FUNDED_REFRESH_HINT.English,
   ].join("\n");
 };
 
@@ -199,7 +210,7 @@ const ensureActiveAddress = async (
 };
 
 const WALLET_CREATE_FAILED =
-  "Could not create your wallet — please try /start again in a moment.";
+  START_COULD_NOT_CREATE_WALLET_REPLY.English;
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -276,13 +287,10 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
         if (outcome === "not_found") {
           await replyWithNav(
             ctx,
-            "Token not found — make sure the address is correct.",
+            TOKEN_NOT_FOUND_SHORT_REPLY.English,
           );
         } else if (outcome === "unavailable") {
-          await replyWithNav(
-            ctx,
-            "Data temporarily unavailable — try again in a moment.",
-          );
+          await replyWithNav(ctx, OUTAGE_REPLY.English);
         }
       } else {
         await replyWithActionCard(
@@ -351,7 +359,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: "Refresh is private-DM only.",
+        text: REFRESH_PRIVATE_DM_ONLY_REPLY.English,
         show_alert: true,
       });
       return;
@@ -364,7 +372,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       // re-creating one — the user's intent here is "show me my
       // current balance", not "make a new wallet".
       await ctx.answerCallbackQuery({
-        text: "No active wallet. Run /wallet to create one.",
+        text: POSITIONS_NO_ACTIVE_WALLET_REPLY.English,
         show_alert: true,
       });
       return;
@@ -388,8 +396,8 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     await ctx.answerCallbackQuery({
       text:
         usdcBalance === null && hypeBalance === null
-          ? "Balance unavailable"
-          : "Balance refreshed",
+          ? START_BALANCE_UNAVAILABLE_TOAST.English
+          : START_BALANCE_REFRESHED_TOAST.English,
     });
   });
 };

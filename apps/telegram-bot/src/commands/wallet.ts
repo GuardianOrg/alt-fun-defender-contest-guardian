@@ -18,6 +18,45 @@ import {
   isOtherSlashCommand,
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
+import {
+  TOAST_DELETE_CANCELLED,
+  TOAST_DELETED,
+  WALLET_CHANGE_PIN_PROMPT,
+  WALLET_CONFIRM_PIN_PROMPT,
+  WALLET_DELETE_NO_LONGER_EXISTS_REPLY,
+  WALLET_EXPORT_NO_LONGER_EXISTS_REPLY,
+  WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY,
+  WALLET_IMPORT_ALREADY_EXISTS_REPLY,
+  WALLET_IMPORT_INVALID_KEY_REPLY,
+  WALLET_IMPORT_PASTE_KEY_PROMPT,
+  WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY,
+  WALLET_NO_WALLETS_YET_REPLY,
+  WALLET_PICK_ACTIVE_PROMPT,
+  WALLET_RENAME_NO_LONGER_EXISTS_REPLY,
+  WALLET_RENAME_PROMPT,
+  WALLET_RESET_PIN_PROMPT,
+  WALLET_SET_NEW_PIN_PROMPT,
+  WALLET_SET_PIN_PROMPT,
+  TOAST_DISABLE_CANCELLED,
+  TOAST_NO_PIN_RESET_IN_PROGRESS,
+  TOAST_INVALID_SWITCH_TARGET,
+  TOAST_LOCK_NOT_ENABLED,
+  TOAST_MISSING_USER,
+  TOAST_NO_ACTIVE_WALLET_TO_DELETE,
+  TOAST_NO_ACTIVE_WALLET_TO_EXPORT,
+  TOAST_NO_ACTIVE_WALLET_TO_RENAME,
+  TOAST_NO_WALLETS_TO_SWITCH,
+  TOAST_PIN_ALREADY_SET,
+  TOAST_RESET_ALREADY_READY,
+  TOAST_RESET_CANCELLED,
+  TOAST_WALLET_NO_LONGER_EXISTS,
+  TOAST_WITHDRAWAL_LOCK_DISABLED,
+  TOAST_WITHDRAWAL_LOCK_ENABLED,
+  WALLET_DELETE_NOW_BUTTON,
+  WALLET_NO_USER_REPLY as I18N_WALLET_NO_USER_REPLY,
+  WALLET_NON_PRIVATE_CHAT_REPLY as I18N_WALLET_NON_PRIVATE_CHAT_REPLY,
+  WALLET_PRIVATE_DM_ONLY_REPLY,
+} from "../lib/i18n.js";
 import { PIN_RESET_DELAY_MS, PinManager, type ResetStatus } from "../lib/pin.js";
 import {
   askNewPin,
@@ -49,11 +88,9 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 
-const NO_USER_REPLY =
-  "Wallets require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
+const NO_USER_REPLY = I18N_WALLET_NO_USER_REPLY.English;
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Wallet flows are private-DM only — wallet labels and addresses must not surface in groups. Open a direct chat with the bot to manage wallets.";
+const NON_PRIVATE_CHAT_REPLY = I18N_WALLET_NON_PRIVATE_CHAT_REPLY.English;
 
 const RENAME_MAX_LEN = 32;
 
@@ -80,7 +117,7 @@ const isPrivateChat = (ctx: AppContext): boolean =>
 const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   if (isPrivateChat(ctx)) return true;
   await ctx.answerCallbackQuery({
-    text: "Wallet actions are private-DM only.",
+    text: WALLET_PRIVATE_DM_ONLY_REPLY.English,
     show_alert: true,
   });
   return false;
@@ -178,7 +215,7 @@ const renderMainText = (
     // Constraints" so users who already have a Privy wallet see the
     // bridge path. Both Create and Import are now wired.
     return [
-      "No wallets yet.",
+      WALLET_NO_WALLETS_YET_REPLY.English,
       "",
       "• Create — generate a new bot-managed wallet to start trading",
       "• Import — paste an existing private key (including a Privy key exported from the Web App)",
@@ -301,7 +338,7 @@ const renameWalletConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
   const promptMsg = await ctx.reply(
-    wrap(ctx, "Send the new label for this wallet (max 32 chars)."),
+    wrap(ctx, WALLET_RENAME_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -339,7 +376,7 @@ const renameWalletConversation = async (
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
       await reply.reply(
-        wrap(ctx, "Wallet no longer exists. Rename cancelled."),
+        wrap(ctx, WALLET_RENAME_NO_LONGER_EXISTS_REPLY.English),
       );
       await sweepWorkflow(conversation);
       return;
@@ -422,7 +459,7 @@ const runPinSetFlow = async (
   // burn `deleteMessage` calls on the eventual clear.
   const askMsg = await ctx.reply(
     wrap(ctx,
-      "No PIN set yet. Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+      WALLET_SET_PIN_PROMPT.English,
     ),
     { reply_markup: backHomeMarkup() },
   );
@@ -450,7 +487,7 @@ const runPinSetFlow = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, "Confirm — send the same 6 digits again."),
+    wrap(ctx, WALLET_CONFIRM_PIN_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
@@ -625,7 +662,7 @@ const exportKeyConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, "Wallet no longer exists. Export aborted."),
+      wrap(ctx, WALLET_EXPORT_NO_LONGER_EXISTS_REPLY.English),
     );
     await sweepWorkflow(conversation);
     return;
@@ -644,7 +681,7 @@ const exportKeyConversation = async (
   await sweepWorkflow(conversation);
 
   const revealBody = [
-    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
+    WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY.English,
     "",
     `Address: ${wallet.address}`,
     `Private key: ${privateKey}`,
@@ -655,7 +692,7 @@ const exportKeyConversation = async (
       inline_keyboard: [
         [
           {
-            text: "Delete now",
+            text: WALLET_DELETE_NOW_BUTTON.English,
             callback_data: WALLET_CALLBACK.exportDelete,
           },
         ],
@@ -699,15 +736,7 @@ const importWalletConversation = async (
   await sweepWorkflow(conversation);
 
   const promptMsg = await ctx.reply(
-    wrap(ctx,
-      [
-        "Paste the private key for the wallet you want to import (0x-prefixed, 64 hex chars).",
-        "",
-        "Your message is deleted from this chat the instant the bot reads it. The bot never stores the plaintext key — only an encrypted copy.",
-        "",
-        "Tap Home to exit.",
-      ].join("\n"),
-    ),
+    wrap(ctx, WALLET_IMPORT_PASTE_KEY_PROMPT.English),
     { reply_markup: backHomeMarkup() },
   );
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -733,7 +762,7 @@ const importWalletConversation = async (
     if (!parsed) {
       const retry = await ctx.reply(
         wrap(ctx,
-          "That doesn't look like a private key — expected 0x followed by 64 hex characters. Paste it again.",
+          WALLET_IMPORT_INVALID_KEY_REPLY.English,
         ),
         { reply_markup: backHomeMarkup() },
       );
@@ -768,7 +797,7 @@ const importWalletConversation = async (
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
         wrap(ctx,
-          "That private key is invalid. Paste it again.",
+          WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY.English,
         ),
         { reply_markup: backHomeMarkup() },
       );
@@ -778,7 +807,7 @@ const importWalletConversation = async (
     if (result.kind === "duplicate") {
       await ctx.reply(
         wrap(ctx,
-          "That wallet is already in your list. Import cancelled.",
+          WALLET_IMPORT_ALREADY_EXISTS_REPLY.English,
         ),
       );
       await sweepWorkflow(conversation);
@@ -869,7 +898,7 @@ const deleteWalletConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, "Wallet no longer exists. Delete aborted."),
+      wrap(ctx, WALLET_DELETE_NO_LONGER_EXISTS_REPLY.English),
     );
     await sweepWorkflow(conversation);
     return;
@@ -892,7 +921,7 @@ const deleteWalletConversation = async (
     // Anything other than the exact uppercase token aborts — lowercase,
     // typo, fat-fingered emoji. The strictness is the point; this gate
     // exists to require deliberate action.
-    await ctx.reply(wrap(ctx, "Delete cancelled."));
+    await ctx.reply(wrap(ctx, TOAST_DELETE_CANCELLED.English));
     await sweepWorkflow(conversation);
     return;
   }
@@ -915,7 +944,7 @@ const deleteWalletConversation = async (
   );
   if (deleteResult.kind === "missing") {
     await ctx.reply(
-      wrap(ctx, "Wallet no longer exists. Delete aborted."),
+      wrap(ctx, WALLET_DELETE_NO_LONGER_EXISTS_REPLY.English),
     );
     await sweepWorkflow(conversation);
     return;
@@ -951,7 +980,7 @@ const setPinConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send a new 6-digit PIN (digits only) to protect wallet exports, withdrawals, and deletions.",
+    WALLET_SET_NEW_PIN_PROMPT.English,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
@@ -994,7 +1023,7 @@ const changePinConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send the new 6-digit PIN (digits only).",
+    WALLET_CHANGE_PIN_PROMPT.English,
   );
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
@@ -1026,7 +1055,7 @@ const completeResetConversation = async (
     buildPinManager(outside.env).getResetStatus(userId),
   );
   if (reset.kind === "none") {
-    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await ctx.reply(wrap(ctx, TOAST_NO_PIN_RESET_IN_PROGRESS.English));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1048,7 +1077,7 @@ const completeResetConversation = async (
     conversation,
     ctx,
     chatId,
-    "Send your new 6-digit PIN (digits only).",
+    WALLET_RESET_PIN_PROMPT.English,
   );
   const result = await conversation.external((outside) =>
     buildPinManager(outside.env).completeReset(userId, newPin),
@@ -1062,7 +1091,7 @@ const completeResetConversation = async (
     return;
   }
   if (result.kind === "not-requested") {
-    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await ctx.reply(wrap(ctx, TOAST_NO_PIN_RESET_IN_PROGRESS.English));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1149,7 +1178,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(WALLET_CALLBACK.create, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
@@ -1182,7 +1211,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const wallets = await wm.listWallets(ctx.from.id);
     if (wallets.length === 0) {
       await ctx.answerCallbackQuery({
-        text: "No wallets to switch to.",
+        text: TOAST_NO_WALLETS_TO_SWITCH.English,
         show_alert: true,
       });
       return;
@@ -1195,7 +1224,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (parent) pushNavSnapshot(ctx.session, parent);
     await safeEditMessageText(
       ctx,
-      wrap(ctx, "Pick the wallet to use as active:"),
+      wrap(ctx, WALLET_PICK_ACTIVE_PROMPT.English),
       {
         reply_markup: {
           inline_keyboard: buildWalletSwitchKeyboard(
@@ -1219,7 +1248,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       const data = ctx.callbackQuery.data ?? "";
       const walletId = data.split(":")[1];
       if (!walletId) {
-        await ctx.answerCallbackQuery({ text: "Invalid switch target." });
+        await ctx.answerCallbackQuery({ text: TOAST_INVALID_SWITCH_TARGET.English });
         return;
       }
       const wm = buildManager(ctx.env);
@@ -1228,7 +1257,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       } catch (err) {
         if (err instanceof WalletNotFoundError) {
           await ctx.answerCallbackQuery({
-            text: "Wallet no longer exists.",
+            text: TOAST_WALLET_NO_LONGER_EXISTS.English,
             show_alert: true,
           });
           return;
@@ -1259,7 +1288,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet to rename.",
+        text: TOAST_NO_ACTIVE_WALLET_TO_RENAME.English,
         show_alert: true,
       });
       return;
@@ -1286,7 +1315,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet to export.",
+        text: TOAST_NO_ACTIVE_WALLET_TO_EXPORT.English,
         show_alert: true,
       });
       return;
@@ -1310,7 +1339,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       // deleteMessage window. The user's intent (no plaintext key in
       // chat) is satisfied either way.
     }
-    await ctx.answerCallbackQuery({ text: "Deleted." });
+    await ctx.answerCallbackQuery({ text: TOAST_DELETED.English });
   });
 
   /**
@@ -1330,7 +1359,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet to delete.",
+        text: TOAST_NO_ACTIVE_WALLET_TO_DELETE.English,
         show_alert: true,
       });
       return;
@@ -1378,7 +1407,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     // check or the 24h reset flow.
     if (await buildPinManager(ctx.env).isPinSet(ctx.from.id)) {
       await ctx.answerCallbackQuery({
-        text: "PIN already set. Use Change PIN or Reset PIN.",
+        text: TOAST_PIN_ALREADY_SET.English,
         show_alert: true,
       });
       return;
@@ -1407,7 +1436,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await editToMain(ctx);
     if (result.kind === "ready") {
       await ctx.answerCallbackQuery({
-        text: "Reset already ready — tap Complete PIN reset.",
+        text: TOAST_RESET_ALREADY_READY.English,
         show_alert: true,
       });
       return;
@@ -1434,7 +1463,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildPinManager(ctx.env).cancelReset(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: "Reset cancelled." });
+    await ctx.answerCallbackQuery({ text: TOAST_RESET_CANCELLED.English });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.pinCompleteReset, async (ctx) => {
@@ -1455,7 +1484,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildSecurityState(ctx.env).enableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: "Withdrawal lock enabled." });
+    await ctx.answerCallbackQuery({ text: TOAST_WITHDRAWAL_LOCK_ENABLED.English });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.lockDisable, async (ctx) => {
@@ -1470,13 +1499,13 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await editToMain(ctx);
     if (result.kind === "not-enabled") {
       await ctx.answerCallbackQuery({
-        text: "Lock is not enabled.",
+        text: TOAST_LOCK_NOT_ENABLED.English,
         show_alert: true,
       });
       return;
     }
     if (result.kind === "disabled") {
-      await ctx.answerCallbackQuery({ text: "Withdrawal lock disabled." });
+      await ctx.answerCallbackQuery({ text: TOAST_WITHDRAWAL_LOCK_DISABLED.English });
       return;
     }
     const hours = formatHoursRemaining(result.readyAt, Date.now());
@@ -1494,13 +1523,13 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildSecurityState(ctx.env).cancelDisableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: "Disable cancelled." });
+    await ctx.answerCallbackQuery({ text: TOAST_DISABLE_CANCELLED.English });
   });
 
 
   bot.callbackQuery(START_CALLBACK.wallet, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;

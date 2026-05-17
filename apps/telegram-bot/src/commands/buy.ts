@@ -33,6 +33,20 @@ import {
   trackingPageUrl,
 } from "../lib/execute.js";
 import { escapeHtml } from "../lib/format.js";
+import {
+  NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
+  OUTAGE_REPLY,
+  TOAST_CONFIRM_ALREADY_EXPIRED,
+  TOAST_CONFIRM_CLEARED,
+  TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
+  TOAST_REFRESHED,
+  TOAST_SUBMITTING,
+  TOAST_SUBMITTING_ZAP,
+  TOAST_UNABLE_TO_VERIFY_USDC_BALANCE,
+  TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
+  TOKEN_LOOKUP_PROMPT_HTML,
+  TRANSACTION_FAILED_SHORT_REPLY,
+} from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
   backHomeMarkup,
@@ -55,24 +69,12 @@ import {
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
 
-const PROMPT_HTML =
-  "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
-  "Examples:\n" +
-  "• <code>0x1234…abcd</code>\n" +
-  "• <code>https://alt.fun/0x1234…</code>\n" +
-  "• <code>https://hyperevmscan.io/token/0x1234…</code>\n\n" +
-  "Tap Home to exit.";
+const PROMPT_HTML = TOKEN_LOOKUP_PROMPT_HTML.English;
 
-const TOKEN_NOT_FOUND_HTML =
-  "❌ <b>Token not found.</b>\n\n" +
-  "Make sure you have the correct contract address. You can find it on:\n" +
-  "• <a href=\"https://alt.fun\">alt.fun</a> — tap the token → copy address\n" +
-  "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
-  "Try again, or tap Home to exit.";
+const TOKEN_NOT_FOUND_HTML = TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML.English;
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
-const API_UNAVAILABLE =
-  "Data temporarily unavailable — try again in a moment.";
+const API_UNAVAILABLE = OUTAGE_REPLY.English;
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -326,7 +328,7 @@ const buyCustomConversation = async (
       : null;
     if (!active) {
       await msgCtx.reply(
-        "No active wallet — run /wallet to create or import one.",
+        NO_ACTIVE_WALLET_RUN_WALLET_REPLY.English,
       );
       await sweepWorkflow(conversation);
       return;
@@ -507,7 +509,7 @@ const handleBuyRefresh = async (
     },
     link_preview_options: { is_disabled: true },
   });
-  await ctx.answerCallbackQuery({ text: "Refreshed" });
+  await ctx.answerCallbackQuery({ text: TOAST_REFRESHED.English });
 };
 
 /**
@@ -536,7 +538,7 @@ const handleFixedBuy = async (
   const active = await wm.getActive(ctx.from.id);
   if (!active) {
     await ctx.answerCallbackQuery({
-      text: "No active wallet — run /wallet to set one up.",
+      text: TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English,
       show_alert: true,
     });
     return;
@@ -558,7 +560,7 @@ const handleFixedBuy = async (
   // Null balance = RPC unavailable; do not coerce to zero.
   if (usdcBalance === null) {
     await ctx.answerCallbackQuery({
-      text: "Unable to verify your USDC balance — please try again.",
+      text: TOAST_UNABLE_TO_VERIFY_USDC_BALANCE.English,
       show_alert: true,
     });
     return;
@@ -576,7 +578,7 @@ const handleFixedBuy = async (
 
   const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
   if (ctx.session.degenMode) {
-    await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING_ZAP.English });
     const cbMsg = ctx.callbackQuery?.message;
     if (cbMsg) {
       await runWithTxStatusUpdates({
@@ -785,7 +787,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await ctx.answerCallbackQuery({ text: "Submitting…" });
+    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING.English });
     // Snapshot the staged intent before `confirmTrade` clears it — we
     // need side / ticker / amount to render the Tx-status copy.
     const intent = ctx.session.pendingTrade;
@@ -822,7 +824,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     } catch (err) {
       logger.error("trade confirm failed", { err });
       await ctx.reply(
-        "Transaction failed — please try again in a moment.",
+        TRANSACTION_FAILED_SHORT_REPLY.English,
       );
     }
   });
@@ -836,7 +838,9 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     }
     const cleared = cancelTrade(ctx, nonce);
     await ctx.answerCallbackQuery({
-      text: cleared ? "Cancelled" : "Already expired",
+      text: cleared
+        ? TOAST_CONFIRM_CLEARED.English
+        : TOAST_CONFIRM_ALREADY_EXPIRED.English,
     });
   });
 };

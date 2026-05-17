@@ -6,6 +6,11 @@ import type {
   InlineCallbackButton,
   InlineKeyboard,
 } from "../keyboards/wallet-actions.js";
+import {
+  BACK_BUTTON_TEXT,
+  HOME_BUTTON_TEXT,
+  RUN_START_TO_RETURN_HOME_REPLY,
+} from "./i18n.js";
 import { logger } from "./logger.js";
 import { removeWorkflowMessage } from "./workflow-stack.js";
 
@@ -32,8 +37,8 @@ export const NAV_CALLBACK = {
   home: "nav:h",
 } as const;
 
-const BACK_LABEL = "← Back";
-const HOME_LABEL = "🏠 Home";
+const BACK_LABEL = BACK_BUTTON_TEXT.English;
+const HOME_LABEL = HOME_BUTTON_TEXT.English;
 
 /** Single trailing row shared by every system-prompt keyboard. */
 export const backHomeRow = (): InlineCallbackButton[] => [
@@ -555,7 +560,7 @@ const renderHome = async (
     // `/start` from the command menu.
     await deleteCurrentMessage(ctx);
     await ctx.answerCallbackQuery({
-      text: "Run /start to return home.",
+      text: RUN_START_TO_RETURN_HOME_REPLY.English,
       show_alert: false,
     });
     return;

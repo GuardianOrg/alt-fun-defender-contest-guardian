@@ -16,6 +16,12 @@ import type { AppContext } from "../bot.js";
 import { sendStartPromptAfterTrade } from "../commands/start.js";
 import { resolveActiveTipGwei } from "../keyboards/settings-actions.js";
 import { intentKey, type IdempotencyKv } from "./idempotency.js";
+import {
+  CANCEL_BUTTON,
+  CONFIRM_BUTTON,
+  TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
+  TRANSACTION_FAILED_REPLY,
+} from "./i18n.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
 import { readProfile } from "./onboarding.js";
@@ -159,8 +165,8 @@ export const confirmKeyboard = (
   nonce: string,
 ): Array<Array<{ text: string; callback_data: string }>> => [
   [
-    { text: "✅ Confirm", callback_data: `cnf:${nonce}` },
-    { text: "✖ Cancel", callback_data: `ccl:${nonce}` },
+    { text: CONFIRM_BUTTON.English, callback_data: `cnf:${nonce}` },
+    { text: CANCEL_BUTTON.English, callback_data: `ccl:${nonce}` },
   ],
 ];
 
@@ -313,7 +319,7 @@ export const renderConfirmReply = (
     return "⏱ That trade confirmation has expired. Re-run /buy or /sell to try again.";
   }
   if (outcome.kind === "no_wallet") {
-    return "No active wallet — run /wallet to set one up.";
+    return TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English;
   }
   const { result, ticker, side, token } = outcome;
   if (result.ok) {
@@ -627,7 +633,7 @@ export const runWithTxStatusUpdates = async (
   // original error.
   await safeEditStatus(
     args.target,
-    "❌ Transaction failed — please try again in a moment.",
+    TRANSACTION_FAILED_REPLY.English,
   );
   throw runError;
 };

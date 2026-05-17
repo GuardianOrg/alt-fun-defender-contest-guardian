@@ -1,3 +1,16 @@
+import {
+  REFRESH_BUTTON_TEXT,
+  START_BUY_BUTTON,
+  START_BUY_USDC_VIA_RELAY_BUTTON,
+  START_HELP_BUTTON,
+  START_POSITIONS_BUTTON,
+  START_REFERRAL_BUTTON,
+  START_SELL_BUTTON,
+  START_SETTINGS_BUTTON,
+  START_TRACK_BUTTON,
+  START_WALLET_BUTTON,
+  START_WITHDRAW_BUTTON,
+} from "../lib/i18n.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
 /**
@@ -30,26 +43,38 @@ export const buildStartMenuKeyboard = (
 ): InlineKeyboard => [
   [
     {
-      text: "Buy USDC via Relay",
+      text: START_BUY_USDC_VIA_RELAY_BUTTON.English,
       url: buyUsdcUrl,
     },
-    { text: "🔄 Refresh", callback_data: START_CALLBACK.refresh },
+    { text: REFRESH_BUTTON_TEXT.English, callback_data: START_CALLBACK.refresh },
   ],
   [
-    { text: "Buy", callback_data: START_CALLBACK.buy },
-    { text: "Sell", callback_data: START_CALLBACK.sell },
+    { text: START_BUY_BUTTON.English, callback_data: START_CALLBACK.buy },
+    { text: START_SELL_BUTTON.English, callback_data: START_CALLBACK.sell },
   ],
   [
-    { text: "Positions", callback_data: START_CALLBACK.positions },
-    { text: "Track", callback_data: START_CALLBACK.track },
+    {
+      text: START_POSITIONS_BUTTON.English,
+      callback_data: START_CALLBACK.positions,
+    },
+    { text: START_TRACK_BUTTON.English, callback_data: START_CALLBACK.track },
   ],
   [
-    { text: "Wallet", callback_data: START_CALLBACK.wallet },
-    { text: "Withdraw", callback_data: START_CALLBACK.withdraw },
+    { text: START_WALLET_BUTTON.English, callback_data: START_CALLBACK.wallet },
+    {
+      text: START_WITHDRAW_BUTTON.English,
+      callback_data: START_CALLBACK.withdraw,
+    },
   ],
   [
-    { text: "Settings", callback_data: START_CALLBACK.settings },
-    { text: "Referral", callback_data: START_CALLBACK.referral },
+    {
+      text: START_SETTINGS_BUTTON.English,
+      callback_data: START_CALLBACK.settings,
+    },
+    {
+      text: START_REFERRAL_BUTTON.English,
+      callback_data: START_CALLBACK.referral,
+    },
   ],
-  [{ text: "Help", callback_data: START_CALLBACK.help }],
+  [{ text: START_HELP_BUTTON.English, callback_data: START_CALLBACK.help }],
 ];

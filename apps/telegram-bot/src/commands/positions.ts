@@ -10,6 +10,19 @@ import {
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
+  OUTAGE_REPLY,
+  POSITIONS_INVALID_ADDRESS_REPLY,
+  POSITIONS_NO_ACTIVE_WALLET_REPLY,
+  TOAST_INVALID_PAGE_REQUEST,
+  TOAST_INVALID_REFRESH_REQUEST,
+  TOAST_INVALID_TOKEN,
+  TOAST_MESSAGE_NO_LONGER_AVAILABLE,
+  TOAST_MISSING_USER,
+  TOAST_REFRESHED,
+  POSITIONS_NON_PRIVATE_CHAT_REPLY,
+  POSITIONS_USAGE_REPLY,
+} from "../lib/i18n.js";
+import {
   POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_REFRESH_CALLBACK_CMD,
@@ -21,13 +34,11 @@ import { logger } from "../lib/logger.js";
 import { editToSubmenu, replyWithNav } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
 
-const USAGE = "Usage: /positions <wallet_address>";
-const OUTAGE = "Data temporarily unavailable — try again in a moment.";
-const INVALID_ADDRESS =
-  "Invalid wallet address. Expected a 0x-prefixed 40-character hex address.";
-const NON_PRIVATE_CHAT_REPLY =
-  "Positions are private-DM only — open a direct chat with the bot to view your positions.";
-const NO_ACTIVE_WALLET = "No active wallet. Run /wallet to create one.";
+const USAGE = POSITIONS_USAGE_REPLY.English;
+const OUTAGE = OUTAGE_REPLY.English;
+const INVALID_ADDRESS = POSITIONS_INVALID_ADDRESS_REPLY.English;
+const NON_PRIVATE_CHAT_REPLY = POSITIONS_NON_PRIVATE_CHAT_REPLY.English;
+const NO_ACTIVE_WALLET = POSITIONS_NO_ACTIVE_WALLET_REPLY.English;
 
 interface RenderedView {
   text: string;
@@ -141,11 +152,11 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         wallet === undefined ||
         !isAddress(wallet)
       ) {
-        await ctx.answerCallbackQuery({ text: "Invalid refresh request." });
+        await ctx.answerCallbackQuery({ text: TOAST_INVALID_REFRESH_REQUEST.English });
         return;
       }
       if (!ctx.callbackQuery.message) {
-        await ctx.answerCallbackQuery({ text: "Message no longer available." });
+        await ctx.answerCallbackQuery({ text: TOAST_MESSAGE_NO_LONGER_AVAILABLE.English });
         return;
       }
 
@@ -181,7 +192,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
           description: e.description,
         });
       }
-      await ctx.answerCallbackQuery({ text: "Refreshed" });
+      await ctx.answerCallbackQuery({ text: TOAST_REFRESHED.English });
     },
   );
 
@@ -207,11 +218,11 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         wallet === undefined ||
         !isAddress(wallet)
       ) {
-        await ctx.answerCallbackQuery({ text: "Invalid page request." });
+        await ctx.answerCallbackQuery({ text: TOAST_INVALID_PAGE_REQUEST.English });
         return;
       }
       if (!ctx.callbackQuery.message) {
-        await ctx.answerCallbackQuery({ text: "Message no longer available." });
+        await ctx.answerCallbackQuery({ text: TOAST_MESSAGE_NO_LONGER_AVAILABLE.English });
         return;
       }
 
@@ -270,11 +281,11 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       const data = ctx.callbackQuery.data ?? "";
       const token = data.slice(cmd.length + 1);
       if (!isAddress(token)) {
-        await ctx.answerCallbackQuery({ text: "Invalid token." });
+        await ctx.answerCallbackQuery({ text: TOAST_INVALID_TOKEN.English });
         return;
       }
       if (!ctx.from) {
-        await ctx.answerCallbackQuery({ text: "Missing user." });
+        await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
         return;
       }
       if (ctx.chat?.type !== "private") {
@@ -325,7 +336,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
    */
   bot.callbackQuery(START_CALLBACK.positions, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (ctx.chat?.type !== "private") {

@@ -1,3 +1,24 @@
+import {
+  WALLET_CANCEL_DISABLE_BUTTON,
+  WALLET_CANCEL_PIN_RESET_BUTTON,
+  WALLET_CANCEL_RESET_BUTTON,
+  WALLET_CHANGE_PIN_BUTTON,
+  WALLET_COMPLETE_DISABLE_BUTTON,
+  WALLET_COMPLETE_PIN_RESET_BUTTON,
+  WALLET_CREATE_BUTTON,
+  WALLET_DELETE_BUTTON,
+  WALLET_EXPORT_KEY_BUTTON,
+  WALLET_IMPORT_BUTTON,
+  WALLET_LOCK_CANCEL_DISABLE_BUTTON,
+  WALLET_LOCK_DISABLED_BUTTON,
+  WALLET_LOCK_ENABLED_BUTTON,
+  WALLET_RENAME_BUTTON,
+  WALLET_RESET_PIN_BUTTON,
+  WALLET_SET_PIN_BUTTON,
+  WALLET_SWITCH_BUTTON,
+  WALLET_UNLABELED,
+  WALLET_WITHDRAW_BUTTON,
+} from "../lib/i18n.js";
 import { backHomeRow } from "../lib/nav.js";
 import type { StoredWallet } from "../lib/wallet.js";
 
@@ -90,18 +111,18 @@ export const buildWalletMainKeyboard = (
 ): InlineKeyboard => {
   const rows: InlineKeyboard = [
     [
-      { text: "Create", callback_data: WALLET_CALLBACK.create },
-      { text: "Import", callback_data: WALLET_CALLBACK.import },
+      { text: WALLET_CREATE_BUTTON.English, callback_data: WALLET_CALLBACK.create },
+      { text: WALLET_IMPORT_BUTTON.English, callback_data: WALLET_CALLBACK.import },
     ],
   ];
   if (hasWallets) {
     rows.push([
-      { text: "Switch", callback_data: WALLET_CALLBACK.switchPicker },
-      { text: "Rename", callback_data: WALLET_CALLBACK.rename },
+      { text: WALLET_SWITCH_BUTTON.English, callback_data: WALLET_CALLBACK.switchPicker },
+      { text: WALLET_RENAME_BUTTON.English, callback_data: WALLET_CALLBACK.rename },
     ]);
     rows.push([
-      { text: "Delete", callback_data: WALLET_CALLBACK.delete },
-      { text: "Export key", callback_data: WALLET_CALLBACK.exportKey },
+      { text: WALLET_DELETE_BUTTON.English, callback_data: WALLET_CALLBACK.delete },
+      { text: WALLET_EXPORT_KEY_BUTTON.English, callback_data: WALLET_CALLBACK.exportKey },
     ]);
   }
   rows.push(buildPinRow(security));
@@ -111,22 +132,22 @@ export const buildWalletMainKeyboard = (
     // onto a single 3-button row that overflows on narrow clients.
     if (hasActive) {
       rows.push([
-        { text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw },
+        { text: WALLET_WITHDRAW_BUTTON.English, callback_data: WALLET_CALLBACK.withdraw },
       ]);
     }
     rows.push([
       {
-        text: "🟠 Complete disable",
+        text: WALLET_COMPLETE_DISABLE_BUTTON.English,
         callback_data: WALLET_CALLBACK.lockDisable,
       },
       {
-        text: "Cancel disable",
+        text: WALLET_CANCEL_DISABLE_BUTTON.English,
         callback_data: WALLET_CALLBACK.lockCancelDisable,
       },
     ]);
   } else if (hasActive) {
     rows.push([
-      { text: "Withdraw", callback_data: WALLET_CALLBACK.withdraw },
+      { text: WALLET_WITHDRAW_BUTTON.English, callback_data: WALLET_CALLBACK.withdraw },
       buildLockButton(security),
     ]);
   } else {
@@ -145,28 +166,28 @@ const buildPinRow = (
   security: WalletSecurityStatus,
 ): InlineCallbackButton[] => {
   if (!security.pinSet) {
-    return [{ text: "Set PIN", callback_data: WALLET_CALLBACK.pinSet }];
+    return [{ text: WALLET_SET_PIN_BUTTON.English, callback_data: WALLET_CALLBACK.pinSet }];
   }
   if (security.pinResetReady) {
     return [
       {
-        text: "Complete PIN reset",
+        text: WALLET_COMPLETE_PIN_RESET_BUTTON.English,
         callback_data: WALLET_CALLBACK.pinCompleteReset,
       },
-      { text: "Cancel reset", callback_data: WALLET_CALLBACK.pinCancelReset },
+      { text: WALLET_CANCEL_RESET_BUTTON.English, callback_data: WALLET_CALLBACK.pinCancelReset },
     ];
   }
   if (security.pinResetPending) {
     return [
       {
-        text: "Cancel PIN reset",
+        text: WALLET_CANCEL_PIN_RESET_BUTTON.English,
         callback_data: WALLET_CALLBACK.pinCancelReset,
       },
     ];
   }
   return [
-    { text: "Change PIN", callback_data: WALLET_CALLBACK.pinChange },
-    { text: "Reset PIN", callback_data: WALLET_CALLBACK.pinReset },
+    { text: WALLET_CHANGE_PIN_BUTTON.English, callback_data: WALLET_CALLBACK.pinChange },
+    { text: WALLET_RESET_PIN_BUTTON.English, callback_data: WALLET_CALLBACK.pinReset },
   ];
 };
 
@@ -182,18 +203,18 @@ const buildLockButton = (
 ): InlineCallbackButton => {
   if (!security.withdrawLockEnabled) {
     return {
-      text: "🔴 Withdrawal lock",
+      text: WALLET_LOCK_DISABLED_BUTTON.English,
       callback_data: WALLET_CALLBACK.lockEnable,
     };
   }
   if (security.withdrawDisablePending) {
     return {
-      text: "🟢 Withdrawal lock (cancel disable)",
+      text: WALLET_LOCK_CANCEL_DISABLE_BUTTON.English,
       callback_data: WALLET_CALLBACK.lockCancelDisable,
     };
   }
   return {
-    text: "🟢 Withdrawal lock",
+    text: WALLET_LOCK_ENABLED_BUTTON.English,
     callback_data: WALLET_CALLBACK.lockDisable,
   };
 };
@@ -210,7 +231,7 @@ export const buildWalletSwitchKeyboard = (
 ): InlineKeyboard => {
   const rows: InlineKeyboard = wallets.map((w) => [
     {
-      text: `${w.id === activeId ? "* " : "  "}${w.label ?? "(unlabeled)"} — ${truncateAddress(w.address)}`,
+      text: `${w.id === activeId ? "* " : "  "}${w.label ?? WALLET_UNLABELED.English} — ${truncateAddress(w.address)}`,
       callback_data: `${WALLET_CALLBACK.switchTo}:${w.id}`,
     },
   ]);
