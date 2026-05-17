@@ -221,6 +221,20 @@ const buildEditor = (env: Pick<Env, "TELEGRAM_BOT_TOKEN">): BubbleEditor => {
 type EditOutcome = "finalised" | "transient";
 
 const isTransientEditError = (err: unknown): boolean => {
+  // `AbortError` from the EDIT_TIMEOUT_MS budget is by definition transient:
+  // Telegram didn't respond inside the window, so retrying on the next alarm
+  // tick is the correct recovery. Without this branch the abort falls through
+  // to the unknown-4xx path and finalises the record, stranding the user on
+  // the "still polling" bubble — the opposite of what the timeout exists to
+  // achieve. Node and the browser both surface aborts as `name === "AbortError"`;
+  // belt-and-suspenders match on the message text too in case the upstream
+  // ever switches to a plain `Error`.
+  if (
+    err instanceof Error &&
+    (err.name === "AbortError" || /aborted/i.test(err.message))
+  ) {
+    return true;
+  }
   const e = err as { error_code?: number; description?: string; message?: string };
   if (typeof e.error_code === "number") {
     if (e.error_code === 429) return true;

@@ -726,7 +726,7 @@ When the timer fires, the `AbortError` lands in the same catch as a network refu
 
 A timeout (or any equivalent `unavailable` / `5xx` from an api helper) must surface as the **outage card**:
 
-```
+```text
 Data temporarily unavailable — try again in a moment.
 [← Back] [🏠 Home]
 ```
