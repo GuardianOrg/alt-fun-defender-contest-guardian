@@ -382,8 +382,12 @@ describe("/track command", () => {
     const allBtns = keyboard.flat();
     expect(allBtns.some((b) => b.text.includes("Buy"))).toBe(true);
     expect(allBtns.some((b) => b.text.includes("Sell"))).toBe(true);
-    const altFun = allBtns.find((b) => b.text.includes("Open on Alt Fun"));
-    expect(altFun?.url).toBe(`https://alt.fun/token/${TOKEN_ADDR}`);
+    expect(allBtns.some((b) => b.text.includes("Open on Alt Fun"))).toBe(
+      false,
+    );
+    expect(allBtns.some((b) => "url" in b && b.url?.includes("alt.fun"))).toBe(
+      false,
+    );
   });
 
   it("requests only 5 recent trades from the API", async () => {

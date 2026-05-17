@@ -78,8 +78,6 @@ const CAPTION_BUDGET = 1024;
  */
 const CHART_TIMEOUT_MS = 5_000;
 
-const ALT_FUN_TOKEN_BASE = "https://alt.fun/token";
-
 /**
  * Short callback codes scoped to /track. `trkb` and `trks` carry a
  * token address (8+1+42=51 bytes, safely under the 64-byte budget).
@@ -231,12 +229,6 @@ export const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
     {
       text: "Sell →",
       callback_data: encodeCallback(TRACK_CMD.sell, tokenAddress),
-    },
-  ],
-  [
-    {
-      text: "Open on Alt Fun",
-      url: `${ALT_FUN_TOKEN_BASE}/${tokenAddress}`,
     },
   ],
   backHomeRow(),
