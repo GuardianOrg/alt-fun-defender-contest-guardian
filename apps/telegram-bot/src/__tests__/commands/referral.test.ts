@@ -565,7 +565,7 @@ describe("Change rewards wallet wizard", () => {
     fetchSpy.mockRestore();
   });
 
-  it("edits the origin /referral card in place into the change-wallet warning (no fresh sendMessage)", async () => {
+  it("edits the origin /referral card in place into the picker (no fresh sendMessage)", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
@@ -574,10 +574,10 @@ describe("Change rewards wallet wizard", () => {
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 1 }));
 
     const calls = capture(fetchSpy);
-    // Warning lands as an edit on the originating callback message
+    // Picker lands as an edit on the originating callback message
     // (message_id 100 from `callbackUpdate`), not as a fresh
     // sendMessage that would leave the stale /referral card stacked
-    // above the wizard.
+    // above the picker.
     const edit = calls.find(
       (c) =>
         c.url.includes("/editMessageText") &&
@@ -604,15 +604,22 @@ describe("Change rewards wallet wizard", () => {
     mockApi(fetchSpy, wallet.address);
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 10 }));
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 11,
+      }),
+    );
 
-    // The wizard now edits the origin /referral bubble in place when
-    // launched from the inline button — accept either endpoint.
+    // The Custom path renders the warning + address prompt as an
+    // edit on the same origin bubble used by the picker — match on
+    // the address-entry copy so the picker bubble doesn't accidentally
+    // satisfy the assertion (it carries the warning text alone).
     const send = capture(fetchSpy).find(
       (c) =>
         (c.url.includes("/sendMessage") ||
           c.url.includes("/editMessageText")) &&
         String(c.body.text ?? "").includes(
-          "Changing your rewards wallet does NOT redirect already-attributed referees",
+          "Send the new rewards wallet address",
         ),
     );
     expect(send).toBeDefined();
@@ -648,6 +655,11 @@ describe("Change rewards wallet wizard", () => {
     mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 20 }));
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 22,
+      }),
+    );
     await h.run(textUpdate("not-an-address", 21));
 
     // Wizard renders both the warning and the invalid-address retry by
@@ -670,6 +682,11 @@ describe("Change rewards wallet wizard", () => {
     mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 40 }));
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 42,
+      }),
+    );
     await h.run(
       textUpdate("0x0000000000000000000000000000000000000000", 41),
     );
@@ -701,6 +718,11 @@ describe("Change rewards wallet wizard", () => {
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 50 }));
     await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 53,
+      }),
+    );
+    await h.run(
       textUpdate("0x000000000000000000000000000000000000dEaD", 51),
     );
     await h.run(textUpdate("/positions", 52));
@@ -722,6 +744,11 @@ describe("Change rewards wallet wizard", () => {
     mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 30 }));
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 32,
+      }),
+    );
     await h.run(textUpdate("/positions", 31));
 
     // No POST to /rewards-wallet — the conversation halted on the slash.
@@ -750,6 +777,11 @@ describe("Change rewards wallet wizard", () => {
         updateId: 60,
       }),
     );
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 62,
+      }),
+    );
     const addressMessageId = 50 + 61; // mirrors textUpdate's id formula
     await h.run(
       textUpdate("0x1111111111111111111111111111111111111111", 61),
@@ -775,6 +807,11 @@ describe("Change rewards wallet wizard", () => {
       }),
     );
     await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.pickRewardsWalletCustom, "private", {
+        updateId: 73,
+      }),
+    );
+    await h.run(
       textUpdate("0x0000000000000000000000000000000000000000", 71),
     );
     const confirmMessageId = 50 + 72;
@@ -786,5 +823,142 @@ describe("Change rewards wallet wizard", () => {
         c.body.message_id === confirmMessageId,
     );
     expect(deleteCall).toBeDefined();
+  });
+});
+
+describe("Rewards wallet picker", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("renders one button per existing wallet, two per row, plus Custom + Back/Home", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const w1 = await wm.createWallet(7, "main");
+    const w2 = await wm.createWallet(7); // unlabeled — falls back to shortened address
+    const w3 = await wm.createWallet(7, "extra");
+    mockApi(fetchSpy, w1.address);
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 200,
+      }),
+    );
+
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edit).toBeDefined();
+    const kb = (edit!.body.reply_markup as {
+      inline_keyboard: { text: string; callback_data?: string }[][];
+    }).inline_keyboard;
+
+    // Three wallets → row 0 has w1 + w2, row 1 has w3 alone (odd
+    // trailing wallet lands on its own single-button row).
+    expect(kb[0]).toHaveLength(2);
+    expect(kb[0]![0]!.text).toBe("main");
+    expect(kb[0]![0]!.callback_data).toBe(
+      `${REFERRAL_CALLBACK.pickRewardsWalletPrefix}${w1.id}`,
+    );
+    // Unlabeled wallet renders as `0x5A2e...F444`-style shortened address.
+    expect(kb[0]![1]!.text).toMatch(/^0x[0-9a-fA-F]{4}\.\.\.[0-9a-fA-F]{4}$/);
+    expect(kb[0]![1]!.callback_data).toBe(
+      `${REFERRAL_CALLBACK.pickRewardsWalletPrefix}${w2.id}`,
+    );
+    expect(kb[1]).toHaveLength(1);
+    expect(kb[1]![0]!.text).toBe("extra");
+    expect(kb[1]![0]!.callback_data).toBe(
+      `${REFERRAL_CALLBACK.pickRewardsWalletPrefix}${w3.id}`,
+    );
+    // Custom row sits on its own row, ahead of Back/Home.
+    expect(kb[2]).toHaveLength(1);
+    expect(kb[2]![0]!.text).toBe("Custom");
+    expect(kb[2]![0]!.callback_data).toBe(
+      REFERRAL_CALLBACK.pickRewardsWalletCustom,
+    );
+    expect(
+      kb[3]!.some((b) => b.callback_data === "nav:b") &&
+        kb[3]!.some((b) => b.callback_data === "nav:h"),
+    ).toBe(true);
+  });
+
+  it("persists the picked wallet address through the PIN gate without prompting for a custom address", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const w1 = await wm.createWallet(7, "main");
+    const w2 = await wm.createWallet(7, "extra");
+    // Profile pins identity to the first wallet so the POST URL is
+    // stable regardless of any later setActive flips.
+    await h.kv.put(
+      "profile:7",
+      JSON.stringify({
+        createdAt: 1,
+        referrer: null,
+        referralIdentityWallet: w1.address.toLowerCase(),
+      }),
+    );
+    mockApi(fetchSpy, w1.address);
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 300,
+      }),
+    );
+    await h.run(
+      callbackUpdate(
+        `${REFERRAL_CALLBACK.pickRewardsWalletPrefix}${w2.id}`,
+        "private",
+        { updateId: 301 },
+      ),
+    );
+    // PIN set wizard: send + confirm.
+    await h.run(textUpdate("123456", 302));
+    await h.run(textUpdate("123456", 303));
+
+    const postCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>).find(
+      (c) =>
+        String(c[0]).endsWith("/rewards-wallet") &&
+        ((c[1] as RequestInit | undefined)?.method ?? "GET") === "POST",
+    );
+    expect(postCall).toBeDefined();
+    const body = JSON.parse(
+      ((postCall![1] as RequestInit).body as string) ?? "{}",
+    ) as { rewardsWallet?: string };
+    expect(body.rewardsWallet?.toLowerCase()).toBe(w2.address.toLowerCase());
+    // The POST URL must be keyed by the identity wallet (w1), not w2.
+    expect(String(postCall![0])).toBe(
+      `${API_BASE_URL}/api/v1/bot/referrals/${w1.address.toLowerCase()}/rewards-wallet`,
+    );
+  });
+
+  it("renders Custom + Back/Home even when the user has zero wallets", async () => {
+    const h = makeBotHarness();
+    mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 400,
+      }),
+    );
+
+    const edit = capture(fetchSpy).find((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(edit).toBeDefined();
+    const kb = (edit!.body.reply_markup as {
+      inline_keyboard: { text: string; callback_data?: string }[][];
+    }).inline_keyboard;
+    // No wallet rows, only Custom + Back/Home.
+    expect(kb).toHaveLength(2);
+    expect(kb[0]![0]!.text).toBe("Custom");
+    expect(kb[0]![0]!.callback_data).toBe(
+      REFERRAL_CALLBACK.pickRewardsWalletCustom,
+    );
   });
 });
