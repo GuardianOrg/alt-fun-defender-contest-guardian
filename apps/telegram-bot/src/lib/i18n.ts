@@ -17,6 +17,67 @@
  * English) — there is no implicit global. Adding a per-user language
  * setting in the future is a session-field addition + threading the
  * code through callers; the dictionary shape does not change.
+ *
+ * ─── DO NOT TRANSLATE — preserve verbatim in every locale ─────────
+ *
+ * The following identifiers, brand names, ticker symbols, command
+ * names, and domains MUST appear literally in every translated entry.
+ * Translating them breaks links, tx routing, on-chain symbol lookups,
+ * and user recognition of the product. When adding a new locale, copy
+ * these tokens through unchanged, exactly as they appear in English:
+ *
+ *   Product / brand:
+ *     • CortisolBot — bot's display name (sourced from `branding.ts`
+ *       as `BOT_NAME`; if the brand renames, that file is the single
+ *       point of change). Never localise.
+ *     • alt.fun, https://alt.fun — product domain.
+ *     • Alt Fun — protocol name as written in product copy.
+ *     • BounceTech, bounce.tech, docs.bounce.tech, bounce — partner
+ *       protocol family; capitalisation is intentional ("BounceTech",
+ *       not "Bounce Tech" / "Bouncetech").
+ *     • HyperEVM, Hyperliquid, HyperSwap, HyperSwap V2 — chain and
+ *       venue brands. Preserve capitalisation exactly.
+ *     • hyperevmscan.io, https://hyperevmscan.io — block explorer
+ *       domain.
+ *     • Privy — wallet provider brand.
+ *     • Telegram, BotFather, t.me — platform names and the Telegram
+ *       deeplink domain. Never localise.
+ *
+ *   Assets / tickers:
+ *     • USDC, HYPE, BTC, ETH, SOL — currency / asset tickers.
+ *     • LT — short for "Leveraged Token". Always uppercase, always
+ *       "LT" (not "TL" / locale-specific abbreviation).
+ *     • HYPE3L, HYPE5L (and other `<asset><N>L` / `<asset><N>S`
+ *       suffixes) — BounceTech LT symbol shape; preserve verbatim.
+ *
+ *   Contracts / on-chain identifiers (rarely user-facing, but listed
+ *   for completeness):
+ *     • Zap, Bonding, BotFeeRouter, FeeVault, LPLock, Router,
+ *       Factory — contract names. Preserve case.
+ *
+ *   Commands:
+ *     • /start, /help, /buy, /sell, /positions, /track, /wallet,
+ *       /withdraw, /settings, /referral, /security — slash commands
+ *       are wired by literal name (`bot.command("buy", …)`) so they
+ *       must NOT be translated. The descriptions next to them (in
+ *       the BotCommand list) ARE localisable; the command identifier
+ *       itself is not.
+ *
+ *   Numeric / unit shapes:
+ *     • Dollar amounts shown as `$20`, `$10,000`, etc. keep the `$`
+ *       sigil — they are USDC notional, not a locale currency symbol.
+ *     • Percentages shown as `0.5%`, `0.75%`, `25%` use the `%` sign
+ *       and Western decimal point regardless of locale.
+ *     • 6-digit PIN, 0x-prefixed addresses, 40 hex chars — the
+ *       phrasing around them may localise; the format ("6-digit",
+ *       "0x", "40 hex") describes a wire-format constraint and must
+ *       stay literal so users construct valid inputs.
+ *
+ * If a future locale entry diverges on any of the above, the
+ * `i18n.test.ts` shape assertion still passes (it only checks the
+ * language-key set), so this is a convention enforced by review, not
+ * by the type system. Reviewers: reject any translation that
+ * localises a name on this list.
  */
 
 import { BOT_NAME } from "./branding.js";
