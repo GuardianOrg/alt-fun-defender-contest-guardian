@@ -220,9 +220,9 @@ export const WALLET_WITHDRAW_BUTTON = {
   English: "Withdraw",
   SimplifiedChinese: "提币",
 } as const;
-export const WALLET_DELETE_NOW_BUTTON = {
-  English: "Delete now",
-  SimplifiedChinese: "立即删除",
+export const WALLET_EXPORT_DONE_BUTTON = {
+  English: "Done",
+  SimplifiedChinese: "完成",
 } as const;
 
 export const WALLET_SET_PIN_BUTTON = {
@@ -502,9 +502,9 @@ export const TOAST_PHRASE_CLEARED = {
   English: "Phrase cleared.",
   SimplifiedChinese: "短语已清除。",
 } as const;
-export const TOAST_DELETED = {
-  English: "Deleted.",
-  SimplifiedChinese: "已删除。",
+export const TOAST_RETURNED_HOME = {
+  English: "Returned to home.",
+  SimplifiedChinese: "已返回主页。",
 } as const;
 export const TOAST_DELETE_CANCELLED = {
   English: "Delete canceled.",
@@ -689,7 +689,7 @@ export const HELP_WALLET_HTML = {
     "• Import an existing wallet via private key or mnemonic — the message you send with the key is deleted immediately after the bot reads it",
     "• Switch the active wallet",
     "• Rename a wallet",
-    "• Export the private key (PIN-gated, ephemeral 30-second auto-delete)",
+    "• Export the private key (PIN-gated, auto-returns to home in 30s)",
     "• Delete a wallet (PIN-gated)",
     "• Set or change your 6-digit PIN — see <code>/help security</code>",
     "• Enable the withdrawal lock — see <code>/help security</code>",
@@ -710,7 +710,7 @@ export const HELP_WALLET_HTML = {
     "• 通过私钥或助记词导入已有钱包——您发送的私钥消息将在机器人读取后立即删除",
     "• 切换活跃钱包",
     "• 为钱包命名",
-    "• 导出私钥（需 PIN 码，30 秒后自动删除）",
+    "• 导出私钥（需 PIN 码，30 秒后自动返回主页）",
     "• 删除钱包（需 PIN 码）",
     "• 设置或修改 6 位数字 PIN 码——详见 <code>/help security</code>",
     "• 启用提币锁——详见 <code>/help security</code>",
@@ -861,7 +861,7 @@ export const HELP_SECURITY_HTML = {
     "",
     "<b>If you suspect compromise</b>",
     "• Enable the withdrawal lock to freeze outbound transfers immediately.",
-    "• Export your private key from /wallet (PIN-gated, 30-second auto-delete) and move funds to a wallet that has never been touched by this bot.",
+    "• Export your private key from /wallet (PIN-gated, auto-returns to home in 30s) and move funds to a wallet that has never been touched by this bot.",
     "• Once funds are out, delete the compromised wallet from /wallet.",
   ].join("\n"),
   SimplifiedChinese: [
@@ -884,7 +884,7 @@ export const HELP_SECURITY_HTML = {
     "",
     "<b>若怀疑账户已被入侵</b>",
     "• 立即启用提币锁，冻结所有外部转账。",
-    "• 在 /wallet 中导出私钥（需 PIN 码，30 秒后自动删除）并将资金转移至从未在本机器人中使用过的钱包。",
+    "• 在 /wallet 中导出私钥（需 PIN 码，30 秒后自动返回主页）并将资金转移至从未在本机器人中使用过的钱包。",
     "• 资金转出后，在 /wallet 中删除被入侵的钱包。",
   ].join("\n"),
 } as const;
@@ -1180,9 +1180,9 @@ export const WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY = {
 } as const;
 export const WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY = {
   English:
-    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
+    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-returns to home in 30s; tap Done to return now.",
   SimplifiedChinese:
-    "⚠️ 私钥——任何掌握私钥者均可控制此钱包。请勿分享。该消息将在 30 秒后自动删除；点击立即删除可立即清除。",
+    "⚠️ 私钥——任何掌握私钥者均可控制此钱包。请勿分享。该消息将在 30 秒后自动返回主页；点击完成可立即返回。",
 } as const;
 export const REFERRAL_BURN_ADDRESS_WARNING_REPLY = {
   English: "⚠️ That address is a known burn / null address.",
