@@ -29,6 +29,8 @@ import {
   PIN_LOCKED_REPLY,
   PIN_STATE_LOST_REPLY,
   PIN_WRONG_RETRY_REPLY,
+  REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL,
+  REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT,
   REFERRAL_ABORTED_RETRY_PROMPT,
   REFERRAL_BURN_ADDRESS_WARNING_REPLY,
   REFERRAL_BURN_CONFIRM_PROMPT,
@@ -563,14 +565,23 @@ const runPinGate = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, PIN_LOCKED_REPLY.English(mins, "Rewards-wallet change")),
+        wrap(
+          ctx,
+          PIN_LOCKED_REPLY.English(
+            mins,
+            REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL.English,
+          ),
+        ),
       );
       return false;
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(ctx,
-          PIN_STATE_LOST_REPLY.English("/referral → Change rewards wallet"),
+        wrap(
+          ctx,
+          PIN_STATE_LOST_REPLY.English(
+            REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT.English,
+          ),
         ),
       );
       return false;

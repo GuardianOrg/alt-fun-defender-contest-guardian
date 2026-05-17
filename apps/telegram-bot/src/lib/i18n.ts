@@ -876,7 +876,7 @@ export const START_BALANCE_REFRESHED_TOAST = {
 } as const;
 export const START_WELCOME_LEAD = {
   English: (botName: string) =>
-    `Welcome to ${botName} — the bot for trading alt fun tokens on HyperEVM.`,
+    `Welcome to ${botName} — the bot for trading alt.fun tokens on HyperEVM.`,
 } as const;
 export const START_BALANCE_LABEL = {
   English: (usdc: string) => `Balance: ${usdc} USDC`,
@@ -1219,6 +1219,12 @@ export const TOAST_LOCK_DISABLE_REQUESTED = {
 export const PIN_VERIFY_PROMPT = {
   English: (actionLabel: string) =>
     `Send your current 6-digit PIN to authorise ${actionLabel}.`,
+} as const;
+export const REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL = {
+  English: "Rewards-wallet change",
+} as const;
+export const REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT = {
+  English: "/referral → Change rewards wallet",
 } as const;
 export const PIN_AUTHORISE_THE_PROMPT = {
   English: (actionLabel: string) =>

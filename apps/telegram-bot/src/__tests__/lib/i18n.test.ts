@@ -161,6 +161,15 @@ describe("i18n module", () => {
     expect(i18n.START_WELCOME_LEAD.English("CortisolBot")).toContain(
       "Welcome to CortisolBot",
     );
+    expect(i18n.START_WELCOME_LEAD.English("CortisolBot")).toContain(
+      "alt.fun",
+    );
+    expect(i18n.REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL.English).toBe(
+      "Rewards-wallet change",
+    );
+    expect(i18n.REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT.English).toBe(
+      "/referral → Change rewards wallet",
+    );
     expect(i18n.START_BALANCE_LABEL.English("12.34")).toBe(
       "Balance: 12.34 USDC",
     );
