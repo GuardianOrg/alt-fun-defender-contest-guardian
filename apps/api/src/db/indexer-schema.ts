@@ -248,3 +248,117 @@ export const indexerCreatorEarnings = ponderSchema.table(
     lifetimeClaimedUsdc: numeric("lifetime_claimed_usdc").notNull().default("0"),
   },
 );
+
+/**
+ * `ponder_views.fee_accrual` — per-trade USDC fee accrual emitted by
+ * `FeeVault:FeeAccrued`. Written on every router-mediated buy/sell (curve
+ * and post-grad) plus the seed buy in `Zap.createToken`. The admin revenue
+ * dashboard reads this directly (rather than the per-token `creatorFeesUsd`
+ * / `protocolFeesUsd` counters on `token`) so it can bucket fees by day.
+ *
+ * Amounts are USDC (6dp) stored as `numeric` — same convention as every
+ * other USDC column in the mirror; callers `BigInt(...)` at the use site.
+ * Per-side aggregates have `creatorAmount` zero on buys against tokens
+ * whose `feeShare.creator` is zero, and similarly for `protocolAmount`,
+ * so the admin route filters `> 0` before bucketing.
+ */
+export const indexerFeeAccrual = ponderSchema.table(
+  "fee_accrual",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    creator: text("creator").notNull(),
+    creatorAmount: numeric("creator_amount").notNull(),
+    protocolAmount: numeric("protocol_amount").notNull(),
+    isBuy: boolean("is_buy").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    timestamp: numeric("timestamp").notNull(),
+  },
+  (table) => [
+    index("fee_accrual_token_address_index").on(table.tokenAddress),
+    index("fee_accrual_creator_index").on(table.creator),
+    index("fee_accrual_timestamp_index").on(table.timestamp),
+  ],
+);
+
+/**
+ * `ponder_views.graduation` — one row per graduated token, written on
+ * `Bonding.TokenGraduated`. Primary-key on `tokenAddress` (only one
+ * graduation can ever land per token). The admin /graduations dashboard
+ * scans by `timestamp_gte` so the timestamp index carries the read load.
+ */
+export const indexerGraduation = ponderSchema.table(
+  "graduation",
+  {
+    tokenAddress: text("token_address").primaryKey(),
+    pairAddress: text("pair_address").notNull(),
+    liquidity: numeric("liquidity").notNull(),
+    tokensInLP: numeric("tokens_in_lp").notNull(),
+    lpBurned: numeric("lp_burned").notNull(),
+    unsoldBurned: numeric("unsold_burned").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    timestamp: numeric("timestamp").notNull(),
+  },
+  (table) => [index("graduation_timestamp_index").on(table.timestamp)],
+);
+
+/**
+ * `ponder_views.referral` — one row per `Referred` event (a buy with a
+ * non-zero referrer attribute). The per-referrer index matches the read
+ * pattern on `/api/v1/referrals/:wallet` which lists every referral
+ * paid to a single referrer wallet.
+ */
+export const indexerReferral = ponderSchema.table(
+  "referral",
+  {
+    id: text("id").primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    trader: text("trader").notNull(),
+    referrer: text("referrer").notNull(),
+    usdcAmount: numeric("usdc_amount").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    timestamp: numeric("timestamp").notNull(),
+  },
+  (table) => [index("referral_referrer_index").on(table.referrer)],
+);
+
+/**
+ * `ponder_views.wallet_bot_position` — per-(wallet, token) running cost
+ * basis / realised PnL for trades routed through `BotFeeRouter`. Powers
+ * `/api/v1/bot/positions/:wallet`. Separate from `wallet_position` (which
+ * tracks Zap-only) because the bot is a distinct fee-bearing router with
+ * its own attribution surface.
+ */
+export const indexerWalletBotPosition = ponderSchema.table(
+  "wallet_bot_position",
+  {
+    id: text("id").primaryKey(),
+    wallet: text("wallet").notNull(),
+    token: text("token").notNull(),
+    ticker: text("ticker").notNull().default(""),
+    tokenBalance: numeric("token_balance").notNull().default("0"),
+    costBasisUsdc: numeric("cost_basis_usdc").notNull().default("0"),
+    currentValueUsdc: numeric("current_value_usdc").notNull().default("0"),
+    realisedPnlUsdc: numeric("realised_pnl_usdc").notNull().default("0"),
+    totalCostUsdc: numeric("total_cost_usdc").notNull().default("0"),
+    totalProceedsUsdc: numeric("total_proceeds_usdc").notNull().default("0"),
+  },
+  (table) => [
+    index("wallet_bot_position_wallet_index").on(table.wallet),
+    index("wallet_bot_position_token_index").on(table.token),
+  ],
+);
+
+/**
+ * `ponder_views.referrer_stats` — per-referrer aggregate row. Powers
+ * `/api/v1/bot/referrals/:wallet`. Primary-key on the lowercased
+ * referrer wallet, so callers should normalise before the lookup.
+ */
+export const indexerReferrerStats = ponderSchema.table("referrer_stats", {
+  id: text("id").primaryKey(),
+  referrer: text("referrer").notNull(),
+  referredCount: integer("referred_count").notNull().default(0),
+  lifetimeEarnedUsdc: numeric("lifetime_earned_usdc").notNull().default("0"),
+  badPaymentCount: integer("bad_payment_count").notNull().default(0),
+  attributionLossCount: integer("attribution_loss_count").notNull().default(0),
+});
