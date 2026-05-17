@@ -213,13 +213,17 @@ export const createBot = (
   env: Env,
   options: CreateBotOptions = {},
 ): Bot<AppContext> => {
-  if (!env.API_KEY) {
-    // Surface the degraded mode loudly so it doesn't get silently
-    // shipped to real users. Fix tracked in #640. AGENTS.md "Auth
-    // model" is the eventual contract; this branch is a deliberate
-    // smoke-test escape hatch.
-    logger.warn(
-      "API_KEY not set — apps/api calls fall into the anonymous 240/min per-IP bucket, shared across all users on this Worker. Provision before any real concurrency. See issue #640.",
+  // Fail fast at construction rather than silently routing every user
+  // through apps/api's anonymous 240/min per-IP bucket (the bot fans the
+  // whole fleet through one Worker egress IP — a few concurrent commands
+  // would self-starve under 429). Provision via
+  // `apps/api/scripts/provision-api-key.ts` and ship with
+  // `wrangler secret put API_KEY`. AGENTS.md "Auth model" is the binding
+  // contract.
+  if (!env.API_KEY?.trim()) {
+    throw new Error(
+      "API_KEY secret is not set — run `wrangler secret put API_KEY` (per environment). " +
+        "See apps/telegram-bot/AGENTS.md \"Auth model\".",
     );
   }
 
