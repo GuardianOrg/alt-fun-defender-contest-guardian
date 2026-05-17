@@ -220,9 +220,9 @@ export const WALLET_WITHDRAW_BUTTON = {
   English: "Withdraw",
   SimplifiedChinese: "提币",
 } as const;
-export const WALLET_DELETE_NOW_BUTTON = {
-  English: "Delete now",
-  SimplifiedChinese: "立即删除",
+export const WALLET_EXPORT_DONE_BUTTON = {
+  English: "Done",
+  SimplifiedChinese: "完成",
 } as const;
 
 export const WALLET_SET_PIN_BUTTON = {
@@ -502,9 +502,9 @@ export const TOAST_PHRASE_CLEARED = {
   English: "Phrase cleared.",
   SimplifiedChinese: "短语已清除。",
 } as const;
-export const TOAST_DELETED = {
-  English: "Deleted.",
-  SimplifiedChinese: "已删除。",
+export const TOAST_RETURNED_HOME = {
+  English: "Returned to home.",
+  SimplifiedChinese: "已返回主页。",
 } as const;
 export const TOAST_DELETE_CANCELLED = {
   English: "Delete canceled.",
@@ -1180,9 +1180,9 @@ export const WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY = {
 } as const;
 export const WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY = {
   English:
-    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
+    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-returns to home in 30s; tap Done to return now.",
   SimplifiedChinese:
-    "⚠️ 私钥——任何掌握私钥者均可控制此钱包。请勿分享。该消息将在 30 秒后自动删除；点击立即删除可立即清除。",
+    "⚠️ 私钥——任何掌握私钥者均可控制此钱包。请勿分享。该消息将在 30 秒后自动返回主页；点击完成可立即返回。",
 } as const;
 export const REFERRAL_BURN_ADDRESS_WARNING_REPLY = {
   English: "⚠️ That address is a known burn / null address.",

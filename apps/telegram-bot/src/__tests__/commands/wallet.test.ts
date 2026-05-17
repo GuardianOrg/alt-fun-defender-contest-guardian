@@ -596,8 +596,12 @@ describe("/wallet command", () => {
       expect(startReplace).toBeDefined();
     });
 
-    it("Delete-now button calls Telegram deleteMessage on the reveal (export)", async () => {
+    it("Done button edits the reveal back into the /start view (export)", async () => {
       const h = makeBotHarness();
+      // Seed an active wallet so buildStartSnapshot can render — without
+      // one the handler falls back to a deleteMessage hygiene path.
+      const wm = walletManager(h);
+      await wm.createWallet(7, "main");
       await h.run({
         update_id: 9001,
         callback_query: {
@@ -613,10 +617,46 @@ describe("/wallet command", () => {
         },
       });
       const calls = capture(fetchSpy);
+      // The reveal bubble is rewritten in place — no deleteMessage
+      // call, an editMessageText targeting the same id, carrying the
+      // /start welcome copy.
+      const del = calls.find((c) => c.url.includes("/deleteMessage"));
+      expect(del).toBeUndefined();
+      const edit = calls.find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          c.body.chat_id === 42 &&
+          c.body.message_id === 555,
+      );
+      expect(edit).toBeDefined();
+      expect(edit!.body.text).toMatch(/Welcome|Wallet|Address|alt\.fun/i);
+      // Plaintext-key marker must be gone from the rewritten bubble.
+      expect(edit!.body.text).not.toContain("Private key:");
+    });
+
+    it("Done button falls back to deleteMessage when no active wallet renders /start", async () => {
+      const h = makeBotHarness();
+      // No wallet seeded — buildStartSnapshot returns null and the
+      // handler must still clear the plaintext-key bubble from chat.
+      await h.run({
+        update_id: 9002,
+        callback_query: {
+          id: "cbq-del2",
+          from: { id: 7, is_bot: false, first_name: "Ada" },
+          chat_instance: "i-del2",
+          message: {
+            message_id: 777,
+            date: 0,
+            chat: { id: 42, type: "private" as const },
+          },
+          data: WALLET_CALLBACK.exportDelete,
+        },
+      });
+      const calls = capture(fetchSpy);
       const del = calls.find((c) => c.url.includes("/deleteMessage"));
       expect(del).toBeDefined();
       expect(del!.body.chat_id).toBe(42);
-      expect(del!.body.message_id).toBe(555);
+      expect(del!.body.message_id).toBe(777);
     });
   });
 

@@ -32,9 +32,9 @@ import {
   PIN_STATE_LOST_REPLY,
   PIN_WRONG_RETRY_REPLY,
   TOAST_DELETE_CANCELLED,
-  TOAST_DELETED,
   TOAST_LOCK_DISABLE_REQUESTED,
   TOAST_PIN_RESET_REQUESTED,
+  TOAST_RETURNED_HOME,
   TOAST_WALLET_CAP_REACHED,
   TOAST_WALLET_CREATED,
   TOAST_WALLET_SWITCHED,
@@ -101,7 +101,7 @@ import {
   TOAST_WALLET_NO_LONGER_EXISTS,
   TOAST_WITHDRAWAL_LOCK_DISABLED,
   TOAST_WITHDRAWAL_LOCK_ENABLED,
-  WALLET_DELETE_NOW_BUTTON,
+  WALLET_EXPORT_DONE_BUTTON,
   WALLET_NO_USER_REPLY,
   WALLET_NON_PRIVATE_CHAT_REPLY,
   WALLET_PRIVATE_DM_ONLY_REPLY,
@@ -170,12 +170,14 @@ const RENAME_MAX_LEN = 32;
 
 /**
  * Plaintext-key reveal lives in the chat for 30 seconds before the
- * bot deletes it. The 48-hour `deleteMessage` window is plenty of
- * headroom (see AGENTS.md "Telegram nuance"); we use 30s for the
- * security tradeoff, not the API limit. Users impatient with the
- * wait have a "Delete now" button.
+ * bot edits it back into the /start home view. Editing rather than
+ * deleting keeps the bubble in place as a live home affordance so
+ * the user is never left in nav-less limbo — pressing Done on the
+ * reveal triggers the same edit-to-start path. Falls back to a
+ * delete if the start snapshot can't be built (no active wallet),
+ * since a stale "Private key:" bubble is the worst outcome.
  */
-const EXPORT_REVEAL_AUTO_DELETE_MS = 30_000;
+const EXPORT_REVEAL_AUTO_RETURN_MS = 30_000;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -553,25 +555,62 @@ const sweepPinMessage = async (
 };
 
 /**
- * Fire-and-forget 30s auto-delete of the plaintext-key bubble.
+ * Edit a reveal bubble back into the /start home view. Used by both
+ * the 30s auto-expiry timer and the user-pressed Done button so the
+ * private key disappears from chat while the same message remains
+ * usable as the home menu — no nav-less limbo, no fresh bubble below.
+ *
+ * Best-effort: if the snapshot can't be built (no active wallet,
+ * degraded RPC) or the bubble is gone (48h window closed) we fall
+ * back to deleting the reveal so the plaintext key never lingers.
+ */
+const editRevealToStart = async (
+  ctx: AppContext,
+  chatId: number,
+  messageId: number,
+): Promise<void> => {
+  try {
+    const snap = await buildStartSnapshot(ctx);
+    if (!snap) {
+      await ctx.api.deleteMessage(chatId, messageId);
+      return;
+    }
+    await ctx.api.editMessageText(chatId, messageId, snap.text, {
+      parse_mode: snap.parseMode,
+      reply_markup: { inline_keyboard: snap.keyboard },
+      link_preview_options: snap.linkPreviewDisabled
+        ? { is_disabled: true }
+        : undefined,
+    });
+  } catch {
+    // Edit failed — try a delete as a hygiene fallback. If that also
+    // fails the bubble is already gone or out of window, which is
+    // exactly the state we wanted anyway.
+    try {
+      await ctx.api.deleteMessage(chatId, messageId);
+    } catch {
+      // Swallow — see above.
+    }
+  }
+};
+
+/**
+ * Fire-and-forget 30s auto-return of the plaintext-key bubble.
  *
  * Cloudflare DOs don't expose `executionCtx.waitUntil` from the
  * `fetch` handler, so the timer is genuinely best-effort: if the DO
- * is evicted before 30s elapse the deletion misses. The reveal
- * message ships with a "Delete now" inline button as the user-side
- * safety net.
+ * is evicted before 30s elapse the rewrite misses. The reveal
+ * message ships with a "Done" inline button as the user-side safety
+ * net.
  */
-const scheduleRevealAutoDelete = (
+const scheduleRevealAutoReturn = (
   ctx: AppContext,
   chatId: number,
   messageId: number,
 ): void => {
   setTimeout(() => {
-    void ctx.api.deleteMessage(chatId, messageId).catch(() => {
-      // Already deleted (Delete-now button pressed, or 48h window
-      // closed on a wedged DO). Swallow.
-    });
-  }, EXPORT_REVEAL_AUTO_DELETE_MS);
+    void editRevealToStart(ctx, chatId, messageId);
+  }, EXPORT_REVEAL_AUTO_RETURN_MS);
 };
 
 /**
@@ -906,7 +945,7 @@ const exportKeyConversation = async (
     inline_keyboard: [
       [
         {
-          text: t(WALLET_DELETE_NOW_BUTTON, lang),
+          text: t(WALLET_EXPORT_DONE_BUTTON, lang),
           callback_data: WALLET_CALLBACK.exportDelete,
         },
       ],
@@ -952,7 +991,7 @@ const exportKeyConversation = async (
   if (revealMessageId !== undefined) {
     const messageId = revealMessageId;
     await conversation.external((outside) => {
-      scheduleRevealAutoDelete(outside, chatId, messageId);
+      scheduleRevealAutoReturn(outside, chatId, messageId);
     });
   }
 };
@@ -1734,17 +1773,14 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    try {
-      await ctx.api.deleteMessage(
-        ctx.callbackQuery.message.chat.id,
-        ctx.callbackQuery.message.message_id,
-      );
-    } catch {
-      // Already swept by the 30s auto-delete or out of the 48-hour
-      // deleteMessage window. The user's intent (no plaintext key in
-      // chat) is satisfied either way.
-    }
-    await ctx.answerCallbackQuery({ text: t(TOAST_DELETED, ctxLang(ctx)) });
+    await editRevealToStart(
+      ctx,
+      ctx.callbackQuery.message.chat.id,
+      ctx.callbackQuery.message.message_id,
+    );
+    await ctx.answerCallbackQuery({
+      text: t(TOAST_RETURNED_HOME, ctxLang(ctx)),
+    });
   });
 
   /**

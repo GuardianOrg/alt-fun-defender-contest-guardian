@@ -58,10 +58,14 @@ export const WALLET_CALLBACK = {
   exportKey: "we",
   /**
    * Inline button on the export-key reveal message. Lets the user
-   * delete the plaintext-key bubble immediately rather than waiting
-   * for the 30s auto-delete sweep. The button takes no argument — the
-   * handler reads `ctx.callbackQuery.message.message_id` directly,
-   * keeping the callback_data tiny (3 bytes).
+   * collapse the plaintext-key bubble back into the /start home view
+   * immediately rather than waiting for the 30s auto-return sweep —
+   * editing rather than deleting keeps the bubble usable as the home
+   * menu. The button takes no argument; the handler reads
+   * `ctx.callbackQuery.message.message_id` directly, keeping the
+   * callback_data tiny (3 bytes). The constant name still reads
+   * `exportDelete` for callsite continuity — the semantic shift is
+   * captured in this comment.
    */
   exportDelete: "wed",
   delete: "wd",
