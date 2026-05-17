@@ -1201,7 +1201,7 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
     expect(sent[0]!.text).not.toContain("Welcome to");
   });
 
-  it("track_<addr> deeplink replies with the track card (token + trades + Buy/Sell + Open on Alt Fun) and skips the welcome screen", async () => {
+  it("track_<addr> deeplink replies with the track card (token + trades + Buy/Sell) and skips the welcome screen", async () => {
     const h = harnessWithRpc();
     // The track route also fetches /trades and /chart — extend the
     // shared action-fetch mock to cover both with empty payloads so
@@ -1282,7 +1282,7 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
       markup?.inline_keyboard.flat().map((b) => b.text) ?? [];
     expect(labels.some((t) => t.includes("Buy"))).toBe(true);
     expect(labels.some((t) => t.includes("Sell"))).toBe(true);
-    expect(labels).toContain("Open on Alt Fun");
+    expect(labels).not.toContain("Open on Alt Fun");
   });
 
   it("falls back to the welcome screen for a malformed action payload", async () => {

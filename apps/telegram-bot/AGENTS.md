@@ -412,7 +412,7 @@ Output (single Telegram message):
     24h price change) followed by recent trades (up to 5 from
     `GET /api/v1/trades/:address`, automatically trimmed to fit
     Telegram's 1024-char photo-caption budget).
-  - Buttons: [Buy →] [Sell →] [Open on Alt Fun]
+  - Buttons: [Buy →] [Sell →]
 ```
 
 **Single-message render.** Chart and token detail are bundled into one
