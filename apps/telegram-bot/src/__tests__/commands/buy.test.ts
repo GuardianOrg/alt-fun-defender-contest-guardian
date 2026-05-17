@@ -288,7 +288,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     fetchSpy.mockClear();
     withTelegramOk(fetchSpy, async (input) => {
       const url = String(input);
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -323,7 +323,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     // rather than the conversation silently swallowing the update.
     const positionsCall = (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
       .map((c) => String(c[0]))
-      .find((url) => url.includes("/api/v1/bot/positions/"));
+      .find((url) => url.includes("/api/v1/bot/positions-v2/"));
     expect(positionsCall).toBeDefined();
   });
 

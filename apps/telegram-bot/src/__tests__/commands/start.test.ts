@@ -417,7 +417,7 @@ describe("/start command", () => {
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -592,7 +592,7 @@ describe("/start command", () => {
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -613,7 +613,7 @@ describe("/start command", () => {
           { status: 200 },
         );
       }
-      if (url.includes("/api/v1/bot/positions/")) {
+      if (url.includes("/api/v1/bot/positions-v2/")) {
         return new Response(
           JSON.stringify({ data: { open: [], realised: [] } }),
           { status: 200 },
@@ -644,7 +644,7 @@ describe("/start command", () => {
     const edit = tgCalls.find((c) => c.url.includes("/editMessageText"));
     expect(edit).toBeDefined();
     expect(edit!.body.text).toContain("No open positions for this wallet.");
-    expect(apiUrls.some((u) => u.includes("/api/v1/bot/positions/"))).toBe(
+    expect(apiUrls.some((u) => u.includes("/api/v1/bot/positions-v2/"))).toBe(
       true,
     );
     expect(
@@ -742,13 +742,12 @@ describe("/start referral onboarding", () => {
             { status: 200 },
           );
         }
-        // GET /api/v1/bot/referrals/:wallet — return stats keyed by
+        // GET /api/v1/bot/referrals-v2/:wallet — return stats keyed by
         // the trailing wallet segment, or 404 if the test did not
         // pre-register one. 404 collapses to `not_found` in api.ts
         // which `resolveReferrer` treats as "drop deeplink silently".
-        const match = /\/api\/v1\/bot\/referrals\/(0x[0-9a-fA-F]{40})$/.exec(
-          url,
-        );
+        const match =
+          /\/api\/v1\/bot\/referrals-v2\/(0x[0-9a-fA-F]{40})$/.exec(url);
         if (match) {
           const wallet = match[1]!.toLowerCase();
           const lookup = opts.referralStatsByWallet ?? {};
@@ -997,9 +996,8 @@ describe("/start referral onboarding", () => {
             { status: 200 },
           );
         }
-        const match = /\/api\/v1\/bot\/referrals\/(0x[0-9a-fA-F]{40})$/.exec(
-          url,
-        );
+        const match =
+          /\/api\/v1\/bot\/referrals-v2\/(0x[0-9a-fA-F]{40})$/.exec(url);
         if (match) {
           // Echo: api defaults rewardsWallet to the wallet address
           // when no record is present, which is exactly what the

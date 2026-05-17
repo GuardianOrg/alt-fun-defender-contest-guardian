@@ -1267,6 +1267,11 @@ export interface IndexerTokenBalanceRow {
  * GraphQL query was `tokenBalances(where: { wallet, balance_gt: "0" })` —
  * unscoped by token, so this returns every non-zero holding for the wallet
  * in a single Postgres scan rather than paginating.
+ *
+ * `ORDER BY token_address ASC` matches Ponder's GraphQL default (sort by the
+ * `id` primary key, which is the composite `${wallet}-${tokenAddress}` and
+ * therefore tokenAddress-ordered for a fixed wallet). Pinned so the v2
+ * payload is byte-equal with the legacy v1 route during the cut-over.
  */
 export async function fetchTokenBalancesByWallet(
   db: Database,
@@ -1284,7 +1289,8 @@ export async function fetchTokenBalancesByWallet(
           eq(indexerTokenBalance.wallet, wallet.toLowerCase()),
           gt(indexerTokenBalance.balance, "0"),
         ),
-      );
+      )
+      .orderBy(asc(indexerTokenBalance.tokenAddress));
     return rows.map((r) => ({
       tokenAddress: r.tokenAddress,
       balance: r.balance,

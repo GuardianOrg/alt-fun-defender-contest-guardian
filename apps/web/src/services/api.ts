@@ -616,7 +616,7 @@ export interface ApiBalance {
 }
 
 export function fetchBalances(wallet: string): Promise<ApiBalance[]> {
-  return apiFetch(`/api/v1/balances/${wallet}`);
+  return apiFetch(`/api/v1/balances-v2/${wallet}`);
 }
 
 /**
