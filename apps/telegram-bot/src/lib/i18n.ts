@@ -206,7 +206,7 @@ export const WALLET_SWITCH_BUTTON = {
 } as const;
 export const WALLET_RENAME_BUTTON = {
   English: "Rename",
-  SimplifiedChinese: "重命名",
+  SimplifiedChinese: "重新命名",
 } as const;
 export const WALLET_DELETE_BUTTON = {
   English: "Delete",
@@ -460,7 +460,7 @@ export const TOAST_NO_ACTIVE_WALLET_TO_EXPORT = {
 } as const;
 export const TOAST_NO_ACTIVE_WALLET_TO_RENAME = {
   English: "No active wallet to rename.",
-  SimplifiedChinese: "暂无可重命名的活动钱包。",
+  SimplifiedChinese: "暂无可重新命名的活动钱包。",
 } as const;
 export const TOAST_NO_WALLETS_TO_SWITCH = {
   English: "No wallets to switch to.",
@@ -1632,7 +1632,7 @@ export const WALLET_RENAME_PROMPT = {
 } as const;
 export const WALLET_RENAME_NO_LONGER_EXISTS_REPLY = {
   English: "Wallet no longer exists. Rename cancelled.",
-  SimplifiedChinese: "钱包已不存在。已取消重命名。",
+  SimplifiedChinese: "钱包已不存在。已取消重新命名。",
 } as const;
 export const WALLET_EXPORT_NO_LONGER_EXISTS_REPLY = {
   English: "Wallet no longer exists. Export aborted.",
@@ -1841,7 +1841,7 @@ export const WALLET_RENAME_LENGTH_INVALID_REPLY = {
   English: (max: number) =>
     `Label must be 1–${max} characters. Rename cancelled.`,
   SimplifiedChinese: (max: number) =>
-    `名称长度必须为 1–${max} 个字符。已取消重命名。`,
+    `名称长度必须为 1–${max} 个字符。已取消重新命名。`,
 } as const;
 export const WALLET_DELETE_CONFIRM_PROMPT = {
   English: (label: string, address: string) =>
