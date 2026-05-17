@@ -11,6 +11,7 @@ import {
   encodeBuyPresetSlot,
   encodeSellPresetSlot,
   encodeSlippagePreset,
+  encodeSpeedPreset,
 } from "../../keyboards/settings-actions.js";
 
 const settingsCommand = (fromId: number) => ({
@@ -82,6 +83,8 @@ interface ReadSession {
   defaultBuyUsdc: number;
   buyPresetsUsdc?: number[];
   sellPresetsPct?: number[];
+  executionTipGwei?: number;
+  executionTipPresetsGwei?: number[];
   degenMode: boolean;
 }
 
@@ -139,6 +142,45 @@ describe("/settings command", () => {
       expect(labels).toContain("🟢 Degen mode");
     });
 
+    it("renders the '-- Slippage --' and '-- Execution Speed --' section headers", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      const buttons = (
+        send!.body.reply_markup as {
+          inline_keyboard: { text: string; callback_data?: string }[][];
+        }
+      ).inline_keyboard.flat();
+      const slipHeader = buttons.find((b) => b.text === "-- Slippage --");
+      const speedHeader = buttons.find(
+        (b) => b.text === "-- Execution Speed --",
+      );
+      expect(slipHeader).toBeDefined();
+      expect(speedHeader).toBeDefined();
+      // Both headers wire up to the inert `set:noop` callback so a tap
+      // dismisses the spinner without mutating the panel.
+      expect(slipHeader!.callback_data).toBe(SETTINGS_CALLBACK.noop);
+      expect(speedHeader!.callback_data).toBe(SETTINGS_CALLBACK.noop);
+    });
+
+    it("renders Lightning / Fast / Eco inline speed buttons with Lightning active by default", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      const send = capture(fetchSpy).find((c) =>
+        c.url.includes("/sendMessage"),
+      );
+      const labels = (
+        send!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.text);
+      expect(labels).toContain("• Lightning •");
+      expect(labels).toContain("Fast");
+      expect(labels).toContain("Eco");
+    });
+
     it("exposes 5/10/15/20% as the four slippage presets (issue #816)", async () => {
       expect(SLIPPAGE_PRESETS_BPS).toEqual([500, 1000, 1500, 2000]);
     });
@@ -184,6 +226,89 @@ describe("/settings command", () => {
       await h.run(callbackUpdate("set:slipabc"));
       const session = await readSession(h);
       expect(session.slippageBps).toBe(1000);
+    });
+  });
+
+  describe("inline execution-speed buttons", () => {
+    it("tapping Fast persists 0.15 gwei to the session and acknowledges", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(encodeSpeedPreset(1)));
+
+      const session = await readSession(h);
+      expect(session.executionTipGwei).toBe(0.15);
+
+      const calls = capture(fetchSpy);
+      const ack = calls.find((c) =>
+        c.url.includes("/answerCallbackQuery"),
+      );
+      expect(ack!.body.text).toContain("Fast");
+      expect(ack!.body.text).toContain("0.15 gwei");
+      const edit = calls.find((c) => c.url.includes("/editMessageText"));
+      const labels = (
+        edit!.body.reply_markup as { inline_keyboard: { text: string }[][] }
+      ).inline_keyboard
+        .flat()
+        .map((b) => b.text);
+      expect(labels).toContain("• Fast •");
+      expect(labels).toContain("Lightning");
+      expect(labels).toContain("Eco");
+      expect(edit!.body.text).toContain("Execution speed: 0.15 gwei");
+    });
+
+    it("tapping Eco persists 0.1 gwei", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(encodeSpeedPreset(2)));
+      expect((await readSession(h)).executionTipGwei).toBe(0.1);
+    });
+
+    it("ignores a malformed speed-preset callback payload", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate("set:tpsabc"));
+      // No regex match → handler is never invoked, default tip is
+      // preserved.
+      expect((await readSession(h)).executionTipGwei).toBe(0.5);
+    });
+
+    it("ignores an out-of-range speed-preset index", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(encodeSpeedPreset(9)));
+      // Slot 9 doesn't exist — handler answers the callback but leaves
+      // the active tip pinned to the Lightning default.
+      expect((await readSession(h)).executionTipGwei).toBe(0.5);
+    });
+
+    it("the '-- Slippage --' header button is inert (no session mutation)", async () => {
+      const h = makeBotHarness();
+      await h.run(settingsCommand(7));
+      const before = await readSession(h);
+
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.noop));
+
+      const after = await readSession(h);
+      expect(after).toEqual(before);
+      const calls = capture(fetchSpy);
+      // The handler dismisses the spinner but does not edit the panel.
+      expect(
+        calls.some((c) => c.url.includes("/answerCallbackQuery")),
+      ).toBe(true);
+      expect(
+        calls.some((c) => c.url.includes("/editMessageText")),
+      ).toBe(false);
     });
   });
 
