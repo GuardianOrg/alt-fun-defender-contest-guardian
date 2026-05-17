@@ -798,7 +798,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
-    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING.English });
+    await ctx.answerCallbackQuery({ text: t(TOAST_SUBMITTING, getCtxLanguage(ctx)) });
     // Snapshot the staged intent before `confirmTrade` clears it — we
     // need side / ticker / amount to render the Tx-status copy.
     const intent = ctx.session.pendingTrade;
@@ -834,9 +834,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await replyConfirmedTradeAndPromptStart(ctx, outcome);
     } catch (err) {
       logger.error("trade confirm failed", { err });
-      await ctx.reply(
-        TRANSACTION_FAILED_SHORT_REPLY.English,
-      );
+      await ctx.reply(t(TRANSACTION_FAILED_SHORT_REPLY, getCtxLanguage(ctx)));
     }
   });
 
@@ -847,11 +845,12 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
+    const lang = getCtxLanguage(ctx);
     const cleared = cancelTrade(ctx, nonce);
     await ctx.answerCallbackQuery({
       text: cleared
-        ? TOAST_CONFIRM_CLEARED.English
-        : TOAST_CONFIRM_ALREADY_EXPIRED.English,
+        ? t(TOAST_CONFIRM_CLEARED, lang)
+        : t(TOAST_CONFIRM_ALREADY_EXPIRED, lang),
     });
   });
 };

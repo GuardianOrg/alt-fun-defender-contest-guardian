@@ -31,6 +31,8 @@ import {
 } from "../lib/execute.js";
 import { escapeHtml } from "../lib/format.js";
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
   OUTAGE_REPLY,
   PROCEEDS_UNAVAILABLE_REPLY,
@@ -50,6 +52,8 @@ import {
   TOAST_UNABLE_TO_VERIFY_TOKEN_BALANCE,
   TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
   TOKEN_LOOKUP_PROMPT_HTML,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -106,12 +110,14 @@ const BUFFER_REQUIRED_FACTOR = 1.01;
  */
 const BUFFER_CAP_SAFETY = 0.99;
 
-const PROMPT_HTML = TOKEN_LOOKUP_PROMPT_HTML.English;
+const PROMPT_HTML = (lang: Language): string =>
+  t(TOKEN_LOOKUP_PROMPT_HTML, lang);
 
-const TOKEN_NOT_FOUND_HTML = TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML.English;
+const TOKEN_NOT_FOUND_HTML = (lang: Language): string =>
+  t(TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML, lang);
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
-const API_UNAVAILABLE = OUTAGE_REPLY.English;
+const API_UNAVAILABLE = (lang: Language): string => t(OUTAGE_REPLY, lang);
 
 /**
  * Shown when both the `BotFeeRouter` simulation and the priceUsd
@@ -121,7 +127,8 @@ const API_UNAVAILABLE = OUTAGE_REPLY.English;
  * bypassed. Surfaces the same retry copy AGENTS.md uses for the
  * upstream-unavailable case.
  */
-const PROCEEDS_UNAVAILABLE = PROCEEDS_UNAVAILABLE_REPLY.English;
+const PROCEEDS_UNAVAILABLE = (lang: Language): string =>
+  t(PROCEEDS_UNAVAILABLE_REPLY, lang);
 
 /**
  * Shown when the LT's idle USDC buffer would not even support the
@@ -130,8 +137,17 @@ const PROCEEDS_UNAVAILABLE = PROCEEDS_UNAVAILABLE_REPLY.English;
  * tone as the buffer-low confirm copy so the user understands this is
  * transient.
  */
-const BUFFER_BELOW_MIN_HTML = (maxUsd: number): string =>
-  SELL_BUFFER_BELOW_MIN_HTML.English(maxUsd, MIN_USDC_SELL_AMOUNT);
+const BUFFER_BELOW_MIN_HTML = (maxUsd: number, lang: Language): string =>
+  t(SELL_BUFFER_BELOW_MIN_HTML, lang)(maxUsd, MIN_USDC_SELL_AMOUNT);
+
+const ctxLang = (ctx: AppContext): Language => getCtxLanguage(ctx);
+
+const convLang = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<Language> =>
+  conversation.external((outside) =>
+    outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -351,6 +367,7 @@ const sellLookupConversation = async (
   ctx: AppContext,
   origin?: MessageRef,
 ): Promise<void> => {
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
   // See `buyLookupConversation` for the rationale: the origin bubble
@@ -360,7 +377,7 @@ const sellLookupConversation = async (
   let activeOrigin: MessageRef | null = origin ?? null;
 
   if (!activeOrigin) {
-    const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
+    const promptMsg = await replyWithNav(ctx, PROMPT_HTML(lang), {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     });
@@ -392,7 +409,7 @@ const sellLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
+      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML(lang));
       continue;
     }
 
@@ -406,11 +423,11 @@ const sellLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
+        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML(lang));
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
-      await replyWithNav(msgCtx, API_UNAVAILABLE);
+      await replyWithNav(msgCtx, API_UNAVAILABLE(lang));
       await sweepWorkflow(conversation);
       return;
     }
@@ -489,10 +506,10 @@ const sellCustomConversation = async (
   tokenAddress: string,
   origin?: MessageRef,
 ): Promise<void> => {
+  const lang = await convLang(conversation);
   await sweepWorkflow(conversation);
 
-  const promptText =
-    SELL_CUSTOM_PERCENT_PROMPT.English;
+  const promptText = t(SELL_CUSTOM_PERCENT_PROMPT, lang);
 
   // Edit-in-place when entered from a token-card tap; fall back to a
   // fresh reply otherwise (slash-entry / inline-mode without origin).
@@ -524,7 +541,7 @@ const sellCustomConversation = async (
     if (percent === null) {
       const retry = await replyWithNav(
         msgCtx,
-        SELL_CUSTOM_PERCENT_INVALID_REPLY.English,
+        t(SELL_CUSTOM_PERCENT_INVALID_REPLY, lang),
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -571,6 +588,7 @@ const runPercentSell = async (
   percent: number,
   origin?: MessageRef,
 ): Promise<PercentSellResult> => {
+  const lang = await convLang(conversation);
   const userId = msgCtx.from?.id;
   const active = userId
     ? await conversation.external((outerCtx) =>
@@ -578,9 +596,7 @@ const runPercentSell = async (
       )
     : null;
   if (!active) {
-    await msgCtx.reply(
-      NO_ACTIVE_WALLET_RUN_WALLET_REPLY.English,
-    );
+    await msgCtx.reply(t(NO_ACTIVE_WALLET_RUN_WALLET_REPLY, lang));
     return { stagedFinal: false };
   }
 
@@ -594,7 +610,7 @@ const runPercentSell = async (
   ]);
 
   if (!tokenResult.ok) {
-    await replyWithNav(msgCtx, API_UNAVAILABLE);
+    await replyWithNav(msgCtx, API_UNAVAILABLE(lang));
     return { stagedFinal: false };
   }
 
@@ -602,21 +618,22 @@ const runPercentSell = async (
 
   // Null balance = RPC unavailable; don't coerce to zero.
   if (tokenBalance === null) {
-    await msgCtx.reply(
-      SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY.English,
-    );
+    await msgCtx.reply(t(SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY, lang));
     return { stagedFinal: false };
   }
 
   if (tokenBalance === 0n) {
-    await msgCtx.reply(SELL_NO_BALANCE_REPLY.English(token.ticker));
+    await msgCtx.reply(t(SELL_NO_BALANCE_REPLY, lang)(token.ticker));
     return { stagedFinal: false };
   }
 
   const tokenRaw = tokensForPercent(tokenBalance, percent);
   if (tokenRaw === 0n) {
     await msgCtx.reply(
-      SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY.English(percent, token.ticker),
+      t(SELL_PERCENT_ROUNDS_TO_ZERO_TRY_LARGER_REPLY, lang)(
+        percent,
+        token.ticker,
+      ),
     );
     return { stagedFinal: false };
   }
@@ -631,13 +648,13 @@ const runPercentSell = async (
     ),
   );
   if (quote === null) {
-    await msgCtx.reply(PROCEEDS_UNAVAILABLE);
+    await msgCtx.reply(PROCEEDS_UNAVAILABLE(lang));
     return { stagedFinal: false };
   }
   if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
     await replyWithNav(
       msgCtx,
-      SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY.English(
+      t(SELL_PROCEEDS_BELOW_MIN_TRY_LARGER_REPLY, lang)(
         quote.proceedsUsd,
         MIN_USDC_SELL_AMOUNT,
       ),
@@ -654,9 +671,10 @@ const runPercentSell = async (
     ),
   );
   if (buffer.kind === "below_min") {
-    await msgCtx.reply(BUFFER_BELOW_MIN_HTML(buffer.maxProceedsUsd), {
-      parse_mode: "HTML",
-    });
+    await msgCtx.reply(
+      BUFFER_BELOW_MIN_HTML(buffer.maxProceedsUsd, lang),
+      { parse_mode: "HTML" },
+    );
     return { stagedFinal: false };
   }
 
@@ -797,9 +815,10 @@ const handleSellRefresh = async (
       : Promise.resolve(null),
   ]);
 
+  const lang = ctxLang(ctx);
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
+      text: API_UNAVAILABLE(lang),
       show_alert: true,
     });
     return;
@@ -816,7 +835,7 @@ const handleSellRefresh = async (
     },
     link_preview_options: { is_disabled: true },
   });
-  await ctx.answerCallbackQuery({ text: TOAST_REFRESHED.English });
+  await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, lang) });
 };
 
 /**
@@ -828,6 +847,7 @@ const handlePercentSell = async (
   tokenAddress: string,
   percent: number,
 ): Promise<void> => {
+  const lang = ctxLang(ctx);
   if (!ctx.from) {
     await ctx.answerCallbackQuery();
     return;
@@ -836,7 +856,7 @@ const handlePercentSell = async (
   const active = await wm.getActive(ctx.from.id);
   if (!active) {
     await ctx.answerCallbackQuery({
-      text: TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English,
+      text: t(TOAST_NO_ACTIVE_WALLET_RUN_WALLET, lang),
       show_alert: true,
     });
     return;
@@ -849,7 +869,7 @@ const handlePercentSell = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
+      text: API_UNAVAILABLE(lang),
       show_alert: true,
     });
     return;
@@ -860,7 +880,7 @@ const handlePercentSell = async (
   // Null balance = RPC unavailable; don't coerce to zero.
   if (tokenBalance === null) {
     await ctx.answerCallbackQuery({
-      text: TOAST_UNABLE_TO_VERIFY_TOKEN_BALANCE.English,
+      text: t(TOAST_UNABLE_TO_VERIFY_TOKEN_BALANCE, lang),
       show_alert: true,
     });
     return;
@@ -868,7 +888,7 @@ const handlePercentSell = async (
 
   if (tokenBalance === 0n) {
     await ctx.answerCallbackQuery({
-      text: SELL_NO_BALANCE_REPLY.English(token.ticker),
+      text: t(SELL_NO_BALANCE_REPLY, lang)(token.ticker),
       show_alert: true,
     });
     return;
@@ -877,7 +897,7 @@ const handlePercentSell = async (
   const tokenRaw = tokensForPercent(tokenBalance, percent);
   if (tokenRaw === 0n) {
     await ctx.answerCallbackQuery({
-      text: SELL_PERCENT_ROUNDS_TO_ZERO_REPLY.English(percent, token.ticker),
+      text: t(SELL_PERCENT_ROUNDS_TO_ZERO_REPLY, lang)(percent, token.ticker),
       show_alert: true,
     });
     return;
@@ -892,14 +912,14 @@ const handlePercentSell = async (
   );
   if (quote === null) {
     await ctx.answerCallbackQuery({
-      text: PROCEEDS_UNAVAILABLE,
+      text: PROCEEDS_UNAVAILABLE(lang),
       show_alert: true,
     });
     return;
   }
   if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
     await ctx.answerCallbackQuery({
-      text: SELL_PROCEEDS_BELOW_MIN_REPLY.English(
+      text: t(SELL_PROCEEDS_BELOW_MIN_REPLY, lang)(
         quote.proceedsUsd,
         MIN_USDC_SELL_AMOUNT,
       ),
@@ -916,7 +936,7 @@ const handlePercentSell = async (
   );
   if (buffer.kind === "below_min") {
     await ctx.answerCallbackQuery({
-      text: SELL_LT_BUFFER_TOO_LOW_REPLY.English(
+      text: t(SELL_LT_BUFFER_TOO_LOW_REPLY, lang)(
         buffer.maxProceedsUsd,
         MIN_USDC_SELL_AMOUNT,
       ),
@@ -932,7 +952,7 @@ const handlePercentSell = async (
   // Buffer-capped sells always require explicit confirm per AGENTS.md;
   // degen only skips the confirm step on the happy path.
   if (ctx.session.degenMode && buffer.kind !== "capped") {
-    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING_ZAP.English });
+    await ctx.answerCallbackQuery({ text: t(TOAST_SUBMITTING_ZAP, lang) });
     const cbMsg = ctx.callbackQuery?.message;
     if (cbMsg) {
       await runWithTxStatusUpdates({
@@ -1047,7 +1067,7 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
   // still-visible start menu).
   bot.callbackQuery(START_CALLBACK.sell, async (ctx) => {
     const result = await editToSubmenu(ctx, {
-      text: PROMPT_HTML,
+      text: PROMPT_HTML(ctxLang(ctx)),
       parseMode: "HTML",
       inlineKeyboard: [backHomeRow()],
       linkPreviewDisabled: true,
@@ -1081,7 +1101,7 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     await handleSellRefresh(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("sell refresh failed", { err });
       await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .answerCallbackQuery({ text: API_UNAVAILABLE(ctxLang(ctx)), show_alert: true })
         .catch(() => {});
     });
   });
@@ -1108,7 +1128,7 @@ export const registerSellCommand = (bot: Bot<AppContext>): void => {
     await handlePercentSell(ctx, tokenAddress, percent).catch(async (err) => {
       logger.error("sell percent handler failed", { err, percent });
       await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .answerCallbackQuery({ text: API_UNAVAILABLE(ctxLang(ctx)), show_alert: true })
         .catch(() => {});
     });
   });

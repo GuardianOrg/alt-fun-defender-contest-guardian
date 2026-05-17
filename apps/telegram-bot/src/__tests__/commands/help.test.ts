@@ -3,7 +3,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { makeBotHarness, withTelegramOk } from "../helpers/bot.js";
 import { START_CALLBACK } from "../../keyboards/start-menu.js";
 import { renderHelp } from "../../commands/help.js";
-import { ANTI_PHISHING_HEADER } from "../../lib/anti-phishing.js";
+import { staticAntiPhishingHeader } from "../../lib/anti-phishing.js";
+
+const ANTI_PHISHING_HEADER = staticAntiPhishingHeader();
 import { NAV_CALLBACK } from "../../lib/nav.js";
 
 interface TgCall {

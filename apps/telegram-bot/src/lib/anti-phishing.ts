@@ -20,14 +20,6 @@ import {
   t,
 } from "./i18n.js";
 
-/**
- * Backwards-compatible alias for the English static header. Callers
- * that have a context should prefer `staticAntiPhishingHeader(lang)` or
- * the ctx-aware wrappers below so the fallback is localised to the
- * user's `/settings → Language` preference.
- */
-export const ANTI_PHISHING_HEADER = ANTI_PHISHING_STATIC_HEADER.English;
-
 export const staticAntiPhishingHeader = (
   lang: Language = DEFAULT_LANGUAGE,
 ): string => t(ANTI_PHISHING_STATIC_HEADER, lang);

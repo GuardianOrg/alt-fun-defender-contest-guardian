@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 
 import type { AppBindings } from "../lib/types.js";
-import { BOT_COMMANDS } from "../lib/bot-commands.js";
+import { BOT_COMMANDS, buildBotCommands } from "../lib/bot-commands.js";
 import { callTelegram } from "../lib/telegram.js";
 
 const admin = new Hono<AppBindings>();
@@ -55,8 +55,17 @@ async function publishCommands(
     );
     if (!result.ok) return result;
   }
-  return callTelegramJson(botToken, "setMyCommands", {
+  const defaultResult = await callTelegramJson(botToken, "setMyCommands", {
     commands: BOT_COMMANDS.map((cmd) => ({ ...cmd })),
+  });
+  if (!defaultResult.ok) return defaultResult;
+  // Push a localised slash menu for every supported non-default
+  // language so users with that Telegram client language see the
+  // commands in their own language. Telegram's `language_code` is an
+  // ISO 639-1 tag; we map our session-side `Language` enum onto it.
+  return callTelegramJson(botToken, "setMyCommands", {
+    commands: buildBotCommands("SimplifiedChinese").map((cmd) => ({ ...cmd })),
+    language_code: "zh",
   });
 }
 
