@@ -15,8 +15,10 @@ import {
 } from "../keyboards/wallet-actions.js";
 import {
   wrapWithCtxPhrase as wrap,
+  resolveAntiPhishingHeader,
   withAntiPhishing,
 } from "../lib/anti-phishing.js";
+import { escapeHtml } from "../lib/format.js";
 import {
   haltAndForward,
   isOtherSlashCommand,
@@ -51,6 +53,7 @@ import {
   PIN_ACTION_LABEL_EXPORT,
   PIN_ACTION_LABEL_PIN_CHANGE,
   PIN_SET_NOW_SEND_ONCE_MORE_PROMPT,
+  TAP_TO_COPY_HINT,
   WALLET_ACTIVE_LEGEND,
   WALLET_DELETED_HEADER,
   WALLET_EMPTY_CREATE_HINT,
@@ -868,11 +871,31 @@ const exportKeyConversation = async (
   );
   const wallet = walletRecord;
 
-  const revealBody = [
+  // Build the reveal as HTML so the address and private key can each
+  // sit inside a `<code>` span — Telegram makes those tap-to-copy on
+  // mobile + desktop. Plain text leaves the user manually selecting
+  // a 64-character hex blob without a copy affordance, which is
+  // why this flow exists at all. Translated label prefixes and the
+  // warning copy don't contain HTML-special chars, but we escape them
+  // defensively in case a future translation introduces one. The
+  // anti-phishing phrase is user-set and must be escaped — a phrase
+  // containing `<` would otherwise truncate the message at the first
+  // unmatched tag with no error surfaced.
+  const safeAddress = `<code>${escapeHtml(wallet.address)}</code>`;
+  const safeKey = `<code>${escapeHtml(privateKey)}</code>`;
+  const safePhraseHeader = escapeHtml(resolveAntiPhishingHeader(phrase, lang));
+  const safeWarning = escapeHtml(
     t(WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY, lang),
+  );
+  const tapHint = escapeHtml(t(TAP_TO_COPY_HINT, lang));
+  const revealBody = [
+    safePhraseHeader,
     "",
-    t(WALLET_EXPORT_REVEAL_ADDRESS_LABEL, lang)(wallet.address),
-    t(WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL, lang)(privateKey),
+    safeWarning,
+    "",
+    t(WALLET_EXPORT_REVEAL_ADDRESS_LABEL, lang)(safeAddress),
+    t(WALLET_EXPORT_REVEAL_PRIVATE_KEY_LABEL, lang)(safeKey),
+    tapHint,
   ].join("\n");
   const revealMarkup = {
     inline_keyboard: [
@@ -898,12 +921,10 @@ const exportKeyConversation = async (
   let editedOrigin = false;
   if (origin) {
     editedOrigin = await conversation.external((outside) =>
-      safeEditMessageById(
-        outside,
-        origin,
-        withAntiPhishing(revealBody, phrase, lang),
-        { reply_markup: revealMarkup },
-      ),
+      safeEditMessageById(outside, origin, revealBody, {
+        parse_mode: "HTML",
+        reply_markup: revealMarkup,
+      }),
     );
     if (editedOrigin) revealMessageId = origin.messageId;
   }
@@ -916,10 +937,10 @@ const exportKeyConversation = async (
   await sweepWorkflow(conversation);
 
   if (!editedOrigin) {
-    const revealMessage = await ctx.reply(
-      withAntiPhishing(revealBody, phrase, lang),
-      { reply_markup: revealMarkup },
-    );
+    const revealMessage = await ctx.reply(revealBody, {
+      parse_mode: "HTML",
+      reply_markup: revealMarkup,
+    });
     revealMessageId = revealMessage.message_id;
   }
 

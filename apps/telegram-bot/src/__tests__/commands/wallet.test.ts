@@ -398,6 +398,12 @@ describe("/wallet command", () => {
       );
       expect(reveal).toBeDefined();
       expect(reveal!.body.text).toContain(wallet.address);
+      // Address + private key are wrapped in `<code>` and the message
+      // is sent as HTML so each becomes a tap-to-copy span in
+      // Telegram. Plain text leaves the user manually selecting the
+      // hex blob.
+      expect(reveal!.body.parse_mode).toBe("HTML");
+      expect(reveal!.body.text).toContain(`<code>${wallet.address}</code>`);
       const keyboard = (
         reveal!.body.reply_markup as {
           inline_keyboard: { text: string; callback_data: string }[][];
