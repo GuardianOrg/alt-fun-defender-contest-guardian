@@ -6,6 +6,7 @@ import {
   buildStartMenuKeyboard,
 } from "../keyboards/start-menu.js";
 import { replyWithActionCard } from "../lib/action-card.js";
+import { replyWithNav } from "../lib/nav.js";
 import { replyWithTrackCard } from "./track.js";
 import {
   ctxAntiPhishingPhrase,
@@ -273,11 +274,13 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
         // blank /start with no idea why their tap did nothing.
         const outcome = await replyWithTrackCard(ctx, actionParam.token);
         if (outcome === "not_found") {
-          await ctx.reply(
+          await replyWithNav(
+            ctx,
             "Token not found — make sure the address is correct.",
           );
         } else if (outcome === "unavailable") {
-          await ctx.reply(
+          await replyWithNav(
+            ctx,
             "Data temporarily unavailable — try again in a moment.",
           );
         }

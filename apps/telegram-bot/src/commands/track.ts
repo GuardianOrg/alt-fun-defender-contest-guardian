@@ -395,7 +395,7 @@ const trackLookupConversation = async (
         await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
         continue;
       }
-      await msgCtx.reply(API_UNAVAILABLE);
+      await replyWithNav(msgCtx, API_UNAVAILABLE);
       await sweepWorkflow(conversation);
       return;
     }
@@ -509,7 +509,8 @@ const replyTrack = async (
     ctxAntiPhishingPhrase(ctx),
   );
   if (!result.ok) {
-    await ctx.reply(
+    await replyWithNav(
+      ctx,
       result.kind === "not_found" ? TOKEN_NOT_FOUND_HTML : API_UNAVAILABLE,
       {
         parse_mode: "HTML",

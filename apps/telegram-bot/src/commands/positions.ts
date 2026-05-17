@@ -18,7 +18,7 @@ import {
   renderPaginatedPage,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
-import { editToSubmenu } from "../lib/nav.js";
+import { editToSubmenu, replyWithNav } from "../lib/nav.js";
 import { WalletManager } from "../lib/wallet.js";
 
 const USAGE = "Usage: /positions <wallet_address>";
@@ -112,7 +112,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     if ("outage" in page) {
-      await ctx.reply(OUTAGE);
+      await replyWithNav(ctx, OUTAGE);
       return;
     }
     await ctx.reply(page.text, {

@@ -372,7 +372,7 @@ describe("/referral command", () => {
     expect(send!.body.text).toContain("/start");
   });
 
-  it("surfaces an outage message when the api is unavailable", async () => {
+  it("surfaces an outage message + back/home row when the api is unavailable", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
     const wallet = await wm.createWallet(7, "main");
@@ -382,6 +382,12 @@ describe("/referral command", () => {
 
     const send = capture(fetchSpy).find((c) => c.url.includes("/sendMessage"));
     expect(send!.body.text).toContain("temporarily unavailable");
+    const markup = (send!.body as { reply_markup?: unknown }).reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup?.inline_keyboard).toBeDefined();
+    const lastRow = markup!.inline_keyboard[markup!.inline_keyboard.length - 1]!;
+    expect(lastRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("rejects /referral in a non-private chat", async () => {

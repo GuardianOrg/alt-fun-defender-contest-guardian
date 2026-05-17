@@ -197,7 +197,7 @@ const buyLookupConversation = async (
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
-      await msgCtx.reply(API_UNAVAILABLE);
+      await replyWithNav(msgCtx, API_UNAVAILABLE);
       await sweepWorkflow(conversation);
       return;
     }
@@ -363,7 +363,7 @@ const buyCustomConversation = async (
       fetchToken(outerCtx.env, tokenAddress),
     );
     if (!tokenResult.ok) {
-      await msgCtx.reply(API_UNAVAILABLE);
+      await replyWithNav(msgCtx, API_UNAVAILABLE);
       await sweepWorkflow(conversation);
       return;
     }
