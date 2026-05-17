@@ -230,6 +230,12 @@
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.infoRow:hover {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .infoRowNoBorderLast:last-child {
@@ -237,8 +243,13 @@
 }
 
 .infoName {
-  color: var(--txt-2);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--txt);
   font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .graduatingValue {
