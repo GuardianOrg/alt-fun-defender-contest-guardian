@@ -305,12 +305,19 @@ export interface MessageRef {
 }
 
 /**
- * Best-effort `editMessageText` by id. Returns `true` on a clean edit,
- * `false` when the target is gone / unchanged / unsendable (the same
- * benign 400s `editToSubmenu` swallows), and rethrows anything else.
- * Use from inside a `conversation.external(...)` block when the
- * conversation needs to refresh an origin message without owning the
- * original ctx.
+ * Best-effort `editMessageText` by id. Returns `true` when the target
+ * message ends up showing the requested content — either because the
+ * edit landed cleanly *or* because Telegram returned "message is not
+ * modified" (i.e. the bubble already shows exactly that text, which
+ * is the wizard-prompt re-render case). Returns `false` only when the
+ * target message is gone / unsendable (and therefore the caller needs
+ * to fall back to a fresh reply). Rethrows non-benign errors.
+ *
+ * The not-modified case must NOT return false: that would push every
+ * caller into a duplicate `ctx.reply`, stacking identical wizard
+ * prompts in the chat each time the same retry copy is shown (e.g.
+ * the user typing two invalid inputs in a row hits the same
+ * "Send a positive number" prompt twice). CodeRabbit #1009.
  */
 export const safeEditMessageById = async (
   outside: AppContext,
@@ -322,6 +329,7 @@ export const safeEditMessageById = async (
     await outside.api.editMessageText(ref.chatId, ref.messageId, text, extra);
     return true;
   } catch (err) {
+    if (isMessageNotModifiedError(err)) return true;
     if (isBenignEditError(err)) return false;
     throw err;
   }
@@ -351,6 +359,21 @@ export const isBenignEditError = (err: unknown): boolean => {
     desc.includes("message can't be edited") ||
     desc.includes("there is no text in the message to edit")
   );
+};
+
+/**
+ * Subset of `isBenignEditError`: matches only the "message is not
+ * modified" 400, which Telegram returns when the new text + markup
+ * are byte-identical to the existing bubble. Semantically equivalent
+ * to a successful edit (the bubble already shows the target content),
+ * so `safeEditMessageById` reports it as a successful edit rather
+ * than a "must fall back to reply" failure.
+ */
+const isMessageNotModifiedError = (err: unknown): boolean => {
+  const e = err as BenignEditError;
+  if (e.error_code !== 400) return false;
+  const desc = (e.description ?? e.message ?? "").toLowerCase();
+  return desc.includes("message is not modified");
 };
 
 const editMessageToSnapshot = async (

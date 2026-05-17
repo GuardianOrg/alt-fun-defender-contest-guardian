@@ -269,11 +269,16 @@ const safeEditMessage = async (
       message?: string;
     };
     const desc = (e.description ?? e.message ?? "").toLowerCase();
+    if (e.error_code === 400 && desc.includes("message is not modified")) {
+      // The bubble already shows exactly this text — treat as a
+      // successful edit so callers don't fall back to a fresh reply
+      // and stack duplicate wizard prompts (CodeRabbit #1009).
+      return true;
+    }
     const isBenign =
       e.error_code === 400 &&
       (desc.includes("message to edit not found") ||
         desc.includes("message not found") ||
-        desc.includes("message is not modified") ||
         desc.includes("message can't be edited"));
     if (isBenign) return false;
     throw err;

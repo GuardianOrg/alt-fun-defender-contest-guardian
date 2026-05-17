@@ -524,11 +524,33 @@ const sellCustomConversation = async (
       continue;
     }
 
-    await runPercentSell(conversation, msgCtx, tokenAddress, percent, origin);
-    await sweepWorkflow(conversation);
+    const outcome = await runPercentSell(
+      conversation,
+      msgCtx,
+      tokenAddress,
+      percent,
+      origin,
+    );
+    // When `runPercentSell` staged the confirm card it tracked the
+    // bubble for the post-trade sweep — sweeping here would delete
+    // the staged card the user is about to tap Confirm on. Sweep
+    // only on the non-staging exits (degen submit, early-out errors)
+    // where there's no surviving final bubble to protect.
+    if (!outcome.stagedFinal) {
+      await sweepWorkflow(conversation);
+    }
     return;
   }
 };
+
+/**
+ * Result of `runPercentSell`. `stagedFinal: true` means the function
+ * left a confirm bubble on the chat that must survive the caller's
+ * post-flow sweep — the conversation wrapper checks this flag before
+ * calling `sweepWorkflow`, otherwise the just-tracked staging bubble
+ * would be deleted immediately (CodeRabbit #1009).
+ */
+type PercentSellResult = { stagedFinal: boolean };
 
 /**
  * Shared percent-sell flow used by both the conversation custom path and
@@ -542,7 +564,7 @@ const runPercentSell = async (
   tokenAddress: string,
   percent: number,
   origin?: MessageRef,
-): Promise<void> => {
+): Promise<PercentSellResult> => {
   const userId = msgCtx.from?.id;
   const active = userId
     ? await conversation.external((outerCtx) =>
@@ -553,7 +575,7 @@ const runPercentSell = async (
     await msgCtx.reply(
       "No active wallet — run /wallet to create or import one.",
     );
-    return;
+    return { stagedFinal: false };
   }
 
   const [tokenResult, tokenBalance] = await Promise.all([
@@ -567,7 +589,7 @@ const runPercentSell = async (
 
   if (!tokenResult.ok) {
     await msgCtx.reply(API_UNAVAILABLE);
-    return;
+    return { stagedFinal: false };
   }
 
   const token = tokenResult.data;
@@ -577,12 +599,12 @@ const runPercentSell = async (
     await msgCtx.reply(
       "Unable to verify your token balance — please try again.",
     );
-    return;
+    return { stagedFinal: false };
   }
 
   if (tokenBalance === 0n) {
     await msgCtx.reply(`You hold no ${token.ticker}.`);
-    return;
+    return { stagedFinal: false };
   }
 
   const tokenRaw = tokensForPercent(tokenBalance, percent);
@@ -590,7 +612,7 @@ const runPercentSell = async (
     await msgCtx.reply(
       `${percent}% of your ${token.ticker} balance rounds to zero — try a larger percent.`,
     );
-    return;
+    return { stagedFinal: false };
   }
 
   const quote = await conversation.external((outerCtx) =>
@@ -604,14 +626,14 @@ const runPercentSell = async (
   );
   if (quote === null) {
     await msgCtx.reply(PROCEEDS_UNAVAILABLE);
-    return;
+    return { stagedFinal: false };
   }
   if (quote.proceedsUsd < MIN_USDC_SELL_AMOUNT) {
     await replyWithNav(
       msgCtx,
       `Estimated proceeds ≈$${quote.proceedsUsd.toFixed(2)} would be below the $${MIN_USDC_SELL_AMOUNT} minimum. Increase the percent or tap Home to exit.`,
     );
-    return;
+    return { stagedFinal: false };
   }
 
   const buffer = await conversation.external((outerCtx) =>
@@ -626,7 +648,7 @@ const runPercentSell = async (
     await msgCtx.reply(BUFFER_BELOW_MIN_HTML(buffer.maxProceedsUsd), {
       parse_mode: "HTML",
     });
-    return;
+    return { stagedFinal: false };
   }
 
   const effectiveTokenRaw =
@@ -686,7 +708,11 @@ const runPercentSell = async (
       );
       await replyConfirmedTradeAndPromptStart(msgCtx, outcome);
     }
-    return;
+    // Degen path's status bubble was sent fresh and never tracked on
+    // the workflow stack, so the caller's sweep won't touch it — safe
+    // to flag this as "no staged final" and let the wizard sweep
+    // intermediate prompts.
+    return { stagedFinal: false };
   }
 
   const { nonce } = await conversation.external(
@@ -734,10 +760,18 @@ const runPercentSell = async (
     });
     stagingMessageId = stagingMsg.message_id;
   }
+  // Sweep wizard prompts BEFORE tracking the staging bubble so the
+  // caller's post-flow sweep can't delete the just-staged bubble. The
+  // staging msg is the only thing we want to live past the wizard
+  // exit; everything else (address-prompt history, retry copy) is
+  // already swept here.
+  await sweepWorkflow(conversation);
   // Staging prompt is stale once the trade lands — push so the
-  // post-trade sweep clears it. The Tx-status flow detaches it before
-  // editing in place with the receipt, so the receipt survives.
+  // post-trade sweep (run inside `confirmTrade` after a receipt-
+  // confirmed success) clears it. The Tx-status flow detaches it
+  // before editing in place with the receipt, so the receipt survives.
   await trackWorkflowMessage(conversation, stagingMessageId);
+  return { stagedFinal: true };
 };
 
 /** Re-fetch token + token balance and edit the existing sell card in-place. */
