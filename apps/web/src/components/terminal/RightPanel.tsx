@@ -201,8 +201,7 @@ export default function RightPanel() {
   // sorted `curveFilled desc`). Slicing happens AFTER the API filter
   // so the top entries are always the closest-to-graduation tokens
   // regardless of how many tokens are currently in flight.
-  const graduating =
-    graduatingTokens?.slice(0, GRADUATING_SOON_LIMIT) ?? [];
+  const graduating = graduatingTokens?.slice(0, GRADUATING_SOON_LIMIT) ?? [];
   const handleNavigate = (address: string) => navigate(tokenPath(address));
   // Gate skeletons + `aria-busy` behind the transient loading flag so an
   // empty / disconnected feed surfaces as an empty state once the timeout
@@ -391,7 +390,11 @@ export default function RightPanel() {
             />
           )}
           {isFetchingMore && (
-            <div role="status" aria-live="polite" aria-label="Loading more trades">
+            <div
+              role="status"
+              aria-live="polite"
+              aria-label="Loading more trades"
+            >
               {Array.from({ length: PAGE_SKELETON_ROW_COUNT }, (_, i) => (
                 <div
                   key={`page-skel-${i}`}
@@ -428,11 +431,20 @@ export default function RightPanel() {
             <div
               key={t.address}
               className={cn(styles.infoRow, styles.infoRowNoBorderLast)}
+              role="button"
+              tabIndex={0}
+              onClick={() => handleNavigate(t.address)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleNavigate(t.address);
+                }
+              }}
+              aria-label={`${t.ticker || t.name} — ${formatCurveFilled(t.curveFilled)} graduated`}
             >
-              <span className={styles.infoName}>{t.name}</span>
+              <span className={styles.infoName}>{t.ticker || t.name}</span>
               <span className={styles.graduatingValue}>
-                {formatCurveFilled(t.curveFilled)} ·{" "}
-                {t.direction === "long" ? "LONG" : "SHORT"}
+                {formatCurveFilled(t.curveFilled)}
               </span>
             </div>
           ))}
