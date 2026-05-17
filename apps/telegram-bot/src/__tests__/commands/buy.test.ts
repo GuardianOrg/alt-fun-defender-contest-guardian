@@ -315,7 +315,7 @@ describe("Buy flow (st:b button → conversation)", () => {
     // (issue #805 user-facing requirement). The "Token not found." path
     // from the buy-lookup conversation must not fire.
     expect(sends).toHaveLength(1);
-    expect(String(sends[0]!.body.text)).toBe(
+    expect(String(sends[0]!.body.text)).toContain(
       "No open positions for this wallet.",
     );
     expect(String(sends[0]!.body.text)).not.toMatch(/Token not found/i);

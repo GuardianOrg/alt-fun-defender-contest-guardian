@@ -102,7 +102,10 @@ describe("/positions", () => {
     await h.run(positionsUpdate(""));
     const sent = sentMessages(fetchSpy);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.text).toBe("No open positions for this wallet.");
+    expect(sent[0]!.text).toContain("No open positions for this wallet.");
+    expect(sent[0]!.text).toContain(
+      "This bot will never ask for your seed phrase or private key via DM.",
+    );
     const apiCalls = upstreamCalls(fetchSpy);
     expect(apiCalls).toHaveLength(1);
     expect(String(apiCalls[0]![0]).toLowerCase()).toContain(
@@ -145,7 +148,10 @@ describe("/positions", () => {
     await h.run(positionsUpdate(WALLET));
     const sent = sentMessages(fetchSpy);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.text).toBe("No open positions for this wallet.");
+    expect(sent[0]!.text).toContain("No open positions for this wallet.");
+    expect(sent[0]!.text).toContain(
+      "This bot will never ask for your seed phrase or private key via DM.",
+    );
   });
 
   it("renders a single open position with deeplinked ticker, balance, cost, value, PnL, and [Buy] / [Sell] callback row", async () => {

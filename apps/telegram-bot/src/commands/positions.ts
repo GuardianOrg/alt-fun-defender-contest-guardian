@@ -7,6 +7,7 @@ import {
   ACTION_TOKEN_OUTAGE,
   editToActionCard,
 } from "../lib/action-card.js";
+import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
   POSITIONS_BUY_CALLBACK_CMD,
@@ -89,30 +90,30 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     let wallet = arg;
     if (wallet === "") {
       if (ctx.chat?.type !== "private" || !ctx.from) {
-        await ctx.reply(USAGE);
+        await ctx.reply(wrap(ctx, USAGE));
         return;
       }
       const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
       const active = await wm.getActive(ctx.from.id);
       if (!active) {
-        await ctx.reply(NO_ACTIVE_WALLET);
+        await ctx.reply(wrap(ctx, NO_ACTIVE_WALLET));
         return;
       }
       wallet = active.address;
     } else if (!isAddress(wallet)) {
-      await ctx.reply(INVALID_ADDRESS);
+      await ctx.reply(wrap(ctx, INVALID_ADDRESS));
       return;
     }
     const view = await renderView(ctx.env, wallet, 0, 0);
     if ("invalid" in view) {
-      await ctx.reply(INVALID_ADDRESS);
+      await ctx.reply(wrap(ctx, INVALID_ADDRESS));
       return;
     }
     if ("outage" in view) {
-      await replyWithNav(ctx, OUTAGE);
+      await replyWithNav(ctx, wrap(ctx, OUTAGE));
       return;
     }
-    await ctx.reply(view.text, {
+    await ctx.reply(wrap(ctx, view.text), {
       ...HTML_REPLY,
       reply_markup: view.reply_markup,
     });
@@ -155,7 +156,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       }
 
       try {
-        await ctx.editMessageText(view.text, {
+        await ctx.editMessageText(wrap(ctx, view.text), {
           ...HTML_REPLY,
           reply_markup: view.reply_markup,
         });
@@ -221,7 +222,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       }
 
       try {
-        await ctx.editMessageText(view.text, {
+        await ctx.editMessageText(wrap(ctx, view.text), {
           ...HTML_REPLY,
           reply_markup: view.reply_markup,
         });
@@ -354,7 +355,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     }
     try {
       await editToSubmenu(ctx, {
-        text: view.text,
+        text: wrap(ctx, view.text),
         parseMode: "HTML",
         inlineKeyboard: view.reply_markup.inline_keyboard,
         linkPreviewDisabled: true,
