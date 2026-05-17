@@ -353,7 +353,7 @@ const editOriginToPrompt = async (
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, text, {
       parse_mode: "HTML",
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(ctxLang(outside)),
       link_preview_options: { is_disabled: true },
     }),
   );
@@ -522,7 +522,7 @@ const sellCustomConversation = async (
   if (origin) {
     promptShown = await conversation.external((outside) =>
       safeEditMessageById(outside, origin, promptText, {
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(ctxLang(outside)),
       }),
     );
   }

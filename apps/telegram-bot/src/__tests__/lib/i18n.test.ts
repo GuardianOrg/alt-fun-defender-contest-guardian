@@ -319,6 +319,122 @@ describe("i18n module", () => {
     ).toBe("Transaction reverted: revert reason.");
   });
 
+  it("renders round-3 i18n keys (settings edit prompts, withdraw asset balance, sell preset staging)", () => {
+    // /settings — custom slippage prompt
+    expect(
+      i18n.SETTINGS_CUSTOM_SLIPPAGE_PROMPT.English("0.5% / 2% / 5%", 50),
+    ).toContain("custom slippage percent");
+    expect(
+      t(i18n.SETTINGS_CUSTOM_SLIPPAGE_PROMPT, "SimplifiedChinese")(
+        "0.5% / 2% / 5%",
+        50,
+      ),
+    ).toContain("请发送自定义滑点百分比");
+
+    expect(i18n.SETTINGS_SLIPPAGE_CAPPED_REPLY.English(50)).toBe(
+      "Slippage capped at 50% — send a smaller value.",
+    );
+    expect(
+      t(i18n.SETTINGS_SLIPPAGE_CAPPED_REPLY, "SimplifiedChinese")(50),
+    ).toContain("滑点上限");
+
+    // Buy slot prompt + min/max retries
+    expect(i18n.SETTINGS_BUY_SLOT_PROMPT.English(20, 10000)).toContain(
+      "between $20 and $10000",
+    );
+    expect(
+      t(i18n.SETTINGS_BUY_SLOT_PROMPT, "SimplifiedChinese")(20, 10000),
+    ).toContain("$20 至 $10000");
+    expect(i18n.SETTINGS_BUY_SLOT_MIN_REPLY.English(20)).toBe(
+      "Minimum is $20 USDC. Send a larger value.",
+    );
+    expect(
+      t(i18n.SETTINGS_BUY_SLOT_MIN_REPLY, "SimplifiedChinese")(20),
+    ).toContain("最小值");
+    expect(i18n.SETTINGS_BUY_SLOT_MAX_REPLY.English(10000)).toBe(
+      "Capped at $10000 USDC. Send a smaller value.",
+    );
+    expect(
+      t(i18n.SETTINGS_BUY_SLOT_MAX_REPLY, "SimplifiedChinese")(10000),
+    ).toContain("上限");
+
+    // Anti-phishing phrase too long + saved header
+    expect(i18n.SETTINGS_PHRASE_TOO_LONG_REPLY.English(70, 64)).toContain(
+      "Phrase too long (70/64)",
+    );
+    expect(
+      t(i18n.SETTINGS_PHRASE_TOO_LONG_REPLY, "SimplifiedChinese")(70, 64),
+    ).toContain("短语过长");
+    expect(i18n.SETTINGS_PHRASE_SAVED_HEADER.English).toBe("Phrase saved.");
+    expect(t(i18n.SETTINGS_PHRASE_SAVED_HEADER, "SimplifiedChinese")).toBe(
+      "短语已保存。",
+    );
+    expect(i18n.SETTINGS_PHRASE_PROMPT_MAX_LINE.English(64)).toBe(
+      "Max 64 characters.",
+    );
+    expect(
+      t(i18n.SETTINGS_PHRASE_PROMPT_MAX_LINE, "SimplifiedChinese")(64),
+    ).toBe("最多 64 个字符。");
+    expect(i18n.SETTINGS_SLIPPAGE_SAVED_CONFIRMATION.English("2%")).toBe(
+      "Slippage set to 2%.",
+    );
+    expect(
+      t(i18n.SETTINGS_SLIPPAGE_SAVED_CONFIRMATION, "SimplifiedChinese")("2%"),
+    ).toBe("滑点已设置为 2%。");
+
+    // /withdraw asset-balance line
+    expect(
+      i18n.WITHDRAW_ASSET_BALANCE_LINE.English("100 USDC", "0.5 HYPE"),
+    ).toBe("You have 100 USDC and 0.5 HYPE.");
+    expect(
+      t(i18n.WITHDRAW_ASSET_BALANCE_LINE, "SimplifiedChinese")(
+        "100 USDC",
+        "0.5 HYPE",
+      ),
+    ).toBe("您当前持有 100 USDC 和 0.5 HYPE。");
+
+    // /sell preset staging
+    expect(
+      i18n.SELL_STAGING_READY_PRESET_HTML.English(
+        50,
+        " all 100",
+        "WIF",
+        10.5,
+        "\n\ntoken",
+      ),
+    ).toContain("Ready to sell 50% all 100 of WIF");
+    expect(
+      t(i18n.SELL_STAGING_READY_PRESET_HTML, "SimplifiedChinese")(
+        50,
+        "（全部 100）",
+        "WIF",
+        10.5,
+        "\n\ntoken",
+      ),
+    ).toContain("准备卖出 WIF 的 50%（全部 100）");
+    expect(
+      i18n.SELL_STAGING_BUFFER_CAPPED_PRESET_HTML.English(
+        5,
+        10,
+        50,
+        "5",
+        "10",
+        "WIF",
+        "\n\ntoken",
+      ),
+    ).toContain("Selling 5 of 10 WIF");
+    expect(
+      t(
+        i18n.SELL_STAGING_BUFFER_CAPPED_PRESET_HTML,
+        "SimplifiedChinese",
+      )(5, 10, 50, "5", "10", "WIF", "\n\ntoken"),
+    ).toContain("本次卖出 5，共持有 10 WIF");
+    expect(i18n.SELL_PRESET_ALL_OF_SUFFIX.English("100")).toBe(" all 100");
+    expect(t(i18n.SELL_PRESET_ALL_OF_SUFFIX, "SimplifiedChinese")("100")).toBe(
+      "（全部 100）",
+    );
+  });
+
   it("renders round-2 i18n keys (positions row labels, track sides, chart, PIN action labels, inline withdraw errors)", () => {
     // /positions row + page-nav templates
     expect(i18n.POSITIONS_OPEN_LINE_DETAILS.English("1.5", "20.00")).toBe(

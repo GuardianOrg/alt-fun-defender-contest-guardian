@@ -63,6 +63,7 @@ import {
   PIN_ACTION_LABEL_WITHDRAW,
   WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY,
   WITHDRAW_AMOUNT_PROMPT,
+  WITHDRAW_ASSET_BALANCE_LINE,
   WITHDRAW_DESTINATION_PROMPT,
   WITHDRAW_INLINE_INVALID_AMOUNT_PARSE_REPLY,
   WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY,
@@ -300,7 +301,10 @@ const renderAssetPrompt = (
   [
     t(WITHDRAW_WHICH_ASSET_PROMPT, lang),
     "",
-    `You have ${formatBalance(balances.usdc, "USDC")} and ${formatBalance(balances.hype, "HYPE")}.`,
+    t(WITHDRAW_ASSET_BALANCE_LINE, lang)(
+      formatBalance(balances.usdc, "USDC"),
+      formatBalance(balances.hype, "HYPE"),
+    ),
   ].join("\n");
 
 /**

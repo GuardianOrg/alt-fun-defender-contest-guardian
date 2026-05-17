@@ -56,9 +56,18 @@ import {
   type Language,
   SETTINGS_ANTI_PHISHING_PROMPT,
   SETTINGS_BUY_SELL_HINT_REPLY,
+  SETTINGS_BUY_SLOT_MAX_REPLY,
+  SETTINGS_BUY_SLOT_MIN_REPLY,
+  SETTINGS_BUY_SLOT_PROMPT,
   SETTINGS_BUY_SUBMENU_TITLE,
+  SETTINGS_CUSTOM_SLIPPAGE_PROMPT,
   SETTINGS_INVALID_NUMBER_REPLY,
   SETTINGS_INVALID_USDC_REPLY,
+  SETTINGS_PHRASE_PROMPT_MAX_LINE,
+  SETTINGS_PHRASE_SAVED_HEADER,
+  SETTINGS_PHRASE_TOO_LONG_REPLY,
+  SETTINGS_SLIPPAGE_CAPPED_REPLY,
+  SETTINGS_SLIPPAGE_SAVED_CONFIRMATION,
   SETTINGS_NO_USER_REPLY as I18N_SETTINGS_NO_USER_REPLY,
   SETTINGS_NON_PRIVATE_CHAT_REPLY as I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY,
   SETTINGS_PHRASE_EMPTY_REPLY,
@@ -358,13 +367,10 @@ const customSlippageConversation = async (
     conversation,
     ctx,
     origin,
-    [
-      "Send a custom slippage percent (e.g. `0.75`, `3`, `7.5`).",
-      `Quick presets: ${presetList}.`,
-      `Max ${MAX_SLIPPAGE_BPS / 100}% — past that the trade lib rejects.`,
-      "",
-      "Tap Home to exit and keep the current value.",
-    ].join("\n"),
+    t(SETTINGS_CUSTOM_SLIPPAGE_PROMPT, getCtxLanguage(ctx))(
+      presetList,
+      MAX_SLIPPAGE_BPS / 100,
+    ),
   );
 
   while (true) {
@@ -404,7 +410,9 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        `Slippage capped at ${MAX_SLIPPAGE_BPS / 100}% — send a smaller value.`,
+        t(SETTINGS_SLIPPAGE_CAPPED_REPLY, getCtxLanguage(ctx))(
+          MAX_SLIPPAGE_BPS / 100,
+        ),
       );
       continue;
     }
@@ -426,7 +434,9 @@ const customSlippageConversation = async (
     // Lead with a short confirmation line so the user can see the
     // wizard succeeded (the panel below already reflects the new
     // value, but the confirmation makes the save read unambiguous).
-    const confirmation = `Slippage set to ${formatBpsLabel(bps)}.`;
+    const confirmation = t(SETTINGS_SLIPPAGE_SAVED_CONFIRMATION, getCtxLanguage(ctx))(
+      formatBpsLabel(bps),
+    );
     const edited = origin
       ? await conversation.external(async (outside) => {
           const state = renderMainState(outside);
@@ -478,13 +488,10 @@ const buyPresetSlotConversation = async (
     conversation,
     ctx,
     origin,
-    [
-      "Change the value of the buy amount button.",
-      "",
-      `Send a USDC amount between $${MIN_USDC_BUY_AMOUNT} and $${MAX_BUY_PRESET_USDC}.`,
-      "",
-      "Tap Home to exit and keep the current value.",
-    ].join("\n"),
+    t(SETTINGS_BUY_SLOT_PROMPT, getCtxLanguage(ctx))(
+      MIN_USDC_BUY_AMOUNT,
+      MAX_BUY_PRESET_USDC,
+    ),
   );
 
   while (true) {
@@ -508,7 +515,7 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        `Minimum is $${MIN_USDC_BUY_AMOUNT} USDC. Send a larger value.`,
+        t(SETTINGS_BUY_SLOT_MIN_REPLY, getCtxLanguage(ctx))(MIN_USDC_BUY_AMOUNT),
       );
       continue;
     }
@@ -517,7 +524,7 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        `Capped at $${MAX_BUY_PRESET_USDC} USDC. Send a smaller value.`,
+        t(SETTINGS_BUY_SLOT_MAX_REPLY, getCtxLanguage(ctx))(MAX_BUY_PRESET_USDC),
       );
       continue;
     }
@@ -673,7 +680,7 @@ const setPhraseConversation = async (
     [
       t(SETTINGS_ANTI_PHISHING_PROMPT, getCtxLanguage(ctx)),
       "",
-      `Max ${MAX_PHRASE_LEN} characters.`,
+      t(SETTINGS_PHRASE_PROMPT_MAX_LINE, getCtxLanguage(ctx))(MAX_PHRASE_LEN),
     ].join("\n"),
   );
   while (true) {
@@ -697,7 +704,10 @@ const setPhraseConversation = async (
         conversation,
         ctx,
         origin,
-        `Phrase too long (${trimmed.length}/${MAX_PHRASE_LEN}). Send a shorter one.`,
+        t(SETTINGS_PHRASE_TOO_LONG_REPLY, getCtxLanguage(ctx))(
+          trimmed.length,
+          MAX_PHRASE_LEN,
+        ),
       );
       continue;
     }
@@ -717,14 +727,20 @@ const setPhraseConversation = async (
           safeEditMessage(
             outside,
             origin,
-            withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
+            withAntiPhishing(
+            `${t(SETTINGS_PHRASE_SAVED_HEADER, getCtxLanguage(ctx))}\n\n${state.text}`,
+            trimmed,
+          ),
             { reply_markup: state.reply_markup },
           ),
         )
       : false;
     if (!edited) {
       await ctx.reply(
-        withAntiPhishing(`Phrase saved.\n\n${state.text}`, trimmed),
+        withAntiPhishing(
+            `${t(SETTINGS_PHRASE_SAVED_HEADER, getCtxLanguage(ctx))}\n\n${state.text}`,
+            trimmed,
+          ),
         { reply_markup: state.reply_markup },
       );
     }

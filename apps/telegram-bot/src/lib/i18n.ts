@@ -1474,18 +1474,6 @@ export const SETTINGS_SELL_SUBMENU_TITLE = {
   English: ["Sell Settings", "", "Tap a slot to change its percent."].join("\n"),
   SimplifiedChinese: ["卖出设置", "", "点击任一槽位即可修改其百分比。"].join("\n"),
 } as const;
-export const SETTINGS_CUSTOM_SLIPPAGE_PROMPT = {
-  English: [
-    "Send a custom slippage percent (e.g. `0.75`, `3`, `7.5`).",
-    "",
-    "Tap Home to exit and keep the current value.",
-  ].join("\n"),
-  SimplifiedChinese: [
-    "请发送自定义滑点百分比（例如 `0.75`、`3`、`7.5`）。",
-    "",
-    "点击主页退出并保留当前值。",
-  ].join("\n"),
-} as const;
 export const SETTINGS_INVALID_NUMBER_REPLY = {
   English: "Send a positive number like `2` or `0.5`.",
   SimplifiedChinese: "请发送正数，如 `2` 或 `0.5`。",
@@ -1493,18 +1481,6 @@ export const SETTINGS_INVALID_NUMBER_REPLY = {
 export const SETTINGS_SLIPPAGE_MIN_REPLY = {
   English: "Slippage must be at least 0.01%. Send again.",
   SimplifiedChinese: "滑点至少为 0.01%。请重新发送。",
-} as const;
-export const SETTINGS_BUY_SLOT_PROMPT = {
-  English: [
-    "Change the value of the buy amount button.",
-    "",
-    "Tap Home to exit and keep the current value.",
-  ].join("\n"),
-  SimplifiedChinese: [
-    "修改买入金额按钮的数值。",
-    "",
-    "点击主页退出并保留当前值。",
-  ].join("\n"),
 } as const;
 export const SETTINGS_INVALID_USDC_REPLY = {
   English: "Send a positive USDC amount like `50`.",
@@ -2448,6 +2424,81 @@ export const PIN_ACTION_LABEL_DELETE = {
   English: "delete",
   SimplifiedChinese: "删除",
 } as const;
+
+// ─── /settings — edit prompts + retry copy ─────────────────────────
+
+export const SETTINGS_CUSTOM_SLIPPAGE_PROMPT = {
+  English: (presetList: string, maxPct: number) =>
+    [
+      "Send a custom slippage percent (e.g. `0.75`, `3`, `7.5`).",
+      `Quick presets: ${presetList}.`,
+      `Max ${maxPct}% — past that the trade lib rejects.`,
+      "",
+      "Tap Home to exit and keep the current value.",
+    ].join("\n"),
+  SimplifiedChinese: (presetList: string, maxPct: number) =>
+    [
+      "请发送自定义滑点百分比（例如 `0.75`、`3`、`7.5`）。",
+      `快捷预设：${presetList}。`,
+      `最大 ${maxPct}%——超过后交易库会拒绝。`,
+      "",
+      "点击主页退出并保留当前值。",
+    ].join("\n"),
+} as const;
+export const SETTINGS_SLIPPAGE_CAPPED_REPLY = {
+  English: (maxPct: number) =>
+    `Slippage capped at ${maxPct}% — send a smaller value.`,
+  SimplifiedChinese: (maxPct: number) =>
+    `滑点上限为 ${maxPct}%——请发送更小的值。`,
+} as const;
+export const SETTINGS_BUY_SLOT_PROMPT = {
+  English: (minUsdc: number, maxUsdc: number) =>
+    [
+      "Change the value of the buy amount button.",
+      "",
+      `Send a USDC amount between $${minUsdc} and $${maxUsdc}.`,
+      "",
+      "Tap Home to exit and keep the current value.",
+    ].join("\n"),
+  SimplifiedChinese: (minUsdc: number, maxUsdc: number) =>
+    [
+      "修改买入金额按钮的值。",
+      "",
+      `请发送介于 $${minUsdc} 至 $${maxUsdc} 之间的 USDC 金额。`,
+      "",
+      "点击主页退出并保留当前值。",
+    ].join("\n"),
+} as const;
+export const SETTINGS_BUY_SLOT_MIN_REPLY = {
+  English: (minUsdc: number) =>
+    `Minimum is $${minUsdc} USDC. Send a larger value.`,
+  SimplifiedChinese: (minUsdc: number) =>
+    `最小值为 $${minUsdc} USDC。请发送更大的值。`,
+} as const;
+export const SETTINGS_BUY_SLOT_MAX_REPLY = {
+  English: (maxUsdc: number) =>
+    `Capped at $${maxUsdc} USDC. Send a smaller value.`,
+  SimplifiedChinese: (maxUsdc: number) =>
+    `上限为 $${maxUsdc} USDC。请发送更小的值。`,
+} as const;
+export const SETTINGS_PHRASE_PROMPT_MAX_LINE = {
+  English: (maxLen: number) => `Max ${maxLen} characters.`,
+  SimplifiedChinese: (maxLen: number) => `最多 ${maxLen} 个字符。`,
+} as const;
+export const SETTINGS_PHRASE_TOO_LONG_REPLY = {
+  English: (length: number, maxLen: number) =>
+    `Phrase too long (${length}/${maxLen}). Send a shorter one.`,
+  SimplifiedChinese: (length: number, maxLen: number) =>
+    `短语过长 (${length}/${maxLen})。请发送更短的内容。`,
+} as const;
+export const SETTINGS_PHRASE_SAVED_HEADER = {
+  English: "Phrase saved.",
+  SimplifiedChinese: "短语已保存。",
+} as const;
+export const SETTINGS_SLIPPAGE_SAVED_CONFIRMATION = {
+  English: (label: string) => `Slippage set to ${label}.`,
+  SimplifiedChinese: (label: string) => `滑点已设置为 ${label}。`,
+} as const;
 export const PIN_SET_NOW_SEND_ONCE_MORE_PROMPT = {
   English: (actionLabel: string) =>
     `PIN set. Send it once more to authorize the ${actionLabel}.`,
@@ -2484,4 +2535,10 @@ export const WITHDRAW_INLINE_INVALID_DESTINATION_PARSE_REPLY = {
     `Invalid destination address "${addressRaw}" — must be a 0x-prefixed 40-character hex string.`,
   SimplifiedChinese: (addressRaw: string) =>
     `目标地址 "${addressRaw}" 无效——必须是以 0x 开头的 40 位十六进制字符串。`,
+} as const;
+export const WITHDRAW_ASSET_BALANCE_LINE = {
+  English: (usdcBalance: string, hypeBalance: string) =>
+    `You have ${usdcBalance} and ${hypeBalance}.`,
+  SimplifiedChinese: (usdcBalance: string, hypeBalance: string) =>
+    `您当前持有 ${usdcBalance} 和 ${hypeBalance}。`,
 } as const;

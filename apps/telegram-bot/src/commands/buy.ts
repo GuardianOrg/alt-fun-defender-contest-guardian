@@ -650,10 +650,12 @@ const handleFixedBuy = async (
   });
   const tickerSafe = escapeHtml(tokenResult.data.ticker);
   const tokenSafe = escapeHtml(tokenResult.data.address);
-  const stagingText =
-    `✅ <b>Ready to buy $${amountUsdc} USDC of ${tickerSafe}</b>\n\n` +
-    `Tap <b>Confirm</b> within 60s to submit.\n\n` +
-    `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
+  const stagingText = t(BUY_STAGING_HTML, lang)(
+    amountUsdc,
+    tickerSafe,
+    tokenSafe,
+    trackingPageUrl(tokenResult.data.address),
+  );
   const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the token-detail card the user tapped from into the staging
