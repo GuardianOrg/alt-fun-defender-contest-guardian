@@ -134,7 +134,7 @@ describe("language preference propagates across flows", () => {
     // List header, "(unlabeled)" placeholder, and active-wallet legend
     // all need to land translated when a wallet exists.
     expect(body).toContain("钱包（1/");
-    expect(body).toContain("（无标签）");
+    expect(body).toContain("（未命名）");
     expect(body).toContain("活动钱包");
   });
 

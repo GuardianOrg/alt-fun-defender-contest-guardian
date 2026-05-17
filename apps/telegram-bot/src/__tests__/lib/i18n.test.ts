@@ -581,7 +581,7 @@ describe("i18n module", () => {
     expect(i18n.WALLET_UNLABELED_PLACEHOLDER.English).toBe("(unlabeled)");
     expect(
       t(i18n.WALLET_UNLABELED_PLACEHOLDER, "SimplifiedChinese"),
-    ).toBe("（无标签）");
+    ).toBe("（未命名）");
     expect(i18n.WALLET_ACTIVE_LEGEND.English).toContain("active wallet");
     expect(
       t(i18n.WALLET_ACTIVE_LEGEND, "SimplifiedChinese"),

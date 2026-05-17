@@ -2363,7 +2363,7 @@ export const WALLET_LIST_HEADER = {
 } as const;
 export const WALLET_UNLABELED_PLACEHOLDER = {
   English: "(unlabeled)",
-  SimplifiedChinese: "（无标签）",
+  SimplifiedChinese: "（未命名）",
 } as const;
 export const WALLET_ACTIVE_LEGEND = {
   English: "* = active wallet (used for buy / sell / withdraw)",
