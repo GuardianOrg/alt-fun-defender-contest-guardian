@@ -47,6 +47,8 @@ import {
   TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
   TOKEN_LOOKUP_PROMPT_HTML,
   TRANSACTION_FAILED_SHORT_REPLY,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -70,12 +72,15 @@ import {
 /** Combined bot+protocol fee rate used for balance headroom check (1%). */
 const COMBINED_FEE_RATE = 0.01;
 
-const PROMPT_HTML = TOKEN_LOOKUP_PROMPT_HTML.English;
+const promptHtml = (ctx: AppContext): string =>
+  t(TOKEN_LOOKUP_PROMPT_HTML, getCtxLanguage(ctx));
 
-const TOKEN_NOT_FOUND_HTML = TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML.English;
+const tokenNotFoundHtml = (ctx: AppContext): string =>
+  t(TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML, getCtxLanguage(ctx));
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
-const API_UNAVAILABLE = OUTAGE_REPLY.English;
+const apiUnavailable = (ctx: AppContext): string =>
+  t(OUTAGE_REPLY, getCtxLanguage(ctx));
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -114,7 +119,7 @@ const editOriginToPrompt = async (
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, text, {
       parse_mode: "HTML",
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(getCtxLanguage(outside)),
       link_preview_options: { is_disabled: true },
     }),
   );
@@ -148,7 +153,7 @@ const buyLookupConversation = async (
   let activeOrigin: MessageRef | null = origin ?? null;
 
   if (!activeOrigin) {
-    const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
+    const promptMsg = await replyWithNav(ctx, promptHtml(ctx), {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     });
@@ -182,7 +187,7 @@ const buyLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
+      await showRetry(msgCtx, tokenNotFoundHtml(ctx));
       continue;
     }
 
@@ -196,11 +201,11 @@ const buyLookupConversation = async (
         tokenResult.kind === "not_found" ||
         tokenResult.kind === "invalid_address"
       ) {
-        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
+        await showRetry(msgCtx, tokenNotFoundHtml(ctx));
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
-      await replyWithNav(msgCtx, API_UNAVAILABLE);
+      await replyWithNav(msgCtx, apiUnavailable(msgCtx));
       await sweepWorkflow(conversation);
       return;
     }
@@ -283,7 +288,7 @@ const buyCustomConversation = async (
   if (origin) {
     promptShown = await conversation.external((outside) =>
       safeEditMessageById(outside, origin, promptText, {
-        reply_markup: backHomeMarkup(),
+        reply_markup: backHomeMarkup(getCtxLanguage(outside)),
       }),
     );
   }
@@ -329,7 +334,7 @@ const buyCustomConversation = async (
       : null;
     if (!active) {
       await msgCtx.reply(
-        NO_ACTIVE_WALLET_RUN_WALLET_REPLY.English,
+        t(NO_ACTIVE_WALLET_RUN_WALLET_REPLY, getCtxLanguage(msgCtx)),
       );
       await sweepWorkflow(conversation);
       return;
@@ -366,7 +371,7 @@ const buyCustomConversation = async (
       fetchToken(outerCtx.env, tokenAddress),
     );
     if (!tokenResult.ok) {
-      await replyWithNav(msgCtx, API_UNAVAILABLE);
+      await replyWithNav(msgCtx, apiUnavailable(msgCtx));
       await sweepWorkflow(conversation);
       return;
     }
@@ -377,12 +382,14 @@ const buyCustomConversation = async (
       (outerCtx): boolean => outerCtx.session.degenMode,
     );
     if (degenMode) {
+      const lang = getCtxLanguage(msgCtx);
       const description = describeTradeForStatus(
         "buy",
         token.ticker,
         usdcRaw,
+        lang,
       );
-      const statusMsg = await msgCtx.reply(renderTxSendingText(description), {
+      const statusMsg = await msgCtx.reply(renderTxSendingText(description, lang), {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
@@ -440,7 +447,7 @@ const buyCustomConversation = async (
       `✅ <b>Ready to buy $${amount.toFixed(2)} USDC of ${tickerSafe}</b>\n\n` +
       `Tap <b>Confirm</b> within 60s to submit.\n\n` +
       `Token: <a href="${trackingPageUrl(token.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
-    const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+    const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, getCtxLanguage(msgCtx)) };
 
     // Prefer editing the originating token-detail card in place: the
     // card already showed token + balance, the staging text re-states
@@ -490,7 +497,7 @@ const handleBuyRefresh = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
+      text: apiUnavailable(ctx),
       show_alert: true,
     });
     return;
@@ -510,7 +517,7 @@ const handleBuyRefresh = async (
     },
     link_preview_options: { is_disabled: true },
   });
-  await ctx.answerCallbackQuery({ text: TOAST_REFRESHED.English });
+  await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, getCtxLanguage(ctx)) });
 };
 
 /**
@@ -537,9 +544,10 @@ const handleFixedBuy = async (
   }
   const wm = buildManager(ctx.env);
   const active = await wm.getActive(ctx.from.id);
+  const lang = getCtxLanguage(ctx);
   if (!active) {
     await ctx.answerCallbackQuery({
-      text: TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English,
+      text: t(TOAST_NO_ACTIVE_WALLET_RUN_WALLET, lang),
       show_alert: true,
     });
     return;
@@ -552,7 +560,7 @@ const handleFixedBuy = async (
 
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
+      text: apiUnavailable(ctx),
       show_alert: true,
     });
     return;
@@ -561,7 +569,7 @@ const handleFixedBuy = async (
   // Null balance = RPC unavailable; do not coerce to zero.
   if (usdcBalance === null) {
     await ctx.answerCallbackQuery({
-      text: TOAST_UNABLE_TO_VERIFY_USDC_BALANCE.English,
+      text: t(TOAST_UNABLE_TO_VERIFY_USDC_BALANCE, lang),
       show_alert: true,
     });
     return;
@@ -571,7 +579,7 @@ const handleFixedBuy = async (
   const totalNeeded = amountUsdc * (1 + COMBINED_FEE_RATE);
   if (usdcAvailable < totalNeeded) {
     await ctx.answerCallbackQuery({
-      text: BUY_INSUFFICIENT_USDC_REPLY.English(totalNeeded, usdcAvailable),
+      text: t(BUY_INSUFFICIENT_USDC_REPLY, lang)(totalNeeded, usdcAvailable),
       show_alert: true,
     });
     return;
@@ -579,7 +587,7 @@ const handleFixedBuy = async (
 
   const usdcRaw = BigInt(Math.round(amountUsdc * 1_000_000));
   if (ctx.session.degenMode) {
-    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING_ZAP.English });
+    await ctx.answerCallbackQuery({ text: t(TOAST_SUBMITTING_ZAP, lang) });
     const cbMsg = ctx.callbackQuery?.message;
     if (cbMsg) {
       await runWithTxStatusUpdates({
@@ -594,6 +602,7 @@ const handleFixedBuy = async (
           "buy",
           tokenResult.data.ticker,
           usdcRaw,
+          lang,
         ),
         run: () =>
           submitBuy({
@@ -630,7 +639,7 @@ const handleFixedBuy = async (
     `✅ <b>Ready to buy $${amountUsdc} USDC of ${tickerSafe}</b>\n\n` +
     `Tap <b>Confirm</b> within 60s to submit.\n\n` +
     `Token: <a href="${trackingPageUrl(tokenResult.data.address)}">${tickerSafe}</a> <code>${tokenSafe}</code>`;
-  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce) };
+  const stagingMarkup = { inline_keyboard: confirmKeyboard(nonce, lang) };
 
   // Edit the token-detail card the user tapped from into the staging
   // bubble: the card already showed token + balance and the staging
@@ -689,10 +698,11 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
   // every step edits the same bubble) rather than dropping a fresh
   // prompt below the still-visible start menu.
   bot.callbackQuery(START_CALLBACK.buy, async (ctx) => {
+    const lang = getCtxLanguage(ctx);
     const result = await editToSubmenu(ctx, {
-      text: PROMPT_HTML,
+      text: promptHtml(ctx),
       parseMode: "HTML",
-      inlineKeyboard: [backHomeRow()],
+      inlineKeyboard: [backHomeRow(lang)],
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();
@@ -725,7 +735,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     await handleBuyRefresh(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("buy refresh failed", { err });
       await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .answerCallbackQuery({ text: apiUnavailable(ctx), show_alert: true })
         .catch(() => {});
     });
   });
@@ -753,7 +763,7 @@ export const registerBuyCommand = (bot: Bot<AppContext>): void => {
     await handleFixedBuy(ctx, tokenAddress, clamped).catch(async (err) => {
       logger.error("buy preset handler failed", { err, amount: clamped });
       await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .answerCallbackQuery({ text: apiUnavailable(ctx), show_alert: true })
         .catch(() => {});
     });
   });

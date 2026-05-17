@@ -1,4 +1,6 @@
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   REFRESH_BUTTON_TEXT,
   START_BUY_BUTTON,
   START_BUY_USDC_VIA_RELAY_BUTTON,
@@ -10,6 +12,7 @@ import {
   START_TRACK_BUTTON,
   START_WALLET_BUTTON,
   START_WITHDRAW_BUTTON,
+  t,
 } from "../lib/i18n.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
@@ -40,41 +43,42 @@ export const START_CALLBACK = {
  */
 export const buildStartMenuKeyboard = (
   buyUsdcUrl: string,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => [
   [
     {
-      text: START_BUY_USDC_VIA_RELAY_BUTTON.English,
+      text: t(START_BUY_USDC_VIA_RELAY_BUTTON, lang),
       url: buyUsdcUrl,
     },
-    { text: REFRESH_BUTTON_TEXT.English, callback_data: START_CALLBACK.refresh },
+    { text: t(REFRESH_BUTTON_TEXT, lang), callback_data: START_CALLBACK.refresh },
   ],
   [
-    { text: START_BUY_BUTTON.English, callback_data: START_CALLBACK.buy },
-    { text: START_SELL_BUTTON.English, callback_data: START_CALLBACK.sell },
+    { text: t(START_BUY_BUTTON, lang), callback_data: START_CALLBACK.buy },
+    { text: t(START_SELL_BUTTON, lang), callback_data: START_CALLBACK.sell },
   ],
   [
     {
-      text: START_POSITIONS_BUTTON.English,
+      text: t(START_POSITIONS_BUTTON, lang),
       callback_data: START_CALLBACK.positions,
     },
-    { text: START_TRACK_BUTTON.English, callback_data: START_CALLBACK.track },
+    { text: t(START_TRACK_BUTTON, lang), callback_data: START_CALLBACK.track },
   ],
   [
-    { text: START_WALLET_BUTTON.English, callback_data: START_CALLBACK.wallet },
+    { text: t(START_WALLET_BUTTON, lang), callback_data: START_CALLBACK.wallet },
     {
-      text: START_WITHDRAW_BUTTON.English,
+      text: t(START_WITHDRAW_BUTTON, lang),
       callback_data: START_CALLBACK.withdraw,
     },
   ],
   [
     {
-      text: START_SETTINGS_BUTTON.English,
+      text: t(START_SETTINGS_BUTTON, lang),
       callback_data: START_CALLBACK.settings,
     },
     {
-      text: START_REFERRAL_BUTTON.English,
+      text: t(START_REFERRAL_BUTTON, lang),
       callback_data: START_CALLBACK.referral,
     },
   ],
-  [{ text: START_HELP_BUTTON.English, callback_data: START_CALLBACK.help }],
+  [{ text: t(START_HELP_BUTTON, lang), callback_data: START_CALLBACK.help }],
 ];

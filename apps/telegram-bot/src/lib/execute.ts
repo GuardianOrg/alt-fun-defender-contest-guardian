@@ -20,6 +20,8 @@ import {
   CANCEL_BUTTON,
   CONFIRM_BUTTON,
   CONFIRM_EXPIRED_REPLY,
+  DEFAULT_LANGUAGE,
+  type Language,
   TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
   TRADE_CONFIRMED_HEADER_HTML,
   TRADE_RECEIVED_TOKENS,
@@ -33,6 +35,8 @@ import {
   TX_PENDING_BODY,
   TX_PENDING_HEADER_HTML,
   TX_SENDING_HEADER_HTML,
+  getCtxLanguage,
+  t,
 } from "./i18n.js";
 import { logger } from "./logger.js";
 import { isBenignEditError } from "./nav.js";
@@ -175,10 +179,11 @@ export const stageSell = (args: StageSellArgs): StagedIntent => {
 /** Build the [Confirm | Cancel] inline keyboard for a staged trade. */
 export const confirmKeyboard = (
   nonce: string,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Array<Array<{ text: string; callback_data: string }>> => [
   [
-    { text: CONFIRM_BUTTON.English, callback_data: `cnf:${nonce}` },
-    { text: CANCEL_BUTTON.English, callback_data: `ccl:${nonce}` },
+    { text: t(CONFIRM_BUTTON, lang), callback_data: `cnf:${nonce}` },
+    { text: t(CANCEL_BUTTON, lang), callback_data: `ccl:${nonce}` },
   ],
 ];
 
@@ -325,13 +330,14 @@ export const confirmTrade = async (
  */
 export const renderConfirmReply = (
   outcome: ConfirmOutcome,
-  options: { isPollingActive?: boolean } = {},
+  options: { isPollingActive?: boolean; language?: Language } = {},
 ): string => {
+  const lang: Language = options.language ?? DEFAULT_LANGUAGE;
   if (outcome.kind === "expired") {
-    return CONFIRM_EXPIRED_REPLY.English;
+    return t(CONFIRM_EXPIRED_REPLY, lang);
   }
   if (outcome.kind === "no_wallet") {
-    return TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English;
+    return t(TOAST_NO_ACTIVE_WALLET_RUN_WALLET, lang);
   }
   const { result, ticker, side, token } = outcome;
   if (result.ok) {
@@ -340,7 +346,7 @@ export const renderConfirmReply = (
     // so this branch is safe to label "confirmed". A reverted tx never
     // lands here even though sendTransaction returned a hash.
     const verb =
-      side === "buy" ? TRADE_VERB_BUY.English : TRADE_VERB_SELL.English;
+      side === "buy" ? t(TRADE_VERB_BUY, lang) : t(TRADE_VERB_SELL, lang);
     // Ticker is user-controlled on launch and the address comes off the
     // session intent — escape both before interpolating into the
     // parse_mode="HTML" payload so a stray `<` cannot break Telegram
@@ -358,21 +364,21 @@ export const renderConfirmReply = (
     // pre-trade estimate as "received" would mislead.
     let receivedLine = "";
     if (side === "buy" && result.actualTokensOut !== undefined) {
-      receivedLine = TRADE_RECEIVED_TOKENS.English(
+      receivedLine = t(TRADE_RECEIVED_TOKENS, lang)(
         formatToken18(result.actualTokensOut),
         tickerSafe,
       );
     } else if (side === "sell" && result.actualUsdcOut !== undefined) {
-      receivedLine = TRADE_RECEIVED_USDC.English(
+      receivedLine = t(TRADE_RECEIVED_USDC, lang)(
         formatUsdc(result.actualUsdcOut.toString()),
       );
     }
     return (
-      `${TRADE_CONFIRMED_HEADER_HTML.English(verb, tickerSafe)}\n\n` +
+      `${t(TRADE_CONFIRMED_HEADER_HTML, lang)(verb, tickerSafe)}\n\n` +
       `${receivedLine}` +
       `<code>${tokenSafe}</code>\n` +
       `\n` +
-      `${TRADE_TX_LABEL.English}\n` +
+      `${t(TRADE_TX_LABEL, lang)}\n` +
       `<a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
@@ -381,7 +387,7 @@ export const renderConfirmReply = (
   // reserved for outcomes the chain has definitively rejected or where
   // no tx ever landed.
   const prefix = result.kind === "pending" ? "⏳" : "❌";
-  return `${prefix} ${renderExecutionError(result, { isPollingActive: options.isPollingActive })}`;
+  return `${prefix} ${renderExecutionError(result, { isPollingActive: options.isPollingActive, language: lang })}`;
 };
 
 /**
@@ -399,7 +405,7 @@ export const replyConfirmedTradeAndPromptStart = async (
   ctx: AppContext,
   outcome: ConfirmOutcome,
 ): Promise<void> => {
-  await ctx.reply(renderConfirmReply(outcome), {
+  await ctx.reply(renderConfirmReply(outcome, { language: getCtxLanguage(ctx) }), {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
   });
@@ -471,20 +477,26 @@ export const describeTradeForStatus = (
   side: "buy" | "sell",
   ticker: string,
   amountRaw: bigint,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const ticker_ = escapeHtml(ticker);
   if (side === "buy") {
-    return TRADE_STATUS_BUYING.English(formatUsdc6(amountRaw), ticker_);
+    return t(TRADE_STATUS_BUYING, lang)(formatUsdc6(amountRaw), ticker_);
   }
-  return TRADE_STATUS_SELLING.English(formatToken18(amountRaw), ticker_);
+  return t(TRADE_STATUS_SELLING, lang)(formatToken18(amountRaw), ticker_);
 };
 
-export const renderTxSendingText = (description: string): string =>
-  `${TX_SENDING_HEADER_HTML.English}\n${description}`;
+export const renderTxSendingText = (
+  description: string,
+  lang: Language = DEFAULT_LANGUAGE,
+): string => `${t(TX_SENDING_HEADER_HTML, lang)}\n${description}`;
 
-export const renderTxPendingText = (description: string): string =>
-  `${TX_PENDING_HEADER_HTML.English}\n${description}\n\n` +
-  TX_PENDING_BODY.English;
+export const renderTxPendingText = (
+  description: string,
+  lang: Language = DEFAULT_LANGUAGE,
+): string =>
+  `${t(TX_PENDING_HEADER_HTML, lang)}\n${description}\n\n` +
+  t(TX_PENDING_BODY, lang);
 
 interface TxStatusEditTarget {
   api: AppContext["api"];
@@ -536,9 +548,10 @@ export const runWithTxStatusUpdates = async (
   args: RunWithStatusArgs,
 ): Promise<ConfirmOutcome> => {
   const delay = args.pendingDelayMs ?? TX_PENDING_DELAY_MS;
+  const lang = getCtxLanguage(args.ctx);
 
   // Phase 1: render "Tx sending" into the target bubble.
-  await safeEditStatus(args.target, renderTxSendingText(args.description));
+  await safeEditStatus(args.target, renderTxSendingText(args.description, lang));
 
   // Detach so the post-trade sweep leaves this bubble for our final edit.
   removeWorkflowMessage(
@@ -558,7 +571,7 @@ export const runWithTxStatusUpdates = async (
     if (state.settled) return;
     state.pendingEdit = safeEditStatus(
       args.target,
-      renderTxPendingText(args.description),
+      renderTxPendingText(args.description, lang),
     );
   }, delay);
 
@@ -615,6 +628,10 @@ export const runWithTxStatusUpdates = async (
             minOut: (outcome.result.minOut ?? 0n).toString(),
             startedAt: Date.now(),
             idempotencyKey: outcome.idempotencyKey,
+            // Capture the user's language at schedule time so the
+            // alarm-path render (no ctx) can localise the final
+            // receipt edit. See `PendingTxRecord.language`.
+            language: lang,
           },
         );
         isPollingActive = true;
@@ -625,7 +642,7 @@ export const runWithTxStatusUpdates = async (
     }
     await safeEditStatus(
       args.target,
-      renderConfirmReply(outcome, { isPollingActive }),
+      renderConfirmReply(outcome, { isPollingActive, language: lang }),
     );
     // After a receipt-confirmed success the post-trade sweep inside
     // `confirmTrade` deletes the originating token-detail card and
@@ -651,7 +668,7 @@ export const runWithTxStatusUpdates = async (
   // original error.
   await safeEditStatus(
     args.target,
-    TRANSACTION_FAILED_REPLY.English,
+    t(TRANSACTION_FAILED_REPLY, lang),
   );
   throw runError;
 };

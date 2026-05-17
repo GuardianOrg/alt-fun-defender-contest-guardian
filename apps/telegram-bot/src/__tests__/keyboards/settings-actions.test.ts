@@ -21,7 +21,10 @@ const flatLabels = (rows: ButtonShape[][]): string[] =>
 
 describe("execution-speed presets (inline)", () => {
   it("defaults are Lightning / Fast / Eco at 0.5 / 0.15 / 0.1 gwei", () => {
-    expect(SPEED_PRESETS.map((p) => p.label)).toEqual([
+    // Labels are localised entries (English mandatory); compare the
+    // English copy explicitly so the test guards against accidental
+    // re-ordering or label drift.
+    expect(SPEED_PRESETS.map((p) => p.label.English)).toEqual([
       "Lightning",
       "Fast",
       "Eco",
@@ -177,7 +180,7 @@ describe("buildSettingsKeyboard", () => {
     expect(buySettingsIdx).toBeGreaterThan(speedRowIdx);
   });
 
-  it("renders a '-- Language --' inert header row above an active English button", () => {
+  it("renders a '-- Language --' inert header row above the language picker", () => {
     const rows = buildSettingsKeyboard(baseStatus);
     const langHeaderIdx = rows.findIndex(
       (row) => row.length === 1 && row[0]!.text === "-- Language --",
@@ -190,13 +193,21 @@ describe("buildSettingsKeyboard", () => {
     expect(header.callback_data).toBe(SETTINGS_CALLBACK.noop);
 
     const langRow = rows[langHeaderIdx + 1]!;
-    expect(langRow.length).toBe(1);
+    // Row now carries both English and 简体中文 picker buttons (issue:
+    // simplified-chinese localisation).
+    expect(langRow.length).toBe(2);
     const englishBtn = langRow[0]!;
     expect(englishBtn.text).toBe("• English •");
     if (!("callback_data" in englishBtn)) {
       throw new Error("English button has no callback_data");
     }
-    expect(englishBtn.callback_data).toBe(SETTINGS_CALLBACK.noop);
+    expect(englishBtn.callback_data).toBe("set:lang:English");
+    const chineseBtn = langRow[1]!;
+    expect(chineseBtn.text).toBe("简体中文");
+    if (!("callback_data" in chineseBtn)) {
+      throw new Error("Simplified-Chinese button has no callback_data");
+    }
+    expect(chineseBtn.callback_data).toBe("set:lang:SimplifiedChinese");
   });
 
   it("places the language section below execution speed and above Buy / Sell Settings", () => {
@@ -212,5 +223,26 @@ describe("buildSettingsKeyboard", () => {
     );
     expect(langHeaderIdx).toBeGreaterThan(speedRowIdx);
     expect(buySettingsIdx).toBeGreaterThan(langHeaderIdx);
+  });
+
+  it("marks the active language with bullets and renders all labels in the active language", () => {
+    const rows = buildSettingsKeyboard({
+      ...baseStatus,
+      language: "SimplifiedChinese",
+    });
+    const labels = flatLabels(rows);
+    // Section headers come up in Chinese.
+    expect(labels).toContain("-- 滑点 --");
+    expect(labels).toContain("-- 执行速度 --");
+    expect(labels).toContain("-- 语言 --");
+    // Active language bullets sit on the Simplified-Chinese button —
+    // English remains a plain (non-bulleted) button.
+    expect(labels).toContain("English");
+    expect(labels).toContain("• 简体中文 •");
+    // Buy / Sell Settings labels switch to Chinese.
+    expect(labels).toContain("买入设置");
+    expect(labels).toContain("卖出设置");
+    // Speed presets render the active selection in Chinese.
+    expect(labels).toContain("• 闪电 •");
   });
 });

@@ -8,7 +8,11 @@ import {
   normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { fetchToken } from "./api.js";
-import { ACTION_TOKEN_OUTAGE_REPLY } from "./i18n.js";
+import {
+  ACTION_TOKEN_OUTAGE_REPLY,
+  getCtxLanguage,
+  t,
+} from "./i18n.js";
 import { editToSubmenu } from "./nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "./rpc.js";
 import {
@@ -16,7 +20,16 @@ import {
   renderSellTokenCardText,
 } from "./token-card.js";
 
+/**
+ * Backwards-compatible English-only export kept for tests and any
+ * callsite that hasn't been threaded through `getCtxLanguage(ctx)` yet.
+ * Prefer `actionTokenOutage(ctx)` so the outage card renders in the
+ * user's preferred language.
+ */
 export const ACTION_TOKEN_OUTAGE = ACTION_TOKEN_OUTAGE_REPLY.English;
+
+const actionTokenOutage = (ctx: AppContext): string =>
+  t(ACTION_TOKEN_OUTAGE_REPLY, getCtxLanguage(ctx));
 
 interface ActionCardView {
   text: string;
@@ -41,23 +54,26 @@ const buildActionView = async (
         : fetchErc20Balance(ctx.env, token, walletAddress),
     ]);
     if (!tokenResult.ok) return null;
+    const lang = getCtxLanguage(ctx);
     if (action === "buy") {
       return {
-        text: renderBuyTokenCardText(tokenResult.data, balance),
+        text: renderBuyTokenCardText(tokenResult.data, balance, lang),
         inlineKeyboard: buildBuyTokenKeyboard(
           token,
           normaliseBuyPresets(
             ctx.session.buyPresetsUsdc,
             ctx.session.defaultBuyUsdc,
           ),
+          lang,
         ),
       };
     }
     return {
-      text: renderSellTokenCardText(tokenResult.data, balance),
+      text: renderSellTokenCardText(tokenResult.data, balance, lang),
       inlineKeyboard: buildSellTokenKeyboard(
         token,
         normaliseSellPresets(ctx.session.sellPresetsPct),
+        lang,
       ),
     };
   } catch {
@@ -80,7 +96,7 @@ export const replyWithActionCard = async (
 ): Promise<void> => {
   const view = await buildActionView(ctx, walletAddress, action, token);
   if (!view) {
-    await ctx.reply(ACTION_TOKEN_OUTAGE);
+    await ctx.reply(actionTokenOutage(ctx));
     return;
   }
   await ctx.reply(view.text, {

@@ -34,6 +34,8 @@ import { buildTrackChartPng } from "../lib/chart.js";
 import {
   BUY_ARROW_BUTTON,
   BUY_CARD_LOADING_HTML,
+  DEFAULT_LANGUAGE,
+  type Language,
   OUTAGE_REPLY,
   SELL_ARROW_BUTTON,
   TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
@@ -42,6 +44,8 @@ import {
   TRACK_NO_TRADES_YET_HTML,
   TRACK_RECENT_TRADES_HEADER_HTML,
   TRACK_RELATIVE_TIME,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -100,12 +104,15 @@ const TRACK_CMD = {
   sell: "trks",
 } as const;
 
-const PROMPT_HTML = TOKEN_LOOKUP_PROMPT_HTML.English;
+const promptHtml = (ctx: AppContext): string =>
+  t(TOKEN_LOOKUP_PROMPT_HTML, getCtxLanguage(ctx));
 
-const TOKEN_NOT_FOUND_HTML = TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML.English;
+const tokenNotFoundHtml = (ctx: AppContext): string =>
+  t(TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML, getCtxLanguage(ctx));
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
-const API_UNAVAILABLE = OUTAGE_REPLY.English;
+const apiUnavailable = (ctx: AppContext): string =>
+  t(OUTAGE_REPLY, getCtxLanguage(ctx));
 
 const buildManager = (env: AppContext["env"]): WalletManager =>
   new WalletManager(env.WALLET_KV, env.MASTER_KEY);
@@ -124,7 +131,11 @@ const shortAddress = (addr: string): string =>
  * `<` from a malformed indexer payload would otherwise drop the entire
  * message with a 400.
  */
-const renderTradeRow = (trade: Trade, nowSec: number): string => {
+const renderTradeRow = (
+  trade: Trade,
+  nowSec: number,
+  lang: Language = DEFAULT_LANGUAGE,
+): string => {
   const trader = escapeHtml(shortAddress(trade.trader));
   let usdc: bigint;
   let tokens: bigint;
@@ -138,19 +149,22 @@ const renderTradeRow = (trade: Trade, nowSec: number): string => {
     return `${trade.isBuy ? "🟢 BUY" : "🔴 SELL"} • ${trader} • —`;
   }
   const tsSec = Number.parseInt(trade.timestamp, 10);
-  const rel = Number.isFinite(tsSec) ? formatRelative(nowSec - tsSec) : "—";
+  const rel = Number.isFinite(tsSec) ? formatRelative(nowSec - tsSec, lang) : "—";
   const side = trade.isBuy ? "🟢 BUY" : "🔴 SELL";
   return `${side} ${formatUsdc6(usdc)} (${formatToken18(tokens)}) • ${trader} • ${rel}`;
 };
 
 /** Relative-time formatter for trade rows. Caps at days for older entries. */
-const formatRelative = (deltaSec: number): string => {
-  const t = TRACK_RELATIVE_TIME.English;
-  if (!Number.isFinite(deltaSec) || deltaSec < 0) return t.justNow;
-  if (deltaSec < 60) return t.seconds(Math.floor(deltaSec));
-  if (deltaSec < 3600) return t.minutes(Math.floor(deltaSec / 60));
-  if (deltaSec < 86_400) return t.hours(Math.floor(deltaSec / 3600));
-  return t.days(Math.floor(deltaSec / 86_400));
+const formatRelative = (
+  deltaSec: number,
+  lang: Language = DEFAULT_LANGUAGE,
+): string => {
+  const rt = t(TRACK_RELATIVE_TIME, lang);
+  if (!Number.isFinite(deltaSec) || deltaSec < 0) return rt.justNow;
+  if (deltaSec < 60) return rt.seconds(Math.floor(deltaSec));
+  if (deltaSec < 3600) return rt.minutes(Math.floor(deltaSec / 60));
+  if (deltaSec < 86_400) return rt.hours(Math.floor(deltaSec / 3600));
+  return rt.days(Math.floor(deltaSec / 86_400));
 };
 
 /**
@@ -165,16 +179,17 @@ export const renderTrackBody = (
   trades: Trade[],
   nowSec: number = Math.floor(Date.now() / 1000),
   maxTrades: number = TRADES_PER_CARD,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const card = renderTrackTokenCardText(token);
   const capped = trades.slice(0, Math.max(0, maxTrades));
   if (capped.length === 0) {
-    return `${card}\n\n${TRACK_RECENT_TRADES_HEADER_HTML.English}\n${TRACK_NO_TRADES_YET_HTML.English}`;
+    return `${card}\n\n${t(TRACK_RECENT_TRADES_HEADER_HTML, lang)}\n${t(TRACK_NO_TRADES_YET_HTML, lang)}`;
   }
   const rows = capped
-    .map((t) => renderTradeRow(t, nowSec))
+    .map((tr) => renderTradeRow(tr, nowSec, lang))
     .join("\n");
-  return `${card}\n\n${TRACK_RECENT_TRADES_HEADER_HTML.English}\n${rows}`;
+  return `${card}\n\n${t(TRACK_RECENT_TRADES_HEADER_HTML, lang)}\n${rows}`;
 };
 
 /**
@@ -207,11 +222,13 @@ export const renderTrackCaption = (
   trades: Trade[],
   nowSec: number = Math.floor(Date.now() / 1000),
   phrase?: string | null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   for (let n = Math.min(trades.length, TRADES_PER_CARD); n >= 0; n--) {
     const wrapped = withAntiPhishing(
-      renderTrackBody(token, trades, nowSec, n),
+      renderTrackBody(token, trades, nowSec, n, lang),
       phrase,
+      lang,
     );
     if (countVisibleChars(wrapped) <= CAPTION_BUDGET) return wrapped;
   }
@@ -219,21 +236,28 @@ export const renderTrackCaption = (
   // require a token name + status string + header > 1KB). Return the
   // wrapped empty card anyway; Telegram will reject and the caller
   // logs + falls back to the text send path.
-  return withAntiPhishing(renderTrackBody(token, [], nowSec, 0), phrase);
+  return withAntiPhishing(
+    renderTrackBody(token, [], nowSec, 0, lang),
+    phrase,
+    lang,
+  );
 };
 
-export const buildTrackKeyboard = (tokenAddress: string): InlineKeyboard => [
+export const buildTrackKeyboard = (
+  tokenAddress: string,
+  lang: Language = DEFAULT_LANGUAGE,
+): InlineKeyboard => [
   [
     {
-      text: BUY_ARROW_BUTTON.English,
+      text: t(BUY_ARROW_BUTTON, lang),
       callback_data: encodeCallback(TRACK_CMD.buy, tokenAddress),
     },
     {
-      text: SELL_ARROW_BUTTON.English,
+      text: t(SELL_ARROW_BUTTON, lang),
       callback_data: encodeCallback(TRACK_CMD.sell, tokenAddress),
     },
   ],
-  backHomeRow(),
+  backHomeRow(lang),
 ];
 
 export interface TrackRender {
@@ -266,6 +290,7 @@ export const buildTrackFromToken = async (
   env: AppContext["env"],
   token: TokenInfo,
   phrase: string | null | undefined,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<TrackRender> => {
   const chartPromise: Promise<Uint8Array | null> = Promise.race([
     buildTrackChartPng(env, token.address, token.name),
@@ -277,9 +302,13 @@ export const buildTrackFromToken = async (
   ]);
   const trades = tradesResult.ok ? tradesResult.data : [];
   return {
-    text: withAntiPhishing(renderTrackBody(token, trades), phrase),
-    caption: renderTrackCaption(token, trades, undefined, phrase),
-    keyboard: buildTrackKeyboard(token.address),
+    text: withAntiPhishing(
+      renderTrackBody(token, trades, undefined, undefined, lang),
+      phrase,
+      lang,
+    ),
+    caption: renderTrackCaption(token, trades, undefined, phrase, lang),
+    keyboard: buildTrackKeyboard(token.address, lang),
     chartPng,
     tokenName: token.name,
   };
@@ -289,6 +318,7 @@ const buildTrack = async (
   env: AppContext["env"],
   address: string,
   phrase: string | null | undefined,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<
   | { ok: true; render: TrackRender }
   | { ok: false; kind: "not_found" | "unavailable" }
@@ -310,7 +340,7 @@ const buildTrack = async (
   // text reply (CodeRabbit #731). Chart errors are swallowed inside
   // `buildTrackChartPng` for the same reason — the user always gets
   // the text card.
-  const render = await buildTrackFromToken(env, tokenResult.data, phrase);
+  const render = await buildTrackFromToken(env, tokenResult.data, phrase, lang);
   return { ok: true, render };
 };
 
@@ -323,11 +353,12 @@ const editOriginToPrompt = async (
   conversation: Conversation<AppContext, AppContext>,
   origin: MessageRef,
   text: string,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<boolean> =>
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, text, {
       parse_mode: "HTML",
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(lang),
       link_preview_options: { is_disabled: true },
     }),
   );
@@ -350,10 +381,11 @@ const trackLookupConversation = async (
 ): Promise<void> => {
   await sweepWorkflow(conversation);
 
+  const lang = getCtxLanguage(ctx);
   let activeOrigin: MessageRef | null = origin ?? null;
 
   if (!activeOrigin) {
-    const promptMsg = await replyWithNav(ctx, PROMPT_HTML, {
+    const promptMsg = await replyWithNav(ctx, promptHtml(ctx), {
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     });
@@ -362,7 +394,7 @@ const trackLookupConversation = async (
 
   const showRetry = async (msgCtx: AppContext, text: string): Promise<void> => {
     if (activeOrigin) {
-      const edited = await editOriginToPrompt(conversation, activeOrigin, text);
+      const edited = await editOriginToPrompt(conversation, activeOrigin, text, lang);
       if (edited) return;
       activeOrigin = null;
     }
@@ -385,19 +417,19 @@ const trackLookupConversation = async (
 
     const addr = extractTokenAddress(text);
     if (!addr) {
-      await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
+      await showRetry(msgCtx, tokenNotFoundHtml(ctx));
       continue;
     }
 
     const result = await conversation.external((outerCtx) =>
-      buildTrack(outerCtx.env, addr, ctxAntiPhishingPhrase(outerCtx)),
+      buildTrack(outerCtx.env, addr, ctxAntiPhishingPhrase(outerCtx), getCtxLanguage(outerCtx)),
     );
     if (!result.ok) {
       if (result.kind === "not_found") {
-        await showRetry(msgCtx, TOKEN_NOT_FOUND_HTML);
+        await showRetry(msgCtx, tokenNotFoundHtml(ctx));
         continue;
       }
-      await replyWithNav(msgCtx, API_UNAVAILABLE);
+      await replyWithNav(msgCtx, apiUnavailable(ctx));
       await sweepWorkflow(conversation);
       return;
     }
@@ -503,10 +535,11 @@ export const replyWithTrackCardViaLoadingPlaceholder = async (
   ctx: AppContext,
   tokenAddress: string,
 ): Promise<"ok" | "not_found" | "unavailable"> => {
+  const lang = getCtxLanguage(ctx);
   const chatId = ctx.chat?.id;
   const placeholderText = wrapWithCtxPhrase(
     ctx,
-    BUY_CARD_LOADING_HTML.English(trackShortAddress(tokenAddress)),
+    t(BUY_CARD_LOADING_HTML, lang)(trackShortAddress(tokenAddress)),
   );
   const placeholder = await ctx.reply(placeholderText, {
     parse_mode: "HTML",
@@ -520,13 +553,14 @@ export const replyWithTrackCardViaLoadingPlaceholder = async (
     ctx.env,
     tokenAddress,
     ctxAntiPhishingPhrase(ctx),
+    lang,
   );
 
   if (!result.ok) {
     const errorText =
       result.kind === "not_found"
-        ? TOKEN_NOT_FOUND_SHORT_REPLY.English
-        : API_UNAVAILABLE;
+        ? t(TOKEN_NOT_FOUND_SHORT_REPLY, lang)
+        : apiUnavailable(ctx);
     if (haveSlot) {
       const edited = await safeEditMessageById(
         ctx,
@@ -534,7 +568,7 @@ export const replyWithTrackCardViaLoadingPlaceholder = async (
         errorText,
         {
           parse_mode: "HTML",
-          reply_markup: backHomeMarkup(),
+          reply_markup: backHomeMarkup(lang),
           link_preview_options: { is_disabled: true },
         },
       );
@@ -587,11 +621,12 @@ const replyTrack = async (
     ctx.env,
     address,
     ctxAntiPhishingPhrase(ctx),
+    getCtxLanguage(ctx),
   );
   if (!result.ok) {
     await replyWithNav(
       ctx,
-      result.kind === "not_found" ? TOKEN_NOT_FOUND_HTML : API_UNAVAILABLE,
+      result.kind === "not_found" ? tokenNotFoundHtml(ctx) : apiUnavailable(ctx),
       {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
@@ -615,7 +650,7 @@ const handleTrackBuy = async (
   ]);
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
+      text: apiUnavailable(ctx),
       show_alert: true,
     });
     return;
@@ -660,7 +695,7 @@ const handleTrackSell = async (
   ]);
   if (!tokenResult.ok) {
     await ctx.answerCallbackQuery({
-      text: API_UNAVAILABLE,
+      text: apiUnavailable(ctx),
       show_alert: true,
     });
     return;
@@ -696,10 +731,11 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
   // prompt, then run the wizard in that same bubble. Falls through to
   // the legacy reply flow when the bubble can't be edited.
   bot.callbackQuery(START_CALLBACK.track, async (ctx) => {
+    const lang = getCtxLanguage(ctx);
     const result = await editToSubmenu(ctx, {
-      text: PROMPT_HTML,
+      text: promptHtml(ctx),
       parseMode: "HTML",
-      inlineKeyboard: [backHomeRow()],
+      inlineKeyboard: [backHomeRow(lang)],
       linkPreviewDisabled: true,
     });
     await ctx.answerCallbackQuery();
@@ -738,7 +774,7 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
       // silent ack on an unhandled throw looks identical to a no-op
       // button on the client, which masks real failures.
       await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .answerCallbackQuery({ text: apiUnavailable(ctx), show_alert: true })
         .catch(() => {});
     });
   });
@@ -752,7 +788,7 @@ export const registerTrackCommand = (bot: Bot<AppContext>): void => {
     await handleTrackSell(ctx, parsed.args[0]).catch(async (err) => {
       logger.error("track sell handler failed", { err });
       await ctx
-        .answerCallbackQuery({ text: API_UNAVAILABLE, show_alert: true })
+        .answerCallbackQuery({ text: apiUnavailable(ctx), show_alert: true })
         .catch(() => {});
     });
   });

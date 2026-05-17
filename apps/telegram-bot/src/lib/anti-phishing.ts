@@ -12,18 +12,36 @@
  * is intentionally exempt — the header would consume most of the
  * budget and the toast itself isn't an impersonation surface.
  */
-import { ANTI_PHISHING_STATIC_HEADER } from "./i18n.js";
+import {
+  ANTI_PHISHING_STATIC_HEADER,
+  DEFAULT_LANGUAGE,
+  type Language,
+  getCtxLanguage,
+  t,
+} from "./i18n.js";
 
+/**
+ * Backwards-compatible alias for the English static header. Callers
+ * that have a context should prefer `staticAntiPhishingHeader(lang)` or
+ * the ctx-aware wrappers below so the fallback is localised to the
+ * user's `/settings → Language` preference.
+ */
 export const ANTI_PHISHING_HEADER = ANTI_PHISHING_STATIC_HEADER.English;
+
+export const staticAntiPhishingHeader = (
+  lang: Language = DEFAULT_LANGUAGE,
+): string => t(ANTI_PHISHING_STATIC_HEADER, lang);
 
 export const resolveAntiPhishingHeader = (
   phrase: string | null | undefined,
-): string => phrase ?? ANTI_PHISHING_HEADER;
+  lang: Language = DEFAULT_LANGUAGE,
+): string => phrase ?? staticAntiPhishingHeader(lang);
 
 export const withAntiPhishing = (
   body: string,
   phrase?: string | null,
-): string => `${resolveAntiPhishingHeader(phrase)}\n\n${body}`;
+  lang: Language = DEFAULT_LANGUAGE,
+): string => `${resolveAntiPhishingHeader(phrase, lang)}\n\n${body}`;
 
 /**
  * Pull the user's phrase from a grammY context safely. Two callsites
@@ -44,6 +62,7 @@ export const ctxAntiPhishingPhrase = (ctx: {
 };
 
 export const wrapWithCtxPhrase = (
-  ctx: { session?: { antiPhishingPhrase?: string } },
+  ctx: { session?: { antiPhishingPhrase?: string; language?: Language } },
   body: string,
-): string => withAntiPhishing(body, ctxAntiPhishingPhrase(ctx));
+): string =>
+  withAntiPhishing(body, ctxAntiPhishingPhrase(ctx), getCtxLanguage(ctx));

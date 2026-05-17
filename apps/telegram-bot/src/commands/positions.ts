@@ -21,6 +21,8 @@ import {
   TOAST_REFRESHED,
   POSITIONS_NON_PRIVATE_CHAT_REPLY,
   POSITIONS_USAGE_REPLY,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import {
   POSITIONS_BUY_CALLBACK_CMD,
@@ -52,11 +54,16 @@ const rememberPositionsMessage = (
   ctx.session.lastPositionsMessageByChat = byChat;
 };
 
-const USAGE = POSITIONS_USAGE_REPLY.English;
-const OUTAGE = OUTAGE_REPLY.English;
-const INVALID_ADDRESS = POSITIONS_INVALID_ADDRESS_REPLY.English;
-const NON_PRIVATE_CHAT_REPLY = POSITIONS_NON_PRIVATE_CHAT_REPLY.English;
-const NO_ACTIVE_WALLET = POSITIONS_NO_ACTIVE_WALLET_REPLY.English;
+const usage = (ctx: AppContext): string =>
+  t(POSITIONS_USAGE_REPLY, getCtxLanguage(ctx));
+const outage = (ctx: AppContext): string =>
+  t(OUTAGE_REPLY, getCtxLanguage(ctx));
+const invalidAddress = (ctx: AppContext): string =>
+  t(POSITIONS_INVALID_ADDRESS_REPLY, getCtxLanguage(ctx));
+const nonPrivateChatReply = (ctx: AppContext): string =>
+  t(POSITIONS_NON_PRIVATE_CHAT_REPLY, getCtxLanguage(ctx));
+const noActiveWallet = (ctx: AppContext): string =>
+  t(POSITIONS_NO_ACTIVE_WALLET_REPLY, getCtxLanguage(ctx));
 
 interface RenderedView {
   text: string;
@@ -119,27 +126,27 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     let wallet = arg;
     if (wallet === "") {
       if (ctx.chat?.type !== "private" || !ctx.from) {
-        await ctx.reply(wrap(ctx, USAGE));
+        await ctx.reply(wrap(ctx, usage(ctx)));
         return;
       }
       const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
       const active = await wm.getActive(ctx.from.id);
       if (!active) {
-        await ctx.reply(wrap(ctx, NO_ACTIVE_WALLET));
+        await ctx.reply(wrap(ctx, noActiveWallet(ctx)));
         return;
       }
       wallet = active.address;
     } else if (!isAddress(wallet)) {
-      await ctx.reply(wrap(ctx, INVALID_ADDRESS));
+      await ctx.reply(wrap(ctx, invalidAddress(ctx)));
       return;
     }
     const view = await renderView(ctx.env, wallet, 0, 0);
     if ("invalid" in view) {
-      await ctx.reply(wrap(ctx, INVALID_ADDRESS));
+      await ctx.reply(wrap(ctx, invalidAddress(ctx)));
       return;
     }
     if ("outage" in view) {
-      await replyWithNav(ctx, wrap(ctx, OUTAGE));
+      await replyWithNav(ctx, wrap(ctx, outage(ctx)));
       return;
     }
     const sent = await ctx.reply(wrap(ctx, view.text), {
@@ -171,17 +178,17 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         wallet === undefined ||
         !isAddress(wallet)
       ) {
-        await ctx.answerCallbackQuery({ text: TOAST_INVALID_REFRESH_REQUEST.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_INVALID_REFRESH_REQUEST, getCtxLanguage(ctx)) });
         return;
       }
       if (!ctx.callbackQuery.message) {
-        await ctx.answerCallbackQuery({ text: TOAST_MESSAGE_NO_LONGER_AVAILABLE.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_MESSAGE_NO_LONGER_AVAILABLE, getCtxLanguage(ctx)) });
         return;
       }
 
       const view = await renderView(ctx.env, wallet, openPage, realisedPage);
       if ("invalid" in view || "outage" in view) {
-        await ctx.answerCallbackQuery({ text: OUTAGE });
+        await ctx.answerCallbackQuery({ text: outage(ctx) });
         return;
       }
 
@@ -211,7 +218,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
           description: e.description,
         });
       }
-      await ctx.answerCallbackQuery({ text: TOAST_REFRESHED.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_REFRESHED, getCtxLanguage(ctx)) });
     },
   );
 
@@ -237,17 +244,17 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         wallet === undefined ||
         !isAddress(wallet)
       ) {
-        await ctx.answerCallbackQuery({ text: TOAST_INVALID_PAGE_REQUEST.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_INVALID_PAGE_REQUEST, getCtxLanguage(ctx)) });
         return;
       }
       if (!ctx.callbackQuery.message) {
-        await ctx.answerCallbackQuery({ text: TOAST_MESSAGE_NO_LONGER_AVAILABLE.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_MESSAGE_NO_LONGER_AVAILABLE, getCtxLanguage(ctx)) });
         return;
       }
 
       const view = await renderView(ctx.env, wallet, openPage, realisedPage);
       if ("invalid" in view || "outage" in view) {
-        await ctx.answerCallbackQuery({ text: OUTAGE });
+        await ctx.answerCallbackQuery({ text: outage(ctx) });
         return;
       }
 
@@ -300,16 +307,16 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       const data = ctx.callbackQuery.data ?? "";
       const token = data.slice(cmd.length + 1);
       if (!isAddress(token)) {
-        await ctx.answerCallbackQuery({ text: TOAST_INVALID_TOKEN.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_INVALID_TOKEN, getCtxLanguage(ctx)) });
         return;
       }
       if (!ctx.from) {
-        await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+        await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, getCtxLanguage(ctx)) });
         return;
       }
       if (ctx.chat?.type !== "private") {
         await ctx.answerCallbackQuery({
-          text: NON_PRIVATE_CHAT_REPLY,
+          text: nonPrivateChatReply(ctx),
           show_alert: true,
         });
         return;
@@ -318,7 +325,7 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       const active = await wm.getActive(ctx.from.id);
       if (!active) {
         await ctx.answerCallbackQuery({
-          text: NO_ACTIVE_WALLET,
+          text: noActiveWallet(ctx),
           show_alert: true,
         });
         return;
@@ -355,12 +362,12 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
    */
   bot.callbackQuery(START_CALLBACK.positions, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, getCtxLanguage(ctx)) });
       return;
     }
     if (ctx.chat?.type !== "private") {
       await ctx.answerCallbackQuery({
-        text: NON_PRIVATE_CHAT_REPLY,
+        text: nonPrivateChatReply(ctx),
         show_alert: true,
       });
       return;
@@ -369,18 +376,18 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: NO_ACTIVE_WALLET,
+        text: noActiveWallet(ctx),
         show_alert: true,
       });
       return;
     }
     const view = await renderView(ctx.env, active.address, 0, 0);
     if ("invalid" in view) {
-      await ctx.answerCallbackQuery({ text: INVALID_ADDRESS, show_alert: true });
+      await ctx.answerCallbackQuery({ text: invalidAddress(ctx), show_alert: true });
       return;
     }
     if ("outage" in view) {
-      await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
+      await ctx.answerCallbackQuery({ text: outage(ctx), show_alert: true });
       return;
     }
     try {

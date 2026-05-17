@@ -1,4 +1,6 @@
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   SETTINGS_BUY_PRESET_BUTTON,
   SETTINGS_BUY_SETTINGS_BUTTON,
   SETTINGS_CHANGE_PHRASE_BUTTON,
@@ -9,6 +11,7 @@ import {
   SETTINGS_EXECUTION_SPEED_HEADER_BUTTON,
   SETTINGS_LANGUAGE_ENGLISH_BUTTON,
   SETTINGS_LANGUAGE_HEADER_BUTTON,
+  SETTINGS_LANGUAGE_SIMPLIFIED_CHINESE_BUTTON,
   SETTINGS_SELL_PRESET_BUTTON,
   SETTINGS_SELL_SETTINGS_BUTTON,
   SETTINGS_SET_PHRASE_BUTTON,
@@ -16,6 +19,7 @@ import {
   SPEED_PRESET_ECO,
   SPEED_PRESET_FAST,
   SPEED_PRESET_LIGHTNING,
+  t,
 } from "../lib/i18n.js";
 import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
@@ -49,6 +53,14 @@ export const SETTINGS_CALLBACK = {
   phraseSet: "set:phr",
   phraseClear: "set:phrclr",
   /**
+   * Switch the user's UI language. Encoded as `set:lang:<Language>`,
+   * where `<Language>` is the `Language` union member name
+   * (`English`, `SimplifiedChinese`). The handler ignores taps on the
+   * currently-active language and re-renders the panel in the new
+   * language for any other value.
+   */
+  language: "set:lang",
+  /**
    * Inert callback used by the `-- Slippage --` / `-- Execution Speed --`
    * section header buttons. The handler answers the callback query so
    * Telegram stops the loading spinner, but the panel does not change.
@@ -56,11 +68,28 @@ export const SETTINGS_CALLBACK = {
   noop: "set:noop",
 } as const;
 
+/** `set:lang:<Language>` — encode a language selection for callback_data. */
+export const encodeLanguagePreset = (lang: Language): string =>
+  `${SETTINGS_CALLBACK.language}:${lang}`;
+
+/**
+ * Pull a `Language` back out of a `set:lang:<Language>` callback. Returns
+ * null for an unrecognised tail so a tampered callback is a no-op rather
+ * than a TypeScript-defeated `as Language`.
+ */
+export const decodeLanguagePreset = (data: string): Language | null => {
+  const prefix = `${SETTINGS_CALLBACK.language}:`;
+  if (!data.startsWith(prefix)) return null;
+  const rest = data.slice(prefix.length);
+  if (rest === "English" || rest === "SimplifiedChinese") return rest;
+  return null;
+};
+
 /** Slippage presets surfaced as one-tap buttons. Values are bps. */
 export const SLIPPAGE_PRESETS_BPS: readonly number[] = [500, 1000, 1500, 2000];
 
 export interface SpeedPreset {
-  readonly label: string;
+  readonly label: import("../lib/i18n.js").Localised<string>;
   readonly gwei: number;
 }
 
@@ -72,10 +101,15 @@ export interface SpeedPreset {
  * higher the chance the block builder picks the bot's tx in the next
  * block.
  */
+/**
+ * Label is a Localised entry so the active preset name can render in
+ * the user's preferred language. The preset list is fixed; only the
+ * label text varies per locale.
+ */
 export const SPEED_PRESETS: readonly SpeedPreset[] = [
-  { label: SPEED_PRESET_LIGHTNING.English, gwei: 0.5 },
-  { label: SPEED_PRESET_FAST.English, gwei: 0.15 },
-  { label: SPEED_PRESET_ECO.English, gwei: 0.1 },
+  { label: SPEED_PRESET_LIGHTNING, gwei: 0.5 },
+  { label: SPEED_PRESET_FAST, gwei: 0.15 },
+  { label: SPEED_PRESET_ECO, gwei: 0.1 },
 ];
 
 /** Gwei values of the three fixed speed presets, in display order. */
@@ -89,7 +123,16 @@ export interface SettingsStatus {
   degenMode: boolean;
   antiPhishingPhrase: string | null;
   executionTipGwei: number;
+  /**
+   * Optional so legacy test fixtures (and any session predating the
+   * language picker) can omit it and still resolve to English via
+   * `resolveStatusLanguage` below.
+   */
+  language?: Language;
 }
+
+const resolveStatusLanguage = (status: SettingsStatus): Language =>
+  status.language ?? DEFAULT_LANGUAGE;
 
 /** `set:tps<idx>` — callback for the i-th speed preset. */
 export const encodeSpeedPreset = (idx: number): string =>
@@ -125,9 +168,12 @@ export const resolveActiveTipGwei = (active: number | undefined): number => {
  * raw gwei value. Falls back to the slot-0 label for any value that
  * isn't a known preset — mirrors `resolveActiveTipGwei`'s clamp.
  */
-export const formatTipPresetLabel = (gwei: number): string => {
-  const preset = SPEED_PRESETS.find((p) => p.gwei === gwei);
-  return preset?.label ?? SPEED_PRESETS[0]!.label;
+export const formatTipPresetLabel = (
+  gwei: number,
+  lang: Language = DEFAULT_LANGUAGE,
+): string => {
+  const preset = SPEED_PRESETS.find((p) => p.gwei === gwei) ?? SPEED_PRESETS[0]!;
+  return t(preset.label, lang);
 };
 
 /** `set:slip<bps>` — encode a preset bps value into a compact callback string. */
@@ -183,6 +229,7 @@ export const decodeSellPresetSlot = (data: string): number | null => {
 export const buildSettingsKeyboard = (
   status: SettingsStatus,
 ): InlineKeyboard => {
+  const lang = resolveStatusLanguage(status);
   const slipRow = SLIPPAGE_PRESETS_BPS.map((bps) => ({
     text:
       bps === status.slippageBps
@@ -191,32 +238,48 @@ export const buildSettingsKeyboard = (
     callback_data: encodeSlippagePreset(bps),
   }));
   slipRow.push({
-    text: SETTINGS_CUSTOM_PERCENT_BUTTON.English,
+    text: t(SETTINGS_CUSTOM_PERCENT_BUTTON, lang),
     callback_data: SETTINGS_CALLBACK.slipCustom,
   });
 
   const activeTip = resolveActiveTipGwei(status.executionTipGwei);
-  const speedRow = SPEED_PRESETS.map((preset, idx) => ({
-    text:
-      preset.gwei === activeTip ? `• ${preset.label} •` : preset.label,
-    callback_data: encodeSpeedPreset(idx),
-  }));
+  const speedRow = SPEED_PRESETS.map((preset, idx) => {
+    const label = t(preset.label, lang);
+    return {
+      text: preset.gwei === activeTip ? `• ${label} •` : label,
+      callback_data: encodeSpeedPreset(idx),
+    };
+  });
+
+  const englishLabel = t(SETTINGS_LANGUAGE_ENGLISH_BUTTON, lang);
+  const chineseLabel = t(SETTINGS_LANGUAGE_SIMPLIFIED_CHINESE_BUTTON, lang);
+  const languageRow = [
+    {
+      text: lang === "English" ? `• ${englishLabel} •` : englishLabel,
+      callback_data: encodeLanguagePreset("English"),
+    },
+    {
+      text:
+        lang === "SimplifiedChinese" ? `• ${chineseLabel} •` : chineseLabel,
+      callback_data: encodeLanguagePreset("SimplifiedChinese"),
+    },
+  ];
 
   const phraseRow =
     status.antiPhishingPhrase === null
       ? [
           {
-            text: SETTINGS_SET_PHRASE_BUTTON.English,
+            text: t(SETTINGS_SET_PHRASE_BUTTON, lang),
             callback_data: SETTINGS_CALLBACK.phraseSet,
           },
         ]
       : [
           {
-            text: SETTINGS_CHANGE_PHRASE_BUTTON.English,
+            text: t(SETTINGS_CHANGE_PHRASE_BUTTON, lang),
             callback_data: SETTINGS_CALLBACK.phraseSet,
           },
           {
-            text: SETTINGS_CLEAR_PHRASE_BUTTON.English,
+            text: t(SETTINGS_CLEAR_PHRASE_BUTTON, lang),
             callback_data: SETTINGS_CALLBACK.phraseClear,
           },
         ];
@@ -224,37 +287,32 @@ export const buildSettingsKeyboard = (
   return [
     [
       {
-        text: SETTINGS_SLIPPAGE_HEADER_BUTTON.English,
+        text: t(SETTINGS_SLIPPAGE_HEADER_BUTTON, lang),
         callback_data: SETTINGS_CALLBACK.noop,
       },
     ],
     slipRow,
     [
       {
-        text: SETTINGS_EXECUTION_SPEED_HEADER_BUTTON.English,
+        text: t(SETTINGS_EXECUTION_SPEED_HEADER_BUTTON, lang),
         callback_data: SETTINGS_CALLBACK.noop,
       },
     ],
     speedRow,
     [
       {
-        text: SETTINGS_LANGUAGE_HEADER_BUTTON.English,
+        text: t(SETTINGS_LANGUAGE_HEADER_BUTTON, lang),
         callback_data: SETTINGS_CALLBACK.noop,
       },
     ],
+    languageRow,
     [
       {
-        text: `• ${SETTINGS_LANGUAGE_ENGLISH_BUTTON.English} •`,
-        callback_data: SETTINGS_CALLBACK.noop,
-      },
-    ],
-    [
-      {
-        text: SETTINGS_BUY_SETTINGS_BUTTON.English,
+        text: t(SETTINGS_BUY_SETTINGS_BUTTON, lang),
         callback_data: SETTINGS_CALLBACK.buySettings,
       },
       {
-        text: SETTINGS_SELL_SETTINGS_BUTTON.English,
+        text: t(SETTINGS_SELL_SETTINGS_BUTTON, lang),
         callback_data: SETTINGS_CALLBACK.sellSettings,
       },
     ],
@@ -262,12 +320,12 @@ export const buildSettingsKeyboard = (
     [
       {
         text: status.degenMode
-          ? SETTINGS_DEGEN_MODE_ON_BUTTON.English
-          : SETTINGS_DEGEN_MODE_OFF_BUTTON.English,
+          ? t(SETTINGS_DEGEN_MODE_ON_BUTTON, lang)
+          : t(SETTINGS_DEGEN_MODE_OFF_BUTTON, lang),
         callback_data: SETTINGS_CALLBACK.degenToggle,
       },
     ],
-    backHomeRow(),
+    backHomeRow(lang),
   ];
 };
 
@@ -279,22 +337,24 @@ export const buildSettingsKeyboard = (
  */
 export const buildBuySettingsKeyboard = (
   buyPresetsUsdc: readonly number[],
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => {
   const buttons = buyPresetsUsdc.map((amount, idx) => ({
-    text: SETTINGS_BUY_PRESET_BUTTON.English(amount),
+    text: t(SETTINGS_BUY_PRESET_BUTTON, lang)(amount),
     callback_data: encodeBuyPresetSlot(idx),
   }));
-  return [buttons.slice(0, 3), buttons.slice(3), backHomeRow()];
+  return [buttons.slice(0, 3), buttons.slice(3), backHomeRow(lang)];
 };
 
 export const buildSellSettingsKeyboard = (
   sellPresetsPct: readonly number[],
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => {
   const buttons = sellPresetsPct.map((pct, idx) => ({
-    text: SETTINGS_SELL_PRESET_BUTTON.English(pct),
+    text: t(SETTINGS_SELL_PRESET_BUTTON, lang)(pct),
     callback_data: encodeSellPresetSlot(idx),
   }));
-  return [buttons.slice(0, 3), buttons.slice(3), backHomeRow()];
+  return [buttons.slice(0, 3), buttons.slice(3), backHomeRow(lang)];
 };
 
 const formatBpsLabel = (bps: number): string => {

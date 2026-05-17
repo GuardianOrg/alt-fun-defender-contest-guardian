@@ -5,11 +5,14 @@ import type {
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   POSITIONS_BUY_TICKER_BUTTON,
   POSITIONS_NO_OPEN_POSITIONS_REPLY,
   POSITIONS_REALISED_POS_HEADER,
   POSITIONS_SELL_TICKER_BUTTON,
   REFRESH_BUTTON_TEXT,
+  t,
 } from "./i18n.js";
 import { backHomeRow } from "./nav.js";
 
@@ -274,6 +277,7 @@ export const buildPositionsView = (
   openPage: number,
   realisedPage: number,
   botUsername: string | null = null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): PositionsView => {
   const openTotal = data.open.length;
   const realisedTotal = data.realised.length;
@@ -284,7 +288,7 @@ export const buildPositionsView = (
 
   if (openTotal === 0 && realisedTotal === 0) {
     return {
-      text: POSITIONS_NO_OPEN_POSITIONS_REPLY.English,
+      text: t(POSITIONS_NO_OPEN_POSITIONS_REPLY, lang),
       openTotal: 0,
       realisedTotal: 0,
       openTotalPages: 1,
@@ -472,20 +476,21 @@ const sectionNavRow = (
 export const buildPositionsPageKeyboard = (
   view: PositionsView,
   wallet: string,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboardMarkup => {
   const rows: InlineKeyboardButton[][] = [];
   for (const action of view.openActions) {
     const label = truncateTickerForButton(action.ticker);
     rows.push([
       {
-        text: POSITIONS_BUY_TICKER_BUTTON.English(label),
+        text: t(POSITIONS_BUY_TICKER_BUTTON, lang)(label),
         callback_data: encodeCallback(
           POSITIONS_BUY_CALLBACK_CMD,
           action.token,
         ),
       },
       {
-        text: POSITIONS_SELL_TICKER_BUTTON.English(label),
+        text: t(POSITIONS_SELL_TICKER_BUTTON, lang)(label),
         callback_data: encodeCallback(
           POSITIONS_SELL_CALLBACK_CMD,
           action.token,
@@ -517,7 +522,7 @@ export const buildPositionsPageKeyboard = (
     view.realisedPage,
     view.realisedTotalPages,
     wallet,
-    POSITIONS_REALISED_POS_HEADER.English,
+    t(POSITIONS_REALISED_POS_HEADER, lang),
     pageCallback,
     "realised",
     view.openPage,
@@ -526,7 +531,7 @@ export const buildPositionsPageKeyboard = (
 
   rows.push([
     {
-      text: REFRESH_BUTTON_TEXT.English,
+      text: t(REFRESH_BUTTON_TEXT, lang),
       callback_data: encodeCallback(
         POSITIONS_REFRESH_CALLBACK_CMD,
         String(view.openPage),
