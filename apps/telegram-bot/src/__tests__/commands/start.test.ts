@@ -1346,9 +1346,11 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
     const sends = calls.filter((c) => c.url.includes("/sendMessage"));
     expect(sends).toHaveLength(1);
     expect(String(sends[0]!.body.text)).toContain("Loading");
-    expect(String(sends[0]!.body.text)).toContain(
-      `${TOKEN.slice(0, 6)}…${TOKEN.slice(-4)}`,
-    );
+    // The full address sits inside `<code>` so Telegram's tap-to-copy
+    // copies the full hex, not a `0x1234…abcd` shortened form. Any
+    // shortening here would leak `…` into the user's clipboard.
+    expect(String(sends[0]!.body.text)).toContain(`<code>${TOKEN}</code>`);
+    expect(String(sends[0]!.body.text)).not.toContain("…</code>");
 
     const cardEdit = calls.find(
       (c) =>

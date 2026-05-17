@@ -21,11 +21,12 @@ import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
 import { WalletManager } from "./wallet.js";
 
-const shortAddress = (addr: string): string =>
-  addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
-
+// Pass the full address — the placeholder wraps it in `<code>`, and
+// Telegram's tap-to-copy gesture must copy the full hex so users can
+// paste it elsewhere. Shortening here would leak `0x1234…abcd` into
+// their clipboard.
 const buildLoadingText = (ctx: AppContext, addr: string): string =>
-  t(BUY_CARD_LOADING_HTML, getCtxLanguage(ctx))(shortAddress(addr));
+  t(BUY_CARD_LOADING_HTML, getCtxLanguage(ctx))(addr);
 
 const tokenNotFoundHtml = (ctx: AppContext): string =>
   t(I18N_TOKEN_NOT_FOUND_HTML, getCtxLanguage(ctx));

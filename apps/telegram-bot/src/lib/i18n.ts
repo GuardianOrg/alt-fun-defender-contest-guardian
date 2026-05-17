@@ -579,11 +579,15 @@ export const POSITIONS_NO_OPEN_POSITIONS_REPLY = {
 
 // ─── Buy / sell token loading + not found ───────────────────────────
 
+// Address rendered as the full hex string inside `<code>` so the
+// tap-to-copy gesture on the Telegram clients copies the full address,
+// not the shortened `0x1234…abcd` display. Shortening the visible text
+// also shortened what `<code>` reports to the OS clipboard, which made
+// the placeholder a copy trap.
 export const BUY_CARD_LOADING_HTML = {
-  English: (shortAddress: string) =>
-    `⏳ Loading <code>${shortAddress}</code>…`,
-  SimplifiedChinese: (shortAddress: string) =>
-    `⏳ 正在加载 <code>${shortAddress}</code>…`,
+  English: (address: string) => `⏳ Loading <code>${address}</code>…`,
+  SimplifiedChinese: (address: string) =>
+    `⏳ 正在加载 <code>${address}</code>…`,
 } as const;
 
 export const TOKEN_NOT_FOUND_HTML = {

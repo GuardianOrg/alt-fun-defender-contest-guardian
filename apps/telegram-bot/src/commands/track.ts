@@ -518,9 +518,6 @@ const sendTrackReply = async (
   });
 };
 
-const trackShortAddress = (addr: string): string =>
-  addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
-
 /**
  * Render the /track card after first parking a `⏳ Loading…` placeholder
  * in the chat slot the user just landed in. Used by the
@@ -546,7 +543,9 @@ export const replyWithTrackCardViaLoadingPlaceholder = async (
   const chatId = ctx.chat?.id;
   const placeholderText = wrapWithCtxPhrase(
     ctx,
-    t(BUY_CARD_LOADING_HTML, lang)(trackShortAddress(tokenAddress)),
+    // Full address — the `<code>` wrap is tap-to-copy on Telegram clients,
+    // so any shortening would leak `0x1234…abcd` into the user's clipboard.
+    t(BUY_CARD_LOADING_HTML, lang)(tokenAddress),
   );
   const placeholder = await ctx.reply(placeholderText, {
     parse_mode: "HTML",
