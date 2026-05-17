@@ -643,8 +643,6 @@ export const HELP_OVERVIEW_HTML = {
       `• Never search for ${BOT_NAME} in Telegram. Use only the link from <a href="https://alt.fun">alt.fun</a>.`,
       "• Admins and mods never DM first or send links — stay safe.",
       "• Set a PIN in /wallet so withdrawals, key exports, and rewards-wallet changes require a 6-digit code.",
-      "",
-      'Further questions? Visit <a href="https://alt.fun">alt.fun</a>.',
     ].join("\n"),
   SimplifiedChinese: (topics: readonly string[]) =>
     [
@@ -675,8 +673,6 @@ export const HELP_OVERVIEW_HTML = {
       `• 切勿在 Telegram 中搜索 ${BOT_NAME}。请仅使用 <a href="https://alt.fun">alt.fun</a> 提供的链接。`,
       "• 管理员与版主绝不会主动私聊或发送链接——请提高警惕。",
       "• 在 /wallet 中设置 PIN 码，让提币、私钥导出、奖励钱包修改均需 6 位数字验证。",
-      "",
-      '如有更多问题，请访问 <a href="https://alt.fun">alt.fun</a>。',
     ].join("\n"),
 } as const;
 
