@@ -793,7 +793,7 @@ describe("i18n module", () => {
     expect(i18n.WALLET_ACTIVE_LEGEND.English).toContain("active wallet");
     expect(
       t(i18n.WALLET_ACTIVE_LEGEND, "SimplifiedChinese"),
-    ).toContain("活动钱包");
+    ).toContain("活跃钱包");
   });
 
   it("renders newly extracted /track copy", () => {

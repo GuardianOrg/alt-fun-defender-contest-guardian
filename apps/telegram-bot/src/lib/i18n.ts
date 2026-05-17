@@ -440,23 +440,23 @@ export const TOAST_SUBMITTING_ZAP = {
 } as const;
 export const TOAST_NO_ACTIVE_WALLET_RUN_WALLET = {
   English: "No active wallet — run /wallet to set one up.",
-  SimplifiedChinese: "暂无活动钱包——发送 /wallet 创建一个。",
+  SimplifiedChinese: "暂无活跃钱包——发送 /wallet 创建一个。",
 } as const;
 export const TOAST_NO_ACTIVE_WALLET = {
   English: "No active wallet.",
-  SimplifiedChinese: "暂无活动钱包。",
+  SimplifiedChinese: "暂无活跃钱包。",
 } as const;
 export const TOAST_NO_ACTIVE_WALLET_TO_DELETE = {
   English: "No active wallet to delete.",
-  SimplifiedChinese: "暂无可删除的活动钱包。",
+  SimplifiedChinese: "暂无可删除的活跃钱包。",
 } as const;
 export const TOAST_NO_ACTIVE_WALLET_TO_EXPORT = {
   English: "No active wallet to export.",
-  SimplifiedChinese: "暂无可导出的活动钱包。",
+  SimplifiedChinese: "暂无可导出的活跃钱包。",
 } as const;
 export const TOAST_NO_ACTIVE_WALLET_TO_RENAME = {
   English: "No active wallet to rename.",
-  SimplifiedChinese: "暂无可重新命名的活动钱包。",
+  SimplifiedChinese: "暂无可重新命名的活跃钱包。",
 } as const;
 export const TOAST_NO_WALLETS_TO_SWITCH = {
   English: "No wallets to switch to.",
@@ -570,7 +570,7 @@ export const POSITIONS_USAGE_REPLY = {
 } as const;
 export const POSITIONS_NO_ACTIVE_WALLET_REPLY = {
   English: "No active wallet. Run /wallet to create one.",
-  SimplifiedChinese: "暂无活动钱包。发送 /wallet 创建一个。",
+  SimplifiedChinese: "暂无活跃钱包。发送 /wallet 创建一个。",
 } as const;
 export const POSITIONS_NO_OPEN_POSITIONS_REPLY = {
   English: "No open positions for this wallet.",
@@ -704,7 +704,7 @@ export const HELP_WALLET_HTML = {
     "点击 /start 上的钱包按钮，或发送 /wallet 以：",
     "• 创建新钱包（自动加密，存储于我们的 KV 中）",
     "• 通过私钥或助记词导入已有钱包——您发送的私钥消息将在机器人读取后立即删除",
-    "• 切换活动钱包",
+    "• 切换活跃钱包",
     "• 为钱包命名",
     "• 导出私钥（需 PIN 码，30 秒后自动删除）",
     "• 删除钱包（需 PIN 码）",
@@ -713,7 +713,7 @@ export const HELP_WALLET_HTML = {
     "",
     "私钥使用每用户独立密钥经 AES-256-GCM 加密。主密钥永不存储；一个用户的密文无法用另一用户的派生密钥解密。",
     "",
-    "充值：在 HyperEVM 上向您的活动钱包地址（/start 中显示）发送 USDC 或 HYPE。USDC 为交易货币；HYPE 用于支付矿工费。",
+    "充值：在 HyperEVM 上向您的活跃钱包地址（/start 中显示）发送 USDC 或 HYPE。USDC 为交易货币；HYPE 用于支付矿工费。",
   ].join("\n"),
 } as const;
 
@@ -1039,7 +1039,7 @@ export const WITHDRAW_NO_ACTIVE_WALLET_REPLY = {
   English:
     "No active wallet — run /wallet to create or import one before withdrawing.",
   SimplifiedChinese:
-    "暂无活动钱包——请先发送 /wallet 创建或导入钱包，再进行提币。",
+    "暂无活跃钱包——请先发送 /wallet 创建或导入钱包，再进行提币。",
 } as const;
 export const WITHDRAW_LOCKED_REPLY = {
   English:
@@ -1107,7 +1107,7 @@ export const REFERRAL_NO_WALLET_REPLY = {
   English:
     "No active wallet yet — run /start to create one before sharing your referral link.",
   SimplifiedChinese:
-    "暂无活动钱包——请先发送 /start 创建钱包，再分享推荐链接。",
+    "暂无活跃钱包——请先发送 /start 创建钱包，再分享推荐链接。",
 } as const;
 export const REFERRAL_CHANGE_REWARDS_WALLET_BUTTON = {
   English: "Change rewards wallet",
@@ -1189,7 +1189,7 @@ export const REFERRAL_BURN_ADDRESS_WARNING_REPLY = {
 
 export const NO_ACTIVE_WALLET_RUN_WALLET_REPLY = {
   English: "No active wallet — run /wallet to create or import one.",
-  SimplifiedChinese: "暂无活动钱包——请发送 /wallet 创建或导入。",
+  SimplifiedChinese: "暂无活跃钱包——请发送 /wallet 创建或导入。",
 } as const;
 export const TRANSACTION_FAILED_SHORT_REPLY = {
   English: "Transaction failed — please try again in a moment.",
@@ -2353,7 +2353,7 @@ export const WALLET_UNLABELED_PLACEHOLDER = {
 } as const;
 export const WALLET_ACTIVE_LEGEND = {
   English: "* = active wallet (used for buy / sell / withdraw)",
-  SimplifiedChinese: "* = 活动钱包（用于买入 / 卖出 / 提币）",
+  SimplifiedChinese: "* = 活跃钱包（用于买入 / 卖出 / 提币）",
 } as const;
 
 // ─── /positions — per-row labels + pagination button ───────────────
