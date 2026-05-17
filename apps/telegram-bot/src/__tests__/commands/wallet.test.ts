@@ -1117,6 +1117,18 @@ describe("/wallet command", () => {
       expect(send).toBeUndefined();
     });
 
+    it("Change PIN new-PIN prompt edits the same panel after verify (no fresh reply)", async () => {
+      const h = makeBotHarness();
+      await buildPm(h).setPin(7, "123456");
+      await h.run(callbackUpdate(WALLET_CALLBACK.pinChange));
+      fetchSpy.mockClear();
+      mockTelegramOk(fetchSpy);
+      await h.run(textUpdate("123456", 3));
+      const { edit, send } = firstEditOrSend(capture(fetchSpy));
+      expect(edit?.body.text).toMatch(/Send the new 6-digit PIN/);
+      expect(send).toBeUndefined();
+    });
+
     it("Complete PIN reset button edits the panel into the new-PIN prompt", async () => {
       const h = makeBotHarness();
       const pm = buildPm(h);
