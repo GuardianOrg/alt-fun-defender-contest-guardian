@@ -96,6 +96,28 @@ const nonPrivateChatReply = (ctx: AppContext): string =>
   t(I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY, getCtxLanguage(ctx));
 
 /**
+ * Conversation bodies receive a replay `ctx` whose `session` is empty —
+ * reading `ctx.session.language` / `ctx.session.antiPhishingPhrase` from
+ * inside a conversation silently falls back to defaults, losing the
+ * user's locale + anti-phishing phrase on every prompt. Both helpers
+ * round-trip through `conversation.external` to read the live outside
+ * session instead. Same pattern as `lib/pin-flow.ts :: readConvLocale`.
+ */
+const convLang = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<Language> =>
+  conversation.external((outside) =>
+    outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
+
+const convPhrase = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<string | null> =>
+  conversation.external((outside) =>
+    outside.session?.antiPhishingPhrase ?? null,
+  );
+
+/**
  * Cap to keep a typo'd "1000%" slippage from blowing past the
  * `slippageBps ≤ 10_000` guard in `lib/trade.ts`. 50% is more than
  * any plausible legitimate setting; anything past this is a footgun.
@@ -331,17 +353,19 @@ const showPrompt = async (
   ctx: AppContext,
   origin: OriginMessageRef | undefined,
   text: string,
+  lang: Language,
+  phrase: string | null,
 ): Promise<void> => {
   if (origin) {
     const edited = await conversation.external((outside) =>
-      safeEditMessage(outside, origin, wrap(outside, text), {
-        reply_markup: backHomeMarkup(getCtxLanguage(outside)),
+      safeEditMessage(outside, origin, withAntiPhishing(text, phrase, lang), {
+        reply_markup: backHomeMarkup(lang),
       }),
     );
     if (edited) return;
   }
-  const msg = await ctx.reply(wrap(ctx, text), {
-    reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
+  const msg = await ctx.reply(withAntiPhishing(text, phrase, lang), {
+    reply_markup: backHomeMarkup(lang),
   });
   await trackWorkflowMessage(conversation, msg.message_id);
 };
@@ -359,6 +383,8 @@ const customSlippageConversation = async (
   ctx: AppContext,
   origin?: OriginMessageRef,
 ): Promise<void> => {
+  const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   const presetList = SLIPPAGE_PRESETS_BPS.map((bps) =>
     formatBpsLabel(bps),
@@ -367,10 +393,12 @@ const customSlippageConversation = async (
     conversation,
     ctx,
     origin,
-    t(SETTINGS_CUSTOM_SLIPPAGE_PROMPT, getCtxLanguage(ctx))(
+    t(SETTINGS_CUSTOM_SLIPPAGE_PROMPT, lang)(
       presetList,
       MAX_SLIPPAGE_BPS / 100,
     ),
+    lang,
+    phrase,
   );
 
   while (true) {
@@ -391,7 +419,9 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_INVALID_NUMBER_REPLY, getCtxLanguage(ctx)),
+        t(SETTINGS_INVALID_NUMBER_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -401,7 +431,9 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_SLIPPAGE_MIN_REPLY, getCtxLanguage(ctx)),
+        t(SETTINGS_SLIPPAGE_MIN_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -410,9 +442,9 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_SLIPPAGE_CAPPED_REPLY, getCtxLanguage(ctx))(
-          MAX_SLIPPAGE_BPS / 100,
-        ),
+        t(SETTINGS_SLIPPAGE_CAPPED_REPLY, lang)(MAX_SLIPPAGE_BPS / 100),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -425,7 +457,9 @@ const customSlippageConversation = async (
       // most KV failures surface at session-flush time, outside this
       // catch) must never reach a "saved" reply. The session plugin's
       // own flush errors land on `bot.catch` in `bot.ts`.
-      await ctx.reply(wrap(ctx, t(FAILED_TO_SAVE_REPLY, getCtxLanguage(ctx))));
+      await ctx.reply(
+        withAntiPhishing(t(FAILED_TO_SAVE_REPLY, lang), phrase, lang),
+      );
       await sweepWorkflow(conversation);
       return;
     }
@@ -434,7 +468,7 @@ const customSlippageConversation = async (
     // Lead with a short confirmation line so the user can see the
     // wizard succeeded (the panel below already reflects the new
     // value, but the confirmation makes the save read unambiguous).
-    const confirmation = t(SETTINGS_SLIPPAGE_SAVED_CONFIRMATION, getCtxLanguage(ctx))(
+    const confirmation = t(SETTINGS_SLIPPAGE_SAVED_CONFIRMATION, lang)(
       formatBpsLabel(bps),
     );
     const edited = origin
@@ -453,7 +487,11 @@ const customSlippageConversation = async (
         renderMainState(outside),
       );
       await ctx.reply(
-        wrap(ctx, `${confirmation}\n\n${state.text}`),
+        withAntiPhishing(
+          `${confirmation}\n\n${state.text}`,
+          phrase,
+          lang,
+        ),
         { reply_markup: state.reply_markup },
       );
     }
@@ -483,15 +521,19 @@ const buyPresetSlotConversation = async (
   if (!Number.isInteger(slotIdx) || slotIdx < 0 || slotIdx >= BUY_PRESETS_LENGTH) {
     return;
   }
+  const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   await showPrompt(
     conversation,
     ctx,
     origin,
-    t(SETTINGS_BUY_SLOT_PROMPT, getCtxLanguage(ctx))(
+    t(SETTINGS_BUY_SLOT_PROMPT, lang)(
       MIN_USDC_BUY_AMOUNT,
       MAX_BUY_PRESET_USDC,
     ),
+    lang,
+    phrase,
   );
 
   while (true) {
@@ -506,7 +548,9 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_INVALID_USDC_REPLY, getCtxLanguage(ctx)),
+        t(SETTINGS_INVALID_USDC_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -515,7 +559,9 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_BUY_SLOT_MIN_REPLY, getCtxLanguage(ctx))(MIN_USDC_BUY_AMOUNT),
+        t(SETTINGS_BUY_SLOT_MIN_REPLY, lang)(MIN_USDC_BUY_AMOUNT),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -524,7 +570,9 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_BUY_SLOT_MAX_REPLY, getCtxLanguage(ctx))(MAX_BUY_PRESET_USDC),
+        t(SETTINGS_BUY_SLOT_MAX_REPLY, lang)(MAX_BUY_PRESET_USDC),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -545,7 +593,9 @@ const buyPresetSlotConversation = async (
         }
       });
     } catch {
-      await ctx.reply(wrap(ctx, t(FAILED_TO_SAVE_REPLY, getCtxLanguage(ctx))));
+      await ctx.reply(
+        withAntiPhishing(t(FAILED_TO_SAVE_REPLY, lang), phrase, lang),
+      );
       await sweepWorkflow(conversation);
       return;
     }
@@ -561,7 +611,7 @@ const buyPresetSlotConversation = async (
       const state = await conversation.external((outside) =>
         renderBuyState(outside),
       );
-      await ctx.reply(wrap(ctx, state.text), {
+      await ctx.reply(withAntiPhishing(state.text, phrase, lang), {
         reply_markup: state.reply_markup,
       });
     }
@@ -590,12 +640,16 @@ const sellPresetSlotConversation = async (
   ) {
     return;
   }
+  const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   await showPrompt(
     conversation,
     ctx,
     origin,
-    t(SETTINGS_SELL_SLOT_PROMPT, getCtxLanguage(ctx)),
+    t(SETTINGS_SELL_SLOT_PROMPT, lang),
+    lang,
+    phrase,
   );
 
   while (true) {
@@ -610,7 +664,9 @@ const sellPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_SELL_SLOT_INVALID_REPLY, getCtxLanguage(ctx)),
+        t(SETTINGS_SELL_SLOT_INVALID_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -620,7 +676,9 @@ const sellPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_SELL_SLOT_RANGE_REPLY, getCtxLanguage(ctx)),
+        t(SETTINGS_SELL_SLOT_RANGE_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -631,7 +689,9 @@ const sellPresetSlotConversation = async (
         outside.session.sellPresetsPct = current;
       });
     } catch {
-      await ctx.reply(wrap(ctx, t(FAILED_TO_SAVE_REPLY, getCtxLanguage(ctx))));
+      await ctx.reply(
+        withAntiPhishing(t(FAILED_TO_SAVE_REPLY, lang), phrase, lang),
+      );
       await sweepWorkflow(conversation);
       return;
     }
@@ -647,7 +707,7 @@ const sellPresetSlotConversation = async (
       const state = await conversation.external((outside) =>
         renderSellState(outside),
       );
-      await ctx.reply(wrap(ctx, state.text), {
+      await ctx.reply(withAntiPhishing(state.text, phrase, lang), {
         reply_markup: state.reply_markup,
       });
     }
@@ -672,16 +732,20 @@ const setPhraseConversation = async (
   origin?: OriginMessageRef,
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
+  const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   await showPrompt(
     conversation,
     ctx,
     origin,
     [
-      t(SETTINGS_ANTI_PHISHING_PROMPT, getCtxLanguage(ctx)),
+      t(SETTINGS_ANTI_PHISHING_PROMPT, lang),
       "",
-      t(SETTINGS_PHRASE_PROMPT_MAX_LINE, getCtxLanguage(ctx))(MAX_PHRASE_LEN),
+      t(SETTINGS_PHRASE_PROMPT_MAX_LINE, lang)(MAX_PHRASE_LEN),
     ].join("\n"),
+    lang,
+    phrase,
   );
   while (true) {
     const reply = await conversation.waitFor("message:text");
@@ -695,7 +759,9 @@ const setPhraseConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_PHRASE_EMPTY_REPLY, getCtxLanguage(ctx)),
+        t(SETTINGS_PHRASE_EMPTY_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -704,10 +770,12 @@ const setPhraseConversation = async (
         conversation,
         ctx,
         origin,
-        t(SETTINGS_PHRASE_TOO_LONG_REPLY, getCtxLanguage(ctx))(
+        t(SETTINGS_PHRASE_TOO_LONG_REPLY, lang)(
           trimmed.length,
           MAX_PHRASE_LEN,
         ),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -720,7 +788,7 @@ const setPhraseConversation = async (
     // Refresh the origin /settings panel in place when available so
     // the user lands on the updated phrase header inside the same
     // bubble; the trimmed phrase is what `withAntiPhishing` needs to
-    // render correctly (the inner ctx.session snapshot still holds
+    // render correctly (the outside ctx.session snapshot still holds
     // the pre-change value at this point in conversation replay).
     const edited = origin
       ? await conversation.external(async (outside) =>
@@ -728,9 +796,10 @@ const setPhraseConversation = async (
             outside,
             origin,
             withAntiPhishing(
-            `${t(SETTINGS_PHRASE_SAVED_HEADER, getCtxLanguage(ctx))}\n\n${state.text}`,
-            trimmed,
-          ),
+              `${t(SETTINGS_PHRASE_SAVED_HEADER, lang)}\n\n${state.text}`,
+              trimmed,
+              lang,
+            ),
             { reply_markup: state.reply_markup },
           ),
         )
@@ -738,9 +807,10 @@ const setPhraseConversation = async (
     if (!edited) {
       await ctx.reply(
         withAntiPhishing(
-            `${t(SETTINGS_PHRASE_SAVED_HEADER, getCtxLanguage(ctx))}\n\n${state.text}`,
-            trimmed,
-          ),
+          `${t(SETTINGS_PHRASE_SAVED_HEADER, lang)}\n\n${state.text}`,
+          trimmed,
+          lang,
+        ),
         { reply_markup: state.reply_markup },
       );
     }

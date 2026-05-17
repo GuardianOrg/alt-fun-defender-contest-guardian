@@ -481,9 +481,10 @@ const renameWalletConversation = async (
   await trackWorkflowMessage(conversation, reply.message.message_id);
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
-      wrap(
-        ctx,
+      withAntiPhishing(
         t(WALLET_RENAME_LENGTH_INVALID_REPLY, lang)(RENAME_MAX_LEN),
+        phrase,
+        lang,
       ),
     );
     await sweepWorkflow(conversation);
@@ -509,7 +510,11 @@ const renameWalletConversation = async (
   } catch (err) {
     if (err instanceof WalletNotFoundError) {
       await reply.reply(
-        wrap(ctx, t(WALLET_RENAME_NO_LONGER_EXISTS_REPLY, lang)),
+        withAntiPhishing(
+          t(WALLET_RENAME_NO_LONGER_EXISTS_REPLY, lang),
+          phrase,
+          lang,
+        ),
       );
       await sweepWorkflow(conversation);
       return;
@@ -519,7 +524,7 @@ const renameWalletConversation = async (
   const state = await conversation.external((outerCtx) =>
     renderMainState(outerCtx.env, fromId, lang),
   );
-  await reply.reply(wrap(ctx, state.text), {
+  await reply.reply(withAntiPhishing(state.text, phrase, lang), {
     reply_markup: state.reply_markup,
   });
   await sweepWorkflow(conversation);
@@ -1061,7 +1066,11 @@ const importWalletConversation = async (
     const parsed = parsePrivateKey(text);
     if (!parsed) {
       const retry = await ctx.reply(
-        wrap(ctx, t(WALLET_IMPORT_INVALID_KEY_REPLY, lang)),
+        withAntiPhishing(
+          t(WALLET_IMPORT_INVALID_KEY_REPLY, lang),
+          phrase,
+          lang,
+        ),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -1094,7 +1103,11 @@ const importWalletConversation = async (
     );
     if (result.kind === "invalid") {
       const retry = await ctx.reply(
-        wrap(ctx, t(WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY, lang)),
+        withAntiPhishing(
+          t(WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY, lang),
+          phrase,
+          lang,
+        ),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -1102,15 +1115,21 @@ const importWalletConversation = async (
     }
     if (result.kind === "duplicate") {
       await ctx.reply(
-        wrap(ctx, t(WALLET_IMPORT_ALREADY_EXISTS_REPLY, lang)),
+        withAntiPhishing(
+          t(WALLET_IMPORT_ALREADY_EXISTS_REPLY, lang),
+          phrase,
+          lang,
+        ),
       );
       await sweepWorkflow(conversation);
       return;
     }
     if (result.kind === "cap") {
       await ctx.reply(
-        wrap(ctx,
+        withAntiPhishing(
           t(WALLET_IMPORT_CAP_REACHED_REPLY, lang)(MAX_WALLETS_PER_USER),
+          phrase,
+          lang,
         ),
       );
       await sweepWorkflow(conversation);
@@ -1122,8 +1141,10 @@ const importWalletConversation = async (
       renderMainState(outside.env, userId, lang),
     );
     await ctx.reply(
-      wrap(ctx,
+      withAntiPhishing(
         `${t(WALLET_IMPORTED_HEADER, lang)(truncateAddress(wallet.address))}\n\n${state.text}`,
+        phrase,
+        lang,
       ),
       { reply_markup: state.reply_markup },
     );
@@ -1202,19 +1223,24 @@ const deleteWalletConversation = async (
   );
   if (!walletRecord) {
     await ctx.reply(
-      wrap(ctx, t(WALLET_DELETE_NO_LONGER_EXISTS_REPLY, lang)),
+      withAntiPhishing(
+        t(WALLET_DELETE_NO_LONGER_EXISTS_REPLY, lang),
+        phrase,
+        lang,
+      ),
     );
     await sweepWorkflow(conversation);
     return;
   }
 
   const confirmPrompt = await ctx.reply(
-    wrap(
-      ctx,
+    withAntiPhishing(
       t(WALLET_DELETE_CONFIRM_PROMPT, lang)(
         walletRecord.label ?? t(WALLET_UNLABELED, lang),
         truncateAddress(walletRecord.address),
       ),
+      phrase,
+      lang,
     ),
     { reply_markup: backHomeMarkup(lang) },
   );
@@ -1229,7 +1255,9 @@ const deleteWalletConversation = async (
     // Anything other than the exact uppercase token aborts — lowercase,
     // typo, fat-fingered emoji. The strictness is the point; this gate
     // exists to require deliberate action.
-    await ctx.reply(wrap(ctx, t(TOAST_DELETE_CANCELLED, lang)));
+    await ctx.reply(
+      withAntiPhishing(t(TOAST_DELETE_CANCELLED, lang), phrase, lang),
+    );
     await sweepWorkflow(conversation);
     return;
   }
@@ -1252,7 +1280,11 @@ const deleteWalletConversation = async (
   );
   if (deleteResult.kind === "missing") {
     await ctx.reply(
-      wrap(ctx, t(WALLET_DELETE_NO_LONGER_EXISTS_REPLY, lang)),
+      withAntiPhishing(
+        t(WALLET_DELETE_NO_LONGER_EXISTS_REPLY, lang),
+        phrase,
+        lang,
+      ),
     );
     await sweepWorkflow(conversation);
     return;
@@ -1262,8 +1294,10 @@ const deleteWalletConversation = async (
     renderMainState(outside.env, userId, lang),
   );
   await ctx.reply(
-    wrap(ctx,
+    withAntiPhishing(
       `${t(WALLET_DELETED_HEADER, lang)(truncateAddress(walletRecord.address))}\n\n${state.text}`,
+      phrase,
+      lang,
     ),
     { reply_markup: state.reply_markup },
   );
@@ -1285,6 +1319,7 @@ const setPinConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   const newPin = await askNewPin(
     conversation,
@@ -1300,7 +1335,11 @@ const setPinConversation = async (
     renderMainState(outside.env, userId, lang),
   );
   await ctx.reply(
-    wrap(ctx, `${t(WALLET_PIN_SET_HEADER, lang)}\n\n${state.text}`),
+    withAntiPhishing(
+      `${t(WALLET_PIN_SET_HEADER, lang)}\n\n${state.text}`,
+      phrase,
+      lang,
+    ),
     { reply_markup: state.reply_markup },
   );
   await sweepWorkflow(conversation);
@@ -1321,6 +1360,7 @@ const changePinConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   const ok = await verifyExistingPin(
     conversation,
@@ -1352,7 +1392,11 @@ const changePinConversation = async (
     renderMainState(outside.env, userId, lang),
   );
   await ctx.reply(
-    wrap(ctx, `${t(WALLET_PIN_CHANGED_HEADER, lang)}\n\n${state.text}`),
+    withAntiPhishing(
+      `${t(WALLET_PIN_CHANGED_HEADER, lang)}\n\n${state.text}`,
+      phrase,
+      lang,
+    ),
     { reply_markup: state.reply_markup },
   );
   await sweepWorkflow(conversation);
@@ -1373,12 +1417,15 @@ const completeResetConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   const reset: ResetStatus = await conversation.external((outside) =>
     buildPinManager(outside.env).getResetStatus(userId),
   );
   if (reset.kind === "none") {
-    await ctx.reply(wrap(ctx, t(TOAST_NO_PIN_RESET_IN_PROGRESS, lang)));
+    await ctx.reply(
+      withAntiPhishing(t(TOAST_NO_PIN_RESET_IN_PROGRESS, lang), phrase, lang),
+    );
     await sweepWorkflow(conversation);
     return;
   }
@@ -1388,9 +1435,10 @@ const completeResetConversation = async (
       Date.now(),
     );
     await ctx.reply(
-      wrap(
-        ctx,
+      withAntiPhishing(
         t(WALLET_RESET_NOT_READY_WITH_CANCEL_HINT_REPLY, lang)(hours),
+        phrase,
+        lang,
       ),
     );
     await sweepWorkflow(conversation);
@@ -1409,13 +1457,19 @@ const completeResetConversation = async (
   if (result.kind === "pending") {
     const hours = formatHoursRemaining(result.readyAt, Date.now());
     await ctx.reply(
-      wrap(ctx, t(WALLET_RESET_NOT_READY_REPLY, lang)(hours)),
+      withAntiPhishing(
+        t(WALLET_RESET_NOT_READY_REPLY, lang)(hours),
+        phrase,
+        lang,
+      ),
     );
     await sweepWorkflow(conversation);
     return;
   }
   if (result.kind === "not-requested") {
-    await ctx.reply(wrap(ctx, t(TOAST_NO_PIN_RESET_IN_PROGRESS, lang)));
+    await ctx.reply(
+      withAntiPhishing(t(TOAST_NO_PIN_RESET_IN_PROGRESS, lang), phrase, lang),
+    );
     await sweepWorkflow(conversation);
     return;
   }
@@ -1423,9 +1477,10 @@ const completeResetConversation = async (
     renderMainState(outside.env, userId, lang),
   );
   await ctx.reply(
-    wrap(
-      ctx,
+    withAntiPhishing(
       `${t(WALLET_PIN_RESET_COMPLETE_HEADER, lang)}\n\n${state.text}`,
+      phrase,
+      lang,
     ),
     { reply_markup: state.reply_markup },
   );
