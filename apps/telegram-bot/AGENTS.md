@@ -368,18 +368,19 @@ Input:  optional wallet address (default: active wallet)
 Output:
   - Open positions section:
       For each currently-held token:
-        token name · ticker
-        balance
-        cost basis (USDC)
-        current value (USDC)
-        unrealised PnL (USDC, signed) · unrealised PnL %
-      Per-position buttons: [Sell 50%] [Sell 100%] [View Chart]
+        ticker (deeplinked to /track)
+        token address (tap-to-copy)
+        balance · cost basis (USDC)
+        current value (USDC) · unrealised PnL (USDC, signed) · unrealised PnL %
+      No per-position action buttons — the ticker anchor is the
+      only per-row affordance; section-level [Page X/Y Open Pos]
+      and [🔄 Refresh] rows sit below.
 
   - Realised positions section:
       For each token with at least one closed-out chunk in lifetime:
-        token name · ticker
-        total cost (USDC, lifetime buy notional for closed chunks)
-        total proceeds (USDC, lifetime sell notional)
+        ticker (deeplinked to /track)
+        token address (tap-to-copy)
+        total cost (USDC, lifetime buy notional for closed chunks) · total proceeds (USDC, lifetime sell notional)
         realised PnL (USDC, signed) · realised PnL %
       No action buttons (position is closed).
 
@@ -397,7 +398,7 @@ PnL math:
 - **Unrealised PnL** = `currentValueUsdc - costBasisUsdc`. `currentValueUsdc` is computed **at API read time** in `GET /api/v1/bot/positions/:wallet` by joining the wallet's held tokens against the indexer's per-token `(curveSupply, ltReserve)` and the live BounceTech LT exchange rate — `priceUsd = computeTokenPrice(curveSupply, ltReserve, ltRate)` (bonding curve quote pre-grad, HyperSwap quote post-grad — `HyperSwapPair:Sync` mirrors HyperSwap reserves onto the same columns). The indexer-side `walletBotPosition.currentValueUsdc` (frozen at the user's own last trade) is the fallback when the live mark is unavailable (BounceTech 5xx, indexer outage). The bot still makes a single API call regardless of how many tokens the user holds.
 - **Percentages** = `pnl / cost × 100`. Floor at 2 decimal places. When cost is 0 (e.g. fully airdropped position), display `—` instead of `∞%`.
 
-Pagination: positions are sorted by `|unrealisedPnlUsdc|` descending for *Open*, by `realised PnL` descending for *Realised*. The 4096-char Telegram message limit applies — paginate with [Next →] when either section overflows. Open and Realised are sent as separate messages so each can paginate independently.
+Pagination: positions are sorted by `|unrealisedPnlUsdc|` descending for *Open*, by `realised PnL` descending for *Realised*. Each section paginates at `POSITIONS_PAGE_SIZE = 5` records independently — open spilling into later pages never pushes realised entries out of the message. The *Open Pos* page row is always rendered above the *Realised Pos* row when the section has at least one record (a single page collapses to a non-navigating `Page 1/1 Open Pos` / `Page 1/1 Realised Pos` label so the user can always see which section comes next). The 4096-char Telegram message limit applies; a compact ticker+address fallback kicks in if pathologically large numeric fields would blow it.
 
 Stale-data guarantee: indexed numbers may lag the chain by up to one block. The bot does not surface "live" prices for positions held in volatile tokens — if the user wants the freshest mark, they pull `/track` for that token. /positions is intentionally a snapshot.
 

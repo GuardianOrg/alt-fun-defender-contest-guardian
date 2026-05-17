@@ -8,11 +8,9 @@ import {
   formatFixed,
   formatTokenAmount,
   formatUsdc,
-  POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_PAGE_SIZE,
   POSITIONS_REFRESH_CALLBACK_CMD,
-  POSITIONS_SELL_CALLBACK_CMD,
   TELEGRAM_MESSAGE_LIMIT,
 } from "../../lib/format.js";
 import type {
@@ -110,7 +108,6 @@ describe("buildPositionsView", () => {
   it("returns the empty-state body when both sections are empty", () => {
     const view = buildPositionsView({ open: [], realised: [] }, 0, 0);
     expect(view.text).toBe("No open positions for this wallet.");
-    expect(view.openActions).toEqual([]);
     expect(view.openTotal).toBe(0);
     expect(view.realisedTotal).toBe(0);
     expect(view.openTotalPages).toBe(1);
@@ -147,17 +144,6 @@ describe("buildPositionsView", () => {
     });
     const view = buildPositionsView({ open: [], realised: [pos] }, 0, 0);
     expect(view.text).toContain(`<code>${pos.token}</code>`);
-  });
-
-  it("emits one openActions entry per visible open position", () => {
-    const pos = openPos({
-      token: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      ticker: "ALPHA",
-    });
-    const view = buildPositionsView({ open: [pos], realised: [] }, 0, 0);
-    expect(view.openActions).toEqual([
-      { token: pos.token, ticker: pos.ticker },
-    ]);
   });
 
   it("omits ticker anchors when no botUsername is provided (fall-back to plain text)", () => {
@@ -203,15 +189,6 @@ describe("buildPositionsView", () => {
     expect(view.text).toContain(
       `<a href="https://t.me/trade_cortisol_bot?start=track_${pos.token}">BETA</a>`,
     );
-  });
-
-  it("does not emit openActions for realised (closed) positions", () => {
-    const view = buildPositionsView(
-      { open: [], realised: [realisedPos()] },
-      0,
-      0,
-    );
-    expect(view.openActions).toEqual([]);
   });
 
   it("HTML-escapes the ticker so an attacker-controlled symbol can't inject markup", () => {
@@ -300,7 +277,6 @@ describe("buildPositionsView", () => {
     expect(view.realisedTotal).toBe(23);
     expect(view.openTotalPages).toBe(Math.ceil(47 / POSITIONS_PAGE_SIZE));
     expect(view.realisedTotalPages).toBe(Math.ceil(23 / POSITIONS_PAGE_SIZE));
-    expect(view.openActions).toHaveLength(POSITIONS_PAGE_SIZE);
     // First open page: LT0..LT4; first realised page: R0..R4.
     for (let i = 0; i < POSITIONS_PAGE_SIZE; i++) {
       expect(view.text).toContain(`LT${i}`);
@@ -339,7 +315,6 @@ describe("buildPositionsView", () => {
     const view = buildPositionsView({ open, realised: [] }, 9, 0);
     expect(view.openTotalPages).toBe(10);
     expect(view.openPage).toBe(9);
-    expect(view.openActions).toHaveLength(2);
     expect(view.text).toContain("LT45");
     expect(view.text).toContain("LT46");
     expect(view.text).not.toContain("LT44");
@@ -386,7 +361,7 @@ describe("buildPositionsPageKeyboard", () => {
     ]);
   });
 
-  it("emits a [Buy <TICKER>] [Sell <TICKER>] row per open position when both sections fit on one page", () => {
+  it("emits an `Open Pos` label row above Refresh when open has a single page (no per-position buttons)", () => {
     const view = buildPositionsView(
       {
         open: [
@@ -400,37 +375,32 @@ describe("buildPositionsPageKeyboard", () => {
     );
     const kb = buildPositionsPageKeyboard(view, WALLET);
     const rows = kb.inline_keyboard;
-    // Two per-position rows + refresh + Back/Home.
-    expect(rows).toHaveLength(4);
-    expect(rows[0]!.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
+    // Open Pos label + Refresh + Back/Home.
+    expect(rows).toHaveLength(3);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Page 1/1 Open Pos"]);
     expect(rows[0]![0]!.callback_data).toBe(
-      `${POSITIONS_BUY_CALLBACK_CMD}:${TOKEN_A}`,
+      `${POSITIONS_PAGE_CALLBACK_CMD}:0:0:${WALLET}`,
     );
-    expect(rows[0]![1]!.callback_data).toBe(
-      `${POSITIONS_SELL_CALLBACK_CMD}:${TOKEN_A}`,
-    );
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Buy BETA", "Sell BETA"]);
-    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[2]![0]!.callback_data).toBe(
-      `${POSITIONS_REFRESH_CALLBACK_CMD}:0:0:${WALLET}`,
-    );
-    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
-  it("truncates a long ticker in the button label only (callback_data carries the address)", () => {
+  it("emits an Open Pos label row above a Realised Pos label row when both sections fit on a single page", () => {
     const view = buildPositionsView(
       {
-        open: [openPos({ token: TOKEN_A, ticker: "SUPERCALIFRAGILISTIC" })],
-        realised: [],
+        open: [openPos({ token: TOKEN_A, ticker: "ALPHA" })],
+        realised: [realisedPos({ token: TOKEN_B, ticker: "BETA" })],
       },
       0,
       0,
     );
     const kb = buildPositionsPageKeyboard(view, WALLET);
-    const buySellRow = kb.inline_keyboard[0]!;
-    expect(buySellRow[0]!.text.length).toBeLessThanOrEqual("Buy ".length + 12);
-    expect(buySellRow[0]!.text.endsWith("…")).toBe(true);
-    expect(buySellRow[0]!.callback_data).toContain(TOKEN_A);
+    const rows = kb.inline_keyboard;
+    expect(rows).toHaveLength(4);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Page 1/1 Open Pos"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Page 1/1 Realised Pos"]);
+    expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
+    expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("emits a single open-section nav row labelled `→ Page 2/T Open Pos` on the first page when open spills past 5 records", () => {
@@ -444,9 +414,9 @@ describe("buildPositionsPageKeyboard", () => {
     expect(view.openTotalPages).toBe(10);
     const kb = buildPositionsPageKeyboard(view, WALLET);
     const rows = kb.inline_keyboard;
-    // 5 per-position rows + 1 open nav row + refresh + back/home = 8 rows.
-    expect(rows).toHaveLength(8);
-    const openNav = rows[5]!;
+    // Open nav + Refresh + Back/Home.
+    expect(rows).toHaveLength(3);
+    const openNav = rows[0]!;
     expect(openNav).toHaveLength(1);
     expect(openNav[0]!.text).toBe("→ Page 2/10 Open Pos");
     expect(openNav[0]!.callback_data).toBe(
@@ -463,9 +433,7 @@ describe("buildPositionsPageKeyboard", () => {
     );
     const view = buildPositionsView({ open, realised: [] }, 1, 0);
     const kb = buildPositionsPageKeyboard(view, WALLET);
-    const rows = kb.inline_keyboard;
-    // page 2 of 10: previous = page 1, next = page 3.
-    const openNav = rows[5]!;
+    const openNav = kb.inline_keyboard[0]!;
     expect(openNav.map((b) => b.text)).toEqual([
       "← Page 1/10 Open Pos",
       "→ Page 3/10 Open Pos",
@@ -485,13 +453,12 @@ describe("buildPositionsPageKeyboard", () => {
         ticker: `LT${i}`,
       }),
     );
-    // Page index 9 → page label 10 of 10.
     const view = buildPositionsView({ open, realised: [] }, 9, 0);
     const kb = buildPositionsPageKeyboard(view, WALLET);
-    // 2 partial-page positions + 1 open nav + refresh + back/home = 5 rows.
-    expect(kb.inline_keyboard).toHaveLength(5);
-    const openNav = kb.inline_keyboard[2]!;
-    expect(openNav.map((b) => b.text)).toEqual(["← Page 9/10 Open Pos"]);
+    expect(kb.inline_keyboard).toHaveLength(3);
+    expect(kb.inline_keyboard[0]!.map((b) => b.text)).toEqual([
+      "← Page 9/10 Open Pos",
+    ]);
   });
 
   it("paginates the realised section independently of open: a click on a realised-nav button preserves openPage in callback_data", () => {
@@ -510,14 +477,11 @@ describe("buildPositionsPageKeyboard", () => {
     // Open on page 3 (index 2), realised on page 1 (index 0).
     const view = buildPositionsView({ open, realised }, 2, 0);
     const kb = buildPositionsPageKeyboard(view, WALLET);
-    // Find the realised nav row (after the open nav row).
     const rows = kb.inline_keyboard;
-    // 5 position rows + open nav + realised nav + refresh + back/home.
-    expect(rows).toHaveLength(9);
-    const realisedNav = rows[6]!;
-    // realisedTotal=12 → totalPages=3. Currently on page 1 → only Next.
+    // open nav + realised nav + refresh + back/home.
+    expect(rows).toHaveLength(4);
+    const realisedNav = rows[1]!;
     expect(realisedNav.map((b) => b.text)).toEqual(["→ Page 2/3 Realised Pos"]);
-    // The realised-nav callback must preserve openPage = 2.
     expect(realisedNav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:2:1:${WALLET}`,
     );
@@ -533,7 +497,6 @@ describe("buildPositionsPageKeyboard", () => {
     const view = buildPositionsView({ open: [], realised }, 0, 0);
     const kb = buildPositionsPageKeyboard(view, WALLET);
     const rows = kb.inline_keyboard;
-    // No open actions, no open nav. Just realised nav + refresh + back/home.
     expect(rows).toHaveLength(3);
     expect(rows[0]!.map((b) => b.text)).toEqual(["→ Page 2/3 Realised Pos"]);
     expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
@@ -637,7 +600,7 @@ describe("ticker control-char sanitization", () => {
     expect(view.text).not.toMatch(/BAD\n/);
   });
 
-  it("collapses control chars on inline-button labels (truncated form has no \\n / \\t)", () => {
+  it("nav-row labels are free of control characters (button labels never carry \\n / \\r / \\t)", () => {
     const pos = openPos({
       token: "0xcccccccccccccccccccccccccccccccccccccccc",
       ticker: "X\nY\tZ",
@@ -647,9 +610,9 @@ describe("ticker control-char sanitization", () => {
       view,
       "0x1234567890abcdef1234567890abcdef12345678",
     );
-    const buyLabel = kb.inline_keyboard[0]![0]!.text;
-    expect(buyLabel).not.toMatch(/[\n\r\t]/);
-    expect(buyLabel).toBe("Buy X Y Z");
+    for (const b of kb.inline_keyboard.flat()) {
+      expect(b.text).not.toMatch(/[\n\r\t]/);
+    }
   });
 });
 

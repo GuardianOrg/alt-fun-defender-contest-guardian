@@ -154,7 +154,7 @@ describe("/positions", () => {
     );
   });
 
-  it("renders a single open position with deeplinked ticker, balance, cost, value, PnL, and [Buy] / [Sell] callback row", async () => {
+  it("renders a single open position with deeplinked ticker, balance, cost, value, PnL, and Open Pos label row (no per-position buy/sell buttons)", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/v1/bot/positions-v2/")) {
@@ -195,9 +195,7 @@ describe("/positions", () => {
     expect(sent[0]!.parse_mode).toBe("HTML");
     // The ticker on the body line is a `t.me/<bot>?start=track_<addr>`
     // deeplink — tap it to bounce back into the bot's chat on a fresh
-    // /track card. Legacy `?start=buy_<addr>` / `?start=sell_<addr>`
-    // body anchors were replaced by inline `pb:` / `ps:` callback
-    // buttons (see Buy/Sell row below).
+    // /track card. No buy/sell deeplinks or callback buttons surface.
     expect(text).toContain(
       `<a href="https://t.me/trade_cortisol_bot?start=track_${TOKEN}">ALPHA</a>`,
     );
@@ -207,12 +205,19 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // Buy/sell row + refresh row + trailing Back/Home row.
+    // Open Pos label row + refresh row + trailing Back/Home row.
     expect(markup.inline_keyboard).toHaveLength(3);
-    const buySellRow = markup.inline_keyboard[0]!;
-    expect(buySellRow.map((b) => b.text)).toEqual(["Buy ALPHA", "Sell ALPHA"]);
-    expect(buySellRow[0]!.callback_data).toBe(`pb:${TOKEN}`);
-    expect(buySellRow[1]!.callback_data).toBe(`ps:${TOKEN}`);
+    expect(markup.inline_keyboard[0]!.map((b) => b.text)).toEqual([
+      "Page 1/1 Open Pos",
+    ]);
+    expect(markup.inline_keyboard[0]![0]!.callback_data).toBe(
+      `pp:0:0:${WALLET}`,
+    );
+    // No per-position Buy/Sell buttons remain anywhere in the keyboard.
+    for (const b of markup.inline_keyboard.flat()) {
+      expect(b.callback_data.startsWith("pb:")).toBe(false);
+      expect(b.callback_data.startsWith("ps:")).toBe(false);
+    }
     expect(markup.inline_keyboard.at(-2)!.map((b) => b.text)).toEqual([
       "🔄 Refresh",
     ]);
@@ -270,7 +275,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toContain("BETA");
   });
 
-  it("attaches per-position [Buy] / [Sell] rows + a nav row when the response paginates", async () => {
+  it("attaches the Open Pos nav row above Refresh/Back/Home when the open section paginates", async () => {
     const open = Array.from({ length: 250 }, (_, i) => ({
       token: `0x${i.toString(16).padStart(40, "0")}`,
       ticker: `LT${i}`,
@@ -299,34 +304,27 @@ describe("/positions", () => {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // 5 per-position buy/sell rows + an open-nav row + a refresh row +
-    // a trailing Back/Home row.
-    expect(markup.inline_keyboard.length).toBeGreaterThan(3);
-    const closeRow = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
-    expect(closeRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
-    const refreshRow =
-      markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
-    expect(refreshRow.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(refreshRow[0]!.callback_data).toMatch(/^pr:0:0:0x[0-9a-f]{40}$/i);
-    const nav = markup.inline_keyboard[markup.inline_keyboard.length - 3]!;
+    // Open-nav row + refresh row + Back/Home row.
+    expect(markup.inline_keyboard).toHaveLength(3);
+    const nav = markup.inline_keyboard[0]!;
     expect(nav.map((b) => b.text)).toEqual(["→ Page 2/50 Open Pos"]);
     expect(nav[0]!.callback_data).toMatch(/^pp:1:0:0x[0-9a-f]{40}$/i);
-    const positionRowCount = markup.inline_keyboard.length - 3;
-    for (let i = 0; i < positionRowCount; i++) {
-      const buySellRow = markup.inline_keyboard[i]!;
-      expect(buySellRow).toHaveLength(2);
-      expect(buySellRow[0]!.text.startsWith("Buy ")).toBe(true);
-      expect(buySellRow[1]!.text.startsWith("Sell ")).toBe(true);
-      expect(buySellRow[0]!.callback_data.startsWith("pb:0x")).toBe(true);
-      expect(buySellRow[1]!.callback_data.startsWith("ps:0x")).toBe(true);
-      // The ticker that drives this row's button labels must also be
-      // present as a deeplinked anchor in the body text — proving the
-      // keyboard never drifts from the visible list across pages.
-      const ticker = buySellRow[0]!.text.slice("Buy ".length);
-      expect(sent[0]!.text).toContain(`>${ticker}</a>`);
+    expect(markup.inline_keyboard[1]!.map((b) => b.text)).toEqual([
+      "🔄 Refresh",
+    ]);
+    expect(markup.inline_keyboard[1]![0]!.callback_data).toMatch(
+      /^pr:0:0:0x[0-9a-f]{40}$/i,
+    );
+    expect(markup.inline_keyboard[2]!.map((b) => b.text)).toEqual([
+      "← Back",
+      "🏠 Home",
+    ]);
+    // No buy/sell callbacks remain anywhere in the keyboard.
+    for (const b of markup.inline_keyboard.flat()) {
+      expect(b.callback_data.startsWith("pb:")).toBe(false);
+      expect(b.callback_data.startsWith("ps:")).toBe(false);
     }
-    // Buy / sell are inline callbacks; only the ticker anchors point at
-    // `t.me/<bot>?start=track_<addr>`. No buy/sell deeplinks survive.
+    // Only the ticker anchors point at `t.me/<bot>?start=track_<addr>`.
     expect(sent[0]!.text).not.toContain("?start=buy_");
     expect(sent[0]!.text).not.toContain("?start=sell_");
     expect(sent[0]!.text).toContain("?start=track_");
