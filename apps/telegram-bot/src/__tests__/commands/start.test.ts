@@ -153,6 +153,16 @@ describe("/start command", () => {
     fetchSpy.mockRestore();
   });
 
+  it("plain /start (no deeplink) does not sweep the user's bubble", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+    await h.run(startUpdate(7));
+    const del = (fetchSpy.mock.calls as Array<[unknown, unknown?]>).filter(
+      ([url]) => String(url).includes("/deleteMessage"),
+    );
+    expect(del).toHaveLength(0);
+  });
+
   it("auto-creates a wallet on first interaction and renders address + balance", async () => {
     const h = harnessWithRpc();
     // 2.50 USDC (6 decimals).
@@ -1283,5 +1293,44 @@ describe("/start action deeplink (buy_/sell_/track_)", () => {
     const sent = sentBodies();
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Welcome to");
+  });
+
+  // Regression: Telegram injects a synthetic `/start <action>_<addr>`
+  // user bubble whenever an action deeplink is tapped. The handler
+  // sweeps it after the token card lands so the chat shows the card
+  // alone, not the card stacked under a `/start` the user never typed.
+  it.each([
+    { label: "buy", param: `buy_${TOKEN}` },
+    { label: "sell", param: `sell_${TOKEN}` },
+  ])(
+    "$label_<addr> deeplink sweeps the synthetic /start user bubble",
+    async ({ param }) => {
+      const h = harnessWithRpc();
+      mockActionFetch();
+      await h.run(startUpdate(7, "private", { param }));
+      const allCalls = fetchSpy.mock.calls as Array<[unknown, unknown?]>;
+      const del = allCalls
+        .filter(([url]) => String(url).includes("/deleteMessage"))
+        .map(([url, init]) => ({
+          url: String(url),
+          body: JSON.parse((init as RequestInit).body as string) as Record<
+            string,
+            unknown
+          >,
+        }));
+      expect(del).toHaveLength(1);
+      expect(del[0]!.body.chat_id).toBe(42);
+      expect(del[0]!.body.message_id).toBe(1);
+    },
+  );
+
+  it("malformed action payload leaves the synthetic /start bubble in place (welcome fallback)", async () => {
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+    await h.run(startUpdate(7, "private", { param: "buy_not-an-address" }));
+    const del = (fetchSpy.mock.calls as Array<[unknown, unknown?]>).filter(
+      ([url]) => String(url).includes("/deleteMessage"),
+    );
+    expect(del).toHaveLength(0);
   });
 });
