@@ -57,6 +57,9 @@ const LINE_PREFIX = "• ";
  * Telegram's 4096-char ceiling. Header lands on the first chunk only — the
  * separator between positions counts toward the limit, so chunking happens
  * on cumulative size including the joiner.
+ *
+ * Kept as a general utility — still consumed by tests; positions itself
+ * now paginates by record count per section (see `buildPositionsView`).
  */
 export const chunkPositionsMessage = (
   header: string,
@@ -78,17 +81,6 @@ export const chunkPositionsMessage = (
   if (current !== "") chunks.push(current);
   return chunks;
 };
-
-/**
- * Reserved tail budget for the pagination footer appended by
- * `renderPaginatedPage`. Worst-case footer is `\n\nPage 9999 of 9999`
- * (20 chars); 24 leaves headroom for any future format change without
- * reissuing chunk sizes. `chunkPositionsMessage` (and the approximate
- * truncation note path below) both honor this reservation so any
- * single page returned from `renderPaginatedPage` is guaranteed to
- * fit inside `TELEGRAM_MESSAGE_LIMIT` even with the footer attached.
- */
-export const PAGINATION_FOOTER_BUDGET = 24;
 
 /**
  * Render a signed USDC raw value with a leading `+` for positives and
@@ -131,13 +123,6 @@ export const escapeHtml = (s: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-/**
- * Wrap a 0x-prefixed token address in `<code>` so Telegram renders it
- * as a tap-to-copy monospace span on every platform (mobile long-press,
- * desktop click). The address is ASCII hex so no HTML escaping is
- * needed — kept as a raw string passthrough rather than running
- * `escapeHtml` unnecessarily.
- */
 const formatTokenAddress = (token: string): string =>
   `<code>${token}</code>`;
 
@@ -145,178 +130,175 @@ const formatTokenAddress = (token: string): string =>
  * Render a `track_<addr>` deeplink to the bot. Tapping the ticker on a
  * position line bounces the user back into this same bot's chat with
  * `/start track_<addr>`, which the start handler routes to the /track
- * card. We use the `https://t.me/<bot>?start=<payload>` form because
- * Telegram's link preview surfaces a friendlier label than the in-app
- * `tg://resolve?domain=<bot>&start=<payload>` variant.
- *
- * When `BOT_USERNAME` is missing the caller falls back to plain text —
- * no fabricated link is better than a link that resolves to a wrong /
- * non-existent bot.
+ * card. When `BOT_USERNAME` is missing the caller falls back to plain
+ * text — no fabricated link is better than one that resolves to a
+ * wrong / non-existent bot.
  */
 const trackDeeplinkHref = (botUsername: string, token: string): string =>
   `https://t.me/${botUsername}?start=track_${token}`;
 
-const formatOpenLine = (
-  pos: BotOpenPosition,
-  limit: number,
-  botUsername: string | null,
-): string => {
-  const labelRaw = escapeHtml(pos.ticker);
-  const suffix =
-    `\n  ${formatTokenAddress(pos.token)}` +
-    `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
-    `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`;
-  // Reserve the `<a href="<href>"></a>` overhead so a pathologically
-  // long ticker still fits inside `limit` once the anchor is wrapped
-  // around it. Without this a 4000-char symbol on a deeplinked render
-  // can push the whole line past Telegram's 4096-char ceiling.
-  const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
-  const anchorOverhead = href ? `<a href="${href}"></a>`.length : 0;
-  const budget = limit - LINE_PREFIX.length - suffix.length - anchorOverhead;
-  const truncated =
-    labelRaw.length > budget
-      ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
-      : labelRaw;
-  const label = href ? `<a href="${href}">${truncated}</a>` : truncated;
-  return `${LINE_PREFIX}${label}${suffix}`;
-};
-
-const formatRealisedLine = (
-  pos: BotRealisedPosition,
-  limit: number,
-  botUsername: string | null,
-): string => {
-  const labelRaw = escapeHtml(pos.ticker);
-  const suffix =
-    `\n  ${formatTokenAddress(pos.token)}` +
-    `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
-    `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`;
-  const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
-  const anchorOverhead = href ? `<a href="${href}"></a>`.length : 0;
-  const budget = limit - LINE_PREFIX.length - suffix.length - anchorOverhead;
-  const truncated =
-    labelRaw.length > budget
-      ? `${labelRaw.slice(0, Math.max(1, budget - 1))}…`
-      : labelRaw;
-  const label = href ? `<a href="${href}">${truncated}</a>` : truncated;
-  return `${LINE_PREFIX}${label}${suffix}`;
-};
+/**
+ * Per-section page size. AGENTS.md "/positions" pagination is keyed on
+ * record count (not message bytes) — exactly 5 entries per section per
+ * page so the open and realised sections paginate independently.
+ */
+export const POSITIONS_PAGE_SIZE = 5;
 
 /**
- * Per-page open-position metadata. The pagination handler uses this to
- * emit one `[Buy <TICKER>] [Sell <TICKER>]` keyboard row per position
- * on the current page, scoped so navigating to a different page swaps
- * the action rows along with the body text.
+ * Per-page open-position metadata used by the keyboard builder to emit
+ * one `[Buy <TICKER>] [Sell <TICKER>]` row per open position currently
+ * visible. Scoped to the open page so navigating swaps the action rows
+ * along with the body text.
  */
 export interface PositionActionTarget {
   token: string;
   ticker: string;
 }
 
-export interface PositionsPage {
+const formatOpenLine = (
+  pos: BotOpenPosition,
+  botUsername: string | null,
+): string => {
+  const labelRaw = escapeHtml(pos.ticker);
+  const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
+  const label = href ? `<a href="${href}">${labelRaw}</a>` : labelRaw;
+  return (
+    `${LINE_PREFIX}${label}` +
+    `\n  ${formatTokenAddress(pos.token)}` +
+    `\n  ${formatTokenAmount(pos.balance)} · cost $${formatUsdc(pos.costBasisUsdc)}` +
+    `\n  value $${formatUsdc(pos.currentValueUsdc)} · PnL ${formatSignedUsdc(pos.unrealisedPnlUsdc)} (${formatPct(pos.unrealisedPnlPct)})`
+  );
+};
+
+const formatRealisedLine = (
+  pos: BotRealisedPosition,
+  botUsername: string | null,
+): string => {
+  const labelRaw = escapeHtml(pos.ticker);
+  const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
+  const label = href ? `<a href="${href}">${labelRaw}</a>` : labelRaw;
+  return (
+    `${LINE_PREFIX}${label}` +
+    `\n  ${formatTokenAddress(pos.token)}` +
+    `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
+    `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`
+  );
+};
+
+const totalPagesOf = (total: number): number =>
+  Math.max(1, Math.ceil(total / POSITIONS_PAGE_SIZE));
+
+const clampPage = (page: number, totalPages: number): number => {
+  if (!Number.isFinite(page) || page < 0) return 0;
+  return Math.min(Math.floor(page), totalPages - 1);
+};
+
+/**
+ * Single rendered view of one (openPage, realisedPage) tuple. The bot
+ * sends one message per view; the keyboard builder consumes the same
+ * struct to emit per-section nav rows and per-position action rows that
+ * stay in sync with the visible body.
+ */
+export interface PositionsView {
   text: string;
-  /** Open positions whose lines land on this page (in render order). */
+  openTotal: number;
+  realisedTotal: number;
+  openTotalPages: number;
+  realisedTotalPages: number;
+  /** 0-indexed, clamped against `openTotalPages`. */
+  openPage: number;
+  /** 0-indexed, clamped against `realisedTotalPages`. */
+  realisedPage: number;
+  /** Open positions visible on this page (in render order). */
   openActions: PositionActionTarget[];
 }
 
 /**
- * Render the bot-positions response as a list of paginated pages. Open
- * and Realised sections share one paginated stream: Open header +
- * lines first, then Realised header + lines if any closed-out chunks
- * exist. The 4096-char-per-chunk limit and the pagination-footer
- * reservation match `formatPositionsResponse`.
- *
- * Each open-position line emits matching `PositionActionTarget` entries
- * on the page it lands on, so the pagination keyboard can attach a
- * `[Buy] [Sell]` row per position without the keyboard drifting out of
- * sync with the visible text when the user navigates between pages.
+ * Build the body text + per-section pagination metadata for one
+ * (openPage, realisedPage) tuple. Each section paginates by record
+ * count — `POSITIONS_PAGE_SIZE = 5` — independently. Page indices
+ * outside the valid range are clamped, so a stale callback button
+ * lands on the nearest live page rather than rendering blank.
  */
-export const formatBotPositionsResponse = (
+export const buildPositionsView = (
   data: BotPositionsResponse,
+  openPage: number,
+  realisedPage: number,
   botUsername: string | null = null,
-): PositionsPage[] => {
-  if (data.open.length === 0 && data.realised.length === 0) {
-    return [{ text: "No open positions for this wallet.", openActions: [] }];
+): PositionsView => {
+  const openTotal = data.open.length;
+  const realisedTotal = data.realised.length;
+  const openTotalPages = totalPagesOf(openTotal);
+  const realisedTotalPages = totalPagesOf(realisedTotal);
+  const op = clampPage(openPage, openTotalPages);
+  const rp = clampPage(realisedPage, realisedTotalPages);
+
+  if (openTotal === 0 && realisedTotal === 0) {
+    return {
+      text: "No open positions for this wallet.",
+      openTotal: 0,
+      realisedTotal: 0,
+      openTotalPages: 1,
+      realisedTotalPages: 1,
+      openPage: 0,
+      realisedPage: 0,
+      openActions: [],
+    };
   }
-  const limit = TELEGRAM_MESSAGE_LIMIT - PAGINATION_FOOTER_BUDGET;
-  const lines: string[] = [];
-  // Parallel to `lines` — `null` for non-open lines (headers, realised)
-  // so the chunker can carry per-line action targets through alongside
-  // the text without leaking any layout knowledge into the caller.
-  const lineActions: (PositionActionTarget | null)[] = [];
-  let header = "";
-  if (data.open.length > 0) {
-    header = `Open positions (${data.open.length})`;
-    for (const p of data.open) {
-      lines.push(formatOpenLine(p, limit, botUsername));
-      lineActions.push({ token: p.token, ticker: p.ticker });
-    }
+
+  const openSlice = data.open.slice(
+    op * POSITIONS_PAGE_SIZE,
+    op * POSITIONS_PAGE_SIZE + POSITIONS_PAGE_SIZE,
+  );
+  const realisedSlice = data.realised.slice(
+    rp * POSITIONS_PAGE_SIZE,
+    rp * POSITIONS_PAGE_SIZE + POSITIONS_PAGE_SIZE,
+  );
+
+  const sections: string[] = [];
+  if (openTotal > 0) {
+    const header = `Open positions (${openTotal})`;
+    const lines = openSlice.map((p) => formatOpenLine(p, botUsername));
+    sections.push([header, ...lines].join("\n\n"));
   }
-  if (data.realised.length > 0) {
-    const realisedHeader = `Realised positions (${data.realised.length})`;
-    if (header === "") header = realisedHeader;
-    else {
-      lines.push(realisedHeader);
-      lineActions.push(null);
-    }
-    for (const p of data.realised) {
-      lines.push(formatRealisedLine(p, limit, botUsername));
-      lineActions.push(null);
-    }
+  if (realisedTotal > 0) {
+    const header = `Realised positions (${realisedTotal})`;
+    const lines = realisedSlice.map((p) => formatRealisedLine(p, botUsername));
+    sections.push([header, ...lines].join("\n\n"));
   }
-  return chunkPositionsPages(header, lines, lineActions, limit);
+
+  return {
+    text: sections.join("\n\n"),
+    openTotal,
+    realisedTotal,
+    openTotalPages,
+    realisedTotalPages,
+    openPage: op,
+    realisedPage: rp,
+    openActions: openSlice.map((p) => ({ token: p.token, ticker: p.ticker })),
+  };
 };
 
 /**
- * Chunk position lines into pages that each fit inside Telegram's
- * 4096-char ceiling, threading per-line `PositionActionTarget` metadata
- * through unchanged. Mirrors `chunkPositionsMessage`'s greedy packing
- * (header on first chunk only, joiner counted toward the limit) — kept
- * as a parallel implementation rather than a shared helper because the
- * action-target plumbing would otherwise leak into the text-only chunk
- * helper (still consumed by tests).
+ * Pagination callback. Carries both axes so a single click can move
+ * one section without disturbing the other's page state:
+ * `pp:<openPage>:<realisedPage>:<wallet>`.
  */
-const chunkPositionsPages = (
-  header: string,
-  lines: string[],
-  lineActions: (PositionActionTarget | null)[],
-  limit: number = TELEGRAM_MESSAGE_LIMIT,
-): PositionsPage[] => {
-  if (lines.length === 0) return [{ text: header, openActions: [] }];
-  const pages: PositionsPage[] = [];
-  let currentText = header;
-  let currentActions: PositionActionTarget[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const action = lineActions[i] ?? null;
-    const joiner = currentText === "" ? "" : "\n\n";
-    if (currentText.length + joiner.length + line.length > limit) {
-      if (currentText !== "")
-        pages.push({ text: currentText, openActions: currentActions });
-      currentText = line;
-      currentActions = action ? [action] : [];
-      continue;
-    }
-    currentText = currentText === "" ? line : `${currentText}${joiner}${line}`;
-    if (action) currentActions.push(action);
-  }
-  if (currentText !== "")
-    pages.push({ text: currentText, openActions: currentActions });
-  return pages;
-};
-
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
+
 /**
  * Per-position buy/sell callback short codes (Telegram's 64-byte
- * `callback_data` ceiling is tight — `pb`/`ps` + 0x-prefixed 40-char
+ * `callback_data` ceiling is tight — `pb` / `ps` + 0x-prefixed 40-char
  * address fits with room to spare).
  */
 export const POSITIONS_BUY_CALLBACK_CMD = "pb";
 export const POSITIONS_SELL_CALLBACK_CMD = "ps";
+
 /**
- * Refresh button on the positions card — re-fetches the wallet's
- * positions and re-renders the same page in place so unrealised PnL,
- * proceeds, and realised numbers reflect the latest indexer state.
+ * Refresh button. Re-fetches the wallet's positions and re-renders at
+ * the same (openPage, realisedPage). Both indices ride in the callback
+ * so a stale Refresh on a closed-out token clamps cleanly rather than
+ * jumping back to page 1: `pr:<openPage>:<realisedPage>:<wallet>`.
  */
 export const POSITIONS_REFRESH_CALLBACK_CMD = "pr";
 
@@ -329,63 +311,79 @@ export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboardButton[][];
 }
 
-/**
- * Render one page of a paginated positions response. A multi-page reply
- * gets a `Page X/Y` footer so the user knows where they are; a single
- * page renders verbatim. The keyboard handles navigation — see
- * `buildPositionsPageKeyboard` for the matching nav row.
- */
-export const renderPaginatedPage = (
-  pages: PositionsPage[],
-  page: number,
-): string => {
-  if (pages.length === 0) return "";
-  const safePage = Math.max(0, Math.min(page, pages.length - 1));
-  const body = pages[safePage]!.text;
-  if (pages.length === 1) return body;
-  return `${body}\n\nPage ${safePage + 1} of ${pages.length}`;
-};
-
-/**
- * Truncate a ticker so the rendered `[Buy <TICKER>]` / `[Sell <TICKER>]`
- * button label stays readable on narrow clients. Buttons word-wrap on
- * Telegram desktop but the truncated form is preferable to multi-line
- * keyboard rows. 12 chars is the typical iOS portrait budget.
- */
 const truncateTickerForButton = (ticker: string): string => {
   const MAX = 12;
   return ticker.length > MAX ? `${ticker.slice(0, MAX - 1)}…` : ticker;
 };
 
 /**
- * Build the inline-keyboard markup for one page: a `[Buy <TICKER>]
- * [Sell <TICKER>]` row per open position on the page, optionally
- * followed by a `[← Prev] [Next →]` nav row when the response
- * paginates, then a trailing `[Close]` row. Always returns a
- * keyboard — even an empty-state page surfaces Close so the user can
- * dismiss the prompt.
+ * Build the section-pagination nav row for a single section. Returns
+ * an empty array when the section has at most one page — no buttons,
+ * no row. Direction arrows point at the *target* page so a user on
+ * page 1 sees `→ Page 2/10 Open Pos`, page 2 sees both `← Page 1/10`
+ * and `→ Page 3/10`, and the last page shows only the `← Prev` button.
+ *
+ * `otherPage` is the other section's current page index — it rides in
+ * every callback so each axis paginates independently.
+ */
+const sectionNavRow = (
+  page: number,
+  totalPages: number,
+  wallet: string,
+  label: string,
+  buildCallback: (openPage: number, realisedPage: number) => string,
+  axis: "open" | "realised",
+  otherPage: number,
+): InlineKeyboardButton[] => {
+  if (totalPages <= 1) return [];
+  const row: InlineKeyboardButton[] = [];
+  const labelFor = (target: number, arrow: "←" | "→"): string =>
+    `${arrow} Page ${target + 1}/${totalPages} ${label}`;
+  if (page > 0) {
+    const target = page - 1;
+    row.push({
+      text: labelFor(target, "←"),
+      callback_data:
+        axis === "open"
+          ? buildCallback(target, otherPage)
+          : buildCallback(otherPage, target),
+    });
+  }
+  if (page < totalPages - 1) {
+    const target = page + 1;
+    row.push({
+      text: labelFor(target, "→"),
+      callback_data:
+        axis === "open"
+          ? buildCallback(target, otherPage)
+          : buildCallback(otherPage, target),
+    });
+  }
+  void wallet;
+  return row;
+};
+
+/**
+ * Build the inline-keyboard markup for one positions view: a
+ * `[Buy <TICKER>] [Sell <TICKER>]` row per open position currently
+ * visible, followed by per-section pagination rows (only when that
+ * section has more than `POSITIONS_PAGE_SIZE` records), then a
+ * `[🔄 Refresh]` row, then a trailing `[← Back] [🏠 Home]` row.
  *
  * Per-position Buy/Sell buttons fire inline via `pb:` / `ps:` callbacks
  * so the action card lands as the next message in the same chat. The
  * "view chart / track this token" affordance is the deeplinked ticker
- * inside the body text itself (rendered by `formatOpenLine` /
- * `formatRealisedLine`) — tapping it bounces through
- * `t.me/<bot>?start=track_<addr>` back into the bot's chat and lands on
- * a fresh /track card.
+ * inside the body text itself.
  *
- * The wallet rides in nav `callback_data` (not server-side state) so
- * the bot survives Worker cold-starts without a KV-backed page cache.
- * Per-position buttons don't need the wallet — the buy/sell card is
- * scoped to the user's active wallet, resolved at click time.
+ * Both page indices ride in nav `callback_data` so the bot survives
+ * Worker cold-starts without a KV-backed page cache.
  */
 export const buildPositionsPageKeyboard = (
-  page: number,
-  totalPages: number,
+  view: PositionsView,
   wallet: string,
-  openActions: PositionActionTarget[],
 ): InlineKeyboardMarkup => {
   const rows: InlineKeyboardButton[][] = [];
-  for (const action of openActions) {
+  for (const action of view.openActions) {
     const label = truncateTickerForButton(action.ticker);
     rows.push([
       {
@@ -404,36 +402,44 @@ export const buildPositionsPageKeyboard = (
       },
     ]);
   }
-  const nav: InlineKeyboardButton[] = [];
-  if (totalPages > 1) {
-    if (page > 0) {
-      nav.push({
-        text: "← Prev",
-        callback_data: encodeCallback(
-          POSITIONS_PAGE_CALLBACK_CMD,
-          String(page - 1),
-          wallet,
-        ),
-      });
-    }
-    if (page < totalPages - 1) {
-      nav.push({
-        text: "Next →",
-        callback_data: encodeCallback(
-          POSITIONS_PAGE_CALLBACK_CMD,
-          String(page + 1),
-          wallet,
-        ),
-      });
-    }
-  }
-  if (nav.length > 0) rows.push(nav);
+
+  const pageCallback = (openPage: number, realisedPage: number): string =>
+    encodeCallback(
+      POSITIONS_PAGE_CALLBACK_CMD,
+      String(openPage),
+      String(realisedPage),
+      wallet,
+    );
+
+  const openNav = sectionNavRow(
+    view.openPage,
+    view.openTotalPages,
+    wallet,
+    "Open Pos",
+    pageCallback,
+    "open",
+    view.realisedPage,
+  );
+  if (openNav.length > 0) rows.push(openNav);
+
+  const realisedNav = sectionNavRow(
+    view.realisedPage,
+    view.realisedTotalPages,
+    wallet,
+    "Realised Pos",
+    pageCallback,
+    "realised",
+    view.openPage,
+  );
+  if (realisedNav.length > 0) rows.push(realisedNav);
+
   rows.push([
     {
       text: "🔄 Refresh",
       callback_data: encodeCallback(
         POSITIONS_REFRESH_CALLBACK_CMD,
-        String(page),
+        String(view.openPage),
+        String(view.realisedPage),
         wallet,
       ),
     },

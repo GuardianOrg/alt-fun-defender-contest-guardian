@@ -211,7 +211,7 @@ describe("/positions", () => {
       "🔄 Refresh",
     ]);
     expect(markup.inline_keyboard.at(-2)![0]!.callback_data).toBe(
-      `pr:0:${WALLET}`,
+      `pr:0:0:${WALLET}`,
     );
     expect(markup.inline_keyboard.at(-1)!.map((b) => b.text)).toEqual([
       "← Back",
@@ -289,12 +289,11 @@ describe("/positions", () => {
     const sent = sentMessages(fetchSpy);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Open positions (250)");
-    expect(sent[0]!.text).toContain("Page 1 of");
     const markup = sent[0]!.reply_markup as {
       inline_keyboard: { text: string; callback_data: string }[][];
     };
     expect(markup).toBeDefined();
-    // Multiple per-position buy/sell rows + a nav row + a refresh row +
+    // 5 per-position buy/sell rows + an open-nav row + a refresh row +
     // a trailing Back/Home row.
     expect(markup.inline_keyboard.length).toBeGreaterThan(3);
     const closeRow = markup.inline_keyboard[markup.inline_keyboard.length - 1]!;
@@ -302,10 +301,10 @@ describe("/positions", () => {
     const refreshRow =
       markup.inline_keyboard[markup.inline_keyboard.length - 2]!;
     expect(refreshRow.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(refreshRow[0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
+    expect(refreshRow[0]!.callback_data).toMatch(/^pr:0:0:0x[0-9a-f]{40}$/i);
     const nav = markup.inline_keyboard[markup.inline_keyboard.length - 3]!;
-    expect(nav.map((b) => b.text)).toEqual(["Next →"]);
-    expect(nav[0]!.callback_data).toMatch(/^pp:1:0x[0-9a-f]{40}$/i);
+    expect(nav.map((b) => b.text)).toEqual(["→ Page 2/50 Open Pos"]);
+    expect(nav[0]!.callback_data).toMatch(/^pp:1:0:0x[0-9a-f]{40}$/i);
     const positionRowCount = markup.inline_keyboard.length - 3;
     for (let i = 0; i < positionRowCount; i++) {
       const buySellRow = markup.inline_keyboard[i]!;

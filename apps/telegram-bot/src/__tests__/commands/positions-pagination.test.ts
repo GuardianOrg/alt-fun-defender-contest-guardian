@@ -7,8 +7,9 @@ const WALLET = "0x1234567890abcdef1234567890abcdef12345678";
 const mockApi = (
   fetchSpy: ReturnType<typeof vi.spyOn>,
   open: number,
+  realised: number = 0,
 ): void => {
-  const items = Array.from({ length: open }, (_, i) => ({
+  const openItems = Array.from({ length: open }, (_, i) => ({
     token: `0x${i.toString(16).padStart(40, "0")}`,
     ticker: `LT${i}`,
     balance: "1000000000000000000",
@@ -17,11 +18,21 @@ const mockApi = (
     unrealisedPnlUsdc: "500000",
     unrealisedPnlPct: 50,
   }));
+  const realisedItems = Array.from({ length: realised }, (_, i) => ({
+    token: `0x${(1000 + i).toString(16).padStart(40, "0")}`,
+    ticker: `R${i}`,
+    totalCostUsdc: "1000000",
+    totalProceedsUsdc: "1500000",
+    realisedPnlUsdc: "500000",
+    realisedPnlPct: 50,
+  }));
   fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/api/v1/bot/positions/")) {
       return new Response(
-        JSON.stringify({ data: { open: items, realised: [] } }),
+        JSON.stringify({
+          data: { open: openItems, realised: realisedItems },
+        }),
         { status: 200 },
       );
     }
@@ -55,7 +66,6 @@ interface TgCall {
 const collectCalls = (fetchSpy: ReturnType<typeof vi.spyOn>): TgCall[] =>
   (fetchSpy.mock.calls as Array<[unknown, unknown?]>)
     .filter((call) => {
-      // GET requests to api.test.local have no body — skip them.
       const init = call[1] as RequestInit | undefined;
       return typeof init?.body === "string";
     })
@@ -78,12 +88,24 @@ describe("pp callback (positions pagination)", () => {
     fetchSpy.mockRestore();
   });
 
-  it("toasts 'invalid page request' when the page index is not numeric", async () => {
+  it("toasts 'invalid page request' when the open-page index is not numeric", async () => {
     fetchSpy.mockResolvedValue(
       new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
     );
     const h = makeBotHarness();
-    await h.run(ppCallback(`pp:not-a-number:${WALLET}`));
+    await h.run(ppCallback(`pp:not-a-number:0:${WALLET}`));
+    const answer = collectCalls(fetchSpy).find((c) =>
+      c.url.includes("/answerCallbackQuery"),
+    );
+    expect(answer?.body.text).toBe("Invalid page request.");
+  });
+
+  it("toasts 'invalid page request' when the realised-page index is not numeric", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
+    );
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:0:not-a-number:${WALLET}`));
     const answer = collectCalls(fetchSpy).find((c) =>
       c.url.includes("/answerCallbackQuery"),
     );
@@ -95,7 +117,7 @@ describe("pp callback (positions pagination)", () => {
       new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
     );
     const h = makeBotHarness();
-    await h.run(ppCallback("pp:1:not-a-wallet"));
+    await h.run(ppCallback("pp:1:0:not-a-wallet"));
     const answer = collectCalls(fetchSpy).find((c) =>
       c.url.includes("/answerCallbackQuery"),
     );
@@ -113,17 +135,20 @@ describe("pp callback (positions pagination)", () => {
       );
     });
     const h = makeBotHarness();
-    await h.run(ppCallback(`pp:1:${WALLET}`));
+    await h.run(ppCallback(`pp:1:0:${WALLET}`));
     const answer = collectCalls(fetchSpy).find((c) =>
       c.url.includes("/answerCallbackQuery"),
     );
     expect(answer?.body.text).toContain("Data temporarily unavailable");
   });
 
-  it("edits the originating message with the requested page content + per-position rows scoped to that page + nav row", async () => {
-    mockApi(fetchSpy, 250);
+  it("edits the originating message with the requested open page + per-position rows scoped to that page + open nav row", async () => {
+    // 47 open positions → page size 5 → 10 pages. Clicking
+    // `pp:1:0:<wallet>` jumps to open-page index 1 (= page 2 of 10),
+    // showing LT5..LT9.
+    mockApi(fetchSpy, 47);
     const h = makeBotHarness();
-    await h.run(ppCallback(`pp:1:${WALLET}`));
+    await h.run(ppCallback(`pp:1:0:${WALLET}`));
     const editCalls = collectCalls(fetchSpy).filter((c) =>
       c.url.includes("/editMessageText"),
     );
@@ -139,29 +164,39 @@ describe("pp callback (positions pagination)", () => {
     };
     expect(body.chat_id).toBe(42);
     expect(body.message_id).toBe(99);
-    expect(body.text).toContain("Page 2 of");
-    // Body ticker is a `t.me/<bot>?start=track_<addr>` deeplink (the
-    // user's "tap the ticker to view this token" affordance). The
+    expect(body.parse_mode).toBe("HTML");
+    // Body ticker is a `t.me/<bot>?start=track_<addr>` deeplink. The
     // legacy buy/sell body anchors stay gone — those are inline
     // callback buttons now.
-    expect(body.parse_mode).toBe("HTML");
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     expect(body.text).toContain("?start=track_");
+    // Page 2 of 10 → LT5..LT9 visible, LT4 / LT10 are not.
+    for (let i = 5; i <= 9; i++) {
+      expect(body.text).toContain(`LT${i}`);
+    }
+    expect(body.text).not.toContain("LT4");
+    expect(body.text).not.toContain("LT10");
+
     const rows = body.reply_markup.inline_keyboard;
-    expect(rows.length).toBeGreaterThan(3);
-    // Last row is Back/Home, second-to-last is the Refresh row,
-    // third-to-last is the nav row.
-    expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
+    // 5 per-position rows + open nav row + refresh + back/home.
+    expect(rows).toHaveLength(8);
+    expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual([
+      "← Back",
+      "🏠 Home",
+    ]);
     const refreshRow = rows[rows.length - 2]!;
     expect(refreshRow.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(refreshRow[0]!.callback_data).toMatch(/^pr:1:0x[0-9a-f]{40}$/i);
-    const nav = rows[rows.length - 3]!;
-    const navTexts = nav.map((b) => b.text);
-    expect(navTexts).toContain("← Prev");
-    if (navTexts.length > 1) expect(navTexts).toContain("Next →");
-    for (const b of nav) {
-      expect(b.callback_data).toMatch(/^pp:\d+:0x[0-9a-f]{40}$/i);
+    expect(refreshRow[0]!.callback_data).toMatch(
+      /^pr:1:0:0x[0-9a-f]{40}$/i,
+    );
+    const openNav = rows[rows.length - 3]!;
+    expect(openNav.map((b) => b.text)).toEqual([
+      "← Page 1/10 Open Pos",
+      "→ Page 3/10 Open Pos",
+    ]);
+    for (const b of openNav) {
+      expect(b.callback_data).toMatch(/^pp:\d+:0:0x[0-9a-f]{40}$/i);
     }
     const positionRowCount = rows.length - 3;
     for (let i = 0; i < positionRowCount; i++) {
@@ -173,18 +208,62 @@ describe("pp callback (positions pagination)", () => {
       expect(sellLabel.startsWith("Sell ")).toBe(true);
       expect(buySellRow[0]!.callback_data.startsWith("pb:0x")).toBe(true);
       expect(buySellRow[1]!.callback_data.startsWith("ps:0x")).toBe(true);
-      // The ticker on every Buy/Sell row must surface as a deeplinked
-      // anchor in the body so the keyboard never drifts from the
-      // visible list across pagination.
       const ticker = buyLabel.slice("Buy ".length);
       expect(body.text).toContain(`>${ticker}</a>`);
     }
   });
 
+  it("preserves the open-page index when navigating realised: `pp:2:1:<wallet>` slices realised page 2 and keeps open on page 3", async () => {
+    // Open: 47 records → 10 pages. Realised: 12 records → 3 pages.
+    mockApi(fetchSpy, 47, 12);
+    const h = makeBotHarness();
+    await h.run(ppCallback(`pp:2:1:${WALLET}`));
+    const editCalls = collectCalls(fetchSpy).filter((c) =>
+      c.url.includes("/editMessageText"),
+    );
+    expect(editCalls).toHaveLength(1);
+    const body = editCalls[0]!.body as {
+      text: string;
+      reply_markup: {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      };
+    };
+    // Open page index 2 → LT10..LT14.
+    for (let i = 10; i <= 14; i++) {
+      expect(body.text).toContain(`LT${i}`);
+    }
+    expect(body.text).not.toContain("LT15");
+    // Realised page index 1 → R5..R9.
+    for (let i = 5; i <= 9; i++) {
+      expect(body.text).toContain(`R${i}`);
+    }
+    expect(body.text).not.toContain("R10");
+
+    const rows = body.reply_markup.inline_keyboard;
+    // 5 open rows + open nav + realised nav + refresh + back/home.
+    expect(rows).toHaveLength(9);
+    const openNav = rows[5]!;
+    expect(openNav.map((b) => b.text)).toEqual([
+      "← Page 2/10 Open Pos",
+      "→ Page 4/10 Open Pos",
+    ]);
+    // Realised page on every open-nav callback stays at 1 (the current
+    // realised page index) so navigation never disturbs the other axis.
+    expect(openNav[0]!.callback_data).toBe(`pp:1:1:${WALLET}`);
+    expect(openNav[1]!.callback_data).toBe(`pp:3:1:${WALLET}`);
+    const realisedNav = rows[6]!;
+    expect(realisedNav.map((b) => b.text)).toEqual([
+      "← Page 1/3 Realised Pos",
+      "→ Page 3/3 Realised Pos",
+    ]);
+    expect(realisedNav[0]!.callback_data).toBe(`pp:2:0:${WALLET}`);
+    expect(realisedNav[1]!.callback_data).toBe(`pp:2:2:${WALLET}`);
+  });
+
   it("clamps to the last available page when positions have shrunk since the button was rendered", async () => {
     mockApi(fetchSpy, 1);
     const h = makeBotHarness();
-    await h.run(ppCallback(`pp:99:${WALLET}`));
+    await h.run(ppCallback(`pp:99:0:${WALLET}`));
     const editCalls = collectCalls(fetchSpy).filter((c) =>
       c.url.includes("/editMessageText"),
     );
@@ -195,20 +274,19 @@ describe("pp callback (positions pagination)", () => {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
     };
-    // Single page → no "Page X of Y" footer. Body ticker is deeplinked
-    // back to `/start track_<addr>`; buy/sell stay as inline callback
-    // buttons (no body anchors).
-    expect(body.text).not.toContain("Page ");
+    // Body ticker is deeplinked back to `/start track_<addr>`; buy/sell
+    // stay as inline callback buttons (no body anchors).
     expect(body.text).not.toContain("?start=buy_");
     expect(body.text).not.toContain("?start=sell_");
     expect(body.text).toContain("?start=track_");
     const rows = body.reply_markup!.inline_keyboard;
-    // Buy/sell row + refresh row + trailing Back/Home row.
+    // Buy/sell row + refresh row + trailing Back/Home row. No nav rows
+    // because the single position fits on one page.
     expect(rows).toHaveLength(3);
     expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
     expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
     expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
-    expect(rows[1]![0]!.callback_data).toMatch(/^pr:0:0x[0-9a-f]{40}$/i);
+    expect(rows[1]![0]!.callback_data).toMatch(/^pr:0:0:0x[0-9a-f]{40}$/i);
     expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
@@ -251,7 +329,7 @@ describe("pp callback (positions pagination)", () => {
       );
     });
     const h = makeBotHarness();
-    await h.run(ppCallback(`pr:0:${WALLET}`));
+    await h.run(ppCallback(`pr:0:0:${WALLET}`));
     const edit = collectCalls(fetchSpy).find((c) =>
       c.url.includes("/editMessageText"),
     );
@@ -262,8 +340,6 @@ describe("pp callback (positions pagination)", () => {
         inline_keyboard: { text: string; callback_data: string }[][];
       };
     };
-    // Proceeds (realised total proceeds) + realised PnL both render on
-    // the refreshed card, proving the refresh re-fetches both sections.
     expect(editBody.text).toContain("ALPHA");
     expect(editBody.text).toContain("BETA");
     expect(editBody.text).toContain("+$8");
@@ -280,7 +356,7 @@ describe("pp callback (positions pagination)", () => {
       new Response(JSON.stringify({ ok: true, result: true }), { status: 200 }),
     );
     const h = makeBotHarness();
-    await h.run(ppCallback("pr:0:not-a-wallet"));
+    await h.run(ppCallback("pr:0:0:not-a-wallet"));
     const answer = collectCalls(fetchSpy).find((c) =>
       c.url.includes("/answerCallbackQuery"),
     );
@@ -294,7 +370,7 @@ describe("pp callback (positions pagination)", () => {
         return new Response(
           JSON.stringify({
             data: {
-              open: Array.from({ length: 250 }, (_, i) => ({
+              open: Array.from({ length: 47 }, (_, i) => ({
                 token: `0x${i.toString(16).padStart(40, "0")}`,
                 ticker: `LT${i}`,
                 balance: "1000000000000000000",
@@ -325,7 +401,7 @@ describe("pp callback (positions pagination)", () => {
       );
     });
     const h = makeBotHarness();
-    await h.run(ppCallback(`pp:1:${WALLET}`));
+    await h.run(ppCallback(`pp:1:0:${WALLET}`));
     const answer = collectCalls(fetchSpy).find((c) =>
       c.url.includes("/answerCallbackQuery"),
     );

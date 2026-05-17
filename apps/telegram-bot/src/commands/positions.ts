@@ -14,8 +14,7 @@ import {
   POSITIONS_REFRESH_CALLBACK_CMD,
   POSITIONS_SELL_CALLBACK_CMD,
   buildPositionsPageKeyboard,
-  formatBotPositionsResponse,
-  renderPaginatedPage,
+  buildPositionsView,
 } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { editToSubmenu, replyWithNav } from "../lib/nav.js";
@@ -29,16 +28,17 @@ const NON_PRIVATE_CHAT_REPLY =
   "Positions are private-DM only — open a direct chat with the bot to view your positions.";
 const NO_ACTIVE_WALLET = "No active wallet. Run /wallet to create one.";
 
-interface RenderedPage {
+interface RenderedView {
   text: string;
   reply_markup: ReturnType<typeof buildPositionsPageKeyboard>;
 }
 
-const renderPage = async (
+const renderView = async (
   env: AppContext["env"],
   wallet: string,
-  page: number,
-): Promise<RenderedPage | { outage: true } | { invalid: true }> => {
+  openPage: number,
+  realisedPage: number,
+): Promise<RenderedView | { outage: true } | { invalid: true }> => {
   const res = await fetchBotPositions(env, wallet);
   if (res.ok === false && res.kind === "invalid_address") {
     return { invalid: true };
@@ -46,19 +46,9 @@ const renderPage = async (
   if (!res.ok) return { outage: true };
 
   const botUsername = env.BOT_USERNAME?.trim() || null;
-  const pages = formatBotPositionsResponse(res.data, botUsername);
-  // Clamp the requested page — positions may have shrunk since the
-  // button was rendered, in which case `page` could exceed the new
-  // page count.
-  const clamped = Math.min(Math.max(page, 0), pages.length - 1);
-  const text = renderPaginatedPage(pages, clamped);
-  const keyboard = buildPositionsPageKeyboard(
-    clamped,
-    pages.length,
-    wallet,
-    pages[clamped]!.openActions,
-  );
-  return { text, reply_markup: keyboard };
+  const view = buildPositionsView(res.data, openPage, realisedPage, botUsername);
+  const keyboard = buildPositionsPageKeyboard(view, wallet);
+  return { text: view.text, reply_markup: keyboard };
 };
 
 /**
@@ -73,19 +63,26 @@ const HTML_REPLY = {
   link_preview_options: { is_disabled: true as const },
 };
 
+const parseNonNegativeInt = (raw: string | undefined): number | null => {
+  if (raw === undefined) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+};
+
 export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
   /**
-   * Long lists paginate in-place via the `pp` callback below — the
-   * AGENTS.md Telegram-platform-constraints rule "never send one giant
-   * message" is enforced by sending only page 0 and attaching a
-   * `[Next →]` button when the response spills.
+   * Each section (open / realised) paginates independently at 5 records
+   * per page — the section-specific `← Page N/T Open Pos` /
+   * `→ Page N/T Realised Pos` buttons move one axis while preserving
+   * the other's page state via the (openPage, realisedPage) tuple in
+   * `callback_data`.
    *
    * With no argument we resolve the user's active custodial wallet so
-   * `/positions` matches the start-menu Positions button and the
-   * AGENTS.md spec (`/positions [wallet]` → "default: active wallet").
-   * The fallback is private-DM only — leaking a user's custodial
-   * address in a group transcript is the exact thing we avoid. An
-   * explicit wallet argument still works in any chat.
+   * `/positions` matches the start-menu Positions button. The fallback
+   * is private-DM only — leaking a user's custodial address in a group
+   * transcript is the exact thing we avoid. An explicit wallet argument
+   * still works in any chat.
    */
   bot.command("positions", async (ctx) => {
     const arg = ctx.match.trim().split(/\s+/)[0] ?? "";
@@ -106,51 +103,43 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.reply(INVALID_ADDRESS);
       return;
     }
-    const page = await renderPage(ctx.env, wallet, 0);
-    if ("invalid" in page) {
+    const view = await renderView(ctx.env, wallet, 0, 0);
+    if ("invalid" in view) {
       await ctx.reply(INVALID_ADDRESS);
       return;
     }
-    if ("outage" in page) {
+    if ("outage" in view) {
       await replyWithNav(ctx, OUTAGE);
       return;
     }
-    await ctx.reply(page.text, {
+    await ctx.reply(view.text, {
       ...HTML_REPLY,
-      reply_markup: page.reply_markup,
+      reply_markup: view.reply_markup,
     });
   });
 
   /**
-   * Pagination callback `pp:<page>:<wallet>`. Re-fetches on every click
-   * (idempotent, ~zero-egress over the service binding) and edits the
-   * originating message in-place so the chat doesn't grow per nav click.
-   *
-   * The wallet rides in `callback_data` rather than server-side state
-   * so the bot survives Worker cold-starts and re-deploys without
-   * needing a KV-backed page cache.
-   */
-  /**
-   * Refresh callback `pr:<page>:<wallet>`. Re-fetches positions for the
-   * wallet and edits the originating message in-place so proceeds /
-   * realised PnL reflect the latest indexer state. Mirrors the buy/sell
-   * card refresh — clamping to the new page count is delegated to
-   * `renderPage` so a position closing out between renders cannot leave
-   * the user on a phantom page.
+   * Refresh callback `pr:<openPage>:<realisedPage>:<wallet>`. Re-fetches
+   * positions for the wallet and edits the originating message in-place
+   * at the same (openPage, realisedPage) so proceeds / realised PnL
+   * reflect the latest indexer state. Clamping to the new totals is
+   * delegated to `buildPositionsView` so a position closing out between
+   * renders cannot leave the user on a phantom page.
    */
   bot.callbackQuery(
     new RegExp(`^${POSITIONS_REFRESH_CALLBACK_CMD}:`),
     async (ctx) => {
       const data = ctx.callbackQuery.data ?? "";
       const parts = data.split(":");
-      const pageStr = parts[1];
-      const wallet = parts[2];
-      if (pageStr === undefined || wallet === undefined || !isAddress(wallet)) {
-        await ctx.answerCallbackQuery({ text: "Invalid refresh request." });
-        return;
-      }
-      const requestedPage = Number.parseInt(pageStr, 10);
-      if (!Number.isFinite(requestedPage) || requestedPage < 0) {
+      const openPage = parseNonNegativeInt(parts[1]);
+      const realisedPage = parseNonNegativeInt(parts[2]);
+      const wallet = parts[3];
+      if (
+        openPage === null ||
+        realisedPage === null ||
+        wallet === undefined ||
+        !isAddress(wallet)
+      ) {
         await ctx.answerCallbackQuery({ text: "Invalid refresh request." });
         return;
       }
@@ -159,16 +148,16 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         return;
       }
 
-      const page = await renderPage(ctx.env, wallet, requestedPage);
-      if ("invalid" in page || "outage" in page) {
+      const view = await renderView(ctx.env, wallet, openPage, realisedPage);
+      if ("invalid" in view || "outage" in view) {
         await ctx.answerCallbackQuery({ text: OUTAGE });
         return;
       }
 
       try {
-        await ctx.editMessageText(page.text, {
+        await ctx.editMessageText(view.text, {
           ...HTML_REPLY,
-          reply_markup: page.reply_markup,
+          reply_markup: view.reply_markup,
         });
       } catch (err) {
         const e = err as {
@@ -195,49 +184,53 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
     },
   );
 
+  /**
+   * Pagination callback `pp:<openPage>:<realisedPage>:<wallet>`. Both
+   * axes ride in the callback so each section's nav row can move its
+   * own page index while preserving the other's state. Re-fetches on
+   * every click (idempotent, ~zero-egress over the service binding)
+   * and edits the originating message in-place so the chat doesn't
+   * grow per nav click.
+   */
   bot.callbackQuery(
     new RegExp(`^${POSITIONS_PAGE_CALLBACK_CMD}:`),
     async (ctx) => {
       const data = ctx.callbackQuery.data ?? "";
       const parts = data.split(":");
-      const pageStr = parts[1];
-      const wallet = parts[2];
-      if (pageStr === undefined || wallet === undefined || !isAddress(wallet)) {
-        await ctx.answerCallbackQuery({ text: "Invalid page request." });
-        return;
-      }
-      const requestedPage = Number.parseInt(pageStr, 10);
-      if (!Number.isFinite(requestedPage) || requestedPage < 0) {
+      const openPage = parseNonNegativeInt(parts[1]);
+      const realisedPage = parseNonNegativeInt(parts[2]);
+      const wallet = parts[3];
+      if (
+        openPage === null ||
+        realisedPage === null ||
+        wallet === undefined ||
+        !isAddress(wallet)
+      ) {
         await ctx.answerCallbackQuery({ text: "Invalid page request." });
         return;
       }
       if (!ctx.callbackQuery.message) {
-        // Inline-mode or messages older than 48h have no `message`.
         await ctx.answerCallbackQuery({ text: "Message no longer available." });
         return;
       }
 
-      const page = await renderPage(ctx.env, wallet, requestedPage);
-      if ("invalid" in page || "outage" in page) {
+      const view = await renderView(ctx.env, wallet, openPage, realisedPage);
+      if ("invalid" in view || "outage" in view) {
         await ctx.answerCallbackQuery({ text: OUTAGE });
         return;
       }
 
       try {
-        await ctx.editMessageText(page.text, {
+        await ctx.editMessageText(view.text, {
           ...HTML_REPLY,
-          reply_markup: page.reply_markup,
+          reply_markup: view.reply_markup,
         });
       } catch (err) {
-        // Only swallow the two known-benign Telegram 400 cases —
-        // anything else (network, auth, runtime) must surface so a
-        // real regression doesn't hide behind silent pagination
-        // failures.
+        // Only swallow the two known-benign Telegram 400 cases — a real
+        // regression must surface so silent pagination failures don't
+        // hide behind an unconditional catch.
         //   - "message not found"           — user deleted the msg
         //   - "message is not modified"     — user double-clicked
-        // grammY wraps Telegram errors with `error_code` + `description`
-        // on `GrammyError`; fall back to message-substring for any
-        // other shape.
         const e = err as {
           error_code?: number;
           description?: string;
@@ -263,18 +256,10 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
   );
 
   /**
-   * Per-position `[Buy <TICKER>]` / `[Sell <TICKER>]` callbacks. These
-   * replace the legacy `t.me?start=buy_<addr>` HTML anchors that
-   * shipped on each open-position line — the anchors bounced the user
-   * through Telegram's link-handler UI even inside the same bot's
-   * chat, where the username mismatch (`CortisolBot` vs the deployed
-   * `trade_cortisol_bot`) actively broke the deeplink. Callback
-   * buttons fire inline so the action card lands as the next message
-   * in the same chat with no extra navigation.
-   *
-   * Private-DM only — the action card prints USDC balance and a buy/
-   * sell keyboard scoped to the user's active wallet, which we won't
-   * surface in a group transcript.
+   * Per-position `[Buy <TICKER>]` / `[Sell <TICKER>]` callbacks. Buttons
+   * fire inline so the action card lands as the next message in the
+   * same chat. Private-DM only — the action card prints USDC balance
+   * and a buy/sell keyboard scoped to the user's active wallet.
    */
   const registerActionCallback = (
     cmd: typeof POSITIONS_BUY_CALLBACK_CMD | typeof POSITIONS_SELL_CALLBACK_CMD,
@@ -307,16 +292,6 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
         });
         return;
       }
-      // Replace the /positions message in place with the buy/sell card
-      // so Back lands the user back on the positions list via the
-      // snapshot pushed inside `editToActionCard`. Token-fetch outage
-      // surfaces as a toast — leaving the positions view intact is the
-      // friendliest fallback.
-      //
-      // The try/catch wraps the edit so a non-benign Telegram failure
-      // (e.g. 403 user blocked the bot) still acks the callback before
-      // bubbling — without the ack the client spinner hangs until
-      // Telegram's 30s timeout.
       try {
         const ok = await editToActionCard(
           ctx,
@@ -343,10 +318,9 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
 
   /**
    * Start-menu "Positions" button: open positions for the user's
-   * active custodial wallet directly instead of toasting a /positions
-   * hint. Mirrors the wallet-button pattern (start menu → command UI
-   * in one tap). Private-chat only — group/channel taps see the same
-   * gating as /start.
+   * active custodial wallet directly. Mirrors the wallet-button pattern
+   * (start menu → command UI in one tap). Private-chat only — group /
+   * channel taps see the same gating as /start.
    */
   bot.callbackQuery(START_CALLBACK.positions, async (ctx) => {
     if (!ctx.from) {
@@ -369,28 +343,23 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
-    const page = await renderPage(ctx.env, active.address, 0);
-    if ("invalid" in page) {
-      // Outage / invalid states surface as toasts rather than editing
-      // the /start view into an error screen — the user keeps the
-      // welcome card and can retry.
+    const view = await renderView(ctx.env, active.address, 0, 0);
+    if ("invalid" in view) {
       await ctx.answerCallbackQuery({ text: INVALID_ADDRESS, show_alert: true });
       return;
     }
-    if ("outage" in page) {
+    if ("outage" in view) {
       await ctx.answerCallbackQuery({ text: OUTAGE, show_alert: true });
       return;
     }
     try {
       await editToSubmenu(ctx, {
-        text: page.text,
+        text: view.text,
         parseMode: "HTML",
-        inlineKeyboard: page.reply_markup.inline_keyboard,
+        inlineKeyboard: view.reply_markup.inline_keyboard,
         linkPreviewDisabled: true,
       });
     } catch (err) {
-      // Ack before rethrow so the client spinner unwinds even when
-      // the edit / fallback reply errors non-benignly.
       await ctx.answerCallbackQuery();
       throw err;
     }
