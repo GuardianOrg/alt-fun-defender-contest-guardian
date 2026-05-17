@@ -424,13 +424,24 @@ export const registerNavCallbacks = (
         // Back replaces the existing message rather than stacking a
         // duplicate alongside it. Reply-then-delete order so a send
         // failure never leaves the chat blank.
-        await ctx.reply(snap.text, {
-          parse_mode: snap.parseMode,
-          reply_markup: { inline_keyboard: snap.keyboard },
-          link_preview_options: snap.linkPreviewDisabled
-            ? { is_disabled: true }
-            : undefined,
-        });
+        //
+        // The snapshot is already popped off `navStack` at this
+        // point. If the fresh reply throws, re-push it so the next
+        // Back tap still targets the screen this one was meant to
+        // restore — otherwise a transient Telegram 5xx silently
+        // collapses one level of Back history.
+        try {
+          await ctx.reply(snap.text, {
+            parse_mode: snap.parseMode,
+            reply_markup: { inline_keyboard: snap.keyboard },
+            link_preview_options: snap.linkPreviewDisabled
+              ? { is_disabled: true }
+              : undefined,
+          });
+        } catch (err) {
+          pushNavSnapshot(ctx.session, snap);
+          throw err;
+        }
         await deleteCurrentMessage(ctx);
       }
       return;

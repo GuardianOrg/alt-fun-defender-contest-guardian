@@ -199,6 +199,62 @@ describe("[🏠 Home] callback always replaces the source bubble with /start", (
     expect(deleteIdx).toBeGreaterThan(sendIdx);
   });
 
+  it("preserves the source bubble when the fallback /sendMessage also fails (no delete)", async () => {
+    // Regression for the "edit-fails-then-send-fails" race: if both
+    // legs fail the source bubble is the user's only remaining UI.
+    // Deleting it after a failed send would leave the chat blank.
+    const h = makeBotHarness();
+    h.env.HYPEREVM_RPC_URL = RPC_URL;
+    await seedWallet(h);
+
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === RPC_URL) return rpcOk();
+      if (url.startsWith("https://api.telegram.org")) {
+        if (url.includes("/editMessageText")) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error_code: 400,
+              description:
+                "Bad Request: there is no text in the message to edit",
+            }),
+            { status: 400 },
+          );
+        }
+        if (url.includes("/sendMessage")) {
+          return new Response(
+            JSON.stringify({ ok: false, error_code: 500 }),
+            { status: 500 },
+          );
+        }
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          status: 200,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    // The error from the failed /sendMessage propagates out of
+    // grammY's middleware stack; the bot's top-level `catch` logs it.
+    // The test only cares that the delete didn't run AFTER the send
+    // failure — wrap so the assertion still runs.
+    await h.run(homeCallbackUpdate()).catch(() => undefined);
+
+    const calls = capture(fetchSpy);
+    // The fallback send is attempted and fails.
+    const sendStart = calls.find((c) => c.url.includes("/sendMessage"));
+    expect(sendStart).toBeDefined();
+    // The source bubble is NOT deleted — without a successful
+    // replacement, deleting it would strand the user on a blank chat.
+    const deleteSource = calls.find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        (c.body as { message_id?: number }).message_id === BUBBLE_ID,
+    );
+    expect(deleteSource).toBeUndefined();
+  });
+
   it("deletes the source and surfaces a toast when /start cannot render (no active wallet)", async () => {
     // No wallet seeded — buildStartSnapshot returns null. The user
     // must not be stranded with the source bubble; clear it and
