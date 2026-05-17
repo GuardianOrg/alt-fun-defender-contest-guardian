@@ -204,11 +204,11 @@ describe("buildPositionsView", () => {
       0,
       0,
     );
-    expect(view.text).toContain("Realised positions (1)");
+    expect(view.text).toContain("Realized positions (1)");
     expect(view.text).toContain("TWO");
     expect(view.text).toContain("cost $10");
     expect(view.text).toContain("proceeds $15");
-    expect(view.text).toContain("realised +$5");
+    expect(view.text).toContain("realized +$5");
     expect(view.text).toContain("+50.00%");
   });
 
@@ -254,7 +254,7 @@ describe("buildPositionsView", () => {
       0,
     );
     expect(view.text).toContain("Open positions (1)");
-    expect(view.text).toContain("Realised positions (1)");
+    expect(view.text).toContain("Realized positions (1)");
   });
 
   it("paginates each section by POSITIONS_PAGE_SIZE records, independently", () => {
@@ -398,7 +398,7 @@ describe("buildPositionsPageKeyboard", () => {
     const rows = kb.inline_keyboard;
     expect(rows).toHaveLength(4);
     expect(rows[0]!.map((b) => b.text)).toEqual(["Page 1/1 Open Pos"]);
-    expect(rows[1]!.map((b) => b.text)).toEqual(["Page 1/1 Realised Pos"]);
+    expect(rows[1]!.map((b) => b.text)).toEqual(["Page 1/1 Realized Pos"]);
     expect(rows[2]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
     expect(rows[3]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
@@ -481,7 +481,7 @@ describe("buildPositionsPageKeyboard", () => {
     // open nav + realised nav + refresh + back/home.
     expect(rows).toHaveLength(4);
     const realisedNav = rows[1]!;
-    expect(realisedNav.map((b) => b.text)).toEqual(["→ Page 2/3 Realised Pos"]);
+    expect(realisedNav.map((b) => b.text)).toEqual(["→ Page 2/3 Realized Pos"]);
     expect(realisedNav[0]!.callback_data).toBe(
       `${POSITIONS_PAGE_CALLBACK_CMD}:2:1:${WALLET}`,
     );
@@ -498,7 +498,7 @@ describe("buildPositionsPageKeyboard", () => {
     const kb = buildPositionsPageKeyboard(view, WALLET);
     const rows = kb.inline_keyboard;
     expect(rows).toHaveLength(3);
-    expect(rows[0]!.map((b) => b.text)).toEqual(["→ Page 2/3 Realised Pos"]);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["→ Page 2/3 Realized Pos"]);
     expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
     expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
@@ -655,7 +655,7 @@ describe("compact fallback when numeric fields are pathologically large", () => 
     expect(view.text).toContain("LT0");
     expect(view.text).toContain("R0");
     expect(view.text).toContain("Open positions (5)");
-    expect(view.text).toContain("Realised positions (5)");
+    expect(view.text).toContain("Realized positions (5)");
   });
 });
 

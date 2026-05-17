@@ -491,11 +491,11 @@ export const TOAST_NO_PIN_RESET_IN_PROGRESS = {
   SimplifiedChinese: "当前没有进行中的 PIN 重置。",
 } as const;
 export const TOAST_RESET_CANCELLED = {
-  English: "Reset cancelled.",
+  English: "Reset canceled.",
   SimplifiedChinese: "已取消重置。",
 } as const;
 export const TOAST_DISABLE_CANCELLED = {
-  English: "Disable cancelled.",
+  English: "Disable canceled.",
   SimplifiedChinese: "已取消停用。",
 } as const;
 export const TOAST_PHRASE_CLEARED = {
@@ -507,11 +507,11 @@ export const TOAST_DELETED = {
   SimplifiedChinese: "已删除。",
 } as const;
 export const TOAST_DELETE_CANCELLED = {
-  English: "Delete cancelled.",
+  English: "Delete canceled.",
   SimplifiedChinese: "已取消删除。",
 } as const;
 export const TOAST_CANCELLED = {
-  English: "Cancelled.",
+  English: "Canceled.",
   SimplifiedChinese: "已取消。",
 } as const;
 export const TOAST_WITHDRAWAL_LOCK_ENABLED = {
@@ -624,7 +624,7 @@ export const HELP_OVERVIEW_HTML = {
       "/wallet — create, import, switch, export, or delete wallets; set PIN; toggle withdrawal lock",
       "/buy &lt;contract&gt; [amount] — buy a token with USDC",
       "/sell &lt;contract or ticker&gt; — sell a position by % of balance",
-      "/positions — open and realised positions with cost basis and PnL",
+      "/positions — open and realized positions with cost basis and PnL",
       "/track &lt;contract&gt; — chart + token card + recent trades",
       "/withdraw &lt;asset&gt; &lt;amount&gt; &lt;address&gt; — send funds out",
       "/settings — language, slippage, execution speed, degen mode, buy/sell presets, anti-phishing phrase",
@@ -724,10 +724,10 @@ export const HELP_TRADING_HTML = {
     "<b>Buying and selling</b>",
     "",
     "<b>/buy &lt;contract&gt; [amount] [slippage=&lt;bps&gt;]</b>",
-    "Quote and confirm a buy. The card shows five quick-amount buttons (default $20 / $40 / $60 / $80 / $100) plus a Buy X USDC custom-amount prompt — each slot is customisable under /settings → Buy Settings. The minimum buy is $20 USDC.",
+    "Quote and confirm a buy. The card shows five quick-amount buttons (default $20 / $40 / $60 / $80 / $100) plus a Buy X USDC custom-amount prompt — each slot is customizable under /settings → Buy Settings. The minimum buy is $20 USDC.",
     "",
     "<b>/sell &lt;contract or ticker&gt;</b>",
-    "Sell a position by percentage of your balance — five quick-sell buttons (default 10 / 25 / 50 / 75 / 100%) plus a Sell X% custom-percent prompt, each slot customisable under /settings → Sell Settings. Minimum sell is ~$12 USDC of estimated proceeds. Sells redeem through the BounceTech LT path; if its USDC buffer is depleted the trade can revert with <code>InsufficientBalance</code> — sell in smaller chunks and retry after ~10 seconds.",
+    "Sell a position by percentage of your balance — five quick-sell buttons (default 10 / 25 / 50 / 75 / 100%) plus a Sell X% custom-percent prompt, each slot customizable under /settings → Sell Settings. Minimum sell is ~$12 USDC of estimated proceeds. Sells redeem through the BounceTech LT path; if its USDC buffer is depleted the trade can revert with <code>InsufficientBalance</code> — sell in smaller chunks and retry after ~10 seconds.",
     "",
     "<b>Confirmations and degen mode</b>",
     "Degen mode (default on) submits a trade the moment you tap an amount — no Confirm step. Turn it off in /settings to add an inline [Confirm]/[Cancel] step with a 60-second window. Buffer-capped sells always require an explicit confirm regardless of degen mode.",
@@ -811,8 +811,8 @@ export const HELP_PNL_HTML = {
     "• BounceTech LT mint / redeem fees",
     "• Gas paid in HYPE",
     "",
-    "<b>Open vs. realised</b>",
-    "/positions shows two sections: <i>Open positions</i> (tokens you still hold, unrealised PnL marked to the live curve / HyperSwap price) and <i>Realised positions</i> (closed-out chunks across your lifetime, using average-cost accounting). Each section paginates 5 records at a time and is sorted by absolute PnL.",
+    "<b>Open vs. realized</b>",
+    "/positions shows two sections: <i>Open positions</i> (tokens you still hold, unrealized PnL marked to the live curve / HyperSwap price) and <i>Realized positions</i> (closed-out chunks across your lifetime, using average-cost accounting). Each section paginates 5 records at a time and is sorted by absolute PnL.",
     "",
     "So the figure on /positions is what you actually received, not the gross notional. To audit a specific trade, open the tx hash from your trade confirmation on a HyperEVM block explorer.",
   ].join("\n"),
@@ -1210,7 +1210,7 @@ export const INSUFFICIENT_HYPE_FOR_GAS_REPLY = {
   SimplifiedChinese: "HYPE 不足以支付矿工费——请向钱包充值后重试。",
 } as const;
 export const TOAST_CONFIRM_CLEARED = {
-  English: "Cancelled",
+  English: "Canceled",
   SimplifiedChinese: "已取消",
 } as const;
 export const TOAST_CONFIRM_ALREADY_EXPIRED = {
@@ -1391,7 +1391,7 @@ export const TOKEN_LIFECYCLE_GRADUATED = {
   SimplifiedChinese: "已毕业 ✅",
 } as const;
 export const POSITIONS_REALISED_POS_HEADER = {
-  English: "Realised Pos",
+  English: "Realized Pos",
   SimplifiedChinese: "已实现仓位",
 } as const;
 export const ANTI_PHISHING_STATIC_HEADER = {
@@ -1522,7 +1522,7 @@ export const SETTINGS_SELL_SLOT_RANGE_REPLY = {
 } as const;
 export const SETTINGS_ANTI_PHISHING_PROMPT = {
   English:
-    "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
+    "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognize messages from this bot vs. a copycat.",
   SimplifiedChinese:
     "请发送您的反钓鱼短语——它将出现在机器人每条消息的开头，便于您区分本机器人与仿冒账号。",
 } as const;
@@ -1575,7 +1575,7 @@ export const BOT_COMMAND_SELL_DESCRIPTION = {
   SimplifiedChinese: "从持仓中卖出代币",
 } as const;
 export const BOT_COMMAND_POSITIONS_DESCRIPTION = {
-  English: "Show open and realised positions",
+  English: "Show open and realized positions",
   SimplifiedChinese: "查看未平仓与已实现仓位",
 } as const;
 export const BOT_COMMAND_TRACK_DESCRIPTION = {
@@ -1618,7 +1618,7 @@ export const WITHDRAW_INSUFFICIENT_BALANCE_REPLY = {
   SimplifiedChinese: "余额不足以支付提币金额 + 矿工费。",
 } as const;
 export const WITHDRAW_PIN_PROMPT = {
-  English: "Send your 6-digit PIN to authorise the withdraw.",
+  English: "Send your 6-digit PIN to authorize the withdraw.",
   SimplifiedChinese: "请发送 6 位 PIN 码以授权提币。",
 } as const;
 export const WITHDRAW_INVALID_AMOUNT_REPLY = {
@@ -1649,7 +1649,7 @@ export const WALLET_RENAME_PROMPT = {
   SimplifiedChinese: "请发送此钱包的新名称（最多 32 个字符）。",
 } as const;
 export const WALLET_RENAME_NO_LONGER_EXISTS_REPLY = {
-  English: "Wallet no longer exists. Rename cancelled.",
+  English: "Wallet no longer exists. Rename canceled.",
   SimplifiedChinese: "钱包已不存在。已取消重新命名。",
 } as const;
 export const WALLET_EXPORT_NO_LONGER_EXISTS_REPLY = {
@@ -1697,7 +1697,7 @@ export const WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY = {
   SimplifiedChinese: "该私钥无效。请重新粘贴。",
 } as const;
 export const WALLET_IMPORT_ALREADY_EXISTS_REPLY = {
-  English: "That wallet is already in your list. Import cancelled.",
+  English: "That wallet is already in your list. Import canceled.",
   SimplifiedChinese: "该钱包已在您的列表中。已取消导入。",
 } as const;
 export const WALLET_CHANGE_PIN_PROMPT = {
@@ -1774,7 +1774,7 @@ export const REFERRAL_PIN_CONFIRM_PROMPT = {
   SimplifiedChinese: "请确认——再次发送相同的 6 位数字。",
 } as const;
 export const REFERRAL_VERIFY_PIN_PROMPT = {
-  English: "Send your 6-digit PIN to authorise the rewards-wallet change.",
+  English: "Send your 6-digit PIN to authorize the rewards-wallet change.",
   SimplifiedChinese: "请发送 6 位 PIN 码以授权奖励钱包修改。",
 } as const;
 export const PIN_INVALID_FORMAT_REPLY = {
@@ -1857,7 +1857,7 @@ export const REFERRAL_HEADER_CHANGE_DOES_NOT_REDIRECT = {
 
 export const WALLET_RENAME_LENGTH_INVALID_REPLY = {
   English: (max: number) =>
-    `Label must be 1–${max} characters. Rename cancelled.`,
+    `Label must be 1–${max} characters. Rename canceled.`,
   SimplifiedChinese: (max: number) =>
     `名称长度必须为 1–${max} 个字符。已取消重新命名。`,
 } as const;
@@ -1920,7 +1920,7 @@ export const TOAST_LOCK_DISABLE_REQUESTED = {
 
 export const PIN_VERIFY_PROMPT = {
   English: (actionLabel: string) =>
-    `Send your current 6-digit PIN to authorise ${actionLabel}.`,
+    `Send your current 6-digit PIN to authorize ${actionLabel}.`,
   SimplifiedChinese: (actionLabel: string) =>
     `请发送当前的 6 位 PIN 码以授权${actionLabel}。`,
 } as const;
@@ -1934,7 +1934,7 @@ export const REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT = {
 } as const;
 export const PIN_AUTHORISE_THE_PROMPT = {
   English: (actionLabel: string) =>
-    `Send your 6-digit PIN to authorise the ${actionLabel}.`,
+    `Send your 6-digit PIN to authorize the ${actionLabel}.`,
   SimplifiedChinese: (actionLabel: string) =>
     `请发送 6 位 PIN 码以授权${actionLabel}。`,
 } as const;
@@ -1944,7 +1944,7 @@ export const WALLET_PIN_RESET_COMPLETE_HEADER = {
 } as const;
 export const PIN_LOCKED_REPLY = {
   English: (mins: number, actionLabel: string) =>
-    `Too many wrong PIN attempts — locked for ~${mins} min. ${actionLabel} cancelled.`,
+    `Too many wrong PIN attempts — locked for ~${mins} min. ${actionLabel} canceled.`,
   SimplifiedChinese: (mins: number, actionLabel: string) =>
     `PIN 码错误次数过多——已锁定约 ${mins} 分钟。已取消${actionLabel}。`,
 } as const;

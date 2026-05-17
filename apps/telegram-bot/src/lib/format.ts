@@ -220,7 +220,7 @@ const formatRealisedLine = (
     `${LINE_PREFIX}${label}` +
     `\n  ${formatTokenAddress(pos.token)}` +
     `\n  cost $${formatUsdc(pos.totalCostUsdc)} · proceeds $${formatUsdc(pos.totalProceedsUsdc)}` +
-    `\n  realised ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`
+    `\n  realized ${formatSignedUsdc(pos.realisedPnlUsdc)} (${formatPct(pos.realisedPnlPct)})`
   );
 };
 
@@ -299,7 +299,7 @@ export const buildPositionsView = (
     sections.push([header, ...lines].join("\n\n"));
   }
   if (realisedTotal > 0) {
-    const header = `Realised positions (${realisedTotal})`;
+    const header = `Realized positions (${realisedTotal})`;
     const lines = realisedSlice.map((p) => formatRealisedLine(p, botUsername));
     sections.push([header, ...lines].join("\n\n"));
   }
@@ -329,7 +329,7 @@ export const buildPositionsView = (
       );
     if (realisedTotal > 0)
       compact.push(
-        [`Realised positions (${realisedTotal})`, ...compactRealisedLines].join(
+        [`Realized positions (${realisedTotal})`, ...compactRealisedLines].join(
           "\n\n",
         ),
       );

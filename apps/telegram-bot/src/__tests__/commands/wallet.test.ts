@@ -741,7 +741,7 @@ describe("/wallet command", () => {
         calls.find(
           (c) =>
             c.url.includes("/sendMessage") &&
-            /Delete cancelled/.test(c.body.text as string),
+            /Delete canceled/.test(c.body.text as string),
         ),
       ).toBeDefined();
       expect(await wm.listWallets(7)).toHaveLength(1);

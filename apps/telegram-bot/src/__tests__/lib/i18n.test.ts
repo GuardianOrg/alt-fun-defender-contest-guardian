@@ -76,7 +76,7 @@ describe("i18n module", () => {
 
   it("renders newly extracted wallet toasts and prompts", () => {
     expect(i18n.WALLET_RENAME_LENGTH_INVALID_REPLY.English(32)).toBe(
-      "Label must be 1–32 characters. Rename cancelled.",
+      "Label must be 1–32 characters. Rename canceled.",
     );
     expect(
       i18n.WALLET_DELETE_CONFIRM_PROMPT.English("main", "0x12…cd"),
@@ -112,19 +112,46 @@ describe("i18n module", () => {
 
   it("renders newly extracted PIN-flow prompts and replies", () => {
     expect(i18n.PIN_VERIFY_PROMPT.English("PIN change")).toBe(
-      "Send your current 6-digit PIN to authorise PIN change.",
+      "Send your current 6-digit PIN to authorize PIN change.",
     );
     expect(i18n.PIN_AUTHORISE_THE_PROMPT.English("export")).toBe(
-      "Send your 6-digit PIN to authorise the export.",
+      "Send your 6-digit PIN to authorize the export.",
     );
     expect(i18n.PIN_LOCKED_REPLY.English(5, "Export")).toBe(
-      "Too many wrong PIN attempts — locked for ~5 min. Export cancelled.",
+      "Too many wrong PIN attempts — locked for ~5 min. Export canceled.",
     );
     expect(i18n.PIN_WRONG_RETRY_REPLY.English(3)).toBe(
       "Wrong PIN. 3 attempts remaining. Try again.",
     );
     expect(i18n.PIN_STATE_LOST_REPLY.English("/wallet → Export key")).toBe(
       "PIN state lost — re-run /wallet → Export key.",
+    );
+  });
+
+  it("uses US English spelling in user-facing strings", () => {
+    expect(i18n.TOAST_RESET_CANCELLED.English).toBe("Reset canceled.");
+    expect(i18n.TOAST_DISABLE_CANCELLED.English).toBe("Disable canceled.");
+    expect(i18n.TOAST_DELETE_CANCELLED.English).toBe("Delete canceled.");
+    expect(i18n.TOAST_CANCELLED.English).toBe("Canceled.");
+    expect(i18n.TOAST_CONFIRM_CLEARED.English).toBe("Canceled");
+    expect(i18n.POSITIONS_REALISED_POS_HEADER.English).toBe("Realized Pos");
+    expect(i18n.BOT_COMMAND_POSITIONS_DESCRIPTION.English).toBe(
+      "Show open and realized positions",
+    );
+    expect(i18n.WITHDRAW_PIN_PROMPT.English).toBe(
+      "Send your 6-digit PIN to authorize the withdraw.",
+    );
+    expect(i18n.REFERRAL_VERIFY_PIN_PROMPT.English).toBe(
+      "Send your 6-digit PIN to authorize the rewards-wallet change.",
+    );
+    expect(i18n.WALLET_RENAME_NO_LONGER_EXISTS_REPLY.English).toBe(
+      "Wallet no longer exists. Rename canceled.",
+    );
+    expect(i18n.WALLET_IMPORT_ALREADY_EXISTS_REPLY.English).toBe(
+      "That wallet is already in your list. Import canceled.",
+    );
+    expect(i18n.SETTINGS_ANTI_PHISHING_PROMPT.English).toContain(
+      "recognize messages",
     );
   });
 
