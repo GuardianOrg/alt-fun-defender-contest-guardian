@@ -47,11 +47,19 @@ import {
   safeEditMessageById,
 } from "../lib/nav.js";
 import {
+  CONFIRM_WITHDRAW_BUTTON,
+  TOAST_CANCELLED,
+  TOAST_CONFIRMATION_EXPIRED_WITHDRAW,
+  TOAST_LOADING_WITHDRAW,
+  TOAST_NO_ACTIVE_WALLET,
+  TOAST_SUBMITTING,
+  WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY,
   WITHDRAW_LOCKED_REPLY as I18N_WITHDRAW_LOCKED_REPLY,
   WITHDRAW_NO_ACTIVE_WALLET_REPLY as I18N_WITHDRAW_NO_ACTIVE_WALLET_REPLY,
   WITHDRAW_NO_PIN_REPLY as I18N_WITHDRAW_NO_PIN_REPLY,
   WITHDRAW_NO_USER_REPLY as I18N_WITHDRAW_NO_USER_REPLY,
   WITHDRAW_NON_PRIVATE_CHAT_REPLY as I18N_WITHDRAW_NON_PRIVATE_CHAT_REPLY,
+  WITHDRAW_PRIVATE_DM_ONLY_REPLY,
   WITHDRAW_USAGE_HINT_REPLY,
 } from "../lib/i18n.js";
 import { PinManager } from "../lib/pin.js";
@@ -279,7 +287,7 @@ const renderSummary = (args: ParsedArgs, balance: bigint | null): string => {
   if (balance !== null && args.amountRaw > balance) {
     lines.push(
       "",
-      "⚠️ Amount exceeds available balance — withdraw will fail.",
+      WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY.English,
     );
   }
   lines.push("", "Tap Confirm Withdraw within 60s to submit.");
@@ -290,7 +298,7 @@ const confirmKeyboard = (
   nonce: string,
 ): Array<Array<{ text: string; callback_data: string }>> => [
   [
-    { text: "✅ Confirm Withdraw", callback_data: `wdc:${nonce}` },
+    { text: CONFIRM_WITHDRAW_BUTTON.English, callback_data: `wdc:${nonce}` },
     { text: "✖ Cancel", callback_data: `wdcl:${nonce}` },
   ],
 ];
@@ -676,7 +684,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: "Withdrawals are private-DM only.",
+        text: WITHDRAW_PRIVATE_DM_ONLY_REPLY.English,
         show_alert: true,
       });
       return;
@@ -688,7 +696,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     // — keeping the flow in one stable chat bubble instead of dropping
     // a fresh asset picker below the still-visible parent menu.
     const result = await editToSubmenu(ctx, {
-      text: "Loading withdraw…",
+      text: TOAST_LOADING_WITHDRAW.English,
       parseMode: "HTML",
       inlineKeyboard: [backHomeRow()],
       linkPreviewDisabled: true,
@@ -715,7 +723,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     if (pending && pending.nonce === nonce) {
       ctx.session.pendingWithdraw = undefined;
     }
-    await ctx.answerCallbackQuery({ text: "Cancelled." });
+    await ctx.answerCallbackQuery({ text: TOAST_CANCELLED.English });
     try {
       await ctx.editMessageReplyMarkup({ reply_markup: undefined });
     } catch {
@@ -742,7 +750,7 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
         ctx.session.pendingWithdraw = undefined;
       }
       await ctx.answerCallbackQuery({
-        text: "Confirmation expired — re-run /withdraw.",
+        text: TOAST_CONFIRMATION_EXPIRED_WITHDRAW.English,
         show_alert: true,
       });
       return;
@@ -753,13 +761,13 @@ export const registerWithdrawCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet.",
+        text: TOAST_NO_ACTIVE_WALLET.English,
         show_alert: true,
       });
       return;
     }
 
-    await ctx.answerCallbackQuery({ text: "Submitting…" });
+    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING.English });
 
     const privateKey = await wm.decrypt(active.encryptedKey, ctx.from.id);
     const result = await executeWithdraw(ctx.env, {

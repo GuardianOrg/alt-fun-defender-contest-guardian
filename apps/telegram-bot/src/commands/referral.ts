@@ -24,9 +24,14 @@ import {
 } from "../lib/conversation-commands.js";
 import {
   OUTAGE_REPLY as I18N_OUTAGE_REPLY,
+  REFERRAL_BURN_ADDRESS_WARNING_REPLY,
+  REFERRAL_CHANGE_REWARDS_WALLET_BUTTON,
+  REFERRAL_CUSTOM_BUTTON,
   REFERRAL_NO_USER_REPLY as I18N_REFERRAL_NO_USER_REPLY,
   REFERRAL_NO_WALLET_REPLY as I18N_REFERRAL_NO_WALLET_REPLY,
   REFERRAL_NON_PRIVATE_CHAT_REPLY as I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY,
+  REFERRAL_PRIVATE_DM_ONLY_REPLY,
+  TOAST_MISSING_USER,
 } from "../lib/i18n.js";
 import {
   backHomeMarkup,
@@ -191,7 +196,7 @@ const buildKeyboard = (): ReferralView["reply_markup"] => ({
   inline_keyboard: [
     [
       {
-        text: "Change rewards wallet",
+        text: REFERRAL_CHANGE_REWARDS_WALLET_BUTTON.English,
         callback_data: REFERRAL_CALLBACK.changeRewardsWallet,
       },
     ],
@@ -257,7 +262,7 @@ const buildPickerKeyboard = (
   }
   rows.push([
     {
-      text: "Custom",
+      text: REFERRAL_CUSTOM_BUTTON.English,
       callback_data: REFERRAL_CALLBACK.pickRewardsWalletCustom,
     },
   ]);
@@ -650,7 +655,7 @@ const changeRewardsWalletConversation = async (
         ctx,
         origin,
         [
-          "⚠️ That address is a known burn / null address.",
+          REFERRAL_BURN_ADDRESS_WARNING_REPLY.English,
           "Every USDC payment sent here is permanently unrecoverable — every future referral cut would be lost forever.",
           "",
           "Send 'confirm' to proceed anyway, tap Home to exit, or send a different address.",
@@ -885,12 +890,12 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(START_CALLBACK.referral, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: "Referral is private-DM only.",
+        text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
         show_alert: true,
       });
       return;
@@ -919,12 +924,12 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(REFERRAL_CALLBACK.changeRewardsWallet, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: "Referral is private-DM only.",
+        text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
         show_alert: true,
       });
       return;
@@ -961,12 +966,12 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(REFERRAL_CALLBACK.pickRewardsWalletCustom, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: "Referral is private-DM only.",
+        text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
         show_alert: true,
       });
       return;
@@ -987,12 +992,12 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
     ),
     async (ctx) => {
       if (!ctx.from) {
-        await ctx.answerCallbackQuery({ text: "Missing user." });
+        await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
         return;
       }
       if (!isPrivateChat(ctx)) {
         await ctx.answerCallbackQuery({
-          text: "Referral is private-DM only.",
+          text: REFERRAL_PRIVATE_DM_ONLY_REPLY.English,
           show_alert: true,
         });
         return;

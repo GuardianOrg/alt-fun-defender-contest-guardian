@@ -6,7 +6,11 @@ import type {
   InlineCallbackButton,
   InlineKeyboard,
 } from "../keyboards/wallet-actions.js";
-import { BACK_BUTTON_TEXT, HOME_BUTTON_TEXT } from "./i18n.js";
+import {
+  BACK_BUTTON_TEXT,
+  HOME_BUTTON_TEXT,
+  RUN_START_TO_RETURN_HOME_REPLY,
+} from "./i18n.js";
 import { logger } from "./logger.js";
 import { removeWorkflowMessage } from "./workflow-stack.js";
 
@@ -556,7 +560,7 @@ const renderHome = async (
     // `/start` from the command menu.
     await deleteCurrentMessage(ctx);
     await ctx.answerCallbackQuery({
-      text: "Run /start to return home.",
+      text: RUN_START_TO_RETURN_HOME_REPLY.English,
       show_alert: false,
     });
     return;

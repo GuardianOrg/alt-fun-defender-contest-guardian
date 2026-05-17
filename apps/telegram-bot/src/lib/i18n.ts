@@ -202,6 +202,10 @@ export const TOAST_MESSAGE_NO_LONGER_AVAILABLE = {
 } as const;
 export const TOAST_REFRESHED = { English: "Refreshed" } as const;
 export const TOAST_SUBMITTING = { English: "Submitting…" } as const;
+export const TOAST_SUBMITTING_ZAP = { English: "⚡ Submitting…" } as const;
+export const TOAST_NO_ACTIVE_WALLET_RUN_WALLET = {
+  English: "No active wallet — run /wallet to set one up.",
+} as const;
 export const TOAST_NO_ACTIVE_WALLET = {
   English: "No active wallet.",
 } as const;
@@ -592,6 +596,10 @@ export const REFERRAL_NO_WALLET_REPLY = {
   English:
     "No active wallet yet — run /start to create one before sharing your referral link.",
 } as const;
+export const REFERRAL_CHANGE_REWARDS_WALLET_BUTTON = {
+  English: "Change rewards wallet",
+} as const;
+export const REFERRAL_CUSTOM_BUTTON = { English: "Custom" } as const;
 
 // ─── /buy /sell /track shared lookup prompt & not-found ────────────
 
@@ -612,6 +620,135 @@ export const TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML = {
     '• <a href="https://alt.fun">alt.fun</a> — tap the token → copy address\n' +
     '• <a href="https://hyperevmscan.io">hyperevmscan.io</a> — search the token → copy address\n\n' +
     "Try again, or tap Home to exit.",
+} as const;
+
+// ─── Confirmations + audit-grade warnings ──────────────────────────
+
+export const CONFIRM_BUTTON = { English: "✅ Confirm" } as const;
+export const CANCEL_BUTTON = { English: "✖ Cancel" } as const;
+export const CONFIRM_WITHDRAW_BUTTON = {
+  English: "✅ Confirm Withdraw",
+} as const;
+export const TRANSACTION_FAILED_REPLY = {
+  English: "❌ Transaction failed — please try again in a moment.",
+} as const;
+export const WITHDRAW_AMOUNT_EXCEEDS_BALANCE_REPLY = {
+  English: "⚠️ Amount exceeds available balance — withdraw will fail.",
+} as const;
+export const WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY = {
+  English:
+    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
+} as const;
+export const REFERRAL_BURN_ADDRESS_WARNING_REPLY = {
+  English: "⚠️ That address is a known burn / null address.",
+} as const;
+
+// ─── Buy / sell post-stage error replies ───────────────────────────
+
+export const NO_ACTIVE_WALLET_RUN_WALLET_REPLY = {
+  English: "No active wallet — run /wallet to create or import one.",
+} as const;
+export const TRANSACTION_FAILED_SHORT_REPLY = {
+  English: "Transaction failed — please try again in a moment.",
+} as const;
+export const TOKEN_NOT_FOUND_SHORT_REPLY = {
+  English: "Token not found — make sure the address is correct.",
+} as const;
+export const PROCEEDS_UNAVAILABLE_REPLY = {
+  English: "Unable to estimate proceeds right now — please try again in a moment.",
+} as const;
+
+// ─── /start welcome surface ─────────────────────────────────────────
+
+export const START_WALLET_ADDRESS_LABEL = {
+  English: "Your wallet address:",
+} as const;
+export const START_ONCE_FUNDED_REFRESH_HINT = {
+  English: "Once funded, tap Refresh and your balance will appear here.",
+} as const;
+export const START_COULD_NOT_CREATE_WALLET_REPLY = {
+  English: "Could not create your wallet — please try /start again in a moment.",
+} as const;
+export const START_BALANCE_UNAVAILABLE_TOAST = {
+  English: "Balance unavailable",
+} as const;
+export const START_BALANCE_REFRESHED_TOAST = {
+  English: "Balance refreshed",
+} as const;
+
+// ─── /settings panel labels + wizard prompts ───────────────────────
+
+export const SETTINGS_BUY_SELL_HINT_REPLY = {
+  English: "Tap Buy Settings or Sell Settings to customize the preset buttons.",
+} as const;
+export const SETTINGS_BUY_SUBMENU_TITLE = {
+  English: ["Buy Settings", "", "Tap a slot to change its amount."].join("\n"),
+} as const;
+export const SETTINGS_SELL_SUBMENU_TITLE = {
+  English: ["Sell Settings", "", "Tap a slot to change its percent."].join("\n"),
+} as const;
+export const SETTINGS_CUSTOM_SLIPPAGE_PROMPT = {
+  English: [
+    "Send a custom slippage percent (e.g. `0.75`, `3`, `7.5`).",
+    "",
+    "Tap Home to exit and keep the current value.",
+  ].join("\n"),
+} as const;
+export const SETTINGS_INVALID_NUMBER_REPLY = {
+  English: "Send a positive number like `2` or `0.5`.",
+} as const;
+export const SETTINGS_SLIPPAGE_MIN_REPLY = {
+  English: "Slippage must be at least 0.01%. Send again.",
+} as const;
+export const SETTINGS_BUY_SLOT_PROMPT = {
+  English: [
+    "Change the value of the buy amount button.",
+    "",
+    "Tap Home to exit and keep the current value.",
+  ].join("\n"),
+} as const;
+export const SETTINGS_INVALID_USDC_REPLY = {
+  English: "Send a positive USDC amount like `50`.",
+} as const;
+export const SETTINGS_SELL_SLOT_PROMPT = {
+  English: [
+    "Change the value of the sell percent button.",
+    "Send a percent between 1 and 100.",
+    "",
+    "Tap Home to exit and keep the current value.",
+  ].join("\n"),
+} as const;
+export const SETTINGS_SELL_SLOT_INVALID_REPLY = {
+  English: "Send a number between 1 and 100.",
+} as const;
+export const SETTINGS_SELL_SLOT_RANGE_REPLY = {
+  English: "Percent must be between 1 and 100. Send again.",
+} as const;
+export const SETTINGS_ANTI_PHISHING_PROMPT = {
+  English:
+    "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
+} as const;
+export const SETTINGS_PHRASE_EMPTY_REPLY = {
+  English: "Phrase cannot be empty. Send again.",
+} as const;
+export const TOAST_DEGEN_MODE_ENABLED = {
+  English: "Degen mode enabled.",
+} as const;
+export const TOAST_DEGEN_MODE_DISABLED = {
+  English: "Degen mode disabled.",
+} as const;
+
+// ─── /sell custom percent prompt + retry ───────────────────────────
+
+export const SELL_CUSTOM_PERCENT_PROMPT = {
+  English:
+    "Enter a percent of your position to sell (1–100):\n\nTap Home to exit.",
+} as const;
+export const SELL_CUSTOM_PERCENT_INVALID_REPLY = {
+  English: "Please enter a whole number between 1 and 100 (e.g. 35).",
+} as const;
+export const SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY = {
+  English: "Unable to verify your token balance — please try again.",
 } as const;
 
 // ─── /sell — buffer-low banner ─────────────────────────────────────

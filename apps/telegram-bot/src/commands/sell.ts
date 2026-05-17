@@ -31,8 +31,17 @@ import {
 } from "../lib/execute.js";
 import { escapeHtml } from "../lib/format.js";
 import {
+  NO_ACTIVE_WALLET_RUN_WALLET_REPLY,
   OUTAGE_REPLY,
+  PROCEEDS_UNAVAILABLE_REPLY,
   SELL_BUFFER_BELOW_MIN_HTML,
+  SELL_CUSTOM_PERCENT_INVALID_REPLY,
+  SELL_CUSTOM_PERCENT_PROMPT,
+  SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY,
+  TOAST_NO_ACTIVE_WALLET_RUN_WALLET,
+  TOAST_REFRESHED,
+  TOAST_SUBMITTING_ZAP,
+  TOAST_UNABLE_TO_VERIFY_TOKEN_BALANCE,
   TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
   TOKEN_LOOKUP_PROMPT_HTML,
 } from "../lib/i18n.js";
@@ -106,8 +115,7 @@ const API_UNAVAILABLE = OUTAGE_REPLY.English;
  * bypassed. Surfaces the same retry copy AGENTS.md uses for the
  * upstream-unavailable case.
  */
-const PROCEEDS_UNAVAILABLE =
-  "Unable to estimate proceeds right now — please try again in a moment.";
+const PROCEEDS_UNAVAILABLE = PROCEEDS_UNAVAILABLE_REPLY.English;
 
 /**
  * Shown when the LT's idle USDC buffer would not even support the
@@ -478,7 +486,7 @@ const sellCustomConversation = async (
   await sweepWorkflow(conversation);
 
   const promptText =
-    "Enter a percent of your position to sell (1–100):\n\nTap Home to exit.";
+    SELL_CUSTOM_PERCENT_PROMPT.English;
 
   // Edit-in-place when entered from a token-card tap; fall back to a
   // fresh reply otherwise (slash-entry / inline-mode without origin).
@@ -510,7 +518,7 @@ const sellCustomConversation = async (
     if (percent === null) {
       const retry = await replyWithNav(
         msgCtx,
-        "Please enter a whole number between 1 and 100 (e.g. 35).",
+        SELL_CUSTOM_PERCENT_INVALID_REPLY.English,
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -565,7 +573,7 @@ const runPercentSell = async (
     : null;
   if (!active) {
     await msgCtx.reply(
-      "No active wallet — run /wallet to create or import one.",
+      NO_ACTIVE_WALLET_RUN_WALLET_REPLY.English,
     );
     return { stagedFinal: false };
   }
@@ -589,7 +597,7 @@ const runPercentSell = async (
   // Null balance = RPC unavailable; don't coerce to zero.
   if (tokenBalance === null) {
     await msgCtx.reply(
-      "Unable to verify your token balance — please try again.",
+      SELL_UNABLE_TO_VERIFY_TOKEN_BALANCE_REPLY.English,
     );
     return { stagedFinal: false };
   }
@@ -799,7 +807,7 @@ const handleSellRefresh = async (
     },
     link_preview_options: { is_disabled: true },
   });
-  await ctx.answerCallbackQuery({ text: "Refreshed" });
+  await ctx.answerCallbackQuery({ text: TOAST_REFRESHED.English });
 };
 
 /**
@@ -819,7 +827,7 @@ const handlePercentSell = async (
   const active = await wm.getActive(ctx.from.id);
   if (!active) {
     await ctx.answerCallbackQuery({
-      text: "No active wallet — run /wallet to set one up.",
+      text: TOAST_NO_ACTIVE_WALLET_RUN_WALLET.English,
       show_alert: true,
     });
     return;
@@ -843,7 +851,7 @@ const handlePercentSell = async (
   // Null balance = RPC unavailable; don't coerce to zero.
   if (tokenBalance === null) {
     await ctx.answerCallbackQuery({
-      text: "Unable to verify your token balance — please try again.",
+      text: TOAST_UNABLE_TO_VERIFY_TOKEN_BALANCE.English,
       show_alert: true,
     });
     return;
@@ -909,7 +917,7 @@ const handlePercentSell = async (
   // Buffer-capped sells always require explicit confirm per AGENTS.md;
   // degen only skips the confirm step on the happy path.
   if (ctx.session.degenMode && buffer.kind !== "capped") {
-    await ctx.answerCallbackQuery({ text: "⚡ Submitting…" });
+    await ctx.answerCallbackQuery({ text: TOAST_SUBMITTING_ZAP.English });
     const cbMsg = ctx.callbackQuery?.message;
     if (cbMsg) {
       await runWithTxStatusUpdates({

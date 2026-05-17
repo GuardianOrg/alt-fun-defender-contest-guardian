@@ -49,8 +49,25 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 import {
+  FAILED_TO_SAVE_REPLY,
+  SETTINGS_ANTI_PHISHING_PROMPT,
+  SETTINGS_BUY_SELL_HINT_REPLY,
+  SETTINGS_BUY_SUBMENU_TITLE,
+  SETTINGS_INVALID_NUMBER_REPLY,
+  SETTINGS_INVALID_USDC_REPLY,
   SETTINGS_NO_USER_REPLY as I18N_SETTINGS_NO_USER_REPLY,
   SETTINGS_NON_PRIVATE_CHAT_REPLY as I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY,
+  SETTINGS_PHRASE_EMPTY_REPLY,
+  SETTINGS_PRIVATE_DM_ONLY_REPLY,
+  SETTINGS_SELL_SLOT_INVALID_REPLY,
+  SETTINGS_SELL_SLOT_PROMPT,
+  SETTINGS_SELL_SLOT_RANGE_REPLY,
+  SETTINGS_SELL_SUBMENU_TITLE,
+  SETTINGS_SLIPPAGE_MIN_REPLY,
+  TOAST_DEGEN_MODE_DISABLED,
+  TOAST_DEGEN_MODE_ENABLED,
+  TOAST_MISSING_USER,
+  TOAST_PHRASE_CLEARED,
 } from "../lib/i18n.js";
 
 const NO_USER_REPLY = I18N_SETTINGS_NO_USER_REPLY.English;
@@ -81,7 +98,7 @@ const isPrivateChat = (ctx: AppContext): boolean =>
 const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   if (isPrivateChat(ctx)) return true;
   await ctx.answerCallbackQuery({
-    text: "Settings actions are private-DM only.",
+    text: SETTINGS_PRIVATE_DM_ONLY_REPLY.English,
     show_alert: true,
   });
   return false;
@@ -112,14 +129,12 @@ const renderMainStatusText = (status: SettingsStatus): string =>
       ? "• Anti-phishing phrase: not set"
       : `• Anti-phishing phrase: "${status.antiPhishingPhrase}"`,
     "",
-    "Tap Buy Settings or Sell Settings to customize the preset buttons.",
+    SETTINGS_BUY_SELL_HINT_REPLY.English,
   ].join("\n");
 
-const renderBuySettingsText = (): string =>
-  ["Buy Settings", "", "Tap a slot to change its amount."].join("\n");
+const renderBuySettingsText = (): string => SETTINGS_BUY_SUBMENU_TITLE.English;
 
-const renderSellSettingsText = (): string =>
-  ["Sell Settings", "", "Tap a slot to change its percent."].join("\n");
+const renderSellSettingsText = (): string => SETTINGS_SELL_SUBMENU_TITLE.English;
 
 interface RenderedState {
   text: string;
@@ -326,7 +341,7 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        "Send a positive number like `2` or `0.5`.",
+        SETTINGS_INVALID_NUMBER_REPLY.English,
       );
       continue;
     }
@@ -336,7 +351,7 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        "Slippage must be at least 0.01%. Send again.",
+        SETTINGS_SLIPPAGE_MIN_REPLY.English,
       );
       continue;
     }
@@ -358,7 +373,7 @@ const customSlippageConversation = async (
       // most KV failures surface at session-flush time, outside this
       // catch) must never reach a "saved" reply. The session plugin's
       // own flush errors land on `bot.catch` in `bot.ts`.
-      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await ctx.reply(wrap(ctx, FAILED_TO_SAVE_REPLY.English));
       await sweepWorkflow(conversation);
       return;
     }
@@ -440,7 +455,7 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        "Send a positive USDC amount like `50`.",
+        SETTINGS_INVALID_USDC_REPLY.English,
       );
       continue;
     }
@@ -479,7 +494,7 @@ const buyPresetSlotConversation = async (
         }
       });
     } catch {
-      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await ctx.reply(wrap(ctx, FAILED_TO_SAVE_REPLY.English));
       await sweepWorkflow(conversation);
       return;
     }
@@ -529,13 +544,7 @@ const sellPresetSlotConversation = async (
     conversation,
     ctx,
     origin,
-    [
-      "Change the value of the sell percent button.",
-      "",
-      "Send a percent between 1 and 100.",
-      "",
-      "Tap Home to exit and keep the current value.",
-    ].join("\n"),
+    SETTINGS_SELL_SLOT_PROMPT.English,
   );
 
   while (true) {
@@ -550,7 +559,7 @@ const sellPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        "Send a number between 1 and 100.",
+        SETTINGS_SELL_SLOT_INVALID_REPLY.English,
       );
       continue;
     }
@@ -560,7 +569,7 @@ const sellPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        "Percent must be between 1 and 100. Send again.",
+        SETTINGS_SELL_SLOT_RANGE_REPLY.English,
       );
       continue;
     }
@@ -571,7 +580,7 @@ const sellPresetSlotConversation = async (
         outside.session.sellPresetsPct = current;
       });
     } catch {
-      await ctx.reply(wrap(ctx, "Failed to save — please retry."));
+      await ctx.reply(wrap(ctx, FAILED_TO_SAVE_REPLY.English));
       await sweepWorkflow(conversation);
       return;
     }
@@ -618,7 +627,7 @@ const setPhraseConversation = async (
     ctx,
     origin,
     [
-      "Send your anti-phishing phrase — it will appear at the top of every bot message so you can recognise messages from this bot vs. a copycat.",
+      SETTINGS_ANTI_PHISHING_PROMPT.English,
       "",
       `Max ${MAX_PHRASE_LEN} characters.`,
     ].join("\n"),
@@ -635,7 +644,7 @@ const setPhraseConversation = async (
         conversation,
         ctx,
         origin,
-        "Phrase cannot be empty. Send again.",
+        SETTINGS_PHRASE_EMPTY_REPLY.English,
       );
       continue;
     }
@@ -744,7 +753,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(START_CALLBACK.settings, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
@@ -935,7 +944,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     ctx.session.antiPhishingPhrase = undefined;
     await editToState(ctx, renderMainState(ctx));
-    await ctx.answerCallbackQuery({ text: "Phrase cleared." });
+    await ctx.answerCallbackQuery({ text: TOAST_PHRASE_CLEARED.English });
   });
 
   bot.callbackQuery(SETTINGS_CALLBACK.degenToggle, async (ctx) => {
@@ -948,7 +957,9 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     ctx.session.degenMode = next;
     await editToState(ctx, renderMainState(ctx));
     await ctx.answerCallbackQuery({
-      text: next ? "Degen mode enabled." : "Degen mode disabled.",
+      text: next
+        ? TOAST_DEGEN_MODE_ENABLED.English
+        : TOAST_DEGEN_MODE_DISABLED.English,
     });
   });
 };

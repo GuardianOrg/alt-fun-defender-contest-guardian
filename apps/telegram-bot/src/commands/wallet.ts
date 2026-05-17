@@ -19,8 +19,28 @@ import {
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
 import {
+  TOAST_DELETE_CANCELLED,
+  TOAST_DELETED,
+  WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY,
+  TOAST_DISABLE_CANCELLED,
+  TOAST_NO_PIN_RESET_IN_PROGRESS,
+  TOAST_INVALID_SWITCH_TARGET,
+  TOAST_LOCK_NOT_ENABLED,
+  TOAST_MISSING_USER,
+  TOAST_NO_ACTIVE_WALLET_TO_DELETE,
+  TOAST_NO_ACTIVE_WALLET_TO_EXPORT,
+  TOAST_NO_ACTIVE_WALLET_TO_RENAME,
+  TOAST_NO_WALLETS_TO_SWITCH,
+  TOAST_PIN_ALREADY_SET,
+  TOAST_RESET_ALREADY_READY,
+  TOAST_RESET_CANCELLED,
+  TOAST_WALLET_NO_LONGER_EXISTS,
+  TOAST_WITHDRAWAL_LOCK_DISABLED,
+  TOAST_WITHDRAWAL_LOCK_ENABLED,
+  WALLET_DELETE_NOW_BUTTON,
   WALLET_NO_USER_REPLY as I18N_WALLET_NO_USER_REPLY,
   WALLET_NON_PRIVATE_CHAT_REPLY as I18N_WALLET_NON_PRIVATE_CHAT_REPLY,
+  WALLET_PRIVATE_DM_ONLY_REPLY,
 } from "../lib/i18n.js";
 import { PIN_RESET_DELAY_MS, PinManager, type ResetStatus } from "../lib/pin.js";
 import {
@@ -82,7 +102,7 @@ const isPrivateChat = (ctx: AppContext): boolean =>
 const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   if (isPrivateChat(ctx)) return true;
   await ctx.answerCallbackQuery({
-    text: "Wallet actions are private-DM only.",
+    text: WALLET_PRIVATE_DM_ONLY_REPLY.English,
     show_alert: true,
   });
   return false;
@@ -646,7 +666,7 @@ const exportKeyConversation = async (
   await sweepWorkflow(conversation);
 
   const revealBody = [
-    "⚠️ Private key — anyone with this controls the wallet. Do NOT share. This message auto-deletes in 30s; tap Delete now to remove it immediately.",
+    WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY.English,
     "",
     `Address: ${wallet.address}`,
     `Private key: ${privateKey}`,
@@ -657,7 +677,7 @@ const exportKeyConversation = async (
       inline_keyboard: [
         [
           {
-            text: "Delete now",
+            text: WALLET_DELETE_NOW_BUTTON.English,
             callback_data: WALLET_CALLBACK.exportDelete,
           },
         ],
@@ -894,7 +914,7 @@ const deleteWalletConversation = async (
     // Anything other than the exact uppercase token aborts — lowercase,
     // typo, fat-fingered emoji. The strictness is the point; this gate
     // exists to require deliberate action.
-    await ctx.reply(wrap(ctx, "Delete cancelled."));
+    await ctx.reply(wrap(ctx, TOAST_DELETE_CANCELLED.English));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1028,7 +1048,7 @@ const completeResetConversation = async (
     buildPinManager(outside.env).getResetStatus(userId),
   );
   if (reset.kind === "none") {
-    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await ctx.reply(wrap(ctx, TOAST_NO_PIN_RESET_IN_PROGRESS.English));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1064,7 +1084,7 @@ const completeResetConversation = async (
     return;
   }
   if (result.kind === "not-requested") {
-    await ctx.reply(wrap(ctx, "No PIN reset in progress."));
+    await ctx.reply(wrap(ctx, TOAST_NO_PIN_RESET_IN_PROGRESS.English));
     await sweepWorkflow(conversation);
     return;
   }
@@ -1151,7 +1171,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(WALLET_CALLBACK.create, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
@@ -1184,7 +1204,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const wallets = await wm.listWallets(ctx.from.id);
     if (wallets.length === 0) {
       await ctx.answerCallbackQuery({
-        text: "No wallets to switch to.",
+        text: TOAST_NO_WALLETS_TO_SWITCH.English,
         show_alert: true,
       });
       return;
@@ -1221,7 +1241,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       const data = ctx.callbackQuery.data ?? "";
       const walletId = data.split(":")[1];
       if (!walletId) {
-        await ctx.answerCallbackQuery({ text: "Invalid switch target." });
+        await ctx.answerCallbackQuery({ text: TOAST_INVALID_SWITCH_TARGET.English });
         return;
       }
       const wm = buildManager(ctx.env);
@@ -1230,7 +1250,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       } catch (err) {
         if (err instanceof WalletNotFoundError) {
           await ctx.answerCallbackQuery({
-            text: "Wallet no longer exists.",
+            text: TOAST_WALLET_NO_LONGER_EXISTS.English,
             show_alert: true,
           });
           return;
@@ -1261,7 +1281,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet to rename.",
+        text: TOAST_NO_ACTIVE_WALLET_TO_RENAME.English,
         show_alert: true,
       });
       return;
@@ -1288,7 +1308,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet to export.",
+        text: TOAST_NO_ACTIVE_WALLET_TO_EXPORT.English,
         show_alert: true,
       });
       return;
@@ -1312,7 +1332,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       // deleteMessage window. The user's intent (no plaintext key in
       // chat) is satisfied either way.
     }
-    await ctx.answerCallbackQuery({ text: "Deleted." });
+    await ctx.answerCallbackQuery({ text: TOAST_DELETED.English });
   });
 
   /**
@@ -1332,7 +1352,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const active = await wm.getActive(ctx.from.id);
     if (!active) {
       await ctx.answerCallbackQuery({
-        text: "No active wallet to delete.",
+        text: TOAST_NO_ACTIVE_WALLET_TO_DELETE.English,
         show_alert: true,
       });
       return;
@@ -1380,7 +1400,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     // check or the 24h reset flow.
     if (await buildPinManager(ctx.env).isPinSet(ctx.from.id)) {
       await ctx.answerCallbackQuery({
-        text: "PIN already set. Use Change PIN or Reset PIN.",
+        text: TOAST_PIN_ALREADY_SET.English,
         show_alert: true,
       });
       return;
@@ -1409,7 +1429,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await editToMain(ctx);
     if (result.kind === "ready") {
       await ctx.answerCallbackQuery({
-        text: "Reset already ready — tap Complete PIN reset.",
+        text: TOAST_RESET_ALREADY_READY.English,
         show_alert: true,
       });
       return;
@@ -1436,7 +1456,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildPinManager(ctx.env).cancelReset(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: "Reset cancelled." });
+    await ctx.answerCallbackQuery({ text: TOAST_RESET_CANCELLED.English });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.pinCompleteReset, async (ctx) => {
@@ -1457,7 +1477,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildSecurityState(ctx.env).enableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: "Withdrawal lock enabled." });
+    await ctx.answerCallbackQuery({ text: TOAST_WITHDRAWAL_LOCK_ENABLED.English });
   });
 
   bot.callbackQuery(WALLET_CALLBACK.lockDisable, async (ctx) => {
@@ -1472,13 +1492,13 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     await editToMain(ctx);
     if (result.kind === "not-enabled") {
       await ctx.answerCallbackQuery({
-        text: "Lock is not enabled.",
+        text: TOAST_LOCK_NOT_ENABLED.English,
         show_alert: true,
       });
       return;
     }
     if (result.kind === "disabled") {
-      await ctx.answerCallbackQuery({ text: "Withdrawal lock disabled." });
+      await ctx.answerCallbackQuery({ text: TOAST_WITHDRAWAL_LOCK_DISABLED.English });
       return;
     }
     const hours = formatHoursRemaining(result.readyAt, Date.now());
@@ -1496,13 +1516,13 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     await buildSecurityState(ctx.env).cancelDisableWithdrawLock(ctx.from.id);
     await editToMain(ctx);
-    await ctx.answerCallbackQuery({ text: "Disable cancelled." });
+    await ctx.answerCallbackQuery({ text: TOAST_DISABLE_CANCELLED.English });
   });
 
 
   bot.callbackQuery(START_CALLBACK.wallet, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: "Missing user." });
+      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
