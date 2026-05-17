@@ -19,10 +19,23 @@ import {
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
 import {
+  PIN_AUTHORISE_THE_PROMPT,
+  PIN_DO_NOT_MATCH_REPLY,
+  PIN_INVALID_FORMAT_REPLY,
+  PIN_LOCKED_REPLY,
+  PIN_STATE_LOST_REPLY,
+  PIN_WRONG_RETRY_REPLY,
   TOAST_DELETE_CANCELLED,
   TOAST_DELETED,
+  TOAST_LOCK_DISABLE_REQUESTED,
+  TOAST_PIN_RESET_REQUESTED,
+  TOAST_WALLET_CAP_REACHED,
+  TOAST_WALLET_CREATED,
+  TOAST_WALLET_SWITCHED,
+  TOAST_WALLET_SWITCHED_TO,
   WALLET_CHANGE_PIN_PROMPT,
   WALLET_CONFIRM_PIN_PROMPT,
+  WALLET_DELETE_CONFIRM_PROMPT,
   WALLET_DELETE_NO_LONGER_EXISTS_REPLY,
   WALLET_EXPORT_NO_LONGER_EXISTS_REPLY,
   WALLET_EXPORT_PRIVATE_KEY_WARNING_REPLY,
@@ -32,11 +45,18 @@ import {
   WALLET_IMPORT_PRIVATE_KEY_INVALID_REPLY,
   WALLET_NO_WALLETS_YET_REPLY,
   WALLET_PICK_ACTIVE_PROMPT,
+  WALLET_PIN_CHANGED_HEADER,
+  WALLET_PIN_RESET_COMPLETE_HEADER,
+  WALLET_PIN_SET_HEADER,
+  WALLET_RENAME_LENGTH_INVALID_REPLY,
   WALLET_RENAME_NO_LONGER_EXISTS_REPLY,
   WALLET_RENAME_PROMPT,
+  WALLET_RESET_NOT_READY_REPLY,
+  WALLET_RESET_NOT_READY_WITH_CANCEL_HINT_REPLY,
   WALLET_RESET_PIN_PROMPT,
   WALLET_SET_NEW_PIN_PROMPT,
   WALLET_SET_PIN_PROMPT,
+  WALLET_UNLABELED,
   TOAST_DISABLE_CANCELLED,
   TOAST_NO_PIN_RESET_IN_PROGRESS,
   TOAST_INVALID_SWITCH_TARGET,
@@ -349,9 +369,7 @@ const renameWalletConversation = async (
   await trackWorkflowMessage(conversation, reply.message.message_id);
   if (label === "" || label.length > RENAME_MAX_LEN) {
     await reply.reply(
-      wrap(ctx,
-        `Label must be 1–${RENAME_MAX_LEN} characters. Rename cancelled.`,
-      ),
+      wrap(ctx, WALLET_RENAME_LENGTH_INVALID_REPLY.English(RENAME_MAX_LEN)),
     );
     await sweepWorkflow(conversation);
     return;
@@ -475,9 +493,7 @@ const runPinSetFlow = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx,
-          "PIN must be exactly 6 digits. Send again.",
-        ),
+        wrap(ctx, PIN_INVALID_FORMAT_REPLY.English),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -501,9 +517,7 @@ const runPinSetFlow = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
-        wrap(ctx,
-          "PINs do not match. Send the confirmation PIN again.",
-        ),
+        wrap(ctx, PIN_DO_NOT_MATCH_REPLY.English),
         { reply_markup: backHomeMarkup() },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -541,9 +555,7 @@ const runPinVerifyFlow = async (
 ): Promise<boolean> => {
   if (pinAlreadySet) {
     const askMsg = await ctx.reply(
-      wrap(ctx,
-        `Send your 6-digit PIN to authorise the ${actionLabel}.`,
-      ),
+      wrap(ctx, PIN_AUTHORISE_THE_PROMPT.English(actionLabel)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -566,9 +578,7 @@ const runPinVerifyFlow = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx,
-          `Too many wrong PIN attempts — locked for ~${mins} min. ${capitalize(actionLabel)} cancelled.`,
-        ),
+        wrap(ctx, PIN_LOCKED_REPLY.English(mins, capitalize(actionLabel))),
       );
       return false;
     }
@@ -577,14 +587,12 @@ const runPinVerifyFlow = async (
       // confirmed `isPinSet` at entry. Surface a clean abort rather
       // than looping forever if the KV state somehow vanished.
       await ctx.reply(
-        wrap(ctx, `PIN state lost — re-run ${retryHint}.`),
+        wrap(ctx, PIN_STATE_LOST_REPLY.English(retryHint)),
       );
       return false;
     }
     const retry = await ctx.reply(
-      wrap(ctx,
-        `Wrong PIN. ${result.attemptsRemaining} attempts remaining. Try again.`,
-      ),
+      wrap(ctx, PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining)),
       { reply_markup: backHomeMarkup() },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
@@ -905,8 +913,12 @@ const deleteWalletConversation = async (
   }
 
   const confirmPrompt = await ctx.reply(
-    wrap(ctx,
-      `Final step — this permanently removes ${walletRecord.label ?? "(unlabeled)"} (${truncateAddress(walletRecord.address)}) from KV. Encrypted key cannot be recovered. Type DELETE to confirm or tap Home to exit.`,
+    wrap(
+      ctx,
+      WALLET_DELETE_CONFIRM_PROMPT.English(
+        walletRecord.label ?? WALLET_UNLABELED.English,
+        truncateAddress(walletRecord.address),
+      ),
     ),
     { reply_markup: backHomeMarkup() },
   );
@@ -988,7 +1000,7 @@ const setPinConversation = async (
   const state = await conversation.external((outside) =>
     renderMainState(outside.env, userId),
   );
-  await ctx.reply(wrap(ctx, `PIN set.\n\n${state.text}`), {
+  await ctx.reply(wrap(ctx, `${WALLET_PIN_SET_HEADER.English}\n\n${state.text}`), {
     reply_markup: state.reply_markup,
   });
   await sweepWorkflow(conversation);
@@ -1031,7 +1043,7 @@ const changePinConversation = async (
   const state = await conversation.external((outside) =>
     renderMainState(outside.env, userId),
   );
-  await ctx.reply(wrap(ctx, `PIN changed.\n\n${state.text}`), {
+  await ctx.reply(wrap(ctx, `${WALLET_PIN_CHANGED_HEADER.English}\n\n${state.text}`), {
     reply_markup: state.reply_markup,
   });
   await sweepWorkflow(conversation);
@@ -1067,7 +1079,7 @@ const completeResetConversation = async (
     await ctx.reply(
       wrap(
         ctx,
-        `Reset not yet available — ~${hours} remaining. Tap [Cancel PIN reset] if you didn't request this.`,
+        WALLET_RESET_NOT_READY_WITH_CANCEL_HINT_REPLY.English(hours),
       ),
     );
     await sweepWorkflow(conversation);
@@ -1085,7 +1097,7 @@ const completeResetConversation = async (
   if (result.kind === "pending") {
     const hours = formatHoursRemaining(result.readyAt, Date.now());
     await ctx.reply(
-      wrap(ctx, `Reset not yet available — ~${hours} remaining.`),
+      wrap(ctx, WALLET_RESET_NOT_READY_REPLY.English(hours)),
     );
     await sweepWorkflow(conversation);
     return;
@@ -1098,7 +1110,7 @@ const completeResetConversation = async (
   const state = await conversation.external((outside) =>
     renderMainState(outside.env, userId),
   );
-  await ctx.reply(wrap(ctx, `PIN reset complete.\n\n${state.text}`), {
+  await ctx.reply(wrap(ctx, `${WALLET_PIN_RESET_COMPLETE_HEADER.English}\n\n${state.text}`), {
     reply_markup: state.reply_markup,
   });
   await sweepWorkflow(conversation);
@@ -1187,12 +1199,12 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       const wallet = await wm.createWallet(ctx.from.id);
       await editToMain(ctx);
       await ctx.answerCallbackQuery({
-        text: `Created ${truncateAddress(wallet.address)}`,
+        text: TOAST_WALLET_CREATED.English(truncateAddress(wallet.address)),
       });
     } catch (err) {
       if (err instanceof TooManyWalletsError) {
         await ctx.answerCallbackQuery({
-          text: `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first.`,
+          text: TOAST_WALLET_CAP_REACHED.English(MAX_WALLETS_PER_USER),
           show_alert: true,
         });
         return;
@@ -1267,7 +1279,9 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
       const wallet = await wm.getWallet(ctx.from.id, walletId);
       await editToMain(ctx);
       await ctx.answerCallbackQuery({
-        text: wallet?.label ? `Switched to ${wallet.label}` : "Switched.",
+        text: wallet?.label
+          ? TOAST_WALLET_SWITCHED_TO.English(wallet.label)
+          : TOAST_WALLET_SWITCHED.English,
       });
     },
   );
@@ -1383,7 +1397,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     const wallets = await wm.listWallets(ctx.from.id);
     if (wallets.length >= MAX_WALLETS_PER_USER) {
       await ctx.answerCallbackQuery({
-        text: `Wallet cap reached (${MAX_WALLETS_PER_USER}). Delete one first.`,
+        text: TOAST_WALLET_CAP_REACHED.English(MAX_WALLETS_PER_USER),
         show_alert: true,
       });
       return;
@@ -1444,7 +1458,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     if (result.kind === "pending") {
       const hours = formatHoursRemaining(result.readyAt, Date.now());
       await ctx.answerCallbackQuery({
-        text: `PIN reset requested. Complete in ~${hours}. The old PIN still works during the cooldown.`,
+        text: TOAST_PIN_RESET_REQUESTED.English(hours),
         show_alert: true,
       });
       return;
@@ -1510,7 +1524,7 @@ export const registerWalletCommand = (bot: Bot<AppContext>): void => {
     }
     const hours = formatHoursRemaining(result.readyAt, Date.now());
     await ctx.answerCallbackQuery({
-      text: `Disable requested — completes in ~${hours}. Tap the lock button again to revoke.`,
+      text: TOAST_LOCK_DISABLE_REQUESTED.English(hours),
       show_alert: true,
     });
   });

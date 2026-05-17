@@ -5,8 +5,11 @@ import type {
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
 import {
+  POSITIONS_BUY_TICKER_BUTTON,
   POSITIONS_NO_OPEN_POSITIONS_REPLY,
   POSITIONS_REALISED_POS_HEADER,
+  POSITIONS_SELL_TICKER_BUTTON,
+  REFRESH_BUTTON_TEXT,
 } from "./i18n.js";
 import { backHomeRow } from "./nav.js";
 
@@ -475,14 +478,14 @@ export const buildPositionsPageKeyboard = (
     const label = truncateTickerForButton(action.ticker);
     rows.push([
       {
-        text: `Buy ${label}`,
+        text: POSITIONS_BUY_TICKER_BUTTON.English(label),
         callback_data: encodeCallback(
           POSITIONS_BUY_CALLBACK_CMD,
           action.token,
         ),
       },
       {
-        text: `Sell ${label}`,
+        text: POSITIONS_SELL_TICKER_BUTTON.English(label),
         callback_data: encodeCallback(
           POSITIONS_SELL_CALLBACK_CMD,
           action.token,
@@ -523,7 +526,7 @@ export const buildPositionsPageKeyboard = (
 
   rows.push([
     {
-      text: "🔄 Refresh",
+      text: REFRESH_BUTTON_TEXT.English,
       callback_data: encodeCallback(
         POSITIONS_REFRESH_CALLBACK_CMD,
         String(view.openPage),
