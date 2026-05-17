@@ -6,6 +6,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 
+import { applyGraduationRatchet } from "./graduationRatchet";
 import { useWallet } from "./useWallet";
 import {
   applyTokenOverride,
@@ -149,12 +150,22 @@ export function useToken(address: string | undefined) {
   );
 
   const data = useMemo(() => {
-    if (!query.data || !override) return query.data;
-    return applyTokenOverride(query.data, override);
+    if (!query.data) return query.data;
+    // Pin the graduated lifecycle before any other transform: the
+    // ratchet protects against the API's degraded path silently
+    // flipping a previously-graduated token back to `status: "curve"`
+    // (the on-chain `Bonding.TokenGraduated` event has no inverse, so
+    // any such response is a transient data error — see
+    // `graduationRatchet.ts`). Running the ratchet *first* means any
+    // dev override layered on top still wins for QA flows that
+    // explicitly want to inspect a non-graduated lens.
+    const ratcheted = applyGraduationRatchet(query.data);
+    if (!override) return ratcheted;
+    return applyTokenOverride(ratcheted, override);
   }, [query.data, override]);
 
-  // Re-shape the query result with the overridden `data`. We can't just
-  // mutate `query.data` (TanStack Query owns that reference) and
+  // Re-shape the query result with the transformed `data`. We can't
+  // just mutate `query.data` (TanStack Query owns that reference) and
   // returning a fresh object every render is fine — consumers
   // destructure `{ data, isError, isLoading }`, none of which are
   // referentially compared.

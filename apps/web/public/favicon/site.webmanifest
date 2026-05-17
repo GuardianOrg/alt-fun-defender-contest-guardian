@@ -1,0 +1,23 @@
+{
+  "name": "Alt Fun",
+  "short_name": "Alt Fun",
+  "description": "Launch coins backed by Hyperliquid perps. Tokens that move even when nobody trades.",
+  "icons": [
+    {
+      "src": "/favicon/web-app-manifest-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon/web-app-manifest-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "theme_color": "#061e1c",
+  "background_color": "#061e1c",
+  "display": "standalone",
+  "start_url": "/"
+}
