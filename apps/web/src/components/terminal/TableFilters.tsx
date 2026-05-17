@@ -325,6 +325,7 @@ function defaultSortLabel(activeFilter: ReturnType<typeof selectActiveFilter>): 
  */
 function explicitSortLabel(sort: Exclude<TokenSort, "default">): string {
   if (sort === "mcap") return "MCAP";
+  if (sort === "volume24h") return "24H VOLUME";
   return "24H CHANGE";
 }
 
@@ -425,6 +426,23 @@ export default function TableFilters() {
                 >
                   <span>{defaultSortLabel(activeFilter)}</span>
                 </OptionRow>
+                {/* 24H VOLUME is GRADUATED-only: TRENDING's natural
+                 * order is already 24h-volume desc (the `default` row
+                 * above renders that label there), so a duplicate
+                 * "24H VOLUME" row would be confusing. On GRADUATED
+                 * the natural order is `graduatedAt desc`, and this
+                 * row gives the user a way to re-rank the graduated
+                 * cohort by recent activity instead. The wire-level
+                 * mapping is `sort=trending` either way — see
+                 * `tokenService.wireSort`. */}
+                {activeFilter === "graduated" && (
+                  <OptionRow
+                    selected={tokenSort === "volume24h"}
+                    onClick={() => handleSelectSort("volume24h")}
+                  >
+                    <span>{explicitSortLabel("volume24h")}</span>
+                  </OptionRow>
+                )}
                 <OptionRow
                   selected={tokenSort === "mcap"}
                   onClick={() => handleSelectSort("mcap")}

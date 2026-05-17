@@ -142,17 +142,37 @@ export interface TokenTableFiltersInput {
  * Sort axis layered on top of the lifecycle tab. `"default"` means
  * "use the tab's natural order" — on TRENDING that's 24h gross USDC
  * volume desc (`sort=trending` on the wire); on GRADUATED that's
- * `graduatedAt desc` (no `sort` param on the wire). The two explicit
+ * `graduatedAt desc` (no `sort` param on the wire). The explicit
  * values re-rank within the cohort the tab gave us:
  *
  *   - `"mcap"`      — market cap desc, 24h volume tie-break
  *   - `"change24h"` — 24h % change desc, mcap tie-break (nulls sink)
+ *   - `"volume24h"` — 24h gross USDC volume desc, mcap tie-break
+ *                     (same wire mapping as `sort=trending`; surfaced
+ *                     as a distinct client value so the GRADUATED tab
+ *                     can override its `graduatedAt desc` default with
+ *                     a 24h-volume re-rank)
  *
  * Only the TRENDING and GRADUATED tabs expose this control in the UI
  * (see `TableFilters`). NEW + GRADUATING keep their natural ordering;
  * `tokenSort` is ignored on those tabs by `filterToApiOptions`.
  */
-export type TokenSort = "default" | "mcap" | "change24h";
+export type TokenSort = "default" | "mcap" | "change24h" | "volume24h";
+
+/**
+ * Map a client-side explicit `TokenSort` to the matching wire-level
+ * `sort=` value the API understands (see
+ * `apps/api/src/routes/tokens/list.ts`'s `SortMode`). `volume24h` is a
+ * UI-only label for the same 24h-volume-desc ordering the API exposes
+ * as `sort=trending` — a single wire endpoint covers both the TRENDING
+ * default and the explicit GRADUATED re-rank.
+ */
+function wireSort(
+  sort: Exclude<TokenSort, "default">,
+): "trending" | "mcap" | "change24h" {
+  if (sort === "volume24h") return "trending";
+  return sort;
+}
 
 export interface ITokenService {
   getTokens(
@@ -226,9 +246,14 @@ function filterToApiOptions(
         // semantics. `"default"` stays on the explicit `sort=trending`
         // value (not absence) because absence would make the API fall
         // through to its DB-first `createdAt desc` path — different
-        // from what TRENDING wants.
+        // from what TRENDING wants. `"volume24h"` resolves to the
+        // same `sort=trending` wire value as `"default"` here (TRENDING
+        // is already 24h-volume-desc by construction); the dropdown
+        // doesn't expose `volume24h` as a separate row on TRENDING for
+        // that reason, but if Redux carries it across a tab switch we
+        // still send the right param.
         if (sort === "default") return { sort: "trending" };
-        return { sort };
+        return { sort: wireSort(sort) };
       case "new":
         // Default API sort is `createdAt desc` — exactly what NEW
         // wants. Sort dropdown is hidden on this tab; ignore any value.
@@ -239,12 +264,15 @@ function filterToApiOptions(
         return { status: "graduating" };
       case "graduated":
         // GRADUATED default = Ponder's `graduatedAt desc` (no `sort`
-        // param). Any explicit override (mcap / change24h) gets
-        // forwarded — the API enriches the full graduated cohort and
-        // re-ranks by that key. `"default"` here means "no override",
-        // which is the absence path.
+        // param). Any explicit override (mcap / change24h / volume24h)
+        // gets forwarded — the API enriches the full graduated cohort
+        // and re-ranks by that key. `volume24h` is mapped to the
+        // wire-level `sort=trending` (same 24h-volume-desc ordering the
+        // API uses for TRENDING) so the graduated cohort can be
+        // re-ranked by recent activity. `"default"` here means
+        // "no override", which is the absence path.
         if (sort === "default") return { status: "graduated" };
-        return { status: "graduated", sort };
+        return { status: "graduated", sort: wireSort(sort) };
     }
   })();
   // Spread the user-selected facets in, dropping `undefined` values so the
