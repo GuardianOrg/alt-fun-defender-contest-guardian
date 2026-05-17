@@ -15,7 +15,7 @@ import {
   PIN_VERIFY_PROMPT,
   PIN_WRONG_RETRY_REPLY,
 } from "./i18n.js";
-import { backHomeMarkup } from "./nav.js";
+import { backHomeMarkup, type MessageRef, safeEditMessageById } from "./nav.js";
 import { PinManager } from "./pin.js";
 import {
   sweepWorkflow,
@@ -61,21 +61,55 @@ export const formatHoursRemaining = (
 };
 
 /**
+ * Edit `origin` in place to the given prompt with the standard
+ * back/home keyboard. Returns true when the edit landed (or the
+ * bubble already showed exactly that copy), false when the bubble is
+ * gone / unsendable and the caller should fall back to a fresh reply.
+ * The fallback is shared across every wallet wizard so the
+ * "tap-fires-fresh-prompt-below-the-panel" regression doesn't return
+ * piecemeal.
+ */
+const tryEditOriginPrompt = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  origin: MessageRef,
+  prompt: string,
+): Promise<boolean> =>
+  conversation.external((outside) =>
+    safeEditMessageById(outside, origin, wrap(ctx, prompt), {
+      reply_markup: backHomeMarkup(),
+    }),
+  );
+
+/**
  * Ask + confirm a new 6-digit PIN. Returns the validated PIN string
  * on success. Each PIN message the user sends is swept out of chat
  * history immediately; bot prompts are tracked on the workflow stack
  * so the conversation can sweep them on exit.
+ *
+ * When `origin` is supplied (a /wallet panel bubble the user tapped
+ * to enter the wizard), the first prompt edits that bubble in place
+ * instead of dropping a fresh message below it. Subsequent retries
+ * remain as fresh tracked prompts — they're cleaned up by the
+ * conversation's exit sweep alongside the user's deleted PIN replies.
  */
 export const askNewPin = async (
   conversation: Conversation<AppContext, AppContext>,
   ctx: AppContext,
   chatId: number,
   prompt: string,
+  origin?: MessageRef,
 ): Promise<string> => {
-  const askMsg = await ctx.reply(wrap(ctx, prompt), {
-    reply_markup: backHomeMarkup(),
-  });
-  await trackWorkflowMessage(conversation, askMsg.message_id);
+  let editedOrigin = false;
+  if (origin) {
+    editedOrigin = await tryEditOriginPrompt(conversation, ctx, origin, prompt);
+  }
+  if (!editedOrigin) {
+    const askMsg = await ctx.reply(wrap(ctx, prompt), {
+      reply_markup: backHomeMarkup(),
+    });
+    await trackWorkflowMessage(conversation, askMsg.message_id);
+  }
 
   let candidate: string | null = null;
   while (candidate === null) {
@@ -132,12 +166,19 @@ export const verifyExistingPin = async (
   userId: number,
   chatId: number,
   actionLabel: string,
+  origin?: MessageRef,
 ): Promise<boolean> => {
-  const askMsg = await ctx.reply(
-    wrap(ctx, PIN_VERIFY_PROMPT.English(actionLabel)),
-    { reply_markup: backHomeMarkup() },
-  );
-  await trackWorkflowMessage(conversation, askMsg.message_id);
+  let editedOrigin = false;
+  const prompt = PIN_VERIFY_PROMPT.English(actionLabel);
+  if (origin) {
+    editedOrigin = await tryEditOriginPrompt(conversation, ctx, origin, prompt);
+  }
+  if (!editedOrigin) {
+    const askMsg = await ctx.reply(wrap(ctx, prompt), {
+      reply_markup: backHomeMarkup(),
+    });
+    await trackWorkflowMessage(conversation, askMsg.message_id);
+  }
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
