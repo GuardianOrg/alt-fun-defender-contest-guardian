@@ -449,7 +449,7 @@ describe("/track command", () => {
     expect(String(edit!.body.text)).toMatch(/Token not found|contract address/i);
   });
 
-  it("aborts (not loops) with the outage copy when the token API is 503", async () => {
+  it("aborts (not loops) with the outage copy + back/home row when the token API is 503", async () => {
     const h = harness();
     mockApi(fetchSpy);
 
@@ -463,6 +463,15 @@ describe("/track command", () => {
     const sends = calls.filter((c) => c.url.includes("/sendMessage"));
     expect(sends).toHaveLength(1);
     expect(String(sends[0]!.body.text)).toMatch(/unavailable|try again/i);
+    // Outage replies must carry the global [← Back] [🏠 Home] row so
+    // the user has a tappable exit instead of needing to retype /start.
+    const markup = (sends[0]!.body as { reply_markup?: unknown })
+      .reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup?.inline_keyboard).toBeDefined();
+    const lastRow = markup!.inline_keyboard[markup!.inline_keyboard.length - 1]!;
+    expect(lastRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("merges chart + token detail into one sendPhoto when the chart renders", async () => {

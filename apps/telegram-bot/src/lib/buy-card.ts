@@ -9,6 +9,7 @@ import {
 import { wrapWithCtxPhrase } from "./anti-phishing.js";
 import { extractTokenAddress, fetchToken } from "./api.js";
 import { logger } from "./logger.js";
+import { backHomeRow } from "./nav.js";
 import { fetchUsdcBalance } from "./rpc.js";
 import { renderBuyTokenCardText } from "./token-card.js";
 import { WalletManager } from "./wallet.js";
@@ -176,10 +177,13 @@ export const showBuyCardForAddress = async (
     ) {
       await finaliseBuyCard(ctx, placeholder, TOKEN_NOT_FOUND_HTML, {
         link_preview_options: { is_disabled: true },
+        reply_markup: { inline_keyboard: [backHomeRow()] },
       });
       return;
     }
-    await finaliseBuyCard(ctx, placeholder, API_UNAVAILABLE);
+    await finaliseBuyCard(ctx, placeholder, API_UNAVAILABLE, {
+      reply_markup: { inline_keyboard: [backHomeRow()] },
+    });
     return;
   }
 

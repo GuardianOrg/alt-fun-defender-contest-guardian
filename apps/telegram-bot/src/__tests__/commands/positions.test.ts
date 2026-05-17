@@ -327,7 +327,7 @@ describe("/positions", () => {
     expect(sent[0]!.text).toContain("?start=track_");
   });
 
-  it("replies with a degraded-data message when the API returns 503", async () => {
+  it("replies with a degraded-data message + back/home row when the API returns 503", async () => {
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("https://api.test.local")) {
@@ -342,6 +342,14 @@ describe("/positions", () => {
     expect(sent[0]!.text.toLowerCase()).toContain(
       "data temporarily unavailable",
     );
+    // Users land on the outage reply with no other affordance — without
+    // a [← Back] [🏠 Home] row they have to retype /start to escape.
+    const markup = sent[0]!.reply_markup as
+      | { inline_keyboard: { text: string; callback_data: string }[][] }
+      | undefined;
+    expect(markup?.inline_keyboard).toBeDefined();
+    const lastRow = markup!.inline_keyboard[markup!.inline_keyboard.length - 1]!;
+    expect(lastRow.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
   });
 
   it("makes exactly one upstream request and forwards the bot X-API-Key", async () => {

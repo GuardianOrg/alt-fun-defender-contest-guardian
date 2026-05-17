@@ -404,7 +404,7 @@ const sellLookupConversation = async (
         continue;
       }
       // API unavailable — abort per AGENTS.md Error Handling
-      await msgCtx.reply(API_UNAVAILABLE);
+      await replyWithNav(msgCtx, API_UNAVAILABLE);
       await sweepWorkflow(conversation);
       return;
     }
@@ -588,7 +588,7 @@ const runPercentSell = async (
   ]);
 
   if (!tokenResult.ok) {
-    await msgCtx.reply(API_UNAVAILABLE);
+    await replyWithNav(msgCtx, API_UNAVAILABLE);
     return { stagedFinal: false };
   }
 

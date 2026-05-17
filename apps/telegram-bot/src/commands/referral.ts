@@ -27,6 +27,7 @@ import {
   backHomeRow,
   editToSubmenu,
   type MessageRef,
+  replyWithNav,
   safeEditMessageById,
 } from "../lib/nav.js";
 import { formatUsdc } from "../lib/format.js";
@@ -319,7 +320,8 @@ const sendReferral = async (
     ctx.session.antiPhishingPhrase,
   );
   if (!result.ok) {
-    await ctx.reply(
+    await replyWithNav(
+      ctx,
       result.kind === "no_wallet" ? NO_WALLET_REPLY : OUTAGE_REPLY,
     );
     return;
