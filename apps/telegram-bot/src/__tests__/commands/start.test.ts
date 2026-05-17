@@ -163,6 +163,41 @@ describe("/start command", () => {
     expect(del).toHaveLength(0);
   });
 
+  it("/start clears any prior nav stack so Back from a later sub-screen cannot pop into a stale parent", async () => {
+    // /start is the home entry point: the user is being re-seated on
+    // the welcome screen, so every snapshot left over from a previous
+    // navigation flow is now meaningless. Without this clear, after
+    // [/start → submenu] a Back tap would pop a screen the user has
+    // long since moved away from.
+    const h = harnessWithRpc();
+    mockBoth(fetchSpy);
+    await h.kv.put(
+      "session:7",
+      JSON.stringify({
+        slippageBps: 1000,
+        defaultBuyUsdc: 20,
+        degenMode: true,
+        navStack: [
+          {
+            text: "stale screen",
+            keyboard: [[{ text: "x", callback_data: "x" }]],
+          },
+          {
+            text: "another stale",
+            keyboard: [[{ text: "y", callback_data: "y" }]],
+          },
+        ],
+      }),
+    );
+
+    await h.run(startUpdate(7));
+
+    const raw = (await h.kv.get("session:7")) as string | null;
+    expect(raw).not.toBeNull();
+    const session = JSON.parse(raw!) as { navStack?: unknown[] };
+    expect(session.navStack ?? []).toEqual([]);
+  });
+
   it("auto-creates a wallet on first interaction and renders address + balance", async () => {
     const h = harnessWithRpc();
     // 2.50 USDC (6 decimals).

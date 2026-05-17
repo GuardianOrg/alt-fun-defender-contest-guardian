@@ -32,6 +32,7 @@ import {
   t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
+import { clearNavStack } from "../lib/nav.js";
 import {
   parseActionStartParam,
   parseStartParam,
@@ -257,6 +258,15 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       return;
     }
     const userId = ctx.from.id;
+    // /start is the home entry point — every prior nav snapshot is now
+    // stale (the user is being re-seated on the welcome screen, not
+    // returning to whatever sub-menu they were in before). Clearing
+    // here keeps a later Back tap from popping into a screen that no
+    // longer matches the user's context. The deeplink-action branches
+    // below render straight into a token card without going through
+    // the welcome view, but they are equally fresh entry points and
+    // must not inherit a stale stack either.
+    clearNavStack(ctx.session);
     // Username → userId mapping refreshes on every /start so a sharer
     // who changes their Telegram handle later still resolves cleanly
     // through `ref_<username>` deeplinks. No-op when the user has no
