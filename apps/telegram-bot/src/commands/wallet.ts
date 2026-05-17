@@ -1104,15 +1104,17 @@ const changePinConversation = async (
     await sweepWorkflow(conversation);
     return;
   }
+  // Re-pass `origin` so the new-PIN prompt edits the same panel
+  // bubble that `verifyExistingPin` already transitioned into the
+  // verify prompt — otherwise the prompt drops as a fresh reply
+  // below a stale "Send your current 6-digit PIN" bubble.
   const newPin = await askNewPin(
     conversation,
     ctx,
     chatId,
     WALLET_CHANGE_PIN_PROMPT.English,
+    origin,
   );
-  // No origin re-pass: verifyExistingPin already consumed the panel
-  // bubble for the verify prompt; the new-PIN prompt lands fresh and
-  // the conversation's exit sweep clears it.
   await conversation.external((outside) =>
     buildPinManager(outside.env).setPin(userId, newPin),
   );
