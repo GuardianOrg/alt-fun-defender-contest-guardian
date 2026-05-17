@@ -762,7 +762,7 @@ const pickKnownRewardsWalletConversation = async (
     ),
   );
   if (!identity) {
-    await ctx.reply(NO_WALLET_REPLY);
+    await showPrompt(conversation, ctx, origin, NO_WALLET_REPLY);
     await sweepWorkflow(conversation);
     return;
   }
@@ -771,10 +771,11 @@ const pickKnownRewardsWalletConversation = async (
     buildManager(outside.env).getWallet(userId, walletId),
   );
   if (!picked) {
-    await ctx.reply(
-      wrap(ctx,
-        "That wallet is no longer available. Re-run /referral → Change rewards wallet.",
-      ),
+    await showPrompt(
+      conversation,
+      ctx,
+      origin,
+      "That wallet is no longer available. Re-run /referral → Change rewards wallet.",
     );
     await sweepWorkflow(conversation);
     return;
@@ -791,13 +792,13 @@ const pickKnownRewardsWalletConversation = async (
     setBotRewardsWallet(outside.env, identity, newRewardsWallet),
   );
   if (!result.ok) {
-    await ctx.reply(
-      wrap(ctx,
-        result.kind === "unavailable"
-          ? "API temporarily unavailable — try again in a moment."
-          : "Could not update rewards wallet. Try again later.",
-      ),
-    );
+    if (result.kind === "unavailable") {
+      await showPrompt(conversation, ctx, origin, OUTAGE_REPLY);
+    } else {
+      await ctx.reply(
+        wrap(ctx, "Could not update rewards wallet. Try again later."),
+      );
+    }
     await sweepWorkflow(conversation);
     return;
   }
