@@ -179,6 +179,12 @@ export const SETTINGS_SLIPPAGE_HEADER_BUTTON = {
 export const SETTINGS_EXECUTION_SPEED_HEADER_BUTTON = {
   English: "-- Execution Speed --",
 } as const;
+export const SETTINGS_LANGUAGE_HEADER_BUTTON = {
+  English: "-- Language --",
+} as const;
+export const SETTINGS_LANGUAGE_ENGLISH_BUTTON = {
+  English: "English",
+} as const;
 export const SETTINGS_CUSTOM_PERCENT_BUTTON = { English: "Custom %" } as const;
 export const SETTINGS_BUY_SETTINGS_BUTTON = {
   English: "Buy Settings",

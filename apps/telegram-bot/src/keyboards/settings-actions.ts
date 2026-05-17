@@ -7,6 +7,8 @@ import {
   SETTINGS_DEGEN_MODE_OFF_BUTTON,
   SETTINGS_DEGEN_MODE_ON_BUTTON,
   SETTINGS_EXECUTION_SPEED_HEADER_BUTTON,
+  SETTINGS_LANGUAGE_ENGLISH_BUTTON,
+  SETTINGS_LANGUAGE_HEADER_BUTTON,
   SETTINGS_SELL_PRESET_BUTTON,
   SETTINGS_SELL_SETTINGS_BUTTON,
   SETTINGS_SET_PHRASE_BUTTON,
@@ -171,11 +173,12 @@ export const decodeSellPresetSlot = (data: string): number | null => {
  *   Row 2: slippage presets (current selection marked) + custom
  *   Row 3: `-- Execution Speed --` section header (inert)
  *   Row 4: Lightning / Fast / Eco speed presets (current selection marked)
- *   Row 5: Buy Settings → opens the 5-slot sub-menu (issue #818)
- *   Row 6: Sell Settings → opens the 5-slot sub-menu
- *   Row 7: anti-phishing phrase row
- *   Row 8: degen mode toggle
- *   Row 9: Back / Home
+ *   Row 5: `-- Language --` section header (inert)
+ *   Row 6: language presets (English-only in v1, marked active)
+ *   Row 7: Buy Settings + Sell Settings → opens the 5-slot sub-menus (issue #818)
+ *   Row 8: anti-phishing phrase row
+ *   Row 9: degen mode toggle
+ *   Row 10: Back / Home
  */
 export const buildSettingsKeyboard = (
   status: SettingsStatus,
@@ -233,6 +236,18 @@ export const buildSettingsKeyboard = (
       },
     ],
     speedRow,
+    [
+      {
+        text: SETTINGS_LANGUAGE_HEADER_BUTTON.English,
+        callback_data: SETTINGS_CALLBACK.noop,
+      },
+    ],
+    [
+      {
+        text: `• ${SETTINGS_LANGUAGE_ENGLISH_BUTTON.English} •`,
+        callback_data: SETTINGS_CALLBACK.noop,
+      },
+    ],
     [
       {
         text: SETTINGS_BUY_SETTINGS_BUTTON.English,
