@@ -732,4 +732,59 @@ describe("Change rewards wallet wizard", () => {
     );
     expect(postCall).toBeUndefined();
   });
+
+  it("deletes the user's address message before showing the PIN prompt", async () => {
+    // Regression: the wizard edits the origin /referral bubble
+    // in-place from "send address" → "send PIN". Before this fix the
+    // user's typed address still hovered in the chat below the
+    // (now-PIN) prompt, leaving stale state under a prompt that no
+    // longer matched. The fix sweeps the user's reply the same way
+    // PIN replies are swept.
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 60,
+      }),
+    );
+    const addressMessageId = 50 + 61; // mirrors textUpdate's id formula
+    await h.run(
+      textUpdate("0x1111111111111111111111111111111111111111", 61),
+    );
+
+    const deleteCall = capture(fetchSpy).find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        c.body.message_id === addressMessageId,
+    );
+    expect(deleteCall).toBeDefined();
+  });
+
+  it("deletes the burn-address 'confirm' reply before continuing", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    await wm.createWallet(7, "main");
+    mockApi(fetchSpy, "0xabcdef0123456789abcdef0123456789abcdef01");
+
+    await h.run(
+      callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", {
+        updateId: 70,
+      }),
+    );
+    await h.run(
+      textUpdate("0x0000000000000000000000000000000000000000", 71),
+    );
+    const confirmMessageId = 50 + 72;
+    await h.run(textUpdate("confirm", 72));
+
+    const deleteCall = capture(fetchSpy).find(
+      (c) =>
+        c.url.includes("/deleteMessage") &&
+        c.body.message_id === confirmMessageId,
+    );
+    expect(deleteCall).toBeDefined();
+  });
 });
