@@ -220,6 +220,9 @@ export const getReferralIdentityWallet = async (
 /**
  * Resolve a referral deeplink param to the referrer's rewards-wallet
  * address. Returns `null` when:
+ *   - The deeplink resolves back to the calling user (self-referral —
+ *     blocked, so users can't farm the referrer share of their own bot
+ *     fee).
  *   - The username mapping has no entry (the referrer never ran /start
  *     under that handle).
  *   - The referrer has no resolvable identity wallet (they have not
@@ -243,12 +246,19 @@ export const resolveReferrer = async (
   env: Env,
   wm: WalletManager,
   param: StartParam,
+  selfUserId: number,
 ): Promise<Address | null> => {
   const referrerUserId =
     param.kind === "userId"
       ? param.userId
       : await readUserIdForUsername(env.WALLET_KV, param.username);
   if (referrerUserId === null) return null;
+  // Self-referral guard: a user pasting their own `ref_<userId>` /
+  // `ref_<username>` deeplink into their first /start would otherwise
+  // pin themselves as their own referrer and farm the 0.1% bot-fee
+  // referrer share on every subsequent trade. Drop the deeplink
+  // silently — same outcome as a bare /start.
+  if (referrerUserId === selfUserId) return null;
 
   const identity = await getReferralIdentityWallet(env, wm, referrerUserId);
   if (!identity) return null;

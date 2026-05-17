@@ -346,14 +346,22 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     }
 
     if (isFirstStart) {
-      // Resolve referrer AFTER the wallet exists so a self-referral
-      // (`ref_<own userId>`) maps to the new user's own active wallet
-      // — the spec allows self-referral and on day one their rewards
-      // wallet equals the custodial wallet just minted above.
+      // Referrer is captured only on the very first /start. If this
+      // first call has no deeplink, `referrer` stays null forever —
+      // every later /start short-circuits via `isFirstStart === false`
+      // above, so a user who onboarded bare can't retroactively bind
+      // themselves to a referrer. `resolveReferrer` also blocks the
+      // self-referral case (`ref_<own userId/username>`), so a user
+      // can't farm the referrer cut of their own bot fee.
       const param = parseStartParam(rawParam);
       let referrer: Address | null = null;
       if (param !== null) {
-        referrer = await resolveReferrer(ctx.env, buildManager(ctx.env), param);
+        referrer = await resolveReferrer(
+          ctx.env,
+          buildManager(ctx.env),
+          param,
+          userId,
+        );
       }
       // Default rewards wallet is set unconditionally on first /start
       // — whether or not a deeplink came in. Guarantees /referral

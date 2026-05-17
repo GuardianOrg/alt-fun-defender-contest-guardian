@@ -877,7 +877,7 @@ export const HELP_REFERRALS_HTML = {
     "Defaults to your active custodial bot wallet. You can change it via /referral → Change rewards wallet (PIN-gated). Changing it does <b>not</b> redirect already-attributed referees — past referees keep paying out to the previously-set address forever by on-chain attribution. Set this to a long-lived address you control (hardware wallet or main custodial wallet) on day one.",
     "",
     "<b>Referrer attribution</b>",
-    "Attribution is recorded once, on a referee's first /start, and is lifetime by construction — every subsequent trade pays the resolved rewards wallet forever. Self-referral is allowed (no warning) and just lowers your effective bot fee from 0.5% to 0.4%.",
+    "Attribution is recorded once, on a referee's first /start, and is lifetime by construction — every subsequent trade pays the resolved rewards wallet forever. If the first /start has no referral deeplink, no referrer is ever recorded for that user — a later /start with a deeplink cannot retroactively add one. Self-referral (using your own deeplink) is blocked: the deeplink is dropped silently and no referrer is recorded.",
   ].join("\n"),
   SimplifiedChinese: [
     HELP_HEADER_PLACEHOLDER,
@@ -890,7 +890,7 @@ export const HELP_REFERRALS_HTML = {
     "默认为您的活动托管机器人钱包。您可通过 /referral → 修改奖励钱包（需 PIN 码）进行修改。修改奖励钱包<b>不会</b>重新分配已归属的被推荐人——历史被推荐人将根据链上归属继续永久向先前设置的地址支付。请在第一天就将其设置为您长期持有的地址（硬件钱包或主托管钱包）。",
     "",
     "<b>推荐人归属</b>",
-    "归属仅在被推荐人首次 /start 时记录一次，按设计为终身有效——之后所有交易均永久向解析后的奖励钱包支付。允许自我推荐（无警告），其作用仅为将您的有效机器人费用从 0.5% 降至 0.4%。",
+    "归属仅在被推荐人首次 /start 时记录一次，按设计为终身有效——之后所有交易均永久向解析后的奖励钱包支付。若首次 /start 未带推荐链接，则该用户将永远没有推荐人——之后再带推荐链接的 /start 也无法追加。禁止自我推荐（使用自己的推荐链接）：该链接将被静默丢弃，不记录推荐人。",
   ].join("\n"),
 } as const;
 

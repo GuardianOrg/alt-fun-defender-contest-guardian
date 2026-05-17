@@ -960,72 +960,67 @@ describe("/start referral onboarding", () => {
     expect(profile!.referrer).toBeNull();
   });
 
-  it("self-referral via ref_<own userId> binds the user's own wallet as the referrer", async () => {
+  it("blocks self-referral via ref_<own userId> — profile.referrer stays null", async () => {
     const h = harness();
-    // No pre-existing wallet for user 7; the bot auto-creates during
-    // /start. After creation, the api reports the user's own wallet
-    // as their default rewardsWallet — so self-referral resolves to
-    // that same address (spec: self-referral allowed, lowers effective
-    // bot fee from 0.5% → 0.4%).
-    fetchSpy.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.startsWith("https://api.telegram.org")) {
-        return new Response(
-          JSON.stringify({ ok: true, result: true }),
-          { status: 200 },
-        );
-      }
-      if (url === RPC_URL) {
-        return new Response(
-          JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0" }),
-          { status: 200 },
-        );
-      }
-      if (url.startsWith("https://api.test.local")) {
-        if (
-          url.endsWith("/rewards-wallet") &&
-          (init?.method ?? "GET") === "POST"
-        ) {
-          const body = JSON.parse(String(init?.body ?? "{}")) as {
-            rewardsWallet?: string;
-          };
-          return new Response(
-            JSON.stringify({
-              data: { rewardsWallet: (body.rewardsWallet ?? "").toLowerCase() },
-            }),
-            { status: 200 },
-          );
-        }
-        const match =
-          /\/api\/v1\/bot\/referrals-v2\/(0x[0-9a-fA-F]{40})$/.exec(url);
-        if (match) {
-          // Echo: api defaults rewardsWallet to the wallet address
-          // when no record is present, which is exactly what the
-          // self-referral path relies on.
-          return new Response(
-            JSON.stringify({
-              data: {
-                rewardsWallet: match[1]!.toLowerCase(),
-                referredCount: 0,
-                lifetimeEarnedUsdc: "0",
-                badPaymentCount: 0,
-                attributionLossCount: 0,
-              },
-            }),
-            { status: 200 },
-          );
-        }
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    });
+    // The fee router has no on-chain self-referral guard, so a user
+    // pasting their own deeplink into their first /start would
+    // otherwise farm the 0.1% referrer share of their own bot fee on
+    // every subsequent trade. `resolveReferrer` drops the deeplink
+    // when the referrerUserId equals the caller's own userId, and the
+    // outcome is byte-identical to a bare /start.
+    mockAll();
 
     await h.run(startUpdate(7, "private", { param: "ref_7" }));
 
-    const wallet = (await walletManager(h).getActive(7))!;
     const profile = await profileFor(h, 7);
-    expect(profile!.referrer?.toLowerCase()).toBe(
-      wallet.address.toLowerCase(),
+    expect(profile!.referrer).toBeNull();
+  });
+
+  it("blocks self-referral via ref_<own username> — profile.referrer stays null", async () => {
+    const h = harness();
+    // Same guard via the username path: the username mapping written
+    // by `recordUsername` at the top of /start resolves the handle
+    // back to the caller's own userId, which `resolveReferrer` then
+    // collapses to a self-referral and drops.
+    mockAll();
+
+    await h.run(
+      startUpdate(7, "private", {
+        param: "ref_AdaSharer",
+        username: "AdaSharer",
+      }),
     );
+
+    const profile = await profileFor(h, 7);
+    expect(profile!.referrer).toBeNull();
+  });
+
+  it("does not allow late attribution — bare first /start permanently locks referrer to null", async () => {
+    // Spec: if the user's first /start carries no deeplink, no
+    // referrer can ever be recorded — the second /start short-
+    // circuits the entire isFirstStart branch in commands/start.ts.
+    // This prevents users from shopping for a referrer after they've
+    // already onboarded.
+    const h = harness();
+    const wm = walletManager(h);
+    const refA = await wm.createWallet(42, "refA");
+    mockAll({
+      referralStatsByWallet: {
+        [refA.address.toLowerCase()]: {
+          rewardsWallet: refA.address.toLowerCase(),
+        },
+      },
+    });
+
+    // First /start: bare, so referrer stays null.
+    await h.run(startUpdate(7));
+    const firstProfile = await profileFor(h, 7);
+    expect(firstProfile!.referrer).toBeNull();
+
+    // Second /start with a valid deeplink: must NOT bind referrer.
+    await h.run(startUpdate(7, "private", { param: "ref_42" }));
+    const secondProfile = await profileFor(h, 7);
+    expect(secondProfile!.referrer).toBeNull();
   });
 
   it("ref_<userId> resolves via referrer's identity wallet, ignoring later setActive flips", async () => {
