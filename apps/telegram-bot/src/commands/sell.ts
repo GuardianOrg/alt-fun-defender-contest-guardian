@@ -30,6 +30,12 @@ import {
   trackingPageUrl,
 } from "../lib/execute.js";
 import { escapeHtml } from "../lib/format.js";
+import {
+  OUTAGE_REPLY,
+  SELL_BUFFER_BELOW_MIN_HTML,
+  TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML,
+  TOKEN_LOOKUP_PROMPT_HTML,
+} from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
   backHomeMarkup,
@@ -85,24 +91,12 @@ const BUFFER_REQUIRED_FACTOR = 1.01;
  */
 const BUFFER_CAP_SAFETY = 0.99;
 
-const PROMPT_HTML =
-  "Enter the token contract address or paste a link from alt.fun or hyperevmscan.\n\n" +
-  "Examples:\n" +
-  "• <code>0x1234…abcd</code>\n" +
-  "• <code>https://alt.fun/0x1234…</code>\n" +
-  "• <code>https://hyperevmscan.io/token/0x1234…</code>\n\n" +
-  "Tap Home to exit.";
+const PROMPT_HTML = TOKEN_LOOKUP_PROMPT_HTML.English;
 
-const TOKEN_NOT_FOUND_HTML =
-  "❌ <b>Token not found.</b>\n\n" +
-  "Make sure you have the correct contract address. You can find it on:\n" +
-  "• <a href=\"https://alt.fun\">alt.fun</a> — tap the token → copy address\n" +
-  "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address\n\n" +
-  "Try again, or tap Home to exit.";
+const TOKEN_NOT_FOUND_HTML = TOKEN_LOOKUP_NOT_FOUND_RETRY_HTML.English;
 
 /** Exact outage copy mandated by AGENTS.md Error Handling table. */
-const API_UNAVAILABLE =
-  "Data temporarily unavailable — try again in a moment.";
+const API_UNAVAILABLE = OUTAGE_REPLY.English;
 
 /**
  * Shown when both the `BotFeeRouter` simulation and the priceUsd
@@ -123,9 +117,7 @@ const PROCEEDS_UNAVAILABLE =
  * transient.
  */
 const BUFFER_BELOW_MIN_HTML = (maxUsd: number): string =>
-  `❌ <b>LT buffer too low to sell.</b>\n\n` +
-  `Max sell right now is ≈$${maxUsd.toFixed(2)}, which is below the $${MIN_USDC_SELL_AMOUNT} minimum. ` +
-  `BounceTech replenishes the buffer in ~10s — try again shortly.`;
+  SELL_BUFFER_BELOW_MIN_HTML.English(maxUsd, MIN_USDC_SELL_AMOUNT);
 
 const safeEditMessageText = async (
   ctx: AppContext,

@@ -8,6 +8,11 @@ import {
 } from "../keyboards/buy-sell-token.js";
 import { wrapWithCtxPhrase } from "./anti-phishing.js";
 import { extractTokenAddress, fetchToken } from "./api.js";
+import {
+  BUY_CARD_LOADING_HTML,
+  OUTAGE_REPLY,
+  TOKEN_NOT_FOUND_HTML as I18N_TOKEN_NOT_FOUND_HTML,
+} from "./i18n.js";
 import { logger } from "./logger.js";
 import { backHomeRow } from "./nav.js";
 import { fetchUsdcBalance } from "./rpc.js";
@@ -18,16 +23,11 @@ const shortAddress = (addr: string): string =>
   addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 
 const buildLoadingText = (addr: string): string =>
-  `⏳ Loading <code>${shortAddress(addr)}</code>…`;
+  BUY_CARD_LOADING_HTML.English(shortAddress(addr));
 
-const TOKEN_NOT_FOUND_HTML =
-  "❌ <b>Token not found.</b>\n\n" +
-  "Make sure you have the correct contract address. You can find it on:\n" +
-  "• <a href=\"https://alt.fun\">alt.fun</a> — tap the token → copy address\n" +
-  "• <a href=\"https://hyperevmscan.io\">hyperevmscan.io</a> — search the token → copy address";
+const TOKEN_NOT_FOUND_HTML = I18N_TOKEN_NOT_FOUND_HTML.English;
 
-const API_UNAVAILABLE =
-  "Data temporarily unavailable — try again in a moment.";
+const API_UNAVAILABLE = OUTAGE_REPLY.English;
 
 /**
  * Best-effort delete of the prior buy card for this chat so the new one

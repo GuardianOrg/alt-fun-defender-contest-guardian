@@ -13,6 +13,11 @@ import {
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
+import {
+  OUTAGE_REPLY,
+  START_NO_USER_REPLY as I18N_START_NO_USER_REPLY,
+  START_NON_PRIVATE_CHAT_REPLY as I18N_START_NON_PRIVATE_CHAT_REPLY,
+} from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
   parseActionStartParam,
@@ -29,11 +34,9 @@ import { formatHype18, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Wallet flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /start.";
+const NON_PRIVATE_CHAT_REPLY = I18N_START_NON_PRIVATE_CHAT_REPLY.English;
 
-const NO_USER_REPLY =
-  "Wallets require a personal Telegram account — this message has no user attached.";
+const NO_USER_REPLY = I18N_START_NO_USER_REPLY.English;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -279,10 +282,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
             "Token not found — make sure the address is correct.",
           );
         } else if (outcome === "unavailable") {
-          await replyWithNav(
-            ctx,
-            "Data temporarily unavailable — try again in a moment.",
-          );
+          await replyWithNav(ctx, OUTAGE_REPLY.English);
         }
       } else {
         await replyWithActionCard(

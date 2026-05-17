@@ -1,3 +1,20 @@
+import {
+  SETTINGS_BUY_PRESET_BUTTON,
+  SETTINGS_BUY_SETTINGS_BUTTON,
+  SETTINGS_CHANGE_PHRASE_BUTTON,
+  SETTINGS_CLEAR_PHRASE_BUTTON,
+  SETTINGS_CUSTOM_PERCENT_BUTTON,
+  SETTINGS_DEGEN_MODE_OFF_BUTTON,
+  SETTINGS_DEGEN_MODE_ON_BUTTON,
+  SETTINGS_EXECUTION_SPEED_HEADER_BUTTON,
+  SETTINGS_SELL_PRESET_BUTTON,
+  SETTINGS_SELL_SETTINGS_BUTTON,
+  SETTINGS_SET_PHRASE_BUTTON,
+  SETTINGS_SLIPPAGE_HEADER_BUTTON,
+  SPEED_PRESET_ECO,
+  SPEED_PRESET_FAST,
+  SPEED_PRESET_LIGHTNING,
+} from "../lib/i18n.js";
 import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
@@ -54,9 +71,9 @@ export interface SpeedPreset {
  * block.
  */
 export const SPEED_PRESETS: readonly SpeedPreset[] = [
-  { label: "Lightning", gwei: 0.5 },
-  { label: "Fast", gwei: 0.15 },
-  { label: "Eco", gwei: 0.1 },
+  { label: SPEED_PRESET_LIGHTNING.English, gwei: 0.5 },
+  { label: SPEED_PRESET_FAST.English, gwei: 0.15 },
+  { label: SPEED_PRESET_ECO.English, gwei: 0.1 },
 ];
 
 /** Gwei values of the three fixed speed presets, in display order. */
@@ -171,7 +188,7 @@ export const buildSettingsKeyboard = (
     callback_data: encodeSlippagePreset(bps),
   }));
   slipRow.push({
-    text: "Custom %",
+    text: SETTINGS_CUSTOM_PERCENT_BUTTON.English,
     callback_data: SETTINGS_CALLBACK.slipCustom,
   });
 
@@ -186,42 +203,52 @@ export const buildSettingsKeyboard = (
     status.antiPhishingPhrase === null
       ? [
           {
-            text: "Set anti-phishing phrase",
+            text: SETTINGS_SET_PHRASE_BUTTON.English,
             callback_data: SETTINGS_CALLBACK.phraseSet,
           },
         ]
       : [
-          { text: "Change phrase", callback_data: SETTINGS_CALLBACK.phraseSet },
           {
-            text: "Clear phrase",
+            text: SETTINGS_CHANGE_PHRASE_BUTTON.English,
+            callback_data: SETTINGS_CALLBACK.phraseSet,
+          },
+          {
+            text: SETTINGS_CLEAR_PHRASE_BUTTON.English,
             callback_data: SETTINGS_CALLBACK.phraseClear,
           },
         ];
 
   return [
-    [{ text: "-- Slippage --", callback_data: SETTINGS_CALLBACK.noop }],
+    [
+      {
+        text: SETTINGS_SLIPPAGE_HEADER_BUTTON.English,
+        callback_data: SETTINGS_CALLBACK.noop,
+      },
+    ],
     slipRow,
     [
       {
-        text: "-- Execution Speed --",
+        text: SETTINGS_EXECUTION_SPEED_HEADER_BUTTON.English,
         callback_data: SETTINGS_CALLBACK.noop,
       },
     ],
     speedRow,
     [
       {
-        text: "Buy Settings",
+        text: SETTINGS_BUY_SETTINGS_BUTTON.English,
         callback_data: SETTINGS_CALLBACK.buySettings,
       },
       {
-        text: "Sell Settings",
+        text: SETTINGS_SELL_SETTINGS_BUTTON.English,
         callback_data: SETTINGS_CALLBACK.sellSettings,
       },
     ],
     phraseRow,
     [
       {
-        text: status.degenMode ? "🟢 Degen mode" : "🔴 Degen mode",
+        text: status.degenMode
+          ? SETTINGS_DEGEN_MODE_ON_BUTTON.English
+          : SETTINGS_DEGEN_MODE_OFF_BUTTON.English,
         callback_data: SETTINGS_CALLBACK.degenToggle,
       },
     ],
@@ -239,7 +266,7 @@ export const buildBuySettingsKeyboard = (
   buyPresetsUsdc: readonly number[],
 ): InlineKeyboard => {
   const buttons = buyPresetsUsdc.map((amount, idx) => ({
-    text: `✏️ ${amount} USDC`,
+    text: SETTINGS_BUY_PRESET_BUTTON.English(amount),
     callback_data: encodeBuyPresetSlot(idx),
   }));
   return [buttons.slice(0, 3), buttons.slice(3), backHomeRow()];
@@ -249,7 +276,7 @@ export const buildSellSettingsKeyboard = (
   sellPresetsPct: readonly number[],
 ): InlineKeyboard => {
   const buttons = sellPresetsPct.map((pct, idx) => ({
-    text: `✏️ ${pct}%`,
+    text: SETTINGS_SELL_PRESET_BUTTON.English(pct),
     callback_data: encodeSellPresetSlot(idx),
   }));
   return [buttons.slice(0, 3), buttons.slice(3), backHomeRow()];

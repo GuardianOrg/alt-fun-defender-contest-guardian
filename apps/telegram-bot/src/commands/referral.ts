@@ -23,6 +23,12 @@ import {
   isOtherSlashCommand,
 } from "../lib/conversation-commands.js";
 import {
+  OUTAGE_REPLY as I18N_OUTAGE_REPLY,
+  REFERRAL_NO_USER_REPLY as I18N_REFERRAL_NO_USER_REPLY,
+  REFERRAL_NO_WALLET_REPLY as I18N_REFERRAL_NO_WALLET_REPLY,
+  REFERRAL_NON_PRIVATE_CHAT_REPLY as I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY,
+} from "../lib/i18n.js";
+import {
   backHomeMarkup,
   backHomeRow,
   editToSubmenu,
@@ -42,17 +48,13 @@ import {
 
 const DEFAULT_BOT_USERNAME = BOT_NAME;
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Referral flows are private-DM only — your wallet address would leak in a group. Open a direct chat with the bot to use /referral.";
+const NON_PRIVATE_CHAT_REPLY = I18N_REFERRAL_NON_PRIVATE_CHAT_REPLY.English;
 
-const NO_USER_REPLY =
-  "Referrals require a personal Telegram account — this message has no user attached.";
+const NO_USER_REPLY = I18N_REFERRAL_NO_USER_REPLY.English;
 
-const NO_WALLET_REPLY =
-  "No active wallet yet — run /start to create one before sharing your referral link.";
+const NO_WALLET_REPLY = I18N_REFERRAL_NO_WALLET_REPLY.English;
 
-const OUTAGE_REPLY =
-  "Data temporarily unavailable — try again in a moment.";
+const OUTAGE_REPLY = I18N_OUTAGE_REPLY.English;
 
 /**
  * Short callback codes for the /referral surface. Prefixed `rf:` so

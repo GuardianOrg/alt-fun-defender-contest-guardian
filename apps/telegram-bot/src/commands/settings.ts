@@ -48,12 +48,14 @@ import {
   sweepWorkflow,
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
+import {
+  SETTINGS_NO_USER_REPLY as I18N_SETTINGS_NO_USER_REPLY,
+  SETTINGS_NON_PRIVATE_CHAT_REPLY as I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY,
+} from "../lib/i18n.js";
 
-const NO_USER_REPLY =
-  "Settings require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
+const NO_USER_REPLY = I18N_SETTINGS_NO_USER_REPLY.English;
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Settings are private-DM only — your slippage and buy defaults should not surface in groups. Open a direct chat with the bot to manage settings.";
+const NON_PRIVATE_CHAT_REPLY = I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY.English;
 
 /**
  * Cap to keep a typo'd "1000%" slippage from blowing past the

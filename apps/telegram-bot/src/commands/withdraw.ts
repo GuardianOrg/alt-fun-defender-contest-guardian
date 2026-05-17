@@ -46,6 +46,14 @@ import {
   type MessageRef,
   safeEditMessageById,
 } from "../lib/nav.js";
+import {
+  WITHDRAW_LOCKED_REPLY as I18N_WITHDRAW_LOCKED_REPLY,
+  WITHDRAW_NO_ACTIVE_WALLET_REPLY as I18N_WITHDRAW_NO_ACTIVE_WALLET_REPLY,
+  WITHDRAW_NO_PIN_REPLY as I18N_WITHDRAW_NO_PIN_REPLY,
+  WITHDRAW_NO_USER_REPLY as I18N_WITHDRAW_NO_USER_REPLY,
+  WITHDRAW_NON_PRIVATE_CHAT_REPLY as I18N_WITHDRAW_NON_PRIVATE_CHAT_REPLY,
+  WITHDRAW_USAGE_HINT_REPLY,
+} from "../lib/i18n.js";
 import { PinManager } from "../lib/pin.js";
 import { fetchNativeBalance, fetchUsdcBalance } from "../lib/rpc.js";
 import { SecurityState } from "../lib/security-state.js";
@@ -65,30 +73,17 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 
-const NO_USER_REPLY =
-  "Withdrawals require a personal Telegram account — this message has no user attached.";
+const NO_USER_REPLY = I18N_WITHDRAW_NO_USER_REPLY.English;
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Withdrawal flows are private-DM only — your wallet address and PIN must not surface in groups. Open a direct chat with the bot to use /withdraw.";
+const NON_PRIVATE_CHAT_REPLY = I18N_WITHDRAW_NON_PRIVATE_CHAT_REPLY.English;
 
-const NO_ACTIVE_WALLET_REPLY =
-  "No active wallet — run /wallet to create or import one before withdrawing.";
+const NO_ACTIVE_WALLET_REPLY = I18N_WITHDRAW_NO_ACTIVE_WALLET_REPLY.English;
 
-const WITHDRAW_LOCKED_REPLY =
-  "Withdrawal lock is on. Disable it in /security first (24-hour cooldown).";
+const WITHDRAW_LOCKED_REPLY = I18N_WITHDRAW_LOCKED_REPLY.English;
 
-const NO_PIN_REPLY =
-  "No PIN set — run /security to set one before withdrawing. The PIN protects withdrawals from a stolen Telegram session.";
+const NO_PIN_REPLY = I18N_WITHDRAW_NO_PIN_REPLY.English;
 
-const USAGE_HINT = [
-  "Usage: /withdraw <asset> <amount> <address>",
-  "",
-  "Examples:",
-  "  /withdraw HYPE 0.1 0xabc…",
-  "  /withdraw USDC 25 0xabc…",
-  "",
-  "Supported assets: HYPE, USDC",
-].join("\n");
+const USAGE_HINT = WITHDRAW_USAGE_HINT_REPLY.English;
 
 /** Match the trade-confirmation window in `lib/execute.ts`. */
 const CONFIRM_WINDOW_MS = 60_000;

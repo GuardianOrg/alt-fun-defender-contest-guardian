@@ -1,6 +1,13 @@
 import { MIN_USDC_BUY_AMOUNT } from "@launchpad/shared";
 
 import { encodeCallback } from "../lib/callbacks.js";
+import {
+  BUY_AMOUNT_BUTTON,
+  BUY_X_USDC_BUTTON,
+  REFRESH_BUTTON_TEXT,
+  SELL_PERCENT_BUTTON,
+  SELL_X_PERCENT_BUTTON,
+} from "../lib/i18n.js";
 import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
 
@@ -145,7 +152,7 @@ const presetButtonsBuy = (
   presets: readonly number[],
 ): Button[] =>
   presets.map((amount) => ({
-    text: `Buy ${amount} USDC`,
+    text: BUY_AMOUNT_BUTTON.English(amount),
     callback_data: encodeCallback(
       BUY_TOKEN_CMD.buyPreset,
       tokenAddress,
@@ -158,7 +165,7 @@ const presetButtonsSell = (
   presets: readonly number[],
 ): Button[] =>
   presets.map((pct) => ({
-    text: `Sell ${pct}%`,
+    text: SELL_PERCENT_BUTTON.English(pct),
     callback_data: encodeCallback(
       SELL_TOKEN_CMD.sellPercent,
       tokenAddress,
@@ -171,12 +178,12 @@ export const buildBuyTokenKeyboard = (
   buyPresetsUsdc: readonly number[],
 ): InlineKeyboard => [
   ...packRowsOfTwo(presetButtonsBuy(tokenAddress, buyPresetsUsdc), {
-    text: "Buy X USDC",
+    text: BUY_X_USDC_BUTTON.English,
     callback_data: encodeCallback(BUY_TOKEN_CMD.buyCustom, tokenAddress),
   }),
   [
     {
-      text: "🔄 Refresh",
+      text: REFRESH_BUTTON_TEXT.English,
       callback_data: encodeCallback(BUY_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
@@ -188,7 +195,7 @@ export const buildSellTokenKeyboard = (
   sellPresetsPct: readonly number[],
 ): InlineKeyboard => [
   ...packRowsOfTwo(presetButtonsSell(tokenAddress, sellPresetsPct), {
-    text: "Sell X%",
+    text: SELL_X_PERCENT_BUTTON.English,
     callback_data: encodeCallback(
       SELL_TOKEN_CMD.sellCustomPercent,
       tokenAddress,
@@ -196,7 +203,7 @@ export const buildSellTokenKeyboard = (
   }),
   [
     {
-      text: "🔄 Refresh",
+      text: REFRESH_BUTTON_TEXT.English,
       callback_data: encodeCallback(SELL_TOKEN_CMD.refresh, tokenAddress),
     },
   ],

@@ -18,6 +18,10 @@ import {
   isOtherSlashCommand,
   tryAddressBuyIntercept,
 } from "../lib/conversation-commands.js";
+import {
+  WALLET_NO_USER_REPLY as I18N_WALLET_NO_USER_REPLY,
+  WALLET_NON_PRIVATE_CHAT_REPLY as I18N_WALLET_NON_PRIVATE_CHAT_REPLY,
+} from "../lib/i18n.js";
 import { PIN_RESET_DELAY_MS, PinManager, type ResetStatus } from "../lib/pin.js";
 import {
   askNewPin,
@@ -49,11 +53,9 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 
-const NO_USER_REPLY =
-  "Wallets require a personal Telegram account — this message has no user attached (channel post or anonymous admin).";
+const NO_USER_REPLY = I18N_WALLET_NO_USER_REPLY.English;
 
-const NON_PRIVATE_CHAT_REPLY =
-  "Wallet flows are private-DM only — wallet labels and addresses must not surface in groups. Open a direct chat with the bot to manage wallets.";
+const NON_PRIVATE_CHAT_REPLY = I18N_WALLET_NON_PRIVATE_CHAT_REPLY.English;
 
 const RENAME_MAX_LEN = 32;
 

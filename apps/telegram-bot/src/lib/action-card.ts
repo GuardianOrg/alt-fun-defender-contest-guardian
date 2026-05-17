@@ -8,6 +8,7 @@ import {
   normaliseSellPresets,
 } from "../keyboards/buy-sell-token.js";
 import { fetchToken } from "./api.js";
+import { ACTION_TOKEN_OUTAGE_REPLY } from "./i18n.js";
 import { editToSubmenu } from "./nav.js";
 import { fetchErc20Balance, fetchUsdcBalance } from "./rpc.js";
 import {
@@ -15,8 +16,7 @@ import {
   renderSellTokenCardText,
 } from "./token-card.js";
 
-export const ACTION_TOKEN_OUTAGE =
-  "Token data temporarily unavailable — try again in a moment.";
+export const ACTION_TOKEN_OUTAGE = ACTION_TOKEN_OUTAGE_REPLY.English;
 
 interface ActionCardView {
   text: string;

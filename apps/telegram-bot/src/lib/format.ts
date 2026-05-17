@@ -4,6 +4,7 @@ import type {
   BotRealisedPosition,
 } from "./api.js";
 import { encodeCallback } from "./callbacks.js";
+import { POSITIONS_NO_OPEN_POSITIONS_REPLY } from "./i18n.js";
 import { backHomeRow } from "./nav.js";
 
 const TOKEN_DECIMALS = 18;
@@ -277,7 +278,7 @@ export const buildPositionsView = (
 
   if (openTotal === 0 && realisedTotal === 0) {
     return {
-      text: "No open positions for this wallet.",
+      text: POSITIONS_NO_OPEN_POSITIONS_REPLY.English,
       openTotal: 0,
       realisedTotal: 0,
       openTotalPages: 1,
