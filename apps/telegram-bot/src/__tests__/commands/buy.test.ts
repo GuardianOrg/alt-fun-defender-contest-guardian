@@ -402,6 +402,32 @@ describe("Buy flow (st:b button → conversation)", () => {
     expect(String(answer!.body.text)).toMatch(/insufficient|balance/i);
   });
 
+  it("Buy preset edits the token-detail card in place into the staging confirm bubble (no fresh sendMessage)", async () => {
+    const h = await harnessWithWallet();
+    mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n });
+
+    await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
+
+    const calls = capture(fetchSpy);
+    // Staging confirmation lands as an edit on the originating
+    // callback message (message_id 100 from `callbackUpdate`), not as
+    // a fresh sendMessage that would leave the stale token-detail
+    // card stacked above the confirm.
+    const edit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        String(c.body.text ?? "").includes("Ready to buy"),
+    );
+    expect(edit).toBeDefined();
+    expect(edit!.body.message_id).toBe(100);
+    const fresh = calls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String(c.body.text ?? "").includes("Ready to buy"),
+    );
+    expect(fresh).toBeUndefined();
+  });
+
   it("Buy 20 callback shows confirmation without fee summary in the menu", async () => {
     const h = await harnessWithWallet();
     mockTokenAndRpc(fetchSpy, { usdcBalance: 50_000_000n }); // $50
@@ -409,7 +435,16 @@ describe("Buy flow (st:b button → conversation)", () => {
     await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    // Preset-buy now edits the originating token-detail card in place
+    // into the staging confirm bubble instead of sending a fresh
+    // staging message below it; look at both endpoints so the test
+    // matches whichever path the bot took.
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to buy"),
+    );
     expect(send).toBeDefined();
     expect(String(send!.body.text)).toContain("Ready to buy");
     expect(String(send!.body.text)).toContain("20");
@@ -425,7 +460,12 @@ describe("Buy flow (st:b button → conversation)", () => {
     await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:20`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to buy"),
+    );
     const text = String(send!.body.text);
     expect(text).toContain(`<code>${TOKEN_ADDR}</code>`);
     expect(text).toContain(
@@ -523,7 +563,12 @@ describe("Buy flow (st:b button → conversation)", () => {
     await h.run(callbackUpdate(`btp:${TOKEN_ADDR}:75`));
 
     const calls = capture(fetchSpy);
-    const send = calls.find((c) => c.url.includes("/sendMessage"));
+    const send = calls.find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes("Ready to buy"),
+    );
     expect(send).toBeDefined();
     const text = String(send!.body.text);
     expect(text).toContain("Ready to buy");

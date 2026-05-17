@@ -234,9 +234,12 @@ describe("/settings command", () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SETTINGS_CALLBACK.slipCustom));
 
+      // Wizard prompts now edit the originating /settings bubble in
+      // place when an origin is available — accept both endpoints.
       const prompt = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /Tap Home to exit/.test(c.body.text as string),
       );
       expect(prompt).toBeDefined();
@@ -259,6 +262,30 @@ describe("/settings command", () => {
       ).toBe(true);
     });
 
+    it("edits the origin /settings bubble in place for the wizard prompt (no fresh sendMessage)", async () => {
+      const h = makeBotHarness();
+      await h.run(callbackUpdate(SETTINGS_CALLBACK.slipCustom));
+
+      const calls = capture(fetchSpy);
+      // Prompt lands as an edit on the originating settings bubble
+      // (callbackUpdate sets message_id=100) — not a fresh
+      // sendMessage that would stack the prompt below the stale
+      // /settings panel.
+      const edit = calls.find(
+        (c) =>
+          c.url.includes("/editMessageText") &&
+          /custom slippage percent/i.test(String(c.body.text ?? "")),
+      );
+      expect(edit).toBeDefined();
+      expect(edit!.body.message_id).toBe(100);
+      const fresh = calls.find(
+        (c) =>
+          c.url.includes("/sendMessage") &&
+          /custom slippage percent/i.test(String(c.body.text ?? "")),
+      );
+      expect(fresh).toBeUndefined();
+    });
+
     it("accepts a valid percent and stores it as bps", async () => {
       const h = makeBotHarness();
       await h.run(callbackUpdate(SETTINGS_CALLBACK.slipCustom));
@@ -271,7 +298,8 @@ describe("/settings command", () => {
       expect(session.slippageBps).toBe(250);
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /Slippage set to/.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
@@ -290,7 +318,8 @@ describe("/settings command", () => {
       expect(session.slippageBps).toBe(1000);
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /capped at 50%/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
@@ -306,7 +335,8 @@ describe("/settings command", () => {
 
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /positive number/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
@@ -475,7 +505,8 @@ describe("/settings command", () => {
       expect(session.buyPresetsUsdc).toEqual([20, 40, 60, 80, 100]);
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /Minimum is \$/.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
@@ -609,7 +640,8 @@ describe("/settings command", () => {
       expect(session.sellPresetsPct).toEqual([10, 25, 50, 75, 100]);
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /between 1 and 100/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
@@ -625,7 +657,8 @@ describe("/settings command", () => {
 
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /between 1 and 100/i.test(c.body.text as string),
       );
       expect(reply).toBeDefined();
@@ -743,7 +776,8 @@ describe("/settings command", () => {
       await h.run(textUpdate(tooLong, 3));
       const reply = capture(fetchSpy).find(
         (c) =>
-          c.url.includes("/sendMessage") &&
+          (c.url.includes("/sendMessage") ||
+            c.url.includes("/editMessageText")) &&
           /Phrase too long/.test(c.body.text as string),
       );
       expect(reply).toBeDefined();

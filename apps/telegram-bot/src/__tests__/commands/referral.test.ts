@@ -565,6 +565,38 @@ describe("Change rewards wallet wizard", () => {
     fetchSpy.mockRestore();
   });
 
+  it("edits the origin /referral card in place into the change-wallet warning (no fresh sendMessage)", async () => {
+    const h = makeBotHarness();
+    const wm = walletManager(h);
+    const wallet = await wm.createWallet(7, "main");
+    mockApi(fetchSpy, wallet.address);
+
+    await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 1 }));
+
+    const calls = capture(fetchSpy);
+    // Warning lands as an edit on the originating callback message
+    // (message_id 100 from `callbackUpdate`), not as a fresh
+    // sendMessage that would leave the stale /referral card stacked
+    // above the wizard.
+    const edit = calls.find(
+      (c) =>
+        c.url.includes("/editMessageText") &&
+        String(c.body.text ?? "").includes(
+          "Changing your rewards wallet does NOT redirect already-attributed referees",
+        ),
+    );
+    expect(edit).toBeDefined();
+    expect(edit!.body.message_id).toBe(100);
+    const fresh = calls.find(
+      (c) =>
+        c.url.includes("/sendMessage") &&
+        String(c.body.text ?? "").includes(
+          "Changing your rewards wallet does NOT redirect already-attributed referees",
+        ),
+    );
+    expect(fresh).toBeUndefined();
+  });
+
   it("surfaces the past-attributions warning before prompting for the new address", async () => {
     const h = makeBotHarness();
     const wm = walletManager(h);
@@ -573,7 +605,16 @@ describe("Change rewards wallet wizard", () => {
 
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 10 }));
 
-    const send = capture(fetchSpy).find((c) => c.url.includes("/sendMessage"));
+    // The wizard now edits the origin /referral bubble in place when
+    // launched from the inline button — accept either endpoint.
+    const send = capture(fetchSpy).find(
+      (c) =>
+        (c.url.includes("/sendMessage") ||
+          c.url.includes("/editMessageText")) &&
+        String(c.body.text ?? "").includes(
+          "Changing your rewards wallet does NOT redirect already-attributed referees",
+        ),
+    );
     expect(send).toBeDefined();
     expect(send!.body.text).toContain(
       "Changing your rewards wallet does NOT redirect already-attributed referees",
@@ -609,12 +650,15 @@ describe("Change rewards wallet wizard", () => {
     await h.run(callbackUpdate(REFERRAL_CALLBACK.changeRewardsWallet, "private", { updateId: 20 }));
     await h.run(textUpdate("not-an-address", 21));
 
-    const sends = capture(fetchSpy).filter((c) =>
-      c.url.includes("/sendMessage"),
+    // Wizard renders both the warning and the invalid-address retry by
+    // editing the origin /referral bubble in place — combine sends +
+    // edits when asserting that the retry copy was surfaced.
+    const outgoing = capture(fetchSpy).filter(
+      (c) =>
+        c.url.includes("/sendMessage") || c.url.includes("/editMessageText"),
     );
-    // Two sendMessage calls expected: the warning + the invalid-address reply.
-    expect(sends.length).toBeGreaterThanOrEqual(2);
-    expect(sends[sends.length - 1].body.text).toContain(
+    expect(outgoing.length).toBeGreaterThanOrEqual(2);
+    expect(outgoing[outgoing.length - 1]!.body.text).toContain(
       "Not a valid HyperEVM address",
     );
   });
@@ -630,10 +674,13 @@ describe("Change rewards wallet wizard", () => {
       textUpdate("0x0000000000000000000000000000000000000000", 41),
     );
 
-    const sends = capture(fetchSpy).filter((c) =>
-      c.url.includes("/sendMessage"),
+    // Burn warning is rendered into the origin /referral bubble via
+    // editMessageText when an origin is threaded — combine endpoints.
+    const outgoing = capture(fetchSpy).filter(
+      (c) =>
+        c.url.includes("/sendMessage") || c.url.includes("/editMessageText"),
     );
-    const text = sends[sends.length - 1].body.text as string;
+    const text = outgoing[outgoing.length - 1]!.body.text as string;
     expect(text).toContain("known burn");
     expect(text).toContain("confirm");
     // No POST to /rewards-wallet yet — the wizard is gated on the
