@@ -440,7 +440,7 @@ export default function RightPanel() {
                   handleNavigate(t.address);
                 }
               }}
-              aria-label={`${t.ticker || t.name} — ${formatCurveFilled(t.curveFilled)} graduated`}
+              aria-label={`${t.ticker || t.name} — ${formatCurveFilled(t.curveFilled)} graduating`}
             >
               <span className={styles.infoName}>{t.ticker || t.name}</span>
               <span className={styles.graduatingValue}>
