@@ -33,7 +33,7 @@ import { formatUsdc } from "../lib/format.js";
 import { logger } from "../lib/logger.js";
 import { getReferralIdentityWallet } from "../lib/onboarding.js";
 import { PinManager } from "../lib/pin.js";
-import { WalletManager } from "../lib/wallet.js";
+import { type StoredWallet, WalletManager } from "../lib/wallet.js";
 import {
   sweepWorkflow,
   trackWorkflowMessage,
@@ -58,9 +58,17 @@ const OUTAGE_REPLY =
  * they never collide with the start-menu (`st:*`), wallet (`w*`), or
  * positions (`pp:*`) namespaces, and each code stays well inside
  * Telegram's 64-byte callback_data budget.
+ *
+ * `changeRewardsWallet` opens the picker view. The picker offers one
+ * button per existing custodial wallet (`pickRewardsWalletPrefix` +
+ * walletId — `rf:cw:w:w_xxxxxx` = 16 bytes) plus a `Custom` button
+ * (`pickRewardsWalletCustom`) that enters the legacy address-entry
+ * wizard for an arbitrary HyperEVM address.
  */
 export const REFERRAL_CALLBACK = {
   changeRewardsWallet: "rf:cw",
+  pickRewardsWalletCustom: "rf:cw:c",
+  pickRewardsWalletPrefix: "rf:cw:w:",
 } as const;
 
 const isPrivateChat = (ctx: AppContext): boolean =>
@@ -187,6 +195,72 @@ const buildKeyboard = (): ReferralView["reply_markup"] => ({
     backHomeRow(),
   ],
 });
+
+/**
+ * Shortened address rendering for the rewards-wallet picker buttons —
+ * matches the format the wallets api description uses (`0x5A2e...F444`,
+ * three ASCII dots, not the `…` U+2026 ellipsis used by some other
+ * surfaces) so the button label stays consistent with the api docs and
+ * remains greppable as plain ASCII.
+ */
+const shortenWalletAddress = (addr: string): string =>
+  `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+
+/**
+ * Label rendered on a wallet picker button — uses the user-set label
+ * when present, falls back to the shortened address otherwise. Mirrors
+ * the AGENTS.md `/referral → Rewards wallet` picker spec.
+ */
+const pickerButtonLabel = (w: StoredWallet): string =>
+  w.label && w.label.trim().length > 0
+    ? w.label
+    : shortenWalletAddress(w.address);
+
+/**
+ * Build the rewards-wallet picker keyboard. Existing custodial wallets
+ * render two-per-row (single column on the trailing row if the count
+ * is odd), followed by a dedicated `Custom` row and the standard
+ * Back / Home row. The picker is always shown even when the user has
+ * zero wallets — in that case only Custom + Back/Home render, which
+ * still gives them a path through to the address-entry wizard.
+ */
+const buildPickerKeyboard = (
+  wallets: StoredWallet[],
+): { text: string; callback_data: string }[][] => {
+  const rows: { text: string; callback_data: string }[][] = [];
+  for (let i = 0; i < wallets.length; i += 2) {
+    const row: { text: string; callback_data: string }[] = [];
+    for (let j = i; j < Math.min(i + 2, wallets.length); j++) {
+      const w = wallets[j]!;
+      row.push({
+        text: pickerButtonLabel(w),
+        callback_data: `${REFERRAL_CALLBACK.pickRewardsWalletPrefix}${w.id}`,
+      });
+    }
+    rows.push(row);
+  }
+  rows.push([
+    {
+      text: "Custom",
+      callback_data: REFERRAL_CALLBACK.pickRewardsWalletCustom,
+    },
+  ]);
+  rows.push(backHomeRow());
+  return rows;
+};
+
+const PICKER_INTRO = [
+  "<b>Change rewards wallet</b>",
+  "",
+  "<b>Changing your rewards wallet does NOT redirect already-attributed referees.</b>",
+  "",
+  "Past referees keep paying the previously-set address forever, by on-chain attribution. To redirect future earnings from existing referees, you must control the previously-set address.",
+  "",
+  "Pick one of your bot wallets below, or tap <b>Custom</b> to enter a different HyperEVM address.",
+].join("\n");
+
+const renderPickerHtml = (phrase: string | null | undefined): string =>
+  [escapeHtml(resolveAntiPhishingHeader(phrase)), "", PICKER_INTRO].join("\n");
 
 /**
  * Build the referral view for the user's stable referral-identity
@@ -660,6 +734,104 @@ const changeRewardsWalletConversation = async (
   await sweepWorkflow(conversation);
 };
 
+/**
+ * Pick-known-wallet conversation. Reached when the user taps one of the
+ * existing-wallet buttons on the rewards-wallet picker. The address is
+ * already known (it's one of the user's custodial wallets), so the
+ * flow skips the address-entry + burn-warning steps that
+ * `changeRewardsWalletConversation` runs and goes straight from the
+ * picker into the PIN gate, then persists the choice and re-renders
+ * the refreshed /referral view in place of the picker.
+ */
+const pickKnownRewardsWalletConversation = async (
+  conversation: Conversation<AppContext, AppContext>,
+  ctx: AppContext,
+  args?: { walletId: string; origin?: MessageRef },
+): Promise<void> => {
+  if (!ctx.from || !ctx.chat || !args) return;
+  const userId = ctx.from.id;
+  const chatId = ctx.chat.id;
+  const { walletId, origin } = args;
+  await sweepWorkflow(conversation);
+
+  const identity = await conversation.external((outside) =>
+    getReferralIdentityWallet(
+      outside.env,
+      buildManager(outside.env),
+      userId,
+    ),
+  );
+  if (!identity) {
+    await showPrompt(conversation, ctx, origin, NO_WALLET_REPLY);
+    await sweepWorkflow(conversation);
+    return;
+  }
+
+  const picked = await conversation.external((outside) =>
+    buildManager(outside.env).getWallet(userId, walletId),
+  );
+  if (!picked) {
+    await showPrompt(
+      conversation,
+      ctx,
+      origin,
+      "That wallet is no longer available. Re-run /referral → Change rewards wallet.",
+    );
+    await sweepWorkflow(conversation);
+    return;
+  }
+  const newRewardsWallet = picked.address.toLowerCase();
+
+  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin);
+  if (!pinOk) {
+    await sweepWorkflow(conversation);
+    return;
+  }
+
+  const result = await conversation.external((outside) =>
+    setBotRewardsWallet(outside.env, identity, newRewardsWallet),
+  );
+  if (!result.ok) {
+    if (result.kind === "unavailable") {
+      await showPrompt(conversation, ctx, origin, OUTAGE_REPLY);
+    } else {
+      await ctx.reply(
+        wrap(ctx, "Could not update rewards wallet. Try again later."),
+      );
+    }
+    await sweepWorkflow(conversation);
+    return;
+  }
+
+  const refreshed = await conversation.external((outside) =>
+    buildView(
+      outside.env,
+      userId,
+      outside.from?.username,
+      outside.session.antiPhishingPhrase,
+    ),
+  );
+  let landed = false;
+  if (origin && refreshed.ok) {
+    landed = await conversation.external((outside) =>
+      safeEditMessageById(outside, origin, refreshed.view.text, {
+        parse_mode: refreshed.view.parse_mode,
+        link_preview_options: refreshed.view.link_preview_options,
+        reply_markup: refreshed.view.reply_markup,
+      }),
+    );
+  }
+  if (!landed) {
+    await ctx.reply(
+      wrap(ctx,
+        `Rewards wallet updated to ${result.data.rewardsWallet}.`,
+      ),
+    );
+    await sendReferral(ctx, userId, ctx.from?.username);
+  }
+  await sweepWorkflow(conversation);
+};
+
 export const registerReferralCommand = (bot: Bot<AppContext>): void => {
   bot.use(
     createConversation(
@@ -669,6 +841,16 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
         ...args: unknown[]
       ) => Promise<void>,
       { id: "referral-change-rewards-wallet", parallel: true },
+    ),
+  );
+  bot.use(
+    createConversation(
+      pickKnownRewardsWalletConversation as (
+        conv: Conversation<AppContext, AppContext>,
+        ctx: AppContext,
+        ...args: unknown[]
+      ) => Promise<void>,
+      { id: "referral-pick-known-wallet", parallel: true },
     ),
   );
 
@@ -730,6 +912,28 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
       });
       return;
     }
+    const wallets = await buildManager(ctx.env).listWallets(ctx.from.id);
+    await editToSubmenu(ctx, {
+      text: renderPickerHtml(ctx.session.antiPhishingPhrase),
+      parseMode: "HTML",
+      inlineKeyboard: buildPickerKeyboard(wallets),
+      linkPreviewDisabled: true,
+    });
+    await ctx.answerCallbackQuery();
+  });
+
+  bot.callbackQuery(REFERRAL_CALLBACK.pickRewardsWalletCustom, async (ctx) => {
+    if (!ctx.from) {
+      await ctx.answerCallbackQuery({ text: "Missing user." });
+      return;
+    }
+    if (!isPrivateChat(ctx)) {
+      await ctx.answerCallbackQuery({
+        text: "Referral is private-DM only.",
+        show_alert: true,
+      });
+      return;
+    }
     const origin: MessageRef | undefined = ctx.callbackQuery.message
       ? {
           chatId: ctx.callbackQuery.message.chat.id,
@@ -739,4 +943,38 @@ export const registerReferralCommand = (bot: Bot<AppContext>): void => {
     await ctx.answerCallbackQuery();
     await ctx.conversation.enter("referral-change-rewards-wallet", origin);
   });
+
+  bot.callbackQuery(
+    new RegExp(
+      `^${REFERRAL_CALLBACK.pickRewardsWalletPrefix.replace(/:/g, "\\:")}(w_[0-9a-z]{6})$`,
+    ),
+    async (ctx) => {
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery({ text: "Missing user." });
+        return;
+      }
+      if (!isPrivateChat(ctx)) {
+        await ctx.answerCallbackQuery({
+          text: "Referral is private-DM only.",
+          show_alert: true,
+        });
+        return;
+      }
+      const data = ctx.callbackQuery.data ?? "";
+      const walletId = data.slice(
+        REFERRAL_CALLBACK.pickRewardsWalletPrefix.length,
+      );
+      const origin: MessageRef | undefined = ctx.callbackQuery.message
+        ? {
+            chatId: ctx.callbackQuery.message.chat.id,
+            messageId: ctx.callbackQuery.message.message_id,
+          }
+        : undefined;
+      await ctx.answerCallbackQuery();
+      await ctx.conversation.enter("referral-pick-known-wallet", {
+        walletId,
+        origin,
+      });
+    },
+  );
 };
