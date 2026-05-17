@@ -500,4 +500,63 @@ describe("/withdraw command", () => {
     expect(success).toBeDefined();
     expect(success!.body.text).toMatch(/Withdraw submitted/);
   });
+
+  it("PIN prompt + summary render in the user's chosen language with their anti-phishing phrase", async () => {
+    // Regression for the `wrap(ctx, …)` calls inside the withdraw
+    // conversation body: the replay-time `ctx.session` is empty, so
+    // any `getCtxLanguage(ctx)` / `ctxAntiPhishingPhrase(ctx)` read
+    // from inside a conversation silently collapsed to English +
+    // static fallback header. Locale + phrase must instead come from
+    // the outside ctx via `conversation.external`.
+    const h = makeBotHarness();
+    await h.kv.put(
+      `session:${USER_ID}`,
+      JSON.stringify({
+        slippageBps: 1000,
+        defaultBuyUsdc: 20,
+        buyPresetsUsdc: [20, 40, 60, 80, 100],
+        sellPresetsPct: [10, 25, 50, 75, 100],
+        executionTipGwei: 500_000_000,
+        degenMode: true,
+        language: "SimplifiedChinese",
+        antiPhishingPhrase: "雪豹一二三",
+      }),
+    );
+    await ensureActiveWallet(h);
+    await buildPm(h).setPin(USER_ID, "123456");
+
+    await enterAndAnswerWizard(h, fetchSpy);
+
+    const sends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    // PIN prompt copy is Chinese (CJK characters present, no English
+    // fallback). The bug would have routed `wrap(ctx, …)` through the
+    // replay-time session, leaving the prompt in English without the
+    // user's phrase.
+    const pinPrompt = sends.find((c) =>
+      /6 位 PIN/.test(c.body.text as string),
+    );
+    expect(pinPrompt).toBeDefined();
+    expect(String(pinPrompt!.body.text)).toContain("雪豹一二三");
+    expect(String(pinPrompt!.body.text)).not.toContain(
+      "This bot will never ask for your seed phrase",
+    );
+
+    fetchSpy.mockClear();
+    mockTelegramOk(fetchSpy);
+    await h.run(textUpdate("123456", 30));
+    const summarySends = captureTg(fetchSpy).filter((c) =>
+      c.url.includes("/sendMessage"),
+    );
+    const summary = summarySends.find((c) =>
+      /提币摘要|提现摘要|提款摘要/.test(c.body.text as string),
+    );
+    // Summary must also be Chinese-headered, phrase-prepended.
+    expect(summary).toBeDefined();
+    expect(String(summary!.body.text)).toContain("雪豹一二三");
+    expect(String(summary!.body.text)).not.toContain(
+      "This bot will never ask for your seed phrase",
+    );
+  });
 });

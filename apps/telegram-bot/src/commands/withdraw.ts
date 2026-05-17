@@ -33,7 +33,10 @@ import {
   type InlineCallbackButton,
   WALLET_CALLBACK,
 } from "../keyboards/wallet-actions.js";
-import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
+import {
+  withAntiPhishing,
+  wrapWithCtxPhrase as wrap,
+} from "../lib/anti-phishing.js";
 import {
   haltAndForward,
   isOtherSlashCommand,
@@ -124,17 +127,32 @@ const usageHint = (lang: Language): string =>
 const ctxLang = (ctx: AppContext): Language => getCtxLanguage(ctx);
 
 /**
- * Pull the user's language from inside a conversation. Conversation
- * handlers receive a replay `ctx` whose `session` is hydrated by the
- * conversations plugin, so `getCtxLanguage` works the same as on the
- * live request path. Keep this in a single helper so the conversation
- * call sites don't drift.
+ * Pull the user's language from inside a conversation. The replay
+ * `ctx` passed into conversation bodies has no `session` backing —
+ * reading it would silently fall back to English — so the only
+ * reliable read is through `conversation.external` against the live
+ * outside ctx. Same pattern as `lib/pin-flow.ts :: readConvLocale`.
  */
 const convLang = async (
   conversation: Conversation<AppContext, AppContext>,
 ): Promise<Language> =>
   conversation.external((outside) =>
     outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
+
+/**
+ * Read the user's anti-phishing phrase off the live outside session.
+ * Same reasoning as `convLang` — the replay-time `ctx.session` is
+ * empty, so `wrapWithCtxPhrase(ctx, …)` from a conversation body
+ * would always fall back to the static localised header instead of
+ * the user's custom phrase. Returns `null` for users with no phrase
+ * set; `withAntiPhishing` then renders the localised static fallback.
+ */
+const convPhrase = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<string | null> =>
+  conversation.external((outside) =>
+    outside.session?.antiPhishingPhrase ?? null,
   );
 
 /** Match the trade-confirmation window in `lib/execute.ts`. */
@@ -391,9 +409,10 @@ const verifyPinForWithdraw = async (
   userId: number,
   chatId: number,
   lang: Language,
+  phrase: string | null,
 ): Promise<boolean> => {
   const askMsg = await ctx.reply(
-    wrap(ctx,t(WITHDRAW_PIN_PROMPT, lang)),
+    withAntiPhishing(t(WITHDRAW_PIN_PROMPT, lang), phrase, lang),
     { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, askMsg.message_id);
@@ -416,19 +435,23 @@ const verifyPinForWithdraw = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx,
+        withAntiPhishing(
           t(PIN_LOCKED_REPLY, lang)(mins, t(PIN_ACTION_LABEL_WITHDRAW, lang)),
+          phrase,
+          lang,
         ),
       );
       return false;
     }
     if (result.reason === "unset") {
-      await ctx.reply(wrap(ctx,noPinReply(lang)));
+      await ctx.reply(withAntiPhishing(noPinReply(lang), phrase, lang));
       return false;
     }
     const retry = await ctx.reply(
-      wrap(ctx,
+      withAntiPhishing(
         t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
+        phrase,
+        lang,
       ),
       { reply_markup: backHomeMarkup(lang) },
     );
@@ -448,8 +471,9 @@ const promptArg = async (
   prompt: string,
   interceptBuy = false,
   lang: Language = DEFAULT_LANGUAGE,
+  phrase: string | null = null,
 ): Promise<string | null> => {
-  const promptMsg = await ctx.reply(wrap(ctx,prompt), {
+  const promptMsg = await ctx.reply(withAntiPhishing(prompt, phrase, lang), {
     reply_markup: backHomeMarkup(lang),
   });
   await trackWorkflowMessage(conversation, promptMsg.message_id);
@@ -478,6 +502,7 @@ const withdrawWizardConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
 
   // Resolve the active wallet up front: the asset prompt now displays
@@ -490,7 +515,9 @@ const withdrawWizardConversation = async (
     buildWalletManager(outside.env).getActive(userId),
   );
   if (!active) {
-    await ctx.reply(wrap(ctx,noActiveWalletReply(lang)));
+    await ctx.reply(
+      withAntiPhishing(noActiveWalletReply(lang), phrase, lang),
+    );
     await sweepWorkflow(conversation);
     return;
   }
@@ -511,14 +538,14 @@ const withdrawWizardConversation = async (
       safeEditMessageById(
         outside,
         origin,
-        wrap(ctx,renderAssetPrompt(balances, lang)),
+        withAntiPhishing(renderAssetPrompt(balances, lang), phrase, lang),
         { reply_markup: { inline_keyboard: assetPickerKeyboard(lang) } },
       ),
     );
   }
   if (!editedOriginAsAsset) {
     const assetPromptMsg = await ctx.reply(
-      wrap(ctx,renderAssetPrompt(balances, lang)),
+      withAntiPhishing(renderAssetPrompt(balances, lang), phrase, lang),
       { reply_markup: { inline_keyboard: assetPickerKeyboard(lang) } },
     );
     await trackWorkflowMessage(conversation, assetPromptMsg.message_id);
@@ -555,6 +582,7 @@ const withdrawWizardConversation = async (
       t(WITHDRAW_AMOUNT_PROMPT, lang)(asset, formatBalance(balance, asset)),
       true,
       lang,
+      phrase,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -563,7 +591,11 @@ const withdrawWizardConversation = async (
     const parsed = parseAmount(raw, asset);
     if (parsed === null) {
       const retry = await ctx.reply(
-        wrap(ctx,t(WITHDRAW_INVALID_AMOUNT_REPLY, lang)),
+        withAntiPhishing(
+          t(WITHDRAW_INVALID_AMOUNT_REPLY, lang),
+          phrase,
+          lang,
+        ),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -580,6 +612,7 @@ const withdrawWizardConversation = async (
       t(WITHDRAW_DESTINATION_PROMPT, lang),
       false,
       lang,
+      phrase,
     );
     if (raw === null) {
       await sweepWorkflow(conversation);
@@ -588,7 +621,11 @@ const withdrawWizardConversation = async (
     const parsed = parseDestination(raw);
     if (parsed === null) {
       const retry = await ctx.reply(
-        wrap(ctx,t(WITHDRAW_INVALID_DESTINATION_REPLY, lang)),
+        withAntiPhishing(
+          t(WITHDRAW_INVALID_DESTINATION_REPLY, lang),
+          phrase,
+          lang,
+        ),
         { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
@@ -604,6 +641,7 @@ const withdrawWizardConversation = async (
     chatId,
     { asset, amountRaw, to },
     lang,
+    phrase,
   );
   await sweepWorkflow(conversation);
 };
@@ -622,6 +660,7 @@ const runPreFlightAndStage = async (
   chatId: number,
   args: ParsedArgs,
   lang: Language,
+  phrase: string | null,
 ): Promise<void> => {
   // All KV reads must run via `conversation.external((outside) => …)` so
   // the conversations plugin captures the result and replays consistently
@@ -632,7 +671,9 @@ const runPreFlightAndStage = async (
     buildWalletManager(outside.env).getActive(userId),
   );
   if (!active) {
-    await ctx.reply(wrap(ctx,noActiveWalletReply(lang)));
+    await ctx.reply(
+      withAntiPhishing(noActiveWalletReply(lang), phrase, lang),
+    );
     return;
   }
 
@@ -640,7 +681,9 @@ const runPreFlightAndStage = async (
     buildSecurityState(outside.env).getWithdrawLock(userId),
   );
   if (lock.enabled) {
-    await ctx.reply(wrap(ctx,withdrawLockedReply(lang)));
+    await ctx.reply(
+      withAntiPhishing(withdrawLockedReply(lang), phrase, lang),
+    );
     return;
   }
 
@@ -648,11 +691,18 @@ const runPreFlightAndStage = async (
     buildPinManager(outside.env).isPinSet(userId),
   );
   if (!pinSet) {
-    await ctx.reply(wrap(ctx,noPinReply(lang)));
+    await ctx.reply(withAntiPhishing(noPinReply(lang), phrase, lang));
     return;
   }
 
-  const ok = await verifyPinForWithdraw(conversation, ctx, userId, chatId, lang);
+  const ok = await verifyPinForWithdraw(
+    conversation,
+    ctx,
+    userId,
+    chatId,
+    lang,
+    phrase,
+  );
   if (!ok) return;
 
   const balance = await fetchAssetBalanceExternal(
@@ -673,9 +723,10 @@ const runPreFlightAndStage = async (
     };
   });
 
-  await ctx.reply(wrap(ctx,renderSummary(args, balance, lang)), {
-    reply_markup: { inline_keyboard: confirmKeyboard(nonce, lang) },
-  });
+  await ctx.reply(
+    withAntiPhishing(renderSummary(args, balance, lang), phrase, lang),
+    { reply_markup: { inline_keyboard: confirmKeyboard(nonce, lang) } },
+  );
 };
 
 /**
@@ -691,10 +742,11 @@ const withdrawCommandConversation = async (
 ): Promise<void> => {
   if (!ctx.from || !ctx.chat) return;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
   const parsed = parseInlineArgs(argsRaw, lang);
   if (!parsed.ok) {
-    await ctx.reply(wrap(ctx,parsed.reason));
+    await ctx.reply(withAntiPhishing(parsed.reason, phrase, lang));
     return;
   }
   await runPreFlightAndStage(
@@ -704,6 +756,7 @@ const withdrawCommandConversation = async (
     ctx.chat.id,
     parsed.args,
     lang,
+    phrase,
   );
   await sweepWorkflow(conversation);
 };

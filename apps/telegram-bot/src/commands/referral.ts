@@ -8,8 +8,8 @@ import { isAddress } from "viem";
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
 import {
-  ctxAntiPhishingPhrase,
   resolveAntiPhishingHeader,
+  withAntiPhishing,
   wrapWithCtxPhrase as wrap,
 } from "../lib/anti-phishing.js";
 import {
@@ -101,6 +101,22 @@ const convLang = async (
 ): Promise<Language> =>
   conversation.external((outside) =>
     outside.session?.language ?? DEFAULT_LANGUAGE,
+  );
+
+/**
+ * Read the user's anti-phishing phrase off the live outside session.
+ * The replay-time `ctx` passed into conversation bodies has no
+ * `session` backing — reading `ctx.session.antiPhishingPhrase` would
+ * silently fall back to the static header even when the user has set
+ * a phrase. Round-trip through `conversation.external` so every
+ * outbound message inside a conversation body can render the user's
+ * real phrase. Same pattern as `lib/pin-flow.ts :: readConvLocale`.
+ */
+const convPhrase = async (
+  conversation: Conversation<AppContext, AppContext>,
+): Promise<string | null> =>
+  conversation.external((outside) =>
+    outside.session?.antiPhishingPhrase ?? null,
   );
 
 const nonPrivateChatReply = (lang: Language): string =>
@@ -481,15 +497,17 @@ const showPrompt = async (
   ctx: AppContext,
   origin: MessageRef | undefined,
   text: string,
+  lang: Language,
+  phrase: string | null,
   parseMode?: "HTML",
 ): Promise<void> => {
-  const wrapped = wrap(ctx, text);
+  const wrapped = withAntiPhishing(text, phrase, lang);
   if (origin) {
     const edited = await conversation.external((outside) =>
       safeEditMessageById(outside, origin, wrapped, {
         parse_mode: parseMode,
         link_preview_options: { is_disabled: true },
-        reply_markup: backHomeMarkup(ctxLang(ctx)),
+        reply_markup: backHomeMarkup(lang),
       }),
     );
     if (edited) return;
@@ -497,7 +515,7 @@ const showPrompt = async (
   const msg = await ctx.reply(wrapped, {
     parse_mode: parseMode,
     link_preview_options: { is_disabled: true },
-    reply_markup: backHomeMarkup(ctxLang(ctx)),
+    reply_markup: backHomeMarkup(lang),
   });
   await trackWorkflowMessage(conversation, msg.message_id);
 };
@@ -516,6 +534,7 @@ const runPinGate = async (
   chatId: number,
   origin: MessageRef | undefined,
   lang: Language,
+  phrase: string | null,
 ): Promise<boolean> => {
   const pinAlreadySet = await conversation.external((outside) =>
     buildPinManager(outside.env).isPinSet(userId),
@@ -527,6 +546,8 @@ const runPinGate = async (
       ctx,
       origin,
       t(REFERRAL_SET_PIN_PROMPT, lang),
+      lang,
+      phrase,
     );
     let candidate: string | null = null;
     while (candidate === null) {
@@ -542,6 +563,8 @@ const runPinGate = async (
           ctx,
           origin,
           t(PIN_INVALID_FORMAT_REPLY, lang),
+          lang,
+          phrase,
         );
         continue;
       }
@@ -552,6 +575,8 @@ const runPinGate = async (
       ctx,
       origin,
       t(REFERRAL_PIN_CONFIRM_PROMPT, lang),
+      lang,
+      phrase,
     );
     while (true) {
       const msg = await conversation.waitFor("message:text");
@@ -566,6 +591,8 @@ const runPinGate = async (
           ctx,
           origin,
           t(PIN_DO_NOT_MATCH_REPLY, lang),
+          lang,
+          phrase,
         );
         continue;
       }
@@ -583,6 +610,8 @@ const runPinGate = async (
     ctx,
     origin,
     t(REFERRAL_VERIFY_PIN_PROMPT, lang),
+    lang,
+    phrase,
   );
   while (true) {
     const msg = await conversation.waitFor("message:text");
@@ -601,23 +630,25 @@ const runPinGate = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(
-          ctx,
+        withAntiPhishing(
           t(PIN_LOCKED_REPLY, lang)(
             mins,
             t(REFERRAL_CHANGE_REWARDS_WALLET_ACTION_LABEL, lang),
           ),
+          phrase,
+          lang,
         ),
       );
       return false;
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(
-          ctx,
+        withAntiPhishing(
           t(PIN_STATE_LOST_REPLY, lang)(
             t(REFERRAL_CHANGE_REWARDS_WALLET_RETRY_HINT, lang),
           ),
+          phrase,
+          lang,
         ),
       );
       return false;
@@ -627,6 +658,8 @@ const runPinGate = async (
       ctx,
       origin,
       t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining),
+      lang,
+      phrase,
     );
   }
 };
@@ -646,6 +679,7 @@ const changeRewardsWalletConversation = async (
   const userId = ctx.from.id;
   const chatId = ctx.chat.id;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
 
   // KV key for the rewards-wallet record is the user's stable
@@ -661,7 +695,7 @@ const changeRewardsWalletConversation = async (
     ),
   );
   if (!identity) {
-    await ctx.reply(wrap(ctx, noWalletReply(lang)));
+    await ctx.reply(withAntiPhishing(noWalletReply(lang), phrase, lang));
     await sweepWorkflow(conversation);
     return;
   }
@@ -672,7 +706,7 @@ const changeRewardsWalletConversation = async (
   // phrase must be HTML-escaped before concatenation to avoid breaking
   // Telegram's parser if a phrase contains `<` or `&`.
   const warningText = [
-    escapeHtml(resolveAntiPhishingHeader(ctxAntiPhishingPhrase(ctx), lang)),
+    escapeHtml(resolveAntiPhishingHeader(phrase, lang)),
     "",
     rewardsWalletWarning(lang),
   ].join("\n");
@@ -719,6 +753,8 @@ const changeRewardsWalletConversation = async (
         ctx,
         origin,
         t(REFERRAL_INVALID_ADDRESS_REPLY, lang),
+        lang,
+        phrase,
       );
       continue;
     }
@@ -738,6 +774,8 @@ const changeRewardsWalletConversation = async (
           "",
           t(REFERRAL_BURN_CONFIRM_PROMPT, lang),
         ].join("\n"),
+        lang,
+        phrase,
       );
       const confirmMsg = await conversation.waitFor("message:text");
       const confirmText = confirmMsg.message.text.trim();
@@ -759,6 +797,8 @@ const changeRewardsWalletConversation = async (
             ctx,
             origin,
             t(REFERRAL_ABORTED_RETRY_PROMPT, lang),
+            lang,
+            phrase,
           );
           continue;
         }
@@ -769,6 +809,8 @@ const changeRewardsWalletConversation = async (
             ctx,
             origin,
             t(REFERRAL_STILL_BURN_RETRY_PROMPT, lang),
+            lang,
+            phrase,
           );
           continue;
         }
@@ -780,7 +822,15 @@ const changeRewardsWalletConversation = async (
   }
   const newRewardsWallet: string = candidate;
 
-  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin, lang);
+  const pinOk = await runPinGate(
+    conversation,
+    ctx,
+    userId,
+    chatId,
+    origin,
+    lang,
+    phrase,
+  );
   if (!pinOk) {
     await sweepWorkflow(conversation);
     return;
@@ -791,10 +841,12 @@ const changeRewardsWalletConversation = async (
   );
   if (!result.ok) {
     await ctx.reply(
-      wrap(ctx,
+      withAntiPhishing(
         result.kind === "unavailable"
           ? outageReply(lang)
           : t(REFERRAL_COULD_NOT_UPDATE_REPLY, lang),
+        phrase,
+        lang,
       ),
     );
     await sweepWorkflow(conversation);
@@ -826,10 +878,12 @@ const changeRewardsWalletConversation = async (
   }
   if (!landed) {
     await ctx.reply(
-      wrap(ctx,
+      withAntiPhishing(
         t(REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY, lang)(
           result.data.rewardsWallet,
         ),
+        phrase,
+        lang,
       ),
     );
     await sendReferral(ctx, userId, ctx.from?.username);
@@ -856,6 +910,7 @@ const pickKnownRewardsWalletConversation = async (
   const chatId = ctx.chat.id;
   const { walletId, origin } = args;
   const lang = await convLang(conversation);
+  const phrase = await convPhrase(conversation);
   await sweepWorkflow(conversation);
 
   const identity = await conversation.external((outside) =>
@@ -866,7 +921,14 @@ const pickKnownRewardsWalletConversation = async (
     ),
   );
   if (!identity) {
-    await showPrompt(conversation, ctx, origin, noWalletReply(lang));
+    await showPrompt(
+      conversation,
+      ctx,
+      origin,
+      noWalletReply(lang),
+      lang,
+      phrase,
+    );
     await sweepWorkflow(conversation);
     return;
   }
@@ -880,13 +942,23 @@ const pickKnownRewardsWalletConversation = async (
       ctx,
       origin,
       t(REFERRAL_WALLET_NO_LONGER_AVAILABLE_REPLY, lang),
+      lang,
+      phrase,
     );
     await sweepWorkflow(conversation);
     return;
   }
   const newRewardsWallet = picked.address.toLowerCase();
 
-  const pinOk = await runPinGate(conversation, ctx, userId, chatId, origin, lang);
+  const pinOk = await runPinGate(
+    conversation,
+    ctx,
+    userId,
+    chatId,
+    origin,
+    lang,
+    phrase,
+  );
   if (!pinOk) {
     await sweepWorkflow(conversation);
     return;
@@ -897,10 +969,21 @@ const pickKnownRewardsWalletConversation = async (
   );
   if (!result.ok) {
     if (result.kind === "unavailable") {
-      await showPrompt(conversation, ctx, origin, outageReply(lang));
+      await showPrompt(
+        conversation,
+        ctx,
+        origin,
+        outageReply(lang),
+        lang,
+        phrase,
+      );
     } else {
       await ctx.reply(
-        wrap(ctx, t(REFERRAL_COULD_NOT_UPDATE_REPLY, lang)),
+        withAntiPhishing(
+          t(REFERRAL_COULD_NOT_UPDATE_REPLY, lang),
+          phrase,
+          lang,
+        ),
       );
     }
     await sweepWorkflow(conversation);
@@ -928,10 +1011,12 @@ const pickKnownRewardsWalletConversation = async (
   }
   if (!landed) {
     await ctx.reply(
-      wrap(ctx,
+      withAntiPhishing(
         t(REFERRAL_REWARDS_WALLET_UPDATED_FALLBACK_REPLY, lang)(
           result.data.rewardsWallet,
         ),
+        phrase,
+        lang,
       ),
     );
     await sendReferral(ctx, userId, ctx.from?.username);
