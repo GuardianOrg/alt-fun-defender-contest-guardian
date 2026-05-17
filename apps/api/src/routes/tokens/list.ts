@@ -912,25 +912,71 @@ listRoute.get("/", async (c) => {
         // insert time in `lib/token-registration.ts`); the indexer
         // returns lowercased — checksum each for the SQL `IN (...)`.
         const checksummed = candidates.map((c) => getAddress(c.tokenAddress));
-        dbTokens = await db
+        const filteredRows = await db
           .select()
           .from(tokens)
           .where(and(...conditions, inArray(tokens.address, checksummed)));
         trendingVolumeByAddress = new Map(
           candidates.map((c) => [c.tokenAddress, c.volume24hUsd]),
         );
+        // For `sort=trending` we can paginate BEFORE market-data
+        // enrichment: candidates come back sorted `SUM(volume_usd)
+        // DESC, token_address ASC` from the indexer, so reordering
+        // filter-passing rows to match that order and slicing the
+        // `[offset, offset+limit]` window upfront caps the downstream
+        // `computeMarketDataForAddresses` call (and its BounceTech
+        // LATERAL scans) at page-size instead of the full
+        // `TRENDING_POOL_SIZE` — the dominant cost on cold cache.
+        //
+        // `sort=mcap` / `sort=change24h` re-rank the same volume-
+        // ordered pool by a key that isn't known until enrichment, so
+        // they MUST keep the full pool through enrichment and slice
+        // after the comparator runs — otherwise the highest-mcap
+        // token in the pool can fall outside the volume-ordered slice
+        // and never reach the page.
+        const rowsByAddr = new Map(
+          filteredRows.map((r) => [r.address.toLowerCase(), r]),
+        );
+        const orderedByVolume: DbToken[] = [];
+        for (const cand of candidates) {
+          const row = rowsByAddr.get(cand.tokenAddress);
+          if (row) orderedByVolume.push(row);
+        }
+        dbTokens =
+          sort === "trending"
+            ? orderedByVolume.slice(offset, offset + limit)
+            : orderedByVolume;
       }
     } else {
-      // Indexer down — fall back to the legacy createdAt-DESC candidate
-      // pool so the tab keeps rendering. Tagged `dataSource: "degraded"`
-      // below; the brief loss of volume ordering is preferable to a 503.
+      // Indexer down — fall back to the legacy createdAt-DESC pool so
+      // the tab keeps rendering. Tagged `dataSource: "degraded"` below;
+      // the brief loss of volume ordering is preferable to a 503.
+      //
+      // For `sort=trending` the in-memory comparator can only re-rank
+      // by row-local `volume24hUsd`, which is the same axis SQL would
+      // sort on — so we push pagination into SQL and skip the
+      // post-enrich slice (matches the live trending path; prevents
+      // an oversized page from leaking under outage — CodeRabbit on
+      // PR #995). For mcap / change24h we need the full pool in
+      // memory so the comparator can pick the true top-N by the
+      // requested key before the post-enrich slice paginates.
       trendingDegraded = true;
-      dbTokens = await db
-        .select()
-        .from(tokens)
-        .where(and(...conditions))
-        .orderBy(desc(tokens.createdAt))
-        .limit(TRENDING_POOL_SIZE);
+      if (sort === "trending") {
+        dbTokens = await db
+          .select()
+          .from(tokens)
+          .where(and(...conditions))
+          .orderBy(desc(tokens.createdAt))
+          .limit(limit)
+          .offset(offset);
+      } else {
+        dbTokens = await db
+          .select()
+          .from(tokens)
+          .where(and(...conditions))
+          .orderBy(desc(tokens.createdAt))
+          .limit(TRENDING_POOL_SIZE);
+      }
     }
   } else {
     dbTokens = await db
@@ -1012,14 +1058,12 @@ listRoute.get("/", async (c) => {
     //   - trending / change24h → mcap desc
     //   - mcap → 24h volume desc (equal-mcap rows surface the more-
     //     active token first)
-    // The mcap tie-break is best-effort over the candidate pool: mcap
-    // depends on BounceTech + curve state and can't be expressed in
-    // SQL, so the indexer-side candidate query truncates the pool by
-    // `(volume desc, address asc)` first (deterministic) and the
-    // mcap reorder happens here. Volume collisions across 500+
-    // tokens at 6dp-USDC precision are vanishingly improbable in
-    // practice, so the mcap reorder is the effective tie-break for
-    // any realistic input. CodeRabbit feedback on PR #946.
+    // For `sort=trending`, `dbTokens` was already sliced to the page
+    // upstream (volume-ordered), so the comparator's mcap tie-break
+    // only reshuffles ties *within the page* — the post-sort slice
+    // below is skipped to avoid double-paginating. For mcap /
+    // change24h the pool is still 500 tokens here and the comparator
+    // picks the true top-N before the post-sort slice paginates.
     const volume24hOf = (t: EnrichedToken): number => {
       const addr = t.address.toLowerCase();
       const mapped = trendingVolumeByAddress?.get(addr);
@@ -1027,9 +1071,11 @@ listRoute.get("/", async (c) => {
       return t.volume24hUsd ?? 0;
     };
     const mcapOf = (t: EnrichedToken) => t.mcapUsd ?? 0;
-    enriched = [...enriched]
-      .sort(buildScoredComparator(sort, volume24hOf, mcapOf))
-      .slice(offset, offset + limit);
+    const sorted = [...enriched].sort(
+      buildScoredComparator(sort, volume24hOf, mcapOf),
+    );
+    enriched =
+      sort === "trending" ? sorted : sorted.slice(offset, offset + limit);
   }
 
   const isLive = marketResult.ok && !trendingDegraded;
