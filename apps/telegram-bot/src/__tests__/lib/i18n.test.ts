@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import * as i18n from "../../lib/i18n.js";
+import type { Localised } from "../../lib/i18n.js";
+import { t } from "../../lib/i18n.js";
 
 const isLanguageDict = (
   value: unknown,
@@ -15,8 +17,13 @@ describe("i18n module", () => {
   });
 
   it("every exported entry is keyed by a language", () => {
+    const NON_ENTRY_EXPORTS = new Set([
+      "DEFAULT_LANGUAGE",
+      "HELP_HEADER_PLACEHOLDER_TOKEN",
+      "t",
+    ]);
     const entries = Object.entries(i18n).filter(
-      ([key]) => key !== "DEFAULT_LANGUAGE" && key !== "HELP_HEADER_PLACEHOLDER_TOKEN",
+      ([key]) => !NON_ENTRY_EXPORTS.has(key),
     );
     expect(entries.length).toBeGreaterThan(0);
     for (const [key, value] of entries) {
@@ -68,7 +75,11 @@ describe("i18n module", () => {
 
   it("every static-string entry has a stable language key set", () => {
     for (const [key, value] of Object.entries(i18n)) {
-      if (key === "DEFAULT_LANGUAGE" || key === "HELP_HEADER_PLACEHOLDER_TOKEN") {
+      if (
+        key === "DEFAULT_LANGUAGE" ||
+        key === "HELP_HEADER_PLACEHOLDER_TOKEN" ||
+        key === "t"
+      ) {
         continue;
       }
       const langKeys = Object.keys(value as Record<string, unknown>);
@@ -78,5 +89,60 @@ describe("i18n module", () => {
         "English",
       ]);
     }
+  });
+});
+
+describe("t() resolver with partial overrides", () => {
+  // The dictionary itself ships English-only today, so partial-override
+  // behaviour is exercised against synthetic entries that mirror the
+  // production shape (a `Localised<T>` record with English required and
+  // any other locale optional).
+  it("returns the English value when no override is provided", () => {
+    const entry: Localised<string> = { English: "Refresh" };
+    expect(t(entry)).toBe("Refresh");
+  });
+
+  it("falls back to English when the requested locale is missing", () => {
+    const entry: Localised<string> = { English: "Refresh" };
+    expect(t(entry, "English")).toBe("Refresh");
+  });
+
+  it("returns the locale-specific override when present", () => {
+    // Cast widens `Language` so the test can demonstrate a future locale
+    // without modifying the production type union.
+    const entry = {
+      English: "Refresh",
+      Spanish: "Actualizar",
+    } as unknown as Localised<string>;
+    expect(t(entry, "Spanish" as i18n.Language)).toBe("Actualizar");
+  });
+
+  it("falls back per-entry — partial coverage works without translating the rest", () => {
+    const translated = {
+      English: "Refresh",
+      Spanish: "Actualizar",
+    } as unknown as Localised<string>;
+    const untranslated: Localised<string> = { English: "Back" };
+    const spanish = "Spanish" as i18n.Language;
+    expect(t(translated, spanish)).toBe("Actualizar");
+    // No Spanish key → English fallback.
+    expect(t(untranslated, spanish)).toBe("Back");
+  });
+
+  it("resolves parameterised entries and applies the locale override to the function", () => {
+    const buy = {
+      English: (amount: number) => `Buy ${amount} USDC`,
+      Spanish: (amount: number) => `Comprar ${amount} USDC`,
+    } as unknown as Localised<(amount: number) => string>;
+    expect(t(buy)(20)).toBe("Buy 20 USDC");
+    expect(t(buy, "Spanish" as i18n.Language)(20)).toBe("Comprar 20 USDC");
+  });
+
+  it("preserves direct .English access for callsites that haven't been migrated", () => {
+    // Direct property reads bypass the resolver and always return the
+    // canonical English copy — used by callsites that are intentionally
+    // locale-agnostic (logs, fixed-format strings, tests).
+    expect(i18n.REFRESH_BUTTON_TEXT.English).toBe("🔄 Refresh");
+    expect(t(i18n.REFRESH_BUTTON_TEXT)).toBe(i18n.REFRESH_BUTTON_TEXT.English);
   });
 });

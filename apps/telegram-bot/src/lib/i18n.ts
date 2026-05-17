@@ -25,6 +25,30 @@ export type Language = "English";
 
 export const DEFAULT_LANGUAGE: Language = "English";
 
+/**
+ * Localised value shape. `English` is mandatory (the fallback every
+ * entry must carry); any other locale key is optional, so a translator
+ * can cover only the strings that need a more native rendering without
+ * having to translate the entire dictionary.
+ */
+export type Localised<T> = { English: T } & Partial<Record<Language, T>>;
+
+/**
+ * Resolve a localised entry into its value for `lang`, falling back to
+ * English when the requested locale doesn't carry an override. Works
+ * uniformly for static strings (`t(BACK_BUTTON_TEXT, lang)`) and for
+ * parameterised entries (`t(BUY_AMOUNT_BUTTON, lang)(20)`).
+ *
+ * Direct `.English` reads at callsites continue to work — they bypass
+ * the resolver and always read the canonical copy, which is the right
+ * behaviour when a callsite is intentionally locale-agnostic (logs,
+ * tests, copy that hasn't been internationalised yet).
+ */
+export const t = <T>(
+  entry: Localised<T>,
+  lang: Language = DEFAULT_LANGUAGE,
+): T => entry[lang] ?? entry.English;
+
 // ─── Navigation / global buttons ────────────────────────────────────
 
 export const BACK_BUTTON_TEXT = { English: "← Back" } as const;
