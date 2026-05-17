@@ -155,11 +155,38 @@ export interface PositionActionTarget {
   ticker: string;
 }
 
+/**
+ * Per-line ticker cap measured in *post-escape* characters. On-chain
+ * `Token.symbol()` is unbounded UTF-8 and may contain `<` / `>` / `&`
+ * which expand 4x under `escapeHtml`, so the budget is enforced after
+ * escaping. With 5 records per section per page (10 lines worst-case),
+ * 64 escaped chars per ticker plus ~225 fixed-format chars per line
+ * keeps the full view well below Telegram's 4096-char ceiling even if
+ * every ticker is pathologically long.
+ */
+const TICKER_ESCAPED_MAX = 64;
+
+/**
+ * HTML-escape the ticker and clamp the result to `TICKER_ESCAPED_MAX`.
+ * If the cut would fall inside an HTML entity (e.g. mid-`&amp;`) we
+ * backtrack to the previous `;` so the body never emits a half-entity
+ * like `&am`.
+ */
+const truncateAndEscapeTicker = (ticker: string): string => {
+  const escaped = escapeHtml(ticker);
+  if (escaped.length <= TICKER_ESCAPED_MAX) return escaped;
+  let cut = escaped.slice(0, TICKER_ESCAPED_MAX - 1);
+  const lastAmp = cut.lastIndexOf("&");
+  const lastSemi = cut.lastIndexOf(";");
+  if (lastAmp > lastSemi) cut = cut.slice(0, lastAmp);
+  return `${cut}…`;
+};
+
 const formatOpenLine = (
   pos: BotOpenPosition,
   botUsername: string | null,
 ): string => {
-  const labelRaw = escapeHtml(pos.ticker);
+  const labelRaw = truncateAndEscapeTicker(pos.ticker);
   const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
   const label = href ? `<a href="${href}">${labelRaw}</a>` : labelRaw;
   return (
@@ -174,7 +201,7 @@ const formatRealisedLine = (
   pos: BotRealisedPosition,
   botUsername: string | null,
 ): string => {
-  const labelRaw = escapeHtml(pos.ticker);
+  const labelRaw = truncateAndEscapeTicker(pos.ticker);
   const href = botUsername ? trackDeeplinkHref(botUsername, pos.token) : null;
   const label = href ? `<a href="${href}">${labelRaw}</a>` : labelRaw;
   return (

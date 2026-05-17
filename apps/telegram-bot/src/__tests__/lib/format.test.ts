@@ -564,6 +564,62 @@ describe("escapeHtml", () => {
   });
 });
 
+describe("ticker truncation in body lines", () => {
+  it("clamps a pathologically long open-position ticker so the line cannot blow the 4096-char ceiling", () => {
+    // Regression: previously a 5000-char ticker would pass through
+    // verbatim and one page could exceed Telegram's 4096-char limit.
+    // With 5 records per page the cap on each ticker keeps the whole
+    // view well under the ceiling.
+    const huge = "X".repeat(5000);
+    const view = buildPositionsView(
+      { open: [openPos({ ticker: huge })], realised: [] },
+      0,
+      0,
+      "trade_cortisol_bot",
+    );
+    expect(view.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(view.text).toContain("…");
+    expect(view.text).not.toContain("X".repeat(1000));
+  });
+
+  it("clamps a pathologically long realised-position ticker", () => {
+    const huge = "Y".repeat(5000);
+    const view = buildPositionsView(
+      { open: [], realised: [realisedPos({ ticker: huge })] },
+      0,
+      0,
+      "trade_cortisol_bot",
+    );
+    expect(view.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(view.text).toContain("…");
+    expect(view.text).not.toContain("Y".repeat(1000));
+  });
+
+  it("a full page of huge tickers (5 open + 5 realised) still fits inside TELEGRAM_MESSAGE_LIMIT", () => {
+    const huge = (prefix: string, i: number): string =>
+      `${prefix}${i}-${"Z".repeat(5000)}`;
+    const open: BotOpenPosition[] = Array.from({ length: 5 }, (_, i) =>
+      openPos({
+        token: `0x${i.toString(16).padStart(40, "0")}`,
+        ticker: huge("O", i),
+      }),
+    );
+    const realised: BotRealisedPosition[] = Array.from({ length: 5 }, (_, i) =>
+      realisedPos({
+        token: `0x${(1000 + i).toString(16).padStart(40, "0")}`,
+        ticker: huge("R", i),
+      }),
+    );
+    const view = buildPositionsView(
+      { open, realised },
+      0,
+      0,
+      "trade_cortisol_bot",
+    );
+    expect(view.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+});
+
 describe("positions message body fits TELEGRAM_MESSAGE_LIMIT", () => {
   it("any single (openPage, realisedPage) view stays inside the 4096-char ceiling", () => {
     // 5 open + 5 realised entries fit comfortably; this is the upper
