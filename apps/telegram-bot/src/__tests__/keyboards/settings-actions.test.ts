@@ -7,7 +7,7 @@ import {
   buildSettingsKeyboard,
   decodeSpeedPreset,
   encodeSpeedPreset,
-  formatTipLabel,
+  formatTipPresetLabel,
   resolveActiveTipGwei,
 } from "../../keyboards/settings-actions.js";
 
@@ -62,15 +62,17 @@ describe("speed preset callbacks", () => {
   });
 });
 
-describe("formatTipLabel", () => {
-  it("renders integers without a decimal point", () => {
-    expect(formatTipLabel(2)).toBe("2 gwei");
+describe("formatTipPresetLabel", () => {
+  it("returns the preset label for each known gwei value", () => {
+    expect(formatTipPresetLabel(0.5)).toBe("Lightning");
+    expect(formatTipPresetLabel(0.15)).toBe("Fast");
+    expect(formatTipPresetLabel(0.1)).toBe("Eco");
   });
 
-  it("strips trailing zeros from fractional tips", () => {
-    expect(formatTipLabel(0.5)).toBe("0.5 gwei");
-    expect(formatTipLabel(0.1)).toBe("0.1 gwei");
-    expect(formatTipLabel(0.15)).toBe("0.15 gwei");
+  it("falls back to the slot-0 label for unknown values", () => {
+    expect(formatTipPresetLabel(2)).toBe("Lightning");
+    expect(formatTipPresetLabel(0)).toBe("Lightning");
+    expect(formatTipPresetLabel(NaN)).toBe("Lightning");
   });
 });
 

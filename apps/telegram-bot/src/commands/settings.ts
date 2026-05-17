@@ -24,7 +24,7 @@ import {
   decodeSlippagePreset,
   decodeSpeedPreset,
   formatBpsLabel,
-  formatTipLabel,
+  formatTipPresetLabel,
   resolveActiveTipGwei,
   type SettingsStatus,
 } from "../keyboards/settings-actions.js";
@@ -104,7 +104,7 @@ const renderMainStatusText = (status: SettingsStatus): string =>
     "Settings",
     "",
     `• Slippage: ${formatBpsLabel(status.slippageBps)}`,
-    `• Execution speed: ${formatTipLabel(status.executionTipGwei)}`,
+    `• Execution speed: ${formatTipPresetLabel(status.executionTipGwei)}`,
     `• Degen mode: ${status.degenMode ? "on" : "off"}`,
     status.antiPhishingPhrase === null
       ? "• Anti-phishing phrase: not set"
@@ -841,7 +841,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       }
       await editToState(ctx, renderMainState(ctx));
       await ctx.answerCallbackQuery({
-        text: `Execution speed set to ${preset.label} (${formatTipLabel(preset.gwei)}).`,
+        text: `Execution speed set to ${preset.label}.`,
       });
     },
   );
