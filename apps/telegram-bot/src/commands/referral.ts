@@ -285,13 +285,14 @@ const isKnownBurnAddress = (addr: string): boolean =>
   KNOWN_BURN_ADDRESSES.has(addr.toLowerCase());
 
 /**
- * Best-effort delete of a user-sent PIN message from the chat so the
- * PIN doesn't sit in chat history. Mirrors the same hygiene as the
- * /wallet PIN flows. Benign 400s (already gone, outside the 48h
- * deleteMessage window) are swallowed so the conversation flow
- * continues uninterrupted.
+ * Best-effort delete of a user-sent message (PIN, address, or burn
+ * confirm) from chat history. Mirrors the same hygiene as the /wallet
+ * PIN flows so the prompt replacing itself in-place isn't left with
+ * the user's prior input still visible below it. Benign 400s (already
+ * gone, outside the 48h deleteMessage window) are swallowed so the
+ * conversation flow continues uninterrupted.
  */
-const sweepPinMessage = async (
+const sweepUserMessage = async (
   ctx: AppContext,
   chatId: number,
   messageId: number,
@@ -365,10 +366,10 @@ const runPinGate = async (
     while (candidate === null) {
       const msg = await conversation.waitFor("message:text");
       const text = msg.message.text.trim();
-      await conversation.external((outside) =>
-        sweepPinMessage(outside, chatId, msg.message.message_id),
-      );
       if (isOtherSlashCommand(text)) await haltAndForward(conversation);
+      await conversation.external((outside) =>
+        sweepUserMessage(outside, chatId, msg.message.message_id),
+      );
       if (!PinManager.isValidPinFormat(text)) {
         await showPrompt(
           conversation,
@@ -389,10 +390,10 @@ const runPinGate = async (
     while (true) {
       const msg = await conversation.waitFor("message:text");
       const text = msg.message.text.trim();
-      await conversation.external((outside) =>
-        sweepPinMessage(outside, chatId, msg.message.message_id),
-      );
       if (isOtherSlashCommand(text)) await haltAndForward(conversation);
+      await conversation.external((outside) =>
+        sweepUserMessage(outside, chatId, msg.message.message_id),
+      );
       if (text !== candidate) {
         await showPrompt(
           conversation,
@@ -420,10 +421,10 @@ const runPinGate = async (
   while (true) {
     const msg = await conversation.waitFor("message:text");
     const text = msg.message.text.trim();
-    await conversation.external((outside) =>
-      sweepPinMessage(outside, chatId, msg.message.message_id),
-    );
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
+    await conversation.external((outside) =>
+      sweepUserMessage(outside, chatId, msg.message.message_id),
+    );
     const result = await conversation.external((outside) =>
       buildPinManager(outside.env).verifyPin(userId, text),
     );
@@ -528,9 +529,16 @@ const changeRewardsWalletConversation = async (
   let candidate: string | null = null;
   while (candidate === null) {
     const msg = await conversation.waitFor("message:text");
-    await trackWorkflowMessage(conversation, msg.message.message_id);
     const text = msg.message.text.trim();
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
+    // Delete the user's address message immediately — the prompt
+    // bubble is about to be edited in place to ask for the PIN, and
+    // leaving the prior input hovering below the new prompt is the
+    // exact stale-state confusion this flow is trying to avoid.
+    // Mirrors the PIN sweep below.
+    await conversation.external((outside) =>
+      sweepUserMessage(outside, chatId, msg.message.message_id),
+    );
     if (!isAddress(text, { strict: false })) {
       await showPrompt(
         conversation,
@@ -558,10 +566,15 @@ const changeRewardsWalletConversation = async (
         ].join("\n"),
       );
       const confirmMsg = await conversation.waitFor("message:text");
-      await trackWorkflowMessage(conversation, confirmMsg.message.message_id);
       const confirmText = confirmMsg.message.text.trim();
       if (isOtherSlashCommand(confirmText))
         await haltAndForward(conversation);
+      // Same hygiene as the address input above — once consumed, the
+      // user's reply doesn't need to sit below the (in-place edited)
+      // prompt that will follow.
+      await conversation.external((outside) =>
+        sweepUserMessage(outside, chatId, confirmMsg.message.message_id),
+      );
       if (confirmText.toLowerCase() !== "confirm") {
         // Treat anything else as a fresh address attempt — loop back
         // through the validator so the user can recover from the
