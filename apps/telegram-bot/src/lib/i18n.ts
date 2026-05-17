@@ -406,10 +406,6 @@ export const INVALID_ADDRESS_REPLY = {
 
 // ─── Common short toast strings ─────────────────────────────────────
 
-export const TOAST_INVALID_TOKEN = {
-  English: "Invalid token.",
-  SimplifiedChinese: "代币无效。",
-} as const;
 export const TOAST_INVALID_REFRESH_REQUEST = {
   English: "Invalid refresh request.",
   SimplifiedChinese: "刷新请求无效。",
@@ -1397,14 +1393,6 @@ export const TOKEN_LIFECYCLE_GRADUATED = {
 export const POSITIONS_REALISED_POS_HEADER = {
   English: "Realised Pos",
   SimplifiedChinese: "已实现仓位",
-} as const;
-export const POSITIONS_BUY_TICKER_BUTTON = {
-  English: (ticker: string) => `Buy ${ticker}`,
-  SimplifiedChinese: (ticker: string) => `买入 ${ticker}`,
-} as const;
-export const POSITIONS_SELL_TICKER_BUTTON = {
-  English: (ticker: string) => `Sell ${ticker}`,
-  SimplifiedChinese: (ticker: string) => `卖出 ${ticker}`,
 } as const;
 export const ANTI_PHISHING_STATIC_HEADER = {
   English: "This bot will never ask for your seed phrase or private key via DM.",

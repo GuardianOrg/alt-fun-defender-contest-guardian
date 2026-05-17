@@ -7,10 +7,8 @@ import { encodeCallback } from "./callbacks.js";
 import {
   DEFAULT_LANGUAGE,
   type Language,
-  POSITIONS_BUY_TICKER_BUTTON,
   POSITIONS_NO_OPEN_POSITIONS_REPLY,
   POSITIONS_REALISED_POS_HEADER,
-  POSITIONS_SELL_TICKER_BUTTON,
   REFRESH_BUTTON_TEXT,
   t,
 } from "./i18n.js";
@@ -155,17 +153,6 @@ const trackDeeplinkHref = (botUsername: string, token: string): string =>
 export const POSITIONS_PAGE_SIZE = 5;
 
 /**
- * Per-page open-position metadata used by the keyboard builder to emit
- * one `[Buy <TICKER>] [Sell <TICKER>]` row per open position currently
- * visible. Scoped to the open page so navigating swaps the action rows
- * along with the body text.
- */
-export interface PositionActionTarget {
-  token: string;
-  ticker: string;
-}
-
-/**
  * Per-line ticker cap measured in *post-escape* characters. On-chain
  * `Token.symbol()` is unbounded UTF-8 and may contain `<` / `>` / `&`
  * which expand 4x under `escapeHtml`, so the budget is enforced after
@@ -248,8 +235,8 @@ const clampPage = (page: number, totalPages: number): number => {
 /**
  * Single rendered view of one (openPage, realisedPage) tuple. The bot
  * sends one message per view; the keyboard builder consumes the same
- * struct to emit per-section nav rows and per-position action rows that
- * stay in sync with the visible body.
+ * struct to emit per-section nav rows that stay in sync with the
+ * visible body.
  */
 export interface PositionsView {
   text: string;
@@ -261,8 +248,6 @@ export interface PositionsView {
   openPage: number;
   /** 0-indexed, clamped against `realisedTotalPages`. */
   realisedPage: number;
-  /** Open positions visible on this page (in render order). */
-  openActions: PositionActionTarget[];
 }
 
 /**
@@ -295,7 +280,6 @@ export const buildPositionsView = (
       realisedTotalPages: 1,
       openPage: 0,
       realisedPage: 0,
-      openActions: [],
     };
   }
 
@@ -367,7 +351,6 @@ export const buildPositionsView = (
     realisedTotalPages,
     openPage: op,
     realisedPage: rp,
-    openActions: openSlice.map((p) => ({ token: p.token, ticker: p.ticker })),
   };
 };
 
@@ -377,14 +360,6 @@ export const buildPositionsView = (
  * `pp:<openPage>:<realisedPage>:<wallet>`.
  */
 export const POSITIONS_PAGE_CALLBACK_CMD = "pp";
-
-/**
- * Per-position buy/sell callback short codes (Telegram's 64-byte
- * `callback_data` ceiling is tight — `pb` / `ps` + 0x-prefixed 40-char
- * address fits with room to spare).
- */
-export const POSITIONS_BUY_CALLBACK_CMD = "pb";
-export const POSITIONS_SELL_CALLBACK_CMD = "ps";
 
 /**
  * Refresh button. Re-fetches the wallet's positions and re-renders at
@@ -403,20 +378,15 @@ export interface InlineKeyboardMarkup {
   inline_keyboard: InlineKeyboardButton[][];
 }
 
-const truncateTickerForButton = (ticker: string): string => {
-  const MAX = 12;
-  // Sanitize control chars first — embedded `\n` / `\t` in an inline
-  // button label produces broken layout on every Telegram client.
-  const flat = sanitizeTickerControlChars(ticker);
-  return flat.length > MAX ? `${flat.slice(0, MAX - 1)}…` : flat;
-};
-
 /**
- * Build the section-pagination nav row for a single section. Returns
- * an empty array when the section has at most one page — no buttons,
- * no row. Direction arrows point at the *target* page so a user on
- * page 1 sees `→ Page 2/10 Open Pos`, page 2 sees both `← Page 1/10`
- * and `→ Page 3/10`, and the last page shows only the `← Prev` button.
+ * Build the section-pagination nav row for a single section. The row
+ * always renders when the section has at least one record — when
+ * `totalPages === 1` a single `Page 1/1 <label>` button stands in as
+ * an informational header so the user can see which section comes
+ * next (Open vs Realised) without having to read the body. Direction
+ * arrows point at the *target* page so a user on page 1 sees
+ * `→ Page 2/10 Open Pos`, page 2 sees both `← Page 1/10` and
+ * `→ Page 3/10`, and the last page shows only the `← Prev` button.
  *
  * `otherPage` is the other section's current page index — it rides in
  * every callback so each axis paginates independently.
@@ -430,45 +400,45 @@ const sectionNavRow = (
   axis: "open" | "realised",
   otherPage: number,
 ): InlineKeyboardButton[] => {
-  if (totalPages <= 1) return [];
+  const callbackFor = (target: number): string =>
+    axis === "open"
+      ? buildCallback(target, otherPage)
+      : buildCallback(otherPage, target);
+  const labelFor = (target: number, arrow: "←" | "→" | ""): string =>
+    `${arrow ? `${arrow} ` : ""}Page ${target + 1}/${totalPages} ${label}`;
+
+  if (totalPages <= 1) {
+    return [
+      {
+        text: labelFor(page, ""),
+        callback_data: callbackFor(page),
+      },
+    ];
+  }
+
   const row: InlineKeyboardButton[] = [];
-  const labelFor = (target: number, arrow: "←" | "→"): string =>
-    `${arrow} Page ${target + 1}/${totalPages} ${label}`;
   if (page > 0) {
     const target = page - 1;
-    row.push({
-      text: labelFor(target, "←"),
-      callback_data:
-        axis === "open"
-          ? buildCallback(target, otherPage)
-          : buildCallback(otherPage, target),
-    });
+    row.push({ text: labelFor(target, "←"), callback_data: callbackFor(target) });
   }
   if (page < totalPages - 1) {
     const target = page + 1;
-    row.push({
-      text: labelFor(target, "→"),
-      callback_data:
-        axis === "open"
-          ? buildCallback(target, otherPage)
-          : buildCallback(otherPage, target),
-    });
+    row.push({ text: labelFor(target, "→"), callback_data: callbackFor(target) });
   }
   void wallet;
   return row;
 };
 
 /**
- * Build the inline-keyboard markup for one positions view: a
- * `[Buy <TICKER>] [Sell <TICKER>]` row per open position currently
- * visible, followed by per-section pagination rows (only when that
- * section has more than `POSITIONS_PAGE_SIZE` records), then a
- * `[🔄 Refresh]` row, then a trailing `[← Back] [🏠 Home]` row.
+ * Build the inline-keyboard markup for one positions view: per-section
+ * pagination rows, a `[🔄 Refresh]` row, then a trailing
+ * `[← Back] [🏠 Home]` row.
  *
- * Per-position Buy/Sell buttons fire inline via `pb:` / `ps:` callbacks
- * so the action card lands as the next message in the same chat. The
- * "view chart / track this token" affordance is the deeplinked ticker
- * inside the body text itself.
+ * The Open Pos row is always emitted above the Realised Pos row when
+ * the section has at least one record. With a single page the row
+ * collapses to a non-navigating `Page 1/1 Open Pos` label so users
+ * always see the Open header above the Realised header rather than
+ * mistaking the Realised row for the only paginatable section.
  *
  * Both page indices ride in nav `callback_data` so the bot survives
  * Worker cold-starts without a KV-backed page cache.
@@ -479,25 +449,6 @@ export const buildPositionsPageKeyboard = (
   lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboardMarkup => {
   const rows: InlineKeyboardButton[][] = [];
-  for (const action of view.openActions) {
-    const label = truncateTickerForButton(action.ticker);
-    rows.push([
-      {
-        text: t(POSITIONS_BUY_TICKER_BUTTON, lang)(label),
-        callback_data: encodeCallback(
-          POSITIONS_BUY_CALLBACK_CMD,
-          action.token,
-        ),
-      },
-      {
-        text: t(POSITIONS_SELL_TICKER_BUTTON, lang)(label),
-        callback_data: encodeCallback(
-          POSITIONS_SELL_CALLBACK_CMD,
-          action.token,
-        ),
-      },
-    ]);
-  }
 
   const pageCallback = (openPage: number, realisedPage: number): string =>
     encodeCallback(
@@ -507,27 +458,31 @@ export const buildPositionsPageKeyboard = (
       wallet,
     );
 
-  const openNav = sectionNavRow(
-    view.openPage,
-    view.openTotalPages,
-    wallet,
-    "Open Pos",
-    pageCallback,
-    "open",
-    view.realisedPage,
-  );
-  if (openNav.length > 0) rows.push(openNav);
+  if (view.openTotal > 0) {
+    const openNav = sectionNavRow(
+      view.openPage,
+      view.openTotalPages,
+      wallet,
+      "Open Pos",
+      pageCallback,
+      "open",
+      view.realisedPage,
+    );
+    if (openNav.length > 0) rows.push(openNav);
+  }
 
-  const realisedNav = sectionNavRow(
-    view.realisedPage,
-    view.realisedTotalPages,
-    wallet,
-    t(POSITIONS_REALISED_POS_HEADER, lang),
-    pageCallback,
-    "realised",
-    view.openPage,
-  );
-  if (realisedNav.length > 0) rows.push(realisedNav);
+  if (view.realisedTotal > 0) {
+    const realisedNav = sectionNavRow(
+      view.realisedPage,
+      view.realisedTotalPages,
+      wallet,
+      t(POSITIONS_REALISED_POS_HEADER, lang),
+      pageCallback,
+      "realised",
+      view.openPage,
+    );
+    if (realisedNav.length > 0) rows.push(realisedNav);
+  }
 
   rows.push([
     {

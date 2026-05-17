@@ -1,12 +1,7 @@
 import type { Bot } from "grammy";
-import type { Address } from "viem";
 
 import type { AppContext } from "../bot.js";
 import { START_CALLBACK } from "../keyboards/start-menu.js";
-import {
-  actionTokenOutage,
-  editToActionCard,
-} from "../lib/action-card.js";
 import { wrapWithCtxPhrase as wrap } from "../lib/anti-phishing.js";
 import { fetchBotPositions, isAddress } from "../lib/api.js";
 import {
@@ -15,7 +10,6 @@ import {
   POSITIONS_NO_ACTIVE_WALLET_REPLY,
   TOAST_INVALID_PAGE_REQUEST,
   TOAST_INVALID_REFRESH_REQUEST,
-  TOAST_INVALID_TOKEN,
   TOAST_MESSAGE_NO_LONGER_AVAILABLE,
   TOAST_MISSING_USER,
   TOAST_REFRESHED,
@@ -25,10 +19,8 @@ import {
   t,
 } from "../lib/i18n.js";
 import {
-  POSITIONS_BUY_CALLBACK_CMD,
   POSITIONS_PAGE_CALLBACK_CMD,
   POSITIONS_REFRESH_CALLBACK_CMD,
-  POSITIONS_SELL_CALLBACK_CMD,
   buildPositionsPageKeyboard,
   buildPositionsView,
 } from "../lib/format.js";
@@ -292,67 +284,6 @@ export const registerPositionsCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
     },
   );
-
-  /**
-   * Per-position `[Buy <TICKER>]` / `[Sell <TICKER>]` callbacks. Buttons
-   * fire inline so the action card lands as the next message in the
-   * same chat. Private-DM only — the action card prints USDC balance
-   * and a buy/sell keyboard scoped to the user's active wallet.
-   */
-  const registerActionCallback = (
-    cmd: typeof POSITIONS_BUY_CALLBACK_CMD | typeof POSITIONS_SELL_CALLBACK_CMD,
-    action: "buy" | "sell",
-  ): void => {
-    bot.callbackQuery(new RegExp(`^${cmd}:`), async (ctx) => {
-      const data = ctx.callbackQuery.data ?? "";
-      const token = data.slice(cmd.length + 1);
-      if (!isAddress(token)) {
-        await ctx.answerCallbackQuery({ text: t(TOAST_INVALID_TOKEN, getCtxLanguage(ctx)) });
-        return;
-      }
-      if (!ctx.from) {
-        await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, getCtxLanguage(ctx)) });
-        return;
-      }
-      if (ctx.chat?.type !== "private") {
-        await ctx.answerCallbackQuery({
-          text: nonPrivateChatReply(ctx),
-          show_alert: true,
-        });
-        return;
-      }
-      const wm = new WalletManager(ctx.env.WALLET_KV, ctx.env.MASTER_KEY);
-      const active = await wm.getActive(ctx.from.id);
-      if (!active) {
-        await ctx.answerCallbackQuery({
-          text: noActiveWallet(ctx),
-          show_alert: true,
-        });
-        return;
-      }
-      try {
-        const ok = await editToActionCard(
-          ctx,
-          active.address,
-          action,
-          token as Address,
-        );
-        if (!ok) {
-          await ctx.answerCallbackQuery({
-            text: actionTokenOutage(ctx),
-            show_alert: true,
-          });
-          return;
-        }
-      } catch (err) {
-        await ctx.answerCallbackQuery();
-        throw err;
-      }
-      await ctx.answerCallbackQuery();
-    });
-  };
-  registerActionCallback(POSITIONS_BUY_CALLBACK_CMD, "buy");
-  registerActionCallback(POSITIONS_SELL_CALLBACK_CMD, "sell");
 
   /**
    * Start-menu "Positions" button: open positions for the user's

@@ -212,8 +212,6 @@ describe("i18n module", () => {
     expect(i18n.REFERRAL_LIFETIME_EARNED_LABEL.English("3.21")).toBe(
       "Lifetime earned: $3.21 USDC",
     );
-    expect(i18n.POSITIONS_BUY_TICKER_BUTTON.English("WIF")).toBe("Buy WIF");
-    expect(i18n.POSITIONS_SELL_TICKER_BUTTON.English("WIF")).toBe("Sell WIF");
   });
 
   it("renders newly extracted trade confirm + tx-status copy", () => {

@@ -179,8 +179,8 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("LT10");
 
     const rows = body.reply_markup.inline_keyboard;
-    // 5 per-position rows + open nav row + refresh + back/home.
-    expect(rows).toHaveLength(8);
+    // Open nav row + refresh + back/home. No per-position rows.
+    expect(rows).toHaveLength(3);
     expect(rows[rows.length - 1]!.map((b) => b.text)).toEqual([
       "← Back",
       "🏠 Home",
@@ -190,7 +190,7 @@ describe("pp callback (positions pagination)", () => {
     expect(refreshRow[0]!.callback_data).toMatch(
       /^pr:1:0:0x[0-9a-f]{40}$/i,
     );
-    const openNav = rows[rows.length - 3]!;
+    const openNav = rows[0]!;
     expect(openNav.map((b) => b.text)).toEqual([
       "← Page 1/10 Open Pos",
       "→ Page 3/10 Open Pos",
@@ -198,18 +198,10 @@ describe("pp callback (positions pagination)", () => {
     for (const b of openNav) {
       expect(b.callback_data).toMatch(/^pp:\d+:0:0x[0-9a-f]{40}$/i);
     }
-    const positionRowCount = rows.length - 3;
-    for (let i = 0; i < positionRowCount; i++) {
-      const buySellRow = rows[i]!;
-      expect(buySellRow).toHaveLength(2);
-      const buyLabel = buySellRow[0]!.text;
-      const sellLabel = buySellRow[1]!.text;
-      expect(buyLabel.startsWith("Buy ")).toBe(true);
-      expect(sellLabel.startsWith("Sell ")).toBe(true);
-      expect(buySellRow[0]!.callback_data.startsWith("pb:0x")).toBe(true);
-      expect(buySellRow[1]!.callback_data.startsWith("ps:0x")).toBe(true);
-      const ticker = buyLabel.slice("Buy ".length);
-      expect(body.text).toContain(`>${ticker}</a>`);
+    // No per-position buy/sell callbacks anywhere in the keyboard.
+    for (const b of rows.flat()) {
+      expect(b.callback_data.startsWith("pb:")).toBe(false);
+      expect(b.callback_data.startsWith("ps:")).toBe(false);
     }
   });
 
@@ -240,9 +232,9 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("R10");
 
     const rows = body.reply_markup.inline_keyboard;
-    // 5 open rows + open nav + realised nav + refresh + back/home.
-    expect(rows).toHaveLength(9);
-    const openNav = rows[5]!;
+    // open nav + realised nav + refresh + back/home (no per-position rows).
+    expect(rows).toHaveLength(4);
+    const openNav = rows[0]!;
     expect(openNav.map((b) => b.text)).toEqual([
       "← Page 2/10 Open Pos",
       "→ Page 4/10 Open Pos",
@@ -251,7 +243,7 @@ describe("pp callback (positions pagination)", () => {
     // realised page index) so navigation never disturbs the other axis.
     expect(openNav[0]!.callback_data).toBe(`pp:1:1:${WALLET}`);
     expect(openNav[1]!.callback_data).toBe(`pp:3:1:${WALLET}`);
-    const realisedNav = rows[6]!;
+    const realisedNav = rows[1]!;
     expect(realisedNav.map((b) => b.text)).toEqual([
       "← Page 1/3 Realised Pos",
       "→ Page 3/3 Realised Pos",
@@ -280,11 +272,10 @@ describe("pp callback (positions pagination)", () => {
     expect(body.text).not.toContain("?start=sell_");
     expect(body.text).toContain("?start=track_");
     const rows = body.reply_markup!.inline_keyboard;
-    // Buy/sell row + refresh row + trailing Back/Home row. No nav rows
-    // because the single position fits on one page.
+    // Open Pos label row + refresh row + trailing Back/Home row.
     expect(rows).toHaveLength(3);
-    expect(rows[0]![0]!.callback_data.startsWith("pb:0x")).toBe(true);
-    expect(rows[0]![1]!.callback_data.startsWith("ps:0x")).toBe(true);
+    expect(rows[0]!.map((b) => b.text)).toEqual(["Page 1/1 Open Pos"]);
+    expect(rows[0]![0]!.callback_data).toMatch(/^pp:0:0:0x[0-9a-f]{40}$/i);
     expect(rows[1]!.map((b) => b.text)).toEqual(["🔄 Refresh"]);
     expect(rows[1]![0]!.callback_data).toMatch(/^pr:0:0:0x[0-9a-f]{40}$/i);
     expect(rows[2]!.map((b) => b.text)).toEqual(["← Back", "🏠 Home"]);
