@@ -14,6 +14,8 @@ import {
   PIN_NO_PIN_ON_FILE_REPLY,
   PIN_VERIFY_PROMPT,
   PIN_WRONG_RETRY_REPLY,
+  getCtxLanguage,
+  t,
 } from "./i18n.js";
 import { backHomeMarkup, type MessageRef, safeEditMessageById } from "./nav.js";
 import { PinManager } from "./pin.js";
@@ -77,7 +79,7 @@ const tryEditOriginPrompt = async (
 ): Promise<boolean> =>
   conversation.external((outside) =>
     safeEditMessageById(outside, origin, wrap(ctx, prompt), {
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(getCtxLanguage(ctx)),
     }),
   );
 
@@ -100,13 +102,14 @@ export const askNewPin = async (
   prompt: string,
   origin?: MessageRef,
 ): Promise<string> => {
+  const lang = getCtxLanguage(ctx);
   let editedOrigin = false;
   if (origin) {
     editedOrigin = await tryEditOriginPrompt(conversation, ctx, origin, prompt);
   }
   if (!editedOrigin) {
     const askMsg = await ctx.reply(wrap(ctx, prompt), {
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(lang),
     });
     await trackWorkflowMessage(conversation, askMsg.message_id);
   }
@@ -121,8 +124,8 @@ export const askNewPin = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (!PinManager.isValidPinFormat(text)) {
       const retry = await ctx.reply(
-        wrap(ctx, PIN_INVALID_FORMAT_REPLY.English),
-        { reply_markup: backHomeMarkup() },
+        wrap(ctx, t(PIN_INVALID_FORMAT_REPLY, lang)),
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -131,8 +134,8 @@ export const askNewPin = async (
   }
 
   const confirmAsk = await ctx.reply(
-    wrap(ctx, PIN_FLOW_CONFIRM_PROMPT.English),
-    { reply_markup: backHomeMarkup() },
+    wrap(ctx, t(PIN_FLOW_CONFIRM_PROMPT, lang)),
+    { reply_markup: backHomeMarkup(lang) },
   );
   await trackWorkflowMessage(conversation, confirmAsk.message_id);
   while (true) {
@@ -144,8 +147,8 @@ export const askNewPin = async (
     if (isOtherSlashCommand(text)) await haltAndForward(conversation);
     if (text !== candidate) {
       const retry = await ctx.reply(
-        wrap(ctx, PIN_DO_NOT_MATCH_REPLY.English),
-        { reply_markup: backHomeMarkup() },
+        wrap(ctx, t(PIN_DO_NOT_MATCH_REPLY, lang)),
+        { reply_markup: backHomeMarkup(lang) },
       );
       await trackWorkflowMessage(conversation, retry.message_id);
       continue;
@@ -168,14 +171,15 @@ export const verifyExistingPin = async (
   actionLabel: string,
   origin?: MessageRef,
 ): Promise<boolean> => {
+  const lang = getCtxLanguage(ctx);
   let editedOrigin = false;
-  const prompt = PIN_VERIFY_PROMPT.English(actionLabel);
+  const prompt = t(PIN_VERIFY_PROMPT, lang)(actionLabel);
   if (origin) {
     editedOrigin = await tryEditOriginPrompt(conversation, ctx, origin, prompt);
   }
   if (!editedOrigin) {
     const askMsg = await ctx.reply(wrap(ctx, prompt), {
-      reply_markup: backHomeMarkup(),
+      reply_markup: backHomeMarkup(lang),
     });
     await trackWorkflowMessage(conversation, askMsg.message_id);
   }
@@ -196,19 +200,19 @@ export const verifyExistingPin = async (
         Math.ceil((result.retryAt - Date.now()) / 60_000),
       );
       await ctx.reply(
-        wrap(ctx, PIN_LOCKED_REPLY.English(mins, actionLabel)),
+        wrap(ctx, t(PIN_LOCKED_REPLY, lang)(mins, actionLabel)),
       );
       return false;
     }
     if (result.reason === "unset") {
       await ctx.reply(
-        wrap(ctx, PIN_NO_PIN_ON_FILE_REPLY.English),
+        wrap(ctx, t(PIN_NO_PIN_ON_FILE_REPLY, lang)),
       );
       return false;
     }
     const retry = await ctx.reply(
-      wrap(ctx, PIN_WRONG_RETRY_REPLY.English(result.attemptsRemaining)),
-      { reply_markup: backHomeMarkup() },
+      wrap(ctx, t(PIN_WRONG_RETRY_REPLY, lang)(result.attemptsRemaining)),
+      { reply_markup: backHomeMarkup(lang) },
     );
     await trackWorkflowMessage(conversation, retry.message_id);
   }

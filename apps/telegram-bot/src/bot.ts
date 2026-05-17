@@ -24,6 +24,7 @@ import { buildStartSnapshot, registerStartCommand } from "./commands/start.js";
 import { registerTrackCommand } from "./commands/track.js";
 import { registerWalletCommand } from "./commands/wallet.js";
 import { registerWithdrawCommand } from "./commands/withdraw.js";
+import type { Language } from "./lib/i18n.js";
 import type { Env } from "./lib/types.js";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 
@@ -145,6 +146,12 @@ export interface SessionData {
    * current message back to that state. See `lib/nav.ts`.
    */
   navStack?: import("./lib/nav.js").NavSnapshot[];
+  /**
+   * Preferred UI language for the user, set via `/settings → Language`.
+   * Undefined means the user has never picked one — handlers fall back
+   * to `DEFAULT_LANGUAGE` (English) via `getCtxLanguage` in `lib/i18n.ts`.
+   */
+  language?: Language;
 }
 
 /**

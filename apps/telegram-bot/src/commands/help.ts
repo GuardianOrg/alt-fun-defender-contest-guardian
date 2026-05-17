@@ -7,6 +7,7 @@ import {
   resolveAntiPhishingHeader,
 } from "../lib/anti-phishing.js";
 import {
+  DEFAULT_LANGUAGE,
   HELP_FEES_HTML,
   HELP_HEADER_PLACEHOLDER_TOKEN,
   HELP_OVERVIEW_HTML,
@@ -17,6 +18,9 @@ import {
   HELP_UNKNOWN_TOPIC_HTML,
   HELP_WALLET_HTML,
   HELP_WITHDRAW_HTML,
+  type Language,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { backHomeRow, editToSubmenu } from "../lib/nav.js";
 
@@ -65,15 +69,15 @@ const TOPIC_LIST = [
   "withdraw",
 ];
 
-const TOPIC_HTML: Record<string, string> = {
-  wallet: HELP_WALLET_HTML.English,
-  trading: HELP_TRADING_HTML.English,
-  fees: HELP_FEES_HTML.English,
-  pnl: HELP_PNL_HTML.English,
-  security: HELP_SECURITY_HTML.English,
-  referrals: HELP_REFERRALS_HTML.English,
-  withdraw: HELP_WITHDRAW_HTML.English,
-};
+const topicHtml = (lang: Language): Record<string, string> => ({
+  wallet: t(HELP_WALLET_HTML, lang),
+  trading: t(HELP_TRADING_HTML, lang),
+  fees: t(HELP_FEES_HTML, lang),
+  pnl: t(HELP_PNL_HTML, lang),
+  security: t(HELP_SECURITY_HTML, lang),
+  referrals: t(HELP_REFERRALS_HTML, lang),
+  withdraw: t(HELP_WITHDRAW_HTML, lang),
+});
 
 /**
  * Resolve `/help <topic>` argument text into a rendered HTML body.
@@ -85,15 +89,17 @@ const TOPIC_HTML: Record<string, string> = {
 export const renderHelp = (
   arg: string | undefined,
   phrase: string | null | undefined,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const raw = arg?.trim().toLowerCase();
+  const byTopic = topicHtml(lang);
   const template = !raw
-    ? HELP_OVERVIEW_HTML.English(TOPIC_LIST)
-    : TOPIC_HTML[TOPIC_ALIASES[raw] ?? ""] ??
-      HELP_UNKNOWN_TOPIC_HTML.English(TOPIC_LIST);
+    ? t(HELP_OVERVIEW_HTML, lang)(TOPIC_LIST)
+    : byTopic[TOPIC_ALIASES[raw] ?? ""] ??
+      t(HELP_UNKNOWN_TOPIC_HTML, lang)(TOPIC_LIST);
   return template.replace(
     HELP_HEADER_PLACEHOLDER_TOKEN,
-    escapeHtml(resolveAntiPhishingHeader(phrase)),
+    escapeHtml(resolveAntiPhishingHeader(phrase, lang)),
   );
 };
 
@@ -101,17 +107,21 @@ const sendHelp = async (
   ctx: AppContext,
   arg: string | undefined,
 ): Promise<void> => {
-  await ctx.reply(renderHelp(arg, ctxAntiPhishingPhrase(ctx)), {
-    parse_mode: "HTML",
-    link_preview_options: { is_disabled: true },
-  });
+  await ctx.reply(
+    renderHelp(arg, ctxAntiPhishingPhrase(ctx), getCtxLanguage(ctx)),
+    {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    },
+  );
 };
 
 const showHelpFromCallback = async (ctx: AppContext): Promise<void> => {
+  const lang = getCtxLanguage(ctx);
   await editToSubmenu(ctx, {
-    text: renderHelp(undefined, ctxAntiPhishingPhrase(ctx)),
+    text: renderHelp(undefined, ctxAntiPhishingPhrase(ctx), lang),
     parseMode: "HTML",
-    inlineKeyboard: [backHomeRow()],
+    inlineKeyboard: [backHomeRow(lang)],
     linkPreviewDisabled: true,
   });
 };

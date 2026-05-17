@@ -20,10 +20,11 @@ describe("i18n module", () => {
     const NON_ENTRY_EXPORTS = new Set([
       "DEFAULT_LANGUAGE",
       "HELP_HEADER_PLACEHOLDER_TOKEN",
+      "getCtxLanguage",
       "t",
     ]);
     const entries = Object.entries(i18n).filter(
-      ([key]) => !NON_ENTRY_EXPORTS.has(key),
+      ([key]) => !NON_ENTRY_EXPORTS.has(key) && typeof i18n[key as keyof typeof i18n] !== "function",
     );
     expect(entries.length).toBeGreaterThan(0);
     for (const [key, value] of entries) {
@@ -313,7 +314,9 @@ describe("i18n module", () => {
       if (
         key === "DEFAULT_LANGUAGE" ||
         key === "HELP_HEADER_PLACEHOLDER_TOKEN" ||
-        key === "t"
+        key === "getCtxLanguage" ||
+        key === "t" ||
+        typeof value === "function"
       ) {
         continue;
       }
@@ -387,5 +390,82 @@ describe("t() resolver with partial overrides", () => {
     // locale-agnostic (logs, fixed-format strings, tests).
     expect(i18n.REFRESH_BUTTON_TEXT.English).toBe("🔄 Refresh");
     expect(t(i18n.REFRESH_BUTTON_TEXT)).toBe(i18n.REFRESH_BUTTON_TEXT.English);
+  });
+});
+
+describe("Simplified Chinese locale", () => {
+  it("declares SimplifiedChinese as a valid Language", () => {
+    // Pure type-level assertion via assignment — if the union ever
+    // drops `SimplifiedChinese`, this stops compiling.
+    const lang: i18n.Language = "SimplifiedChinese";
+    expect(lang).toBe("SimplifiedChinese");
+  });
+
+  it("renders static entries in Simplified Chinese", () => {
+    expect(t(i18n.BACK_BUTTON_TEXT, "SimplifiedChinese")).toBe("← 返回");
+    expect(t(i18n.HOME_BUTTON_TEXT, "SimplifiedChinese")).toBe("🏠 主页");
+    expect(t(i18n.START_BUY_BUTTON, "SimplifiedChinese")).toBe("买入");
+    expect(t(i18n.OUTAGE_REPLY, "SimplifiedChinese")).toContain("暂时无法");
+  });
+
+  it("renders parameterised entries in Simplified Chinese", () => {
+    expect(t(i18n.BUY_AMOUNT_BUTTON, "SimplifiedChinese")(20)).toBe(
+      "买入 20 USDC",
+    );
+    expect(t(i18n.SELL_PERCENT_BUTTON, "SimplifiedChinese")(50)).toBe(
+      "卖出 50%",
+    );
+  });
+
+  it("preserves brand names verbatim in Simplified Chinese translations", () => {
+    // Brand names listed in the i18n.ts header must never be translated.
+    // Sample-check a few canonical entries — the `t()` resolver should
+    // emit the brand strings exactly as written, no Chinese variants.
+    const help = t(i18n.HELP_OVERVIEW_HTML, "SimplifiedChinese")([
+      "wallet",
+    ]);
+    expect(help).toContain("alt.fun");
+    expect(help).toContain("BounceTech");
+    expect(help).toContain("HyperSwap");
+    expect(help).toContain("USDC");
+    expect(help).toContain("HYPE");
+    expect(help).toContain("LT");
+    const trading = t(i18n.HELP_TRADING_HTML, "SimplifiedChinese");
+    expect(trading).toContain("/buy");
+    expect(trading).toContain("/sell");
+    expect(trading).toContain("BounceTech");
+    expect(trading).toContain("InsufficientBalance");
+    const welcome = t(i18n.START_WELCOME_LEAD, "SimplifiedChinese")(
+      "CortisolBot",
+    );
+    expect(welcome).toContain("HyperEVM");
+    expect(welcome).toContain("CortisolBot");
+    expect(welcome).toContain("alt.fun");
+  });
+});
+
+describe("getCtxLanguage", () => {
+  it("returns the session language when set", () => {
+    expect(
+      i18n.getCtxLanguage({ session: { language: "SimplifiedChinese" } }),
+    ).toBe("SimplifiedChinese");
+    expect(i18n.getCtxLanguage({ session: { language: "English" } })).toBe(
+      "English",
+    );
+  });
+
+  it("falls back to English when the session has no language picked", () => {
+    expect(i18n.getCtxLanguage({ session: {} })).toBe("English");
+    expect(i18n.getCtxLanguage({})).toBe("English");
+    expect(i18n.getCtxLanguage(undefined)).toBe("English");
+  });
+
+  it("falls back to English when reading `session` throws (replay / channel ctx)", () => {
+    const ctx = {
+      get session() {
+        throw new Error("session not bound on this ctx flavor");
+      },
+    } as { session?: { language?: i18n.Language } };
+    expect(i18n.getCtxLanguage(ctx)).toBe("English");
   });
 });

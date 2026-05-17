@@ -13,6 +13,8 @@ import {
 } from "../lib/anti-phishing.js";
 import { BOT_NAME } from "../lib/branding.js";
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   POSITIONS_NO_ACTIVE_WALLET_REPLY,
   REFRESH_PRIVATE_DM_ONLY_REPLY,
   START_BALANCE_LABEL,
@@ -26,6 +28,8 @@ import {
   START_WALLET_ADDRESS_LABEL,
   START_WELCOME_LEAD,
   TAP_TO_COPY_HINT,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 import { logger } from "../lib/logger.js";
 import {
@@ -43,9 +47,11 @@ import { formatHype18, formatUsdc6 } from "../lib/token-card.js";
 import { WalletManager } from "../lib/wallet.js";
 import type { Address } from "viem";
 
-const NON_PRIVATE_CHAT_REPLY = I18N_START_NON_PRIVATE_CHAT_REPLY.English;
+const nonPrivateChatReply = (ctx: AppContext): string =>
+  t(I18N_START_NON_PRIVATE_CHAT_REPLY, getCtxLanguage(ctx));
 
-const NO_USER_REPLY = I18N_START_NO_USER_REPLY.English;
+const noUserReply = (ctx: AppContext): string =>
+  t(I18N_START_NO_USER_REPLY, getCtxLanguage(ctx));
 
 const isPrivateChat = (ctx: AppContext): boolean =>
   ctx.chat?.type === "private";
@@ -68,22 +74,23 @@ const renderWelcomeHtml = (
   usdcBalance: bigint | null,
   hypeBalance: bigint | null,
   phrase: string | null | undefined,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const usdc = formatUsdc6(usdcBalance);
   const hype = formatHype18(hypeBalance);
   return [
-    escapeHtml(resolveAntiPhishingHeader(phrase)),
+    escapeHtml(resolveAntiPhishingHeader(phrase, lang)),
     "",
-    START_WELCOME_LEAD.English(BOT_NAME),
+    t(START_WELCOME_LEAD, lang)(BOT_NAME),
     "",
-    START_WALLET_ADDRESS_LABEL.English,
+    t(START_WALLET_ADDRESS_LABEL, lang),
     `<code>${escapeHtml(address)}</code>`,
-    TAP_TO_COPY_HINT.English,
+    t(TAP_TO_COPY_HINT, lang),
     "",
-    START_BALANCE_LABEL.English(escapeHtml(usdc)),
-    START_GAS_BALANCE_LABEL.English(escapeHtml(hype)),
+    t(START_BALANCE_LABEL, lang)(escapeHtml(usdc)),
+    t(START_GAS_BALANCE_LABEL, lang)(escapeHtml(hype)),
     "",
-    START_ONCE_FUNDED_REFRESH_HINT.English,
+    t(START_ONCE_FUNDED_REFRESH_HINT, lang),
   ].join("\n");
 };
 
@@ -100,11 +107,13 @@ const renderStart = async (
   usdcBalance: bigint | null,
   hypeBalance: bigint | null,
   phrase: string | null | undefined,
+  lang: Language = DEFAULT_LANGUAGE,
 ): Promise<RenderedStart> => ({
-  text: renderWelcomeHtml(address, usdcBalance, hypeBalance, phrase),
+  text: renderWelcomeHtml(address, usdcBalance, hypeBalance, phrase, lang),
   reply_markup: {
     inline_keyboard: buildStartMenuKeyboard(
       resolveBuyUsdcUrl(env, address),
+      lang,
     ),
   },
   parse_mode: "HTML",
@@ -175,6 +184,7 @@ export const buildStartSnapshot = async (
     usdcBalance,
     hypeBalance,
     ctxAntiPhishingPhrase(ctx),
+    getCtxLanguage(ctx),
   );
   return {
     text: rendered.text,
@@ -210,8 +220,8 @@ const ensureActiveAddress = async (
   }
 };
 
-const WALLET_CREATE_FAILED =
-  START_COULD_NOT_CREATE_WALLET_REPLY.English;
+const walletCreateFailed = (ctx: AppContext): string =>
+  t(START_COULD_NOT_CREATE_WALLET_REPLY, getCtxLanguage(ctx));
 
 const safeEditMessageText = async (
   ctx: AppContext,
@@ -239,11 +249,11 @@ const safeEditMessageText = async (
 export const registerStartCommand = (bot: Bot<AppContext>): void => {
   bot.command("start", async (ctx) => {
     if (!ctx.from) {
-      await ctx.reply(NO_USER_REPLY);
+      await ctx.reply(noUserReply(ctx));
       return;
     }
     if (!isPrivateChat(ctx)) {
-      await ctx.reply(NON_PRIVATE_CHAT_REPLY);
+      await ctx.reply(nonPrivateChatReply(ctx));
       return;
     }
     const userId = ctx.from.id;
@@ -258,7 +268,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
 
     const address = await ensureActiveAddress(ctx.env, userId);
     if (!address) {
-      await ctx.reply(WALLET_CREATE_FAILED);
+      await ctx.reply(walletCreateFailed(ctx));
       return;
     }
 
@@ -369,6 +379,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       usdcBalance,
       hypeBalance,
       ctxAntiPhishingPhrase(ctx),
+      getCtxLanguage(ctx),
     );
     await ctx.reply(rendered.text, {
       parse_mode: rendered.parse_mode,
@@ -382,9 +393,10 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       await ctx.answerCallbackQuery();
       return;
     }
+    const lang = getCtxLanguage(ctx);
     if (!isPrivateChat(ctx)) {
       await ctx.answerCallbackQuery({
-        text: REFRESH_PRIVATE_DM_ONLY_REPLY.English,
+        text: t(REFRESH_PRIVATE_DM_ONLY_REPLY, lang),
         show_alert: true,
       });
       return;
@@ -397,7 +409,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       // re-creating one — the user's intent here is "show me my
       // current balance", not "make a new wallet".
       await ctx.answerCallbackQuery({
-        text: POSITIONS_NO_ACTIVE_WALLET_REPLY.English,
+        text: t(POSITIONS_NO_ACTIVE_WALLET_REPLY, lang),
         show_alert: true,
       });
       return;
@@ -412,6 +424,7 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
       usdcBalance,
       hypeBalance,
       ctxAntiPhishingPhrase(ctx),
+      lang,
     );
     await safeEditMessageText(ctx, rendered.text, {
       parse_mode: rendered.parse_mode,
@@ -421,8 +434,8 @@ export const registerStartCommand = (bot: Bot<AppContext>): void => {
     await ctx.answerCallbackQuery({
       text:
         usdcBalance === null && hypeBalance === null
-          ? START_BALANCE_UNAVAILABLE_TOAST.English
-          : START_BALANCE_REFRESHED_TOAST.English,
+          ? t(START_BALANCE_UNAVAILABLE_TOAST, lang)
+          : t(START_BALANCE_REFRESHED_TOAST, lang),
     });
   });
 };

@@ -8,8 +8,12 @@ import type {
 } from "../keyboards/wallet-actions.js";
 import {
   BACK_BUTTON_TEXT,
+  DEFAULT_LANGUAGE,
   HOME_BUTTON_TEXT,
+  type Language,
   RUN_START_TO_RETURN_HOME_REPLY,
+  getCtxLanguage,
+  t,
 } from "./i18n.js";
 import { logger } from "./logger.js";
 import { removeWorkflowMessage } from "./workflow-stack.js";
@@ -37,13 +41,12 @@ export const NAV_CALLBACK = {
   home: "nav:h",
 } as const;
 
-const BACK_LABEL = BACK_BUTTON_TEXT.English;
-const HOME_LABEL = HOME_BUTTON_TEXT.English;
-
 /** Single trailing row shared by every system-prompt keyboard. */
-export const backHomeRow = (): InlineCallbackButton[] => [
-  { text: BACK_LABEL, callback_data: NAV_CALLBACK.back },
-  { text: HOME_LABEL, callback_data: NAV_CALLBACK.home },
+export const backHomeRow = (
+  lang: Language = DEFAULT_LANGUAGE,
+): InlineCallbackButton[] => [
+  { text: t(BACK_BUTTON_TEXT, lang), callback_data: NAV_CALLBACK.back },
+  { text: t(HOME_BUTTON_TEXT, lang), callback_data: NAV_CALLBACK.home },
 ];
 
 /**
@@ -55,8 +58,10 @@ export const backHomeRow = (): InlineCallbackButton[] => [
  * the prompt. Use on every `ctx.reply` inside a wizard that prompts for
  * text input.
  */
-export const backHomeMarkup = (): { inline_keyboard: InlineKeyboard } => ({
-  inline_keyboard: [backHomeRow()],
+export const backHomeMarkup = (
+  lang: Language = DEFAULT_LANGUAGE,
+): { inline_keyboard: InlineKeyboard } => ({
+  inline_keyboard: [backHomeRow(lang)],
 });
 
 /**
@@ -78,7 +83,7 @@ export const replyWithNav = async (
 ): ReturnType<AppContext["reply"]> => {
   return ctx.reply(text, {
     ...extra,
-    reply_markup: extra.reply_markup ?? backHomeMarkup(),
+    reply_markup: extra.reply_markup ?? backHomeMarkup(getCtxLanguage(ctx)),
   });
 };
 
@@ -560,7 +565,7 @@ const renderHome = async (
     // `/start` from the command menu.
     await deleteCurrentMessage(ctx);
     await ctx.answerCallbackQuery({
-      text: RUN_START_TO_RETURN_HOME_REPLY.English,
+      text: t(RUN_START_TO_RETURN_HOME_REPLY, getCtxLanguage(ctx)),
       show_alert: false,
     });
     return;

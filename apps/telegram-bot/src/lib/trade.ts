@@ -41,8 +41,10 @@ import { privateKeyToAccount } from "viem/accounts";
 
 import {
   BUYS_PAUSED_MINT_PAUSED_REPLY,
+  DEFAULT_LANGUAGE,
   INSUFFICIENT_HYPE_FOR_GAS_REPLY,
   LT_BUFFER_LOW_REPLY,
+  type Language,
   RPC_UNAVAILABLE_REPLY,
   SLIPPAGE_EXCEEDED_REPLY,
   TRADE_ALREADY_IN_FLIGHT_REPLY,
@@ -54,6 +56,7 @@ import {
   TX_PENDING_POLLING_REPLY,
   TX_REVERTED_ON_CHAIN_REPLY,
   TX_SUBMITTED_RECEIPT_MISSING_REPLY,
+  t,
 } from "./i18n.js";
 import {
   claimIntent,
@@ -1020,8 +1023,12 @@ const resolveDuplicate = async (
   return {
     ok: false,
     kind: "unavailable",
-    reason:
-      TRADE_ALREADY_IN_FLIGHT_REPLY.English,
+    // Falls back to English here — `resolveDuplicate` runs deep in
+    // `executeBuy`/`executeSell` and the call sites that surface this
+    // reason to chat re-render via `renderExecutionError(_, { language })`,
+    // so any localisation should happen there. Leave the canonical
+    // English copy on the persisted record.
+    reason: TRADE_ALREADY_IN_FLIGHT_REPLY.English,
     txHash: record.txHash,
   };
 };
@@ -1356,13 +1363,14 @@ export const explorerTxUrl = (hash: Hash): string =>
  */
 export const renderExecutionError = (
   result: Extract<ExecutionResult, { ok: false }>,
-  options: { isPollingActive?: boolean } = {},
+  options: { isPollingActive?: boolean; language?: Language } = {},
 ): string => {
+  const lang: Language = options.language ?? DEFAULT_LANGUAGE;
   if (result.kind === "not_configured") {
-    return TRADE_ROUTING_NOT_CONFIGURED_REPLY.English;
+    return t(TRADE_ROUTING_NOT_CONFIGURED_REPLY, lang);
   }
   if (result.kind === "insufficient_funds") {
-    return INSUFFICIENT_HYPE_FOR_GAS_REPLY.English;
+    return t(INSUFFICIENT_HYPE_FOR_GAS_REPLY, lang);
   }
   if (result.kind === "pending") {
     // Three variants on the pending arm, distinguished by the
@@ -1377,42 +1385,42 @@ export const renderExecutionError = (
     //               Render neutral "check the explorer" copy with
     //               no polling-status claim either way.
     if (options.isPollingActive === true) {
-      return TX_PENDING_POLLING_REPLY.English(
+      return t(TX_PENDING_POLLING_REPLY, lang)(
         RECEIPT_TIMEOUT_MS / 1000,
         explorerTxUrl(result.txHash),
       );
     }
     if (options.isPollingActive === false) {
-      return TX_PENDING_NO_POLLING_REPLY.English(explorerTxUrl(result.txHash));
+      return t(TX_PENDING_NO_POLLING_REPLY, lang)(explorerTxUrl(result.txHash));
     }
-    return TX_PENDING_NEUTRAL_REPLY.English(explorerTxUrl(result.txHash));
+    return t(TX_PENDING_NEUTRAL_REPLY, lang)(explorerTxUrl(result.txHash));
   }
   if (result.kind === "unavailable") {
     if (result.txHash) {
-      return TX_SUBMITTED_RECEIPT_MISSING_REPLY.English(
+      return t(TX_SUBMITTED_RECEIPT_MISSING_REPLY, lang)(
         explorerTxUrl(result.txHash),
       );
     }
-    return RPC_UNAVAILABLE_REPLY.English;
+    return t(RPC_UNAVAILABLE_REPLY, lang);
   }
   const reason = result.reason ?? "";
   const suffix = result.txHash
     ? ` See ${explorerTxUrl(result.txHash)}.`
     : "";
   if (/TradingNotOpen/i.test(reason)) {
-    return TRADING_NOT_YET_OPEN_REPLY.English(suffix);
+    return t(TRADING_NOT_YET_OPEN_REPLY, lang)(suffix);
   }
   if (/InsufficientBalance/i.test(reason)) {
-    return LT_BUFFER_LOW_REPLY.English(suffix);
+    return t(LT_BUFFER_LOW_REPLY, lang)(suffix);
   }
   if (/Slippage|SlippageExceeded|too little|tooLittle/i.test(reason)) {
-    return SLIPPAGE_EXCEEDED_REPLY.English(suffix);
+    return t(SLIPPAGE_EXCEEDED_REPLY, lang)(suffix);
   }
   if (/mint paused|MintPaused/i.test(reason)) {
-    return BUYS_PAUSED_MINT_PAUSED_REPLY.English(suffix);
+    return t(BUYS_PAUSED_MINT_PAUSED_REPLY, lang)(suffix);
   }
   if (result.txHash) {
-    return TX_REVERTED_ON_CHAIN_REPLY.English(reason, explorerTxUrl(result.txHash));
+    return t(TX_REVERTED_ON_CHAIN_REPLY, lang)(reason, explorerTxUrl(result.txHash));
   }
-  return TX_FAILED_GENERIC_REPLY.English(reason);
+  return t(TX_FAILED_GENERIC_REPLY, lang)(reason);
 };

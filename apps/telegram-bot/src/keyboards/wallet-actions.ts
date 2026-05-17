@@ -1,4 +1,6 @@
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   WALLET_CANCEL_DISABLE_BUTTON,
   WALLET_CANCEL_PIN_RESET_BUTTON,
   WALLET_CANCEL_RESET_BUTTON,
@@ -18,6 +20,7 @@ import {
   WALLET_SWITCH_BUTTON,
   WALLET_UNLABELED,
   WALLET_WITHDRAW_BUTTON,
+  t,
 } from "../lib/i18n.js";
 import { backHomeRow } from "../lib/nav.js";
 import type { StoredWallet } from "../lib/wallet.js";
@@ -108,52 +111,53 @@ export const buildWalletMainKeyboard = (
   hasWallets: boolean,
   hasActive: boolean,
   security: WalletSecurityStatus,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => {
   const rows: InlineKeyboard = [
     [
-      { text: WALLET_CREATE_BUTTON.English, callback_data: WALLET_CALLBACK.create },
-      { text: WALLET_IMPORT_BUTTON.English, callback_data: WALLET_CALLBACK.import },
+      { text: t(WALLET_CREATE_BUTTON, lang), callback_data: WALLET_CALLBACK.create },
+      { text: t(WALLET_IMPORT_BUTTON, lang), callback_data: WALLET_CALLBACK.import },
     ],
   ];
   if (hasWallets) {
     rows.push([
-      { text: WALLET_SWITCH_BUTTON.English, callback_data: WALLET_CALLBACK.switchPicker },
-      { text: WALLET_RENAME_BUTTON.English, callback_data: WALLET_CALLBACK.rename },
+      { text: t(WALLET_SWITCH_BUTTON, lang), callback_data: WALLET_CALLBACK.switchPicker },
+      { text: t(WALLET_RENAME_BUTTON, lang), callback_data: WALLET_CALLBACK.rename },
     ]);
     rows.push([
-      { text: WALLET_DELETE_BUTTON.English, callback_data: WALLET_CALLBACK.delete },
-      { text: WALLET_EXPORT_KEY_BUTTON.English, callback_data: WALLET_CALLBACK.exportKey },
+      { text: t(WALLET_DELETE_BUTTON, lang), callback_data: WALLET_CALLBACK.delete },
+      { text: t(WALLET_EXPORT_KEY_BUTTON, lang), callback_data: WALLET_CALLBACK.exportKey },
     ]);
   }
-  rows.push(buildPinRow(security));
+  rows.push(buildPinRow(security, lang));
   if (security.withdrawDisableReady) {
     // Ready state takes a dedicated row so the [Complete disable] +
     // [Cancel disable] pair fits without crowding the Withdraw button
     // onto a single 3-button row that overflows on narrow clients.
     if (hasActive) {
       rows.push([
-        { text: WALLET_WITHDRAW_BUTTON.English, callback_data: WALLET_CALLBACK.withdraw },
+        { text: t(WALLET_WITHDRAW_BUTTON, lang), callback_data: WALLET_CALLBACK.withdraw },
       ]);
     }
     rows.push([
       {
-        text: WALLET_COMPLETE_DISABLE_BUTTON.English,
+        text: t(WALLET_COMPLETE_DISABLE_BUTTON, lang),
         callback_data: WALLET_CALLBACK.lockDisable,
       },
       {
-        text: WALLET_CANCEL_DISABLE_BUTTON.English,
+        text: t(WALLET_CANCEL_DISABLE_BUTTON, lang),
         callback_data: WALLET_CALLBACK.lockCancelDisable,
       },
     ]);
   } else if (hasActive) {
     rows.push([
-      { text: WALLET_WITHDRAW_BUTTON.English, callback_data: WALLET_CALLBACK.withdraw },
-      buildLockButton(security),
+      { text: t(WALLET_WITHDRAW_BUTTON, lang), callback_data: WALLET_CALLBACK.withdraw },
+      buildLockButton(security, lang),
     ]);
   } else {
-    rows.push([buildLockButton(security)]);
+    rows.push([buildLockButton(security, lang)]);
   }
-  rows.push(backHomeRow());
+  rows.push(backHomeRow(lang));
   return rows;
 };
 
@@ -164,30 +168,31 @@ export const buildWalletMainKeyboard = (
  */
 const buildPinRow = (
   security: WalletSecurityStatus,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineCallbackButton[] => {
   if (!security.pinSet) {
-    return [{ text: WALLET_SET_PIN_BUTTON.English, callback_data: WALLET_CALLBACK.pinSet }];
+    return [{ text: t(WALLET_SET_PIN_BUTTON, lang), callback_data: WALLET_CALLBACK.pinSet }];
   }
   if (security.pinResetReady) {
     return [
       {
-        text: WALLET_COMPLETE_PIN_RESET_BUTTON.English,
+        text: t(WALLET_COMPLETE_PIN_RESET_BUTTON, lang),
         callback_data: WALLET_CALLBACK.pinCompleteReset,
       },
-      { text: WALLET_CANCEL_RESET_BUTTON.English, callback_data: WALLET_CALLBACK.pinCancelReset },
+      { text: t(WALLET_CANCEL_RESET_BUTTON, lang), callback_data: WALLET_CALLBACK.pinCancelReset },
     ];
   }
   if (security.pinResetPending) {
     return [
       {
-        text: WALLET_CANCEL_PIN_RESET_BUTTON.English,
+        text: t(WALLET_CANCEL_PIN_RESET_BUTTON, lang),
         callback_data: WALLET_CALLBACK.pinCancelReset,
       },
     ];
   }
   return [
-    { text: WALLET_CHANGE_PIN_BUTTON.English, callback_data: WALLET_CALLBACK.pinChange },
-    { text: WALLET_RESET_PIN_BUTTON.English, callback_data: WALLET_CALLBACK.pinReset },
+    { text: t(WALLET_CHANGE_PIN_BUTTON, lang), callback_data: WALLET_CALLBACK.pinChange },
+    { text: t(WALLET_RESET_PIN_BUTTON, lang), callback_data: WALLET_CALLBACK.pinReset },
   ];
 };
 
@@ -200,21 +205,22 @@ const buildPinRow = (
  */
 const buildLockButton = (
   security: WalletSecurityStatus,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineCallbackButton => {
   if (!security.withdrawLockEnabled) {
     return {
-      text: WALLET_LOCK_DISABLED_BUTTON.English,
+      text: t(WALLET_LOCK_DISABLED_BUTTON, lang),
       callback_data: WALLET_CALLBACK.lockEnable,
     };
   }
   if (security.withdrawDisablePending) {
     return {
-      text: WALLET_LOCK_CANCEL_DISABLE_BUTTON.English,
+      text: t(WALLET_LOCK_CANCEL_DISABLE_BUTTON, lang),
       callback_data: WALLET_CALLBACK.lockCancelDisable,
     };
   }
   return {
-    text: WALLET_LOCK_ENABLED_BUTTON.English,
+    text: t(WALLET_LOCK_ENABLED_BUTTON, lang),
     callback_data: WALLET_CALLBACK.lockDisable,
   };
 };
@@ -228,13 +234,14 @@ const buildLockButton = (
 export const buildWalletSwitchKeyboard = (
   wallets: StoredWallet[],
   activeId: string | null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => {
   const rows: InlineKeyboard = wallets.map((w) => [
     {
-      text: `${w.id === activeId ? "* " : "  "}${w.label ?? WALLET_UNLABELED.English} — ${truncateAddress(w.address)}`,
+      text: `${w.id === activeId ? "* " : "  "}${w.label ?? t(WALLET_UNLABELED, lang)} — ${truncateAddress(w.address)}`,
       callback_data: `${WALLET_CALLBACK.switchTo}:${w.id}`,
     },
   ]);
-  rows.push(backHomeRow());
+  rows.push(backHomeRow(lang));
   return rows;
 };

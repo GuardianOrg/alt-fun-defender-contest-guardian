@@ -20,6 +20,7 @@ import {
   buildSellSettingsKeyboard,
   buildSettingsKeyboard,
   decodeBuyPresetSlot,
+  decodeLanguagePreset,
   decodeSellPresetSlot,
   decodeSlippagePreset,
   decodeSpeedPreset,
@@ -49,7 +50,9 @@ import {
   trackWorkflowMessage,
 } from "../lib/workflow-stack-conversation.js";
 import {
+  DEFAULT_LANGUAGE,
   FAILED_TO_SAVE_REPLY,
+  type Language,
   SETTINGS_ANTI_PHISHING_PROMPT,
   SETTINGS_BUY_SELL_HINT_REPLY,
   SETTINGS_BUY_SUBMENU_TITLE,
@@ -68,13 +71,19 @@ import {
   SETTINGS_SLIPPAGE_SET_REPLY,
   TOAST_DEGEN_MODE_DISABLED,
   TOAST_DEGEN_MODE_ENABLED,
+  TOAST_LANGUAGE_SET_ENGLISH,
+  TOAST_LANGUAGE_SET_SIMPLIFIED_CHINESE,
   TOAST_MISSING_USER,
   TOAST_PHRASE_CLEARED,
+  getCtxLanguage,
+  t,
 } from "../lib/i18n.js";
 
-const NO_USER_REPLY = I18N_SETTINGS_NO_USER_REPLY.English;
+const noUserReply = (ctx: AppContext): string =>
+  t(I18N_SETTINGS_NO_USER_REPLY, getCtxLanguage(ctx));
 
-const NON_PRIVATE_CHAT_REPLY = I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY.English;
+const nonPrivateChatReply = (ctx: AppContext): string =>
+  t(I18N_SETTINGS_NON_PRIVATE_CHAT_REPLY, getCtxLanguage(ctx));
 
 /**
  * Cap to keep a typo'd "1000%" slippage from blowing past the
@@ -100,7 +109,7 @@ const isPrivateChat = (ctx: AppContext): boolean =>
 const ensurePrivate = async (ctx: AppContext): Promise<boolean> => {
   if (isPrivateChat(ctx)) return true;
   await ctx.answerCallbackQuery({
-    text: SETTINGS_PRIVATE_DM_ONLY_REPLY.English,
+    text: t(SETTINGS_PRIVATE_DM_ONLY_REPLY, getCtxLanguage(ctx)),
     show_alert: true,
   });
   return false;
@@ -112,6 +121,7 @@ const readStatus = (ctx: AppContext): SettingsStatus => ({
   degenMode: ctx.session.degenMode,
   antiPhishingPhrase: ctx.session.antiPhishingPhrase ?? null,
   executionTipGwei: resolveActiveTipGwei(ctx.session.executionTipGwei),
+  language: ctx.session.language ?? DEFAULT_LANGUAGE,
 });
 
 const readBuyPresets = (session: SessionData): number[] =>
@@ -120,23 +130,52 @@ const readBuyPresets = (session: SessionData): number[] =>
 const readSellPresets = (session: SessionData): number[] =>
   normaliseSellPresets(session.sellPresetsPct);
 
-const renderMainStatusText = (status: SettingsStatus): string =>
-  [
-    "Settings",
+const SETTINGS_HEADER_BY_LANG: Record<Language, string> = {
+  English: "Settings",
+  SimplifiedChinese: "设置",
+};
+const SLIPPAGE_LABEL_BY_LANG: Record<Language, string> = {
+  English: "• Slippage:",
+  SimplifiedChinese: "• 滑点：",
+};
+const EXEC_SPEED_LABEL_BY_LANG: Record<Language, string> = {
+  English: "• Execution speed:",
+  SimplifiedChinese: "• 执行速度：",
+};
+const DEGEN_LABEL_BY_LANG: Record<Language, (on: boolean) => string> = {
+  English: (on) => `• Degen mode: ${on ? "on" : "off"}`,
+  SimplifiedChinese: (on) => `• 极速交易模式：${on ? "开启" : "关闭"}`,
+};
+const PHRASE_NOT_SET_BY_LANG: Record<Language, string> = {
+  English: "• Anti-phishing phrase: not set",
+  SimplifiedChinese: "• 反钓鱼短语：未设置",
+};
+const PHRASE_SET_BY_LANG: Record<Language, (phrase: string) => string> = {
+  English: (phrase) => `• Anti-phishing phrase: "${phrase}"`,
+  SimplifiedChinese: (phrase) => `• 反钓鱼短语：「${phrase}」`,
+};
+
+const renderMainStatusText = (status: SettingsStatus): string => {
+  const lang = status.language ?? DEFAULT_LANGUAGE;
+  return [
+    SETTINGS_HEADER_BY_LANG[lang],
     "",
-    `• Slippage: ${formatBpsLabel(status.slippageBps)}`,
-    `• Execution speed: ${formatTipPresetLabel(status.executionTipGwei)}`,
-    `• Degen mode: ${status.degenMode ? "on" : "off"}`,
+    `${SLIPPAGE_LABEL_BY_LANG[lang]} ${formatBpsLabel(status.slippageBps)}`,
+    `${EXEC_SPEED_LABEL_BY_LANG[lang]} ${formatTipPresetLabel(status.executionTipGwei, lang)}`,
+    DEGEN_LABEL_BY_LANG[lang](status.degenMode),
     status.antiPhishingPhrase === null
-      ? "• Anti-phishing phrase: not set"
-      : `• Anti-phishing phrase: "${status.antiPhishingPhrase}"`,
+      ? PHRASE_NOT_SET_BY_LANG[lang]
+      : PHRASE_SET_BY_LANG[lang](status.antiPhishingPhrase),
     "",
-    SETTINGS_BUY_SELL_HINT_REPLY.English,
+    t(SETTINGS_BUY_SELL_HINT_REPLY, lang),
   ].join("\n");
+};
 
-const renderBuySettingsText = (): string => SETTINGS_BUY_SUBMENU_TITLE.English;
+const renderBuySettingsText = (lang: Language): string =>
+  t(SETTINGS_BUY_SUBMENU_TITLE, lang);
 
-const renderSellSettingsText = (): string => SETTINGS_SELL_SUBMENU_TITLE.English;
+const renderSellSettingsText = (lang: Language): string =>
+  t(SETTINGS_SELL_SUBMENU_TITLE, lang);
 
 interface RenderedState {
   text: string;
@@ -154,18 +193,20 @@ const renderMainState = (ctx: AppContext): RenderedState => {
 };
 
 const renderBuyState = (ctx: AppContext): RenderedState => {
+  const lang = getCtxLanguage(ctx);
   const presets = readBuyPresets(ctx.session);
   return {
-    text: renderBuySettingsText(),
-    reply_markup: { inline_keyboard: buildBuySettingsKeyboard(presets) },
+    text: renderBuySettingsText(lang),
+    reply_markup: { inline_keyboard: buildBuySettingsKeyboard(presets, lang) },
   };
 };
 
 const renderSellState = (ctx: AppContext): RenderedState => {
+  const lang = getCtxLanguage(ctx);
   const presets = readSellPresets(ctx.session);
   return {
-    text: renderSellSettingsText(),
-    reply_markup: { inline_keyboard: buildSellSettingsKeyboard(presets) },
+    text: renderSellSettingsText(lang),
+    reply_markup: { inline_keyboard: buildSellSettingsKeyboard(presets, lang) },
   };
 };
 
@@ -343,7 +384,7 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        SETTINGS_INVALID_NUMBER_REPLY.English,
+        t(SETTINGS_INVALID_NUMBER_REPLY, getCtxLanguage(ctx)),
       );
       continue;
     }
@@ -353,7 +394,7 @@ const customSlippageConversation = async (
         conversation,
         ctx,
         origin,
-        SETTINGS_SLIPPAGE_MIN_REPLY.English,
+        t(SETTINGS_SLIPPAGE_MIN_REPLY, getCtxLanguage(ctx)),
       );
       continue;
     }
@@ -375,7 +416,7 @@ const customSlippageConversation = async (
       // most KV failures surface at session-flush time, outside this
       // catch) must never reach a "saved" reply. The session plugin's
       // own flush errors land on `bot.catch` in `bot.ts`.
-      await ctx.reply(wrap(ctx, FAILED_TO_SAVE_REPLY.English));
+      await ctx.reply(wrap(ctx, t(FAILED_TO_SAVE_REPLY, getCtxLanguage(ctx))));
       await sweepWorkflow(conversation);
       return;
     }
@@ -457,7 +498,7 @@ const buyPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        SETTINGS_INVALID_USDC_REPLY.English,
+        t(SETTINGS_INVALID_USDC_REPLY, getCtxLanguage(ctx)),
       );
       continue;
     }
@@ -496,7 +537,7 @@ const buyPresetSlotConversation = async (
         }
       });
     } catch {
-      await ctx.reply(wrap(ctx, FAILED_TO_SAVE_REPLY.English));
+      await ctx.reply(wrap(ctx, t(FAILED_TO_SAVE_REPLY, getCtxLanguage(ctx))));
       await sweepWorkflow(conversation);
       return;
     }
@@ -546,7 +587,7 @@ const sellPresetSlotConversation = async (
     conversation,
     ctx,
     origin,
-    SETTINGS_SELL_SLOT_PROMPT.English,
+    t(SETTINGS_SELL_SLOT_PROMPT, getCtxLanguage(ctx)),
   );
 
   while (true) {
@@ -561,7 +602,7 @@ const sellPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        SETTINGS_SELL_SLOT_INVALID_REPLY.English,
+        t(SETTINGS_SELL_SLOT_INVALID_REPLY, getCtxLanguage(ctx)),
       );
       continue;
     }
@@ -571,7 +612,7 @@ const sellPresetSlotConversation = async (
         conversation,
         ctx,
         origin,
-        SETTINGS_SELL_SLOT_RANGE_REPLY.English,
+        t(SETTINGS_SELL_SLOT_RANGE_REPLY, getCtxLanguage(ctx)),
       );
       continue;
     }
@@ -582,7 +623,7 @@ const sellPresetSlotConversation = async (
         outside.session.sellPresetsPct = current;
       });
     } catch {
-      await ctx.reply(wrap(ctx, FAILED_TO_SAVE_REPLY.English));
+      await ctx.reply(wrap(ctx, t(FAILED_TO_SAVE_REPLY, getCtxLanguage(ctx))));
       await sweepWorkflow(conversation);
       return;
     }
@@ -629,7 +670,7 @@ const setPhraseConversation = async (
     ctx,
     origin,
     [
-      SETTINGS_ANTI_PHISHING_PROMPT.English,
+      t(SETTINGS_ANTI_PHISHING_PROMPT, getCtxLanguage(ctx)),
       "",
       `Max ${MAX_PHRASE_LEN} characters.`,
     ].join("\n"),
@@ -646,7 +687,7 @@ const setPhraseConversation = async (
         conversation,
         ctx,
         origin,
-        SETTINGS_PHRASE_EMPTY_REPLY.English,
+        t(SETTINGS_PHRASE_EMPTY_REPLY, getCtxLanguage(ctx)),
       );
       continue;
     }
@@ -737,14 +778,14 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     if (!ctx.from) {
       // Channel-post / anonymous-admin updates have no `from`; reply without
       // the anti-phishing wrap because there is no per-user phrase to attach.
-      await ctx.reply(NO_USER_REPLY);
+      await ctx.reply(noUserReply(ctx));
       return;
     }
     if (!isPrivateChat(ctx)) {
       // Plain reply — wrapping would leak the user's anti-phishing phrase
       // into the group transcript, which is exactly what /security keeps
       // out of non-DM surfaces.
-      await ctx.reply(NON_PRIVATE_CHAT_REPLY);
+      await ctx.reply(nonPrivateChatReply(ctx));
       return;
     }
     const state = renderMainState(ctx);
@@ -755,7 +796,7 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
 
   bot.callbackQuery(START_CALLBACK.settings, async (ctx) => {
     if (!ctx.from) {
-      await ctx.answerCallbackQuery({ text: TOAST_MISSING_USER.English });
+      await ctx.answerCallbackQuery({ text: t(TOAST_MISSING_USER, getCtxLanguage(ctx)) });
       return;
     }
     if (!(await ensurePrivate(ctx))) return;
@@ -789,7 +830,9 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
       ctx.session.slippageBps = clamped;
       await editToState(ctx, renderMainState(ctx));
       await ctx.answerCallbackQuery({
-        text: SETTINGS_SLIPPAGE_SET_REPLY.English(formatBpsLabel(clamped)),
+        text: t(SETTINGS_SLIPPAGE_SET_REPLY, getCtxLanguage(ctx))(
+          formatBpsLabel(clamped),
+        ),
       });
     },
   );
@@ -853,9 +896,43 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
         ctx.session.executionTipPresetsGwei = undefined;
       }
       await editToState(ctx, renderMainState(ctx));
+      const lang = getCtxLanguage(ctx);
       await ctx.answerCallbackQuery({
-        text: SETTINGS_EXECUTION_SPEED_SET_REPLY.English(preset.label),
+        text: t(SETTINGS_EXECUTION_SPEED_SET_REPLY, lang)(
+          t(preset.label, lang),
+        ),
       });
+    },
+  );
+
+  // Language preset row — taps switch `session.language` and re-render
+  // the panel so all subsequent labels and toasts come up in the new
+  // language immediately.
+  bot.callbackQuery(
+    new RegExp(`^${SETTINGS_CALLBACK.language}:[A-Za-z]+$`),
+    async (ctx) => {
+      if (!ctx.from) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      if (!(await ensurePrivate(ctx))) return;
+      const next = decodeLanguagePreset(ctx.callbackQuery.data ?? "");
+      if (next === null) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      const current = ctx.session.language ?? DEFAULT_LANGUAGE;
+      if (next === current) {
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      ctx.session.language = next;
+      await editToState(ctx, renderMainState(ctx));
+      const toast =
+        next === "SimplifiedChinese"
+          ? TOAST_LANGUAGE_SET_SIMPLIFIED_CHINESE
+          : TOAST_LANGUAGE_SET_ENGLISH;
+      await ctx.answerCallbackQuery({ text: t(toast, next) });
     },
   );
 
@@ -946,7 +1023,9 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     if (!(await ensurePrivate(ctx))) return;
     ctx.session.antiPhishingPhrase = undefined;
     await editToState(ctx, renderMainState(ctx));
-    await ctx.answerCallbackQuery({ text: TOAST_PHRASE_CLEARED.English });
+    await ctx.answerCallbackQuery({
+      text: t(TOAST_PHRASE_CLEARED, getCtxLanguage(ctx)),
+    });
   });
 
   bot.callbackQuery(SETTINGS_CALLBACK.degenToggle, async (ctx) => {
@@ -958,10 +1037,11 @@ export const registerSettingsCommand = (bot: Bot<AppContext>): void => {
     const next = !ctx.session.degenMode;
     ctx.session.degenMode = next;
     await editToState(ctx, renderMainState(ctx));
+    const lang = getCtxLanguage(ctx);
     await ctx.answerCallbackQuery({
       text: next
-        ? TOAST_DEGEN_MODE_ENABLED.English
-        : TOAST_DEGEN_MODE_DISABLED.English,
+        ? t(TOAST_DEGEN_MODE_ENABLED, lang)
+        : t(TOAST_DEGEN_MODE_DISABLED, lang),
     });
   });
 };

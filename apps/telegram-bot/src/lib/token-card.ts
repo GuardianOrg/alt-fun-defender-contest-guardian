@@ -1,5 +1,7 @@
 import type { TokenInfo } from "./api.js";
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   TOKEN_CARD_BALANCE_UNAVAILABLE,
   TOKEN_CARD_CHANGE_24H_HTML,
   TOKEN_CARD_CURVE_FILLED_HTML,
@@ -13,6 +15,7 @@ import {
   TOKEN_LIFECYCLE_BONDING_CURVE,
   TOKEN_LIFECYCLE_GRADUATED,
   TOKEN_LIFECYCLE_GRADUATING,
+  t,
 } from "./i18n.js";
 
 const HYPEREVMSCAN_BASE = "https://hyperevmscan.io";
@@ -128,10 +131,10 @@ const renderHeader = (token: TokenInfo): string => {
   return `<b>${escapeHtml(token.name)}</b> (${ticker}${suffix})`;
 };
 
-const statusLabel = (status: string): string => {
-  if (status === "graduated") return TOKEN_LIFECYCLE_GRADUATED.English;
-  if (status === "graduating") return TOKEN_LIFECYCLE_GRADUATING.English;
-  return TOKEN_LIFECYCLE_BONDING_CURVE.English;
+const statusLabel = (status: string, lang: Language): string => {
+  if (status === "graduated") return t(TOKEN_LIFECYCLE_GRADUATED, lang);
+  if (status === "graduating") return t(TOKEN_LIFECYCLE_GRADUATING, lang);
+  return t(TOKEN_LIFECYCLE_BONDING_CURVE, lang);
 };
 
 /**
@@ -141,6 +144,7 @@ const statusLabel = (status: string): string => {
 export const renderBuyTokenCardText = (
   token: TokenInfo,
   usdcBalance: bigint | null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
   const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
@@ -148,22 +152,22 @@ export const renderBuyTokenCardText = (
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
     renderHeader(token),
-    `<i>${statusLabel(token.status)}</i>`,
+    `<i>${statusLabel(token.status, lang)}</i>`,
     "",
-    TOKEN_CARD_MARKET_CAP_HTML.English(formatMcap(token.mcapUsd)),
-    TOKEN_CARD_PRICE_HTML.English(formatUsdPrice(token.priceUsd)),
-    TOKEN_CARD_CHANGE_24H_HTML.English(formatPct(token.change24h)),
-    TOKEN_CARD_VOLUME_24H_HTML.English(formatVolume(token.volume24hUsd)),
+    t(TOKEN_CARD_MARKET_CAP_HTML, lang)(formatMcap(token.mcapUsd)),
+    t(TOKEN_CARD_PRICE_HTML, lang)(formatUsdPrice(token.priceUsd)),
+    t(TOKEN_CARD_CHANGE_24H_HTML, lang)(formatPct(token.change24h)),
+    t(TOKEN_CARD_VOLUME_24H_HTML, lang)(formatVolume(token.volume24hUsd)),
   ];
   if (token.status !== "graduated") {
-    lines.push(TOKEN_CARD_CURVE_FILLED_HTML.English(curvePct));
+    lines.push(t(TOKEN_CARD_CURVE_FILLED_HTML, lang)(curvePct));
   }
   lines.push(
     "",
-    TOKEN_CARD_YOUR_USDC_BALANCE_HTML.English(formatUsdc6(usdcBalance)),
+    t(TOKEN_CARD_YOUR_USDC_BALANCE_HTML, lang)(formatUsdc6(usdcBalance)),
     "",
-    TOKEN_CARD_VIEW_ON_EXPLORER_HTML.English(explorerUrl),
-    TOKEN_CARD_VIEW_ON_ALT_FUN_HTML.English(altFunUrl),
+    t(TOKEN_CARD_VIEW_ON_EXPLORER_HTML, lang)(explorerUrl),
+    t(TOKEN_CARD_VIEW_ON_ALT_FUN_HTML, lang)(altFunUrl),
   );
   return lines.join("\n");
 };
@@ -175,13 +179,14 @@ export const renderBuyTokenCardText = (
 export const renderSellTokenCardText = (
   token: TokenInfo,
   tokenBalance: bigint | null,
+  lang: Language = DEFAULT_LANGUAGE,
 ): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
   const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
 
   let holdingText: string;
   if (tokenBalance === null) {
-    holdingText = TOKEN_CARD_BALANCE_UNAVAILABLE.English;
+    holdingText = t(TOKEN_CARD_BALANCE_UNAVAILABLE, lang);
   } else if (tokenBalance > 0n) {
     const formattedBal = formatToken18(tokenBalance);
     let usdEquiv = "";
@@ -196,19 +201,19 @@ export const renderSellTokenCardText = (
 
   const lines: string[] = [
     renderHeader(token),
-    `<i>${statusLabel(token.status)}</i>`,
+    `<i>${statusLabel(token.status, lang)}</i>`,
     "",
-    TOKEN_CARD_MARKET_CAP_HTML.English(formatMcap(token.mcapUsd)),
-    TOKEN_CARD_PRICE_HTML.English(formatUsdPrice(token.priceUsd)),
-    TOKEN_CARD_CHANGE_24H_HTML.English(formatPct(token.change24h)),
-    TOKEN_CARD_VOLUME_24H_HTML.English(formatVolume(token.volume24hUsd)),
+    t(TOKEN_CARD_MARKET_CAP_HTML, lang)(formatMcap(token.mcapUsd)),
+    t(TOKEN_CARD_PRICE_HTML, lang)(formatUsdPrice(token.priceUsd)),
+    t(TOKEN_CARD_CHANGE_24H_HTML, lang)(formatPct(token.change24h)),
+    t(TOKEN_CARD_VOLUME_24H_HTML, lang)(formatVolume(token.volume24hUsd)),
   ];
   lines.push(
     "",
-    TOKEN_CARD_YOUR_BALANCE_HTML.English(holdingText),
+    t(TOKEN_CARD_YOUR_BALANCE_HTML, lang)(holdingText),
     "",
-    TOKEN_CARD_VIEW_ON_EXPLORER_HTML.English(explorerUrl),
-    TOKEN_CARD_VIEW_ON_ALT_FUN_HTML.English(altFunUrl),
+    t(TOKEN_CARD_VIEW_ON_EXPLORER_HTML, lang)(explorerUrl),
+    t(TOKEN_CARD_VIEW_ON_ALT_FUN_HTML, lang)(altFunUrl),
   );
   return lines.join("\n");
 };
@@ -218,27 +223,30 @@ export const renderSellTokenCardText = (
  * USDC or token balance line because /track does not require an
  * active wallet (the user may be researching before funding).
  */
-export const renderTrackTokenCardText = (token: TokenInfo): string => {
+export const renderTrackTokenCardText = (
+  token: TokenInfo,
+  lang: Language = DEFAULT_LANGUAGE,
+): string => {
   const explorerUrl = `${HYPEREVMSCAN_BASE}/token/${token.address}`;
   const altFunUrl = `${ALTFUN_TOKEN_BASE}/${token.address}`;
   const curvePct =
     token.curveFilled !== null ? `${token.curveFilled.toFixed(1)}%` : "—";
   const lines: string[] = [
     renderHeader(token),
-    `<i>${statusLabel(token.status)}</i>`,
+    `<i>${statusLabel(token.status, lang)}</i>`,
     "",
-    TOKEN_CARD_MARKET_CAP_HTML.English(formatMcap(token.mcapUsd)),
-    TOKEN_CARD_PRICE_HTML.English(formatUsdPrice(token.priceUsd)),
-    TOKEN_CARD_CHANGE_24H_HTML.English(formatPct(token.change24h)),
-    TOKEN_CARD_VOLUME_24H_HTML.English(formatVolume(token.volume24hUsd)),
+    t(TOKEN_CARD_MARKET_CAP_HTML, lang)(formatMcap(token.mcapUsd)),
+    t(TOKEN_CARD_PRICE_HTML, lang)(formatUsdPrice(token.priceUsd)),
+    t(TOKEN_CARD_CHANGE_24H_HTML, lang)(formatPct(token.change24h)),
+    t(TOKEN_CARD_VOLUME_24H_HTML, lang)(formatVolume(token.volume24hUsd)),
   ];
   if (token.status !== "graduated") {
-    lines.push(TOKEN_CARD_CURVE_FILLED_HTML.English(curvePct));
+    lines.push(t(TOKEN_CARD_CURVE_FILLED_HTML, lang)(curvePct));
   }
   lines.push(
     "",
-    TOKEN_CARD_VIEW_ON_EXPLORER_HTML.English(explorerUrl),
-    TOKEN_CARD_VIEW_ON_ALT_FUN_HTML.English(altFunUrl),
+    t(TOKEN_CARD_VIEW_ON_EXPLORER_HTML, lang)(explorerUrl),
+    t(TOKEN_CARD_VIEW_ON_ALT_FUN_HTML, lang)(altFunUrl),
   );
   return lines.join("\n");
 };

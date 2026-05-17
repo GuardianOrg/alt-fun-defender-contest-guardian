@@ -4,9 +4,12 @@ import { encodeCallback } from "../lib/callbacks.js";
 import {
   BUY_AMOUNT_BUTTON,
   BUY_X_USDC_BUTTON,
+  DEFAULT_LANGUAGE,
+  type Language,
   REFRESH_BUTTON_TEXT,
   SELL_PERCENT_BUTTON,
   SELL_X_PERCENT_BUTTON,
+  t,
 } from "../lib/i18n.js";
 import { backHomeRow } from "../lib/nav.js";
 import type { InlineKeyboard } from "./wallet-actions.js";
@@ -150,9 +153,10 @@ const packRowsOfTwo = (
 const presetButtonsBuy = (
   tokenAddress: string,
   presets: readonly number[],
+  lang: Language,
 ): Button[] =>
   presets.map((amount) => ({
-    text: BUY_AMOUNT_BUTTON.English(amount),
+    text: t(BUY_AMOUNT_BUTTON, lang)(amount),
     callback_data: encodeCallback(
       BUY_TOKEN_CMD.buyPreset,
       tokenAddress,
@@ -163,9 +167,10 @@ const presetButtonsBuy = (
 const presetButtonsSell = (
   tokenAddress: string,
   presets: readonly number[],
+  lang: Language,
 ): Button[] =>
   presets.map((pct) => ({
-    text: SELL_PERCENT_BUTTON.English(pct),
+    text: t(SELL_PERCENT_BUTTON, lang)(pct),
     callback_data: encodeCallback(
       SELL_TOKEN_CMD.sellPercent,
       tokenAddress,
@@ -176,26 +181,28 @@ const presetButtonsSell = (
 export const buildBuyTokenKeyboard = (
   tokenAddress: string,
   buyPresetsUsdc: readonly number[],
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => [
-  ...packRowsOfTwo(presetButtonsBuy(tokenAddress, buyPresetsUsdc), {
-    text: BUY_X_USDC_BUTTON.English,
+  ...packRowsOfTwo(presetButtonsBuy(tokenAddress, buyPresetsUsdc, lang), {
+    text: t(BUY_X_USDC_BUTTON, lang),
     callback_data: encodeCallback(BUY_TOKEN_CMD.buyCustom, tokenAddress),
   }),
   [
     {
-      text: REFRESH_BUTTON_TEXT.English,
+      text: t(REFRESH_BUTTON_TEXT, lang),
       callback_data: encodeCallback(BUY_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
-  backHomeRow(),
+  backHomeRow(lang),
 ];
 
 export const buildSellTokenKeyboard = (
   tokenAddress: string,
   sellPresetsPct: readonly number[],
+  lang: Language = DEFAULT_LANGUAGE,
 ): InlineKeyboard => [
-  ...packRowsOfTwo(presetButtonsSell(tokenAddress, sellPresetsPct), {
-    text: SELL_X_PERCENT_BUTTON.English,
+  ...packRowsOfTwo(presetButtonsSell(tokenAddress, sellPresetsPct, lang), {
+    text: t(SELL_X_PERCENT_BUTTON, lang),
     callback_data: encodeCallback(
       SELL_TOKEN_CMD.sellCustomPercent,
       tokenAddress,
@@ -203,9 +210,9 @@ export const buildSellTokenKeyboard = (
   }),
   [
     {
-      text: REFRESH_BUTTON_TEXT.English,
+      text: t(REFRESH_BUTTON_TEXT, lang),
       callback_data: encodeCallback(SELL_TOKEN_CMD.refresh, tokenAddress),
     },
   ],
-  backHomeRow(),
+  backHomeRow(lang),
 ];

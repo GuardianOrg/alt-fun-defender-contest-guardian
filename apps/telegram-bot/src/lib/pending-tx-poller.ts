@@ -29,6 +29,8 @@ import {
 } from "viem";
 
 import {
+  DEFAULT_LANGUAGE,
+  type Language,
   PENDING_TX_RECEIPT_NOT_SEEN_REPLY,
   TRADE_CONFIRMED_HEADER_HTML,
   TRADE_RECEIVED_TOKENS,
@@ -36,6 +38,7 @@ import {
   TRADE_TX_LABEL,
   TRADE_VERB_BUY,
   TRADE_VERB_SELL,
+  t,
 } from "./i18n.js";
 import { markFinal, type IdempotencyKv } from "./idempotency.js";
 import { logger } from "./logger.js";
@@ -93,6 +96,17 @@ export interface PendingTxRecord {
   startedAt: number;
   /** Optional KV idempotency key to mark final once mined. */
   idempotencyKey?: string;
+  /**
+   * User's preferred language captured at schedule time. The alarm
+   * path has no grammY `Context` (it fires from `ChatDO`'s alarm hook
+   * without an Update), so the language can't be looked up off
+   * `ctx.session` here — it's read at the scheduling site (where ctx
+   * is in scope) and persisted on the record so the final bubble edit
+   * renders in the same locale the user saw the order placed in.
+   * Falls back to English when missing (older records / scheduled
+   * before this field was added).
+   */
+  language?: Language;
 }
 
 interface SchedulerEnv {
@@ -326,33 +340,34 @@ const renderFinal = (
   rec: PendingTxRecord,
   result: ExecutionResult,
 ): string => {
+  const lang: Language = rec.language ?? DEFAULT_LANGUAGE;
   if (result.ok) {
     const verb =
-      rec.side === "buy" ? TRADE_VERB_BUY.English : TRADE_VERB_SELL.English;
+      rec.side === "buy" ? t(TRADE_VERB_BUY, lang) : t(TRADE_VERB_SELL, lang);
     const tickerSafe = escapeHtml(rec.ticker);
     const tokenSafe = escapeHtml(rec.token);
     let receivedLine = "";
     if (rec.side === "buy" && result.actualTokensOut !== undefined) {
-      receivedLine = TRADE_RECEIVED_TOKENS.English(
+      receivedLine = t(TRADE_RECEIVED_TOKENS, lang)(
         formatToken18(result.actualTokensOut),
         tickerSafe,
       );
     } else if (rec.side === "sell" && result.actualUsdcOut !== undefined) {
-      receivedLine = TRADE_RECEIVED_USDC.English(
+      receivedLine = t(TRADE_RECEIVED_USDC, lang)(
         formatUsdc(result.actualUsdcOut),
       );
     }
     return (
-      `${TRADE_CONFIRMED_HEADER_HTML.English(verb, tickerSafe)}\n\n` +
+      `${t(TRADE_CONFIRMED_HEADER_HTML, lang)(verb, tickerSafe)}\n\n` +
       `${receivedLine}` +
       `<code>${tokenSafe}</code>\n` +
       `\n` +
-      `${TRADE_TX_LABEL.English}\n` +
+      `${t(TRADE_TX_LABEL, lang)}\n` +
       `<a href="${explorerTxUrl(result.txHash)}">${result.txHash}</a>`
     );
   }
   const prefix = result.kind === "pending" ? "⏳" : "❌";
-  return `${prefix} ${renderExecutionError(result, { isPollingActive: false })}`;
+  return `${prefix} ${renderExecutionError(result, { isPollingActive: false, language: lang })}`;
 };
 
 interface PollContext {
@@ -445,7 +460,7 @@ const pollOne = async (
         ok: false,
         kind: "pending",
         txHash: rec.txHash,
-        reason: PENDING_TX_RECEIPT_NOT_SEEN_REPLY.English,
+        reason: t(PENDING_TX_RECEIPT_NOT_SEEN_REPLY, rec.language ?? DEFAULT_LANGUAGE),
       };
       const editOutcome = await safeEdit(
         poll.editor,

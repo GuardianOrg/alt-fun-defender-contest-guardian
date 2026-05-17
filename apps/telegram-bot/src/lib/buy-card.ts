@@ -12,6 +12,8 @@ import {
   BUY_CARD_LOADING_HTML,
   OUTAGE_REPLY,
   TOKEN_NOT_FOUND_HTML as I18N_TOKEN_NOT_FOUND_HTML,
+  getCtxLanguage,
+  t,
 } from "./i18n.js";
 import { logger } from "./logger.js";
 import { backHomeRow } from "./nav.js";
@@ -22,12 +24,14 @@ import { WalletManager } from "./wallet.js";
 const shortAddress = (addr: string): string =>
   addr.length >= 10 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
 
-const buildLoadingText = (addr: string): string =>
-  BUY_CARD_LOADING_HTML.English(shortAddress(addr));
+const buildLoadingText = (ctx: AppContext, addr: string): string =>
+  t(BUY_CARD_LOADING_HTML, getCtxLanguage(ctx))(shortAddress(addr));
 
-const TOKEN_NOT_FOUND_HTML = I18N_TOKEN_NOT_FOUND_HTML.English;
+const tokenNotFoundHtml = (ctx: AppContext): string =>
+  t(I18N_TOKEN_NOT_FOUND_HTML, getCtxLanguage(ctx));
 
-const API_UNAVAILABLE = OUTAGE_REPLY.English;
+const apiUnavailable = (ctx: AppContext): string =>
+  t(OUTAGE_REPLY, getCtxLanguage(ctx));
 
 /**
  * Best-effort delete of the prior buy card for this chat so the new one
@@ -156,7 +160,8 @@ export const showBuyCardForAddress = async (
   // two buy cards on screen simultaneously. Best-effort: a benign 400
   // (already gone, outside 48h) just falls through.
   await deletePreviousBuyCard(ctx);
-  const loadingText = buildLoadingText(address);
+  const loadingText = buildLoadingText(ctx, address);
+  const lang = getCtxLanguage(ctx);
   const sent = await ctx.reply(wrapWithCtxPhrase(ctx, loadingText), {
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
@@ -175,14 +180,14 @@ export const showBuyCardForAddress = async (
       tokenResult.kind === "not_found" ||
       tokenResult.kind === "invalid_address"
     ) {
-      await finaliseBuyCard(ctx, placeholder, TOKEN_NOT_FOUND_HTML, {
+      await finaliseBuyCard(ctx, placeholder, tokenNotFoundHtml(ctx), {
         link_preview_options: { is_disabled: true },
-        reply_markup: { inline_keyboard: [backHomeRow()] },
+        reply_markup: { inline_keyboard: [backHomeRow(lang)] },
       });
       return;
     }
-    await finaliseBuyCard(ctx, placeholder, API_UNAVAILABLE, {
-      reply_markup: { inline_keyboard: [backHomeRow()] },
+    await finaliseBuyCard(ctx, placeholder, apiUnavailable(ctx), {
+      reply_markup: { inline_keyboard: [backHomeRow(lang)] },
     });
     return;
   }
