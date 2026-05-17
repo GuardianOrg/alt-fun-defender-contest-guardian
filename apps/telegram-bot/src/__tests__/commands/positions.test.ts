@@ -270,7 +270,7 @@ describe("/positions", () => {
     const sent = sentMessages(fetchSpy);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Open positions (1)");
-    expect(sent[0]!.text).toContain("Realised positions (1)");
+    expect(sent[0]!.text).toContain("Realized positions (1)");
     expect(sent[0]!.text).toContain("ALPHA");
     expect(sent[0]!.text).toContain("BETA");
   });

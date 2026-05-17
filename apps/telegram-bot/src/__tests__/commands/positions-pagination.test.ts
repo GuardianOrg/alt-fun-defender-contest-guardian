@@ -245,8 +245,8 @@ describe("pp callback (positions pagination)", () => {
     expect(openNav[1]!.callback_data).toBe(`pp:3:1:${WALLET}`);
     const realisedNav = rows[1]!;
     expect(realisedNav.map((b) => b.text)).toEqual([
-      "← Page 1/3 Realised Pos",
-      "→ Page 3/3 Realised Pos",
+      "← Page 1/3 Realized Pos",
+      "→ Page 3/3 Realized Pos",
     ]);
     expect(realisedNav[0]!.callback_data).toBe(`pp:2:0:${WALLET}`);
     expect(realisedNav[1]!.callback_data).toBe(`pp:2:2:${WALLET}`);
